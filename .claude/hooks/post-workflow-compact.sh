@@ -1,0 +1,1 @@
+../../.ai-toolkit/.claude/hooks/post-workflow-compact.sh

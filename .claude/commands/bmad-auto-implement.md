@@ -1,0 +1,1 @@
+../../.ai-toolkit/bmad-commands/bmad-auto-implement.md

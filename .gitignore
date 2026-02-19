@@ -1,0 +1,7 @@
+.claude/*
+!.claude/commands/
+!.claude/hooks/
+!.claude/settings.json
+.codex/*
+!.codex/.gitkeep
+.beads/
