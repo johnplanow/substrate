@@ -5,3 +5,7 @@
 .codex/*
 !.codex/.gitkeep
 .beads/
+.gemini/*
+!.gemini/commands/
+!.codex/prompts/
+.obsidian/

@@ -1,0 +1,16 @@
+description = """Generate requirements-to-tests traceability matrix, analyze coverage, and make quality gate decision (PASS/CONCERNS/FAIL/WAIVED)"""
+prompt = """
+Execute the BMAD 'testarch-trace' workflow.
+
+CRITICAL: This is a structured YAML workflow. Follow these steps precisely:
+
+1. LOAD the workflow definition from {project-root}/_bmad/tea/workflows/testarch/trace/workflow.yaml
+2. PARSE the YAML structure to understand:
+   - Workflow phases and steps
+   - Required inputs and outputs
+   - Dependencies between steps
+3. EXECUTE each step in order
+4. VALIDATE outputs before proceeding to next step
+
+WORKFLOW FILE: {project-root}/_bmad/tea/workflows/testarch/trace/workflow.yaml
+"""
