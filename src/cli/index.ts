@@ -12,6 +12,8 @@ import { createLogger } from '../utils/logger.js'
 import { registerAdaptersCommand } from './commands/adapters.js'
 import { registerInitCommand } from './commands/init.js'
 import { registerConfigCommand } from './commands/config.js'
+import { registerMergeCommand } from './commands/merge.js'
+import { registerWorktreesCommand } from './commands/worktrees.js'
 
 const logger = createLogger('cli')
 
@@ -72,6 +74,12 @@ export async function createProgram(): Promise<Command> {
 
   // Register config command group (story 1.4)
   registerConfigCommand(program, version)
+
+  // Register merge command (story 3.2)
+  registerMergeCommand(program)
+
+  // Register worktrees command (story 3.3)
+  registerWorktreesCommand(program, version)
 
   return program
 }

@@ -206,6 +206,18 @@ async function createTestRig(adapterId = 'claude-code'): Promise<EpicTestRig> {
   await engine.initialize()
   await workerPool.initialize()
 
+  // Bridge: subscribe to task:ready and emit worktree:created so the
+  // WorkerPoolManagerImpl (which now listens for worktree:created instead of
+  // task:ready) can spawn workers without a real GitWorktreeManager.
+  const onTaskReady = ({ taskId }: { taskId: string }) => {
+    eventBus.emit('worktree:created', {
+      taskId,
+      worktreePath: `/tmp/worktrees/${taskId}`,
+      branchName: `task/${taskId}`,
+    })
+  }
+  eventBus.on('task:ready', onTaskReady)
+
   return {
     db,
     eventBus,
@@ -214,6 +226,7 @@ async function createTestRig(adapterId = 'claude-code'): Promise<EpicTestRig> {
     registry,
     adapter,
     teardown: async () => {
+      eventBus.off('task:ready', onTaskReady)
       await workerPool.shutdown()
       await db.shutdown()
     },

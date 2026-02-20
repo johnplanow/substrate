@@ -1,8 +1,9 @@
 /**
  * WorkerPoolManagerImpl — concrete implementation of WorkerPoolManager.
  *
- * Subscribes to task:ready events, fetches the full task from the database,
- * looks up the appropriate adapter, and spawns a worker process via WorkerHandle.
+ * Subscribes to worktree:created events (emitted by GitWorktreeManager after
+ * a worktree is created for a task). This eliminates the race condition where
+ * workers could be spawned before their worktree was ready.
  *
  * Integrates with TaskGraphEngine to update task state (running / complete / failed).
  */
@@ -19,6 +20,7 @@ import type { TaskResult as AdapterTaskResult } from '../../adapters/types.js'
 import type { TaskResult as EventTaskResult } from '../../core/event-bus.types.js'
 import { WorkerHandle } from './worker-handle.js'
 import type { WorkerPoolManager, WorkerInfo } from './worker-pool-manager.js'
+import type { GitWorktreeManager } from '../git-worktree/git-worktree-manager.js'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('worker-pool')
@@ -46,26 +48,29 @@ export class WorkerPoolManagerImpl implements WorkerPoolManager {
   private readonly _adapterRegistry: AdapterRegistry
   private readonly _engine: TaskGraphEngine
   private readonly _db: DatabaseService
+  private readonly _gitWorktreeManager: GitWorktreeManager | null
 
   private readonly _activeWorkers: Map<string, ActiveWorkerEntry> = new Map()
 
   /** Bound reference kept so we can call off() in shutdown() */
-  private readonly _onTaskReady: (payload: { taskId: string }) => void
+  private readonly _onWorktreeCreated: (payload: { taskId: string; worktreePath: string; branchName: string }) => void
 
   constructor(
     eventBus: TypedEventBus,
     adapterRegistry: AdapterRegistry,
     engine: TaskGraphEngine,
     db: DatabaseService,
+    gitWorktreeManager: GitWorktreeManager | null = null,
   ) {
     this._eventBus = eventBus
     this._adapterRegistry = adapterRegistry
     this._engine = engine
     this._db = db
+    this._gitWorktreeManager = gitWorktreeManager
 
     // Bind once so we can remove the listener in shutdown()
-    this._onTaskReady = ({ taskId }: { taskId: string }) => {
-      this._handleTaskReady(taskId)
+    this._onWorktreeCreated = ({ taskId, worktreePath, branchName }: { taskId: string; worktreePath: string; branchName: string }) => {
+      this._handleWorktreeCreated(taskId, worktreePath, branchName)
     }
   }
 
@@ -75,33 +80,33 @@ export class WorkerPoolManagerImpl implements WorkerPoolManager {
 
   async initialize(): Promise<void> {
     logger.info('WorkerPoolManager.initialize()')
-    this._eventBus.on('task:ready', this._onTaskReady)
+    this._eventBus.on('worktree:created', this._onWorktreeCreated)
   }
 
   async shutdown(): Promise<void> {
     logger.info('WorkerPoolManager.shutdown()')
-    this._eventBus.off('task:ready', this._onTaskReady)
+    this._eventBus.off('worktree:created', this._onWorktreeCreated)
     await this.terminateAll()
   }
 
   // ---------------------------------------------------------------------------
-  // task:ready handler
+  // worktree:created handler
   // ---------------------------------------------------------------------------
 
-  private _handleTaskReady(taskId: string): void {
-    logger.debug({ taskId }, 'task:ready received')
+  private _handleWorktreeCreated(taskId: string, worktreePath: string, _branchName: string): void {
+    logger.debug({ taskId, worktreePath }, 'worktree:created received')
 
     // Look up full task from DB
     const task = getTask(this._db.db, taskId)
     if (task === undefined) {
-      logger.warn({ taskId }, 'task:ready — task not found in DB, skipping')
+      logger.warn({ taskId }, 'worktree:created — task not found in DB, skipping')
       return
     }
 
     // Look up adapter
     const agentId = task.agent ?? undefined
     if (agentId === undefined) {
-      logger.warn({ taskId }, 'task:ready — task has no agent, emitting task:failed')
+      logger.warn({ taskId }, 'worktree:created — task has no agent, emitting task:failed')
       this._eventBus.emit('task:failed', {
         taskId,
         error: {
@@ -114,7 +119,7 @@ export class WorkerPoolManagerImpl implements WorkerPoolManager {
 
     const adapter = this._adapterRegistry.get(agentId)
     if (adapter === undefined) {
-      logger.warn({ taskId, agentId }, 'task:ready — no adapter found, emitting task:failed')
+      logger.warn({ taskId, agentId }, 'worktree:created — no adapter found, emitting task:failed')
       this._eventBus.emit('task:failed', {
         taskId,
         error: {
@@ -125,7 +130,7 @@ export class WorkerPoolManagerImpl implements WorkerPoolManager {
       return
     }
 
-    const worktreePath = process.cwd()
+    // Use the worktreePath from the event — the worktree is guaranteed to exist
     this.spawnWorker(task, adapter, worktreePath)
   }
 
@@ -337,6 +342,7 @@ export interface WorkerPoolManagerOptions {
   adapterRegistry: AdapterRegistry
   engine: TaskGraphEngine
   db: DatabaseService
+  gitWorktreeManager?: GitWorktreeManager | null
 }
 
 export function createWorkerPoolManager(options: WorkerPoolManagerOptions): WorkerPoolManager {
@@ -345,5 +351,6 @@ export function createWorkerPoolManager(options: WorkerPoolManagerOptions): Work
     options.adapterRegistry,
     options.engine,
     options.db,
+    options.gitWorktreeManager ?? null,
   )
 }

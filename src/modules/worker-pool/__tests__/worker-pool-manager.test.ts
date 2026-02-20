@@ -641,8 +641,8 @@ describe('WorkerPoolManagerImpl', () => {
   // task:ready integration
   // -------------------------------------------------------------------------
 
-  describe('task:ready event integration', () => {
-    it('subscribes to task:ready on initialize()', async () => {
+  describe('worktree:created event integration', () => {
+    it('subscribes to worktree:created on initialize()', async () => {
       const eventBus = createMockEventBus()
       const engine = createMockEngine()
       const db = createMockDb()
@@ -651,7 +651,7 @@ describe('WorkerPoolManagerImpl', () => {
       const manager = new WorkerPoolManagerImpl(eventBus, registry, engine, db)
       await manager.initialize()
 
-      expect(eventBus.on).toHaveBeenCalledWith('task:ready', expect.any(Function))
+      expect(eventBus.on).toHaveBeenCalledWith('worktree:created', expect.any(Function))
     })
 
     it('emits task:failed when adapter not found for task agent', async () => {
@@ -666,11 +666,11 @@ describe('WorkerPoolManagerImpl', () => {
       const manager = new WorkerPoolManagerImpl(eventBus, registry, engine, db)
       await manager.initialize()
 
-      // Manually invoke the task:ready listener via the eventBus.on mock
+      // Manually invoke the worktree:created listener via the eventBus.on mock
       const onMock = eventBus.on as ReturnType<typeof vi.fn>
-      const taskReadyCall = onMock.mock.calls.find(([event]: [string]) => event === 'task:ready') as [string, (payload: { taskId: string }) => void] | undefined
-      expect(taskReadyCall).toBeDefined()
-      taskReadyCall![1]({ taskId: 'task-1' })
+      const worktreeCreatedCall = onMock.mock.calls.find(([event]: [string]) => event === 'worktree:created') as [string, (payload: { taskId: string; worktreePath: string; branchName: string }) => void] | undefined
+      expect(worktreeCreatedCall).toBeDefined()
+      worktreeCreatedCall![1]({ taskId: 'task-1', worktreePath: '/tmp/worktree/task-1', branchName: 'substrate/task-task-1' })
 
       const emitMock = eventBus.emit as ReturnType<typeof vi.fn>
       const calls = emitMock.mock.calls as Array<[string, unknown]>
@@ -691,9 +691,9 @@ describe('WorkerPoolManagerImpl', () => {
       await manager.initialize()
 
       const onMock = eventBus.on as ReturnType<typeof vi.fn>
-      const taskReadyCall = onMock.mock.calls.find(([event]: [string]) => event === 'task:ready') as [string, (payload: { taskId: string }) => void] | undefined
-      expect(taskReadyCall).toBeDefined()
-      taskReadyCall![1]({ taskId: 'task-1' })
+      const worktreeCreatedCall = onMock.mock.calls.find(([event]: [string]) => event === 'worktree:created') as [string, (payload: { taskId: string; worktreePath: string; branchName: string }) => void] | undefined
+      expect(worktreeCreatedCall).toBeDefined()
+      worktreeCreatedCall![1]({ taskId: 'task-1', worktreePath: '/tmp/worktree/task-1', branchName: 'substrate/task-task-1' })
 
       const emitMock = eventBus.emit as ReturnType<typeof vi.fn>
       const calls = emitMock.mock.calls as Array<[string, unknown]>
@@ -714,11 +714,11 @@ describe('WorkerPoolManagerImpl', () => {
       await manager.initialize()
 
       const onMock = eventBus.on as ReturnType<typeof vi.fn>
-      const taskReadyCall = onMock.mock.calls.find(([event]: [string]) => event === 'task:ready') as [string, (payload: { taskId: string }) => void] | undefined
-      expect(taskReadyCall).toBeDefined()
+      const worktreeCreatedCall = onMock.mock.calls.find(([event]: [string]) => event === 'worktree:created') as [string, (payload: { taskId: string; worktreePath: string; branchName: string }) => void] | undefined
+      expect(worktreeCreatedCall).toBeDefined()
 
       // Should not throw
-      expect(() => taskReadyCall![1]({ taskId: 'nonexistent' })).not.toThrow()
+      expect(() => worktreeCreatedCall![1]({ taskId: 'nonexistent', worktreePath: '/tmp/worktree/nonexistent', branchName: 'substrate/task-nonexistent' })).not.toThrow()
 
       // Should not emit task:failed for this case (just log warning and skip)
       const emitMock = eventBus.emit as ReturnType<typeof vi.fn>
@@ -727,7 +727,7 @@ describe('WorkerPoolManagerImpl', () => {
       expect(failedCall).toBeUndefined()
     })
 
-    it('unsubscribes from task:ready on shutdown()', async () => {
+    it('unsubscribes from worktree:created on shutdown()', async () => {
       const eventBus = createMockEventBus()
       const engine = createMockEngine()
       const db = createMockDb()
@@ -737,7 +737,7 @@ describe('WorkerPoolManagerImpl', () => {
       await manager.initialize()
       await manager.shutdown()
 
-      expect(eventBus.off).toHaveBeenCalledWith('task:ready', expect.any(Function))
+      expect(eventBus.off).toHaveBeenCalledWith('worktree:created', expect.any(Function))
     })
   })
 

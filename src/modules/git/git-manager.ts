@@ -40,8 +40,8 @@ export class GitManagerImpl implements GitManager {
     logger.info({ repoRoot: this.repoRoot }, 'GitManager.initialize() — stub')
 
     // Subscribe to worktree lifecycle events
-    this._eventBus.on('worktree:created', ({ taskId, path, branch }) => {
-      logger.debug({ taskId, path, branch }, 'worktree:created')
+    this._eventBus.on('worktree:created', ({ taskId, worktreePath, branchName }) => {
+      logger.debug({ taskId, worktreePath, branchName }, 'worktree:created')
     })
 
     this._eventBus.on('worktree:merged', ({ taskId, branch }) => {
@@ -52,8 +52,8 @@ export class GitManagerImpl implements GitManager {
       logger.warn({ taskId, conflictingFiles }, 'worktree:conflict')
     })
 
-    this._eventBus.on('worktree:removed', ({ taskId }) => {
-      logger.debug({ taskId }, 'worktree:removed')
+    this._eventBus.on('worktree:removed', ({ taskId, branchName }) => {
+      logger.debug({ taskId, branchName }, 'worktree:removed')
     })
   }
 

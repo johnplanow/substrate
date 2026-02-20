@@ -8,6 +8,26 @@
 import type { TaskId, WorkerId } from './types.js'
 
 // ---------------------------------------------------------------------------
+// Routing decision (inline to avoid circular imports)
+// ---------------------------------------------------------------------------
+
+/**
+ * Routing decision payload used in task:routed event.
+ * Mirrors RoutingDecision from src/modules/routing/routing-decision.ts
+ * but kept here as a plain interface to avoid circular module dependencies.
+ */
+export interface RoutingDecision {
+  taskId: string
+  agent: string
+  billingMode: 'subscription' | 'api' | 'unavailable'
+  model?: string
+  rationale: string
+  fallbackChain?: string[]
+  estimatedCostUsd?: number
+  rateLimit?: { tokensUsedInWindow: number; limit: number }
+}
+
+// ---------------------------------------------------------------------------
 // Shared payload subtypes
 // ---------------------------------------------------------------------------
 
@@ -109,16 +129,21 @@ export interface OrchestratorEvents {
   // -------------------------------------------------------------------------
 
   /** A git worktree was created for a task */
-  'worktree:created': { taskId: TaskId; path: string; branch: string }
+  'worktree:created': {
+    taskId: TaskId
+    branchName: string
+    worktreePath: string
+    createdAt?: Date
+  }
 
   /** A task's worktree branch was merged */
-  'worktree:merged': { taskId: TaskId; branch: string }
+  'worktree:merged': { taskId: TaskId; branch: string; mergedFiles: string[] }
 
   /** A merge conflict was detected in a task's worktree */
-  'worktree:conflict': { taskId: TaskId; conflictingFiles: string[] }
+  'worktree:conflict': { taskId: TaskId; branch: string; conflictingFiles: string[] }
 
   /** A task's worktree was removed */
-  'worktree:removed': { taskId: TaskId }
+  'worktree:removed': { taskId: TaskId; branchName: string }
 
   // -------------------------------------------------------------------------
   // Plan events
@@ -157,11 +182,18 @@ export interface OrchestratorEvents {
   'config:reloaded': { changedKeys: string[] }
 
   // -------------------------------------------------------------------------
+  // Routing events
+  // -------------------------------------------------------------------------
+
+  /** A task has been routed to an agent with billing mode decision */
+  'task:routed': { taskId: TaskId; decision: RoutingDecision }
+
+  // -------------------------------------------------------------------------
   // Provider events
   // -------------------------------------------------------------------------
 
   /** A provider has become unavailable */
-  'provider:unavailable': { provider: string; reason: string }
+  'provider:unavailable': { provider: string; reason: 'rate_limit' | 'disabled'; resetAtMs?: number }
 
   /** A provider has become available */
   'provider:available': { provider: string }

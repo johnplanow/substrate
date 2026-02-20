@@ -253,14 +253,14 @@ describe('createOrchestrator', () => {
 
     orchestrator.eventBus.emit('worktree:created', {
       taskId: 'task-1',
-      path: '/tmp/wt/task-1',
-      branch: 'task/task-1',
+      branchName: 'substrate/task-task-1',
+      worktreePath: '/tmp/wt/task-1',
     })
     orchestrator.eventBus.emit('worktree:merged', {
       taskId: 'task-1',
-      branch: 'task/task-1',
+      branch: 'substrate/task-task-1',
     })
-    orchestrator.eventBus.emit('worktree:removed', { taskId: 'task-1' })
+    orchestrator.eventBus.emit('worktree:removed', { taskId: 'task-1', branchName: 'substrate/task-task-1' })
 
     expect(createdHandler).toHaveBeenCalledOnce()
     expect(mergedHandler).toHaveBeenCalledOnce()

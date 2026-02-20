@@ -41,6 +41,27 @@ export interface OrchestratorConfig {
 
   /** Optional logger level override */
   logLevel?: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
+
+  /**
+   * Monitor agent configuration.
+   * If omitted, monitor agent is initialized with defaults.
+   */
+  monitor?: {
+    /**
+     * Path to the monitor SQLite database file.
+     * @default ':memory:' (in-memory, non-persistent) when not specified
+     */
+    databasePath?: string
+    /**
+     * Number of days to retain task metrics.
+     * @default 90
+     */
+    retentionDays?: number
+    /**
+     * Custom task type taxonomy for classification overrides.
+     */
+    customTaxonomy?: Record<string, string[]>
+  }
 }
 
 // ---------------------------------------------------------------------------

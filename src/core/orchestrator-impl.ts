@@ -23,9 +23,13 @@ import type { Orchestrator, OrchestratorConfig } from './orchestrator.js'
 import { createDatabaseService } from '../modules/database/database-service.js'
 import { createTaskGraphEngine } from '../modules/task-graph/task-graph-engine.js'
 import { createRoutingEngine } from '../modules/routing/routing-engine.js'
-import { createWorkerManager } from '../modules/worker/worker-manager.js'
+import { createWorkerPoolManager } from '../modules/worker-pool/worker-pool-manager-impl.js'
+import { AdapterRegistry } from '../adapters/adapter-registry.js'
 import { createBudgetTracker } from '../modules/budget/budget-tracker.js'
 import { createGitManager } from '../modules/git/git-manager.js'
+import { createGitWorktreeManager } from '../modules/git-worktree/git-worktree-manager-impl.js'
+import { createMonitorAgent } from '../modules/monitor/monitor-agent-impl.js'
+import { createMonitorDatabase } from '../persistence/monitor-database.js'
 
 const logger = createLogger('orchestrator')
 
@@ -156,22 +160,55 @@ export async function createOrchestrator(config: OrchestratorConfig): Promise<Or
 
   // Step 3: Create all module instances with dependency injection
   const taskGraphEngine = createTaskGraphEngine({ eventBus, databaseService })
-  const routingEngine = createRoutingEngine({ eventBus })
-  const workerManager = createWorkerManager({ eventBus })
+  const adapterRegistry = new AdapterRegistry()
+  const routingEngine = createRoutingEngine({ eventBus, adapterRegistry })
   const budgetTracker = createBudgetTracker({ eventBus })
   const gitManager = createGitManager({
     eventBus,
     repoRoot: config.projectRoot,
   })
 
+  // AC1, AC4: Create GitWorktreeManager before WorkerPoolManager so it initializes first
+  const gitWorktreeManager = createGitWorktreeManager({
+    eventBus,
+    projectRoot: config.projectRoot,
+    db: databaseService,
+  })
+
+  // Create WorkerPoolManager with all required dependencies
+  const workerPoolManager = createWorkerPoolManager({
+    eventBus,
+    adapterRegistry,
+    engine: taskGraphEngine,
+    db: databaseService,
+    gitWorktreeManager,
+  })
+
+  // Step 3b: Create the monitor agent (separate database connection)
+  const monitorDbPath = config.monitor?.databasePath ?? ':memory:'
+  const monitorDatabase = createMonitorDatabase(monitorDbPath)
+  const monitorAgent = createMonitorAgent({
+    eventBus,
+    monitorDb: monitorDatabase,
+    config: {
+      retentionDays: config.monitor?.retentionDays ?? 90,
+      customTaxonomy: config.monitor?.customTaxonomy,
+    },
+  })
+
   // Step 4: Register all services in the ServiceRegistry
+  // IMPORTANT: GitWorktreeManager must be registered before WorkerPoolManager
+  // so it initializes (and validates git) before workers can be spawned.
+  // MonitorAgent is registered last to ensure it shuts down first (reverse order).
   const registry = new ServiceRegistry()
   registry.register('database', databaseService)
   registry.register('taskGraph', taskGraphEngine)
   registry.register('routingEngine', routingEngine)
-  registry.register('workerManager', workerManager)
+  registry.register('gitWorktreeManager', gitWorktreeManager)
+  registry.register('workerPoolManager', workerPoolManager)
   registry.register('budgetTracker', budgetTracker)
   registry.register('gitManager', gitManager)
+  registry.register('monitorAgent', monitorAgent)
 
   // Step 5: Create orchestrator instance, then initialize all services.
   // If initialization fails, remove signal handlers and shut down any
