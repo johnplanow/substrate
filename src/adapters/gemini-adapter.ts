@@ -192,7 +192,7 @@ export class GeminiCLIAdapter implements WorkerAdapter {
       const success =
         parsed.status === 'completed' || parsed.status === undefined
 
-      // Support both ADT-standard token field and Gemini's native usageMetadata
+      // Support both Substrate-standard token field and Gemini's native usageMetadata
       const usageMeta = parsed.metadata?.usageMetadata
       const inputTokens =
         parsed.metadata?.tokensUsed?.input ?? usageMeta?.promptTokenCount ?? 0

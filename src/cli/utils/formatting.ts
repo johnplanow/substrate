@@ -32,7 +32,7 @@ export interface AdapterHealthRow {
 
 /**
  * Build adapter list rows from discovery results.
- * Maps adapter discovery info to the display format for `adt adapters list`.
+ * Maps adapter discovery info to the display format for `substrate adapters list`.
  */
 export function buildAdapterListRows(results: AdapterDiscoveryResult[]): AdapterListRow[] {
   return results.map((result) => {
@@ -49,7 +49,7 @@ export function buildAdapterListRows(results: AdapterDiscoveryResult[]): Adapter
 
 /**
  * Build adapter health rows from discovery results.
- * Maps adapter health info to the display format for `adt adapters check`.
+ * Maps adapter health info to the display format for `substrate adapters check`.
  */
 export function buildAdapterHealthRows(results: AdapterDiscoveryResult[]): AdapterHealthRow[] {
   return results.map((result) => {
@@ -144,7 +144,7 @@ export function formatAdapterHealthTable(rows: AdapterHealthRow[]): string {
 export interface CLIJsonOutput<T> {
   /** ISO timestamp of when the command was executed */
   timestamp: string
-  /** ADT version string */
+  /** Substrate version string */
   version: string
   /** The CLI command that was executed */
   command: string

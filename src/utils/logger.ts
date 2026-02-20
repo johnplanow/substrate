@@ -1,5 +1,5 @@
 /**
- * Logger utility for AI Dev Toolkit
+ * Logger utility for Substrate
  * Uses pino for structured JSON logging with pretty printing in development
  */
 
@@ -75,7 +75,7 @@ export function createLogger(
 }
 
 /** Root application logger */
-export const logger = createLogger('adt')
+export const logger = createLogger('substrate')
 
 /** Create a child logger with additional context */
 export function childLogger(

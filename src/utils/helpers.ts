@@ -1,5 +1,5 @@
 /**
- * General utility helpers for AI Dev Toolkit
+ * General utility helpers for Substrate
  */
 
 import { randomUUID } from 'crypto'

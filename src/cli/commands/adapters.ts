@@ -1,9 +1,9 @@
 /**
- * `adt adapters` command group
+ * `substrate adapters` command group
  *
  * Provides two subcommands:
- *   - `adt adapters list`  — discover all known adapters and show availability
- *   - `adt adapters check` — run health checks and report CLI agent status
+ *   - `substrate adapters list`  — discover all known adapters and show availability
+ *   - `substrate adapters check` — run health checks and report CLI agent status
  */
 
 import type { Command } from 'commander'
@@ -51,7 +51,7 @@ function isNotInstalled(healthResult: {
  * Register the `adapters` command group onto a Commander program.
  *
  * @param program   The root Commander program
- * @param version   The current ADT package version (for JSON output)
+ * @param version   The current Substrate package version (for JSON output)
  * @param registry  Optional AdapterRegistry to use (defaults to new instance)
  */
 export function registerAdaptersCommand(
@@ -64,7 +64,7 @@ export function registerAdaptersCommand(
     .description('Manage and inspect CLI agent adapters')
 
   // -------------------------------------------------------------------------
-  // `adt adapters list`
+  // `substrate adapters list`
   // -------------------------------------------------------------------------
   adaptersCmd
     .command('list')
@@ -88,7 +88,7 @@ export function registerAdaptersCommand(
         const jsonData = report.results.map((r) =>
           healthResultToJson(r.adapterId, r.displayName, r.healthResult)
         )
-        const output = buildJsonOutput('adt adapters list', jsonData, version)
+        const output = buildJsonOutput('substrate adapters list', jsonData, version)
         process.stdout.write(JSON.stringify(output, null, 2) + '\n')
         // NOTE: `list --output-format json` intentionally exits 0 even when
         // adapters are unhealthy/unavailable.  The `list` command reports what
@@ -131,12 +131,12 @@ export function registerAdaptersCommand(
       }
 
       // `list` exits 0 as long as adapters are defined, regardless of their
-      // availability status.  Use `adt adapters check` for health-based exit codes.
+      // availability status.  Use `substrate adapters check` for health-based exit codes.
       process.exit(EXIT_CODE_SUCCESS)
     })
 
   // -------------------------------------------------------------------------
-  // `adt adapters check`
+  // `substrate adapters check`
   // -------------------------------------------------------------------------
   adaptersCmd
     .command('check')
@@ -166,7 +166,7 @@ export function registerAdaptersCommand(
         const jsonData = report.results.map((r) =>
           healthResultToJson(r.adapterId, r.displayName, r.healthResult)
         )
-        const output = buildJsonOutput('adt adapters check', jsonData, version)
+        const output = buildJsonOutput('substrate adapters check', jsonData, version)
         process.stdout.write(JSON.stringify(output, null, 2) + '\n')
 
         // Exit code based on health results

@@ -1,9 +1,9 @@
 /**
- * Error definitions for AI Dev Toolkit
+ * Error definitions for Substrate
  * Provides structured error hierarchy for all toolkit operations
  */
 
-/** Base error class for all ADT errors */
+/** Base error class for all Substrate errors */
 export class AdtError extends Error {
   public readonly code: string
   public readonly context: Record<string, unknown>

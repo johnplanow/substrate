@@ -1,5 +1,5 @@
 /**
- * AI Dev Toolkit - Main module exports
+ * Substrate - Main module exports
  * Public API surface for the toolkit
  */
 

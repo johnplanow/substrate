@@ -1,5 +1,5 @@
 /**
- * Integration tests for `adt adapters` commands
+ * Integration tests for `substrate adapters` commands
  *
  * Tests the full command pipeline with a real Commander program
  * and a mocked AdapterRegistry. Verifies real CLI routing and
@@ -97,7 +97,7 @@ async function runIntegrated(
   registerAdaptersCommand(program, '0.1.0', registry)
 
   try {
-    await program.parseAsync(['node', 'adt', ...args])
+    await program.parseAsync(['node', 'substrate', ...args])
   } catch (err) {
     if (err instanceof Error && err.message.startsWith('process.exit(')) {
       // swallow
@@ -141,7 +141,7 @@ describe('adapters list - integration', () => {
     const registry = createMockRegistry(HEALTHY_REPORT)
     const { output } = await runIntegrated(['adapters', 'list', '--output-format', 'json'], registry)
     const parsed = JSON.parse(output) as { data: unknown[]; command: string }
-    expect(parsed.command).toBe('adt adapters list')
+    expect(parsed.command).toBe('substrate adapters list')
     expect(Array.isArray(parsed.data)).toBe(true)
     expect(parsed.data).toHaveLength(3)
   })

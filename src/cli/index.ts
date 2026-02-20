@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * AI Dev Toolkit CLI - Main entry point
- * Provides the `adt` command-line interface
+ * Substrate CLI - Main entry point
+ * Provides the `substrate` command-line interface
  */
 
 import { Command } from 'commander'
@@ -31,7 +31,7 @@ async function getPackageVersion(): Promise<string> {
       try {
         const content = await readFile(pkgPath, 'utf-8')
         const pkg = JSON.parse(content) as { version?: string; name?: string }
-        if (pkg.name === 'ai-dev-toolkit' || pkg.version) {
+        if (pkg.name === 'substrate' || pkg.version) {
           return pkg.version ?? '0.0.0'
         }
       } catch {
@@ -51,17 +51,17 @@ export async function createProgram(): Promise<Command> {
   const program = new Command()
 
   program
-    .name('adt')
-    .description('AI Dev Toolkit - Multi-agent orchestration for AI coding agents')
+    .name('substrate')
+    .description('Substrate - Multi-agent orchestration for AI coding agents')
     .version(version, '-v, --version', 'Output the current version')
 
   // Placeholder for future commands - they will be added as stories progress
   program
     .command('status')
-    .description('Show the current status of ADT')
+    .description('Show the current status of Substrate')
     .action(() => {
-      logger.info(`ADT v${version} - Ready`)
-      logger.info('No active session. Use `adt run <task-graph>` to start.')
+      logger.info(`Substrate v${version} - Ready`)
+      logger.info('No active session. Use `substrate run <task-graph>` to start.')
     })
 
   // Register adapters command group (story 1.3)

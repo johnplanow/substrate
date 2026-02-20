@@ -186,7 +186,7 @@ async function runCommand(args: string[], registry: AdapterRegistry): Promise<vo
   program.exitOverride() // prevent commander from calling process.exit
   registerAdaptersCommand(program, '0.1.0', registry)
   try {
-    await program.parseAsync(['node', 'adt', ...args])
+    await program.parseAsync(['node', 'substrate', ...args])
   } catch (err) {
     // Swallow process.exit mock throws and commander ExitOverride
     if (err instanceof Error && err.message.startsWith('process.exit(')) {
@@ -254,7 +254,7 @@ describe('adapters list command', () => {
     const output = getOutput()
     expect((): void => { JSON.parse(output) }).not.toThrow()
     const parsed = JSON.parse(output) as { data: unknown[]; timestamp: string; version: string; command: string }
-    expect(parsed.command).toBe('adt adapters list')
+    expect(parsed.command).toBe('substrate adapters list')
     expect(parsed.version).toBe('0.1.0')
     expect(Array.isArray(parsed.data)).toBe(true)
     expect(parsed.data).toHaveLength(3)
@@ -373,7 +373,7 @@ describe('adapters check command', () => {
       timestamp: string
       version: string
     }
-    expect(parsed.command).toBe('adt adapters check')
+    expect(parsed.command).toBe('substrate adapters check')
     expect(Array.isArray(parsed.data)).toBe(true)
     expect(getExitCode()).toBe(EXIT_CODE_SUCCESS)
   })

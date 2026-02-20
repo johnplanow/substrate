@@ -1,5 +1,5 @@
 /**
- * Core types for AI Dev Toolkit
+ * Core types for Substrate
  * Shared type definitions used across all modules
  */
 
