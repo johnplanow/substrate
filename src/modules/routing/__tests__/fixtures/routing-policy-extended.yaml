@@ -1,0 +1,30 @@
+# Extended routing policy with optional/extra fields (AC6 - extensibility test)
+default:
+  preferred_agents:
+    - claude
+  billing_preference: subscription_first
+  use_monitor_recommendations: false
+
+task_types:
+  coding:
+    preferred_agents:
+      - claude
+    model_preferences:
+      claude: opus
+
+providers:
+  claude:
+    enabled: true
+    cli_path: "claude"
+    subscription_routing: true
+    max_concurrent: 3
+    rate_limit:
+      tokens_per_window: 500000
+      window_seconds: 3600
+    api_billing:
+      enabled: true
+      api_key_env: "ANTHROPIC_API_KEY"
+
+global:
+  max_concurrent_workers: 10
+  fallback_enabled: false

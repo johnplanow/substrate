@@ -10,6 +10,8 @@
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { createLogger } from '../../utils/logger.js'
 import { initialSchemaMigration } from './001-initial-schema.js'
+import { costTrackerSchemaMigration } from './002-cost-tracker-schema.js'
+import { budgetEnforcerSchemaMigration } from './003-budget-enforcer-schema.js'
 
 const logger = createLogger('persistence:migrations')
 
@@ -30,7 +32,7 @@ export interface Migration {
 // Registered migrations — add new migrations here in version order
 // ---------------------------------------------------------------------------
 
-const MIGRATIONS: Migration[] = [initialSchemaMigration]
+const MIGRATIONS: Migration[] = [initialSchemaMigration, costTrackerSchemaMigration, budgetEnforcerSchemaMigration]
 
 // ---------------------------------------------------------------------------
 // Migration runner

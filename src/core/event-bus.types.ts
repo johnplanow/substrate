@@ -100,6 +100,24 @@ export interface OrchestratorEvents {
   /** Spending has exceeded the configured budget limit */
   'budget:exceeded': { taskId: TaskId; spend: number; limit: number }
 
+  /** Task is approaching its budget cap (80% threshold) */
+  'budget:warning:task': { taskId: TaskId; currentCostUsd: number; budgetUsd: number; percentageUsed: number }
+
+  /** Task has exceeded its budget cap — force-terminate worker */
+  'budget:exceeded:task': { taskId: TaskId; currentCostUsd: number; budgetUsd: number }
+
+  /** Session-wide budget is approaching the cap (80% threshold) */
+  'budget:warning:session': { sessionId: string; currentCostUsd: number; budgetUsd: number; percentageUsed: number }
+
+  /** Session-wide budget has been exceeded — terminate all workers */
+  'session:budget:exceeded': { sessionId: string; currentCostUsd: number; budgetUsd: number }
+
+  /** Budget cap has been set for a task */
+  'task:budget-set': { taskId: TaskId; budgetUsd: number }
+
+  /** Budget cap has been set for a session */
+  'session:budget-set': { sessionId: string; budgetUsd: number }
+
   // -------------------------------------------------------------------------
   // Graph lifecycle events
   // -------------------------------------------------------------------------
@@ -163,6 +181,19 @@ export interface OrchestratorEvents {
 
   /** Plan is being refined based on feedback */
   'plan:refining': { feedback: string }
+
+  // -------------------------------------------------------------------------
+  // Cost tracker events
+  // -------------------------------------------------------------------------
+
+  /** A task's cost has been recorded by the cost tracker */
+  'cost:recorded': {
+    taskId: string
+    sessionId: string
+    costUsd: number
+    savingsUsd: number
+    billingMode: 'subscription' | 'api'
+  }
 
   // -------------------------------------------------------------------------
   // Monitor events

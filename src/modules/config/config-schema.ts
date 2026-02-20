@@ -80,6 +80,44 @@ export const GlobalSettingsSchema = z
 export type GlobalSettings = z.infer<typeof GlobalSettingsSchema>
 
 // ---------------------------------------------------------------------------
+// Cost tracker config schema
+// ---------------------------------------------------------------------------
+
+export const CostTrackerConfigSchema = z
+  .object({
+    /** Enable cost tracking (default: true) */
+    enabled: z.boolean(),
+    /** Source for token rates: 'builtin' uses built-in table, 'custom' uses injected custom rates */
+    token_rates_provider: z.enum(['builtin', 'custom']),
+    /** Whether to track planning/orchestration costs in addition to task costs */
+    track_planning_costs: z.boolean(),
+    /** Whether to include savings summary in cost reports (FR28) */
+    savings_reporting: z.boolean(),
+  })
+  .strict()
+
+export type CostTrackerConfig = z.infer<typeof CostTrackerConfigSchema>
+
+// ---------------------------------------------------------------------------
+// Budget enforcer config schema
+// ---------------------------------------------------------------------------
+
+export const BudgetConfigSchema = z
+  .object({
+    /** Default per-task budget cap in USD if task has no explicit cap (0 = unlimited) */
+    default_task_budget_usd: z.number().min(0),
+    /** Default session budget cap in USD (0 = unlimited) */
+    default_session_budget_usd: z.number().min(0),
+    /** When true, planning/orchestration costs count toward session budget */
+    planning_costs_count_against_budget: z.boolean(),
+    /** Percentage threshold at which budget:warning is emitted (0-100) */
+    warning_threshold_percent: z.number().min(0).max(100),
+  })
+  .strict()
+
+export type BudgetConfig = z.infer<typeof BudgetConfigSchema>
+
+// ---------------------------------------------------------------------------
 // Routing policy schema
 // ---------------------------------------------------------------------------
 
@@ -120,6 +158,10 @@ export const SubstrateConfigSchema = z
     task_graph_version: z.literal('1').optional(),
     global: GlobalSettingsSchema,
     providers: ProvidersSchema,
+    /** Cost tracker settings (Story 4.2) */
+    cost_tracker: CostTrackerConfigSchema.optional(),
+    /** Budget enforcement settings (Story 4.3) */
+    budget: BudgetConfigSchema.optional(),
   })
   .strict()
 
@@ -148,6 +190,8 @@ export const PartialSubstrateConfigSchema = z
       })
       .partial()
       .optional(),
+    cost_tracker: CostTrackerConfigSchema.partial().optional(),
+    budget: BudgetConfigSchema.partial().optional(),
   })
   .strict()
 

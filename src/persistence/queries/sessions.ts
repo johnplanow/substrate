@@ -105,3 +105,14 @@ export function listSessions(db: BetterSqlite3Database): Session[] {
   const stmt = db.prepare('SELECT * FROM sessions ORDER BY created_at DESC')
   return stmt.all() as Session[]
 }
+
+/**
+ * Return the id of the most-recently-created session, or null if none exist.
+ *
+ * Used by the `substrate cost` command when no --session flag is provided.
+ */
+export function getLatestSessionId(db: BetterSqlite3Database): string | null {
+  const stmt = db.prepare('SELECT id FROM sessions ORDER BY created_at DESC LIMIT 1')
+  const row = stmt.get() as { id: string } | undefined
+  return row?.id ?? null
+}

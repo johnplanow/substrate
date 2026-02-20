@@ -1,0 +1,59 @@
+# Test routing policy fixture
+default:
+  preferred_agents:
+    - claude
+    - codex
+    - gemini
+  billing_preference: subscription_first
+  use_monitor_recommendations: false
+
+task_types:
+  coding:
+    preferred_agents:
+      - claude
+      - codex
+    model_preferences:
+      claude: sonnet
+  testing:
+    preferred_agents:
+      - gemini
+      - claude
+  docs:
+    preferred_agents:
+      - gemini
+      - codex
+
+providers:
+  claude:
+    enabled: true
+    cli_path: "claude"
+    subscription_routing: true
+    max_concurrent: 2
+    rate_limit:
+      tokens_per_window: 220000
+      window_seconds: 18000
+    api_billing:
+      enabled: true
+      api_key_env: "ANTHROPIC_API_KEY"
+
+  codex:
+    enabled: true
+    cli_path: "codex"
+    subscription_routing: true
+    max_concurrent: 2
+    api_billing:
+      enabled: true
+      api_key_env: "OPENAI_API_KEY"
+
+  gemini:
+    enabled: true
+    cli_path: "gemini"
+    subscription_routing: true
+    max_concurrent: 3
+    api_billing:
+      enabled: true
+      api_key_env: "GOOGLE_API_KEY"
+
+global:
+  max_concurrent_workers: 5
+  fallback_enabled: true

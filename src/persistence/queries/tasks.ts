@@ -50,6 +50,8 @@ export interface Task {
   merged_files?: string | null
   /** JSON-serialized list of files with conflicts */
   conflict_files?: string | null
+  /** Whether this task was terminated due to budget being exceeded (migration 003) */
+  budget_exceeded?: number | null
 }
 
 export type CreateTaskInput = Omit<Task, 'cost_usd' | 'input_tokens' | 'output_tokens' | 'retry_count' | 'max_retries' | 'created_at' | 'updated_at'> & {

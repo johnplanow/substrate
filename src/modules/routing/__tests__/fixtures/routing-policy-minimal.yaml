@@ -1,0 +1,12 @@
+# Minimal routing policy - only required fields
+default:
+  preferred_agents:
+    - claude
+
+providers:
+  claude:
+    enabled: true
+    subscription_routing: true
+    max_concurrent: 1
+    api_billing:
+      enabled: false

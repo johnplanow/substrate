@@ -14,6 +14,7 @@ import { registerInitCommand } from './commands/init.js'
 import { registerConfigCommand } from './commands/config.js'
 import { registerMergeCommand } from './commands/merge.js'
 import { registerWorktreesCommand } from './commands/worktrees.js'
+import { registerCostCommand } from './commands/cost.js'
 
 const logger = createLogger('cli')
 
@@ -80,6 +81,9 @@ export async function createProgram(): Promise<Command> {
 
   // Register worktrees command (story 3.3)
   registerWorktreesCommand(program, version)
+
+  // Register cost command (story 4.4)
+  registerCostCommand(program, version)
 
   return program
 }

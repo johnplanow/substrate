@@ -48,10 +48,13 @@ describe('cost queries', () => {
           session_id: 'sess-cost',
           task_id: 'task-cost-1',
           agent: 'claude-code',
+          provider: 'anthropic',
+          model: 'claude-3-sonnet',
           billing_mode: 'api',
-          estimated_cost: 0.01,
-          input_tokens: 500,
-          output_tokens: 200,
+          tokens_input: 500,
+          tokens_output: 200,
+          cost_usd: 0.01,
+          savings_usd: 0,
         })
       }).not.toThrow()
     })
@@ -69,19 +72,27 @@ describe('cost queries', () => {
     it('aggregates costs for a session', () => {
       recordCostEntry(db, {
         session_id: 'sess-cost',
+        task_id: 'task-cost-1',
         agent: 'claude-code',
+        provider: 'anthropic',
+        model: 'claude-3-sonnet',
         billing_mode: 'api',
-        estimated_cost: 0.10,
-        input_tokens: 1000,
-        output_tokens: 500,
+        tokens_input: 1000,
+        tokens_output: 500,
+        cost_usd: 0.10,
+        savings_usd: 0,
       })
       recordCostEntry(db, {
         session_id: 'sess-cost',
+        task_id: 'task-cost-1',
         agent: 'claude-code',
+        provider: 'anthropic',
+        model: 'claude-3-sonnet',
         billing_mode: 'api',
-        estimated_cost: 0.05,
-        input_tokens: 500,
-        output_tokens: 250,
+        tokens_input: 500,
+        tokens_output: 250,
+        cost_usd: 0.05,
+        savings_usd: 0,
       })
 
       const result = getSessionCost(db, 'sess-cost')
@@ -91,15 +102,18 @@ describe('cost queries', () => {
       expect(result.entry_count).toBe(2)
     })
 
-    it('prefers actual_cost over estimated_cost when set', () => {
+    it('uses actual_cost for totals', () => {
       recordCostEntry(db, {
         session_id: 'sess-cost',
+        task_id: 'task-cost-1',
         agent: 'claude-code',
+        provider: 'anthropic',
+        model: 'claude-3-sonnet',
         billing_mode: 'api',
-        estimated_cost: 0.10,
-        actual_cost: 0.08,
-        input_tokens: 100,
-        output_tokens: 50,
+        tokens_input: 100,
+        tokens_output: 50,
+        cost_usd: 0.08,
+        savings_usd: 0,
       })
 
       const result = getSessionCost(db, 'sess-cost')
@@ -119,10 +133,13 @@ describe('cost queries', () => {
         session_id: 'sess-cost',
         task_id: 'task-cost-1',
         agent: 'claude-code',
+        provider: 'anthropic',
+        model: 'claude-3-sonnet',
         billing_mode: 'api',
-        estimated_cost: 0.02,
-        input_tokens: 100,
-        output_tokens: 50,
+        tokens_input: 100,
+        tokens_output: 50,
+        cost_usd: 0.02,
+        savings_usd: 0,
       })
 
       const result = getTaskCost(db, 'task-cost-1')
