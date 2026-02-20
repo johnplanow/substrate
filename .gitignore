@@ -9,3 +9,24 @@
 !.gemini/commands/
 !.codex/prompts/
 .obsidian/
+
+# Build outputs
+dist/
+coverage/
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+pino.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
