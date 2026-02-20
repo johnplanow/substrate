@@ -1,0 +1,23 @@
+{
+  "version": "1",
+  "session": {
+    "name": "json-test-project",
+    "budget_usd": 5.0
+  },
+  "tasks": {
+    "json-task-1": {
+      "name": "JSON Task One",
+      "description": "First task from JSON",
+      "prompt": "Implement JSON feature",
+      "type": "coding",
+      "depends_on": []
+    },
+    "json-task-2": {
+      "name": "JSON Task Two",
+      "description": "Second task from JSON",
+      "prompt": "Test JSON feature",
+      "type": "testing",
+      "depends_on": ["json-task-1"]
+    }
+  }
+}

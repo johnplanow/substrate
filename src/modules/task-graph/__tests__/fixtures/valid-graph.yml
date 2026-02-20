@@ -1,0 +1,10 @@
+version: "1"
+session:
+  name: "yml-test-project"
+  budget_usd: 5.0
+tasks:
+  yml-task-1:
+    name: "YML Task One"
+    prompt: "Do the yml task"
+    type: "coding"
+    depends_on: []

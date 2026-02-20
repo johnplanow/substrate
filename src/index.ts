@@ -11,6 +11,19 @@ export * from './core/errors.js'
 export { createLogger, childLogger, logger } from './utils/logger.js'
 export * from './utils/helpers.js'
 
+// Orchestrator
+export { createOrchestrator } from './core/orchestrator-impl.js'
+export type { Orchestrator, OrchestratorConfig } from './core/orchestrator.js'
+
+// Event Bus
+export type { TypedEventBus } from './core/event-bus.js'
+export type { OrchestratorEvents } from './core/event-bus.types.js'
+export { createEventBus } from './core/event-bus.js'
+
+// Dependency Injection
+export type { BaseService } from './core/di.js'
+export { ServiceRegistry } from './core/di.js'
+
 // Adapter subsystem
 export { AdapterRegistry } from './adapters/adapter-registry.js'
 export type { AdapterDiscoveryResult, DiscoveryReport } from './adapters/adapter-registry.js'

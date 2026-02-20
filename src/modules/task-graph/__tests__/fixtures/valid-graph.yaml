@@ -1,0 +1,29 @@
+version: "1"
+session:
+  name: "test-project"
+  budget_usd: 10.0
+tasks:
+  task-1:
+    name: "First Task"
+    description: "The first task in the graph"
+    prompt: |
+      Implement the first feature.
+    type: "coding"
+    depends_on: []
+    budget_usd: 2.0
+  task-2:
+    name: "Second Task"
+    description: "Depends on task-1"
+    prompt: |
+      Write tests for the first feature.
+    type: "testing"
+    depends_on:
+      - task-1
+  task-3:
+    name: "Third Task"
+    description: "Documentation task"
+    prompt: |
+      Write documentation.
+    type: "docs"
+    depends_on:
+      - task-1

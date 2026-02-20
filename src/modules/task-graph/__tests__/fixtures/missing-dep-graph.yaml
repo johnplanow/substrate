@@ -1,0 +1,12 @@
+version: "1"
+session:
+  name: "missing-dep-project"
+  budget_usd: 5.0
+tasks:
+  task-x:
+    name: "Task X"
+    description: "References nonexistent task"
+    prompt: "Do task X"
+    type: "coding"
+    depends_on:
+      - nonexistent-task

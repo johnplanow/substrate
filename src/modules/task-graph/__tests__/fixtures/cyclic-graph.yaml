@@ -1,0 +1,19 @@
+version: "1"
+session:
+  name: "cyclic-project"
+  budget_usd: 5.0
+tasks:
+  task-a:
+    name: "Task A"
+    description: "Depends on Task B"
+    prompt: "Do task A"
+    type: "coding"
+    depends_on:
+      - task-b
+  task-b:
+    name: "Task B"
+    description: "Depends on Task A"
+    prompt: "Do task B"
+    type: "coding"
+    depends_on:
+      - task-a
