@@ -252,6 +252,25 @@ export interface OrchestratorEvents {
   'version:update_available': { currentVersion: string; latestVersion: string; breaking: boolean }
 
   // -------------------------------------------------------------------------
+  // Agent dispatch events (sub-agent dispatch engine)
+  // -------------------------------------------------------------------------
+
+  /** A sub-agent subprocess was spawned by the dispatch engine */
+  'agent:spawned': { dispatchId: string; agent: string; taskType: string }
+
+  /** Incremental stdout data received from a running sub-agent */
+  'agent:output': { dispatchId: string; data: string }
+
+  /** A sub-agent completed successfully */
+  'agent:completed': { dispatchId: string; exitCode: number; output: string }
+
+  /** A sub-agent exited with a non-zero code or encountered an error */
+  'agent:failed': { dispatchId: string; error: string; exitCode: number }
+
+  /** A sub-agent was killed because it exceeded its timeout */
+  'agent:timeout': { dispatchId: string; timeoutMs: number }
+
+  // -------------------------------------------------------------------------
   // Orchestrator system events
   // -------------------------------------------------------------------------
 

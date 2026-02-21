@@ -1,0 +1,38 @@
+name: bmad
+version: 1.0.0
+description: BMAD methodology for autonomous software development
+
+phases:
+  - name: analysis
+    description: Product discovery and brief creation
+    entryGates: []
+    exitGates: [product-brief-complete]
+    artifacts: [product-brief]
+  - name: planning
+    description: PRD and requirements generation
+    entryGates: [product-brief-complete]
+    exitGates: [prd-complete]
+    artifacts: [prd]
+  - name: solutioning
+    description: Architecture and epic/story breakdown
+    entryGates: [prd-complete]
+    exitGates: [architecture-complete, stories-complete, readiness-check]
+    artifacts: [architecture, epics, stories]
+  - name: implementation
+    description: Code generation, testing, and review
+    entryGates: [stories-complete]
+    exitGates: [all-stories-shipped]
+    artifacts: [code, tests]
+
+prompts:
+  create-story: prompts/create-story.md
+  dev-story: prompts/dev-story.md
+  code-review: prompts/code-review.md
+
+constraints:
+  create-story: constraints/create-story.yaml
+  dev-story: constraints/dev-story.yaml
+  code-review: constraints/code-review.yaml
+
+templates:
+  story: templates/story.md

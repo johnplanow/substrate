@@ -1,0 +1,64 @@
+- name: sequential-task-execution
+  description: Tasks must be executed in the exact order listed in the story file
+  severity: required
+  check: Implementation follows task order without skipping
+
+- name: red-green-refactor
+  description: Tests must be written and fail before implementation code is written
+  severity: required
+  check: Tests exist and were confirmed failing before implementation
+
+- name: tests-pass-before-complete
+  description: All tests must pass before marking a task complete
+  severity: required
+  check: Full test suite passes before checkbox is marked [x]
+
+- name: no-regression-allowed
+  description: No existing tests may be broken by implementation
+  severity: required
+  check: Full test suite passes after each task implementation
+
+- name: halt-on-new-dependency
+  description: New dependencies beyond story spec require user approval before proceeding
+  severity: required
+  check: Agent stops and requests approval when new dependency needed
+
+- name: halt-on-repeated-failure
+  description: Three consecutive implementation failures require guidance
+  severity: required
+  check: Agent halts after 3 failures on same task
+
+- name: permitted-sections-only
+  description: Only permitted story sections may be modified
+  severity: required
+  check: Only Tasks/Subtasks, Dev Agent Record, File List, Change Log, Status are modified
+
+- name: no-extra-features
+  description: Implementation must match exactly what task specifies, no more
+  severity: required
+  check: No functionality implemented beyond task/subtask scope
+
+- name: file-list-complete
+  description: File List must include every new, modified, or deleted file
+  severity: required
+  check: Every file touched is listed in Dev Agent Record -> File List
+
+- name: completion-notes-required
+  description: Dev Agent Record must have completion notes describing what was implemented
+  severity: required
+  check: Completion Notes section is non-empty when story is complete
+
+- name: all-acs-satisfied
+  description: Every acceptance criterion must be satisfied before status can be review
+  severity: required
+  check: All ACs verified against implementation before status = review
+
+- name: status-review-on-completion
+  description: Story status must be set to review when all tasks done
+  severity: required
+  check: Status field equals "review" after completion
+
+- name: change-log-entry
+  description: Change Log must have at least one entry describing the implementation
+  severity: required
+  check: Change Log section has at least one dated entry

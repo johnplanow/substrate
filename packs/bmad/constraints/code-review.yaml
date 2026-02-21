@@ -1,0 +1,59 @@
+- name: minimum-three-issues
+  description: At least 3 specific issues must be found in every review
+  severity: required
+  check: issue_list contains at least 3 entries
+
+- name: maximum-ten-issues
+  description: If fewer than 10 issues found, re-examine before finalizing
+  severity: recommended
+  check: issue_list contains between 3 and 10 entries or reviewer has documented re-examination
+
+- name: adversarial-framing
+  description: Review must actively seek problems, not confirm correctness
+  severity: required
+  check: Review posture is "find what is wrong" not "validate what is right"
+
+- name: ac-validation-required
+  description: Every acceptance criterion must be validated against implementation
+  severity: required
+  check: Each AC has IMPLEMENTED, PARTIAL, or MISSING determination
+
+- name: task-completion-audit
+  description: Every task marked [x] must be verified as actually done
+  severity: required
+  check: Each [x] task has evidence of actual implementation
+
+- name: git-reality-check
+  description: Story File List must be cross-referenced with actual git changes
+  severity: required
+  check: git status and git diff output compared to story File List
+
+- name: false-claims-are-critical
+  description: Tasks or files claimed done/changed but with no git evidence are CRITICAL findings
+  severity: required
+  check: Any story claim without git evidence is flagged as high or critical
+
+- name: test-quality-check
+  description: Tests must have real assertions, not placeholder expectations
+  severity: required
+  check: Test files reviewed for meaningful assertions vs placeholder stubs
+
+- name: security-review
+  description: Code must be reviewed for injection risks, missing validation, auth issues
+  severity: required
+  check: Security audit performed on all implementation files
+
+- name: verdict-criteria
+  description: Verdict must match issue severity distribution
+  severity: required
+  check: approve only if no CRITICAL/HIGH; changes_requested if MEDIUM/HIGH; blocked if CRITICAL
+
+- name: no-bmad-folder-review
+  description: _bmad/ and _bmad-output/ folders must not be reviewed
+  severity: required
+  check: Review scope excludes _bmad/, _bmad-output/, .cursor/, .windsurf/, .claude/
+
+- name: location-required-for-issues
+  description: Every issue must have a specific file and line reference
+  severity: recommended
+  check: Each issue in issue_list has a location field with file:line reference

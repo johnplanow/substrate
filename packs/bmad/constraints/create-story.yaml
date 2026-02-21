@@ -1,0 +1,99 @@
+- name: story-has-user-story
+  description: Story must have a user story statement with As a/I want/so that
+  severity: required
+  check: Story section contains As a, I want, so that
+
+- name: acs-in-bdd-format
+  description: All acceptance criteria must use Given/When/Then format
+  severity: required
+  check: Each AC has Given, When, Then keywords
+
+- name: at-least-three-acs
+  description: Story must have at least 3 acceptance criteria
+  severity: required
+  check: Count of ACs >= 3
+
+- name: tasks-map-to-acs
+  description: Each task must reference at least one AC
+  severity: required
+  check: Each task has an AC annotation referencing an AC number
+
+- name: tasks-are-granular
+  description: Tasks should be implementable in 2-4 hours with subtasks
+  severity: recommended
+  check: Tasks with significant scope have subtasks
+
+- name: dev-notes-present
+  description: Dev Notes section must have architecture constraints
+  severity: required
+  check: Dev Notes section exists and is non-empty
+
+- name: esm-imports-noted
+  description: Dev Notes must mention ESM import requirements if TypeScript project
+  severity: recommended
+  check: Dev Notes mentions .js extension requirement for ESM imports
+
+- name: test-requirements-specified
+  description: Dev Notes should specify test framework and patterns
+  severity: recommended
+  check: Dev Notes has Testing Requirements or similar section
+
+- name: file-structure-specified
+  description: Dev Notes should specify where new files go
+  severity: recommended
+  check: Dev Notes references file paths or directory structure
+
+- name: no-vague-tasks
+  description: Tasks must be specific and implementable not vague
+  severity: required
+  check: No task descriptions contain only implement, add, create without specifics
+
+- name: story-status-ready-for-dev
+  description: Story status must be set to ready-for-dev when complete
+  severity: required
+  check: Status field equals ready-for-dev
+
+- name: sprint-status-updated
+  description: Sprint status yaml must be updated to ready-for-dev
+  severity: required
+  check: development_status story_key equals ready-for-dev in sprint-status.yaml
+
+- name: no-copy-paste-from-epics
+  description: Story must add context beyond what is in epics
+  severity: required
+  check: Dev Notes contains architecture/technical content not present in epic source
+
+- name: previous-story-learnings-applied
+  description: If previous story exists learnings should be reflected
+  severity: recommended
+  check: Dev Notes references previous story findings when story_num > 1
+
+- name: acceptance-criteria-testable
+  description: ACs must be testable with a clear pass/fail condition
+  severity: required
+  check: Each AC has a concrete measurable outcome in Then clause
+
+- name: no-ambiguous-requirements
+  description: Requirements must be specific enough to implement without clarification
+  severity: required
+  check: No AC or task contains etc or and so on without specification
+
+- name: dev-agent-record-present
+  description: Story must have Dev Agent Record section
+  severity: required
+  check: Story has Dev Agent Record section with subsections
+
+- name: file-list-section-present
+  description: Story must have File List section in Dev Agent Record
+  severity: required
+  check: Dev Agent Record has File List subsection
+
+- name: change-log-section-present
+  description: Story must have Change Log section
+  severity: recommended
+  check: Story has Change Log section
+
+- name: story-key-matches-filename
+  description: Story key derived from filename must match epic/story numbers
+  severity: required
+  check: Filename pattern N-N-title.md matches epic_num and story_num in content
