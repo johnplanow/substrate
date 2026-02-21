@@ -2,35 +2,183 @@
  * Unit tests for `src/cli/commands/resume.ts`
  *
  * Covers Acceptance Criteria:
- *   AC3: Paused session → status updated to active, pending task count printed, exit 0
- *   AC4: Active/cancelled/complete session → warning, exit 2
- *   AC7: Session not found → stderr error, exit 2
- *   AC8: --output-format json → NDJSON output
+ *   AC7: No interrupted session → stdout "No interrupted session found", exit 0
+ *   AC5: Interrupted session found → "Resuming interrupted session <id>",
+ *        recover() called, startExecution() called
+ *   AC5: graph:complete fires → exit 0 returned
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // ---------------------------------------------------------------------------
-// Fake DB rows
+// Fake event bus factory — shared mutable reference
 // ---------------------------------------------------------------------------
 
-interface FakeSession {
-  id: string
-  status: string
+type Handler = (payload: unknown) => void
+
+interface FakeEventBus {
+  _handlers: Map<string, Handler[]>
+  on: ReturnType<typeof vi.fn>
+  off: ReturnType<typeof vi.fn>
+  emit: ReturnType<typeof vi.fn>
+  _fire: (event: string, payload: unknown) => void
 }
 
-let _fakeSession: FakeSession | null = null
-let _fakePendingCount = 5
-let _sessionUpdates: Array<{ id: string; status: string }> = []
-let _signalsInserted: Array<{ sessionId: string; signal: string }> = []
-let _existsResult = true
+let _capturedBus: FakeEventBus | null = null
+
+function makeFakeBus(): FakeEventBus {
+  const handlers: Map<string, Handler[]> = new Map()
+  const bus: FakeEventBus = {
+    _handlers: handlers,
+    on: vi.fn((event: string, handler: Handler) => {
+      if (!handlers.has(event)) handlers.set(event, [])
+      handlers.get(event)!.push(handler)
+    }),
+    off: vi.fn((event: string, handler: Handler) => {
+      const list = handlers.get(event) ?? []
+      const idx = list.indexOf(handler)
+      if (idx !== -1) list.splice(idx, 1)
+    }),
+    emit: vi.fn((event: string, payload: unknown) => {
+      const list = handlers.get(event) ?? []
+      for (const h of list) h(payload)
+    }),
+    _fire: (event: string, payload: unknown) => {
+      const list = handlers.get(event) ?? []
+      for (const h of list) h(payload)
+    },
+  }
+  _capturedBus = bus
+  return bus
+}
 
 // ---------------------------------------------------------------------------
-// Mocks
+// Fake TaskGraphEngine factory
 // ---------------------------------------------------------------------------
 
-vi.mock('fs', () => ({
-  existsSync: () => _existsResult,
+const _mockLoadGraph = vi.fn()
+const _mockStartExecution = vi.fn()
+const _mockGetAllTasks = vi.fn()
+const _mockGetReadyTasks = vi.fn()
+const _mockCancelAll = vi.fn()
+const _mockTgeInitialize = vi.fn()
+const _mockTgeShutdown = vi.fn()
+const _mockTgePause = vi.fn()
+
+// ---------------------------------------------------------------------------
+// Fake DatabaseService factory
+// ---------------------------------------------------------------------------
+
+const _mockDbInitialize = vi.fn()
+const _mockDbShutdown = vi.fn()
+
+// ---------------------------------------------------------------------------
+// Fake config system factory
+// ---------------------------------------------------------------------------
+
+const _mockConfigLoad = vi.fn()
+const _mockConfigGetConfig = vi.fn()
+
+// ---------------------------------------------------------------------------
+// Fake routing engine factory
+// ---------------------------------------------------------------------------
+
+const _mockRoutingInitialize = vi.fn()
+const _mockRoutingShutdown = vi.fn()
+
+// ---------------------------------------------------------------------------
+// Fake worker pool manager factory
+// ---------------------------------------------------------------------------
+
+const _mockWpmInitialize = vi.fn()
+const _mockWpmShutdown = vi.fn()
+const _mockWpmTerminateAll = vi.fn()
+
+// ---------------------------------------------------------------------------
+// Fake git worktree manager factory
+// ---------------------------------------------------------------------------
+
+const _mockGwmInitialize = vi.fn()
+const _mockGwmShutdown = vi.fn()
+
+// ---------------------------------------------------------------------------
+// CrashRecoveryManager mock — findInterruptedSession controls the key path
+// ---------------------------------------------------------------------------
+
+const _mockFindInterruptedSession = vi.fn()
+const _mockRecover = vi.fn()
+const _mockArchiveSession = vi.fn()
+
+// ---------------------------------------------------------------------------
+// Module mocks — MUST be declared before any imports that use them
+// ---------------------------------------------------------------------------
+
+vi.mock('../../../core/event-bus.js', () => ({
+  createEventBus: () => makeFakeBus(),
+}))
+
+vi.mock('../../../modules/database/database-service.js', () => ({
+  createDatabaseService: () => ({
+    initialize: _mockDbInitialize,
+    shutdown: _mockDbShutdown,
+    get db() { return { prepare: vi.fn(() => ({ get: vi.fn(), run: vi.fn() })), pragma: vi.fn() } },
+  }),
+}))
+
+vi.mock('../../../modules/task-graph/task-graph-engine.js', () => ({
+  createTaskGraphEngine: () => ({
+    initialize: _mockTgeInitialize,
+    shutdown: _mockTgeShutdown,
+    loadGraph: _mockLoadGraph,
+    startExecution: _mockStartExecution,
+    getAllTasks: _mockGetAllTasks,
+    getReadyTasks: _mockGetReadyTasks,
+    cancelAll: _mockCancelAll,
+    pause: _mockTgePause,
+    state: 'Idle',
+  }),
+}))
+
+vi.mock('../../../modules/routing/routing-engine.js', () => ({
+  createRoutingEngine: () => ({
+    initialize: _mockRoutingInitialize,
+    shutdown: _mockRoutingShutdown,
+  }),
+}))
+
+vi.mock('../../../modules/worker-pool/worker-pool-manager-impl.js', () => ({
+  createWorkerPoolManager: () => ({
+    initialize: _mockWpmInitialize,
+    shutdown: _mockWpmShutdown,
+    terminateAll: _mockWpmTerminateAll,
+  }),
+}))
+
+vi.mock('../../../modules/git-worktree/git-worktree-manager-impl.js', () => ({
+  createGitWorktreeManager: () => ({
+    initialize: _mockGwmInitialize,
+    shutdown: _mockGwmShutdown,
+  }),
+}))
+
+vi.mock('../../../adapters/adapter-registry.js', () => {
+  class AdapterRegistry {
+    discoverAndRegister() {
+      return Promise.resolve({ registeredCount: 0, failedCount: 0, results: [] })
+    }
+  }
+  return { AdapterRegistry }
+})
+
+vi.mock('../../../modules/config/config-system-impl.js', () => ({
+  createConfigSystem: () => ({
+    load: _mockConfigLoad,
+    getConfig: _mockConfigGetConfig,
+  }),
+}))
+
+vi.mock('../../../cli/formatters/streaming.js', () => ({
+  emitEvent: vi.fn(),
 }))
 
 vi.mock('../../../utils/logger.js', () => ({
@@ -42,43 +190,65 @@ vi.mock('../../../utils/logger.js', () => ({
   }),
 }))
 
-vi.mock('../../../persistence/database.js', () => {
-  return {
-    DatabaseWrapper: class MockDatabaseWrapper {
-      open() { /* no-op */ }
-      close() { /* no-op */ }
-      get db() {
-        return {
-          prepare: (sql: string) => ({
-            get: (_id: string) => {
-              if (sql.includes('SELECT id, status FROM sessions')) {
-                return _fakeSession ?? undefined
-              }
-              if (sql.includes("status IN ('pending', 'ready')")) {
-                return { cnt: _fakePendingCount }
-              }
-              return undefined
-            },
-            run: (id: string) => {
-              if (sql.includes("SET status = 'active'")) {
-                _sessionUpdates.push({ id, status: 'active' })
-              }
-              if (sql.includes("INSERT INTO session_signals") && sql.includes("'resume'")) {
-                _signalsInserted.push({ sessionId: id, signal: 'resume' })
-              }
-            },
-          }),
-          transaction: (fn: () => void) => () => {
-            fn()
-          },
-        }
-      }
-    },
+vi.mock('fs', () => ({
+  existsSync: vi.fn().mockReturnValue(true),
+  mkdirSync: vi.fn(),
+  watch: vi.fn(() => ({
+    on: vi.fn(),
+    close: vi.fn(),
+  })),
+}))
+
+vi.mock('../../../recovery/crash-recovery.js', () => ({
+  CrashRecoveryManager: class MockCrashRecoveryManager {
+    recover(...args: unknown[]) { return _mockRecover(...args) }
+    static findInterruptedSession(...args: unknown[]) { return _mockFindInterruptedSession(...args) }
+    static archiveSession(...args: unknown[]) { return _mockArchiveSession(...args) }
+  },
+}))
+
+vi.mock('../../../recovery/shutdown-handler.js', () => ({
+  setupGracefulShutdown: vi.fn(({ taskGraphEngine }: { taskGraphEngine: { cancelAll: () => void } }) => {
+    const sigintHandler = (): void => { taskGraphEngine.cancelAll() }
+    const sigtermHandler = (): void => { taskGraphEngine.cancelAll() }
+    process.on('SIGINT', sigintHandler)
+    process.on('SIGTERM', sigtermHandler)
+    return (): void => {
+      process.removeListener('SIGINT', sigintHandler)
+      process.removeListener('SIGTERM', sigtermHandler)
+    }
+  }),
+}))
+
+vi.mock('../../../modules/task-graph/task-parser.js', () => {
+  class ParseError extends Error {
+    public readonly filePath?: string
+    constructor(message: string) {
+      super(message)
+      this.name = 'ParseError'
+    }
   }
+  return { ParseError, parseGraphFile: vi.fn() }
 })
 
-vi.mock('../../../persistence/migrations/index.js', () => ({
-  runMigrations: vi.fn(),
+vi.mock('../../../modules/task-graph/task-validator.js', () => {
+  class ValidationError extends Error {
+    public readonly errors: string[]
+    constructor(errors: string[]) {
+      super(errors.join('\n'))
+      this.name = 'ValidationError'
+      this.errors = errors
+    }
+  }
+  return { ValidationError, validateGraph: vi.fn() }
+})
+
+vi.mock('../../../modules/config/config-watcher.js', () => ({
+  createConfigWatcher: vi.fn(() => ({
+    start: vi.fn(),
+    stop: vi.fn(),
+  })),
+  computeChangedKeys: vi.fn(() => []),
 }))
 
 // ---------------------------------------------------------------------------
@@ -94,17 +264,21 @@ import {
 import type { ResumeActionOptions } from '../resume.js'
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Constants
 // ---------------------------------------------------------------------------
 
 const PROJECT_ROOT = '/fake/project'
 
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
 function defaultOptions(overrides: Partial<ResumeActionOptions> = {}): ResumeActionOptions {
   return {
-    sessionId: 'sess-paused-456',
     outputFormat: 'human',
     projectRoot: PROJECT_ROOT,
     version: '1.0.0',
+    noWatchConfig: true,
     ...overrides,
   }
 }
@@ -128,17 +302,53 @@ function captureOutput(): void {
 function getStdout(): string { return _stdoutOutput }
 function getStderr(): string { return _stderrOutput }
 
+/** Fire graph:complete via setImmediate to resolve the done-promise. */
+function scheduleGraphComplete(opts: {
+  totalTasks?: number
+  completedTasks?: number
+  failedTasks?: number
+  totalCostUsd?: number
+} = {}): void {
+  const payload = {
+    totalTasks: opts.totalTasks ?? 2,
+    completedTasks: opts.completedTasks ?? 2,
+    failedTasks: opts.failedTasks ?? 0,
+    totalCostUsd: opts.totalCostUsd ?? 0.05,
+  }
+  setImmediate(() => {
+    if (_capturedBus) _capturedBus._fire('graph:complete', payload)
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Setup / Teardown
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
   captureOutput()
-  _fakeSession = { id: 'sess-paused-456', status: 'paused' }
-  _fakePendingCount = 5
-  _sessionUpdates = []
-  _signalsInserted = []
-  _existsResult = true
+  _capturedBus = null
+
+  // All module mocks return defaults
+  _mockDbInitialize.mockResolvedValue(undefined)
+  _mockDbShutdown.mockResolvedValue(undefined)
+  _mockTgeInitialize.mockResolvedValue(undefined)
+  _mockTgeShutdown.mockResolvedValue(undefined)
+  _mockTgePause.mockReturnValue(undefined)
+  _mockRoutingInitialize.mockResolvedValue(undefined)
+  _mockRoutingShutdown.mockResolvedValue(undefined)
+  _mockWpmInitialize.mockResolvedValue(undefined)
+  _mockWpmShutdown.mockResolvedValue(undefined)
+  _mockWpmTerminateAll.mockResolvedValue(undefined)
+  _mockGwmInitialize.mockResolvedValue(undefined)
+  _mockGwmShutdown.mockResolvedValue(undefined)
+  _mockConfigLoad.mockResolvedValue(undefined)
+  _mockConfigGetConfig.mockReturnValue({ global: { max_concurrent_workers: 4 } })
+  _mockStartExecution.mockReturnValue(undefined)
+  _mockCancelAll.mockReturnValue(undefined)
+  _mockRecover.mockReturnValue({ recovered: 1, failed: 0, newlyReady: 1, actions: [] })
+
+  // Default: no interrupted session found
+  _mockFindInterruptedSession.mockReturnValue(undefined)
 })
 
 afterEach(() => {
@@ -157,151 +367,160 @@ describe('exit code constants', () => {
 })
 
 // ---------------------------------------------------------------------------
-// AC3: Paused session → resume succeeds
+// AC7: No interrupted session found
 // ---------------------------------------------------------------------------
 
-describe('AC3: paused session → status updated to active, pending count printed, exit 0', () => {
-  it('returns exit code 0 when session is paused', async () => {
+describe('AC7: no interrupted session found', () => {
+  it('returns exit code 0 when no interrupted session exists', async () => {
+    _mockFindInterruptedSession.mockReturnValue(undefined)
+
     const exitCode = await runResumeAction(defaultOptions())
+
     expect(exitCode).toBe(RESUME_EXIT_SUCCESS)
   })
 
-  it('prints success message to stdout', async () => {
+  it('prints "No interrupted session found" to stdout', async () => {
+    _mockFindInterruptedSession.mockReturnValue(undefined)
+
     await runResumeAction(defaultOptions())
-    expect(getStdout()).toContain('resumed')
-    expect(getStdout()).toContain('sess-paused-456')
+
+    expect(getStdout()).toContain('No interrupted session found')
   })
 
-  it('includes pending task count in output', async () => {
-    _fakePendingCount = 8
-    await runResumeAction(defaultOptions())
-    expect(getStdout()).toContain('8 tasks pending')
-  })
+  it('writes nothing to stderr when no interrupted session', async () => {
+    _mockFindInterruptedSession.mockReturnValue(undefined)
 
-  it('writes nothing to stderr on success', async () => {
     await runResumeAction(defaultOptions())
+
     expect(getStderr()).toBe('')
   })
-})
 
-// ---------------------------------------------------------------------------
-// AC4: Invalid state transition
-// ---------------------------------------------------------------------------
+  it('does NOT call recover() when no interrupted session found', async () => {
+    _mockFindInterruptedSession.mockReturnValue(undefined)
 
-describe('AC4: active/cancelled/complete session → warning, exit 2', () => {
-  it('returns exit code 2 when session is active', async () => {
-    _fakeSession = { id: 'sess-paused-456', status: 'active' }
-    const exitCode = await runResumeAction(defaultOptions())
-    expect(exitCode).toBe(RESUME_EXIT_USAGE_ERROR)
-  })
-
-  it('prints warning for active session', async () => {
-    _fakeSession = { id: 'sess-paused-456', status: 'active' }
     await runResumeAction(defaultOptions())
-    expect(getStdout()).toContain('can only resume a paused session')
+
+    expect(_mockRecover).not.toHaveBeenCalled()
   })
 
-  it('returns exit code 2 when session is cancelled', async () => {
-    _fakeSession = { id: 'sess-paused-456', status: 'cancelled' }
-    const exitCode = await runResumeAction(defaultOptions())
-    expect(exitCode).toBe(RESUME_EXIT_USAGE_ERROR)
-  })
+  it('does NOT call startExecution() when no interrupted session found', async () => {
+    _mockFindInterruptedSession.mockReturnValue(undefined)
 
-  it('returns exit code 2 when session is complete', async () => {
-    _fakeSession = { id: 'sess-paused-456', status: 'complete' }
-    const exitCode = await runResumeAction(defaultOptions())
-    expect(exitCode).toBe(RESUME_EXIT_USAGE_ERROR)
-  })
-
-  it('includes current status in warning message', async () => {
-    _fakeSession = { id: 'sess-paused-456', status: 'active' }
     await runResumeAction(defaultOptions())
-    expect(getStdout()).toContain('active')
+
+    expect(_mockStartExecution).not.toHaveBeenCalled()
   })
 })
 
 // ---------------------------------------------------------------------------
-// AC7: Session not found
+// AC5: Interrupted session found — recover and resume
 // ---------------------------------------------------------------------------
 
-describe('AC7: session not found → stderr error, exit 2', () => {
-  it('returns exit code 2 when session not found', async () => {
-    _fakeSession = null
-    const exitCode = await runResumeAction(defaultOptions())
-    expect(exitCode).toBe(RESUME_EXIT_USAGE_ERROR)
+describe('AC5: interrupted session found → recover and resume', () => {
+  const INTERRUPTED_SESSION_ID = 'sess-interrupted-abc'
+
+  beforeEach(() => {
+    _mockFindInterruptedSession.mockReturnValue({
+      id: INTERRUPTED_SESSION_ID,
+      status: 'interrupted',
+      created_at: '2026-01-01T00:00:00Z',
+    })
   })
 
-  it('writes error to stderr when session not found', async () => {
-    _fakeSession = null
-    await runResumeAction(defaultOptions({ sessionId: 'ghost-session' }))
-    expect(getStderr()).toContain('Error: Session not found: ghost-session')
-  })
+  it('logs "Resuming interrupted session <id>" to stdout', async () => {
+    scheduleGraphComplete()
 
-  it('writes nothing to stdout when session not found', async () => {
-    _fakeSession = null
     await runResumeAction(defaultOptions())
-    expect(getStdout()).toBe('')
+
+    expect(getStdout()).toContain(`Resuming interrupted session ${INTERRUPTED_SESSION_ID}`)
   })
-})
 
-// ---------------------------------------------------------------------------
-// AC8: --output-format json → NDJSON output
-// ---------------------------------------------------------------------------
+  it('calls CrashRecoveryManager.recover() with the interrupted session ID', async () => {
+    scheduleGraphComplete()
 
-describe('AC8: --output-format json → NDJSON output', () => {
-  it('emits a single NDJSON line to stdout on success', async () => {
-    const exitCode = await runResumeAction(defaultOptions({ outputFormat: 'json' }))
+    await runResumeAction(defaultOptions())
+
+    expect(_mockRecover).toHaveBeenCalledWith(INTERRUPTED_SESSION_ID)
+  })
+
+  it('calls startExecution() with the interrupted session ID', async () => {
+    scheduleGraphComplete()
+
+    await runResumeAction(defaultOptions())
+
+    expect(_mockStartExecution).toHaveBeenCalledWith(INTERRUPTED_SESSION_ID, expect.any(Number))
+  })
+
+  it('returns exit code 0 when graph:complete fires', async () => {
+    scheduleGraphComplete({ totalTasks: 2, completedTasks: 2, failedTasks: 0, totalCostUsd: 0.10 })
+
+    const exitCode = await runResumeAction(defaultOptions())
+
     expect(exitCode).toBe(RESUME_EXIT_SUCCESS)
-
-    const lines = getStdout().split('\n').filter(Boolean)
-    expect(lines).toHaveLength(1)
-    const parsed = JSON.parse(lines[0])
-    expect(parsed.event).toBe('session:resume')
-    expect(parsed.timestamp).toBeDefined()
-    expect(parsed.data.sessionId).toBe('sess-paused-456')
-    expect(parsed.data.newStatus).toBe('active')
-    expect(parsed.data.previousStatus).toBe('paused')
   })
 
-  it('includes human-readable message in JSON data', async () => {
-    await runResumeAction(defaultOptions({ outputFormat: 'json' }))
-    const lines = getStdout().split('\n').filter(Boolean)
-    const parsed = JSON.parse(lines[0])
-    expect(parsed.data.message).toContain('resumed')
+  it('calls CrashRecoveryManager.findInterruptedSession()', async () => {
+    scheduleGraphComplete()
+
+    await runResumeAction(defaultOptions())
+
+    expect(_mockFindInterruptedSession).toHaveBeenCalled()
   })
 
-  it('returns exit code 2 and emits JSON for invalid state', async () => {
-    _fakeSession = { id: 'sess-paused-456', status: 'active' }
-    const exitCode = await runResumeAction(defaultOptions({ outputFormat: 'json' }))
-    expect(exitCode).toBe(RESUME_EXIT_USAGE_ERROR)
-    const lines = getStdout().split('\n').filter(Boolean)
-    expect(lines).toHaveLength(1)
-    const parsed = JSON.parse(lines[0])
-    expect(parsed.data.previousStatus).toBe('active')
+  it('passes maxConcurrency option to startExecution', async () => {
+    scheduleGraphComplete()
+
+    await runResumeAction(defaultOptions({ maxConcurrency: 3 }))
+
+    expect(_mockStartExecution).toHaveBeenCalledWith(INTERRUPTED_SESSION_ID, 3)
   })
 
-  it('ISO 8601 timestamp is present in JSON output', async () => {
-    await runResumeAction(defaultOptions({ outputFormat: 'json' }))
-    const lines = getStdout().split('\n').filter(Boolean)
-    const parsed = JSON.parse(lines[0])
-    expect(() => new Date(parsed.timestamp).toISOString()).not.toThrow()
+  it('does NOT call loadGraph (existing session, no new graph)', async () => {
+    scheduleGraphComplete()
+
+    await runResumeAction(defaultOptions())
+
+    expect(_mockLoadGraph).not.toHaveBeenCalled()
   })
 })
 
 // ---------------------------------------------------------------------------
-// Database not found
+// Multiple interrupted sessions — most-recent is resumed
 // ---------------------------------------------------------------------------
 
-describe('database not found', () => {
-  it('returns exit code 1 when DB does not exist', async () => {
-    _existsResult = false
+describe('AC7: multiple interrupted sessions — most-recent resumed', () => {
+  it('uses the session returned by findInterruptedSession (most-recent by created_at DESC)', async () => {
+    // findInterruptedSession already does ORDER BY created_at DESC LIMIT 1 in SQL;
+    // we verify that resume uses whichever session it returns
+    const mostRecentSession = { id: 'sess-newer', status: 'interrupted', created_at: '2026-02-01T00:00:00Z' }
+    _mockFindInterruptedSession.mockReturnValue(mostRecentSession)
+
+    scheduleGraphComplete()
+    await runResumeAction(defaultOptions())
+
+    expect(_mockRecover).toHaveBeenCalledWith('sess-newer')
+    expect(_mockStartExecution).toHaveBeenCalledWith('sess-newer', expect.any(Number))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// System error handling
+// ---------------------------------------------------------------------------
+
+describe('system error handling', () => {
+  it('returns exit code 1 when database initialization throws', async () => {
+    _mockDbInitialize.mockRejectedValue(new Error('disk full'))
+
     const exitCode = await runResumeAction(defaultOptions())
+
     expect(exitCode).toBe(RESUME_EXIT_ERROR)
   })
 
-  it('writes error to stderr when DB does not exist', async () => {
-    _existsResult = false
+  it('writes system error to stderr when initialization fails', async () => {
+    _mockDbInitialize.mockRejectedValue(new Error('disk full'))
+
     await runResumeAction(defaultOptions())
-    expect(getStderr()).toContain('Error: No Substrate database found')
+
+    expect(getStderr()).toContain('disk full')
   })
 })

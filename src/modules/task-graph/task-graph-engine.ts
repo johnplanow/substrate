@@ -38,6 +38,7 @@ import {
 } from '../../persistence/queries/tasks.js'
 import type { Task } from '../../persistence/queries/tasks.js'
 import { appendLog } from '../../persistence/queries/log.js'
+import { maskSecrets } from '../../cli/utils/masking.js'
 import { parseGraphFile, parseGraphString } from './task-parser.js'
 import type { GraphFormat } from './task-parser.js'
 import { validateGraph, ValidationError } from './task-validator.js'
@@ -236,7 +237,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
     })
 
     this._eventBus.on('task:complete', ({ taskId, result }) => {
-      logger.debug({ taskId }, 'task:complete — update graph state')
+      logger.debug({ taskId, costUsd: result.costUsd }, 'task:complete — update graph state')
       // Mark the task complete and cascade to check for newly ready tasks
       if (this._state === 'Executing' && this._sessionId !== null) {
         const output = result.output !== undefined ? result.output : ''
@@ -245,7 +246,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
     })
 
     this._eventBus.on('task:failed', ({ taskId, error }) => {
-      logger.debug({ taskId, error }, 'task:failed — update graph state')
+      logger.warn({ taskId, error: error.message }, 'task:failed — update graph state')
       // Mark task failed (retry logic is inside markTaskFailed)
       if (this._state === 'Executing' && this._sessionId !== null) {
         this.markTaskFailed(taskId, error.message, undefined)
@@ -427,11 +428,12 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
     if (this._state !== 'Idle') {
       throw new Error(`startExecution requires Idle state; current state is ${this._state}`)
     }
-    // Transition through Loading to Executing
-    this._transition('Loading')
+    // Set _sessionId before first transition so orchestrator:state_change entries are logged
     this._sessionId = sessionId
     this._maxConcurrency = maxConcurrency
     this._inFlightCount = 0
+    // Transition through Loading to Executing
+    this._transition('Loading')
     this._transition('Executing')
 
     logger.info({ sessionId, maxConcurrency }, 'Execution started')
@@ -468,7 +470,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
       .all(sessionId) as Task[]
 
     for (const task of cancellableTasks) {
-      this._logAndUpdateStatus(task.id, task.status, 'cancelled')
+      this._logAndUpdateStatus(task.id, task.status, 'cancelled', sessionId, task.agent ?? null)
     }
 
     const cancelledCount = cancellableTasks.length
@@ -499,6 +501,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
         event: 'task:status_change',
         old_status: task.status,
         new_status: 'running',
+        agent: task.agent ?? null,
       })
       updateTaskStatus(db, taskId, 'running', {
         worker_id: workerId,
@@ -507,7 +510,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
     })
 
     doTransition()
-    logger.debug({ taskId, workerId }, 'markTaskRunning')
+    logger.debug({ taskId, workerId, oldStatus: task.status, newStatus: 'running', agent: task.agent }, 'markTaskRunning')
   }
 
   markTaskComplete(taskId: string, result: string, costUsd?: number): void {
@@ -524,7 +527,9 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
         event: 'task:status_change',
         old_status: task.status,
         new_status: 'completed',
+        agent: task.agent ?? null,
         cost_usd: costUsd ?? null,
+        data: JSON.stringify({ result: maskSecrets(result) }),
       })
       updateTaskStatus(db, taskId, 'completed', {
         result,
@@ -534,7 +539,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
     })
 
     doTransition()
-    logger.debug({ taskId, costUsd }, 'markTaskComplete')
+    logger.debug({ taskId, costUsd, oldStatus: task.status, newStatus: 'completed', agent: task.agent }, 'markTaskComplete')
 
     // After marking complete, check for newly ready tasks (cascade scheduling)
     if (this._state === 'Executing') {
@@ -559,6 +564,8 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
         event: 'task:status_change',
         old_status: task.status,
         new_status: newStatus,
+        agent: task.agent ?? null,
+        data: JSON.stringify({ error: maskSecrets(error) }),
       })
 
       if (canRetry) {
@@ -585,7 +592,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
     })
 
     doTransition()
-    logger.debug({ taskId, canRetry, newStatus }, 'markTaskFailed')
+    logger.debug({ taskId, canRetry, newStatus, error, oldStatus: task.status, agent: task.agent }, 'markTaskFailed')
 
     // After failure, check for newly ready tasks or graph completion
     if (this._state === 'Executing') {
@@ -600,8 +607,8 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
       throw new Error(`Task "${taskId}" not found`)
     }
 
-    this._logAndUpdateStatus(taskId, task.status, 'cancelled', task.session_id)
-    logger.debug({ taskId }, 'markTaskCancelled')
+    this._logAndUpdateStatus(taskId, task.status, 'cancelled', task.session_id, task.agent ?? null)
+    logger.debug({ taskId, oldStatus: task.status, newStatus: 'cancelled' }, 'markTaskCancelled')
   }
 
   // ---------------------------------------------------------------------------
@@ -669,7 +676,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
       const failedTasks = allTasks.filter((t) => t.status === 'failed').length
       const totalCostUsd = allTasks.reduce((sum, t) => sum + (t.cost_usd ?? 0), 0)
 
-      logger.info({ sessionId, totalTasks, completedTasks, failedTasks }, 'Graph complete')
+      logger.info({ sessionId, totalTasks, completedTasks, failedTasks, totalCostUsd }, 'Graph complete')
       this._stopSignalPolling()
       this._transition('Completing')
       this._eventBus.emit('graph:complete', { totalTasks, completedTasks, failedTasks, totalCostUsd })
@@ -686,6 +693,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
     oldStatus: string,
     newStatus: string,
     sessionId?: string,
+    agent?: string | null,
   ): void {
     const db = this._databaseService.db
     const resolvedSessionId = sessionId ?? this._sessionId
@@ -701,6 +709,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
         event: 'task:status_change',
         old_status: oldStatus,
         new_status: newStatus,
+        agent: agent ?? null,
       })
       updateTaskStatus(db, taskId, newStatus)
     })

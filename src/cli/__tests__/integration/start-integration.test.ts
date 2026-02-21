@@ -170,6 +170,19 @@ vi.mock('fs', async (importOriginal) => {
   }
 })
 
+vi.mock('../../../recovery/crash-recovery.js', () => ({
+  CrashRecoveryManager: {
+    findInterruptedSession: vi.fn().mockReturnValue(undefined),
+    archiveSession: vi.fn(),
+  },
+}))
+
+vi.mock('../../../recovery/shutdown-handler.js', () => ({
+  setupGracefulShutdown: vi.fn(() => {
+    return (): void => { /* no-op cleanup */ }
+  }),
+}))
+
 // ---------------------------------------------------------------------------
 // Imports — after all vi.mock() declarations
 // ---------------------------------------------------------------------------

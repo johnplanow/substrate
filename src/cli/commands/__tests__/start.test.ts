@@ -212,6 +212,26 @@ vi.mock('fs', () => ({
   })),
 }))
 
+vi.mock('../../../recovery/crash-recovery.js', () => ({
+  CrashRecoveryManager: {
+    findInterruptedSession: vi.fn().mockReturnValue(undefined),
+    archiveSession: vi.fn(),
+  },
+}))
+
+vi.mock('../../../recovery/shutdown-handler.js', () => ({
+  setupGracefulShutdown: vi.fn(({ taskGraphEngine }: { taskGraphEngine: { cancelAll: () => void } }) => {
+    const sigintHandler = (): void => { taskGraphEngine.cancelAll() }
+    const sigtermHandler = (): void => { taskGraphEngine.cancelAll() }
+    process.on('SIGINT', sigintHandler)
+    process.on('SIGTERM', sigtermHandler)
+    return (): void => {
+      process.removeListener('SIGINT', sigintHandler)
+      process.removeListener('SIGTERM', sigtermHandler)
+    }
+  }),
+}))
+
 // We provide real ParseError / ValidationError classes so instanceof checks in start.ts work.
 // They are defined in the mocked modules via vi.mock above — we need them to be the SAME classes.
 

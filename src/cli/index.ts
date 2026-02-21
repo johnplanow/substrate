@@ -22,6 +22,7 @@ import { registerResumeCommand } from './commands/resume.js'
 import { registerCancelCommand } from './commands/cancel.js'
 import { registerRetryCommand } from './commands/retry.js'
 import { registerGraphCommand } from './commands/graph.js'
+import { registerLogCommand } from './commands/log.js'
 
 const logger = createLogger('cli')
 
@@ -103,6 +104,9 @@ export async function createProgram(): Promise<Command> {
 
   // Register graph command (story 5.5)
   registerGraphCommand(program, version)
+
+  // Register log command (story 6.3)
+  registerLogCommand(program, version)
 
   return program
 }

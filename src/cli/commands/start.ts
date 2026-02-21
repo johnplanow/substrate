@@ -36,6 +36,8 @@ import { ValidationError, validateGraph } from '../../modules/task-graph/task-va
 import { emitEvent } from '../formatters/streaming.js'
 import { createLogger } from '../../utils/logger.js'
 import type { SubstrateConfig } from '../../modules/config/config-schema.js'
+import { CrashRecoveryManager } from '../../recovery/crash-recovery.js'
+import { setupGracefulShutdown } from '../../recovery/shutdown-handler.js'
 
 const logger = createLogger('start-cmd')
 
@@ -58,7 +60,7 @@ export const START_EXIT_INTERRUPTED = 130
  * Options for the start action.
  */
 export interface StartActionOptions {
-  graphFile: string
+  graphFile?: string
   dryRun: boolean
   maxConcurrency?: number
   outputFormat: 'human' | 'json'
@@ -66,6 +68,13 @@ export interface StartActionOptions {
   version?: string
   /** When true, config hot-reload watcher is disabled */
   noWatchConfig?: boolean
+  /**
+   * When true, the command is operating in "resume" mode (i.e. called from `substrate resume`).
+   * This changes the behavior when no interrupted session is found:
+   *   - resume mode:  prints "No interrupted session found" to stdout and returns 0
+   *   - start mode:   prints an error to stderr and returns START_EXIT_USAGE_ERROR (2)
+   */
+  resumeMode?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -85,18 +94,27 @@ export async function runStartAction(options: StartActionOptions): Promise<numbe
     outputFormat,
     projectRoot,
     noWatchConfig = false,
+    resumeMode = false,
   } = options
 
-  // AC6: Validate graph file exists
-  const resolvedGraphFile = graphFile.startsWith('/') ? graphFile : join(projectRoot, graphFile)
+  // Resolve graph file path if provided
+  let resolvedGraphFile: string | null = null
+  if (graphFile !== undefined && graphFile !== null && graphFile !== '') {
+    resolvedGraphFile = graphFile.startsWith('/') ? graphFile : join(projectRoot, graphFile)
+  }
 
-  if (!existsSync(resolvedGraphFile)) {
+  // AC6: Validate graph file exists (only when provided)
+  if (resolvedGraphFile !== null && !existsSync(resolvedGraphFile)) {
     process.stderr.write(`Error: Graph file not found: ${resolvedGraphFile}\n`)
     return START_EXIT_USAGE_ERROR
   }
 
   // AC4: Dry-run mode — parse and validate without creating any DB session
   if (dryRun) {
+    if (resolvedGraphFile === null) {
+      process.stderr.write('Error: --graph <file> is required for dry-run mode\n')
+      return START_EXIT_USAGE_ERROR
+    }
     try {
       const raw = parseGraphFile(resolvedGraphFile)
       const result = validateGraph(raw)
@@ -221,25 +239,63 @@ export async function runStartAction(options: StartActionOptions): Promise<numbe
       configWatcher.start()
     }
 
-    // Load graph: catches ParseError and ValidationError (AC6)
+    // Check for interrupted session before loading graph (AC5, AC6)
+    const interruptedSession = CrashRecoveryManager.findInterruptedSession(databaseService.db)
+
+    // Load graph or resume interrupted session
     let sessionId: string
-    try {
-      sessionId = await taskGraphEngine.loadGraph(resolvedGraphFile)
-    } catch (err) {
-      if (err instanceof ParseError) {
-        process.stderr.write(
-          `Error: Failed to parse graph file: ${resolvedGraphFile}\n${err.message}\n`,
-        )
+    let cleanupShutdown: (() => void) | null = null
+
+    if (resolvedGraphFile === null) {
+      // No --graph flag: resume interrupted session if one exists (AC5)
+      if (interruptedSession !== undefined) {
+        process.stdout.write(`Resuming interrupted session ${interruptedSession.id}\n`)
+        logger.info({ sessionId: interruptedSession.id }, 'session:resumed')
+        const recovery = new CrashRecoveryManager({ db: databaseService.db, gitWorktreeManager })
+        recovery.recover(interruptedSession.id)
+        sessionId = interruptedSession.id
+      } else {
+        if (resumeMode) {
+          process.stdout.write('No interrupted session found\n')
+          return START_EXIT_SUCCESS
+        }
+        process.stderr.write('Error: No graph file provided and no interrupted session found.\n')
         return START_EXIT_USAGE_ERROR
       }
-      if (err instanceof ValidationError) {
-        process.stderr.write(
-          `Error: Graph validation failed: ${resolvedGraphFile}\n${err.errors.join('\n')}\n`,
-        )
-        return START_EXIT_USAGE_ERROR
+    } else {
+      // --graph flag provided
+      if (interruptedSession !== undefined) {
+        // Archive the interrupted session and start fresh (AC6)
+        CrashRecoveryManager.archiveSession(databaseService.db, interruptedSession.id)
+        process.stdout.write(`Prior session ${interruptedSession.id} archived (abandoned). Starting new session.\n`)
       }
-      throw err
+      // Load graph: catches ParseError and ValidationError
+      try {
+        sessionId = await taskGraphEngine.loadGraph(resolvedGraphFile)
+      } catch (err) {
+        if (err instanceof ParseError) {
+          process.stderr.write(
+            `Error: Failed to parse graph file: ${resolvedGraphFile}\n${err.message}\n`,
+          )
+          return START_EXIT_USAGE_ERROR
+        }
+        if (err instanceof ValidationError) {
+          process.stderr.write(
+            `Error: Graph validation failed: ${resolvedGraphFile}\n${err.errors.join('\n')}\n`,
+          )
+          return START_EXIT_USAGE_ERROR
+        }
+        throw err
+      }
     }
+
+    // Set up graceful shutdown handler (AC3) — replaces inline SIGINT/SIGTERM handlers
+    cleanupShutdown = setupGracefulShutdown({
+      db: databaseService.db,
+      workerPoolManager,
+      taskGraphEngine,
+      sessionId,
+    })
 
     // Set up event listeners based on output format
     let graphLoadedPayload: { sessionId: string; taskCount: number; readyCount: number } | null =
@@ -336,19 +392,6 @@ export async function runStartAction(options: StartActionOptions): Promise<numbe
       })
     })
 
-    // Register SIGINT/SIGTERM handlers (AC8)
-    const sigintHandler = () => {
-      logger.info('SIGINT received — initiating graceful shutdown')
-      taskGraphEngine.cancelAll()
-    }
-    const sigtermHandler = () => {
-      logger.info('SIGTERM received — initiating graceful shutdown')
-      taskGraphEngine.cancelAll()
-    }
-
-    process.once('SIGINT', sigintHandler)
-    process.once('SIGTERM', sigtermHandler)
-
     // Print session start header for human output (AC7)
     if (outputFormat === 'human') {
       if (graphLoadedPayload !== null) {
@@ -367,9 +410,10 @@ export async function runStartAction(options: StartActionOptions): Promise<numbe
     // Wait for completion
     const result = await done
 
-    // Clean up signal handlers
-    process.removeListener('SIGINT', sigintHandler)
-    process.removeListener('SIGTERM', sigtermHandler)
+    // Clean up graceful shutdown handler
+    if (cleanupShutdown !== null) {
+      cleanupShutdown()
+    }
 
     return result.exitCode
   } catch (err) {
@@ -418,7 +462,7 @@ export function registerStartCommand(
   program
     .command('start')
     .description('Start orchestration from a task graph file')
-    .requiredOption('--graph <file>', 'Path to YAML/JSON task graph file')
+    .option('--graph <file>', 'Path to YAML/JSON task graph file (optional if resuming an interrupted session)')
     .option('--dry-run', 'Validate and display graph without executing', false)
     .option('--max-concurrency <n>', 'Maximum number of concurrent tasks', parseInt)
     .option(
@@ -428,7 +472,7 @@ export function registerStartCommand(
     )
     .option('--no-watch-config', 'Disable config file watching during orchestration')
     .action(async (opts: {
-      graph: string
+      graph?: string
       dryRun: boolean
       maxConcurrency?: number
       outputFormat: string
