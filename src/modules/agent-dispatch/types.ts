@@ -61,7 +61,7 @@ export interface DispatchResult<T = unknown> {
   status: 'completed' | 'failed' | 'timeout'
   /** Exit code from the subprocess */
   exitCode: number
-  /** Raw stdout output from the agent */
+  /** Output from the agent: stdout for successful dispatches; combined stdout+stderr for failed dispatches */
   output: string
   /** Parsed and validated YAML result (null if parsing failed or no schema) */
   parsed: T | null

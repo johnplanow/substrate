@@ -34,6 +34,9 @@ const logger = createLogger('agent-dispatch')
 // Grace period (ms) between SIGTERM and SIGKILL during shutdown()
 const SHUTDOWN_GRACE_MS = 10_000
 
+// Maximum time (ms) to wait for processes to exit after SIGKILL during shutdown()
+const SHUTDOWN_MAX_WAIT_MS = 30_000
+
 // Characters per token for estimation heuristic
 const CHARS_PER_TOKEN = 4
 
@@ -140,8 +143,9 @@ export class DispatcherImpl implements Dispatcher {
         this._reserveSlot(id)
         // Start the actual dispatch asynchronously
         this._startDispatch(id, request as DispatchRequest<unknown>, typedResolve).catch((err: unknown) => {
-          // If _startDispatch throws unexpectedly, clean up the slot
+          // If _startDispatch throws unexpectedly, clean up the slot and drain the queue
           this._running.delete(id)
+          this._drainQueue()
           reject(err as Error)
         })
       } else {
@@ -172,13 +176,22 @@ export class DispatcherImpl implements Dispatcher {
       }
     })
 
-    const initialStatus = this._running.size <= this._config.maxConcurrency && this._running.has(id) ? 'running' as const : 'queued' as const
+    // Determine initial status by checking whether the id was placed in the
+    // running map (via _reserveSlot) or in the queue.  Reading both maps
+    // directly avoids any reliance on side-effect ordering from the async
+    // _startDispatch call above.
+    const initialStatus = this._running.has(id) ? 'running' as const : 'queued' as const
     const cancelFn = async (): Promise<void> => {
-      // If queued, remove from queue
-      this._removeFromQueue(id)
+      // If queued, remove from queue and reject the pending promise so the caller is not left hanging
+      const queueIdx = this._queue.findIndex((q) => q.id === id)
+      if (queueIdx !== -1) {
+        const [queued] = this._queue.splice(queueIdx, 1)
+        queued.reject(new Error(`Dispatch ${id} was cancelled while queued`))
+        return
+      }
       // If running, kill the process
       const entry = this._running.get(id)
-      if (entry !== undefined && entry.proc !== null) {
+      if (entry !== undefined && entry.proc != null) {
         try {
           entry.proc.kill('SIGTERM')
         } catch {
@@ -252,10 +265,13 @@ export class DispatcherImpl implements Dispatcher {
     }
 
     // Wait for all to exit (they should have after SIGKILL)
+    // A maximum wait of 30 seconds is enforced to avoid hanging forever if
+    // SIGKILL fails (e.g., on Windows or in edge cases).
     if (this._running.size > 0) {
       await new Promise<void>((resolve) => {
+        const startWait = Date.now()
         const checkInterval = setInterval(() => {
-          if (this._running.size === 0) {
+          if (this._running.size === 0 || Date.now() - startWait >= SHUTDOWN_MAX_WAIT_MS) {
             clearInterval(checkInterval)
             resolve()
           }
@@ -281,6 +297,8 @@ export class DispatcherImpl implements Dispatcher {
     const adapter = this._adapterRegistry.get(agent as Parameters<typeof this._adapterRegistry.get>[0])
     if (adapter === undefined) {
       logger.warn({ id, agent }, 'No adapter found for agent')
+      this._running.delete(id)
+      this._drainQueue()
       resolve({
         id,
         status: 'failed',
@@ -436,6 +454,7 @@ export class DispatcherImpl implements Dispatcher {
       // shutdown() can detect that all processes have exited.
       if (entry.terminated) {
         this._running.delete(id)
+        this._drainQueue()
         return
       }
 
@@ -449,7 +468,6 @@ export class DispatcherImpl implements Dispatcher {
       const code = exitCode ?? 1
 
       const inputTokens = Math.ceil(prompt.length / CHARS_PER_TOKEN)
-      const outputTokens = Math.ceil(stdout.length / CHARS_PER_TOKEN)
 
       this._running.delete(id)
       this._drainQueue()
@@ -484,7 +502,7 @@ export class DispatcherImpl implements Dispatcher {
           parsed,
           parseError,
           durationMs,
-          tokenEstimate: { input: inputTokens, output: outputTokens },
+          tokenEstimate: { input: inputTokens, output: Math.ceil(stdout.length / CHARS_PER_TOKEN) },
         })
       } else {
         const stderr = Buffer.concat(stderrChunks).toString('utf-8')
@@ -497,15 +515,18 @@ export class DispatcherImpl implements Dispatcher {
 
         logger.debug({ id, agent, taskType, exitCode: code, durationMs }, 'Agent failed')
 
+        // Combine stdout and stderr so callers have full context for failures
+        const combinedOutput = stderr ? `${stdout}\n--- stderr ---\n${stderr}` : stdout
+
         resolve({
           id,
           status: 'failed',
           exitCode: code,
-          output: stdout,
+          output: combinedOutput,
           parsed: null,
           parseError: `Agent exited with code ${String(code)}`,
           durationMs,
-          tokenEstimate: { input: inputTokens, output: outputTokens },
+          tokenEstimate: { input: inputTokens, output: Math.ceil(combinedOutput.length / CHARS_PER_TOKEN) },
         })
       }
     })

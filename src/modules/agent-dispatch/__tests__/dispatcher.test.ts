@@ -288,6 +288,8 @@ describe('AC1: Agent Spawning via Adapter Registry', () => {
     expect(result.status).toBe('failed')
     expect(result.parseError).toContain('No adapter registered for agent')
     expect(result.exitCode).toBe(-1)
+    // Verify no slot leak: concurrency slot must be released after adapter-not-found failure
+    expect(dispatcher.getRunning()).toBe(0)
   })
 
   it('passes the prompt to the subprocess via stdin', async () => {
@@ -817,6 +819,101 @@ describe('AC5: Concurrent Dispatch with Limits', () => {
 
     const r2 = await h2.result
     expect(r2.status).toBe('completed')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC5b: Cancel behavior
+// ---------------------------------------------------------------------------
+
+describe('AC5b: Cancel behavior', () => {
+  it('cancelling a queued dispatch rejects its promise with a cancellation error', async () => {
+    const fp1 = createFakeProcess()
+    fakeProcesses.push(fp1)
+
+    const { dispatcher } = createTestDispatcher({ maxConcurrency: 1 })
+
+    // h1 starts immediately (consumes the slot)
+    const h1 = dispatcher.dispatch({
+      prompt: 'Task 1',
+      agent: 'claude-code',
+      taskType: 'code-review',
+      timeout: 60_000,
+    })
+
+    // h2 and h3 are queued
+    const h2 = dispatcher.dispatch({
+      prompt: 'Task 2',
+      agent: 'claude-code',
+      taskType: 'code-review',
+      timeout: 60_000,
+    })
+    const h3 = dispatcher.dispatch({
+      prompt: 'Task 3',
+      agent: 'claude-code',
+      taskType: 'code-review',
+      timeout: 60_000,
+    })
+
+    await flushMicrotasks()
+
+    expect(dispatcher.getRunning()).toBe(1)
+    expect(dispatcher.getPending()).toBe(2)
+
+    // Cancel the first queued dispatch (h2)
+    await h2.cancel()
+
+    // h2 promise should reject with a cancellation error
+    await expect(h2.result).rejects.toThrow(/cancelled/i)
+
+    // Only h3 remains in queue
+    expect(dispatcher.getPending()).toBe(1)
+    expect(dispatcher.getRunning()).toBe(1)
+
+    // Clean up
+    const fp2 = createFakeProcess()
+    fakeProcesses.push(fp2)
+
+    completeDispatch(fp1, 'result: success\n')
+    await h1.result
+    await flushMicrotasks()
+
+    completeDispatch(fp2, 'result: success\n')
+    await h3.result
+  })
+
+  it('cancelling a running dispatch kills the process and resolves/rejects the promise', async () => {
+    const fp = createFakeProcess()
+    fakeProcesses.push(fp)
+
+    const { dispatcher } = createTestDispatcher({ maxConcurrency: 2 })
+
+    const h1 = dispatcher.dispatch({
+      prompt: 'Task 1',
+      agent: 'claude-code',
+      taskType: 'code-review',
+      timeout: 60_000,
+    })
+
+    await flushMicrotasks()
+
+    expect(dispatcher.getRunning()).toBe(1)
+
+    // Cancel the running dispatch
+    await h1.cancel()
+
+    // The kill mock emits close(1) automatically — wait for it to settle
+    await flushMicrotasks()
+
+    // Verify the process was killed
+    expect(fp.killMock).toHaveBeenCalledWith('SIGTERM')
+
+    // The promise should settle (either resolve or reject) — just awaiting it confirms it is not hanging
+    const result = await h1.result
+    expect(['failed', 'completed', 'timeout']).toContain(result.status)
+
+    // Slot should be released
+    expect(dispatcher.getRunning()).toBe(0)
   })
 })
 
