@@ -128,7 +128,7 @@ import type { PlanActionOptions } from '../plan.js'
 function makeOptions(overrides: Partial<PlanActionOptions> = {}): PlanActionOptions {
   return {
     goal: 'Add authentication',
-    outputPath: 'adt-plan.json',
+    outputPath: 'substrate-plan.json',
     dryRun: false,
     outputFormat: 'human',
     projectRoot: '/test/project',
@@ -175,7 +175,7 @@ describe('plan command — codebase-aware (Story 7-2)', () => {
     // Default: generate succeeds
     mocks.mockGenerate.mockResolvedValue({
       success: true,
-      outputPath: '/cwd/adt-plan.json',
+      outputPath: '/cwd/substrate-plan.json',
       taskCount: 3,
     })
 

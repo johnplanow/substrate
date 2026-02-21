@@ -942,7 +942,7 @@ export function registerPlanCommand(
     .command('plan')
     .description('Generate a structured task plan from a natural language goal')
     .argument('[goal]', 'Natural language goal for plan generation')
-    .option('--output <path>', 'Output file path (JSON or YAML by extension)', 'adt-plan.json')
+    .option('--output <path>', 'Output file path (JSON or YAML by extension)', 'substrate-plan.json')
     .option('--model <model>', 'Model identifier to use for plan generation')
     .option('--adapter <id>', 'Adapter ID to use for plan generation')
     .option('--dry-run', 'Print the planning prompt without invoking the adapter', false)
