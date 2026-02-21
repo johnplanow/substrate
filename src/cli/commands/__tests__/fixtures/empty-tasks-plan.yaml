@@ -1,0 +1,4 @@
+version: "1"
+session:
+  name: empty-tasks-test-session
+tasks: {}

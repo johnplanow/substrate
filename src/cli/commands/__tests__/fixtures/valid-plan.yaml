@@ -1,0 +1,14 @@
+version: "1"
+session:
+  name: valid-test-session
+tasks:
+  task-a:
+    name: Task A
+    prompt: Do task A
+    type: coding
+  task-b:
+    name: Task B
+    prompt: Do task B
+    type: testing
+    depends_on:
+      - task-a

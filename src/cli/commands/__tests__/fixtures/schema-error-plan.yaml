@@ -1,0 +1,8 @@
+version: "1"
+session:
+  name: schema-error-test-session
+tasks:
+  build-api:
+    name: Build API
+    prompt: Build the API
+    type: scripting

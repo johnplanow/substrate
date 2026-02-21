@@ -33,6 +33,11 @@ const CHARS_PER_TOKEN = 3
 /** Estimated output token multiplier relative to input */
 const OUTPUT_RATIO = 0.5
 
+/** Strip markdown code fences from LLM output (e.g. ```json ... ```) */
+function stripCodeFences(raw: string): string {
+  return raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
+}
+
 interface ClaudeJsonOutput {
   status?: string
   output?: string
@@ -120,12 +125,13 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       envEntries.ANTHROPIC_API_KEY = options.apiKey
     }
 
-    const hasEnv = Object.keys(envEntries).length > 0
-
     return {
       binary: 'claude',
       args,
-      ...(hasEnv ? { env: envEntries } : {}),
+      env: envEntries,
+      // Unset CLAUDECODE so the child claude process doesn't detect nesting and abort.
+      // This is the documented bypass: https://claude.ai/code (nested session guard).
+      unsetEnvKeys: ['CLAUDECODE'],
       cwd: options.worktreePath,
     }
   }
@@ -137,11 +143,13 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
   buildPlanningCommand(request: PlanRequest, options: AdapterOptions): SpawnCommand {
     const model = options.model ?? DEFAULT_MODEL
     const planningPrompt = this._buildPlanningPrompt(request)
+    // Use -p without --output-format json:
+    // `claude -p <prompt>` outputs the model's raw text to stdout.
+    // `--output-format json` wraps the response in a Claude event envelope
+    // (type/result/usage) which breaks JSON parsing of the plan output.
     const args = [
       '-p',
       planningPrompt,
-      '--output-format',
-      'json',
       '--model',
       model,
     ]
@@ -155,12 +163,13 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       envEntries.ANTHROPIC_API_KEY = options.apiKey
     }
 
-    const hasEnv = Object.keys(envEntries).length > 0
-
     return {
       binary: 'claude',
       args,
-      ...(hasEnv ? { env: envEntries } : {}),
+      env: envEntries,
+      // Unset CLAUDECODE so the child claude process doesn't detect nesting and abort.
+      // This is the documented bypass: https://claude.ai/code (nested session guard).
+      unsetEnvKeys: ['CLAUDECODE'],
       cwd: options.worktreePath,
     }
   }
@@ -252,7 +261,7 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
     }
 
     try {
-      const parsed = JSON.parse(stdout.trim()) as ClaudePlanOutput
+      const parsed = JSON.parse(stripCodeFences(stdout)) as ClaudePlanOutput
       if (!Array.isArray(parsed.tasks)) {
         return {
           success: false,
@@ -365,7 +374,9 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       `Output a JSON object with a "tasks" array. Each task should have: ` +
       `"title" (string), "description" (string), "complexity" (1-10 integer), ` +
       `"dependencies" (array of task titles this depends on). ` +
-      `Produce at most ${String(maxTasks)} tasks. Output ONLY valid JSON.`
+      `Produce at most ${String(maxTasks)} tasks. ` +
+      `Output ONLY raw valid JSON — no markdown, no code fences, no explanation. ` +
+      `Start your response with { and end with }.`
     )
   }
 }

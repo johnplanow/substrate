@@ -33,6 +33,15 @@ const CHARS_PER_TOKEN = 3
 /** Estimated output token multiplier relative to input */
 const OUTPUT_RATIO = 0.5
 
+/**
+ * Strip markdown code fences from LLM output.
+ * LLMs often wrap JSON in ```json ... ``` despite being told not to.
+ */
+function stripCodeFences(raw: string): string {
+  const stripped = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+  return stripped.trim()
+}
+
 interface GeminiJsonOutput {
   status?: string
   output?: string
@@ -137,11 +146,12 @@ export class GeminiCLIAdapter implements WorkerAdapter {
   buildPlanningCommand(request: PlanRequest, options: AdapterOptions): SpawnCommand {
     const model = options.model ?? DEFAULT_MODEL
     const planningPrompt = this._buildPlanningPrompt(request)
+    // Use positional prompt arg without --output-format json:
+    // `gemini <prompt> --model <model>` outputs plain text to stdout.
+    // `--output-format json` wraps the response in a {session_id,response,stats}
+    // envelope which breaks JSON parsing of the plan output.
     const args = [
-      '-p',
       planningPrompt,
-      '--output-format',
-      'json',
       '--model',
       model,
     ]
@@ -259,7 +269,7 @@ export class GeminiCLIAdapter implements WorkerAdapter {
     }
 
     try {
-      const parsed = JSON.parse(stdout.trim()) as GeminiPlanOutput
+      const parsed = JSON.parse(stripCodeFences(stdout)) as GeminiPlanOutput
       if (!Array.isArray(parsed.tasks)) {
         return {
           success: false,
@@ -369,7 +379,9 @@ export class GeminiCLIAdapter implements WorkerAdapter {
       `Output a JSON object with a "tasks" array. Each task should have: ` +
       `"title" (string), "description" (string), "complexity" (1-10 integer), ` +
       `"dependencies" (array of task titles this depends on). ` +
-      `Produce at most ${String(maxTasks)} tasks. Output ONLY valid JSON.`
+      `Produce at most ${String(maxTasks)} tasks. ` +
+      `Output ONLY raw valid JSON — no markdown, no code fences, no explanation. ` +
+      `Start your response with { and end with }.`
     )
   }
 }

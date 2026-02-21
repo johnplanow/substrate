@@ -173,15 +173,23 @@ describe('CodexCLIAdapter', () => {
       expect(cmd.binary).toBe('codex')
     })
 
-    it('uses stdin for the planning prompt', () => {
+    it('passes prompt as positional arg (not stdin)', () => {
       const goal = 'Build user authentication'
       const cmd = adapter.buildPlanningCommand({ goal }, defaultOptions)
-      expect(cmd.stdin).toContain(goal)
+      // Positional arg avoids execFileAsync stdin limitation
+      expect(cmd.stdin).toBeUndefined()
+      expect(cmd.args.some((a) => a.includes(goal))).toBe(true)
     })
 
-    it('includes --json flag', () => {
+    it('does not include --json flag (produces JSONL event stream, not plain JSON)', () => {
       const cmd = adapter.buildPlanningCommand({ goal: 'Build auth' }, defaultOptions)
-      expect(cmd.args).toContain('--json')
+      expect(cmd.args).not.toContain('--json')
+    })
+
+    it('includes --sandbox read-only for plan generation', () => {
+      const cmd = adapter.buildPlanningCommand({ goal: 'Build auth' }, defaultOptions)
+      expect(cmd.args).toContain('--sandbox')
+      expect(cmd.args).toContain('read-only')
     })
 
     it('sets cwd to worktreePath', () => {

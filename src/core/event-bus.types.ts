@@ -181,7 +181,16 @@ export interface OrchestratorEvents {
   'plan:rejected': { reason: string }
 
   /** Plan is being refined based on feedback */
-  'plan:refining': { feedback: string }
+  'plan:refining': { planId: string; feedback: string; currentVersion: number }
+
+  /** Plan refinement completed successfully */
+  'plan:refined': { planId: string; newVersion: number; taskCount: number }
+
+  /** Plan was rolled back to a previous version */
+  'plan:rolled-back': { planId: string; fromVersion: number; toVersion: number; newVersion: number }
+
+  /** Plan refinement failed */
+  'plan:refinement-failed': { planId: string; currentVersion: number; error: string }
 
   // -------------------------------------------------------------------------
   // Cost tracker events

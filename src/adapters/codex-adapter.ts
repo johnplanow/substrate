@@ -31,6 +31,11 @@ const CHARS_PER_TOKEN = 3
 /** Estimated output token multiplier relative to input */
 const OUTPUT_RATIO = 0.5
 
+/** Strip markdown code fences from LLM output (e.g. ```json ... ```) */
+function stripCodeFences(raw: string): string {
+  return raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
+}
+
 /** Codex billing mode is API-only */
 const CODEX_BILLING_MODE: BillingMode = 'api'
 
@@ -134,7 +139,11 @@ export class CodexCLIAdapter implements WorkerAdapter {
    */
   buildPlanningCommand(request: PlanRequest, options: AdapterOptions): SpawnCommand {
     const planningPrompt = this._buildPlanningPrompt(request)
-    const args = ['exec', '--json']
+    // Use positional prompt arg without --json:
+    // `codex exec <prompt> --sandbox read-only` outputs the model's raw text to stdout.
+    // `--json` produces a JSONL event stream which breaks direct JSON parsing.
+    // Positional arg avoids the stdin piping issue with execFileAsync.
+    const args = ['exec', planningPrompt, '--sandbox', 'read-only']
 
     if (options.additionalFlags && options.additionalFlags.length > 0) {
       args.push(...options.additionalFlags)
@@ -152,7 +161,6 @@ export class CodexCLIAdapter implements WorkerAdapter {
       args,
       ...(hasEnv ? { env: envEntries } : {}),
       cwd: options.worktreePath,
-      stdin: planningPrompt,
     }
   }
 
@@ -243,7 +251,7 @@ export class CodexCLIAdapter implements WorkerAdapter {
     }
 
     try {
-      const parsed = JSON.parse(stdout.trim()) as CodexPlanOutput
+      const parsed = JSON.parse(stripCodeFences(stdout)) as CodexPlanOutput
 
       // Require at least one of "tasks" or "plan" to be present
       if (parsed.tasks === undefined && parsed.plan === undefined) {
@@ -342,7 +350,9 @@ export class CodexCLIAdapter implements WorkerAdapter {
       `Output a JSON object with a "tasks" array. Each task should have: ` +
       `"title" (string), "description" (string), "complexity" (1-10 integer), ` +
       `"dependencies" (array of task titles this depends on). ` +
-      `Produce at most ${String(maxTasks)} tasks. Output ONLY valid JSON.`
+      `Produce at most ${String(maxTasks)} tasks. ` +
+      `Output ONLY raw valid JSON — no markdown, no code fences, no explanation. ` +
+      `Start your response with { and end with }.`
     )
   }
 }

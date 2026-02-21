@@ -1,0 +1,10 @@
+version: "1"
+session:
+  name: dangling-ref-test-session
+tasks:
+  task-b:
+    name: Task B
+    prompt: Do task B
+    type: coding
+    depends_on:
+      - nonexistent-task

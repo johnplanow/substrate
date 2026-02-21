@@ -1,0 +1,16 @@
+version: "1"
+session:
+  name: cyclic-test-session
+tasks:
+  task-a:
+    name: Task A
+    prompt: Do task A
+    type: coding
+    depends_on:
+      - task-b
+  task-b:
+    name: Task B
+    prompt: Do task B
+    type: coding
+    depends_on:
+      - task-a

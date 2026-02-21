@@ -1,0 +1,9 @@
+version: "1"
+session:
+  name: alias-agent-test-session
+tasks:
+  task-a:
+    name: Task A
+    prompt: Do task A
+    type: coding
+    agent: claude

@@ -19,6 +19,8 @@ export interface SpawnCommand {
   args: string[]
   /** Optional environment variable overrides */
   env?: Record<string, string>
+  /** Optional list of environment variable keys to unset in the child process */
+  unsetEnvKeys?: string[]
   /** Working directory for the process */
   cwd: string
   /** Optional data to pipe to stdin */

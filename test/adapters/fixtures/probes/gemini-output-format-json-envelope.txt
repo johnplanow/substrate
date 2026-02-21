@@ -1,0 +1,70 @@
+{
+  "session_id": "178610e2-ac1a-4c33-81bc-beb4899262ba",
+  "response": "{\"tasks\":[{\"title\":\"test\",\"description\":\"probe\"}]}",
+  "stats": {
+    "models": {
+      "gemini-2.5-flash-lite": {
+        "api": {
+          "totalRequests": 1,
+          "totalErrors": 0,
+          "totalLatencyMs": 1431
+        },
+        "tokens": {
+          "input": 560,
+          "prompt": 3441,
+          "candidates": 56,
+          "total": 3627,
+          "cached": 2881,
+          "thoughts": 130,
+          "tool": 0
+        }
+      },
+      "gemini-2.5-flash": {
+        "api": {
+          "totalRequests": 2,
+          "totalErrors": 0,
+          "totalLatencyMs": 4929
+        },
+        "tokens": {
+          "input": 9650,
+          "prompt": 16442,
+          "candidates": 20,
+          "total": 16670,
+          "cached": 6792,
+          "thoughts": 208,
+          "tool": 0
+        }
+      }
+    },
+    "tools": {
+      "totalCalls": 1,
+      "totalSuccess": 0,
+      "totalFail": 1,
+      "totalDurationMs": 1,
+      "totalDecisions": {
+        "accept": 0,
+        "reject": 0,
+        "modify": 0,
+        "auto_accept": 0
+      },
+      "byName": {
+        "write_todos": {
+          "count": 1,
+          "success": 0,
+          "fail": 1,
+          "durationMs": 1,
+          "decisions": {
+            "accept": 0,
+            "reject": 0,
+            "modify": 0,
+            "auto_accept": 0
+          }
+        }
+      }
+    },
+    "files": {
+      "totalLinesAdded": 0,
+      "totalLinesRemoved": 0
+    }
+  }
+}

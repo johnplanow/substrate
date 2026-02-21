@@ -13,6 +13,8 @@ import { initialSchemaMigration } from './001-initial-schema.js'
 import { costTrackerSchemaMigration } from './002-cost-tracker-schema.js'
 import { budgetEnforcerSchemaMigration } from './003-budget-enforcer-schema.js'
 import { sessionSignalsSchemaMigration } from './004-session-signals-schema.js'
+import { migration005PlansTable } from './005-plans-table.js'
+import { migration006PlanVersions } from './006-plan-versions.js'
 
 const logger = createLogger('persistence:migrations')
 
@@ -33,7 +35,7 @@ export interface Migration {
 // Registered migrations — add new migrations here in version order
 // ---------------------------------------------------------------------------
 
-const MIGRATIONS: Migration[] = [initialSchemaMigration, costTrackerSchemaMigration, budgetEnforcerSchemaMigration, sessionSignalsSchemaMigration]
+const MIGRATIONS: Migration[] = [initialSchemaMigration, costTrackerSchemaMigration, budgetEnforcerSchemaMigration, sessionSignalsSchemaMigration, migration005PlansTable, migration006PlanVersions]
 
 // ---------------------------------------------------------------------------
 // Migration runner

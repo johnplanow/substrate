@@ -194,18 +194,18 @@ describe('GeminiCLIAdapter', () => {
       expect(cmd.binary).toBe('gemini')
     })
 
-    it('includes goal in the -p prompt arg', () => {
+    it('includes goal in the positional prompt arg (no -p flag)', () => {
       const goal = 'Build a REST API with authentication'
       const cmd = adapter.buildPlanningCommand({ goal }, defaultOptions)
-      const pIdx = cmd.args.indexOf('-p')
-      expect(pIdx).toBeGreaterThanOrEqual(0)
-      const promptArg = cmd.args[pIdx + 1] ?? ''
-      expect(promptArg).toContain(goal)
+      // Goal must appear in args but NOT via -p flag (plain positional avoids envelope wrapping)
+      expect(cmd.args.indexOf('-p')).toBe(-1)
+      expect(cmd.args.some((a) => a.includes(goal))).toBe(true)
     })
 
-    it('includes --output-format json', () => {
+    it('does not include --output-format json (causes envelope wrapping)', () => {
       const cmd = adapter.buildPlanningCommand({ goal: 'Build auth' }, defaultOptions)
-      expect(cmd.args).toContain('json')
+      expect(cmd.args).not.toContain('--output-format')
+      expect(cmd.args).not.toContain('json')
     })
 
     it('sets cwd to worktreePath', () => {

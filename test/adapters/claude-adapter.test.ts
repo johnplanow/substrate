@@ -182,9 +182,14 @@ describe('ClaudeCodeAdapter', () => {
       expect(cmd.env?.ANTHROPIC_API_KEY).toBe('sk-secret')
     })
 
-    it('does not include env when no apiKey provided', () => {
+    it('returns empty env when no apiKey provided', () => {
       const cmd = adapter.buildCommand('Fix it', defaultOptions)
-      expect(cmd.env).toBeUndefined()
+      expect(cmd.env).toEqual({})
+    })
+
+    it('includes unsetEnvKeys with CLAUDECODE', () => {
+      const cmd = adapter.buildCommand('Fix it', defaultOptions)
+      expect(cmd.unsetEnvKeys).toContain('CLAUDECODE')
     })
   })
 
@@ -200,13 +205,12 @@ describe('ClaudeCodeAdapter', () => {
       expect(cmd.binary).toBe('claude')
     })
 
-    it('includes --output-format json', () => {
+    it('does not include --output-format json (causes Claude event envelope wrapping)', () => {
       const cmd = adapter.buildPlanningCommand(
         { goal: 'Build auth' },
         defaultOptions
       )
-      expect(cmd.args).toContain('--output-format')
-      expect(cmd.args).toContain('json')
+      expect(cmd.args).not.toContain('--output-format')
     })
 
     it('includes the goal in the prompt arg', () => {
