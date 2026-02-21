@@ -10,6 +10,12 @@
 !.codex/prompts/
 .obsidian/
 
+# Runtime state
+.substrate/state.db
+.substrate/state.db-shm
+.substrate/state.db-wal
+.substrate/plans/
+
 # Build outputs
 dist/
 coverage/
