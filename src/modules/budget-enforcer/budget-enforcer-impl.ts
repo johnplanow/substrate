@@ -20,6 +20,7 @@ import type { TypedEventBus } from '../../core/event-bus.js'
 import type { Task } from '../../persistence/queries/tasks.js'
 import type { BudgetEnforcer } from './budget-enforcer.js'
 import type { BudgetCheckResult, BudgetStatus, SessionBudgetStatus } from './types.js'
+import type { SubstrateConfig } from '../config/config-schema.js'
 import { getTask, getAllTasks } from '../../persistence/queries/tasks.js'
 import { getSession } from '../../persistence/queries/sessions.js'
 import { createLogger } from '../../utils/logger.js'
@@ -57,6 +58,9 @@ export class BudgetEnforcerImpl implements BudgetEnforcer {
   private readonly _eventBus: TypedEventBus
   private _config: BudgetEnforcerConfig
 
+  /** Bound reference for event listener management */
+  private readonly _onConfigReloaded: (payload: { newConfig: SubstrateConfig; changedKeys: string[] }) => void
+
   constructor(
     db: BetterSqlite3Database,
     eventBus: TypedEventBus,
@@ -65,6 +69,10 @@ export class BudgetEnforcerImpl implements BudgetEnforcer {
     this._db = db
     this._eventBus = eventBus
     this._config = { ...DEFAULT_BUDGET_CONFIG, ...config }
+
+    this._onConfigReloaded = ({ newConfig }: { newConfig: SubstrateConfig; changedKeys: string[] }) => {
+      this._handleConfigReloaded(newConfig)
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -73,10 +81,12 @@ export class BudgetEnforcerImpl implements BudgetEnforcer {
 
   async initialize(): Promise<void> {
     logger.info('BudgetEnforcer initialized')
+    this._eventBus.on('config:reloaded', this._onConfigReloaded as Parameters<typeof this._eventBus.on>[1])
   }
 
   async shutdown(): Promise<void> {
     logger.info('BudgetEnforcer shut down')
+    this._eventBus.off('config:reloaded', this._onConfigReloaded as Parameters<typeof this._eventBus.off>[1])
   }
 
   // ---------------------------------------------------------------------------
@@ -90,6 +100,73 @@ export class BudgetEnforcerImpl implements BudgetEnforcer {
   updateConfig(config: Partial<BudgetEnforcerConfig>): void {
     this._config = { ...this._config, ...config }
     logger.info({ config: this._config }, 'BudgetEnforcer config updated')
+  }
+
+  /**
+   * Handle config:reloaded event — update budget caps from new config (AC6).
+   * After updating caps, immediately checks if new lower cap is already exceeded.
+   */
+  private _handleConfigReloaded(newConfig: SubstrateConfig): void {
+    const budgetConfig = newConfig.budget
+    if (budgetConfig === undefined) return
+
+    const newSessionCap = budgetConfig.default_session_budget_usd ?? this._config.defaultSessionBudgetUsd
+    const newTaskCap = budgetConfig.default_task_budget_usd ?? this._config.defaultTaskBudgetUsd
+    const newWarningThreshold = budgetConfig.warning_threshold_percent ?? this._config.warningThresholdPercent
+    const newPlanningCosts = budgetConfig.planning_costs_count_against_budget ?? this._config.planningCostsCountAgainstBudget
+
+    this._config = {
+      ...this._config,
+      defaultSessionBudgetUsd: newSessionCap,
+      defaultTaskBudgetUsd: newTaskCap,
+      warningThresholdPercent: newWarningThreshold,
+      planningCostsCountAgainstBudget: newPlanningCosts,
+    }
+
+    logger.info(
+      { sessionBudgetCap: newSessionCap, taskBudgetCap: newTaskCap },
+      `Budget caps updated from config reload: session=$${newSessionCap}, task=$${newTaskCap}`,
+    )
+
+    // Immediately check if any active session's spend already exceeds the new cap
+    this._checkActiveSessionsAgainstNewCap(newSessionCap)
+  }
+
+  /**
+   * After a cap update, scan active sessions and emit session:budget:exceeded
+   * if the current spend already exceeds the newly lowered cap.
+   */
+  private _checkActiveSessionsAgainstNewCap(newSessionCapUsd: number): void {
+    if (newSessionCapUsd === 0) return // 0 = unlimited
+
+    try {
+      const activeSessions = this._db
+        .prepare(`SELECT * FROM sessions WHERE status = 'running' OR status = 'active'`)
+        .all() as Array<{ id: string; total_cost_usd: number; planning_cost_usd: number }>
+
+      for (const session of activeSessions) {
+        let effectiveCost = session.total_cost_usd ?? 0
+        if (!this._config.planningCostsCountAgainstBudget) {
+          effectiveCost = Math.max(0, effectiveCost - (session.planning_cost_usd ?? 0))
+        }
+
+        if (effectiveCost >= newSessionCapUsd) {
+          this._eventBus.emit('session:budget:exceeded', {
+            sessionId: session.id,
+            currentCostUsd: effectiveCost,
+            budgetUsd: newSessionCapUsd,
+          })
+
+          logger.warn(
+            { sessionId: session.id, effectiveCost, budgetUsd: newSessionCapUsd },
+            'Session budget exceeded after config reload — new cap is lower than current spend',
+          )
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.warn({ err: message }, 'Failed to check active sessions against new budget cap')
+    }
   }
 
   // ---------------------------------------------------------------------------

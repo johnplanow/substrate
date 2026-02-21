@@ -1,0 +1,91 @@
+# Substrate Task Graph — Review Cycle Template
+# Pattern: implement → review → revise
+#
+# This template demonstrates a quality-focused workflow where code is
+# written, then reviewed, then revised based on review feedback.
+#
+# To add another review iteration, duplicate the review + revise pair:
+#   review-2:
+#     depends_on: [revise]
+#   revise-2:
+#     depends_on: [review-2]
+
+# version: format version for compatibility tracking with Substrate.
+version: "1.0"
+
+# session: configuration that applies to the entire orchestration run.
+session:
+  # name: human-readable label for this session.
+  name: review-cycle-workflow
+  # base_branch: the git branch that all agent worktrees branch from.
+  base_branch: main
+
+tasks:
+  # Step 1: Initial implementation — starts immediately (no dependencies).
+  implement:
+    name: "Implement Feature"
+    description: "Implement the target feature"
+    # agent: which CLI agent handles this task.
+    agent: claude-code
+    # type: Options: coding, testing, docs, debugging, refactoring
+    type: coding
+    # prompt: full instruction sent to the agent.
+    prompt: |
+      Implement the feature described in docs/feature-spec.md.
+      Focus on correctness and completeness.
+      Code quality and style will be reviewed in the next step.
+    # depends_on: empty list means this task starts immediately.
+    depends_on: []
+
+  # Step 2: Code review — runs after implementation completes.
+  # A different agent can be assigned here for an independent perspective.
+  review:
+    name: "Code Review"
+    description: "Review the implementation for quality and correctness"
+    agent: claude-code
+    type: debugging
+    prompt: |
+      Review the code changes made in the 'implement' task.
+      Check for: correctness, error handling, test coverage, code style,
+      security concerns, and adherence to the spec in docs/feature-spec.md.
+      Write your review findings to docs/review-notes.md.
+      Be specific: cite file names, line numbers, and suggested fixes.
+    depends_on:
+      - implement  # review will not start until implement is completed
+
+  # Step 3: Revision — applies the review feedback.
+  revise:
+    name: "Apply Review Feedback"
+    description: "Apply review feedback and finalize the implementation"
+    agent: claude-code
+    type: coding
+    prompt: |
+      Read docs/review-notes.md and apply all required changes.
+      Address every concern raised in the review.
+      After making changes, update docs/review-notes.md to mark each
+      item as resolved with a brief note explaining what was changed.
+    depends_on:
+      - review  # revise will not start until review is completed
+
+  # --- To add a second review cycle, uncomment and customize: ---
+  # review-2:
+  #   name: "Final Code Review"
+  #   description: "Final review after revisions"
+  #   agent: claude-code
+  #   type: debugging
+  #   prompt: |
+  #     Perform a final review of the revised code.
+  #     Verify all items from docs/review-notes.md are resolved.
+  #     Confirm the implementation meets all spec requirements.
+  #   depends_on:
+  #     - revise
+  #
+  # revise-2:
+  #   name: "Final Revision"
+  #   description: "Apply final review feedback"
+  #   agent: claude-code
+  #   type: coding
+  #   prompt: |
+  #     Apply any remaining feedback from the final review.
+  #   depends_on:
+  #     - review-2

@@ -18,6 +18,7 @@ import { getTask } from '../../persistence/queries/tasks.js'
 import type { Task } from '../../persistence/queries/tasks.js'
 import type { TaskResult as AdapterTaskResult } from '../../adapters/types.js'
 import type { TaskResult as EventTaskResult } from '../../core/event-bus.types.js'
+import type { SubstrateConfig } from '../config/config-schema.js'
 import { WorkerHandle } from './worker-handle.js'
 import type { WorkerPoolManager, WorkerInfo } from './worker-pool-manager.js'
 import type { GitWorktreeManager } from '../git-worktree/git-worktree-manager.js'
@@ -50,10 +51,14 @@ export class WorkerPoolManagerImpl implements WorkerPoolManager {
   private readonly _db: DatabaseService
   private readonly _gitWorktreeManager: GitWorktreeManager | null
 
+  /** Max concurrent workers — updated on config:reloaded (AC5) */
+  private _maxConcurrency: number | null = null
+
   private readonly _activeWorkers: Map<string, ActiveWorkerEntry> = new Map()
 
   /** Bound reference kept so we can call off() in shutdown() */
   private readonly _onWorktreeCreated: (payload: { taskId: string; worktreePath: string; branchName: string }) => void
+  private readonly _onConfigReloaded: (payload: { newConfig: SubstrateConfig; changedKeys: string[] }) => void
 
   constructor(
     eventBus: TypedEventBus,
@@ -72,6 +77,10 @@ export class WorkerPoolManagerImpl implements WorkerPoolManager {
     this._onWorktreeCreated = ({ taskId, worktreePath, branchName }: { taskId: string; worktreePath: string; branchName: string }) => {
       this._handleWorktreeCreated(taskId, worktreePath, branchName)
     }
+
+    this._onConfigReloaded = ({ newConfig }: { newConfig: SubstrateConfig; changedKeys: string[] }) => {
+      this._handleConfigReloaded(newConfig)
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -81,11 +90,13 @@ export class WorkerPoolManagerImpl implements WorkerPoolManager {
   async initialize(): Promise<void> {
     logger.info('WorkerPoolManager.initialize()')
     this._eventBus.on('worktree:created', this._onWorktreeCreated)
+    this._eventBus.on('config:reloaded', this._onConfigReloaded as Parameters<typeof this._eventBus.on>[1])
   }
 
   async shutdown(): Promise<void> {
     logger.info('WorkerPoolManager.shutdown()')
     this._eventBus.off('worktree:created', this._onWorktreeCreated)
+    this._eventBus.off('config:reloaded', this._onConfigReloaded as Parameters<typeof this._eventBus.off>[1])
     await this.terminateAll()
   }
 
@@ -132,6 +143,18 @@ export class WorkerPoolManagerImpl implements WorkerPoolManager {
 
     // Use the worktreePath from the event — the worktree is guaranteed to exist
     this.spawnWorker(task, adapter, worktreePath)
+  }
+
+  // ---------------------------------------------------------------------------
+  // config:reloaded handler (AC5)
+  // ---------------------------------------------------------------------------
+
+  private _handleConfigReloaded(newConfig: SubstrateConfig): void {
+    const newLimit = newConfig.global.max_concurrent_tasks ?? this._maxConcurrency
+    if (newLimit !== null && newLimit !== this._maxConcurrency) {
+      this._maxConcurrency = newLimit
+      logger.info({ maxConcurrency: newLimit }, `Concurrency limit updated to ${newLimit} from config reload`)
+    }
   }
 
   // ---------------------------------------------------------------------------

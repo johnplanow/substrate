@@ -15,6 +15,13 @@ import { registerConfigCommand } from './commands/config.js'
 import { registerMergeCommand } from './commands/merge.js'
 import { registerWorktreesCommand } from './commands/worktrees.js'
 import { registerCostCommand } from './commands/cost.js'
+import { registerStartCommand } from './commands/start.js'
+import { registerStatusCommand } from './commands/status.js'
+import { registerPauseCommand } from './commands/pause.js'
+import { registerResumeCommand } from './commands/resume.js'
+import { registerCancelCommand } from './commands/cancel.js'
+import { registerRetryCommand } from './commands/retry.js'
+import { registerGraphCommand } from './commands/graph.js'
 
 const logger = createLogger('cli')
 
@@ -58,15 +65,6 @@ export async function createProgram(): Promise<Command> {
     .description('Substrate - Multi-agent orchestration for AI coding agents')
     .version(version, '-v, --version', 'Output the current version')
 
-  // Placeholder for future commands - they will be added as stories progress
-  program
-    .command('status')
-    .description('Show the current status of Substrate')
-    .action(() => {
-      logger.info(`Substrate v${version} - Ready`)
-      logger.info('No active session. Use `substrate run <task-graph>` to start.')
-    })
-
   // Register adapters command group (story 1.3)
   registerAdaptersCommand(program, version)
 
@@ -84,6 +82,27 @@ export async function createProgram(): Promise<Command> {
 
   // Register cost command (story 4.4)
   registerCostCommand(program, version)
+
+  // Register start command (story 5.1)
+  registerStartCommand(program, version)
+
+  // Register status command (story 5.2)
+  registerStatusCommand(program, version)
+
+  // Register pause command (story 5.3)
+  registerPauseCommand(program, version)
+
+  // Register resume command (story 5.3)
+  registerResumeCommand(program, version)
+
+  // Register cancel command (story 5.3)
+  registerCancelCommand(program, version)
+
+  // Register retry command (story 5.4)
+  registerRetryCommand(program, version)
+
+  // Register graph command (story 5.5)
+  registerGraphCommand(program, version)
 
   return program
 }

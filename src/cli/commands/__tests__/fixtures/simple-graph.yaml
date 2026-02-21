@@ -1,0 +1,20 @@
+version: "1.0"
+session:
+  name: "simple-test-graph"
+
+tasks:
+  task-a:
+    name: "Task A"
+    description: "First task with no dependencies"
+    prompt: "Complete task A"
+    agent: "claude"
+    type: "coding"
+
+  task-b:
+    name: "Task B"
+    description: "Second task that depends on task A"
+    prompt: "Complete task B after A is done"
+    agent: "claude"
+    type: "coding"
+    depends_on:
+      - task-a

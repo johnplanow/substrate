@@ -1,0 +1,11 @@
+version: "1.0"
+session:
+  name: broken graph
+tasks:
+  task-a:
+    name: "Task A"
+    prompt: "Do something"
+    type: code
+    invalid_indent:
+  - this is broken yaml
+   - another broken line

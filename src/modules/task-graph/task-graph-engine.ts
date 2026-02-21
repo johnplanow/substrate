@@ -207,6 +207,8 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
   private _maxConcurrency: number = 1
   /** Tracks tasks emitted as task:ready but not yet confirmed via markTaskRunning */
   private _inFlightCount: number = 0
+  /** Timer handle for the session signal polling loop */
+  private _signalPollTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(eventBus: TypedEventBus, databaseService: DatabaseService) {
     this._eventBus = eventBus
@@ -253,6 +255,98 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
 
   async shutdown(): Promise<void> {
     logger.info('TaskGraphEngine.shutdown()')
+    this._stopSignalPolling()
+  }
+
+  // ---------------------------------------------------------------------------
+  // Signal polling (Story 5.3: pause/resume/cancel via DB signal queue)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Start polling the session_signals table for unprocessed signals.
+   * Called when execution begins so the orchestrator can react to pause/resume/cancel
+   * commands issued by the CLI in a separate process.
+   */
+  private _startSignalPolling(sessionId: string): void {
+    if (this._signalPollTimer !== null) return
+
+    this._signalPollTimer = setInterval(() => {
+      this._pollSessionSignals(sessionId)
+    }, 500)
+  }
+
+  /**
+   * Stop the signal polling timer.
+   */
+  private _stopSignalPolling(): void {
+    if (this._signalPollTimer !== null) {
+      clearInterval(this._signalPollTimer)
+      this._signalPollTimer = null
+    }
+  }
+
+  /**
+   * Poll the session_signals table for unprocessed signals and handle them.
+   * Marks each signal as processed after handling.
+   */
+  private _pollSessionSignals(sessionId: string): void {
+    try {
+      const db = this._databaseService.db
+
+      // Check if the table exists first (migration may not have run in test environments)
+      const tableExists = db
+        .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='session_signals'`)
+        .get() as { name: string } | undefined
+
+      if (!tableExists) return
+
+      const signals = db
+        .prepare(
+          `SELECT id, signal FROM session_signals
+           WHERE session_id = ? AND processed_at IS NULL
+           ORDER BY id ASC`,
+        )
+        .all(sessionId) as Array<{ id: number; signal: string }>
+
+      for (const sig of signals) {
+        logger.debug({ sessionId, signal: sig.signal }, 'Processing session signal')
+        this._handleSignal(sig.signal)
+        db.prepare(
+          `UPDATE session_signals SET processed_at = datetime('now') WHERE id = ?`,
+        ).run(sig.id)
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Signal polling error — skipping this poll cycle')
+    }
+  }
+
+  /**
+   * Handle a signal value received from the session_signals table.
+   */
+  private _handleSignal(signal: string): void {
+    switch (signal) {
+      case 'pause':
+        if (this._state === 'Executing') {
+          this.pause()
+          this._eventBus.emit('session:pause:requested', {})
+        }
+        break
+      case 'resume':
+        if (this._state === 'Paused') {
+          this.resume()
+          this._eventBus.emit('session:resume:requested', {})
+        }
+        break
+      case 'cancel':
+        if (this._state === 'Executing' || this._state === 'Paused') {
+          this._stopSignalPolling()
+          this.cancelAll()
+          this._eventBus.emit('session:cancel:requested', {})
+        }
+        break
+      default:
+        logger.warn({ signal }, 'Unknown session signal — ignoring')
+    }
   }
 
   async loadGraph(filePath: string): Promise<string> {
@@ -341,6 +435,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
     this._transition('Executing')
 
     logger.info({ sessionId, maxConcurrency }, 'Execution started')
+    this._startSignalPolling(sessionId)
     this._checkAndScheduleReady()
   }
 
@@ -575,6 +670,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
       const totalCostUsd = allTasks.reduce((sum, t) => sum + (t.cost_usd ?? 0), 0)
 
       logger.info({ sessionId, totalTasks, completedTasks, failedTasks }, 'Graph complete')
+      this._stopSignalPolling()
       this._transition('Completing')
       this._eventBus.emit('graph:complete', { totalTasks, completedTasks, failedTasks, totalCostUsd })
     }

@@ -6,6 +6,7 @@
  */
 
 import type { TaskId, WorkerId } from './types.js'
+import type { SubstrateConfig } from '../modules/config/config-schema.js'
 
 // ---------------------------------------------------------------------------
 // Routing decision (inline to avoid circular imports)
@@ -210,7 +211,12 @@ export interface OrchestratorEvents {
   // -------------------------------------------------------------------------
 
   /** Configuration has been reloaded */
-  'config:reloaded': { changedKeys: string[] }
+  'config:reloaded': {
+    path: string
+    previousConfig: SubstrateConfig
+    newConfig: SubstrateConfig
+    changedKeys: string[]
+  }
 
   // -------------------------------------------------------------------------
   // Routing events

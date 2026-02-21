@@ -1,0 +1,72 @@
+# Substrate Task Graph — Parallel Template
+# A set of tasks that all run concurrently.
+#
+# All tasks below have no dependencies (depends_on: []), so they all start
+# simultaneously when the orchestration session begins.
+# Each task is assigned to a different agent to illustrate per-task agent routing.
+
+# version: format version for compatibility tracking with Substrate.
+version: "1.0"
+
+# session: configuration that applies to the entire orchestration run.
+session:
+  # name: human-readable label for this session.
+  name: parallel-workflow
+  # base_branch: the git branch that all agent worktrees branch from.
+  base_branch: main
+
+tasks:
+  # All four tasks below start simultaneously (no depends_on).
+  # Each runs in its own git worktree so they don't conflict.
+  feature-auth:
+    name: "Implement Authentication"
+    description: "Implement user authentication module"
+    # agent: claude-code handles general TypeScript/JavaScript tasks well.
+    agent: claude-code
+    # type: categorizes the task. Options: coding, testing, docs, debugging, refactoring
+    type: coding
+    # prompt: the full instruction sent to the agent.
+    prompt: |
+      Implement the authentication module at src/auth/.
+      Include login, logout, and JWT token validation.
+      Write unit tests alongside the implementation.
+    # depends_on: empty list means this task starts immediately.
+    depends_on: []
+
+  feature-api:
+    name: "Implement REST API"
+    description: "Implement REST API endpoints"
+    # agent: codex illustrates using a different agent for a different task.
+    # Each task can specify a different agent — useful for specialization.
+    agent: codex
+    type: coding
+    prompt: |
+      Implement the REST API endpoints defined in docs/api-spec.yaml.
+      Use Express.js and add OpenAPI documentation comments.
+      Ensure all endpoints have proper error handling and input validation.
+    depends_on: []
+
+  feature-ui:
+    name: "Implement UI Components"
+    description: "Implement frontend UI components"
+    # agent: gemini illustrates yet another agent choice.
+    agent: gemini
+    type: coding
+    prompt: |
+      Create the React UI components for the dashboard.
+      Use the design mockups in docs/mockups/ as reference.
+      Follow the existing component patterns in src/components/.
+    depends_on: []
+
+  feature-db:
+    name: "Set Up Database Schema"
+    description: "Set up database schema and migrations"
+    # agent: auto means the routing engine picks the best available agent
+    # based on the current routing policy and agent availability.
+    agent: auto
+    type: coding
+    prompt: |
+      Create the database schema and migration files.
+      Use the entity definitions in docs/data-model.md.
+      Ensure migrations are idempotent and reversible.
+    depends_on: []

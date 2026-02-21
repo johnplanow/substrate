@@ -32,6 +32,7 @@
   ],
   "scripts": {
     "build": "tsdown",
+    "postbuild": "cp -r src/cli/templates dist/cli/templates",
     "dev": "tsx watch src/cli/index.ts",
     "test": "vitest run --coverage",
     "test:watch": "vitest",

@@ -15,6 +15,7 @@
  *  - Zero circular dependencies
  */
 
+import { join } from 'node:path'
 import { createLogger } from '../utils/logger.js'
 import { createEventBus } from './event-bus.js'
 import { ServiceRegistry } from './di.js'
@@ -30,6 +31,9 @@ import { createGitManager } from '../modules/git/git-manager.js'
 import { createGitWorktreeManager } from '../modules/git-worktree/git-worktree-manager-impl.js'
 import { createMonitorAgent } from '../modules/monitor/monitor-agent-impl.js'
 import { createMonitorDatabase } from '../persistence/monitor-database.js'
+import { createConfigWatcher, computeChangedKeys } from '../modules/config/config-watcher.js'
+import type { ConfigWatcher } from '../modules/config/config-watcher.js'
+import type { SubstrateConfig } from '../modules/config/config-schema.js'
 
 const logger = createLogger('orchestrator')
 
@@ -46,6 +50,7 @@ class OrchestratorImpl implements Orchestrator {
   private _ready = false
   private _shutdown = false
   private _shutdownHandlersRegistered = false
+  private _configWatcher: ConfigWatcher | null = null
 
   constructor(eventBus: TypedEventBus, registry: ServiceRegistry) {
     this.eventBus = eventBus
@@ -62,6 +67,12 @@ class OrchestratorImpl implements Orchestrator {
 
     logger.info('Orchestrator shutdown initiated')
     this.eventBus.emit('orchestrator:shutdown', { reason: 'shutdown() called' })
+
+    // Stop config watcher before shutting down services
+    if (this._configWatcher !== null) {
+      this._configWatcher.stop()
+      this._configWatcher = null
+    }
 
     try {
       await this._registry.shutdownAll()
@@ -120,11 +131,15 @@ class OrchestratorImpl implements Orchestrator {
     markReady: () => void
     registerShutdownHandlers: () => void
     removeShutdownHandlers: () => void
+    setConfigWatcher: (watcher: ConfigWatcher) => void
   } {
     return {
       markReady: () => this._markReady(),
       registerShutdownHandlers: () => this._registerShutdownHandlers(),
       removeShutdownHandlers: () => this._removeShutdownHandlers(),
+      setConfigWatcher: (watcher: ConfigWatcher) => {
+        this._configWatcher = watcher
+      },
     }
   }
 }
@@ -233,7 +248,44 @@ export async function createOrchestrator(config: OrchestratorConfig): Promise<Or
   // Step 6: Register graceful shutdown handlers for SIGTERM/SIGINT
   internal.registerShutdownHandlers()
 
-  // Step 7: Mark ready and emit orchestrator:ready
+  // Step 7: Set up config hot-reload watcher (AC1, AC8, AC9)
+  const enableConfigHotReload = config.enableConfigHotReload ?? true
+  if (enableConfigHotReload) {
+    const configFilePath = config.configPath ?? join(config.projectRoot, 'substrate.config.yaml')
+    let currentConfig: SubstrateConfig | null = null
+
+    const configWatcher = createConfigWatcher({
+      configPath: configFilePath,
+      onReload: (newConfig: SubstrateConfig) => {
+        const previousConfig = currentConfig
+        if (previousConfig === null) {
+          // First load — just store the config
+          currentConfig = newConfig
+          return
+        }
+        const changedKeys = computeChangedKeys(previousConfig, newConfig)
+        currentConfig = newConfig
+
+        const n = changedKeys.length
+        logger.info({ changedKeys, configPath: configFilePath }, `Config reloaded: ${n} setting(s) changed`)
+
+        eventBus.emit('config:reloaded', {
+          path: configFilePath,
+          previousConfig,
+          newConfig,
+          changedKeys,
+        })
+      },
+      onError: (err: Error) => {
+        logger.error({ err, configPath: configFilePath }, `Config reload failed: ${err.message}. Continuing with previous config.`)
+      },
+    })
+
+    configWatcher.start()
+    internal.setConfigWatcher(configWatcher)
+  }
+
+  // Step 8: Mark ready and emit orchestrator:ready
   internal.markReady()
   eventBus.emit('orchestrator:ready', {})
 

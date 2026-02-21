@@ -49,6 +49,7 @@ export class RoutingEngineImpl implements RoutingEngine {
   /** Bound references for event listener management */
   private readonly _onTaskReady: (payload: { taskId: string }) => void
   private readonly _onTaskComplete: (payload: { taskId: string; result: { tokensUsed?: number } }) => void
+  private readonly _onConfigReloaded: (payload: { changedKeys: string[]; newConfig: Record<string, unknown> }) => void
 
   constructor(
     eventBus: TypedEventBus,
@@ -65,6 +66,10 @@ export class RoutingEngineImpl implements RoutingEngine {
 
     this._onTaskComplete = ({ taskId, result }: { taskId: string; result: { tokensUsed?: number } }) => {
       this._handleTaskComplete(taskId, result)
+    }
+
+    this._onConfigReloaded = (payload: { changedKeys: string[]; newConfig: Record<string, unknown> }) => {
+      this._handleConfigReloaded(payload.changedKeys, payload.newConfig)
     }
   }
 
@@ -97,12 +102,14 @@ export class RoutingEngineImpl implements RoutingEngine {
     // Subscribe to events
     this._eventBus.on('task:ready', this._onTaskReady)
     this._eventBus.on('task:complete', this._onTaskComplete)
+    this._eventBus.on('config:reloaded', this._onConfigReloaded as Parameters<typeof this._eventBus.on>[1])
   }
 
   async shutdown(): Promise<void> {
     logger.info('RoutingEngine.shutdown()')
     this._eventBus.off('task:ready', this._onTaskReady)
     this._eventBus.off('task:complete', this._onTaskComplete)
+    this._eventBus.off('config:reloaded', this._onConfigReloaded as Parameters<typeof this._eventBus.off>[1])
   }
 
   // ---------------------------------------------------------------------------
@@ -274,6 +281,33 @@ export class RoutingEngineImpl implements RoutingEngine {
     // For now, we can't easily reverse-map taskId→provider without additional state.
     // The full integration with billing/cost tracking happens in Story 4.2.
     logger.debug({ taskId, tokensUsed: result.tokensUsed }, 'task:complete received — rate limit tracking deferred to cost tracker')
+  }
+
+  private _handleConfigReloaded(changedKeys: string[], newConfig: Record<string, unknown>): void {
+    // Use provider configuration from newConfig directly when available (AC4)
+    // Already-dispatched tasks are NOT re-routed; routing is determined at dispatch time.
+    const hasRoutingChanges = changedKeys.some(
+      (k) => k.startsWith('providers.') || k.startsWith('routing') || k === 'routing_policy_path',
+    )
+
+    if (!hasRoutingChanges) {
+      logger.debug({ changedKeys }, 'Config reloaded but no routing-relevant changes — skipping policy reload')
+      return
+    }
+
+    // Update policy path from newConfig if provided
+    const configRoutingPolicyPath = (newConfig as Record<string, unknown>)['routing_policy_path']
+    if (typeof configRoutingPolicyPath === 'string' && configRoutingPolicyPath.length > 0) {
+      this._policyPath = configRoutingPolicyPath
+    }
+
+    // Reload routing policy from its dedicated file (routing policy is separate from main config)
+    this.reloadPolicy().then(() => {
+      logger.info({ changedKeys }, 'Routing policy updated from config reload')
+    }).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.warn({ err: message }, 'Failed to reload routing policy after config reload')
+    })
   }
 
   // ---------------------------------------------------------------------------

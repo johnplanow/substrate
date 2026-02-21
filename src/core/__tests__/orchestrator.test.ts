@@ -23,6 +23,7 @@ const TEST_CONFIG: OrchestratorConfig = {
   maxConcurrency: 2,
   budgetCapUsd: 0,
   budgetCapTokens: 0,
+  enableConfigHotReload: false,
 }
 
 // ---------------------------------------------------------------------------

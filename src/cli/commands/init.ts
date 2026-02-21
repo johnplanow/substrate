@@ -6,11 +6,18 @@
  *   - routing-policy.yaml  (default routing policy)
  *
  * Runs adapter discovery and prompts for per-provider subscription routing.
+ *
+ * Also supports task graph template generation:
+ *   substrate init --list-templates          List all available templates
+ *   substrate init --template <name>         Generate a template task graph
+ *   substrate init --template <name> --output custom/path.yaml
+ *   substrate init --template <name> --force  Overwrite existing file
  */
 
 import type { Command } from 'commander'
 import { mkdir, writeFile, access } from 'fs/promises'
-import { join, resolve } from 'path'
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
+import { join, resolve, dirname, isAbsolute } from 'path'
 import yaml from 'js-yaml'
 import { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { DEFAULT_CONFIG, DEFAULT_ROUTING_POLICY } from '../../modules/config/defaults.js'
@@ -23,6 +30,7 @@ import type {
 import { CURRENT_CONFIG_FORMAT_VERSION, CURRENT_TASK_GRAPH_VERSION } from '../../modules/config/config-schema.js'
 import { createLogger } from '../../utils/logger.js'
 import { ConfigError } from '../../core/errors.js'
+import { getTemplate, listTemplates } from './templates.js'
 
 const logger = createLogger('init')
 
@@ -33,6 +41,115 @@ const logger = createLogger('init')
 export const INIT_EXIT_SUCCESS = 0
 export const INIT_EXIT_ERROR = 1
 export const INIT_EXIT_ALREADY_EXISTS = 2
+export const INIT_EXIT_USAGE_ERROR = 2  // alias — same value as ALREADY_EXISTS for template errors
+
+// ---------------------------------------------------------------------------
+// Template action — generate a task graph template file
+// ---------------------------------------------------------------------------
+
+export interface TemplateOptions {
+  /** Template name to generate */
+  template: string
+  /** Output file path (default: tasks.yaml in cwd) */
+  output?: string
+  /** Overwrite existing file without prompting */
+  force?: boolean
+  /** Output format: 'human' (default) or 'json' (NDJSON) */
+  outputFormat?: 'human' | 'json'
+  /** Working directory (defaults to process.cwd()) */
+  cwd?: string
+}
+
+/**
+ * Run the template generation action.
+ *
+ * @returns exit code (0 = success, 2 = usage error)
+ */
+export function runTemplateAction(options: TemplateOptions): number {
+  const { template: templateName, force = false, outputFormat = 'human' } = options
+  const cwd = options.cwd ?? process.cwd()
+
+  // AC8: Look up the template
+  const templateDef = getTemplate(templateName)
+  if (templateDef === undefined) {
+    process.stderr.write(
+      `Error: Unknown template '${templateName}'. Run 'substrate init --list-templates' to see available templates.\n`
+    )
+    return INIT_EXIT_USAGE_ERROR
+  }
+
+  // AC6: Resolve output path
+  const rawOutput = options.output ?? 'tasks.yaml'
+  const outputPath = isAbsolute(rawOutput) ? rawOutput : join(cwd, rawOutput)
+
+  // Track whether file existed before we write (for AC7 suffix message)
+  const fileExistedBefore = existsSync(outputPath)
+
+  // AC7: Overwrite protection
+  if (fileExistedBefore && !force) {
+    process.stderr.write(
+      `Error: ${outputPath} already exists. Use --force to overwrite.\n`
+    )
+    return INIT_EXIT_USAGE_ERROR
+  }
+
+  // Read template content
+  let content: string
+  try {
+    content = readFileSync(templateDef.filePath, 'utf-8')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`Error: failed to read template file — ${message}\n`)
+    return INIT_EXIT_ERROR
+  }
+
+  // AC6: Create parent directories if needed
+  try {
+    mkdirSync(dirname(outputPath), { recursive: true })
+    writeFileSync(outputPath, content, 'utf-8')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`Error: failed to write template file — ${message}\n`)
+    return INIT_EXIT_ERROR
+  }
+
+  // AC6, AC7: Success message
+  const suffix = fileExistedBefore && force ? ' (overwritten)' : ''
+  process.stdout.write(`Template written to: ${outputPath}${suffix}\n`)
+
+  // AC10: NDJSON event
+  if (outputFormat === 'json') {
+    const event = {
+      event: 'template:generated',
+      timestamp: new Date().toISOString(),
+      data: {
+        template: templateName,
+        outputPath,
+        taskCount: templateDef.taskCount,
+      },
+    }
+    process.stdout.write(JSON.stringify(event) + '\n')
+  }
+
+  return INIT_EXIT_SUCCESS
+}
+
+
+/**
+ * Handle --list-templates flag.
+ *
+ * @returns exit code
+ */
+export function runListTemplates(): number {
+  const templates = listTemplates()
+  process.stdout.write('Available task graph templates:\n')
+  for (const t of templates) {
+    // Pad name to 24 chars for alignment
+    const paddedName = t.name.padEnd(24)
+    process.stdout.write(`  ${paddedName}${t.description}\n`)
+  }
+  return INIT_EXIT_SUCCESS
+}
 
 // ---------------------------------------------------------------------------
 // Provider config builder
@@ -352,7 +469,45 @@ export function registerInitCommand(
       '-d, --directory <path>',
       'Target directory (defaults to current working directory)'
     )
-    .action(async (opts: { yes: boolean; directory?: string }) => {
+    // Template flags (AC1–AC10 of Story 5.8)
+    .option('--list-templates', 'List all available task graph templates', false)
+    .option('--template <name>', 'Generate a task graph from a built-in template')
+    .option('--output <path>', 'Output path for template file (default: tasks.yaml in cwd)')
+    .option('--force', 'Overwrite existing output file without prompting', false)
+    .option(
+      '--output-format <format>',
+      'Output format: human (default) or json (NDJSON event)',
+      'human'
+    )
+    .action(async (opts: {
+      yes: boolean
+      directory?: string
+      listTemplates: boolean
+      template?: string
+      output?: string
+      force: boolean
+      outputFormat: string
+    }) => {
+      // Template path: --list-templates or --template take priority over project init
+      if (opts.listTemplates) {
+        const exitCode = runListTemplates()
+        process.exit(exitCode)
+        return
+      }
+
+      if (opts.template !== undefined) {
+        const outputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
+        const exitCode = runTemplateAction({
+          template: opts.template,
+          ...(opts.output !== undefined && { output: opts.output }),
+          force: opts.force,
+          outputFormat,
+        })
+        process.exit(exitCode)
+        return
+      }
+
+      // Default path: project initialization
       const exitCode = await runInit({
         ...(opts.directory !== undefined && { directory: opts.directory }),
         yes: opts.yes,

@@ -1,0 +1,68 @@
+# Substrate Task Graph — Sequential Template
+# A series of tasks that run one after another.
+#
+# This template demonstrates a simple sequential pipeline where each task
+# depends on the previous one completing before it starts.
+
+# version: format version for compatibility tracking with Substrate.
+# Currently "1.0" is the supported version.
+version: "1.0"
+
+# session: configuration that applies to the entire orchestration run.
+session:
+  # name: a human-readable label for this session (appears in logs and status output).
+  name: sequential-workflow
+  # base_branch: the git branch that all agent worktrees branch from.
+  base_branch: main
+
+tasks:
+  # Task 1: the first step in the sequence.
+  # Format: each task key is the unique task ID used in depends_on references.
+  step-1:
+    # name: short label shown in status output and logs.
+    name: "Gather Requirements"
+    # description: optional longer explanation of what this task does.
+    description: "First step: analyze the project and produce a requirements document"
+    # agent: which CLI agent handles this task.
+    # Options: claude-code, codex, gemini, auto (auto lets the routing engine pick)
+    agent: claude-code
+    # type: categorizes the task for routing and reporting purposes.
+    # Options: coding, testing, docs, debugging, refactoring
+    type: docs
+    # prompt: the instruction sent verbatim to the agent.
+    prompt: |
+      Analyze the project requirements and produce a detailed spec document.
+      Save the output to docs/spec.md.
+      Include: goals, non-goals, acceptance criteria, and open questions.
+    # depends_on: list of task IDs that must complete before this task runs.
+    # An empty list means this task can start immediately.
+    depends_on: []
+
+  # Task 2: runs only after step-1 completes successfully.
+  step-2:
+    name: "Implement Feature"
+    description: "Second step: implement the feature described in the spec"
+    agent: claude-code
+    type: coding
+    prompt: |
+      Read docs/spec.md and implement the described feature.
+      Follow existing code conventions and patterns in the codebase.
+      Ensure all acceptance criteria from the spec are addressed.
+    depends_on:
+      - step-1  # step-2 will not start until step-1 is completed
+
+  # Task 3: final step — runs only after step-2 completes.
+  # To add more sequential steps, copy this block and update the id and depends_on.
+  step-3:
+    name: "Write Tests"
+    description: "Third step: write tests for the implementation"
+    agent: claude-code
+    type: testing
+    prompt: |
+      Write comprehensive unit and integration tests for the code written in step-2.
+      Target 80%+ coverage for new code.
+      Ensure all edge cases from docs/spec.md are covered.
+    # budget_usd: optional per-task cost cap. Overrides the session-level budget.
+    # budget_usd: 2.00
+    depends_on:
+      - step-2  # step-3 will not start until step-2 is completed

@@ -43,6 +43,20 @@ export interface OrchestratorConfig {
   logLevel?: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
   /**
+   * Path to the substrate config file for hot-reload watching.
+   * If omitted, defaults to <projectRoot>/substrate.config.yaml
+   */
+  configPath?: string
+
+  /**
+   * Enable config hot-reload via file watcher.
+   * When true (default), a file watcher is registered on the config file.
+   * Set to false to disable (e.g. in dry-run or --no-watch-config mode).
+   * @default true
+   */
+  enableConfigHotReload?: boolean
+
+  /**
    * Monitor agent configuration.
    * If omitted, monitor agent is initialized with defaults.
    */

@@ -1,0 +1,31 @@
+version: "1.0"
+session:
+  name: "cyclic-test-graph"
+
+tasks:
+  task-a:
+    name: "Task A"
+    description: "First task that depends on C creating a cycle"
+    prompt: "Complete task A"
+    agent: "claude"
+    type: "code"
+    depends_on:
+      - task-c
+
+  task-b:
+    name: "Task B"
+    description: "Second task that depends on A"
+    prompt: "Complete task B"
+    agent: "claude"
+    type: "code"
+    depends_on:
+      - task-a
+
+  task-c:
+    name: "Task C"
+    description: "Third task that depends on B creating A->B->C->A cycle"
+    prompt: "Complete task C"
+    agent: "claude"
+    type: "code"
+    depends_on:
+      - task-b

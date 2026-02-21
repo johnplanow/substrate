@@ -1,0 +1,103 @@
+# Substrate Task Graph — Research Then Implement Template
+# Pattern: parallel research → synthesize → parallel implementation
+#
+# This is a fan-out / fan-in pattern:
+#   Fan-out: multiple research tasks run in parallel (no dependencies between them)
+#   Fan-in:  synthesize waits for ALL research tasks before starting
+#   Fan-out: multiple implementation tasks run in parallel after synthesize
+#
+# Visualization:
+#   research-existing-code ─┐
+#                            ├─→ synthesize ─┬─→ implement-core
+#   research-best-practices ─┘               └─→ implement-tests
+
+# version: format version for compatibility tracking with Substrate.
+version: "1.0"
+
+# session: configuration that applies to the entire orchestration run.
+session:
+  # name: human-readable label for this session.
+  name: research-implement-workflow
+  # base_branch: the git branch that all agent worktrees branch from.
+  base_branch: main
+
+tasks:
+  # Phase 1: Parallel research tasks (both start immediately — fan-out).
+  # These run concurrently in separate git worktrees.
+  research-existing-code:
+    name: "Research Existing Codebase"
+    description: "Research the existing codebase for patterns and constraints"
+    # agent: which CLI agent handles this task.
+    agent: claude-code
+    # type: Options: coding, testing, docs, debugging, refactoring
+    type: docs
+    # prompt: full instruction sent to the agent.
+    prompt: |
+      Analyze the existing codebase. Document:
+      - Key architectural patterns and design decisions
+      - Relevant existing modules that the new feature will interact with
+      - Constraints and conventions (naming, error handling, testing style)
+      - Potential conflicts or integration points
+      Save findings to docs/research-codebase.md.
+    # depends_on: empty list means this task starts immediately (fan-out start).
+    depends_on: []
+
+  research-best-practices:
+    name: "Research Best Practices"
+    description: "Research industry best practices for the target feature"
+    agent: claude-code
+    type: docs
+    prompt: |
+      Research best practices for implementing [FEATURE].
+      Document recommended approaches, trade-offs, and real-world examples.
+      Compare at least two alternative implementation strategies.
+      Save findings to docs/research-practices.md.
+    # depends_on: also empty — runs concurrently with research-existing-code.
+    depends_on: []
+
+  # Phase 2: Synthesize findings — fan-in (waits for BOTH research tasks).
+  # This task cannot start until research-existing-code AND research-best-practices
+  # have both completed successfully.
+  synthesize:
+    name: "Synthesize Research"
+    description: "Synthesize research findings into an implementation plan"
+    agent: claude-code
+    type: docs
+    prompt: |
+      Read docs/research-codebase.md and docs/research-practices.md.
+      Produce a detailed implementation plan at docs/implementation-plan.md.
+      The plan should specify:
+      - Which modules to create or modify
+      - The recommended implementation strategy (with rationale)
+      - The order of implementation steps
+      - Key risks and mitigations
+    depends_on:
+      - research-existing-code   # fan-in: waits for both research tasks to complete
+      - research-best-practices  # both must finish before synthesize can start
+
+  # Phase 3: Parallel implementation — fan-out (both start after synthesize).
+  # These tasks run concurrently once the implementation plan is ready.
+  implement-core:
+    name: "Implement Core Logic"
+    description: "Implement the core business logic per the implementation plan"
+    agent: claude-code
+    type: coding
+    prompt: |
+      Read docs/implementation-plan.md and implement the core module.
+      Focus on the business logic layer only (no UI, no test code).
+      Follow the architectural patterns documented in docs/research-codebase.md.
+    depends_on:
+      - synthesize  # will not start until synthesize completes (fan-out start)
+
+  implement-tests:
+    name: "Implement Test Suite"
+    description: "Implement the test suite per the implementation plan"
+    agent: claude-code
+    type: testing
+    prompt: |
+      Read docs/implementation-plan.md and implement the test suite.
+      Write tests in parallel with implement-core — test the interfaces/contracts,
+      not the internal implementation details.
+      Target 80%+ coverage for the new core module.
+    depends_on:
+      - synthesize  # also waits for synthesize, then runs in parallel with implement-core
