@@ -26,6 +26,7 @@ import { ProviderStatusTracker, type ProviderStatus } from './provider-status.js
 import { makeRoutingDecision, type RoutingDecision } from './routing-decision.js'
 import type { RoutingEngine } from './routing-engine.js'
 import type { TaskNode } from '../../core/types.js'
+import type { MonitorAgent } from '../monitor/monitor-agent.js'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('routing')
@@ -46,8 +47,13 @@ export class RoutingEngineImpl implements RoutingEngine {
   private _policyPath = DEFAULT_ROUTING_POLICY_PATH
   private readonly _statusTracker = new ProviderStatusTracker()
 
+  /** Optional monitor agent for advisory recommendations (AC5) */
+  private _monitorAgent: MonitorAgent | null = null
+  /** Whether to consult monitor for recommendations (AC6) */
+  private _useMonitorRecommendations = false
+
   /** Bound references for event listener management */
-  private readonly _onTaskReady: (payload: { taskId: string }) => void
+  private readonly _onTaskReady: (payload: { taskId: string; taskType?: string }) => void
   private readonly _onTaskComplete: (payload: { taskId: string; result: { tokensUsed?: number } }) => void
   private readonly _onConfigReloaded: (payload: { changedKeys: string[]; newConfig: Record<string, unknown> }) => void
 
@@ -60,8 +66,8 @@ export class RoutingEngineImpl implements RoutingEngine {
     this._configSystem = configSystem ?? null
     this._adapterRegistry = adapterRegistry ?? null
 
-    this._onTaskReady = ({ taskId }: { taskId: string }) => {
-      this._handleTaskReady(taskId)
+    this._onTaskReady = ({ taskId, taskType }: { taskId: string; taskType?: string }) => {
+      this._handleTaskReady(taskId, taskType)
     }
 
     this._onTaskComplete = ({ taskId, result }: { taskId: string; result: { tokensUsed?: number } }) => {
@@ -117,6 +123,16 @@ export class RoutingEngineImpl implements RoutingEngine {
   // ---------------------------------------------------------------------------
 
   /**
+   * Set the monitor agent for advisory recommendations (AC5).
+   * Called externally when use_monitor_recommendations=true.
+   */
+  setMonitorAgent(monitorAgent: MonitorAgent, useRecommendations = true): void {
+    this._monitorAgent = monitorAgent
+    this._useMonitorRecommendations = useRecommendations
+    logger.debug({ useRecommendations }, 'Monitor agent registered with routing engine')
+  }
+
+  /**
    * Make a routing decision for a task.
    *
    * Implements the subscription-first algorithm from Architecture Section 8:
@@ -127,6 +143,7 @@ export class RoutingEngineImpl implements RoutingEngine {
    *    b. Else if API billing enabled AND API key configured → API
    *    c. Else try next fallback agent
    * 4. If no agent available → return unavailable decision
+   * 5. (Advisory) If monitor agent available, attach recommendation (AC5)
    */
   routeTask(task: TaskNode): RoutingDecision {
     const taskId = task.id
@@ -155,12 +172,13 @@ export class RoutingEngineImpl implements RoutingEngine {
       if (provider !== undefined && provider.enabled) {
         const decision = this._evaluateAgent(taskId, explicitAgent, provider, modelPreferences)
         if (decision !== null) {
-          return makeRoutingDecision(taskId)
+          const builder = makeRoutingDecision(taskId)
             .withAgent(decision.agent, decision.billingMode)
             .withModel(decision.model ?? '')
             .withRationale(`Explicit agent assignment: ${explicitAgent} via ${decision.billingMode}`)
             .withFallbackChain([explicitAgent])
-            .build()
+          this._attachMonitorRecommendation(builder, taskType, decision.agent)
+          return builder.build()
         }
       }
 
@@ -180,12 +198,13 @@ export class RoutingEngineImpl implements RoutingEngine {
       if (decision !== null) {
         // Determine rationale
         const rationale = this._buildRationale(taskId, agentName, decision.billingMode, taskType)
-        return makeRoutingDecision(taskId)
+        const builder = makeRoutingDecision(taskId)
           .withAgent(decision.agent, decision.billingMode)
           .withModel(decision.model ?? '')
           .withRationale(rationale)
           .withFallbackChain(fallbackChain)
-          .build()
+        this._attachMonitorRecommendation(builder, taskType, decision.agent)
+        return builder.build()
       }
     }
 
@@ -240,16 +259,9 @@ export class RoutingEngineImpl implements RoutingEngine {
   // Event handlers
   // ---------------------------------------------------------------------------
 
-  private _handleTaskReady(taskId: string): void {
-    logger.debug({ taskId }, 'task:ready — making routing decision')
+  private _handleTaskReady(taskId: string, taskType?: string): void {
+    logger.debug({ taskId, taskType }, 'task:ready — making routing decision')
 
-    // We need the full task node to route; if adapter registry is available, use it.
-    // Otherwise emit a basic routing decision with rationale.
-    // In the full orchestrator, the task graph engine provides task details.
-    // Here we emit task:routed with whatever info we have.
-    //
-    // NOTE: Full integration with task graph engine happens in Task 7 (orchestrator wiring).
-    // For now, we create a minimal decision so the event is emitted.
     if (this._policy === null) {
       logger.debug({ taskId }, 'No routing policy — emitting minimal routing decision')
       const decision = makeRoutingDecision(taskId)
@@ -260,7 +272,7 @@ export class RoutingEngineImpl implements RoutingEngine {
       return
     }
 
-    // Create a minimal task node for routing
+    // Build task node with task type from the event payload
     const minimalTask: TaskNode = {
       id: taskId,
       title: '',
@@ -268,7 +280,7 @@ export class RoutingEngineImpl implements RoutingEngine {
       status: 'ready',
       priority: 'normal',
       dependencies: [],
-      metadata: {},
+      metadata: taskType ? { taskType } : {},
       createdAt: new Date(),
     }
 
@@ -401,19 +413,22 @@ export class RoutingEngineImpl implements RoutingEngine {
   /**
    * Route a task without a loaded routing policy.
    * Uses the first available adapter in the registry.
+   * Monitor recommendations are still consulted when use_monitor_recommendations=true (AC1, AC4).
    */
   private _routeWithoutPolicy(task: TaskNode): RoutingDecision {
     const taskId = task.id
+    const taskType = (task.metadata?.taskType as string | undefined) ?? ''
 
     // If there's an explicit agent, try to use it
     if (task.agentId !== undefined && task.agentId.length > 0) {
       if (this._adapterRegistry !== null) {
         const adapter = this._adapterRegistry.get(task.agentId)
         if (adapter !== undefined) {
-          return makeRoutingDecision(taskId)
+          const builder = makeRoutingDecision(taskId)
             .withAgent(task.agentId, 'subscription')
             .withRationale(`No routing policy: using explicit agent ${task.agentId}`)
-            .build()
+          this._attachMonitorRecommendation(builder, taskType, task.agentId)
+          return builder.build()
         }
       }
     }
@@ -423,16 +438,78 @@ export class RoutingEngineImpl implements RoutingEngine {
       const adapters = this._adapterRegistry.getAll()
       if (adapters.length > 0) {
         const adapter = adapters[0]!
-        return makeRoutingDecision(taskId)
+        const builder = makeRoutingDecision(taskId)
           .withAgent(adapter.id, 'subscription')
           .withRationale(`No routing policy: using first available adapter ${adapter.id}`)
-          .build()
+        this._attachMonitorRecommendation(builder, taskType, adapter.id)
+        return builder.build()
       }
     }
 
     return makeRoutingDecision(taskId)
       .unavailable('No routing policy configured and no adapters available')
       .build()
+  }
+
+  // ---------------------------------------------------------------------------
+  // Monitor recommendation helper
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Attach advisory monitor recommendation to a routing decision builder (AC5, AC7).
+   * Only attaches when use_monitor_recommendations=true and a recommendation
+   * is available for the task type with confidence >= "medium".
+   * Explicit routing policy always takes precedence (AC5).
+   *
+   * When the monitor recommends a different agent than the policy-selected agent,
+   * a debug log is emitted to record the override (AC7).
+   *
+   * @param builder - The routing decision builder to attach the recommendation to
+   * @param taskType - The task type being routed
+   * @param selectedAgent - The agent selected by the routing policy (for AC7 override-logging)
+   */
+  private _attachMonitorRecommendation(
+    builder: import('./routing-decision.js').RoutingDecisionBuilder,
+    taskType: string,
+    selectedAgent = '',
+  ): void {
+    if (!this._useMonitorRecommendations || this._monitorAgent === null) return
+
+    // Mark that monitor was consulted regardless of recommendation availability
+    builder.withMonitorInfluenced(true)
+
+    if (taskType.length === 0) return
+
+    try {
+      const recommendation = this._monitorAgent.getRecommendation(taskType)
+      if (recommendation !== null && recommendation.confidence !== 'low') {
+        builder.withMonitorRecommendation(recommendation)
+        logger.debug(
+          { taskType, confidence: recommendation.confidence, improvement: recommendation.improvement_percentage },
+          'Monitor recommendation attached to routing decision',
+        )
+
+        // AC7: Log when routing policy overrides the monitor recommendation
+        if (selectedAgent.length > 0 && recommendation.recommended_agent !== selectedAgent) {
+          logger.debug(
+            {
+              taskType,
+              selectedAgent,
+              recommendedAgent: recommendation.recommended_agent,
+              confidence: recommendation.confidence,
+              improvement: recommendation.improvement_percentage,
+            },
+            'Routing policy overrides monitor recommendation',
+          )
+        }
+      }
+    } catch (err) {
+      // Never let advisory monitor errors affect routing
+      logger.warn({ err, taskType }, 'Failed to get monitor recommendation — continuing without it')
+      // AC5: monitorInfluenced should remain true (monitor was consulted) but we need to
+      // reset it here since the consultation failed and returned no useful data
+      builder.withMonitorInfluenced(false)
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -470,12 +547,22 @@ export interface RoutingEngineImplOptions {
   eventBus: TypedEventBus
   configSystem?: ConfigSystem | null
   adapterRegistry?: AdapterRegistry | null
+  /** Optional monitor agent for advisory recommendations (AC5) */
+  monitorAgent?: MonitorAgent | null
+  /** Whether to use monitor recommendations (AC6, default: false) */
+  useMonitorRecommendations?: boolean
 }
 
 export function createRoutingEngineImpl(options: RoutingEngineImplOptions): RoutingEngineImpl {
-  return new RoutingEngineImpl(
+  const engine = new RoutingEngineImpl(
     options.eventBus,
     options.configSystem ?? null,
     options.adapterRegistry ?? null,
   )
+
+  if (options.monitorAgent != null && options.useMonitorRecommendations === true) {
+    engine.setMonitorAgent(options.monitorAgent, true)
+  }
+
+  return engine
 }

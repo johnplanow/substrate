@@ -61,7 +61,7 @@ export interface OrchestratorEvents {
   // -------------------------------------------------------------------------
 
   /** Task has all dependencies satisfied and is ready to be assigned */
-  'task:ready': { taskId: TaskId }
+  'task:ready': { taskId: TaskId; taskType?: string }
 
   /** A worker has begun execution of a task */
   'task:started': { taskId: TaskId; workerId: WorkerId; agent: string }

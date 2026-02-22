@@ -231,6 +231,35 @@ export function updateTaskMergeStatus(
 }
 
 /**
+ * Update a task's routing fields after a routing decision is made.
+ * Sets agent, billing_mode, and model from the routing decision.
+ */
+export function updateTaskRouting(
+  db: BetterSqlite3Database,
+  taskId: string,
+  fields: {
+    agent: string
+    billing_mode: string
+    model?: string | null
+  },
+): void {
+  const stmt = db.prepare(`
+    UPDATE tasks
+    SET agent = @agent,
+        billing_mode = @billing_mode,
+        model = @model,
+        updated_at = datetime('now')
+    WHERE id = @taskId
+  `)
+  stmt.run({
+    taskId,
+    agent: fields.agent,
+    billing_mode: fields.billing_mode,
+    model: fields.model ?? null,
+  })
+}
+
+/**
  * Update a task's status and optionally set additional fields.
  */
 export function updateTaskStatus(

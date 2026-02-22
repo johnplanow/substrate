@@ -35,6 +35,7 @@ import {
   getAllTasks,
   getTask,
   updateTaskStatus,
+  updateTaskRouting,
 } from '../../persistence/queries/tasks.js'
 import type { Task } from '../../persistence/queries/tasks.js'
 import { appendLog } from '../../persistence/queries/log.js'
@@ -250,6 +251,19 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
       // Mark task failed (retry logic is inside markTaskFailed)
       if (this._state === 'Executing' && this._sessionId !== null) {
         this.markTaskFailed(taskId, error.message, undefined)
+      }
+    })
+
+    this._eventBus.on('task:routed', ({ taskId, decision }) => {
+      // Persist the routing decision (agent, billing_mode, model) to the task record
+      // so the worker pool can read it when spawning the worker.
+      if (decision.agent && decision.billingMode !== 'unavailable') {
+        logger.debug({ taskId, agent: decision.agent, billingMode: decision.billingMode }, 'task:routed — persisting agent assignment')
+        updateTaskRouting(this._databaseService.db, taskId, {
+          agent: decision.agent,
+          billing_mode: decision.billingMode,
+          model: decision.model ?? null,
+        })
       }
     })
   }
@@ -660,7 +674,7 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
         this._inFlightCount++
         scheduledCount++
         logger.debug({ taskId: task.id }, 'Emitting task:ready')
-        this._eventBus.emit('task:ready', { taskId: task.id })
+        this._eventBus.emit('task:ready', { taskId: task.id, taskType: task.task_type ?? undefined })
       }
     }
 

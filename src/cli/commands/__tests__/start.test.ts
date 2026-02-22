@@ -157,6 +157,7 @@ vi.mock('../../../modules/routing/routing-engine.js', () => ({
   createRoutingEngine: () => ({
     initialize: _mockRoutingInitialize,
     shutdown: _mockRoutingShutdown,
+    setMonitorAgent: vi.fn(),
   }),
 }))
 
@@ -217,6 +218,16 @@ vi.mock('../../../recovery/crash-recovery.js', () => ({
     findInterruptedSession: vi.fn().mockReturnValue(undefined),
     archiveSession: vi.fn(),
   },
+}))
+
+vi.mock('../../../persistence/monitor-database.js', () => ({
+  createMonitorDatabase: () => ({
+    close: vi.fn(),
+  }),
+}))
+
+vi.mock('../../../modules/monitor/monitor-agent-impl.js', () => ({
+  createMonitorAgent: () => ({}),
 }))
 
 vi.mock('../../../recovery/shutdown-handler.js', () => ({

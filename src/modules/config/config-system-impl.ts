@@ -19,9 +19,11 @@ import { ConfigError } from '../../core/errors.js'
 import {
   SubstrateConfigSchema,
   PartialSubstrateConfigSchema,
+  SUPPORTED_CONFIG_FORMAT_VERSIONS,
   type SubstrateConfig,
   type PartialSubstrateConfig,
 } from './config-schema.js'
+import { isVersionSupported, formatUnsupportedVersionError } from './version-utils.js'
 import { DEFAULT_CONFIG } from './defaults.js'
 import type { ConfigSystem, ConfigSystemOptions } from './config-system.js'
 import { deepMask } from '../../cli/utils/masking.js'
@@ -341,6 +343,18 @@ export class ConfigSystemImpl implements ConfigSystem {
     try {
       const raw = await readFile(filePath, 'utf-8')
       const parsed = yaml.load(raw)
+
+      // Pre-check config_format_version for a friendly error before Zod runs
+      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const rawObj = parsed as Record<string, unknown>
+        const version = rawObj['config_format_version']
+        if (version !== undefined && typeof version === 'string' && !isVersionSupported(version, SUPPORTED_CONFIG_FORMAT_VERSIONS)) {
+          throw new ConfigError(
+            formatUnsupportedVersionError('config', version, SUPPORTED_CONFIG_FORMAT_VERSIONS),
+            { filePath }
+          )
+        }
+      }
 
       const result = PartialSubstrateConfigSchema.safeParse(parsed)
       if (!result.success) {

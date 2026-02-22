@@ -26,9 +26,12 @@ import { createEventBus } from '../../core/event-bus.js'
 import { createDatabaseService } from '../../modules/database/database-service.js'
 import { createTaskGraphEngine } from '../../modules/task-graph/task-graph-engine.js'
 import { createRoutingEngine } from '../../modules/routing/routing-engine.js'
+import type { RoutingEngineImpl } from '../../modules/routing/routing-engine-impl.js'
 import { createWorkerPoolManager } from '../../modules/worker-pool/worker-pool-manager-impl.js'
 import { createGitWorktreeManager } from '../../modules/git-worktree/git-worktree-manager-impl.js'
 import { AdapterRegistry } from '../../adapters/adapter-registry.js'
+import { createMonitorAgent } from '../../modules/monitor/monitor-agent-impl.js'
+import { createMonitorDatabase } from '../../persistence/monitor-database.js'
 import { createConfigSystem } from '../../modules/config/config-system-impl.js'
 import { createConfigWatcher, computeChangedKeys } from '../../modules/config/config-watcher.js'
 import { ParseError, parseGraphFile } from '../../modules/task-graph/task-parser.js'
@@ -36,6 +39,7 @@ import { ValidationError, validateGraph } from '../../modules/task-graph/task-va
 import { emitEvent } from '../formatters/streaming.js'
 import { createLogger } from '../../utils/logger.js'
 import type { SubstrateConfig } from '../../modules/config/config-schema.js'
+import { ConfigError } from '../../core/errors.js'
 import { CrashRecoveryManager } from '../../recovery/crash-recovery.js'
 import { setupGracefulShutdown } from '../../recovery/shutdown-handler.js'
 
@@ -168,7 +172,15 @@ export async function runStartAction(options: StartActionOptions): Promise<numbe
 
   // Create config system to get defaults
   const configSystem = createConfigSystem({ projectRoot })
-  await configSystem.load()
+  try {
+    await configSystem.load()
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      process.stderr.write(`Error: ${err.message}\n`)
+      return START_EXIT_USAGE_ERROR
+    }
+    throw err
+  }
   const config = configSystem.getConfig()
 
   // Resolve max concurrency: CLI flag > config value > default (4)
@@ -186,6 +198,15 @@ export async function runStartAction(options: StartActionOptions): Promise<numbe
     db: databaseService,
   })
   const routingEngine = createRoutingEngine({ eventBus, adapterRegistry })
+
+  // Create monitor agent for performance tracking and advisory recommendations
+  const monitorDbPath = join(projectRoot, '.substrate', 'monitor.db')
+  const monitorDatabase = createMonitorDatabase(monitorDbPath)
+  const monitorAgent = createMonitorAgent({ eventBus, monitorDb: monitorDatabase })
+
+  // Wire monitor agent into routing engine for advisory recommendations
+  ;(routingEngine as RoutingEngineImpl).setMonitorAgent(monitorAgent, true)
+
   const workerPoolManager = createWorkerPoolManager({
     eventBus,
     adapterRegistry,
@@ -439,6 +460,9 @@ export async function runStartAction(options: StartActionOptions): Promise<numbe
     } catch { /* ignore */ }
     try {
       await databaseService.shutdown()
+    } catch { /* ignore */ }
+    try {
+      monitorDatabase.close()
     } catch { /* ignore */ }
   }
 }

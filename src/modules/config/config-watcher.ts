@@ -14,7 +14,7 @@
  *  - ESM imports: ALL imports use .js extension
  */
 
-import { watch, readFile } from 'node:fs'
+import { watch, readFile, existsSync } from 'node:fs'
 import type { FSWatcher } from 'node:fs'
 import yaml from 'js-yaml'
 import { createLogger } from '../../utils/logger.js'
@@ -141,6 +141,11 @@ export function createConfigWatcher(options: ConfigWatcherOptions): ConfigWatche
     start(): void {
       if (watcher !== null) {
         logger.warn({ configPath }, 'ConfigWatcher.start() called but watcher already running')
+        return
+      }
+
+      if (!existsSync(configPath)) {
+        logger.info({ configPath }, 'Config file not found, hot-reload disabled')
         return
       }
 
