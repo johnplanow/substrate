@@ -16,6 +16,7 @@ import { sessionSignalsSchemaMigration } from './004-session-signals-schema.js'
 import { migration005PlansTable } from './005-plans-table.js'
 import { migration006PlanVersions } from './006-plan-versions.js'
 import { migration007DecisionStore } from './007-decision-store.js'
+import { migration008AmendmentSchema } from './008-amendment-schema.js'
 
 const logger = createLogger('persistence:migrations')
 
@@ -30,13 +31,22 @@ export interface Migration {
   name: string
   /** Execute the migration — must be idempotent */
   up(db: BetterSqlite3Database): void
+  /**
+   * When true, the migration runner will NOT wrap up() in a transaction.
+   * Use this for migrations that must execute PRAGMA statements (e.g.
+   * foreign_keys = OFF) outside a transaction, since SQLite ignores PRAGMA
+   * foreign_keys changes made inside a transaction.  The migration is
+   * responsible for managing its own transaction boundaries and for recording
+   * itself in schema_migrations.
+   */
+  managesOwnTransaction?: boolean
 }
 
 // ---------------------------------------------------------------------------
 // Registered migrations — add new migrations here in version order
 // ---------------------------------------------------------------------------
 
-const MIGRATIONS: Migration[] = [initialSchemaMigration, costTrackerSchemaMigration, budgetEnforcerSchemaMigration, sessionSignalsSchemaMigration, migration005PlansTable, migration006PlanVersions, migration007DecisionStore]
+const MIGRATIONS: Migration[] = [initialSchemaMigration, costTrackerSchemaMigration, budgetEnforcerSchemaMigration, sessionSignalsSchemaMigration, migration005PlansTable, migration006PlanVersions, migration007DecisionStore, migration008AmendmentSchema]
 
 // ---------------------------------------------------------------------------
 // Migration runner
@@ -82,13 +92,22 @@ export function runMigrations(db: BetterSqlite3Database): void {
   for (const migration of pending) {
     logger.info({ version: migration.version, name: migration.name }, 'Applying migration')
 
-    // Run the migration and record it atomically
-    const applyMigration = db.transaction(() => {
+    if (migration.managesOwnTransaction) {
+      // Migration handles its own transaction boundaries (e.g. needs to run
+      // PRAGMA foreign_keys = OFF outside a transaction, which is a no-op
+      // inside a transaction in SQLite).  Call up() directly without wrapping,
+      // then record the migration version in a separate small transaction.
       migration.up(db)
       insertMigration.run(migration.version, migration.name)
-    })
+    } else {
+      // Run the migration and record it atomically
+      const applyMigration = db.transaction(() => {
+        migration.up(db)
+        insertMigration.run(migration.version, migration.name)
+      })
 
-    applyMigration()
+      applyMigration()
+    }
 
     logger.info({ version: migration.version }, 'Migration applied successfully')
   }

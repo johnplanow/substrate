@@ -14,9 +14,11 @@
 .substrate/state.db
 .substrate/state.db-shm
 .substrate/state.db-wal
+.substrate/substrate.db
 .substrate/plans/
 .substrate/config.yaml
 .substrate/routing-policy.yaml
+amendment-delta-*.md
 
 # Build outputs
 dist/

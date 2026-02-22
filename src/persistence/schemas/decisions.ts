@@ -20,7 +20,7 @@ export type RequirementPriority = z.infer<typeof RequirementPriorityEnum>
 export const RequirementTypeEnum = z.enum(['functional', 'non_functional', 'constraint'])
 export type RequirementType = z.infer<typeof RequirementTypeEnum>
 
-export const PipelineRunStatusEnum = z.enum(['running', 'paused', 'completed', 'failed'])
+export const PipelineRunStatusEnum = z.enum(['running', 'paused', 'completed', 'failed', 'stopped'])
 export type PipelineRunStatus = z.infer<typeof PipelineRunStatusEnum>
 
 // ---------------------------------------------------------------------------
@@ -35,6 +35,7 @@ export const DecisionSchema = z.object({
   key: z.string().min(1),
   value: z.string().min(1),
   rationale: z.string().nullable().optional(),
+  superseded_by: z.string().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 })
@@ -134,6 +135,7 @@ export const PipelineRunSchema = z.object({
   status: PipelineRunStatusEnum,
   config_json: z.string().nullable().optional(),
   token_usage_json: z.string().nullable().optional(),
+  parent_run_id: z.string().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 })

@@ -25,6 +25,7 @@ import { registerGraphCommand } from './commands/graph.js'
 import { registerLogCommand } from './commands/log.js'
 import { registerPlanCommand } from './commands/plan.js'
 import { registerAutoCommand } from './commands/auto.js'
+import { registerBrainstormCommand } from './commands/brainstorm.js'
 
 // Increase max listeners before any commands or transports register their handlers.
 // With 16+ CLI commands registered, pino-pretty workers and Commander exit handlers
@@ -120,6 +121,9 @@ export async function createProgram(): Promise<Command> {
 
   // Register auto command (story 10.5)
   registerAutoCommand(program, version)
+
+  // Register brainstorm command (story 12.4)
+  registerBrainstormCommand(program, version)
 
   return program
 }

@@ -60,6 +60,15 @@ const MAX_STORY_PROMPT_CHARS = MAX_STORY_PROMPT_TOKENS * 4
 /** Placeholder in architecture prompt template */
 const REQUIREMENTS_PLACEHOLDER = '{{requirements}}'
 
+/** Amendment context framing block prefix */
+const AMENDMENT_CONTEXT_HEADER = '\n\n--- AMENDMENT CONTEXT (Parent Run Decisions) ---\n'
+
+/** Amendment context framing block suffix */
+const AMENDMENT_CONTEXT_FOOTER = '\n--- END AMENDMENT CONTEXT ---\n'
+
+/** Marker appended when amendment context is truncated to fit token budget */
+const TRUNCATED_MARKER = '\n[TRUNCATED]'
+
 /** Placeholders in story generation prompt template */
 const STORY_REQUIREMENTS_PLACEHOLDER = '{{requirements}}'
 const STORY_ARCHITECTURE_PLACEHOLDER = '{{architecture_decisions}}'
@@ -174,7 +183,7 @@ type ArchitectureGenerationFailure = {
  * persists decisions, and registers the architecture artifact.
  *
  * @param deps - Shared phase dependencies
- * @param params - Solutioning phase parameters (runId)
+ * @param params - Solutioning phase parameters (runId, amendmentContext)
  * @returns Success with decisions and artifactId, or failure with error
  */
 async function runArchitectureGeneration(
@@ -182,7 +191,7 @@ async function runArchitectureGeneration(
   params: SolutioningPhaseParams,
 ): Promise<ArchitectureGenerationSuccess | ArchitectureGenerationFailure> {
   const { db, pack, dispatcher } = deps
-  const { runId } = params
+  const { runId, amendmentContext } = params
   const zeroTokenUsage = { input: 0, output: 0 }
 
   // Step 1: Retrieve architecture prompt template
@@ -192,7 +201,22 @@ async function runArchitectureGeneration(
   const formattedRequirements = formatRequirements(db, runId)
 
   // Step 3: Assemble prompt within 3,000-token ceiling
-  const prompt = template.replace(REQUIREMENTS_PLACEHOLDER, formattedRequirements)
+  let prompt = template.replace(REQUIREMENTS_PLACEHOLDER, formattedRequirements)
+
+  // Step 3b: Inject amendment context if provided
+  if (amendmentContext !== undefined && amendmentContext !== '') {
+    const framingLen = AMENDMENT_CONTEXT_HEADER.length + AMENDMENT_CONTEXT_FOOTER.length
+    const availableForContext = MAX_ARCH_PROMPT_CHARS - prompt.length - framingLen - TRUNCATED_MARKER.length
+    let contextToInject = amendmentContext
+    if (availableForContext <= 0) {
+      contextToInject = ''
+    } else if (amendmentContext.length > availableForContext) {
+      contextToInject = amendmentContext.slice(0, availableForContext) + TRUNCATED_MARKER
+    }
+    if (contextToInject !== '') {
+      prompt += AMENDMENT_CONTEXT_HEADER + contextToInject + AMENDMENT_CONTEXT_FOOTER
+    }
+  }
 
   const estimatedTokens = Math.ceil(prompt.length / 4)
   if (estimatedTokens > MAX_ARCH_PROMPT_TOKENS) {
@@ -300,7 +324,7 @@ type StoryGenerationFailure = {
  * records for each story, and registers the stories artifact.
  *
  * @param deps - Shared phase dependencies
- * @param params - Solutioning phase parameters (runId)
+ * @param params - Solutioning phase parameters (runId, amendmentContext)
  * @param gapAnalysis - Optional gap analysis text for retry dispatches
  * @returns Success with epics and artifactId, or failure with error
  */
@@ -310,7 +334,7 @@ async function runStoryGeneration(
   gapAnalysis?: string,
 ): Promise<StoryGenerationSuccess | StoryGenerationFailure> {
   const { db, pack, dispatcher } = deps
-  const { runId } = params
+  const { runId, amendmentContext } = params
   const zeroTokenUsage = { input: 0, output: 0 }
 
   // Step 1: Retrieve story-generation prompt template
@@ -328,6 +352,21 @@ async function runStoryGeneration(
   // If this is a retry, inject gap analysis
   if (gapAnalysis !== undefined) {
     prompt = prompt.replace(GAP_ANALYSIS_PLACEHOLDER, gapAnalysis)
+  }
+
+  // Step 3b: Inject amendment context if provided
+  if (amendmentContext !== undefined && amendmentContext !== '') {
+    const framingLen = AMENDMENT_CONTEXT_HEADER.length + AMENDMENT_CONTEXT_FOOTER.length
+    const availableForContext = MAX_STORY_PROMPT_CHARS - prompt.length - framingLen - TRUNCATED_MARKER.length
+    let contextToInject = amendmentContext
+    if (availableForContext <= 0) {
+      contextToInject = ''
+    } else if (amendmentContext.length > availableForContext) {
+      contextToInject = amendmentContext.slice(0, availableForContext) + TRUNCATED_MARKER
+    }
+    if (contextToInject !== '') {
+      prompt += AMENDMENT_CONTEXT_HEADER + contextToInject + AMENDMENT_CONTEXT_FOOTER
+    }
   }
 
   const estimatedTokens = Math.ceil(prompt.length / 4)

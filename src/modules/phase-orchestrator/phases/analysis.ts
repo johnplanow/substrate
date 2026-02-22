@@ -27,6 +27,15 @@ const MAX_CONCEPT_CHARS = MAX_CONCEPT_TOKENS * 4
 /** Maximum total prompt length in tokens (2,500 tokens × 4 chars/token = 10,000 chars) */
 const MAX_PROMPT_TOKENS = 2_500
 
+/** Amendment context framing block prefix */
+const AMENDMENT_CONTEXT_HEADER = '\n\n--- AMENDMENT CONTEXT (Parent Run Decisions) ---\n'
+
+/** Amendment context framing block suffix */
+const AMENDMENT_CONTEXT_FOOTER = '\n--- END AMENDMENT CONTEXT ---\n'
+
+/** Marker appended when amendment context is truncated to fit token budget */
+const TRUNCATED_MARKER = '\n[TRUNCATED]'
+
 /** Concept placeholder in the prompt template */
 const CONCEPT_PLACEHOLDER = '{{concept}}'
 
@@ -59,7 +68,7 @@ export async function runAnalysisPhase(
   params: AnalysisPhaseParams,
 ): Promise<AnalysisResult> {
   const { db, pack, dispatcher } = deps
-  const { runId, concept } = params
+  const { runId, concept, amendmentContext } = params
 
   // Zero token usage as default for error paths
   const zeroTokenUsage = { input: 0, output: 0 }
@@ -75,9 +84,30 @@ export async function runAnalysisPhase(
     }
 
     // Step 3: Replace {{concept}} placeholder in template with user concept
-    const prompt = template.replace(CONCEPT_PLACEHOLDER, effectiveConcept)
+    let prompt = template.replace(CONCEPT_PLACEHOLDER, effectiveConcept)
 
-    // Step 4: Validate total prompt token count <= 2,500 (chars/4 heuristic)
+    // Step 4: Inject amendment context if provided (AC2, AC3)
+    if (amendmentContext !== undefined && amendmentContext !== '') {
+      const maxPromptChars = MAX_PROMPT_TOKENS * 4
+      const basePromptLen = prompt.length
+      const framingLen = AMENDMENT_CONTEXT_HEADER.length + AMENDMENT_CONTEXT_FOOTER.length
+      const availableForContext = maxPromptChars - basePromptLen - framingLen - TRUNCATED_MARKER.length
+
+      let contextToInject = amendmentContext
+      if (availableForContext <= 0) {
+        // No room for any context — skip injection to avoid prompt_too_long
+        contextToInject = ''
+      } else if (amendmentContext.length > availableForContext) {
+        // Truncate context to fit within budget
+        contextToInject = amendmentContext.slice(0, availableForContext) + TRUNCATED_MARKER
+      }
+
+      if (contextToInject !== '') {
+        prompt += AMENDMENT_CONTEXT_HEADER + contextToInject + AMENDMENT_CONTEXT_FOOTER
+      }
+    }
+
+    // Step 5: Validate total prompt token count <= 2,500 (chars/4 heuristic)
     const estimatedTokens = Math.ceil(prompt.length / 4)
     if (estimatedTokens > MAX_PROMPT_TOKENS) {
       return {
@@ -88,7 +118,7 @@ export async function runAnalysisPhase(
       }
     }
 
-    // Step 5: Dispatch to claude-code agent
+    // Step 6: Dispatch to claude-code agent
     const handle = dispatcher.dispatch({
       prompt,
       agent: 'claude-code',
@@ -96,7 +126,7 @@ export async function runAnalysisPhase(
       outputSchema: AnalysisOutputSchema,
     })
 
-    // Step 6: Await dispatch result
+    // Step 7: Await dispatch result
     const dispatchResult = await handle.result
 
     // Build token usage from dispatch result
@@ -124,7 +154,7 @@ export async function runAnalysisPhase(
       }
     }
 
-    // Step 7: Validate and extract ProductBrief from parsed result
+    // Step 8: Validate and extract ProductBrief from parsed result
     if (dispatchResult.parsed === null || dispatchResult.parseError !== null) {
       return {
         result: 'failed',
@@ -147,7 +177,7 @@ export async function runAnalysisPhase(
 
     const brief = parsed.product_brief
 
-    // Step 8: Store each field as a separate decision record
+    // Step 9: Store each field as a separate decision record
     for (const field of BRIEF_FIELDS) {
       const value = brief[field]
       createDecision(db, {
@@ -159,7 +189,7 @@ export async function runAnalysisPhase(
       })
     }
 
-    // Step 9: Register product-brief artifact
+    // Step 10: Register product-brief artifact
     const artifact = registerArtifact(db, {
       pipeline_run_id: runId,
       phase: 'analysis',
@@ -168,7 +198,7 @@ export async function runAnalysisPhase(
       summary: brief.problem_statement.substring(0, 100),
     })
 
-    // Step 10: Return success result
+    // Step 11: Return success result
     return {
       result: 'success',
       product_brief: brief,
@@ -176,7 +206,7 @@ export async function runAnalysisPhase(
       tokenUsage,
     }
   } catch (err) {
-    // Step 11: On any unexpected failure, return error result
+    // Step 12: On any unexpected failure, return error result
     const message = err instanceof Error ? err.message : String(err)
     return {
       result: 'failed',

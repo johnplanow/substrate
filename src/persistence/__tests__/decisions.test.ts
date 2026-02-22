@@ -42,6 +42,9 @@ import {
   RegisterArtifactInputSchema,
   CreatePipelineRunInputSchema,
   AddTokenUsageInputSchema,
+  PipelineRunStatusEnum,
+  PipelineRunSchema,
+  DecisionSchema,
 } from '../schemas/decisions.js'
 
 // ---------------------------------------------------------------------------
@@ -768,5 +771,108 @@ describe('AC8: Token usage tracking', () => {
     const summary = getTokenUsageSummary(db, runId)
     expect(summary).toHaveLength(1)
     expect(summary[0].total_input_tokens).toBe(100)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 12-6: Schema type updates for amendment pipeline
+// ---------------------------------------------------------------------------
+
+describe('Story 12-6: PipelineRunStatusEnum includes stopped', () => {
+  it("parses 'stopped' without throwing", () => {
+    expect(() => PipelineRunStatusEnum.parse('stopped')).not.toThrow()
+    expect(PipelineRunStatusEnum.parse('stopped')).toBe('stopped')
+  })
+
+  it("parses all existing statuses without regression", () => {
+    for (const status of ['running', 'paused', 'completed', 'failed'] as const) {
+      expect(() => PipelineRunStatusEnum.parse(status)).not.toThrow()
+    }
+  })
+
+  it("throws ZodError for invalid status value", () => {
+    expect(() => PipelineRunStatusEnum.parse('invalid')).toThrow()
+    expect(() => PipelineRunStatusEnum.parse('halted')).toThrow()
+  })
+})
+
+describe('Story 12-6: PipelineRunSchema includes parent_run_id', () => {
+  const baseRun = {
+    id: '00000000-0000-4000-8000-000000000001',
+    methodology: 'bmad',
+    status: 'running' as const,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+
+  it('parses successfully without parent_run_id (backward compatibility)', () => {
+    const result = PipelineRunSchema.parse(baseRun)
+    expect(result.parent_run_id).toBeUndefined()
+  })
+
+  it('parses successfully with parent_run_id as null', () => {
+    const result = PipelineRunSchema.parse({ ...baseRun, parent_run_id: null })
+    expect(result.parent_run_id).toBeNull()
+  })
+
+  it('parses successfully with parent_run_id as a valid UUID string', () => {
+    const parentId = '00000000-0000-4000-8000-000000000002'
+    const result = PipelineRunSchema.parse({ ...baseRun, parent_run_id: parentId })
+    expect(result.parent_run_id).toBe(parentId)
+  })
+
+  it('throws ZodError when parent_run_id is a number', () => {
+    expect(() => PipelineRunSchema.parse({ ...baseRun, parent_run_id: 42 })).toThrow()
+  })
+
+  it("parses status 'stopped' within PipelineRunSchema", () => {
+    const result = PipelineRunSchema.parse({ ...baseRun, status: 'stopped' })
+    expect(result.status).toBe('stopped')
+  })
+})
+
+describe('Story 12-6: DecisionSchema includes superseded_by', () => {
+  const baseDecision = {
+    id: '00000000-0000-4000-8000-000000000010',
+    pipeline_run_id: '00000000-0000-4000-8000-000000000001',
+    phase: 'analysis',
+    category: 'tech-stack',
+    key: 'database',
+    value: 'sqlite',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+
+  it('parses successfully without superseded_by (backward compatibility)', () => {
+    const result = DecisionSchema.parse(baseDecision)
+    expect(result.superseded_by).toBeUndefined()
+  })
+
+  it('parses successfully with superseded_by as null', () => {
+    const result = DecisionSchema.parse({ ...baseDecision, superseded_by: null })
+    expect(result.superseded_by).toBeNull()
+  })
+
+  it('parses successfully with superseded_by as a valid UUID string', () => {
+    const amendId = '00000000-0000-4000-8000-000000000020'
+    const result = DecisionSchema.parse({ ...baseDecision, superseded_by: amendId })
+    expect(result.superseded_by).toBe(amendId)
+  })
+
+  it('throws ZodError when superseded_by is a number', () => {
+    expect(() => DecisionSchema.parse({ ...baseDecision, superseded_by: 99 })).toThrow()
+  })
+
+  it('parses successfully when both superseded_by and rationale are absent', () => {
+    const minimalDecision = {
+      id: '00000000-0000-4000-8000-000000000011',
+      phase: 'planning',
+      category: 'arch',
+      key: 'pattern',
+      value: 'layered',
+    }
+    const result = DecisionSchema.parse(minimalDecision)
+    expect(result.superseded_by).toBeUndefined()
+    expect(result.rationale).toBeUndefined()
   })
 })

@@ -41,6 +41,15 @@ const MAX_PROMPT_CHARS = MAX_PROMPT_TOKENS * 4
 /** Product brief placeholder in the prompt template */
 const PRODUCT_BRIEF_PLACEHOLDER = '{{product_brief}}'
 
+/** Amendment context framing block prefix */
+const AMENDMENT_CONTEXT_HEADER = '\n\n--- AMENDMENT CONTEXT (Parent Run Decisions) ---\n'
+
+/** Amendment context framing block suffix */
+const AMENDMENT_CONTEXT_FOOTER = '\n--- END AMENDMENT CONTEXT ---\n'
+
+/** Marker appended when amendment context is truncated to fit token budget */
+const TRUNCATED_MARKER = '\n[TRUNCATED]'
+
 /** Product brief fields from analysis phase decisions */
 const BRIEF_FIELDS = [
   'problem_statement',
@@ -112,7 +121,7 @@ export async function runPlanningPhase(
   params: PlanningPhaseParams,
 ): Promise<PlanningResult> {
   const { db, pack, dispatcher } = deps
-  const { runId } = params
+  const { runId, amendmentContext } = params
 
   // Zero token usage as default for error paths
   const zeroTokenUsage = { input: 0, output: 0 }
@@ -142,6 +151,25 @@ export async function runPlanningPhase(
 
     // Step 4: Replace {{product_brief}} placeholder in template
     let prompt = template.replace(PRODUCT_BRIEF_PLACEHOLDER, formattedBrief)
+
+    // Step 4b: Inject amendment context if provided (AC2, AC3)
+    if (amendmentContext !== undefined && amendmentContext !== '') {
+      const framingLen = AMENDMENT_CONTEXT_HEADER.length + AMENDMENT_CONTEXT_FOOTER.length
+      const availableForContext = MAX_PROMPT_CHARS - prompt.length - framingLen - TRUNCATED_MARKER.length
+
+      let contextToInject = amendmentContext
+      if (availableForContext <= 0) {
+        // No room for any context — skip injection to avoid prompt_too_long
+        contextToInject = ''
+      } else if (amendmentContext.length > availableForContext) {
+        // Truncate context to fit within budget
+        contextToInject = amendmentContext.slice(0, availableForContext) + TRUNCATED_MARKER
+      }
+
+      if (contextToInject !== '') {
+        prompt += AMENDMENT_CONTEXT_HEADER + contextToInject + AMENDMENT_CONTEXT_FOOTER
+      }
+    }
 
     // Step 5: Validate total prompt token count <= 3,500 (chars/4 heuristic)
     // If over budget, summarize constraints and out_of_scope fields

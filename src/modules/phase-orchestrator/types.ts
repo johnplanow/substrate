@@ -100,7 +100,7 @@ export interface PhaseRunStatus {
     id: string
   }>
   /** Overall status of the pipeline run */
-  status: 'running' | 'paused' | 'completed' | 'failed'
+  status: 'running' | 'paused' | 'completed' | 'failed' | 'stopped'
   /** History of phase transitions */
   phaseHistory: PhaseHistoryEntry[]
 }

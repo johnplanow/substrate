@@ -41,6 +41,12 @@ export interface AnalysisPhaseParams {
   runId: string
   /** The user's initial concept or goal in natural language */
   concept: string
+  /**
+   * Optional amendment context string containing parent run decisions.
+   * When provided, it is appended to the assembled prompt wrapped in a
+   * framing block before dispatch. Omit (or pass undefined) for non-amendment runs.
+   */
+  amendmentContext?: string
 }
 
 /**
@@ -91,6 +97,12 @@ export interface AnalysisResult {
 export interface PlanningPhaseParams {
   /** The pipeline run ID for this execution */
   runId: string
+  /**
+   * Optional amendment context string containing parent run decisions.
+   * When provided, it is appended to the assembled prompt wrapped in a
+   * framing block before dispatch. Omit (or pass undefined) for non-amendment runs.
+   */
+  amendmentContext?: string
 }
 
 /**
@@ -174,6 +186,12 @@ export interface PlanningResult {
 export interface SolutioningPhaseParams {
   /** The pipeline run ID for this execution */
   runId: string
+  /**
+   * Optional amendment context string containing parent run decisions.
+   * When provided, it is appended to the assembled prompt wrapped in a
+   * framing block before dispatch. Omit (or pass undefined) for non-amendment runs.
+   */
+  amendmentContext?: string
 }
 
 /**

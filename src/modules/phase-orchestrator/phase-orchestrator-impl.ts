@@ -382,7 +382,7 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
         phase: a.phase,
         id: a.id,
       })),
-      status: run.status as 'running' | 'paused' | 'completed' | 'failed',
+      status: run.status as 'running' | 'paused' | 'completed' | 'failed' | 'stopped',
       phaseHistory: config.phaseHistory,
     }
   }
