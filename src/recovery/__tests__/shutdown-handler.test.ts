@@ -41,7 +41,7 @@ describe('setupGracefulShutdown', () => {
     }) as any
 
     processRemoveListenerSpy = vi.fn(() => process) as any
-    processExitSpy = vi.fn(() => { throw new Error('process.exit called') }) as any
+    processExitSpy = vi.fn() as any
 
     process.on = processOnSpy as any
     process.removeListener = processRemoveListenerSpy as any
@@ -129,18 +129,8 @@ describe('setupGracefulShutdown', () => {
     // Simulate SIGTERM
     expect(registeredHandlers['SIGTERM']).toBeDefined()
 
-    // Fire the handler — it's async so we need to give it a tick
-    let exitCalled = false
-    process.exit = vi.fn(() => { exitCalled = true; throw new Error('process.exit') }) as any
-
-    try {
-      registeredHandlers['SIGTERM']()
-      // Wait for async operations
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    } catch {
-      // Expected: process.exit throws in our mock
-    }
-
+    registeredHandlers['SIGTERM']()
+    // Wait for async shutdown to complete
     await new Promise((resolve) => setTimeout(resolve, 50))
 
     expect(mockPause).toHaveBeenCalled()
@@ -172,15 +162,7 @@ describe('setupGracefulShutdown', () => {
 
     expect(registeredHandlers['SIGINT']).toBeDefined()
 
-    process.exit = vi.fn(() => { throw new Error('process.exit') }) as any
-
-    try {
-      registeredHandlers['SIGINT']()
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    } catch {
-      // Expected
-    }
-
+    registeredHandlers['SIGINT']()
     await new Promise((resolve) => setTimeout(resolve, 50))
 
     expect(mockPause).toHaveBeenCalled()
@@ -208,15 +190,7 @@ describe('setupGracefulShutdown', () => {
       sessionId: 'sess-789',
     })
 
-    process.exit = vi.fn(() => { throw new Error('process.exit') }) as any
-
-    try {
-      registeredHandlers['SIGTERM']()
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    } catch {
-      // Expected
-    }
-
+    registeredHandlers['SIGTERM']()
     await new Promise((resolve) => setTimeout(resolve, 50))
 
     // Check that prepare was called with UPDATE tasks SQL
@@ -253,15 +227,7 @@ describe('setupGracefulShutdown', () => {
       sessionId: 'sess-err',
     })
 
-    process.exit = vi.fn(() => { throw new Error('process.exit') }) as any
-
-    try {
-      registeredHandlers['SIGTERM']()
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    } catch {
-      // Expected
-    }
-
+    registeredHandlers['SIGTERM']()
     await new Promise((resolve) => setTimeout(resolve, 50))
 
     // Should still flush WAL even if pause fails
