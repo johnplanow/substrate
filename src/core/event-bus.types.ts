@@ -279,4 +279,43 @@ export interface OrchestratorEvents {
 
   /** Orchestrator shutdown has been initiated */
   'orchestrator:shutdown': { reason: string }
+
+  // -------------------------------------------------------------------------
+  // Implementation orchestrator lifecycle events
+  // -------------------------------------------------------------------------
+
+  /** Implementation orchestrator has started processing story keys */
+  'orchestrator:started': { storyKeys: string[]; pipelineRunId?: string }
+
+  /** A story phase has completed within the implementation orchestrator */
+  'orchestrator:story-phase-complete': {
+    storyKey: string
+    phase: string
+    result: unknown
+  }
+
+  /** A story has completed the full pipeline with SHIP_IT verdict */
+  'orchestrator:story-complete': { storyKey: string; reviewCycles: number }
+
+  /** A story has been escalated after exceeding max review cycles */
+  'orchestrator:story-escalated': {
+    storyKey: string
+    lastVerdict: string
+    reviewCycles: number
+    issues: unknown[]
+  }
+
+  /** Implementation orchestrator has finished all stories */
+  'orchestrator:complete': {
+    totalStories: number
+    completed: number
+    escalated: number
+    failed: number
+  }
+
+  /** Implementation orchestrator has been paused */
+  'orchestrator:paused': Record<string, never>
+
+  /** Implementation orchestrator has been resumed */
+  'orchestrator:resumed': Record<string, never>
 }

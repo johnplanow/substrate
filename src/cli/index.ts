@@ -24,6 +24,12 @@ import { registerRetryCommand } from './commands/retry.js'
 import { registerGraphCommand } from './commands/graph.js'
 import { registerLogCommand } from './commands/log.js'
 import { registerPlanCommand } from './commands/plan.js'
+import { registerAutoCommand } from './commands/auto.js'
+
+// Increase max listeners before any commands or transports register their handlers.
+// With 16+ CLI commands registered, pino-pretty workers and Commander exit handlers
+// can exceed the default limit of 10.
+process.setMaxListeners(30)
 
 const logger = createLogger('cli')
 
@@ -111,6 +117,9 @@ export async function createProgram(): Promise<Command> {
 
   // Register plan command (story 7.1)
   registerPlanCommand(program, version)
+
+  // Register auto command (story 10.5)
+  registerAutoCommand(program, version)
 
   return program
 }

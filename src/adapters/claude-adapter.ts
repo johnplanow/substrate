@@ -110,11 +110,33 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
 
   /**
    * Build spawn command for a coding task.
-   * Uses: `claude -p <prompt> --output-format json --model <model>`
+   * Uses: `claude -p <prompt> --model <model> --dangerously-skip-permissions --system-prompt <minimal>`
    */
   buildCommand(prompt: string, options: AdapterOptions): SpawnCommand {
     const model = options.model ?? DEFAULT_MODEL
-    const args = ['-p', prompt, '--output-format', 'json', '--model', model]
+    // Do NOT use --output-format json: it wraps Claude's response in a JSON event
+    // envelope (type/result/usage), which prevents extractYamlBlock from finding
+    // the YAML result block in the raw stdout. Raw text output is required.
+    // See buildPlanningCommand for the same pattern with explanation.
+    //
+    // --dangerously-skip-permissions: required for headless automated pipeline use.
+    // Without this, Claude in -p mode refuses to write files, asking for permission.
+    //
+    // --system-prompt: replaces CLAUDE.md and auto-memory context so the subprocess
+    // does not respond to the parent session's "Next Up" / memory notes instead of
+    // the actual workflow task. Without this, the child claude reads MEMORY.md and
+    // answers about the wrong story.
+    const systemPrompt =
+      'You are an autonomous coding agent executing a single pipeline task. ' +
+      'Ignore all session startup context, memory notes, and "Next Up" indicators. ' +
+      'Follow the instructions in the user message exactly. ' +
+      'Emit ONLY the YAML output specified in the Output Contract — no other text.'
+    const args = [
+      '-p', prompt,
+      '--model', model,
+      '--dangerously-skip-permissions',
+      '--system-prompt', systemPrompt,
+    ]
 
     if (options.additionalFlags && options.additionalFlags.length > 0) {
       args.push(...options.additionalFlags)

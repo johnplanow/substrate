@@ -136,11 +136,9 @@ describe('ClaudeCodeAdapter', () => {
       expect(cmd.args[pIdx + 1]).toBe(prompt)
     })
 
-    it('includes --output-format json', () => {
+    it('does not include --output-format json (causes JSON envelope wrapping that breaks YAML extraction)', () => {
       const cmd = adapter.buildCommand('Fix it', defaultOptions)
-      const fmtIdx = cmd.args.indexOf('--output-format')
-      expect(fmtIdx).toBeGreaterThanOrEqual(0)
-      expect(cmd.args[fmtIdx + 1]).toBe('json')
+      expect(cmd.args).not.toContain('--output-format')
     })
 
     it('includes --model flag', () => {

@@ -17,7 +17,10 @@ export interface LoggerOptions {
 function getDefaultLogLevel(): string {
   const envLevel = process.env.LOG_LEVEL
   if (envLevel) return envLevel
-  return process.env.NODE_ENV === 'production' ? 'info' : 'debug'
+  if (process.env.NODE_ENV === 'production') return 'info'
+  if (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') return 'debug'
+  // No NODE_ENV set (typical CLI use) — default to warn to avoid noise
+  return 'warn'
 }
 
 /** Whether to use pretty printing (development mode) */
@@ -25,7 +28,10 @@ function isPrettyMode(): boolean {
   if (process.env.LOG_PRETTY !== undefined) {
     return process.env.LOG_PRETTY === 'true'
   }
-  return process.env.NODE_ENV !== 'production'
+  // Only enable pretty printing when NODE_ENV is explicitly 'development' or 'test'.
+  // In CLI use (no NODE_ENV set) or production, use plain JSON to avoid pino-pretty
+  // worker threads adding excess exit listeners to process.
+  return process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test'
 }
 
 /**

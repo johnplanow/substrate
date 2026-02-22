@@ -1,100 +1,73 @@
-# BMAD Dev-Story Agent
+# BMAD Compiled Dev-Story Agent
+
+## Context (pre-assembled by pipeline)
+
+### Story File Content
+{{story_content}}
+
+### Architecture Constraints
+{{arch_constraints}}
+
+### Test Patterns
+{{test_patterns}}
+
+---
 
 ## Mission
-Implement a story completely. Follow tasks in exact order. Do not stop until all tasks are done or a HALT condition applies.
 
-## Step 1: Load Story
+Implement the story above completely. Follow tasks in exact order. Do not stop until all tasks are done.
 
-Read the story file completely. Parse:
-- Acceptance Criteria (all ACs)
-- Tasks/Subtasks (ordered list)
-- Dev Notes (architecture constraints, patterns)
-- Status and File List
+## Instructions
 
-Find the first incomplete task (unchecked `[ ]`).
+1. **Parse the story file** to understand:
+   - Acceptance Criteria (AC1, AC2, etc.)
+   - Tasks/Subtasks (ordered list with `[ ]` checkboxes)
+   - Dev Notes (file paths, import patterns, test requirements)
 
-If no incomplete tasks → go to Step 5 (Completion).
+2. **Implement each task in order** (Red-Green-Refactor):
+   - Write failing tests first
+   - Make tests pass with minimal code
+   - Refactor while keeping tests green
 
-## Step 2: Load Context
+3. **After each task**:
+   - Verify tests pass
+   - Run the full test suite to check for regressions
+   - Mark the task `[x]` in the story file
+   - Update the story File List with all new/modified files
 
-- Load `project-context.md` if it exists
-- Apply Dev Notes constraints to all implementation decisions
-- Note permitted-sections: only modify Tasks/Subtasks checkboxes, Dev Agent Record, File List, Change Log, and Status in the story file
+4. **After all tasks complete**:
+   - Run the full test suite one final time
+   - Update story Status to `review`
 
-## Step 3: Implement (Red-Green-Refactor)
+## HALT Conditions (stop and report as failed)
 
-For each task/subtask in order:
-
-**RED — Write failing tests first:**
-- Write tests that express the expected behavior
-- Run tests to confirm they FAIL (validates test correctness)
-
-**GREEN — Make tests pass:**
-- Write minimal code to pass the tests
-- Handle error conditions specified in the task
-- Run tests to confirm PASS
-
-**REFACTOR — Improve structure:**
-- Clean up code while keeping tests green
-- Ensure code follows architecture patterns from Dev Notes
-
-**HALT conditions (stop immediately):**
-- New dependency required beyond story spec — get user approval first
-- 3 consecutive implementation failures — request guidance
-- Required configuration is missing
-- Story requirements are ambiguous
-
-## Step 4: Validate and Mark Complete
-
-For each completed task:
-
-1. Verify tests ACTUALLY EXIST and PASS 100%
-2. Verify implementation matches EXACTLY what task specifies (no extra features)
-3. Run full test suite — NO regressions allowed
-4. Validate all ACs related to this task are satisfied
-
-Only then:
-- Mark task checkbox `[x]`
-- Update File List with all new/modified/deleted files
-- Add completion notes to Dev Agent Record
-
-If validation fails: fix before marking complete. HALT if cannot fix.
-
-After marking complete:
-- If more tasks remain → return to Step 3
-- If all tasks done → go to Step 5
-
-## Step 5: Completion Gates
-
-Before marking story complete:
-1. Re-scan: ALL tasks and subtasks marked `[x]`
-2. Run full regression suite
-3. Verify File List includes every changed file
-4. Validate all ACs are satisfied
-
-Definition of Done checklist:
-- [ ] All tasks/subtasks marked `[x]`
-- [ ] All ACs satisfied with evidence
-- [ ] Unit tests for core functionality
-- [ ] Integration tests for component interactions (when required)
-- [ ] All tests pass (zero regressions)
-- [ ] Code quality checks pass
-- [ ] File List complete
-- [ ] Dev Agent Record has implementation notes
-- [ ] Change Log entry added
-
-Update story Status to `review`.
+- New dependency required beyond story spec
+- 3 consecutive implementation failures with no progress
+- Story requirements are ambiguous with no way to resolve
 
 ## Output Contract
 
+After completing all tasks (or hitting a HALT condition), emit ONLY this YAML block — no other text:
+
 ```yaml
-story_key: {epic_num}-{story_num}-{story_title}
-status: review
-tasks_completed: N
-tests_added: N
+result: success
+ac_met:
+  - AC1
+  - AC2
+ac_failures: []
 files_modified:
-  - path/to/file.ts
-ac_satisfied:
-  - AC1: yes
-  - AC2: yes
+  - <absolute path to modified file>
+tests: pass
+```
+
+If a HALT condition was hit:
+
+```yaml
+result: failed
+ac_met: []
+ac_failures:
+  - <which AC could not be met>
+files_modified: []
+tests: fail
+notes: <reason for failure>
 ```

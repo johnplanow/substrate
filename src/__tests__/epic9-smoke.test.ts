@@ -71,7 +71,7 @@ describe('Item 5: Methodology Pack', () => {
     expect(bmad!.path).toBeTruthy();
   });
 
-  it('getPrompt(dev-story) returns coherent text with no unfilled placeholders', async () => {
+  it('getPrompt(dev-story) returns coherent text with expected compiled-workflow placeholders', async () => {
     const loader = createPackLoader();
     const packs = await loader.discover(PROJECT_ROOT);
     const bmad = packs.find(p => p.name === 'bmad')!;
@@ -80,7 +80,10 @@ describe('Item 5: Methodology Pack', () => {
     const prompt = await pack.getPrompt('dev-story');
     expect(typeof prompt).toBe('string');
     expect(prompt.length).toBeGreaterThan(50);
-    expect(prompt).not.toMatch(/\{\{[^}]+\}\}/);
+    // Compiled workflow prompts use {{placeholder}} syntax filled by assemblePrompt at runtime.
+    // Verify the expected placeholders are present in the template.
+    expect(prompt).toMatch(/\{\{story_content\}\}/);
+    expect(prompt).toMatch(/\{\{arch_constraints\}\}/);
   });
 });
 

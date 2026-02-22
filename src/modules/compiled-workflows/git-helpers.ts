@@ -1,0 +1,105 @@
+/**
+ * Git diff capture utilities for the compiled-workflows module.
+ *
+ * Provides helpers to capture git diff output for use in code-review prompts.
+ * Uses child_process.spawn (ADR-005) for subprocess management.
+ */
+
+import { spawn } from 'node:child_process'
+import { createLogger } from '../../utils/logger.js'
+
+const logger = createLogger('compiled-workflows:git-helpers')
+
+// ---------------------------------------------------------------------------
+// getGitDiffSummary
+// ---------------------------------------------------------------------------
+
+/**
+ * Capture the full git diff for HEAD~1.
+ *
+ * Runs `git diff HEAD~1` in the specified working directory and returns
+ * the diff output as a string. On error (no git repo, no previous commit,
+ * process exits non-zero), returns an empty string and logs a warning.
+ *
+ * Uses child_process.spawn per ADR-005.
+ *
+ * @param workingDirectory - Directory to run git in (defaults to process.cwd())
+ * @returns The diff output string, or '' on error
+ */
+export async function getGitDiffSummary(workingDirectory: string = process.cwd()): Promise<string> {
+  return runGitCommand(['diff', 'HEAD~1'], workingDirectory, 'git-diff-summary')
+}
+
+// ---------------------------------------------------------------------------
+// getGitDiffStatSummary
+// ---------------------------------------------------------------------------
+
+/**
+ * Capture the file-level stat summary from git diff HEAD~1.
+ *
+ * Runs `git diff --stat HEAD~1` which provides a condensed summary of
+ * changed files without the full diff hunks. Used as a fallback when the
+ * full diff exceeds the token budget.
+ *
+ * @param workingDirectory - Directory to run git in (defaults to process.cwd())
+ * @returns The stat summary string, or '' on error
+ */
+export async function getGitDiffStatSummary(workingDirectory: string = process.cwd()): Promise<string> {
+  return runGitCommand(['diff', '--stat', 'HEAD~1'], workingDirectory, 'git-diff-stat')
+}
+
+// ---------------------------------------------------------------------------
+// Private helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Run a git command in the specified directory and return its stdout output.
+ * Returns '' on any error and logs a warning.
+ */
+async function runGitCommand(
+  args: string[],
+  cwd: string,
+  logLabel: string,
+): Promise<string> {
+  return new Promise<string>((resolve) => {
+    let stdout = ''
+    let stderr = ''
+
+    const proc = spawn('git', args, {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    if (proc.stdout !== null) {
+      proc.stdout.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString('utf-8')
+      })
+    }
+
+    if (proc.stderr !== null) {
+      proc.stderr.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString('utf-8')
+      })
+    }
+
+    proc.on('error', (err: Error) => {
+      logger.warn(
+        { label: logLabel, cwd, error: err.message },
+        'Failed to spawn git process — returning empty diff',
+      )
+      resolve('')
+    })
+
+    proc.on('close', (code: number | null) => {
+      if (code !== 0) {
+        logger.warn(
+          { label: logLabel, cwd, code, stderr: stderr.trim() },
+          'Git process exited non-zero — returning empty diff',
+        )
+        resolve('')
+        return
+      }
+      resolve(stdout)
+    })
+  })
+}
