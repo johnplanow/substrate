@@ -6,6 +6,8 @@
  * for the routing choice (NFR7 — audit trail for cost tracking).
  */
 
+import type { Recommendation } from '../monitor/recommendation-types.js'
+
 // ---------------------------------------------------------------------------
 // RoutingDecision interface
 // ---------------------------------------------------------------------------
@@ -39,6 +41,18 @@ export interface RoutingDecision {
   estimatedCostUsd?: number
   /** Rate limit state at time of decision */
   rateLimit?: { tokensUsedInWindow: number; limit: number }
+  /**
+   * Advisory recommendation from monitor agent (AC5, Story 8.6).
+   * Present when use_monitor_recommendations=true and a recommendation is available.
+   * This is informational only — routing policy always takes precedence.
+   */
+  monitorRecommendation?: Recommendation
+  /**
+   * Whether the monitor agent was consulted for this routing decision (AC5).
+   * True when use_monitor_recommendations=true, regardless of whether a
+   * recommendation was available.
+   */
+  monitorInfluenced: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +78,8 @@ export class RoutingDecisionBuilder {
   private _fallbackChain?: string[]
   private _estimatedCostUsd?: number
   private _rateLimit?: { tokensUsedInWindow: number; limit: number }
+  private _monitorRecommendation?: Recommendation
+  private _monitorInfluenced = false
 
   constructor(taskId: string) {
     this._taskId = taskId
@@ -100,6 +116,17 @@ export class RoutingDecisionBuilder {
     return this
   }
 
+  withMonitorRecommendation(recommendation: Recommendation): this {
+    this._monitorRecommendation = recommendation
+    this._monitorInfluenced = true
+    return this
+  }
+
+  withMonitorInfluenced(influenced: boolean): this {
+    this._monitorInfluenced = influenced
+    return this
+  }
+
   unavailable(rationale: string): this {
     this._billingMode = 'unavailable'
     this._agent = 'none'
@@ -117,6 +144,8 @@ export class RoutingDecisionBuilder {
       fallbackChain: this._fallbackChain,
       estimatedCostUsd: this._estimatedCostUsd,
       rateLimit: this._rateLimit,
+      monitorRecommendation: this._monitorRecommendation,
+      monitorInfluenced: this._monitorInfluenced,
     }
   }
 }

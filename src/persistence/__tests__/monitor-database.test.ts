@@ -230,6 +230,26 @@ describe('MonitorDatabaseImpl', () => {
     expect(aggregates[0].taskType).toBe('testing')
   })
 
+  it('filters aggregates by sinceDate using performance_aggregates.last_updated (AC2/AC3)', () => {
+    // updateAggregates sets last_updated to now, so these rows will pass a recent sinceDate filter
+    db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+    db.updateAggregates('codex', 'testing', { outcome: 'success', inputTokens: 200, outputTokens: 0, durationMs: 0, cost: 0 })
+
+    // Filter to only rows updated since 5 days ago — both rows were just written, so both should pass
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+    const aggregates = db.getAggregates({ sinceDate: fiveDaysAgo })
+
+    expect(aggregates.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('returns empty array when sinceDate is in the future', () => {
+    db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const aggregates = db.getAggregates({ sinceDate: futureDate })
+    expect(aggregates).toHaveLength(0)
+  })
+
   // -------------------------------------------------------------------------
   // pruneOldData
   // -------------------------------------------------------------------------
@@ -323,6 +343,25 @@ describe('MonitorDatabaseImpl', () => {
   // -------------------------------------------------------------------------
   // createMonitorDatabase factory
   // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // resetAllData()
+  // -------------------------------------------------------------------------
+
+  it('resetAllData() deletes all task_metrics and performance_aggregates rows', () => {
+    db.insertTaskMetrics(makeMetricsRow({ taskId: 'task-1' }))
+    db.insertTaskMetrics(makeMetricsRow({ taskId: 'task-2' }))
+    db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+
+    db.resetAllData()
+
+    const internal = (db as unknown as { _db: import('better-sqlite3').Database })._db
+    const metricsCount = (internal.prepare('SELECT COUNT(*) as cnt FROM task_metrics').get() as { cnt: number }).cnt
+    const aggCount = (internal.prepare('SELECT COUNT(*) as cnt FROM performance_aggregates').get() as { cnt: number }).cnt
+
+    expect(metricsCount).toBe(0)
+    expect(aggCount).toBe(0)
+  })
 
   it('createMonitorDatabase creates a working MonitorDatabase', () => {
     const monitorDb = createMonitorDatabase(':memory:')

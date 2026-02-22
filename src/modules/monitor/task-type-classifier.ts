@@ -22,15 +22,15 @@ const logger = createLogger('monitor:classifier')
  * Keywords are matched case-insensitively against the task title/description.
  */
 export const DEFAULT_TAXONOMY: Record<string, string[]> = {
-  testing: ['test', 'spec', 'assert', 'verify', 'validate', 'coverage'],
-  debugging: ['fix', 'debug', 'resolve', 'patch', 'hotfix', 'bug'],
-  refactoring: ['refactor', 'restructure', 'reorganize', 'clean up', 'optimize'],
+  testing: ['test', 'tests', 'spec', 'assert', 'verify', 'validate', 'coverage', 'e2e'],
+  debugging: ['fix', 'debug', 'resolve', 'patch', 'hotfix', 'bug', 'crash'],
+  refactoring: ['refactor', 'restructure', 'reorganize', 'cleanup', 'optimize'],
   docs: ['document', 'readme', 'jsdoc', 'comment', 'guide', 'tutorial'],
   api: ['endpoint', 'route', 'controller', 'rest', 'graphql', 'api'],
   database: ['migration', 'schema', 'model', 'query', 'database', 'sql'],
-  ui: ['component', 'page', 'layout', 'style', 'css', 'frontend', 'ui'],
+  ui: ['component', 'page', 'layout', 'style', 'css', 'frontend', 'ui', 'dom'],
   devops: ['deploy', 'ci', 'cd', 'pipeline', 'docker', 'kubernetes', 'infra'],
-  coding: ['implement', 'create', 'build', 'add', 'write code', 'develop'],
+  coding: ['implement', 'create', 'build', 'add', 'write', 'develop'],
 }
 
 // ---------------------------------------------------------------------------
@@ -84,10 +84,15 @@ export class TaskTypeClassifier {
       return 'coding'
     }
 
-    // Priority 2: heuristic keyword matching
+    // Priority 2: heuristic keyword matching (full word-boundary matching)
+    // Uses \bKEYWORD\b to prevent substring false positives
+    // e.g. "dom" matches standalone "dom" but NOT inside "random" or "domain"
+    // e.g. "ci" matches standalone "ci" but NOT inside "specific"
     for (const [taskType, keywords] of Object.entries(this._taxonomy)) {
       for (const keyword of keywords) {
-        if (text.includes(keyword.toLowerCase())) {
+        const escaped = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const pattern = new RegExp(`\\b${escaped}\\b`)
+        if (pattern.test(text)) {
           logger.debug({ taskType, keyword }, 'Heuristic match found')
           return taskType
         }

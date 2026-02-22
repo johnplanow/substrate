@@ -59,6 +59,7 @@ export function applyMonitorSchema(db: BetterSqlite3Database): void {
       total_output_tokens INTEGER NOT NULL DEFAULT 0,
       total_duration_ms  INTEGER NOT NULL DEFAULT 0,
       total_cost         REAL    NOT NULL DEFAULT 0.0,
+      total_retries      INTEGER NOT NULL DEFAULT 0,
       last_updated       TEXT    NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (agent, task_type)
     );

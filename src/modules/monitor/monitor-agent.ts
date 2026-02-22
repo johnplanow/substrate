@@ -9,6 +9,7 @@
  */
 
 import type { BaseService } from '../../core/di.js'
+import type { Recommendation } from './recommendation-types.js'
 
 // ---------------------------------------------------------------------------
 // TaskMetrics
@@ -63,4 +64,21 @@ export interface MonitorAgent extends BaseService {
       taskType?: string
     }
   ): void
+
+  /**
+   * Get a routing recommendation for a specific task type (AC5, Story 8.6).
+   * Returns null if no meaningful recommendation is available (e.g., insufficient data).
+   */
+  getRecommendation(taskType: string): Recommendation | null
+
+  /**
+   * Get all current routing recommendations (AC5, Story 8.6).
+   * Returns an empty array if no recommendations are available.
+   */
+  getRecommendations(): Recommendation[]
+
+  /**
+   * Set a custom task type taxonomy for classification (Story 8.5).
+   */
+  setCustomTaxonomy?(taxonomy: Record<string, string[]>): void
 }

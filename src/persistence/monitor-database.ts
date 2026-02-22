@@ -20,6 +20,7 @@ import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database, Statement } from 'better-sqlite3'
 import { applyMonitorSchema } from './migrations/001-monitor-schema.js'
 import { createLogger } from '../utils/logger.js'
+import type { AgentPerformanceMetrics, TaskTypeBreakdownResult } from '../modules/monitor/performance-aggregates.js'
 
 const logger = createLogger('persistence:monitor-db')
 
@@ -80,11 +81,40 @@ export interface MonitorDatabase {
       outputTokens: number
       durationMs: number
       cost: number
+      retries?: number
+    }
+  ): void
+
+  /**
+   * Alias for updateAggregates — provided for API consistency (AC6).
+   */
+  updatePerformanceAggregates(
+    agent: string,
+    taskType: string,
+    delta: {
+      outcome: 'success' | 'failure'
+      inputTokens: number
+      outputTokens: number
+      durationMs: number
+      cost: number
+      retries?: number
     }
   ): void
 
   /** Retrieve aggregated performance stats, optionally filtered */
-  getAggregates(filter?: { agent?: string; taskType?: string }): AggregateStats[]
+  getAggregates(filter?: { agent?: string; taskType?: string; sinceDate?: string }): AggregateStats[]
+
+  /**
+   * Get aggregated performance metrics for a single agent across all task types (AC1).
+   * Returns null if the agent has no data.
+   */
+  getAgentPerformance(agent: string): AgentPerformanceMetrics | null
+
+  /**
+   * Get per-agent breakdown for a single task type (AC5).
+   * Returns null if the task type has no data.
+   */
+  getTaskTypeBreakdown(taskType: string): TaskTypeBreakdownResult | null
 
   /**
    * Delete task_metrics rows older than retentionDays from now.
@@ -97,6 +127,12 @@ export interface MonitorDatabase {
    * Called after pruning to keep aggregates consistent.
    */
   rebuildAggregates(): void
+
+  /**
+   * Delete all data from task_metrics and performance_aggregates tables.
+   * Used by the monitor reset command (AC7).
+   */
+  resetAllData(): void
 
   /** Close the underlying database connection */
   close(): void
@@ -154,10 +190,10 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
     this._stmtUpsertAggregates = this._db.prepare(`
       INSERT INTO performance_aggregates (
         agent, task_type, total_tasks, successful_tasks, failed_tasks,
-        total_input_tokens, total_output_tokens, total_duration_ms, total_cost, last_updated
+        total_input_tokens, total_output_tokens, total_duration_ms, total_cost, total_retries, last_updated
       ) VALUES (
         @agent, @taskType, @totalTasks, @successfulTasks, @failedTasks,
-        @inputTokens, @outputTokens, @durationMs, @cost, @lastUpdated
+        @inputTokens, @outputTokens, @durationMs, @cost, @retries, @lastUpdated
       )
       ON CONFLICT(agent, task_type) DO UPDATE SET
         total_tasks         = total_tasks + @totalTasks,
@@ -167,6 +203,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
         total_output_tokens = total_output_tokens + @outputTokens,
         total_duration_ms   = total_duration_ms + @durationMs,
         total_cost          = total_cost + @cost,
+        total_retries       = total_retries + @retries,
         last_updated        = @lastUpdated
     `)
 
@@ -207,6 +244,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
       outputTokens: number
       durationMs: number
       cost: number
+      retries?: number
     }
   ): void {
     this._assertOpen()
@@ -220,13 +258,34 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
       outputTokens: delta.outputTokens,
       durationMs: delta.durationMs,
       cost: delta.cost,
+      retries: delta.retries ?? 0,
       lastUpdated: new Date().toISOString(),
     })
   }
 
-  getAggregates(filter?: { agent?: string; taskType?: string }): AggregateStats[] {
+  updatePerformanceAggregates(
+    agent: string,
+    taskType: string,
+    delta: {
+      outcome: 'success' | 'failure'
+      inputTokens: number
+      outputTokens: number
+      durationMs: number
+      cost: number
+      retries?: number
+    }
+  ): void {
+    this.updateAggregates(agent, taskType, delta)
+  }
+
+  getAggregates(filter?: { agent?: string; taskType?: string; sinceDate?: string }): AggregateStats[] {
     const db = this._assertOpen()
 
+    // Query pre-computed performance_aggregates with optional filters.
+    // When sinceDate is provided, filter by last_updated >= sinceDate so that only
+    // aggregates that have been updated within the history window are returned (AC2/AC3).
+    // This is the correct semantic for the recommendation engine: stale aggregate rows
+    // (agent/task_type pairs with no activity in the window) are excluded.
     let sql = `
       SELECT agent, task_type, total_tasks, successful_tasks, failed_tasks,
              total_input_tokens, total_output_tokens, total_duration_ms, total_cost, last_updated
@@ -242,6 +301,10 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
     if (filter?.taskType) {
       conditions.push('task_type = @taskType')
       params.taskType = filter.taskType
+    }
+    if (filter?.sinceDate) {
+      conditions.push('last_updated >= @sinceDate')
+      params.sinceDate = filter.sinceDate
     }
 
     if (conditions.length > 0) {
@@ -273,6 +336,106 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
       totalCost: r.total_cost,
       lastUpdated: r.last_updated,
     }))
+  }
+
+  getAgentPerformance(agent: string): AgentPerformanceMetrics | null {
+    const db = this._assertOpen()
+
+    const row = db.prepare(`
+      SELECT
+        SUM(total_tasks)         AS total_tasks,
+        SUM(successful_tasks)    AS successful_tasks,
+        SUM(failed_tasks)        AS failed_tasks,
+        SUM(total_input_tokens)  AS total_input_tokens,
+        SUM(total_output_tokens) AS total_output_tokens,
+        SUM(total_duration_ms)   AS total_duration_ms,
+        SUM(total_cost)          AS total_cost,
+        SUM(total_retries)       AS total_retries,
+        MAX(last_updated)        AS last_updated
+      FROM performance_aggregates
+      WHERE agent = @agent
+    `).get({ agent }) as {
+      total_tasks: number | null
+      successful_tasks: number
+      failed_tasks: number
+      total_input_tokens: number
+      total_output_tokens: number
+      total_duration_ms: number
+      total_cost: number
+      total_retries: number
+      last_updated: string | null
+    } | undefined
+
+    if (row == null || row.total_tasks == null || row.total_tasks === 0) {
+      return null
+    }
+
+    const totalTasks = row.total_tasks
+    const successfulTasks = row.successful_tasks ?? 0
+    const failedTasks = row.failed_tasks ?? 0
+    const totalInputTokens = row.total_input_tokens ?? 0
+    const totalOutputTokens = row.total_output_tokens ?? 0
+    const totalDurationMs = row.total_duration_ms ?? 0
+    const totalRetries = row.total_retries ?? 0
+
+    return {
+      total_tasks: totalTasks,
+      successful_tasks: successfulTasks,
+      failed_tasks: failedTasks,
+      success_rate: (successfulTasks / totalTasks) * 100,
+      failure_rate: (failedTasks / totalTasks) * 100,
+      average_tokens: (totalInputTokens + totalOutputTokens) / totalTasks,
+      average_duration: totalDurationMs / totalTasks,
+      token_efficiency: totalInputTokens > 0 ? totalOutputTokens / totalInputTokens : 0,
+      retry_rate: (totalRetries / totalTasks) * 100,
+      last_updated: row.last_updated ?? new Date().toISOString(),
+    }
+  }
+
+  getTaskTypeBreakdown(taskType: string): TaskTypeBreakdownResult | null {
+    const db = this._assertOpen()
+
+    const rows = db.prepare(`
+      SELECT
+        agent,
+        total_tasks,
+        successful_tasks,
+        failed_tasks,
+        total_input_tokens,
+        total_output_tokens,
+        total_duration_ms,
+        total_cost,
+        last_updated
+      FROM performance_aggregates
+      WHERE task_type = @taskType
+      ORDER BY (CAST(successful_tasks AS REAL) / NULLIF(total_tasks, 0)) DESC
+    `).all({ taskType }) as {
+      agent: string
+      total_tasks: number
+      successful_tasks: number
+      failed_tasks: number
+      total_input_tokens: number
+      total_output_tokens: number
+      total_duration_ms: number
+      total_cost: number
+      last_updated: string
+    }[]
+
+    if (rows.length === 0) {
+      return null
+    }
+
+    return {
+      task_type: taskType,
+      agents: rows.map((r) => ({
+        agent: r.agent,
+        total_tasks: r.total_tasks,
+        success_rate: r.total_tasks > 0 ? (r.successful_tasks / r.total_tasks) * 100 : 0,
+        average_tokens: r.total_tasks > 0 ? (r.total_input_tokens + r.total_output_tokens) / r.total_tasks : 0,
+        average_duration: r.total_tasks > 0 ? r.total_duration_ms / r.total_tasks : 0,
+        sample_size: r.total_tasks,
+      })),
+    }
   }
 
   pruneOldData(retentionDays: number): number {
@@ -314,6 +477,13 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
     `)
 
     logger.info('Rebuilt performance_aggregates from task_metrics')
+  }
+
+  resetAllData(): void {
+    const db = this._assertOpen()
+    db.exec('DELETE FROM task_metrics')
+    db.exec('DELETE FROM performance_aggregates')
+    logger.info({ path: this._path }, 'Monitor data reset — all rows deleted')
   }
 
   close(): void {

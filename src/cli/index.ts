@@ -26,6 +26,8 @@ import { registerLogCommand } from './commands/log.js'
 import { registerPlanCommand } from './commands/plan.js'
 import { registerAutoCommand } from './commands/auto.js'
 import { registerBrainstormCommand } from './commands/brainstorm.js'
+import { registerMonitorCommand } from './commands/monitor.js'
+import { registerUpgradeCommand } from './commands/upgrade.js'
 
 // Increase max listeners before any commands or transports register their handlers.
 // With 16+ CLI commands registered, pino-pretty workers and Commander exit handlers
@@ -125,13 +127,40 @@ export async function createProgram(): Promise<Command> {
   // Register brainstorm command (story 12.4)
   registerBrainstormCommand(program, version)
 
+  // Register monitor command (story 8.7)
+  registerMonitorCommand(program, version)
+
+  // Register upgrade command (story 8.3)
+  registerUpgradeCommand(program)
+
   return program
+}
+
+/** Fire-and-forget startup version check (story 8.3, AC3/AC5) */
+function checkForUpdatesInBackground(currentVersion: string): void {
+  if (process.env.SUBSTRATE_NO_UPDATE_CHECK === '1') return
+  // Dynamic import to avoid loading version-manager for every CLI invocation
+  import('./commands/upgrade.js').then(async () => {
+    const { createVersionManager } = await import('../modules/version-manager/version-manager-impl.js')
+    const vm = createVersionManager()
+    const result = await vm.checkForUpdates()
+    if (result.updateAvailable) {
+      process.stderr.write(
+        `\nUpdate available: ${result.currentVersion} → ${result.latestVersion}. Run \`substrate upgrade\` to update.\n`
+      )
+    }
+  }).catch(() => {
+    // Silently ignore — never block CLI for update checks
+  })
 }
 
 /** Main entry point */
 async function main(): Promise<void> {
   try {
     const program = await createProgram()
+    const version = await getPackageVersion()
+    // Non-blocking update check (AC3: never delays command output)
+    checkForUpdatesInBackground(version)
     await program.parseAsync(process.argv)
   } catch (error) {
     logger.error({ error }, 'CLI error')

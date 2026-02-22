@@ -17,6 +17,8 @@ import type { TypedEventBus } from '../../core/event-bus.js'
 import type { MonitorAgent } from './monitor-agent.js'
 import type { MonitorDatabase } from '../../persistence/monitor-database.js'
 import { TaskTypeClassifier } from './task-type-classifier.js'
+import { RecommendationEngine } from './recommendation-engine.js'
+import type { Recommendation } from './recommendation-types.js'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('monitor:agent')
@@ -32,6 +34,14 @@ export interface MonitorConfig {
   retentionHourUtc?: number
   /** Custom task type taxonomy override */
   customTaxonomy?: Record<string, string[]>
+  /** Enable advisory recommendations (default: false) */
+  use_recommendations?: boolean
+  /** Min improvement % to generate a recommendation (default: 5.0) */
+  recommendation_threshold_percentage?: number
+  /** Min tasks per (agent, task_type) pair (default: 10) */
+  min_sample_size?: number
+  /** How many days of history to analyze (default: 90) */
+  recommendation_history_days?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -45,6 +55,7 @@ export class MonitorAgentImpl implements MonitorAgent {
   private readonly _retentionDays: number
   private readonly _retentionHourUtc: number
   private _retentionTimer: ReturnType<typeof setInterval> | null = null
+  private readonly _recommendationEngine: RecommendationEngine | null
 
   // Bound handlers stored for clean unsubscription
   private readonly _onTaskComplete: (payload: {
@@ -68,6 +79,18 @@ export class MonitorAgentImpl implements MonitorAgent {
     this._retentionDays = config.retentionDays ?? 90
     this._retentionHourUtc = config.retentionHourUtc ?? 0
     this._classifier = new TaskTypeClassifier(config.customTaxonomy)
+
+    // Initialize recommendation engine if enabled
+    if (config.use_recommendations) {
+      this._recommendationEngine = new RecommendationEngine(monitorDb, {
+        use_recommendations: config.use_recommendations,
+        recommendation_threshold_percentage: config.recommendation_threshold_percentage,
+        min_sample_size: config.min_sample_size,
+        recommendation_history_days: config.recommendation_history_days,
+      })
+    } else {
+      this._recommendationEngine = null
+    }
 
     // Bind handlers once so we can reference the same function for off()
     this._onTaskComplete = (payload) => {
@@ -183,6 +206,29 @@ export class MonitorAgentImpl implements MonitorAgent {
     } catch (err) {
       logger.error({ err, taskId }, 'Failed to record task metrics')
     }
+  }
+
+  /**
+   * Get a routing recommendation for a specific task type (AC5, Story 8.6).
+   * Returns null if no meaningful recommendation is available (e.g., insufficient data
+   * or recommendations not enabled).
+   */
+  getRecommendation(taskType: string): Recommendation | null {
+    if (this._recommendationEngine === null) {
+      return null
+    }
+    return this._recommendationEngine.getMonitorRecommendation(taskType)
+  }
+
+  /**
+   * Get all current routing recommendations (AC5, Story 8.6).
+   * Returns an empty array if no recommendations are available or not enabled.
+   */
+  getRecommendations(): Recommendation[] {
+    if (this._recommendationEngine === null) {
+      return []
+    }
+    return this._recommendationEngine.generateRecommendations()
   }
 
   /**

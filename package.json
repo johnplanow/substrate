@@ -10,8 +10,16 @@
     "url": "https://github.com/jplanow/ai-dev-toolkit-new.git"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
+  "keywords": [
+    "ai",
+    "agents",
+    "orchestration",
+    "cli",
+    "task-graph",
+    "routing"
+  ],
   "bin": {
     "substrate": "./dist/cli/index.js"
   },
@@ -27,7 +35,10 @@
     }
   },
   "files": [
-    "dist",
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.json",
+    "dist/cli/templates",
     "README.md"
   ],
   "scripts": {

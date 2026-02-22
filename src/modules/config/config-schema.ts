@@ -74,6 +74,8 @@ export const GlobalSettingsSchema = z
     budget_cap_usd: z.number().min(0),
     /** Working directory for temporary files */
     workspace_dir: z.string().optional(),
+    /** Whether to perform automatic background update checks (default: true) */
+    update_check: z.boolean().optional(),
   })
   .strict()
 
@@ -149,6 +151,12 @@ export const CURRENT_CONFIG_FORMAT_VERSION = '1'
 
 /** Current supported task graph version */
 export const CURRENT_TASK_GRAPH_VERSION = '1'
+
+/** All config format versions this toolkit can read and validate */
+export const SUPPORTED_CONFIG_FORMAT_VERSIONS: readonly string[] = ['1']
+
+/** All task graph format versions this toolkit can read and validate */
+export const SUPPORTED_TASK_GRAPH_VERSIONS: readonly string[] = ['1']
 
 export const SubstrateConfigSchema = z
   .object({

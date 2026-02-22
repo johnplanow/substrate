@@ -1,0 +1,40 @@
+# Source files (TypeScript source - not needed in npm package)
+src/
+
+# Test files
+test/
+
+# BMAD artifacts (not part of product)
+_bmad/
+_bmad-output/
+
+# Dev config cache
+.substrate/
+
+# Coverage reports
+coverage/
+
+# GitHub metadata
+.github/
+
+# Source maps (keep package lean per AC7/AC8)
+*.map
+dist/**/*.map
+
+# Dev configuration files
+vitest.config.ts
+eslint.config.mjs
+eslint.config.js
+tsconfig.json
+tsconfig.build.json
+tsconfig.test.json
+tsdown.config.ts
+.prettierrc
+.prettierrc.json
+.prettierignore
+
+# Other dev files
+AGENTS.md
+docs/
+config/
+packs/
