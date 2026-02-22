@@ -100,6 +100,10 @@ export interface DispatchConfig {
  * Default timeout values per task type (milliseconds).
  */
 export const DEFAULT_TIMEOUTS: Record<string, number> = {
+  'analysis': 300_000,
+  'planning': 300_000,
+  'architecture': 300_000,
+  'story-generation': 300_000,
   'create-story': 180_000,
   'dev-story': 600_000,
   'code-review': 300_000,

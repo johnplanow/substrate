@@ -680,11 +680,15 @@ describe('runAutoStatus', () => {
     stdoutWrite.mockRestore()
   })
 
-  it('AC4: outputs JSON format with { success, data }', async () => {
+  it('AC4: outputs JSON format with { success, data } containing run_id and phases', async () => {
     const run = mockPipelineRun()
     mockGetLatestRun.mockReturnValue(run)
+    mockGetTokenUsageSummary.mockReturnValue([])
     mockDb = {
-      prepare: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue(run) }),
+      prepare: vi.fn().mockReturnValue({
+        get: vi.fn().mockReturnValue({ cnt: 0 }),
+        all: vi.fn().mockReturnValue([]),
+      }),
     }
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
@@ -700,7 +704,8 @@ describe('runAutoStatus', () => {
     expect(jsonLine).toBeDefined()
     const parsed = JSON.parse(jsonLine!)
     expect(parsed.success).toBe(true)
-    expect(parsed.data).toHaveProperty('run')
+    expect(parsed.data).toHaveProperty('run_id')
+    expect(parsed.data).toHaveProperty('phases')
     stdoutWrite.mockRestore()
   })
 

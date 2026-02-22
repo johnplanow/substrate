@@ -85,6 +85,21 @@ export function getDecisionsByPhase(db: BetterSqlite3Database, phase: string): D
 }
 
 /**
+ * Get all decisions for a given phase scoped to a specific pipeline run,
+ * ordered by created_at ascending.
+ */
+export function getDecisionsByPhaseForRun(
+  db: BetterSqlite3Database,
+  runId: string,
+  phase: string,
+): Decision[] {
+  const stmt = db.prepare(
+    'SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = ? ORDER BY created_at ASC',
+  )
+  return stmt.all(runId, phase) as Decision[]
+}
+
+/**
  * Get a single decision by phase and key. Returns undefined if not found.
  */
 export function getDecisionByKey(
@@ -298,6 +313,58 @@ export function getArtifactByType(
     'SELECT * FROM artifacts WHERE phase = ? AND type = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
   )
   return stmt.get(phase, type) as Artifact | undefined
+}
+
+/**
+ * Get the latest artifact of a given type for a specific pipeline run.
+ * Filters by pipeline_run_id, phase, and type.
+ * Returns undefined if none found.
+ */
+export function getArtifactByTypeForRun(
+  db: BetterSqlite3Database,
+  runId: string,
+  phase: string,
+  type: string,
+): Artifact | undefined {
+  const stmt = db.prepare(
+    'SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = ? AND type = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
+  )
+  return stmt.get(runId, phase, type) as Artifact | undefined
+}
+
+/**
+ * Get all artifacts registered for a specific pipeline run, ordered by created_at ascending.
+ */
+export function getArtifactsByRun(db: BetterSqlite3Database, runId: string): Artifact[] {
+  const stmt = db.prepare(
+    'SELECT * FROM artifacts WHERE pipeline_run_id = ? ORDER BY created_at ASC',
+  )
+  return stmt.all(runId) as Artifact[]
+}
+
+/**
+ * Get a pipeline run by its ID. Returns undefined if not found.
+ */
+export function getPipelineRunById(
+  db: BetterSqlite3Database,
+  id: string,
+): PipelineRun | undefined {
+  const stmt = db.prepare('SELECT * FROM pipeline_runs WHERE id = ?')
+  return stmt.get(id) as PipelineRun | undefined
+}
+
+/**
+ * Update a pipeline run's config_json field.
+ */
+export function updatePipelineRunConfig(
+  db: BetterSqlite3Database,
+  id: string,
+  configJson: string,
+): void {
+  const stmt = db.prepare(
+    "UPDATE pipeline_runs SET config_json = ?, updated_at = datetime('now') WHERE id = ?",
+  )
+  stmt.run(configJson, id)
 }
 
 // ---------------------------------------------------------------------------
