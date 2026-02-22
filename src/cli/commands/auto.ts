@@ -7,6 +7,8 @@
  *                      [--stories 10-1,10-2] [--concurrency 3] [--output-format json]
  *   substrate auto resume [--run-id <id>] [--output-format json]
  *   substrate auto status [--output-format json] [--run-id <id>]
+ *   substrate auto amend [--concept <text>] [--concept-file <path>] [--run-id <id>]
+ *                        [--stop-after <phase>] [--from <phase>]
  *
  * Architecture (ADR-001: Modular Monolith):
  *   CLI is a thin wiring layer — all business logic lives in modules.
@@ -16,9 +18,11 @@
  */
 
 import type { Command } from 'commander'
+import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { join } from 'path'
 import { mkdirSync, existsSync } from 'fs'
-import { readFile } from 'fs/promises'
+import { readFile, writeFile } from 'fs/promises'
+import { randomUUID } from 'crypto'
 import { createEventBus } from '../../core/event-bus.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
 import { runMigrations } from '../../persistence/migrations/index.js'
@@ -33,12 +37,34 @@ import { runPlanningPhase } from '../../modules/phase-orchestrator/phases/planni
 import { runSolutioningPhase } from '../../modules/phase-orchestrator/phases/solutioning.js'
 import {
   createPipelineRun,
+  createDecision,
   getLatestRun,
+  getDecisionsByPhaseForRun,
   addTokenUsage,
   getTokenUsageSummary,
+  updatePipelineRun,
 } from '../../persistence/queries/decisions.js'
 import type { PipelineRun, TokenUsageSummary } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
+import {
+  VALID_PHASES,
+  createStopAfterGate,
+  validateStopAfterFromConflict,
+  formatPhaseCompletionSummary,
+} from '../../modules/stop-after/index.js'
+import type { PhaseName } from '../../modules/stop-after/index.js'
+import {
+  createAmendmentRun,
+  getLatestCompletedRun,
+  getActiveDecisions,
+  supersedeDecision,
+} from '../../persistence/queries/amendments.js'
+import { createAmendmentContextHandler } from '../../modules/amendment-handlers/index.js'
+import type { AmendmentContextHandler } from '../../modules/amendment-handlers/index.js'
+import {
+  generateDeltaDocument,
+  formatDeltaDocument,
+} from '../../modules/delta-document/index.js'
 
 const logger = createLogger('auto-cmd')
 
@@ -51,10 +77,6 @@ const BMAD_BASELINE_TOKENS_FULL = 56_800
 
 /** BMAD baseline token total for create+dev+review comparison */
 const BMAD_BASELINE_TOKENS = 23_800
-
-/** Valid phase names for --from flag */
-const VALID_PHASES = ['analysis', 'planning', 'solutioning', 'implementation'] as const
-type PhaseName = (typeof VALID_PHASES)[number]
 
 /** Story key pattern: <epic>-<story> e.g. "10-1" */
 const STORY_KEY_PATTERN = /^\d+-\d+$/
@@ -428,6 +450,7 @@ export async function runAutoInit(options: AutoInitOptions): Promise<number> {
 export interface AutoRunOptions {
   pack: string
   from?: PhaseName
+  stopAfter?: PhaseName
   concept?: string
   conceptFile?: string
   stories?: string
@@ -440,6 +463,7 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
   const {
     pack: packName,
     from: startPhase,
+    stopAfter,
     concept: conceptArg,
     conceptFile,
     stories: storiesArg,
@@ -457,6 +481,30 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
       process.stderr.write(`Error: ${errorMsg}\n`)
     }
     return 1
+  }
+
+  // Validate --stop-after phase (before any DB writes)
+  if (stopAfter !== undefined && !VALID_PHASES.includes(stopAfter)) {
+    const errorMsg = `Invalid phase: "${stopAfter}". Valid phases: ${VALID_PHASES.join(', ')}`
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${errorMsg}\n`)
+    }
+    return 1
+  }
+
+  // Validate --stop-after / --from conflict (before any DB writes)
+  if (stopAfter !== undefined && startPhase !== undefined) {
+    const conflictResult = validateStopAfterFromConflict(stopAfter, startPhase)
+    if (!conflictResult.valid) {
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput(null, 'json', false, conflictResult.error) + '\n')
+      } else {
+        process.stderr.write(`Error: ${conflictResult.error ?? 'Invalid --stop-after / --from combination'}\n`)
+      }
+      return 1
+    }
   }
 
   // Resolve concept text when starting from analysis
@@ -501,6 +549,7 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
       dbDir,
       dbPath,
       startPhase,
+      stopAfter,
       concept,
       concurrency,
       outputFormat,
@@ -778,13 +827,14 @@ interface FullPipelineOptions {
   dbDir: string
   dbPath: string
   startPhase: PhaseName
+  stopAfter?: PhaseName
   concept?: string
   concurrency: number
   outputFormat: OutputFormat
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, concept, concurrency, outputFormat } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat } =
     options
 
   // Ensure database directory
@@ -1044,6 +1094,36 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         }
       }
 
+      // Evaluate stop-after gate after each phase completes (AC8: between phases, not mid-phase)
+      if (stopAfter !== undefined && currentPhase === stopAfter) {
+        const gate = createStopAfterGate(stopAfter)
+        if (gate.shouldHalt()) {
+          // Count decisions for summary
+          const decisionsCount =
+            (db
+              .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
+              .get(runId) as { cnt: number } | undefined)?.cnt ?? 0
+
+          // Update run status to 'stopped' atomically before emitting summary (AC4)
+          updatePipelineRun(db, runId, { status: 'stopped' })
+
+          // Emit phase completion summary (AC5)
+          const phaseStartedAt = new Date(startedAt).toISOString()
+          const phaseCompletedAt = new Date().toISOString()
+          const summary = formatPhaseCompletionSummary({
+            phaseName: stopAfter,
+            startedAt: phaseStartedAt,
+            completedAt: phaseCompletedAt,
+            decisionsCount,
+            // artifact paths not available at integration level; summary uses phase metadata only
+            artifactPaths: [],
+            runId,
+          })
+          process.stdout.write(summary + '\n')
+          return 0
+        }
+      }
+
       // Advance to next phase (if not the last phase)
       if (i < phaseOrder.length - 1) {
         const advanceResult = await phaseOrchestrator.advancePhase(runId)
@@ -1129,6 +1209,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
 export interface AutoResumeOptions {
   runId?: string
+  stopAfter?: PhaseName
   outputFormat: OutputFormat
   projectRoot: string
   concurrency: number
@@ -1136,7 +1217,18 @@ export interface AutoResumeOptions {
 }
 
 export async function runAutoResume(options: AutoResumeOptions): Promise<number> {
-  const { runId: specifiedRunId, outputFormat, projectRoot, concurrency, pack: packName } = options
+  const { runId: specifiedRunId, stopAfter, outputFormat, projectRoot, concurrency, pack: packName } = options
+
+  // Validate --stop-after phase (before any DB writes) (AC7)
+  if (stopAfter !== undefined && !VALID_PHASES.includes(stopAfter)) {
+    const errorMsg = `Invalid phase: "${stopAfter}". Valid phases: ${VALID_PHASES.join(', ')}`
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${errorMsg}\n`)
+    }
+    return 1
+  }
 
   const packPath = join(projectRoot, 'packs', packName)
   const dbPath = join(projectRoot, '.substrate', 'substrate.db')
@@ -1240,6 +1332,7 @@ export async function runAutoResume(options: AutoResumeOptions): Promise<number>
       dbDir,
       dbPath,
       startPhase: resumePhase,
+      stopAfter,
       concept,
       concurrency,
       outputFormat,
@@ -1273,6 +1366,7 @@ interface FullPipelineFromPhaseOptions {
   dbDir: string
   dbPath: string
   startPhase: PhaseName
+  stopAfter?: PhaseName
   concept: string
   concurrency: number
   outputFormat: OutputFormat
@@ -1286,6 +1380,7 @@ async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): 
     dbDir,
     dbPath,
     startPhase,
+    stopAfter,
     concept,
     concurrency,
     outputFormat,
@@ -1469,6 +1564,36 @@ async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): 
 
         if (outputFormat === 'human') {
           process.stdout.write('[IMPLEMENTATION] Complete\n')
+        }
+      }
+
+      // Evaluate stop-after gate after each phase completes (AC8: between phases, not mid-phase)
+      if (stopAfter !== undefined && currentPhase === stopAfter) {
+        const gate = createStopAfterGate(stopAfter)
+        if (gate.shouldHalt()) {
+          // Count decisions for summary
+          const decisionsCount =
+            (db
+              .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
+              .get(runId) as { cnt: number } | undefined)?.cnt ?? 0
+
+          // Update run status to 'stopped' atomically before emitting summary (AC4)
+          updatePipelineRun(db, runId, { status: 'stopped' })
+
+          // Emit phase completion summary (AC5)
+          const phaseStartedAt = new Date(startedAt).toISOString()
+          const phaseCompletedAt = new Date().toISOString()
+          const summary = formatPhaseCompletionSummary({
+            phaseName: stopAfter,
+            startedAt: phaseStartedAt,
+            completedAt: phaseCompletedAt,
+            decisionsCount,
+            // artifact paths not available at integration level; summary uses phase metadata only
+            artifactPaths: [],
+            runId,
+          })
+          process.stdout.write(summary + '\n')
+          return 0
         }
       }
 
@@ -1720,6 +1845,358 @@ export async function runAutoStatus(options: AutoStatusOptions): Promise<number>
 }
 
 // ---------------------------------------------------------------------------
+// Amendment supersession detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect and apply supersessions after a phase completes in an amendment run.
+ *
+ * Compares new decisions from the amendment run for the given phase against
+ * parent run decisions by (phase, category, key) tuple. For each match,
+ * calls supersedeDecision() and handler.logSupersession().
+ *
+ * Errors in individual supersession calls are logged as warnings but do not
+ * fail the phase (AC7: atomic with phase completion, non-blocking on error).
+ */
+export function runPostPhaseSupersessionDetection(
+  db: BetterSqlite3Database,
+  amendmentRunId: string,
+  currentPhase: string,
+  handler: AmendmentContextHandler,
+): void {
+  const newDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId, phase: currentPhase })
+  const parentDecisions = handler.getParentDecisions()
+
+  for (const newDec of newDecisions) {
+    const parentMatch = parentDecisions.find(
+      (p) => p.phase === newDec.phase && p.category === newDec.category && p.key === newDec.key
+    )
+    if (parentMatch) {
+      try {
+        supersedeDecision(db, parentMatch.id, newDec.id)
+        handler.logSupersession({
+          originalDecisionId: parentMatch.id,
+          supersedingDecisionId: newDec.id,
+          phase: currentPhase,
+          key: newDec.key,
+          reason: `Amendment replaced ${parentMatch.category}/${parentMatch.key}`,
+          loggedAt: new Date().toISOString(),
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.warn({ err, originalId: parentMatch.id, supersedingId: newDec.id }, `Supersession failed: ${msg}`)
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// auto amend action
+// ---------------------------------------------------------------------------
+
+export interface AutoAmendOptions {
+  concept?: string
+  conceptFile?: string
+  runId?: string
+  stopAfter?: PhaseName
+  from?: PhaseName
+  projectRoot: string
+  pack: string
+}
+
+export async function runAmendCommand(options: AutoAmendOptions): Promise<number> {
+  const { concept: conceptArg, conceptFile, runId: specifiedRunId, stopAfter, from: startPhase, projectRoot, pack: packName } = options
+
+  // AC2: --concept or --concept-file is required (before any DB reads/writes)
+  let concept: string
+  if (conceptFile !== undefined && conceptFile !== '') {
+    try {
+      concept = await readFile(conceptFile, 'utf-8')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      process.stderr.write(`Error: Failed to read concept file '${conceptFile}': ${msg}\n`)
+      return 1
+    }
+  } else if (conceptArg !== undefined && conceptArg !== '') {
+    concept = conceptArg
+  } else {
+    process.stderr.write('Either --concept or --concept-file is required for amendment runs\n')
+    return 1
+  }
+
+  // AC3: Validate --stop-after / --from conflict (before any DB writes)
+  if (stopAfter !== undefined && startPhase !== undefined) {
+    const conflictResult = validateStopAfterFromConflict(stopAfter, startPhase)
+    if (!conflictResult.valid) {
+      process.stderr.write(`Error: ${conflictResult.error ?? 'Invalid --stop-after / --from combination'}\n`)
+      return 1
+    }
+  }
+
+  // Validate --from phase
+  if (startPhase !== undefined && !VALID_PHASES.includes(startPhase)) {
+    process.stderr.write(`Error: Invalid phase '${startPhase}'. Valid phases: ${VALID_PHASES.join(', ')}\n`)
+    return 1
+  }
+
+  // Validate --stop-after phase
+  if (stopAfter !== undefined && !VALID_PHASES.includes(stopAfter)) {
+    process.stderr.write(`Error: Invalid phase: "${stopAfter}". Valid phases: ${VALID_PHASES.join(', ')}\n`)
+    return 1
+  }
+
+  const dbDir = join(projectRoot, '.substrate')
+  const dbPath = join(dbDir, 'substrate.db')
+  const packPath = join(projectRoot, 'packs', packName)
+
+  if (!existsSync(dbPath)) {
+    process.stderr.write(`Error: Decision store not initialized. Run 'substrate auto init' first.\n`)
+    return 1
+  }
+
+  const dbWrapper = new DatabaseWrapper(dbPath)
+
+  try {
+    dbWrapper.open()
+    runMigrations(dbWrapper.db)
+    const db = dbWrapper.db
+
+    // AC4: Resolve parentRunId: use --run-id or getLatestCompletedRun()
+    let parentRunId: string
+    if (specifiedRunId !== undefined && specifiedRunId !== '') {
+      parentRunId = specifiedRunId
+    } else {
+      const latestCompleted = getLatestCompletedRun(db)
+      if (latestCompleted === undefined) {
+        process.stderr.write("No completed pipeline run found. Run 'substrate auto run' first.\n")
+        return 1
+      }
+      parentRunId = latestCompleted.id
+    }
+
+    // AC5: createAmendmentRun() creates DB record
+    const amendmentRunId = randomUUID()
+    let methodology = packName
+    try {
+      const packLoader = createPackLoader()
+      const pack = await packLoader.load(packPath)
+      methodology = pack.manifest.name
+    } catch {
+      // Use packName as fallback
+    }
+
+    try {
+      createAmendmentRun(db, {
+        id: amendmentRunId,
+        parentRunId,
+        methodology,
+        configJson: JSON.stringify({ concept, startPhase, stopAfter }),
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      process.stderr.write(`Error: ${msg}\n`)
+      return 1
+    }
+
+    // AC6: createAmendmentContextHandler() before the phase loop
+    const handler = createAmendmentContextHandler(db, parentRunId, { framingConcept: concept })
+
+    // Load methodology pack and assemble PhaseDeps (matching runFullPipeline pattern)
+    const packLoader = createPackLoader()
+    let pack
+    try {
+      pack = await packLoader.load(packPath)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      process.stderr.write(`Error: Methodology pack '${packName}' not found. Run 'substrate auto init' first.\n${msg}\n`)
+      return 1
+    }
+
+    const eventBus = createEventBus()
+    const contextCompiler = createContextCompiler({ db })
+    const adapterRegistry = new AdapterRegistry()
+    await adapterRegistry.discoverAndRegister()
+    const dispatcher = createDispatcher({ eventBus, adapterRegistry })
+    const phaseDeps = { db, pack, contextCompiler, dispatcher }
+
+    // Determine phases to run
+    const phaseOrder: PhaseName[] = ['analysis', 'planning', 'solutioning', 'implementation']
+    const startIdx = startPhase !== undefined ? phaseOrder.indexOf(startPhase) : 0
+
+    // Copy parent decisions for skipped phases so downstream phases can query them
+    if (startIdx > 0) {
+      const phasesToCopy = phaseOrder.slice(0, startIdx)
+      for (const phase of phasesToCopy) {
+        const parentDecisions = getDecisionsByPhaseForRun(db, parentRunId, phase)
+        for (const d of parentDecisions) {
+          createDecision(db, {
+            pipeline_run_id: amendmentRunId,
+            phase: d.phase,
+            category: d.category,
+            key: d.key,
+            value: d.value,
+            rationale: d.rationale ?? undefined,
+          })
+        }
+        if (parentDecisions.length > 0) {
+          process.stdout.write(`[AMENDMENT] Copied ${parentDecisions.length} ${phase} decisions from parent run\n`)
+        }
+      }
+    }
+
+    const startedAt = Date.now()
+
+    // AC9: Phase loop with context injection and actual phase execution
+    let stopped = false
+    for (let i = startIdx; i < phaseOrder.length; i++) {
+      const currentPhase = phaseOrder[i]
+
+      // AC6 + AC9: Load context for this phase and inject it
+      const amendmentContext = handler.loadContextForPhase(currentPhase)
+      logger.info({ phase: currentPhase, amendmentContextLen: amendmentContext.length }, 'Amendment context loaded for phase')
+
+      process.stdout.write(`\n[AMENDMENT:${currentPhase.toUpperCase()}] Starting (with amendment context)...\n`)
+
+      // Execute actual phase runners with amendment context (AC4)
+      if (currentPhase === 'analysis') {
+        const result = await runAnalysisPhase(phaseDeps, { runId: amendmentRunId, concept, amendmentContext })
+        if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
+          const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          addTokenUsage(db, amendmentRunId, {
+            phase: 'analysis',
+            agent: 'claude-code',
+            input_tokens: result.tokenUsage.input,
+            output_tokens: result.tokenUsage.output,
+            cost_usd: costUsd,
+          })
+        }
+        if (result.result === 'failed') {
+          process.stderr.write(`Error: Analysis phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`)
+          return 1
+        }
+        // AC1 (Story 12-12): Post-phase supersession detection
+        runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+        process.stdout.write(`[AMENDMENT:ANALYSIS] Complete\n`)
+      } else if (currentPhase === 'planning') {
+        const result = await runPlanningPhase(phaseDeps, { runId: amendmentRunId, amendmentContext })
+        if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
+          const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          addTokenUsage(db, amendmentRunId, {
+            phase: 'planning',
+            agent: 'claude-code',
+            input_tokens: result.tokenUsage.input,
+            output_tokens: result.tokenUsage.output,
+            cost_usd: costUsd,
+          })
+        }
+        if (result.result === 'failed') {
+          process.stderr.write(`Error: Planning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`)
+          return 1
+        }
+        // AC1 (Story 12-12): Post-phase supersession detection
+        runPostPhaseSupersessionDetection(db, amendmentRunId, 'planning', handler)
+        process.stdout.write(`[AMENDMENT:PLANNING] Complete\n`)
+      } else if (currentPhase === 'solutioning') {
+        const result = await runSolutioningPhase(phaseDeps, { runId: amendmentRunId, amendmentContext })
+        if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
+          const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          addTokenUsage(db, amendmentRunId, {
+            phase: 'solutioning',
+            agent: 'claude-code',
+            input_tokens: result.tokenUsage.input,
+            output_tokens: result.tokenUsage.output,
+            cost_usd: costUsd,
+          })
+        }
+        if (result.result === 'failed') {
+          process.stderr.write(`Error: Solutioning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`)
+          return 1
+        }
+        // AC1 (Story 12-12): Post-phase supersession detection
+        runPostPhaseSupersessionDetection(db, amendmentRunId, 'solutioning', handler)
+        process.stdout.write(`[AMENDMENT:SOLUTIONING] Complete\n`)
+      } else if (currentPhase === 'implementation') {
+        // Implementation phase: context injection only (implementation is story-based, not re-run on amend)
+        process.stdout.write(`[AMENDMENT:IMPLEMENTATION] Context injected (${amendmentContext.length} chars)\n`)
+      }
+
+      // AC7: Stop-after gate reused from Story 12-2
+      if (stopAfter !== undefined && currentPhase === stopAfter) {
+        const gate = createStopAfterGate(stopAfter)
+        if (gate.shouldHalt()) {
+          const decisionsCount =
+            (db
+              .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
+              .get(amendmentRunId) as { cnt: number } | undefined)?.cnt ?? 0
+
+          updatePipelineRun(db, amendmentRunId, { status: 'stopped' })
+
+          const phaseStartedAt = new Date(startedAt).toISOString()
+          const phaseCompletedAt = new Date().toISOString()
+          const summary = formatPhaseCompletionSummary({
+            phaseName: stopAfter,
+            startedAt: phaseStartedAt,
+            completedAt: phaseCompletedAt,
+            decisionsCount,
+            artifactPaths: [],
+            runId: amendmentRunId,
+          })
+          process.stdout.write(summary + '\n')
+          stopped = true
+          break
+        }
+      }
+    }
+
+    // AC8: generateDeltaDocument() on completion
+    if (!stopped) {
+      updatePipelineRun(db, amendmentRunId, { status: 'completed' })
+    }
+
+    // Query amendment decisions and superseded decisions from DB
+    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const parentDecisions = handler.getParentDecisions()
+    const supersessionLog = handler.getSupersessionLog()
+
+    // Build superseded decisions list from supersession log
+    const supersededDecisionIds = new Set(supersessionLog.map((s) => s.originalDecisionId))
+    const supersededDecisions = parentDecisions.filter((d) => supersededDecisionIds.has(d.id))
+
+    try {
+      const deltaDoc = await generateDeltaDocument({
+        amendmentRunId,
+        parentRunId,
+        parentDecisions,
+        amendmentDecisions,
+        supersededDecisions,
+        framingConcept: concept,
+      })
+
+      const deltaDocPath = join(projectRoot, `amendment-delta-${amendmentRunId}.md`)
+      await writeFile(deltaDocPath, formatDeltaDocument(deltaDoc), 'utf-8')
+      process.stdout.write(`Delta document written to: ${deltaDocPath}\n`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      process.stderr.write(`Warning: Delta document generation failed: ${msg}\n`)
+      // AC8: degrade gracefully — exit 0
+    }
+
+    return 0
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`Error: ${msg}\n`)
+    logger.error({ err }, 'auto amend failed')
+    return 1
+  } finally {
+    try {
+      dbWrapper.close()
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // registerAutoCommand
 // ---------------------------------------------------------------------------
 
@@ -1771,6 +2248,7 @@ export function registerAutoCommand(
       '--from <phase>',
       'Start from this phase: analysis, planning, solutioning, implementation',
     )
+    .option('--stop-after <phase>', 'Stop pipeline after this phase completes')
     .option('--concept <text>', 'Inline concept text (required when --from analysis)')
     .option('--concept-file <path>', 'Path to a file containing the concept text')
     .option('--stories <keys>', 'Comma-separated story keys (e.g., 10-1,10-2)')
@@ -1785,6 +2263,7 @@ export function registerAutoCommand(
       async (opts: {
         pack: string
         from?: string
+        stopAfter?: string
         concept?: string
         conceptFile?: string
         stories?: string
@@ -1813,6 +2292,7 @@ export function registerAutoCommand(
         const exitCode = await runAutoRun({
           pack: opts.pack,
           from: fromPhase,
+          stopAfter: opts.stopAfter as PhaseName | undefined,
           concept: opts.concept,
           conceptFile: opts.conceptFile,
           stories: opts.stories,
@@ -1830,6 +2310,7 @@ export function registerAutoCommand(
     .description('Resume a previously interrupted pipeline run')
     .option('--run-id <id>', 'Pipeline run ID to resume (defaults to latest)')
     .option('--pack <name>', 'Methodology pack name', 'bmad')
+    .option('--stop-after <phase>', 'Stop pipeline after this phase completes (overrides saved state)')
     .option('--concurrency <n>', 'Maximum parallel conflict groups', (v) => parseInt(v, 10), 3)
     .option('--project-root <path>', 'Project root directory', projectRoot)
     .option(
@@ -1840,6 +2321,7 @@ export function registerAutoCommand(
     .action(
       async (opts: {
         runId?: string
+        stopAfter?: string
         pack: string
         concurrency: number
         projectRoot: string
@@ -1848,6 +2330,7 @@ export function registerAutoCommand(
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         const exitCode = await runAutoResume({
           runId: opts.runId,
+          stopAfter: opts.stopAfter as PhaseName | undefined,
           outputFormat,
           projectRoot: opts.projectRoot,
           concurrency: opts.concurrency,
@@ -1877,4 +2360,44 @@ export function registerAutoCommand(
       })
       process.exitCode = exitCode
     })
+
+  // ----------- auto amend -----------
+  auto
+    .command('amend')
+    .description('Run an amendment pipeline against a completed run and an existing run')
+    .option('--concept <text>', 'Amendment concept description (inline)')
+    .option('--concept-file <path>', 'Path to concept file')
+    .option('--run-id <id>', 'Parent run ID (defaults to latest completed run)')
+    .option('--stop-after <phase>', 'Stop pipeline after this phase completes')
+    .option('--from <phase>', 'Start pipeline from this phase')
+    .option('--pack <name>', 'Methodology pack name', 'bmad')
+    .option('--project-root <path>', 'Project root directory', projectRoot)
+    .option(
+      '--output-format <format>',
+      'Output format: human (default) or json',
+      'human',
+    )
+    .action(
+      async (opts: {
+        concept?: string
+        conceptFile?: string
+        runId?: string
+        stopAfter?: string
+        from?: string
+        pack: string
+        projectRoot: string
+        outputFormat: string
+      }) => {
+        const exitCode = await runAmendCommand({
+          concept: opts.concept,
+          conceptFile: opts.conceptFile,
+          runId: opts.runId,
+          stopAfter: opts.stopAfter as PhaseName | undefined,
+          from: opts.from as PhaseName | undefined,
+          projectRoot: opts.projectRoot,
+          pack: opts.pack,
+        })
+        process.exitCode = exitCode
+      },
+    )
 }

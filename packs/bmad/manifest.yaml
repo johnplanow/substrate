@@ -25,6 +25,10 @@ phases:
     artifacts: [code, tests]
 
 prompts:
+  analysis: prompts/analysis.md
+  planning: prompts/planning.md
+  architecture: prompts/architecture.md
+  story-generation: prompts/story-generation.md
   create-story: prompts/create-story.md
   dev-story: prompts/dev-story.md
   code-review: prompts/code-review.md
