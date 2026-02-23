@@ -1234,7 +1234,8 @@ export async function runAutoResume(options: AutoResumeOptions): Promise<number>
   }
 
   const packPath = join(projectRoot, 'packs', packName)
-  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
+  const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const dbPath = join(dbRoot, '.substrate', 'substrate.db')
 
   if (!existsSync(dbPath)) {
     const errorMsg = `Decision store not initialized. Run 'substrate auto init' first.`
@@ -1695,7 +1696,8 @@ export interface AutoStatusOptions {
 export async function runAutoStatus(options: AutoStatusOptions): Promise<number> {
   const { outputFormat, runId, projectRoot } = options
 
-  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
+  const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const dbPath = join(dbRoot, '.substrate', 'substrate.db')
 
   if (!existsSync(dbPath)) {
     const errorMsg = `Decision store not initialized. Run 'substrate auto init' first.`
