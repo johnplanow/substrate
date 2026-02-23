@@ -19,6 +19,7 @@ import { DevStoryResultSchema } from './schemas.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import type { PromptSection } from './prompt-assembler.js'
 import { getDecisionsByPhase } from '../../persistence/queries/decisions.js'
+import { getGitChangedFiles } from './git-helpers.js'
 import { createLogger } from '../../utils/logger.js'
 import type { ContextTemplate } from '../context-compiler/types.js'
 
@@ -263,31 +264,38 @@ export async function runDevStory(
   // Step 8: Validate parsed output against schema
   // ---------------------------------------------------------------------------
 
-  if (dispatchResult.parseError !== null) {
+  if (dispatchResult.parseError !== null || dispatchResult.parsed === null) {
+    const details = dispatchResult.parseError ?? 'parsed result was null'
     const rawSnippet = dispatchResult.output ? dispatchResult.output.slice(0, 1000) : '(empty)'
-    logger.error({ storyKey, parseError: dispatchResult.parseError, rawOutputSnippet: rawSnippet }, 'YAML schema validation failed')
-    return {
-      result: 'failed',
-      ac_met: [],
-      ac_failures: [],
-      files_modified: [],
-      tests: 'fail',
-      error: 'schema_validation_failed',
-      details: dispatchResult.parseError,
-      tokenUsage,
-    }
-  }
+    logger.error({ storyKey, parseError: details, rawOutputSnippet: rawSnippet }, 'YAML schema validation failed')
 
-  if (dispatchResult.parsed === null) {
-    logger.error({ storyKey }, 'Dispatcher returned null parsed result with no parse error')
+    // Recover files_modified from git when YAML output is missing.
+    // The dev agent may have done real work (created files, passed tests)
+    // but exhausted turns before emitting the YAML contract.
+    let filesModified: string[] = []
+    try {
+      filesModified = await getGitChangedFiles(process.cwd())
+      if (filesModified.length > 0) {
+        logger.info(
+          { storyKey, fileCount: filesModified.length },
+          'Recovered files_modified from git status (YAML fallback)',
+        )
+      }
+    } catch (err) {
+      logger.warn(
+        { storyKey, error: err instanceof Error ? err.message : String(err) },
+        'Failed to recover files_modified from git',
+      )
+    }
+
     return {
       result: 'failed',
       ac_met: [],
       ac_failures: [],
-      files_modified: [],
+      files_modified: filesModified,
       tests: 'fail',
       error: 'schema_validation_failed',
-      details: 'parsed result was null',
+      details,
       tokenUsage,
     }
   }

@@ -34,7 +34,7 @@ const logger = createLogger('compiled-workflows:code-review')
  * Quality reviews require seeing actual code diffs, not just file names.
  * // TODO: consider externalizing to pack config when multiple packs exist
  */
-const TOKEN_CEILING = 50000
+const TOKEN_CEILING = 100000
 
 /**
  * Default fallback result when dispatch fails or times out.
@@ -172,7 +172,6 @@ export async function runCodeReview(
     prompt,
     agent: 'claude-code',
     taskType: 'code-review',
-    timeout: 300000,
     outputSchema: CodeReviewResultSchema,
   })
 

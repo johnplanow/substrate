@@ -32,15 +32,21 @@ vi.mock('../../../persistence/queries/decisions.js', () => ({
   getDecisionsByPhase: vi.fn(),
 }))
 
+vi.mock('../git-helpers.js', () => ({
+  getGitChangedFiles: vi.fn(),
+}))
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
 import { readFile } from 'node:fs/promises'
 import { getDecisionsByPhase } from '../../../persistence/queries/decisions.js'
+import { getGitChangedFiles } from '../git-helpers.js'
 
 const mockReadFile = vi.mocked(readFile)
 const mockGetDecisionsByPhase = vi.mocked(getDecisionsByPhase)
+const mockGetGitChangedFiles = vi.mocked(getGitChangedFiles)
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -756,6 +762,109 @@ describe('runDevStory', () => {
       await runDevStory(deps, DEFAULT_PARAMS)
 
       expect(capturedPrompt).toContain('jest-custom')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Git fallback for files_modified when YAML parsing fails
+  // -------------------------------------------------------------------------
+
+  describe('Git fallback for files_modified', () => {
+    it('recovers files_modified from git when parseError is no_yaml_block', async () => {
+      const deps = createMockDeps()
+      mockGetGitChangedFiles.mockResolvedValue([
+        'src/state/play-vs-ai-machine.ts',
+        'src/ui/components/game/mode-selection.tsx',
+      ])
+
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve({
+          ...createSuccessDispatchResult(),
+          status: 'completed' as const,
+          parsed: null,
+          parseError: 'no_yaml_block',
+          output: 'Story 7.1 implementation complete! All tasks done.',
+        }),
+      })
+
+      const result = await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(result.result).toBe('failed')
+      expect(result.error).toBe('schema_validation_failed')
+      expect(result.files_modified).toEqual([
+        'src/state/play-vs-ai-machine.ts',
+        'src/ui/components/game/mode-selection.tsx',
+      ])
+      expect(mockGetGitChangedFiles).toHaveBeenCalledOnce()
+    })
+
+    it('recovers files_modified from git when parsed is null without parseError', async () => {
+      const deps = createMockDeps()
+      mockGetGitChangedFiles.mockResolvedValue(['src/foo.ts'])
+
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve({
+          ...createSuccessDispatchResult(),
+          status: 'completed' as const,
+          parsed: null,
+          parseError: null,
+        }),
+      })
+
+      const result = await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(result.result).toBe('failed')
+      expect(result.files_modified).toEqual(['src/foo.ts'])
+    })
+
+    it('returns empty files_modified if git fallback fails', async () => {
+      const deps = createMockDeps()
+      mockGetGitChangedFiles.mockRejectedValue(new Error('git not found'))
+
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve({
+          ...createSuccessDispatchResult(),
+          status: 'completed' as const,
+          parsed: null,
+          parseError: 'no_yaml_block',
+        }),
+      })
+
+      const result = await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(result.result).toBe('failed')
+      expect(result.files_modified).toEqual([])
+    })
+
+    it('returns empty files_modified if git reports clean repo', async () => {
+      const deps = createMockDeps()
+      mockGetGitChangedFiles.mockResolvedValue([])
+
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve({
+          ...createSuccessDispatchResult(),
+          status: 'completed' as const,
+          parsed: null,
+          parseError: 'no_yaml_block',
+        }),
+      })
+
+      const result = await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(result.result).toBe('failed')
+      expect(result.files_modified).toEqual([])
     })
   })
 

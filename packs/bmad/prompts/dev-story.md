@@ -39,6 +39,13 @@ Implement the story above completely. Follow tasks in exact order. Do not stop u
    - Run the full test suite one final time
    - Update story Status to `review`
 
+## CRITICAL: Output Contract Emission
+
+**You MUST emit the YAML output block (see Output Contract below) as the very last thing you produce.** The downstream pipeline depends on `files_modified` to generate scoped code-review diffs. If you exhaust your turns without emitting the YAML block, the pipeline cannot review your work properly.
+
+- If you are running low on turns, **stop implementation and emit the YAML block immediately** with whatever progress you have made. A partial `files_modified` list is far more valuable than none at all.
+- The YAML block must be the final output — no summary text, no emoji, no explanation after it.
+
 ## HALT Conditions (stop and report as failed)
 
 - New dependency required beyond story spec

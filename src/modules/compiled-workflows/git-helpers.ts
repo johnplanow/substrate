@@ -71,7 +71,39 @@ export async function getGitDiffForFiles(
 }
 
 // ---------------------------------------------------------------------------
-// Private helper
+// getGitChangedFiles
+// ---------------------------------------------------------------------------
+
+/**
+ * Get all changed file paths from the working tree via `git status --porcelain`.
+ *
+ * Includes all status codes (M, A, R, D, ??) so that newly created untracked
+ * files are captured. `.gitignore` filters build artifacts and noise.
+ *
+ * Used as a fallback to recover `files_modified` when the dev-story agent
+ * doesn't emit a YAML output contract.
+ *
+ * @param workingDirectory - Directory to run git in (defaults to process.cwd())
+ * @returns Array of file paths, or [] on error
+ */
+export async function getGitChangedFiles(workingDirectory: string = process.cwd()): Promise<string[]> {
+  const output = await runGitCommand(['status', '--porcelain'], workingDirectory, 'git-changed-files')
+  if (output === '') return []
+
+  return output
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      // Porcelain format: XY filename  (or XY old -> new for renames)
+      const raw = line.slice(3)
+      // Handle renames: "R  old.ts -> new.ts" → extract new path
+      const arrowIdx = raw.indexOf(' -> ')
+      return arrowIdx !== -1 ? raw.slice(arrowIdx + 4) : raw
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Internal helper (exported for reuse by getGitChangedFiles tests)
 // ---------------------------------------------------------------------------
 
 /**

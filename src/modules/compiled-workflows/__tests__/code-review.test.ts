@@ -392,8 +392,8 @@ describe('runCodeReview', () => {
   // -------------------------------------------------------------------------
 
   it('falls back to stat-only diff when full diff causes over-budget', async () => {
-    // Create a very large git diff that will overflow the 50000 token ceiling
-    const largeDiff = 'x'.repeat(220000) // ~55000 tokens
+    // Create a very large git diff that will overflow the 100000 token ceiling
+    const largeDiff = 'x'.repeat(440000) // ~110000 tokens
 
     mockGetGitDiffSummary.mockResolvedValue(largeDiff)
     mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
@@ -468,8 +468,8 @@ describe('runCodeReview', () => {
   })
 
   it('falls back to stat-only when scoped diff exceeds ceiling', async () => {
-    // Scoped diff that exceeds 50000 token ceiling
-    mockGetGitDiffForFiles.mockResolvedValue('x'.repeat(220000)) // ~55000 tokens
+    // Scoped diff that exceeds 100000 token ceiling
+    mockGetGitDiffForFiles.mockResolvedValue('x'.repeat(440000)) // ~110000 tokens
 
     const dispatchFn = vi.fn().mockReturnValue({
       id: 'test-id',

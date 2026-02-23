@@ -58,7 +58,7 @@ vi.mock('node:child_process', () => ({
 }))
 
 // Import after mocking
-import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles } from '../git-helpers.js'
+import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitChangedFiles } from '../git-helpers.js'
 import { spawn } from 'node:child_process'
 
 // ---------------------------------------------------------------------------
@@ -273,5 +273,131 @@ describe('getGitDiffForFiles', () => {
 
     const result = await diffPromise
     expect(result).toBe('')
+  })
+})
+
+describe('getGitChangedFiles', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('parses mixed git status --porcelain output (M, A, ??, D)', async () => {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    let capturedFp: ReturnType<typeof createFakeProcess> | undefined
+    let capturedArgs: string[] | undefined
+
+    mockSpawn.mockImplementationOnce((_cmd: string, args: string[]) => {
+      capturedArgs = args
+      capturedFp = createFakeProcess()
+      return capturedFp.proc
+    })
+
+    const promise = getGitChangedFiles('/repo')
+
+    if (capturedFp) {
+      capturedFp.writeStdout(
+        ' M src/modified.ts\n' +
+        'A  src/added.ts\n' +
+        '?? src/new-file.ts\n' +
+        ' D src/deleted.ts\n',
+      )
+      capturedFp.emitClose(0)
+    }
+
+    const result = await promise
+    expect(capturedArgs).toEqual(['status', '--porcelain'])
+    expect(result).toEqual([
+      'src/modified.ts',
+      'src/added.ts',
+      'src/new-file.ts',
+      'src/deleted.ts',
+    ])
+  })
+
+  it('returns empty array for clean repo (empty output)', async () => {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    let capturedFp: ReturnType<typeof createFakeProcess> | undefined
+
+    mockSpawn.mockImplementationOnce(() => {
+      capturedFp = createFakeProcess()
+      return capturedFp.proc
+    })
+
+    const promise = getGitChangedFiles('/repo')
+
+    if (capturedFp) {
+      capturedFp.emitClose(0)
+    }
+
+    const result = await promise
+    expect(result).toEqual([])
+  })
+
+  it('returns empty array on non-zero exit code', async () => {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    let capturedFp: ReturnType<typeof createFakeProcess> | undefined
+
+    mockSpawn.mockImplementationOnce(() => {
+      capturedFp = createFakeProcess()
+      return capturedFp.proc
+    })
+
+    const promise = getGitChangedFiles('/not-a-repo')
+
+    if (capturedFp) {
+      capturedFp.writeStderr('fatal: not a git repository\n')
+      capturedFp.emitClose(128)
+    }
+
+    const result = await promise
+    expect(result).toEqual([])
+  })
+
+  it('handles renamed files (R  old -> new) and extracts new path', async () => {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    let capturedFp: ReturnType<typeof createFakeProcess> | undefined
+
+    mockSpawn.mockImplementationOnce(() => {
+      capturedFp = createFakeProcess()
+      return capturedFp.proc
+    })
+
+    const promise = getGitChangedFiles('/repo')
+
+    if (capturedFp) {
+      capturedFp.writeStdout('R  src/old-name.ts -> src/new-name.ts\n')
+      capturedFp.emitClose(0)
+    }
+
+    const result = await promise
+    expect(result).toEqual(['src/new-name.ts'])
+  })
+
+  it('includes untracked files (??) for agent-created source files', async () => {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    let capturedFp: ReturnType<typeof createFakeProcess> | undefined
+
+    mockSpawn.mockImplementationOnce(() => {
+      capturedFp = createFakeProcess()
+      return capturedFp.proc
+    })
+
+    const promise = getGitChangedFiles('/repo')
+
+    if (capturedFp) {
+      capturedFp.writeStdout(
+        '?? src/state/play-vs-ai-machine.ts\n' +
+        '?? src/state/play-vs-ai-machine.test.ts\n' +
+        '?? src/ui/components/game/mode-selection.tsx\n',
+      )
+      capturedFp.emitClose(0)
+    }
+
+    const result = await promise
+    expect(result).toEqual([
+      'src/state/play-vs-ai-machine.ts',
+      'src/state/play-vs-ai-machine.test.ts',
+      'src/ui/components/game/mode-selection.tsx',
+    ])
   })
 })
