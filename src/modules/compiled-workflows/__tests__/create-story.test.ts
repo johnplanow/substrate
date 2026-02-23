@@ -357,7 +357,7 @@ describe('AC2: Context Injection from Decision Store', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC3: Token Budget Enforcement', () => {
-  it('assembles prompt that fits within 2500-token ceiling', async () => {
+  it('assembles prompt that fits within 3000-token ceiling', async () => {
     const capturedRequests: Array<{ prompt: string }> = []
 
     const dispatcher: Dispatcher = {
@@ -382,10 +382,10 @@ describe('AC3: Token Budget Enforcement', () => {
     const prompt = capturedRequests[0].prompt
     // Token estimate: chars / 4
     const estimatedTokens = Math.ceil(prompt.length / 4)
-    expect(estimatedTokens).toBeLessThanOrEqual(2500)
+    expect(estimatedTokens).toBeLessThanOrEqual(3000)
   })
 
-  it('truncates oversized context to fit within 2500-token ceiling', async () => {
+  it('truncates oversized context to fit within 3000-token ceiling', async () => {
     // Inject very large epic shard and arch constraints
     const hugeContent = 'X'.repeat(80_000) // ~20,000 tokens
 
@@ -420,7 +420,7 @@ describe('AC3: Token Budget Enforcement', () => {
 
     const prompt = capturedPrompts[0]
     const tokenEstimate = Math.ceil(prompt.length / 4)
-    expect(tokenEstimate).toBeLessThanOrEqual(2500 + 50) // Allow small rounding
+    expect(tokenEstimate).toBeLessThanOrEqual(3000 + 50) // Allow small rounding
   })
 })
 

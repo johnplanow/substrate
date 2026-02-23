@@ -3,7 +3,7 @@
  *
  * Retrieves a compiled prompt template from the methodology pack,
  * assembles context (story content, architecture constraints, test patterns)
- * within a 2,200-token hard ceiling, dispatches to a sub-agent, and parses
+ * within an 8,000-token hard ceiling, dispatches to a sub-agent, and parses
  * the structured YAML output.
  *
  * Architecture constraints (ADR-001, ADR-003, ADR-005):
@@ -29,7 +29,7 @@ const logger = createLogger('compiled-workflows:dev-story')
 // ---------------------------------------------------------------------------
 
 /** Hard token ceiling for the assembled dev-story prompt */
-const TOKEN_CEILING = 2200
+const TOKEN_CEILING = 8000
 
 /** Default timeout for dev-story dispatches in milliseconds (600s) */
 const DEFAULT_TIMEOUT_MS = 600_000

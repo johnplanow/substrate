@@ -378,7 +378,7 @@ describe('runDevStory', () => {
   // -------------------------------------------------------------------------
 
   describe('AC3: Token budget enforcement', () => {
-    it('truncates optional test_patterns section if over 2200-token ceiling', async () => {
+    it('truncates optional test_patterns section if over 8000-token ceiling', async () => {
       const deps = createMockDeps()
 
       // Create a HUGE test_patterns content to force truncation
@@ -405,7 +405,7 @@ describe('runDevStory', () => {
       expect(result.result).toBe('success')
       // Token count should be strictly within budget
       const estimatedTokens = Math.ceil(capturedPrompt.length / 4)
-      expect(estimatedTokens).toBeLessThanOrEqual(2200)
+      expect(estimatedTokens).toBeLessThanOrEqual(8000)
     })
 
     it('never truncates story_content (required section)', async () => {

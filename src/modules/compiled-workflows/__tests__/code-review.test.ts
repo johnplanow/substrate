@@ -389,8 +389,8 @@ describe('runCodeReview', () => {
   // -------------------------------------------------------------------------
 
   it('falls back to stat-only diff when full diff causes over-budget', async () => {
-    // Create a very large git diff that will overflow the 1600 token ceiling
-    const largeDiff = 'x'.repeat(10000) // ~2500 tokens
+    // Create a very large git diff that will overflow the 12000 token ceiling
+    const largeDiff = 'x'.repeat(60000) // ~15000 tokens
 
     mockGetGitDiffSummary.mockResolvedValue(largeDiff)
     mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')

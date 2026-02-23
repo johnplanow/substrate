@@ -22,9 +22,8 @@ const logger = createLogger('compiled-workflows:create-story')
 
 /**
  * Hard ceiling for the assembled create-story prompt.
- * Matches the 2,500-token target from the story spec.
  */
-const TOKEN_CEILING = 2500
+const TOKEN_CEILING = 3000
 
 // ---------------------------------------------------------------------------
 // runCreateStory

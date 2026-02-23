@@ -3,14 +3,14 @@
  *
  * Retrieves a compiled prompt template from the methodology pack,
  * injects context (story content, git diff, architecture constraints),
- * enforces a 1,600-token budget, dispatches to the configured agent,
+ * enforces a 12,000-token budget, dispatches to the configured agent,
  * and parses the structured YAML result.
  *
  * Token budget strategy (priority order — never truncate story_content):
  *  1. Template base:          ~400 tokens (adversarial framing, review dimensions)
- *  2. Story content:          ~500 tokens (required — never truncated)
- *  3. Git diff:               ~500 tokens (may fallback to stat-only if oversized)
- *  4. Architecture constraints: ~200 tokens (optional — truncated last)
+ *  2. Story content:          ~3,000-4,000 tokens (required — never truncated)
+ *  3. Git diff:               ~3,000-5,000 tokens (may fallback to stat-only if oversized)
+ *  4. Architecture constraints: ~500 tokens (optional — truncated last)
  */
 
 import { readFile } from 'node:fs/promises'
@@ -30,9 +30,9 @@ const logger = createLogger('compiled-workflows:code-review')
 // ---------------------------------------------------------------------------
 
 /**
- * Hard token ceiling for the assembled code-review prompt (1,600 tokens).
+ * Hard token ceiling for the assembled code-review prompt (12,000 tokens).
  */
-const TOKEN_CEILING = 1600
+const TOKEN_CEILING = 12000
 
 /**
  * Default fallback result when dispatch fails or times out.
