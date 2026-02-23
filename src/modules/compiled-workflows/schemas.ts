@@ -29,13 +29,28 @@ export type CreateStorySchemaOutput = z.infer<typeof CreateStoryResultSchema>
 // ---------------------------------------------------------------------------
 
 /**
+ * Coerce a YAML value to a plain string. Agents sometimes emit
+ * `ac_failures: [AC7: explanation]` which YAML parses as a mapping
+ * `{ AC7: "explanation" }` instead of a string. This flattens it.
+ */
+const coerceToString = z.preprocess((val) => {
+  if (typeof val === 'string') return val
+  if (val !== null && typeof val === 'object') {
+    return Object.entries(val as Record<string, unknown>)
+      .map(([k, v]) => `${k}: ${String(v)}`)
+      .join(', ')
+  }
+  return String(val)
+}, z.string())
+
+/**
  * Schema for the YAML output contract of the dev-story sub-agent.
  * The agent must emit YAML matching this shape.
  */
 export const DevStoryResultSchema = z.object({
   result: z.enum(['success', 'failed']),
-  ac_met: z.array(z.string()),
-  ac_failures: z.array(z.string()),
+  ac_met: z.array(coerceToString),
+  ac_failures: z.array(coerceToString),
   files_modified: z.array(z.string()),
   tests: z.enum(['pass', 'fail']),
   notes: z.string().optional(),

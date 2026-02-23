@@ -11,7 +11,10 @@ import type { MethodologyPack } from '../methodology-pack/types.js'
 import type { ContextCompiler } from '../context-compiler/context-compiler.js'
 import type { Dispatcher } from '../agent-dispatch/types.js'
 import type { TypedEventBus } from '../../core/event-bus.js'
-import { updatePipelineRun } from '../../persistence/queries/decisions.js'
+import { readFile } from 'node:fs/promises'
+import { updatePipelineRun, getDecisionsByPhase } from '../../persistence/queries/decisions.js'
+import type { Decision } from '../../persistence/queries/decisions.js'
+import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { runCreateStory } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
@@ -243,6 +246,8 @@ export function createImplementationOrchestrator(
 
     updateStory(storyKey, { phase: 'IN_DEV' as StoryPhase })
 
+    let devFilesModified: string[] = []
+
     try {
       const devResult = await runDevStory(
         { db, pack, contextCompiler, dispatcher },
@@ -253,6 +258,8 @@ export function createImplementationOrchestrator(
         },
       )
 
+      devFilesModified = devResult.files_modified ?? []
+
       eventBus.emit('orchestrator:story-phase-complete', {
         storyKey,
         phase: 'IN_DEV',
@@ -261,20 +268,14 @@ export function createImplementationOrchestrator(
       persistState()
 
       if (devResult.result === 'failed') {
-        const errMsg = devResult.error ?? 'dev-story failed'
-        updateStory(storyKey, {
-          phase: 'ESCALATED' as StoryPhase,
-          error: errMsg,
-          completedAt: new Date().toISOString(),
-        })
-        eventBus.emit('orchestrator:story-escalated', {
+        // Dev agent failed but may have produced code (common when agent
+        // exhausts turns or exits non-zero after partial work). Proceed to
+        // code review — the reviewer will assess actual code state.
+        logger.warn('Dev-story reported failure, proceeding to code review', {
           storyKey,
-          lastVerdict: 'dev-story-failed',
-          reviewCycles: 0,
-          issues: [errMsg],
+          error: devResult.error,
+          filesModified: devFilesModified.length,
         })
-        persistState()
-        return
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
@@ -317,6 +318,7 @@ export function createImplementationOrchestrator(
             storyKey,
             storyFilePath: storyFilePath ?? '',
             pipelineRunId: config.pipelineRunId,
+            filesModified: devFilesModified,
           },
         )
 
@@ -387,20 +389,40 @@ export function createImplementationOrchestrator(
       const taskType = verdict === 'NEEDS_MINOR_FIXES' ? 'minor-fixes' : 'major-rework'
 
       try {
+        // Assemble a context-aware fix prompt from the pack template
         let fixPrompt: string
-        // Attempt to compile a context-aware prompt; fall back to a descriptive stub
-        // if no template is registered for this taskType.
         try {
-          const compileResult = contextCompiler.compile({
-            taskType,
-            pipelineRunId: config.pipelineRunId ?? 'unknown',
-            tokenBudget: 8000,
-            overrides: { storyKey, verdict },
-          })
-          fixPrompt = compileResult.prompt
+          const fixTemplate = await pack.getPrompt('fix-story')
+          const storyContent = await readFile(storyFilePath ?? '', 'utf-8')
+
+          // Format review feedback: verdict + serialized issue list
+          const reviewFeedback = [
+            `Verdict: ${verdict}`,
+            `Issues (${issueList.length}):`,
+            ...issueList.map((issue, i) => {
+              const iss = issue as { severity?: string; description?: string; file?: string; line?: number }
+              return `  ${i + 1}. [${iss.severity ?? 'unknown'}] ${iss.description ?? 'no description'}${iss.file ? ` (${iss.file}${iss.line ? `:${iss.line}` : ''})` : ''}`
+            }),
+          ].join('\n')
+
+          // Query arch constraints from decision store
+          let archConstraints = ''
+          try {
+            const decisions = getDecisionsByPhase(db, 'solutioning')
+            const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
+            archConstraints = constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
+          } catch { /* arch constraints are optional */ }
+
+          const sections = [
+            { name: 'story_content', content: storyContent, priority: 'required' as const },
+            { name: 'review_feedback', content: reviewFeedback, priority: 'required' as const },
+            { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
+          ]
+          const assembled = assemblePrompt(fixTemplate, sections, 8000)
+          fixPrompt = assembled.prompt
         } catch {
           fixPrompt = `Fix story ${storyKey}: verdict=${verdict}, taskType=${taskType}`
-          logger.warn('contextCompiler.compile() failed for fix prompt, using fallback', { storyKey, taskType })
+          logger.warn('Failed to assemble fix prompt, using fallback', { storyKey, taskType })
         }
 
         const handle = dispatcher.dispatch<unknown>({
@@ -408,7 +430,39 @@ export function createImplementationOrchestrator(
           agent: 'claude-code',
           taskType,
         })
-        await handle.result
+        const fixResult = await handle.result
+
+        // Record fix dispatch telemetry
+        eventBus.emit('orchestrator:story-phase-complete', {
+          storyKey,
+          phase: taskType === 'minor-fixes' ? 'IN_MINOR_FIX' : 'IN_MAJOR_FIX',
+          result: {
+            tokenUsage: fixResult.tokenEstimate
+              ? { input: fixResult.tokenEstimate.input, output: fixResult.tokenEstimate.output }
+              : undefined,
+          },
+        })
+
+        if (fixResult.status === 'timeout') {
+          logger.warn('Fix dispatch timed out — escalating story', { storyKey, taskType })
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            error: `fix-dispatch-timeout (${taskType})`,
+            completedAt: new Date().toISOString(),
+          })
+          eventBus.emit('orchestrator:story-escalated', {
+            storyKey,
+            lastVerdict: verdict,
+            reviewCycles: reviewCycles + 1,
+            issues: issueList,
+          })
+          persistState()
+          return
+        }
+
+        if (fixResult.status === 'failed') {
+          logger.warn('Fix dispatch failed', { storyKey, taskType, exitCode: fixResult.exitCode })
+        }
       } catch (err) {
         logger.warn('Fix dispatch failed, continuing to next review', { storyKey, taskType, err })
       }

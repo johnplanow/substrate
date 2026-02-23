@@ -21,7 +21,7 @@ import { countTokens } from '../context-compiler/token-counter.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import { CodeReviewResultSchema } from './schemas.js'
 import type { WorkflowDeps, CodeReviewParams, CodeReviewResult } from './types.js'
-import { getGitDiffSummary, getGitDiffStatSummary } from './git-helpers.js'
+import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles } from './git-helpers.js'
 
 const logger = createLogger('compiled-workflows:code-review')
 
@@ -30,9 +30,11 @@ const logger = createLogger('compiled-workflows:code-review')
 // ---------------------------------------------------------------------------
 
 /**
- * Hard token ceiling for the assembled code-review prompt (12,000 tokens).
+ * Hard token ceiling for the assembled code-review prompt (50,000 tokens).
+ * Quality reviews require seeing actual code diffs, not just file names.
+ * // TODO: consider externalizing to pack config when multiple packs exist
  */
-const TOKEN_CEILING = 12000
+const TOKEN_CEILING = 50000
 
 /**
  * Default fallback result when dispatch fails or times out.
@@ -73,7 +75,7 @@ export async function runCodeReview(
   deps: WorkflowDeps,
   params: CodeReviewParams,
 ): Promise<CodeReviewResult> {
-  const { storyKey, storyFilePath, workingDirectory, pipelineRunId } = params
+  const { storyKey, storyFilePath, workingDirectory, pipelineRunId, filesModified } = params
   const cwd = workingDirectory ?? process.cwd()
 
   logger.debug({ storyKey, storyFilePath, cwd, pipelineRunId }, 'Starting code-review workflow')
@@ -98,28 +100,48 @@ export async function runCodeReview(
     return defaultFailResult(`Failed to read story file: ${error}`, { input: 0, output: 0 })
   }
 
-  // Step 3: Capture git diff (full)
-  const gitDiffFull = await getGitDiffSummary(cwd)
-
-  // Step 4: Query architecture constraints from decision store
+  // Step 3: Query architecture constraints from decision store
   const archConstraintsContent = getArchConstraints(deps)
 
-  // Step 5: Check if full git diff would cause the prompt to exceed the token ceiling.
-  // Strategy: estimate total tokens with full diff; if over budget, use stat-only summary instead.
-  // This avoids truncating mid-diff (which produces less useful partial diffs).
+  // Step 4: Capture git diff using three-tier strategy.
+  // Tier 1: Scoped diff (only files modified by dev-story) — most useful for review
+  // Tier 2: Full repo diff — fallback when filesModified is unavailable
+  // Tier 3: Stat-only summary — last resort when diff content exceeds ceiling
   const templateTokens = countTokens(template)
   const storyTokens = countTokens(storyContent)
-  const diffTokens = countTokens(gitDiffFull)
   const constraintTokens = countTokens(archConstraintsContent)
-  const estimatedTotal = templateTokens + storyTokens + diffTokens + constraintTokens
+  const nonDiffTokens = templateTokens + storyTokens + constraintTokens
 
-  let gitDiffContent = gitDiffFull
-  if (estimatedTotal > TOKEN_CEILING) {
-    logger.warn(
-      { estimatedTotal, ceiling: TOKEN_CEILING },
-      'Full git diff would exceed token ceiling — using stat-only summary',
-    )
-    gitDiffContent = await getGitDiffStatSummary(cwd)
+  let gitDiffContent: string
+
+  if (filesModified && filesModified.length > 0) {
+    // Tier 1: Scoped diff — only story-related files
+    const scopedDiff = await getGitDiffForFiles(filesModified, cwd)
+    const scopedTotal = nonDiffTokens + countTokens(scopedDiff)
+    if (scopedTotal <= TOKEN_CEILING) {
+      gitDiffContent = scopedDiff
+      logger.debug({ fileCount: filesModified.length, tokenCount: scopedTotal }, 'Using scoped file diff')
+    } else {
+      logger.warn(
+        { estimatedTotal: scopedTotal, ceiling: TOKEN_CEILING, fileCount: filesModified.length },
+        'Scoped diff exceeds token ceiling — falling back to stat-only summary',
+      )
+      gitDiffContent = await getGitDiffStatSummary(cwd)
+    }
+  } else {
+    // Tier 2: Full repo diff
+    const fullDiff = await getGitDiffSummary(cwd)
+    const fullTotal = nonDiffTokens + countTokens(fullDiff)
+    if (fullTotal <= TOKEN_CEILING) {
+      gitDiffContent = fullDiff
+    } else {
+      // Tier 3: Stat-only
+      logger.warn(
+        { estimatedTotal: fullTotal, ceiling: TOKEN_CEILING },
+        'Full git diff would exceed token ceiling — using stat-only summary',
+      )
+      gitDiffContent = await getGitDiffStatSummary(cwd)
+    }
   }
 
   const sections = [

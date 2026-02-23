@@ -455,7 +455,7 @@ describe('runDevStory', () => {
         expect.objectContaining({
           agent: 'claude-code',
           taskType: 'dev-story',
-          timeout: 600_000,
+          timeout: 1_800_000,
           outputSchema: DevStoryResultSchema,
         }),
       )

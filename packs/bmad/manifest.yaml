@@ -32,6 +32,7 @@ prompts:
   create-story: prompts/create-story.md
   dev-story: prompts/dev-story.md
   code-review: prompts/code-review.md
+  fix-story: prompts/fix-story.md
 
 constraints:
   create-story: constraints/create-story.yaml

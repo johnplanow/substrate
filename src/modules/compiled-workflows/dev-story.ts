@@ -31,8 +31,8 @@ const logger = createLogger('compiled-workflows:dev-story')
 /** Hard token ceiling for the assembled dev-story prompt */
 const TOKEN_CEILING = 8000
 
-/** Default timeout for dev-story dispatches in milliseconds (600s) */
-const DEFAULT_TIMEOUT_MS = 600_000
+/** Default timeout for dev-story dispatches in milliseconds (30 min) */
+const DEFAULT_TIMEOUT_MS = 1_800_000
 
 /** Default Vitest test patterns injected when no test-pattern decisions exist */
 const DEFAULT_VITEST_PATTERNS = `## Test Patterns (defaults)

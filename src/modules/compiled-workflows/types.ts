@@ -127,6 +127,8 @@ export interface CodeReviewParams {
   workingDirectory?: string
   /** Optional pipeline run ID for decision store context */
   pipelineRunId?: string
+  /** Optional list of files modified by dev-story, used to scope the git diff */
+  filesModified?: string[]
 }
 
 /**

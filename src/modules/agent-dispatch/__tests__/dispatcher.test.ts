@@ -205,8 +205,8 @@ function createTestDispatcher(
     maxConcurrency: options.maxConcurrency ?? 3,
     defaultTimeouts: {
       'create-story': 180_000,
-      'dev-story': 600_000,
-      'code-review': 300_000,
+      'dev-story': 1_800_000,
+      'code-review': 900_000,
     },
   }
 

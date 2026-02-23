@@ -49,6 +49,28 @@ export async function getGitDiffStatSummary(workingDirectory: string = process.c
 }
 
 // ---------------------------------------------------------------------------
+// getGitDiffForFiles
+// ---------------------------------------------------------------------------
+
+/**
+ * Capture the git diff scoped to specific files.
+ *
+ * Runs `git diff HEAD~1 -- file1.ts file2.ts ...` to produce a diff
+ * limited to only the specified file paths. Returns '' if files is empty.
+ *
+ * @param files - List of file paths to scope the diff to
+ * @param workingDirectory - Directory to run git in (defaults to process.cwd())
+ * @returns The scoped diff output string, or '' on error/empty
+ */
+export async function getGitDiffForFiles(
+  files: string[],
+  workingDirectory: string = process.cwd(),
+): Promise<string> {
+  if (files.length === 0) return ''
+  return runGitCommand(['diff', 'HEAD~1', '--', ...files], workingDirectory, 'git-diff-files')
+}
+
+// ---------------------------------------------------------------------------
 // Private helper
 // ---------------------------------------------------------------------------
 

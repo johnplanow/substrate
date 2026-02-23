@@ -11,10 +11,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Hoist mock functions so they are available when vi.mock factories execute
 // ---------------------------------------------------------------------------
 
-const { mockReadFile, mockGetGitDiffSummary, mockGetGitDiffStatSummary } = vi.hoisted(() => ({
+const { mockReadFile, mockGetGitDiffSummary, mockGetGitDiffStatSummary, mockGetGitDiffForFiles } = vi.hoisted(() => ({
   mockReadFile: vi.fn(),
   mockGetGitDiffSummary: vi.fn(),
   mockGetGitDiffStatSummary: vi.fn(),
+  mockGetGitDiffForFiles: vi.fn(),
 }))
 
 // ---------------------------------------------------------------------------
@@ -28,6 +29,7 @@ vi.mock('node:fs/promises', () => ({
 vi.mock('../git-helpers.js', () => ({
   getGitDiffSummary: mockGetGitDiffSummary,
   getGitDiffStatSummary: mockGetGitDiffStatSummary,
+  getGitDiffForFiles: mockGetGitDiffForFiles,
 }))
 
 vi.mock('../../../utils/logger.js', () => ({
@@ -153,6 +155,7 @@ describe('runCodeReview', () => {
     mockReadFile.mockResolvedValue('## Story\nAs a developer...\n\n## Acceptance Criteria\n### AC1: ...')
     mockGetGitDiffSummary.mockResolvedValue('diff --git a/src/foo.ts b/src/foo.ts\n+line added\n')
     mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
+    mockGetGitDiffForFiles.mockResolvedValue('diff --git a/src/foo.ts b/src/foo.ts\n+scoped line\n')
   })
 
   // -------------------------------------------------------------------------
@@ -389,8 +392,8 @@ describe('runCodeReview', () => {
   // -------------------------------------------------------------------------
 
   it('falls back to stat-only diff when full diff causes over-budget', async () => {
-    // Create a very large git diff that will overflow the 12000 token ceiling
-    const largeDiff = 'x'.repeat(60000) // ~15000 tokens
+    // Create a very large git diff that will overflow the 50000 token ceiling
+    const largeDiff = 'x'.repeat(220000) // ~55000 tokens
 
     mockGetGitDiffSummary.mockResolvedValue(largeDiff)
     mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
@@ -438,6 +441,67 @@ describe('runCodeReview', () => {
     const callArgs = dispatchFn.mock.calls[0][0] as { prompt: string }
     // Story content should be preserved in the assembled prompt
     expect(callArgs.prompt).toContain('Story content:')
+  })
+
+  // -------------------------------------------------------------------------
+  // Scoped diff: three-tier diff selection
+  // -------------------------------------------------------------------------
+
+  it('uses scoped diff when filesModified provided and fits budget', async () => {
+    mockGetGitDiffForFiles.mockResolvedValue('diff scoped\n+small change\n')
+
+    const dispatchFn = vi.fn().mockReturnValue({
+      id: 'test-id',
+      status: 'running',
+      cancel: vi.fn(),
+      result: Promise.resolve(makeMockDispatchResult({
+        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+      })),
+    })
+
+    const deps = makeMockDeps({ dispatch: dispatchFn })
+    await runCodeReview(deps, { ...DEFAULT_PARAMS, filesModified: ['src/foo.ts', 'src/bar.ts'] })
+
+    expect(mockGetGitDiffForFiles).toHaveBeenCalledWith(['src/foo.ts', 'src/bar.ts'], '/repo')
+    // Should NOT call the full diff when scoped diff is used
+    expect(mockGetGitDiffSummary).not.toHaveBeenCalled()
+  })
+
+  it('falls back to stat-only when scoped diff exceeds ceiling', async () => {
+    // Scoped diff that exceeds 50000 token ceiling
+    mockGetGitDiffForFiles.mockResolvedValue('x'.repeat(220000)) // ~55000 tokens
+
+    const dispatchFn = vi.fn().mockReturnValue({
+      id: 'test-id',
+      status: 'running',
+      cancel: vi.fn(),
+      result: Promise.resolve(makeMockDispatchResult({
+        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+      })),
+    })
+
+    const deps = makeMockDeps({ dispatch: dispatchFn })
+    await runCodeReview(deps, { ...DEFAULT_PARAMS, filesModified: ['src/huge.ts'] })
+
+    expect(mockGetGitDiffForFiles).toHaveBeenCalled()
+    expect(mockGetGitDiffStatSummary).toHaveBeenCalled()
+  })
+
+  it('uses full diff path when no filesModified provided', async () => {
+    const dispatchFn = vi.fn().mockReturnValue({
+      id: 'test-id',
+      status: 'running',
+      cancel: vi.fn(),
+      result: Promise.resolve(makeMockDispatchResult({
+        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+      })),
+    })
+
+    const deps = makeMockDeps({ dispatch: dispatchFn })
+    await runCodeReview(deps, DEFAULT_PARAMS)
+
+    expect(mockGetGitDiffForFiles).not.toHaveBeenCalled()
+    expect(mockGetGitDiffSummary).toHaveBeenCalled()
   })
 
   // -------------------------------------------------------------------------

@@ -58,7 +58,7 @@ vi.mock('node:child_process', () => ({
 }))
 
 // Import after mocking
-import { getGitDiffSummary, getGitDiffStatSummary } from '../git-helpers.js'
+import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles } from '../git-helpers.js'
 import { spawn } from 'node:child_process'
 
 // ---------------------------------------------------------------------------
@@ -215,6 +215,63 @@ describe('getGitDiffStatSummary', () => {
     }
 
     const result = await statPromise
+    expect(result).toBe('')
+  })
+})
+
+describe('getGitDiffForFiles', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('runs git diff HEAD~1 -- file1 file2 and returns scoped diff', async () => {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    let capturedArgs: string[] | undefined
+    let capturedFp: ReturnType<typeof createFakeProcess> | undefined
+
+    mockSpawn.mockImplementationOnce((_cmd: string, args: string[]) => {
+      capturedArgs = args
+      capturedFp = createFakeProcess()
+      return capturedFp.proc
+    })
+
+    const diffPromise = getGitDiffForFiles(['src/foo.ts', 'src/bar.ts'], '/repo')
+
+    if (capturedFp) {
+      capturedFp.writeStdout('diff --git a/src/foo.ts b/src/foo.ts\n+new line\n')
+      capturedFp.emitClose(0)
+    }
+
+    const result = await diffPromise
+    expect(capturedArgs).toEqual(['diff', 'HEAD~1', '--', 'src/foo.ts', 'src/bar.ts'])
+    expect(result).toContain('+new line')
+  })
+
+  it('returns empty string for empty files array without spawning', async () => {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+
+    const result = await getGitDiffForFiles([], '/repo')
+
+    expect(result).toBe('')
+    expect(mockSpawn).not.toHaveBeenCalled()
+  })
+
+  it('returns empty string on non-zero exit code', async () => {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    let capturedFp: ReturnType<typeof createFakeProcess> | undefined
+
+    mockSpawn.mockImplementationOnce(() => {
+      capturedFp = createFakeProcess()
+      return capturedFp.proc
+    })
+
+    const diffPromise = getGitDiffForFiles(['src/foo.ts'], '/repo')
+
+    if (capturedFp) {
+      capturedFp.emitClose(128)
+    }
+
+    const result = await diffPromise
     expect(result).toBe('')
   })
 })

@@ -805,18 +805,27 @@ describe('createImplementationOrchestrator', () => {
       expect(status.stories['5-1']?.error).toBe('Network error')
     })
 
-    it('escalates story when dev-story fails, does not run code review', async () => {
+    it('proceeds to code review when dev-story fails (agent may have produced code)', async () => {
       mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
       mockRunDevStory.mockResolvedValue(makeDevStoryFailure('Build failed'))
+      mockRunCodeReview.mockResolvedValue({
+        verdict: 'NEEDS_MAJOR_REWORK',
+        issues: 1,
+        issue_list: [{ severity: 'major', description: 'Incomplete implementation' }],
+        tokenUsage: { input: 100, output: 50 },
+      })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxReviewCycles: 1 }),
       })
 
       const status = await orchestrator.run(['5-1'])
 
+      // Should proceed to review instead of immediately escalating
+      expect(mockRunCodeReview).toHaveBeenCalled()
+      // Will escalate after review cycles exhausted, not from dev failure
       expect(status.stories['5-1']?.phase).toBe('ESCALATED')
-      expect(mockRunCodeReview).not.toHaveBeenCalled()
     })
   })
 })

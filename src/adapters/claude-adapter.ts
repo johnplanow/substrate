@@ -143,17 +143,20 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
     }
 
     const envEntries: Record<string, string> = {}
+    // When using API billing, explicitly set the key. Otherwise, unset any
+    // inherited ANTHROPIC_API_KEY so the child uses the Max subscription.
+    const unsetKeys = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT']
     if (options.billingMode === 'api' && options.apiKey) {
       envEntries.ANTHROPIC_API_KEY = options.apiKey
+    } else {
+      unsetKeys.push('ANTHROPIC_API_KEY')
     }
 
     return {
       binary: 'claude',
       args,
       env: envEntries,
-      // Unset CLAUDECODE so the child claude process doesn't detect nesting and abort.
-      // This is the documented bypass: https://claude.ai/code (nested session guard).
-      unsetEnvKeys: ['CLAUDECODE'],
+      unsetEnvKeys: unsetKeys,
       cwd: options.worktreePath,
     }
   }
@@ -181,17 +184,18 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
     }
 
     const envEntries: Record<string, string> = {}
+    const planUnsetKeys = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT']
     if (options.billingMode === 'api' && options.apiKey) {
       envEntries.ANTHROPIC_API_KEY = options.apiKey
+    } else {
+      planUnsetKeys.push('ANTHROPIC_API_KEY')
     }
 
     return {
       binary: 'claude',
       args,
       env: envEntries,
-      // Unset CLAUDECODE so the child claude process doesn't detect nesting and abort.
-      // This is the documented bypass: https://claude.ai/code (nested session guard).
-      unsetEnvKeys: ['CLAUDECODE'],
+      unsetEnvKeys: planUnsetKeys,
       cwd: options.worktreePath,
     }
   }

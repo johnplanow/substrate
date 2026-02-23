@@ -23,6 +23,7 @@ import { join } from 'path'
 import { mkdirSync, existsSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
+import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createEventBus } from '../../core/event-bus.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
 import { runMigrations } from '../../persistence/migrations/index.js'
@@ -391,7 +392,8 @@ export async function runAutoInit(options: AutoInitOptions): Promise<number> {
   const { pack: packName, projectRoot, outputFormat } = options
 
   const packPath = join(projectRoot, 'packs', packName)
-  const dbDir = join(projectRoot, '.substrate')
+  const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const dbDir = join(dbRoot, '.substrate')
   const dbPath = join(dbDir, 'substrate.db')
 
   try {
@@ -538,7 +540,8 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
   }
 
   const packPath = join(projectRoot, 'packs', packName)
-  const dbDir = join(projectRoot, '.substrate')
+  const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const dbDir = join(dbRoot, '.substrate')
   const dbPath = join(dbDir, 'substrate.db')
 
   // If --from is provided, we're running the full phase pipeline
@@ -1945,7 +1948,8 @@ export async function runAmendCommand(options: AutoAmendOptions): Promise<number
     return 1
   }
 
-  const dbDir = join(projectRoot, '.substrate')
+  const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const dbDir = join(dbRoot, '.substrate')
   const dbPath = join(dbDir, 'substrate.db')
   const packPath = join(projectRoot, 'packs', packName)
 
