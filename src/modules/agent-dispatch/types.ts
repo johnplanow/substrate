@@ -28,6 +28,8 @@ export interface DispatchRequest<T = unknown> {
   outputSchema?: ZodSchema<T>
   /** Optional working directory for the spawned process (defaults to process.cwd()) */
   workingDirectory?: string
+  /** Optional maximum agentic turns override (passed as --max-turns to Claude CLI) */
+  maxTurns?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +111,19 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
   'code-review': 900_000,
   'minor-fixes': 300_000,
   'major-rework': 900_000,
+}
+
+/**
+ * Default max agentic turns per task type.
+ * Passed as --max-turns to Claude CLI to prevent turn exhaustion without YAML emission.
+ * Only defined for task types that benefit from explicit turn budgets.
+ */
+export const DEFAULT_MAX_TURNS: Record<string, number> = {
+  'dev-story': 75,
+  'major-rework': 50,
+  'code-review': 25,
+  'create-story': 20,
+  'minor-fixes': 25,
 }
 
 // ---------------------------------------------------------------------------

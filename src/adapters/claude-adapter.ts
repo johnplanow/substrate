@@ -138,6 +138,10 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       '--system-prompt', systemPrompt,
     ]
 
+    if (options.maxTurns !== undefined) {
+      args.push('--max-turns', String(options.maxTurns))
+    }
+
     if (options.additionalFlags && options.additionalFlags.length > 0) {
       args.push(...options.additionalFlags)
     }

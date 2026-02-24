@@ -25,7 +25,7 @@ import type {
   DispatchResult,
   DispatchConfig,
 } from './types.js'
-import { DispatcherShuttingDownError, DEFAULT_TIMEOUTS } from './types.js'
+import { DispatcherShuttingDownError, DEFAULT_TIMEOUTS, DEFAULT_MAX_TURNS } from './types.js'
 import { extractYamlBlock, parseYamlResult } from './yaml-parser.js'
 import { createLogger } from '../../utils/logger.js'
 
@@ -291,7 +291,7 @@ export class DispatcherImpl implements Dispatcher {
     request: DispatchRequest<unknown>,
     resolve: (result: DispatchResult<unknown>) => void
   ): Promise<void> {
-    const { prompt, agent, taskType, timeout, outputSchema, workingDirectory } = request
+    const { prompt, agent, taskType, timeout, outputSchema, workingDirectory, maxTurns } = request
 
     // Look up adapter
     const adapter = this._adapterRegistry.get(agent as Parameters<typeof this._adapterRegistry.get>[0])
@@ -317,9 +317,11 @@ export class DispatcherImpl implements Dispatcher {
 
     // Build spawn command from adapter, using workingDirectory from request or process.cwd() as fallback
     const worktreePath = workingDirectory ?? process.cwd()
+    const resolvedMaxTurns = maxTurns ?? DEFAULT_MAX_TURNS[taskType]
     const cmd = adapter.buildCommand(prompt, {
       worktreePath,
       billingMode: 'subscription',
+      ...(resolvedMaxTurns !== undefined ? { maxTurns: resolvedMaxTurns } : {}),
     })
 
     // Resolve timeout

@@ -30,7 +30,7 @@ const logger = createLogger('compiled-workflows:dev-story')
 // ---------------------------------------------------------------------------
 
 /** Hard token ceiling for the assembled dev-story prompt */
-const TOKEN_CEILING = 8000
+const TOKEN_CEILING = 24_000
 
 /** Default timeout for dev-story dispatches in milliseconds (30 min) */
 const DEFAULT_TIMEOUT_MS = 1_800_000
@@ -67,6 +67,9 @@ export async function runDevStory(
   // Task 5: Register context template for dev-story with context compiler
   // ---------------------------------------------------------------------------
 
+  // Architecture constraints are already embedded in the story file's Dev Notes
+  // section (created by create-story), so we only register story-content and
+  // test-patterns with the context compiler.
   const devStoryContextTemplate: ContextTemplate = {
     taskType: 'dev-story',
     sections: [
@@ -78,16 +81,6 @@ export async function runDevStory(
           if (items.length === 0) return ''
           const rows = items as Array<{ key: string; value: string }>
           return '## Story Content\n' + rows.map((r) => `${r.key}: ${r.value}`).join('\n')
-        },
-      },
-      {
-        name: 'arch-constraints',
-        priority: 'important',
-        query: { table: 'decisions', filters: { phase: 'solutioning', category: 'architecture' } },
-        format: (items: unknown[]) => {
-          if (items.length === 0) return ''
-          const rows = items as Array<{ key: string; value: string }>
-          return '## Architecture Constraints\n' + rows.map((r) => `- ${r.key}: ${r.value}`).join('\n')
         },
       },
       {
@@ -142,33 +135,15 @@ export async function runDevStory(
   }
 
   // ---------------------------------------------------------------------------
-  // Step 3: Query decision store for architecture constraints
-  // ---------------------------------------------------------------------------
-
-  let archConstraintsContent = ''
-  let solutioningDecisions: ReturnType<typeof getDecisionsByPhase> = []
-  try {
-    solutioningDecisions = getDecisionsByPhase(deps.db, 'solutioning')
-    const archDecisions = solutioningDecisions.filter(
-      (d) => d.category === 'architecture',
-    )
-    if (archDecisions.length > 0) {
-      archConstraintsContent =
-        '## Architecture Constraints\n' +
-        archDecisions.map((d) => `- ${d.key}: ${d.value}`).join('\n')
-      logger.debug({ storyKey, count: archDecisions.length }, 'Loaded architecture constraints')
-    }
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err)
-    logger.warn({ storyKey, error }, 'Failed to load architecture constraints — continuing without them')
-  }
-
-  // ---------------------------------------------------------------------------
-  // Step 4: Query decision store for test patterns (or use defaults)
+  // Step 3: Query decision store for test patterns (or use defaults)
+  // Architecture constraints are NOT injected separately — they are already
+  // embedded in the story file's Dev Notes section (created by create-story).
+  // Injecting them again wastes ~1,200 tokens of the prompt budget.
   // ---------------------------------------------------------------------------
 
   let testPatternsContent = ''
   try {
+    const solutioningDecisions = getDecisionsByPhase(deps.db, 'solutioning')
     const testPatternDecisions = solutioningDecisions.filter(
       (d) => d.category === 'test-patterns',
     )
@@ -188,12 +163,11 @@ export async function runDevStory(
   }
 
   // ---------------------------------------------------------------------------
-  // Step 5: Assemble prompt with token budget enforcement
+  // Step 4: Assemble prompt with token budget enforcement
   // ---------------------------------------------------------------------------
 
   const sections: PromptSection[] = [
     { name: 'story_content', content: storyContent, priority: 'required' },
-    { name: 'arch_constraints', content: archConstraintsContent, priority: 'important' },
     { name: 'test_patterns', content: testPatternsContent, priority: 'optional' },
   ]
 

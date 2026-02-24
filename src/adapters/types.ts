@@ -44,6 +44,8 @@ export interface AdapterOptions {
   additionalFlags?: string[]
   /** Optional API key override (used when billingMode is 'api') */
   apiKey?: string
+  /** Optional maximum agentic turns (passed as --max-turns to Claude CLI) */
+  maxTurns?: number
 }
 
 /**

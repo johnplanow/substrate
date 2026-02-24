@@ -245,7 +245,7 @@ describe('runDevStory', () => {
       )
     })
 
-    it('registered template has story-content, arch-constraints, test-patterns sections', async () => {
+    it('registered template has story-content and test-patterns sections (no arch-constraints)', async () => {
       const deps = createMockDeps()
       let capturedTemplate: { taskType: string; sections: Array<{ name: string; priority: string }> } | null = null
       vi.mocked(deps.contextCompiler.registerTemplate).mockImplementation((tmpl) => {
@@ -263,8 +263,9 @@ describe('runDevStory', () => {
       expect(capturedTemplate).not.toBeNull()
       const sectionNames = capturedTemplate!.sections.map((s: { name: string }) => s.name)
       expect(sectionNames).toContain('story-content')
-      expect(sectionNames).toContain('arch-constraints')
       expect(sectionNames).toContain('test-patterns')
+      // Architecture constraints are embedded in story content, not injected separately
+      expect(sectionNames).not.toContain('arch-constraints')
     })
   })
 
@@ -292,11 +293,11 @@ describe('runDevStory', () => {
       expect(capturedPrompt).toContain('As a pipeline developer')
     })
 
-    it('injects architecture constraints from decision store', async () => {
+    it('does not inject architecture constraints separately (they are in story content)', async () => {
       const deps = createMockDeps()
       let capturedPrompt = ''
 
-      mockGetDecisionsByPhase.mockImplementation((_, phase) => {
+      mockGetDecisionsByPhase.mockImplementation((_db, phase) => {
         if (phase === 'solutioning') {
           return [
             { id: '1', phase: 'solutioning', category: 'architecture', key: 'ADR-001', value: 'Modular Monolith', pipeline_run_id: null, rationale: null, created_at: '', updated_at: '' },
@@ -317,8 +318,8 @@ describe('runDevStory', () => {
 
       await runDevStory(deps, DEFAULT_PARAMS)
 
-      expect(capturedPrompt).toContain('ADR-001')
-      expect(capturedPrompt).toContain('Modular Monolith')
+      // Architecture constraints should NOT be injected as a separate section
+      expect(capturedPrompt).not.toContain('## Architecture Constraints')
     })
 
     it('injects test patterns from decision store', async () => {
@@ -349,7 +350,7 @@ describe('runDevStory', () => {
       expect(capturedPrompt).toContain('vitest')
     })
 
-    it('injects all three context sections into the assembled prompt', async () => {
+    it('injects story content and test patterns into the assembled prompt', async () => {
       const deps = createMockDeps()
       let capturedPrompt = ''
 
@@ -372,10 +373,10 @@ describe('runDevStory', () => {
 
       // story_content
       expect(capturedPrompt).toContain('As a pipeline developer')
-      // arch_constraints
-      expect(capturedPrompt).toContain('ADR-001')
       // test_patterns
       expect(capturedPrompt).toContain('vitest')
+      // arch_constraints NOT injected separately
+      expect(capturedPrompt).not.toContain('## Architecture Constraints')
     })
   })
 
@@ -384,11 +385,11 @@ describe('runDevStory', () => {
   // -------------------------------------------------------------------------
 
   describe('AC3: Token budget enforcement', () => {
-    it('truncates optional test_patterns section if over 8000-token ceiling', async () => {
+    it('truncates optional test_patterns section if over 24000-token ceiling', async () => {
       const deps = createMockDeps()
 
       // Create a HUGE test_patterns content to force truncation
-      const hugeTestPatterns = 'x'.repeat(8000) // ~2000 tokens on its own
+      const hugeTestPatterns = 'x'.repeat(80_000) // ~20,000 tokens on its own
 
       mockGetDecisionsByPhase.mockReturnValue([
         { id: '1', phase: 'solutioning', category: 'test-patterns', key: 'patterns', value: hugeTestPatterns, pipeline_run_id: null, rationale: null, created_at: '', updated_at: '' },
@@ -411,7 +412,7 @@ describe('runDevStory', () => {
       expect(result.result).toBe('success')
       // Token count should be strictly within budget
       const estimatedTokens = Math.ceil(capturedPrompt.length / 4)
-      expect(estimatedTokens).toBeLessThanOrEqual(8000)
+      expect(estimatedTokens).toBeLessThanOrEqual(24_000)
     })
 
     it('never truncates story_content (required section)', async () => {
