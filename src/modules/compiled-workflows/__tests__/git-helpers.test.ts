@@ -58,7 +58,7 @@ vi.mock('node:child_process', () => ({
 }))
 
 // Import after mocking
-import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitChangedFiles } from '../git-helpers.js'
+import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitChangedFiles, stageIntentToAdd } from '../git-helpers.js'
 import { spawn } from 'node:child_process'
 
 // ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ describe('getGitDiffSummary', () => {
     let capturedFp: ReturnType<typeof createFakeProcess> | undefined
 
     mockSpawn.mockImplementationOnce((_cmd: string, args: string[]) => {
-      expect(args).toEqual(['diff', 'HEAD~1'])
+      expect(args).toEqual(['diff', 'HEAD'])
       capturedFp = createFakeProcess()
       return capturedFp.proc
     })
@@ -100,7 +100,7 @@ describe('getGitDiffSummary', () => {
     let capturedFp: ReturnType<typeof createFakeProcess> | undefined
 
     mockSpawn.mockImplementationOnce((_cmd: string, args: string[]) => {
-      expect(args).toEqual(['diff', 'HEAD~1'])
+      expect(args).toEqual(['diff', 'HEAD'])
       capturedFp = createFakeProcess()
       return capturedFp.proc
     })
@@ -195,7 +195,7 @@ describe('getGitDiffStatSummary', () => {
     }
 
     const result = await statPromise
-    expect(capturedArgs).toEqual(['diff', '--stat', 'HEAD~1'])
+    expect(capturedArgs).toEqual(['diff', '--stat', 'HEAD'])
     expect(result).toContain('1 file changed')
   })
 
@@ -224,26 +224,31 @@ describe('getGitDiffForFiles', () => {
     vi.clearAllMocks()
   })
 
-  it('runs git diff HEAD~1 -- file1 file2 and returns scoped diff', async () => {
+  it('stages intent-to-add then runs git diff HEAD -- file1 file2', async () => {
     const mockSpawn = spawn as ReturnType<typeof vi.fn>
-    let capturedArgs: string[] | undefined
-    let capturedFp: ReturnType<typeof createFakeProcess> | undefined
+    const allArgs: string[][] = []
 
-    mockSpawn.mockImplementationOnce((_cmd: string, args: string[]) => {
-      capturedArgs = args
-      capturedFp = createFakeProcess()
-      return capturedFp.proc
+    // First call: git add -N (intent-to-add), Second call: git diff
+    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+      allArgs.push([...args])
+      const fp = createFakeProcess()
+      if (args[0] === 'add') {
+        // git add -N completes immediately
+        setImmediate(() => fp.emitClose(0))
+      } else {
+        // git diff returns content
+        setImmediate(() => {
+          fp.writeStdout('diff --git a/src/foo.ts b/src/foo.ts\n+new line\n')
+          fp.emitClose(0)
+        })
+      }
+      return fp.proc
     })
 
-    const diffPromise = getGitDiffForFiles(['src/foo.ts', 'src/bar.ts'], '/repo')
+    const result = await getGitDiffForFiles(['src/foo.ts', 'src/bar.ts'], '/repo')
 
-    if (capturedFp) {
-      capturedFp.writeStdout('diff --git a/src/foo.ts b/src/foo.ts\n+new line\n')
-      capturedFp.emitClose(0)
-    }
-
-    const result = await diffPromise
-    expect(capturedArgs).toEqual(['diff', 'HEAD~1', '--', 'src/foo.ts', 'src/bar.ts'])
+    expect(allArgs[0]).toEqual(['add', '-N', '--', 'src/foo.ts', 'src/bar.ts'])
+    expect(allArgs[1]).toEqual(['diff', 'HEAD', '--', 'src/foo.ts', 'src/bar.ts'])
     expect(result).toContain('+new line')
   })
 
@@ -256,23 +261,49 @@ describe('getGitDiffForFiles', () => {
     expect(mockSpawn).not.toHaveBeenCalled()
   })
 
-  it('returns empty string on non-zero exit code', async () => {
+  it('returns empty string on non-zero exit code from diff', async () => {
     const mockSpawn = spawn as ReturnType<typeof vi.fn>
-    let capturedFp: ReturnType<typeof createFakeProcess> | undefined
 
-    mockSpawn.mockImplementationOnce(() => {
-      capturedFp = createFakeProcess()
-      return capturedFp.proc
+    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+      const fp = createFakeProcess()
+      if (args[0] === 'add') {
+        setImmediate(() => fp.emitClose(0))
+      } else {
+        setImmediate(() => fp.emitClose(128))
+      }
+      return fp.proc
     })
 
-    const diffPromise = getGitDiffForFiles(['src/foo.ts'], '/repo')
-
-    if (capturedFp) {
-      capturedFp.emitClose(128)
-    }
-
-    const result = await diffPromise
+    const result = await getGitDiffForFiles(['src/foo.ts'], '/repo')
     expect(result).toBe('')
+  })
+})
+
+describe('stageIntentToAdd', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('runs git add -N with provided files', async () => {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    let capturedArgs: string[] | undefined
+
+    mockSpawn.mockImplementationOnce((_cmd: string, args: string[]) => {
+      capturedArgs = args
+      const fp = createFakeProcess()
+      setImmediate(() => fp.emitClose(0))
+      return fp.proc
+    })
+
+    await stageIntentToAdd(['src/new.ts', 'src/other.ts'], '/repo')
+    expect(capturedArgs).toEqual(['add', '-N', '--', 'src/new.ts', 'src/other.ts'])
+  })
+
+  it('does nothing for empty files array', async () => {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+
+    await stageIntentToAdd([], '/repo')
+    expect(mockSpawn).not.toHaveBeenCalled()
   })
 })
 

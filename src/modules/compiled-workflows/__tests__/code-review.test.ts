@@ -11,11 +11,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Hoist mock functions so they are available when vi.mock factories execute
 // ---------------------------------------------------------------------------
 
-const { mockReadFile, mockGetGitDiffSummary, mockGetGitDiffStatSummary, mockGetGitDiffForFiles } = vi.hoisted(() => ({
+const { mockReadFile, mockGetGitDiffSummary, mockGetGitDiffStatSummary, mockGetGitDiffForFiles, mockStageIntentToAdd, mockGetGitChangedFiles } = vi.hoisted(() => ({
   mockReadFile: vi.fn(),
   mockGetGitDiffSummary: vi.fn(),
   mockGetGitDiffStatSummary: vi.fn(),
   mockGetGitDiffForFiles: vi.fn(),
+  mockStageIntentToAdd: vi.fn(),
+  mockGetGitChangedFiles: vi.fn(),
 }))
 
 // ---------------------------------------------------------------------------
@@ -30,6 +32,8 @@ vi.mock('../git-helpers.js', () => ({
   getGitDiffSummary: mockGetGitDiffSummary,
   getGitDiffStatSummary: mockGetGitDiffStatSummary,
   getGitDiffForFiles: mockGetGitDiffForFiles,
+  stageIntentToAdd: mockStageIntentToAdd,
+  getGitChangedFiles: mockGetGitChangedFiles,
 }))
 
 vi.mock('../../../utils/logger.js', () => ({
@@ -156,6 +160,8 @@ describe('runCodeReview', () => {
     mockGetGitDiffSummary.mockResolvedValue('diff --git a/src/foo.ts b/src/foo.ts\n+line added\n')
     mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
     mockGetGitDiffForFiles.mockResolvedValue('diff --git a/src/foo.ts b/src/foo.ts\n+scoped line\n')
+    mockStageIntentToAdd.mockResolvedValue(undefined)
+    mockGetGitChangedFiles.mockResolvedValue([])
   })
 
   // -------------------------------------------------------------------------

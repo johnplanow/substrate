@@ -21,7 +21,7 @@ import { countTokens } from '../context-compiler/token-counter.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import { CodeReviewResultSchema } from './schemas.js'
 import type { WorkflowDeps, CodeReviewParams, CodeReviewResult } from './types.js'
-import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles } from './git-helpers.js'
+import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, stageIntentToAdd, getGitChangedFiles } from './git-helpers.js'
 
 const logger = createLogger('compiled-workflows:code-review')
 
@@ -129,7 +129,9 @@ export async function runCodeReview(
       gitDiffContent = await getGitDiffStatSummary(cwd)
     }
   } else {
-    // Tier 2: Full repo diff
+    // Tier 2: Full repo diff — stage untracked files first so they appear in the diff
+    const changedFiles = await getGitChangedFiles(cwd)
+    await stageIntentToAdd(changedFiles, cwd)
     const fullDiff = await getGitDiffSummary(cwd)
     const fullTotal = nonDiffTokens + countTokens(fullDiff)
     if (fullTotal <= TOKEN_CEILING) {

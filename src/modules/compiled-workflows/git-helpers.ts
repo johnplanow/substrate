@@ -15,11 +15,12 @@ const logger = createLogger('compiled-workflows:git-helpers')
 // ---------------------------------------------------------------------------
 
 /**
- * Capture the full git diff for HEAD~1.
+ * Capture the full git diff for HEAD (working tree vs current commit).
  *
- * Runs `git diff HEAD~1` in the specified working directory and returns
- * the diff output as a string. On error (no git repo, no previous commit,
- * process exits non-zero), returns an empty string and logs a warning.
+ * Runs `git diff HEAD` in the specified working directory and returns
+ * the diff output as a string. Uses HEAD (not HEAD~1) so the diff shows
+ * only changes made since the current commit — not changes already in HEAD.
+ * On error (no git repo, process exits non-zero), returns an empty string.
  *
  * Uses child_process.spawn per ADR-005.
  *
@@ -27,7 +28,7 @@ const logger = createLogger('compiled-workflows:git-helpers')
  * @returns The diff output string, or '' on error
  */
 export async function getGitDiffSummary(workingDirectory: string = process.cwd()): Promise<string> {
-  return runGitCommand(['diff', 'HEAD~1'], workingDirectory, 'git-diff-summary')
+  return runGitCommand(['diff', 'HEAD'], workingDirectory, 'git-diff-summary')
 }
 
 // ---------------------------------------------------------------------------
@@ -35,9 +36,9 @@ export async function getGitDiffSummary(workingDirectory: string = process.cwd()
 // ---------------------------------------------------------------------------
 
 /**
- * Capture the file-level stat summary from git diff HEAD~1.
+ * Capture the file-level stat summary from git diff HEAD.
  *
- * Runs `git diff --stat HEAD~1` which provides a condensed summary of
+ * Runs `git diff --stat HEAD` which provides a condensed summary of
  * changed files without the full diff hunks. Used as a fallback when the
  * full diff exceeds the token budget.
  *
@@ -45,7 +46,7 @@ export async function getGitDiffSummary(workingDirectory: string = process.cwd()
  * @returns The stat summary string, or '' on error
  */
 export async function getGitDiffStatSummary(workingDirectory: string = process.cwd()): Promise<string> {
-  return runGitCommand(['diff', '--stat', 'HEAD~1'], workingDirectory, 'git-diff-stat')
+  return runGitCommand(['diff', '--stat', 'HEAD'], workingDirectory, 'git-diff-stat')
 }
 
 // ---------------------------------------------------------------------------
@@ -55,8 +56,12 @@ export async function getGitDiffStatSummary(workingDirectory: string = process.c
 /**
  * Capture the git diff scoped to specific files.
  *
- * Runs `git diff HEAD~1 -- file1.ts file2.ts ...` to produce a diff
+ * Runs `git diff HEAD -- file1.ts file2.ts ...` to produce a diff
  * limited to only the specified file paths. Returns '' if files is empty.
+ *
+ * Before diffing, marks any untracked files with `git add -N` (intent-to-add)
+ * so that newly created files appear in the diff output. Without this,
+ * `git diff` cannot see untracked files and the review agent misses them.
  *
  * @param files - List of file paths to scope the diff to
  * @param workingDirectory - Directory to run git in (defaults to process.cwd())
@@ -67,7 +72,9 @@ export async function getGitDiffForFiles(
   workingDirectory: string = process.cwd(),
 ): Promise<string> {
   if (files.length === 0) return ''
-  return runGitCommand(['diff', 'HEAD~1', '--', ...files], workingDirectory, 'git-diff-files')
+  // Mark untracked files for intent-to-add so they appear in git diff
+  await stageIntentToAdd(files, workingDirectory)
+  return runGitCommand(['diff', 'HEAD', '--', ...files], workingDirectory, 'git-diff-files')
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +107,32 @@ export async function getGitChangedFiles(workingDirectory: string = process.cwd(
       const arrowIdx = raw.indexOf(' -> ')
       return arrowIdx !== -1 ? raw.slice(arrowIdx + 4) : raw
     })
+}
+
+// ---------------------------------------------------------------------------
+// stageIntentToAdd
+// ---------------------------------------------------------------------------
+
+/**
+ * Mark untracked files with `git add -N` (intent-to-add) so they appear in diffs.
+ *
+ * `git diff` cannot see untracked files. `git add -N` marks them as
+ * intent-to-add without staging their content, which makes `git diff HEAD`
+ * show them as new file additions. This is non-destructive — it does not
+ * stage the files for commit.
+ *
+ * Silently ignores errors (file doesn't exist, already tracked, etc.).
+ *
+ * @param files - List of file paths to mark for intent-to-add
+ * @param workingDirectory - Directory to run git in
+ */
+export async function stageIntentToAdd(
+  files: string[],
+  workingDirectory: string,
+): Promise<void> {
+  if (files.length === 0) return
+  // git add -N is safe on already-tracked files (no-op)
+  await runGitCommand(['add', '-N', '--', ...files], workingDirectory, 'git-add-intent')
 }
 
 // ---------------------------------------------------------------------------
