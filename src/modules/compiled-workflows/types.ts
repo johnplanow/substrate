@@ -129,6 +129,8 @@ export interface CodeReviewParams {
   pipelineRunId?: string
   /** Optional list of files modified by dev-story, used to scope the git diff */
   filesModified?: string[]
+  /** Optional previous review issues — when present, scopes re-review to verify these were fixed */
+  previousIssues?: Array<{ severity?: string; description?: string; file?: string; line?: number }>
 }
 
 /**

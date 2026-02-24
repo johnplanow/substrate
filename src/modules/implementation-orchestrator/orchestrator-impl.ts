@@ -298,6 +298,7 @@ export function createImplementationOrchestrator(
 
     let reviewCycles = 0
     let keepReviewing = true
+    let previousIssueList: Array<{ severity?: string; description?: string; file?: string; line?: number }> = []
 
     while (keepReviewing) {
       await waitIfPaused()
@@ -319,6 +320,8 @@ export function createImplementationOrchestrator(
             storyFilePath: storyFilePath ?? '',
             pipelineRunId: config.pipelineRunId,
             filesModified: devFilesModified,
+            // Scope re-reviews: pass previous issues so the reviewer verifies fixes first
+            ...(previousIssueList.length > 0 ? { previousIssues: previousIssueList } : {}),
           },
         )
 
@@ -388,6 +391,9 @@ export function createImplementationOrchestrator(
 
       const taskType = verdict === 'NEEDS_MINOR_FIXES' ? 'minor-fixes' : 'major-rework'
 
+      // Model escalation: use Opus for major rework, Sonnet for minor fixes
+      const fixModel = taskType === 'major-rework' ? 'claude-opus-4-5' : undefined
+
       try {
         // Assemble a context-aware fix prompt from the pack template
         let fixPrompt: string
@@ -396,14 +402,25 @@ export function createImplementationOrchestrator(
           const storyContent = await readFile(storyFilePath ?? '', 'utf-8')
 
           // Format review feedback: verdict + serialized issue list
-          const reviewFeedback = [
-            `Verdict: ${verdict}`,
-            `Issues (${issueList.length}):`,
-            ...issueList.map((issue, i) => {
-              const iss = issue as { severity?: string; description?: string; file?: string; line?: number }
-              return `  ${i + 1}. [${iss.severity ?? 'unknown'}] ${iss.description ?? 'no description'}${iss.file ? ` (${iss.file}${iss.line ? `:${iss.line}` : ''})` : ''}`
-            }),
-          ].join('\n')
+          // Guard against empty issue lists — provide fallback guidance
+          let reviewFeedback: string
+          if (issueList.length === 0) {
+            reviewFeedback = [
+              `Verdict: ${verdict}`,
+              'Issues: The reviewer flagged this as needing work but did not provide specific issues.',
+              'Instructions: Re-read the story file carefully, compare each acceptance criterion against the current implementation, and fix any gaps you find.',
+              'Focus on: unimplemented ACs, missing tests, incorrect behavior, and incomplete task checkboxes.',
+            ].join('\n')
+          } else {
+            reviewFeedback = [
+              `Verdict: ${verdict}`,
+              `Issues (${issueList.length}):`,
+              ...issueList.map((issue, i) => {
+                const iss = issue as { severity?: string; description?: string; file?: string; line?: number }
+                return `  ${i + 1}. [${iss.severity ?? 'unknown'}] ${iss.description ?? 'no description'}${iss.file ? ` (${iss.file}${iss.line ? `:${iss.line}` : ''})` : ''}`
+              }),
+            ].join('\n')
+          }
 
           // Query arch constraints from decision store
           let archConstraints = ''
@@ -418,7 +435,7 @@ export function createImplementationOrchestrator(
             { name: 'review_feedback', content: reviewFeedback, priority: 'required' as const },
             { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
           ]
-          const assembled = assemblePrompt(fixTemplate, sections, 8000)
+          const assembled = assemblePrompt(fixTemplate, sections, 24000)
           fixPrompt = assembled.prompt
         } catch {
           fixPrompt = `Fix story ${storyKey}: verdict=${verdict}, taskType=${taskType}`
@@ -429,6 +446,7 @@ export function createImplementationOrchestrator(
           prompt: fixPrompt,
           agent: 'claude-code',
           taskType,
+          ...(fixModel !== undefined ? { model: fixModel } : {}),
         })
         const fixResult = await handle.result
 
@@ -466,6 +484,12 @@ export function createImplementationOrchestrator(
       } catch (err) {
         logger.warn('Fix dispatch failed, continuing to next review', { storyKey, taskType, err })
       }
+
+      // Save current issues for scoped re-review in next cycle
+      previousIssueList = issueList.map((issue) => {
+        const iss = issue as { severity?: string; description?: string; file?: string; line?: number }
+        return { severity: iss.severity, description: iss.description, file: iss.file, line: iss.line }
+      })
 
       reviewCycles++
     }

@@ -364,6 +364,77 @@ describe('createImplementationOrchestrator', () => {
         expect.objectContaining({ taskType: 'major-rework' }),
       )
     })
+
+    it('uses Opus model for major-rework fix dispatch', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMajorRework())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      // The fix dispatch (not the code-review dispatch) should include model escalation
+      expect(dispatcher.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ taskType: 'major-rework', model: 'claude-opus-4-5' }),
+      )
+    })
+
+    it('does not use Opus model for minor-fixes dispatch', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMinorFixes())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      // minor-fixes dispatch should NOT have model override
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const fixCall = dispatchCalls.find((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      )
+      expect(fixCall).toBeDefined()
+      expect((fixCall![0] as { model?: string }).model).toBeUndefined()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Scoped re-reviews
+  // -------------------------------------------------------------------------
+
+  describe('Scoped re-reviews', () => {
+    it('passes previous issues to second code review call', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMinorFixes())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      // First review should have no previousIssues
+      const firstReviewCall = mockRunCodeReview.mock.calls[0]
+      expect(firstReviewCall[1].previousIssues).toBeUndefined()
+
+      // Second review should have previousIssues from first review
+      const secondReviewCall = mockRunCodeReview.mock.calls[1]
+      expect(secondReviewCall[1].previousIssues).toBeDefined()
+      expect(secondReviewCall[1].previousIssues!.length).toBeGreaterThan(0)
+      expect(secondReviewCall[1].previousIssues![0].description).toBe('Fix lint')
+    })
   })
 
   // -------------------------------------------------------------------------

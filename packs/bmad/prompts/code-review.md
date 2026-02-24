@@ -8,6 +8,9 @@
 ### Git Diff
 {{git_diff}}
 
+### Previous Review Findings
+{{previous_findings}}
+
 ### Architecture Constraints
 {{arch_constraints}}
 

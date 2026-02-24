@@ -28,6 +28,8 @@ export interface DispatchRequest<T = unknown> {
   outputSchema?: ZodSchema<T>
   /** Optional working directory for the spawned process (defaults to process.cwd()) */
   workingDirectory?: string
+  /** Optional model identifier override (e.g., 'claude-opus-4-5' for major rework escalation) */
+  model?: string
   /** Optional maximum agentic turns override (passed as --max-turns to Claude CLI) */
   maxTurns?: number
 }

@@ -75,7 +75,7 @@ export async function runCodeReview(
   deps: WorkflowDeps,
   params: CodeReviewParams,
 ): Promise<CodeReviewResult> {
-  const { storyKey, storyFilePath, workingDirectory, pipelineRunId, filesModified } = params
+  const { storyKey, storyFilePath, workingDirectory, pipelineRunId, filesModified, previousIssues } = params
   const cwd = workingDirectory ?? process.cwd()
 
   logger.debug({ storyKey, storyFilePath, cwd, pipelineRunId }, 'Starting code-review workflow')
@@ -144,9 +144,24 @@ export async function runCodeReview(
     }
   }
 
+  // Build previous findings section for scoped re-reviews
+  let previousFindingsContent = ''
+  if (previousIssues !== undefined && previousIssues.length > 0) {
+    previousFindingsContent = [
+      'The previous code review found these issues. A fix agent has attempted to resolve them.',
+      'PRIORITY: Verify each issue below was actually fixed. Then check for any NEW issues introduced by the fixes.',
+      'Only flag issues that are still present or newly introduced — do not re-report issues that were successfully resolved.',
+      '',
+      ...previousIssues.map((iss, i) =>
+        `  ${i + 1}. [${iss.severity ?? 'unknown'}] ${iss.description ?? 'no description'}${iss.file ? ` (${iss.file}${iss.line ? `:${iss.line}` : ''})` : ''}`
+      ),
+    ].join('\n')
+  }
+
   const sections = [
     { name: 'story_content', content: storyContent, priority: 'required' as const },
     { name: 'git_diff', content: gitDiffContent, priority: 'important' as const },
+    { name: 'previous_findings', content: previousFindingsContent, priority: 'optional' as const },
     { name: 'arch_constraints', content: archConstraintsContent, priority: 'optional' as const },
   ]
 

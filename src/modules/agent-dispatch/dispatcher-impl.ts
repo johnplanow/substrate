@@ -291,7 +291,7 @@ export class DispatcherImpl implements Dispatcher {
     request: DispatchRequest<unknown>,
     resolve: (result: DispatchResult<unknown>) => void
   ): Promise<void> {
-    const { prompt, agent, taskType, timeout, outputSchema, workingDirectory, maxTurns } = request
+    const { prompt, agent, taskType, timeout, outputSchema, workingDirectory, model, maxTurns } = request
 
     // Look up adapter
     const adapter = this._adapterRegistry.get(agent as Parameters<typeof this._adapterRegistry.get>[0])
@@ -321,6 +321,7 @@ export class DispatcherImpl implements Dispatcher {
     const cmd = adapter.buildCommand(prompt, {
       worktreePath,
       billingMode: 'subscription',
+      ...(model !== undefined ? { model } : {}),
       ...(resolvedMaxTurns !== undefined ? { maxTurns: resolvedMaxTurns } : {}),
     })
 
