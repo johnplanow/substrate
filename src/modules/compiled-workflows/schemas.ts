@@ -63,13 +63,27 @@ export type DevStorySchemaOutput = z.infer<typeof DevStoryResultSchema>
 // ---------------------------------------------------------------------------
 
 /**
+ * Coerce a YAML value to a number. Agents sometimes emit line numbers
+ * as strings (`"42"` instead of `42`). This handles the conversion.
+ */
+const coerceOptionalNumber = z.preprocess(
+  (val) => (typeof val === 'string' ? Number(val) : val),
+  z.number().optional(),
+)
+
+const coerceNumber = z.preprocess(
+  (val) => (typeof val === 'string' ? Number(val) : val),
+  z.number(),
+)
+
+/**
  * Schema for a single issue in the code review output.
  */
 export const CodeReviewIssueSchema = z.object({
   severity: z.enum(['blocker', 'major', 'minor']),
   description: z.string(),
   file: z.string().optional(),
-  line: z.number().optional(),
+  line: coerceOptionalNumber,
 })
 
 export type CodeReviewIssueSchemaOutput = z.infer<typeof CodeReviewIssueSchema>
@@ -91,16 +105,13 @@ export type CodeReviewIssueSchemaOutput = z.infer<typeof CodeReviewIssueSchema>
 export const CodeReviewResultSchema = z
   .object({
     verdict: z.enum(['SHIP_IT', 'NEEDS_MINOR_FIXES', 'NEEDS_MAJOR_REWORK']),
-    issues: z.number(),
+    issues: coerceNumber,
     issue_list: z.array(CodeReviewIssueSchema),
     notes: z.string().optional(),
   })
-  .refine(
-    (data) => data.issues === data.issue_list.length,
-    (data) => ({
-      message: `issues count (${data.issues}) must equal issue_list.length (${data.issue_list.length})`,
-      path: ['issues'],
-    }),
-  )
+  .transform((data) => ({
+    ...data,
+    issues: data.issue_list.length,
+  }))
 
 export type CodeReviewSchemaOutput = z.infer<typeof CodeReviewResultSchema>

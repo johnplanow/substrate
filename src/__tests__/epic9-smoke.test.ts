@@ -83,7 +83,8 @@ describe('Item 5: Methodology Pack', () => {
     // Compiled workflow prompts use {{placeholder}} syntax filled by assemblePrompt at runtime.
     // Verify the expected placeholders are present in the template.
     expect(prompt).toMatch(/\{\{story_content\}\}/);
-    expect(prompt).toMatch(/\{\{arch_constraints\}\}/);
+    // arch_constraints removed from dev-story (redundant with story Dev Notes)
+    expect(prompt).not.toMatch(/\{\{arch_constraints\}\}/);
   });
 });
 

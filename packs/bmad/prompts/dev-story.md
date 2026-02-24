@@ -5,9 +5,6 @@
 ### Story File Content
 {{story_content}}
 
-### Architecture Constraints
-{{arch_constraints}}
-
 ### Test Patterns
 {{test_patterns}}
 
@@ -45,6 +42,7 @@ Implement the story above completely. Follow tasks in exact order. Do not stop u
 
 - If you are running low on turns, **stop implementation and emit the YAML block immediately** with whatever progress you have made. A partial `files_modified` list is far more valuable than none at all.
 - The YAML block must be the final output — no summary text, no emoji, no explanation after it.
+- **Narrating about the YAML block is NOT the same as emitting it.** Do not say "the YAML has been emitted" — actually emit the literal YAML block starting with `result:`.
 
 ## HALT Conditions (stop and report as failed)
 

@@ -353,30 +353,31 @@ describe('Gap 3: CodeReviewResultSchema cross-field refinement', () => {
     expect(CodeReviewResultSchema.safeParse(valid).success).toBe(true)
   })
 
-  it('rejects schema where issues count does not match issue_list.length', () => {
-    const invalid = {
+  it('auto-corrects issues count when it does not match issue_list.length', () => {
+    const mismatched = {
       verdict: 'NEEDS_MINOR_FIXES',
       issues: 3,
       issue_list: [{ severity: 'minor', description: 'only one issue' }],
     }
-    const result = CodeReviewResultSchema.safeParse(invalid)
-    // The refine constraint should reject this
-    expect(result.success).toBe(false)
-    if (!result.success) {
-      // Zod reports a custom code violation for refine failures
-      const hasCustumError = result.error.issues.some((i) => i.code === 'custom')
-      expect(hasCustumError).toBe(true)
+    const result = CodeReviewResultSchema.safeParse(mismatched)
+    // The transform auto-corrects issues to match issue_list.length
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.issues).toBe(1)
     }
   })
 
-  it('rejects schema where issues=0 but issue_list is non-empty', () => {
-    const invalid = {
+  it('auto-corrects issues=0 when issue_list is non-empty', () => {
+    const mismatched = {
       verdict: 'SHIP_IT',
       issues: 0,
       issue_list: [{ severity: 'minor', description: 'sneaky issue' }],
     }
-    const result = CodeReviewResultSchema.safeParse(invalid)
-    expect(result.success).toBe(false)
+    const result = CodeReviewResultSchema.safeParse(mismatched)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.issues).toBe(1)
+    }
   })
 })
 
