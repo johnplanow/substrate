@@ -95,6 +95,28 @@ export const CodeReviewIssueSchema = z.object({
 export type CodeReviewIssueSchemaOutput = z.infer<typeof CodeReviewIssueSchema>
 
 /**
+ * Compute the verdict from the issue list using deterministic rules.
+ *
+ * The agent reports issues with severities; the pipeline computes the
+ * verdict. This decouples model-routing cost decisions (MAJOR_REWORK
+ * triggers opus) from agent judgment, and scales naturally with story
+ * size — severity classification is per-issue, not per-story.
+ *
+ * Rules:
+ *  - Any blocker → NEEDS_MAJOR_REWORK (security, data loss, architectural breakage)
+ *  - Any major or minor issues → NEEDS_MINOR_FIXES (fixable by sonnet with guidance)
+ *  - No issues → SHIP_IT
+ */
+function computeVerdict(
+  issueList: Array<{ severity: 'blocker' | 'major' | 'minor' }>,
+): 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK' {
+  const hasBlocker = issueList.some((i) => i.severity === 'blocker')
+  if (hasBlocker) return 'NEEDS_MAJOR_REWORK'
+  if (issueList.length > 0) return 'NEEDS_MINOR_FIXES'
+  return 'SHIP_IT'
+}
+
+/**
  * Schema for the YAML output contract of the code-review sub-agent.
  *
  * The agent must emit YAML with verdict, issues count, and issue_list.
@@ -107,6 +129,10 @@ export type CodeReviewIssueSchemaOutput = z.infer<typeof CodeReviewIssueSchema>
  *       file: "src/modules/foo/foo.ts"
  *       line: 42
  *   notes: "Generally clean implementation."
+ *
+ * The transform auto-corrects the issues count and recomputes the verdict
+ * from the issue list. The agent's original verdict is preserved as
+ * `agentVerdict` for logging and debugging.
  */
 export const CodeReviewResultSchema = z
   .object({
@@ -118,6 +144,8 @@ export const CodeReviewResultSchema = z
   .transform((data) => ({
     ...data,
     issues: data.issue_list.length,
+    agentVerdict: data.verdict,
+    verdict: computeVerdict(data.issue_list),
   }))
 
 export type CodeReviewSchemaOutput = z.infer<typeof CodeReviewResultSchema>

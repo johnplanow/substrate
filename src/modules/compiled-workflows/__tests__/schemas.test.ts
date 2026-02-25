@@ -177,6 +177,93 @@ describe('CodeReviewResultSchema', () => {
       expect(result.data.notes).toBe('Clean implementation overall.')
     }
   })
+
+  // ---------------------------------------------------------------------------
+  // Pipeline verdict computation (overrides agent verdict from issue_list)
+  // ---------------------------------------------------------------------------
+
+  it('overrides agent NEEDS_MAJOR_REWORK to NEEDS_MINOR_FIXES when no blockers', () => {
+    const result = CodeReviewResultSchema.safeParse({
+      verdict: 'NEEDS_MAJOR_REWORK',
+      issues: 4,
+      issue_list: [
+        { severity: 'major', description: 'AC2 not implemented', file: 'src/a.ts' },
+        { severity: 'major', description: 'AC5 incomplete', file: 'src/b.ts' },
+        { severity: 'major', description: 'AC9 missing feedback', file: 'src/c.ts' },
+        { severity: 'minor', description: 'Naming issue', file: 'src/d.ts' },
+      ],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.verdict).toBe('NEEDS_MINOR_FIXES')
+      expect(result.data.agentVerdict).toBe('NEEDS_MAJOR_REWORK')
+    }
+  })
+
+  it('preserves NEEDS_MAJOR_REWORK when blocker exists', () => {
+    const result = CodeReviewResultSchema.safeParse({
+      verdict: 'NEEDS_MAJOR_REWORK',
+      issues: 2,
+      issue_list: [
+        { severity: 'blocker', description: 'Security vulnerability', file: 'src/auth.ts' },
+        { severity: 'minor', description: 'Style issue', file: 'src/a.ts' },
+      ],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.verdict).toBe('NEEDS_MAJOR_REWORK')
+      expect(result.data.agentVerdict).toBe('NEEDS_MAJOR_REWORK')
+    }
+  })
+
+  it('overrides agent NEEDS_MINOR_FIXES to SHIP_IT when issue_list is empty', () => {
+    const result = CodeReviewResultSchema.safeParse({
+      verdict: 'NEEDS_MINOR_FIXES',
+      issues: 3,
+      issue_list: [],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.verdict).toBe('SHIP_IT')
+      expect(result.data.agentVerdict).toBe('NEEDS_MINOR_FIXES')
+      expect(result.data.issues).toBe(0)
+    }
+  })
+
+  it('preserves agentVerdict when pipeline agrees', () => {
+    const result = CodeReviewResultSchema.safeParse({
+      verdict: 'NEEDS_MINOR_FIXES',
+      issues: 1,
+      issue_list: [
+        { severity: 'minor', description: 'Missing comment', file: 'src/a.ts' },
+      ],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.verdict).toBe('NEEDS_MINOR_FIXES')
+      expect(result.data.agentVerdict).toBe('NEEDS_MINOR_FIXES')
+    }
+  })
+
+  it('computes NEEDS_MINOR_FIXES for major-only issues (no blocker)', () => {
+    const result = CodeReviewResultSchema.safeParse({
+      verdict: 'NEEDS_MAJOR_REWORK',
+      issues: 5,
+      issue_list: [
+        { severity: 'major', description: 'AC1 gap', file: 'src/a.ts' },
+        { severity: 'major', description: 'AC2 gap', file: 'src/b.ts' },
+        { severity: 'major', description: 'AC3 gap', file: 'src/c.ts' },
+        { severity: 'major', description: 'AC4 gap', file: 'src/d.ts' },
+        { severity: 'major', description: 'AC5 gap', file: 'src/e.ts' },
+      ],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      // Even 5 majors → MINOR_FIXES (only blockers trigger MAJOR_REWORK)
+      expect(result.data.verdict).toBe('NEEDS_MINOR_FIXES')
+      expect(result.data.agentVerdict).toBe('NEEDS_MAJOR_REWORK')
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------

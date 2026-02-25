@@ -254,6 +254,13 @@ export async function runCodeReview(
 
   const parsed = parseResult.data
 
+  if (parsed.agentVerdict !== parsed.verdict) {
+    logger.info(
+      { storyKey, agentVerdict: parsed.agentVerdict, pipelineVerdict: parsed.verdict, issues: parsed.issues },
+      'Pipeline overrode agent verdict based on issue severities',
+    )
+  }
+
   logger.info(
     { storyKey, verdict: parsed.verdict, issues: parsed.issues },
     'Code-review workflow completed successfully',
@@ -261,6 +268,7 @@ export async function runCodeReview(
 
   return {
     verdict: parsed.verdict,
+    agentVerdict: parsed.agentVerdict,
     issues: parsed.issues,
     issue_list: parsed.issue_list,
     notes: parsed.notes,

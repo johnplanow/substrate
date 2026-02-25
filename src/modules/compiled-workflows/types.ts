@@ -153,8 +153,10 @@ export interface CodeReviewIssue {
  * Result from the code-review compiled workflow.
  */
 export interface CodeReviewResult {
-  /** Review verdict */
+  /** Pipeline-computed verdict (derived from issue_list severities) */
   verdict: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK'
+  /** Agent's original verdict before pipeline override (for logging) */
+  agentVerdict?: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK'
   /** Total number of issues found */
   issues: number
   /** Detailed list of issues */

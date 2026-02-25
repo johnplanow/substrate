@@ -505,6 +505,92 @@ describe('createImplementationOrchestrator', () => {
   })
 
   // -------------------------------------------------------------------------
+  // Timeout retry: review timeout → retry once without incrementing cycle
+  // -------------------------------------------------------------------------
+
+  describe('Review timeout retry', () => {
+    it('retries review once on timeout then proceeds with real verdict', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        // First call: timeout (phantom NEEDS_MAJOR_REWORK)
+        .mockResolvedValueOnce({
+          verdict: 'NEEDS_MAJOR_REWORK' as const,
+          issues: 0,
+          issue_list: [],
+          error: 'Dispatch status: timeout. The agent did not complete within the allowed time.',
+          tokenUsage: { input: 150, output: 0 },
+        })
+        // Retry: real verdict
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      // Review was called twice (timeout + retry), not three times
+      expect(mockRunCodeReview).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not retry timeout more than once', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      // Both calls timeout
+      mockRunCodeReview.mockResolvedValue({
+        verdict: 'NEEDS_MAJOR_REWORK' as const,
+        issues: 0,
+        issue_list: [],
+        error: 'Dispatch status: timeout. The agent did not complete within the allowed time.',
+        tokenUsage: { input: 150, output: 0 },
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxReviewCycles: 3 }),
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      // Should escalate — timeout retried once, then the second timeout
+      // is treated as real, triggering fix cycles that also get timeouts
+      expect(status.stories['5-1']?.phase).toBe('ESCALATED')
+    })
+
+    it('timeout retry does not count toward review cycle limit', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        // Cycle 0: timeout → retried
+        .mockResolvedValueOnce({
+          verdict: 'NEEDS_MAJOR_REWORK' as const,
+          issues: 0,
+          issue_list: [],
+          error: 'Dispatch status: timeout. The agent did not complete within the allowed time.',
+          tokenUsage: { input: 150, output: 0 },
+        })
+        // Retry of cycle 0: minor fixes (real verdict)
+        .mockResolvedValueOnce(makeCodeReviewMinorFixes())
+        // Cycle 1 (after fix): SHIP_IT
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxReviewCycles: 2 }),
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      // Should complete — the timeout retry didn't consume a review cycle
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      // 3 review calls: timeout + retry + post-fix
+      expect(mockRunCodeReview).toHaveBeenCalledTimes(3)
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // AC5: Parallel story execution
   // -------------------------------------------------------------------------
 

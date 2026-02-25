@@ -300,6 +300,7 @@ export function createImplementationOrchestrator(
 
     let reviewCycles = 0
     let keepReviewing = true
+    let timeoutRetried = false
     let previousIssueList: Array<{ severity?: string; description?: string; file?: string; line?: number }> = []
 
     while (keepReviewing) {
@@ -326,6 +327,15 @@ export function createImplementationOrchestrator(
             ...(previousIssueList.length > 0 ? { previousIssues: previousIssueList } : {}),
           },
         )
+
+        // Timeout retry: if the review timed out (phantom NEEDS_MAJOR_REWORK with
+        // no real analysis), retry once before treating it as a real verdict. This
+        // prevents a timeout from cascading into a wasted fix cycle + review cycle.
+        if (reviewResult.error?.includes('timeout') && !timeoutRetried) {
+          timeoutRetried = true
+          logger.warn({ storyKey, reviewCycles }, 'Code review timed out — retrying once')
+          continue
+        }
 
         verdict = reviewResult.verdict
         issueList = reviewResult.issue_list ?? []
