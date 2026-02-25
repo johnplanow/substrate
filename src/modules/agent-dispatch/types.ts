@@ -108,7 +108,7 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
   'planning': 300_000,
   'architecture': 300_000,
   'story-generation': 300_000,
-  'create-story': 180_000,
+  'create-story': 420_000,
   'dev-story': 1_800_000,
   'code-review': 900_000,
   'minor-fixes': 600_000,
