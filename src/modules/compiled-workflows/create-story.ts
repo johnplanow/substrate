@@ -7,6 +7,8 @@
  * to the configured agent, and parses the structured YAML result.
  */
 
+import { readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
 import { getDecisionsByPhase } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
@@ -71,7 +73,7 @@ export async function runCreateStory(
   // Step 2: Query epic shard from decision store
   // Cache the implementation-phase decisions to avoid querying twice (issues #5)
   const implementationDecisions = getImplementationDecisions(deps)
-  const epicShardContent = getEpicShard(implementationDecisions, epicId)
+  const epicShardContent = getEpicShard(implementationDecisions, epicId, deps.projectRoot)
 
   // Step 3: Query previous story dev notes (reuse cached decisions)
   const prevDevNotesContent = getPrevDevNotes(implementationDecisions, epicId)
@@ -232,13 +234,25 @@ function getImplementationDecisions(deps: WorkflowDeps): Decision[] {
 /**
  * Retrieve the epic shard from the pre-fetched implementation decisions.
  * Looks for decisions with category='epic-shard', key=epicId.
+ * Falls back to reading _bmad-output/epics.md on disk if decisions are empty.
  */
-function getEpicShard(decisions: Decision[], epicId: string): string {
+function getEpicShard(decisions: Decision[], epicId: string, projectRoot?: string): string {
   try {
     const epicShard = decisions.find(
       (d: Decision) => d.category === 'epic-shard' && d.key === epicId
     )
-    return epicShard?.value ?? ''
+    if (epicShard?.value) return epicShard.value
+
+    // File-based fallback: extract epic section from epics.md
+    if (projectRoot) {
+      const fallback = readEpicShardFromFile(projectRoot, epicId)
+      if (fallback) {
+        logger.info({ epicId }, 'Using file-based fallback for epic shard (decisions table empty)')
+        return fallback
+      }
+    }
+
+    return ''
   } catch (err) {
     logger.warn({ epicId, error: err instanceof Error ? err.message : String(err) }, 'Failed to retrieve epic shard')
     return ''
@@ -266,15 +280,81 @@ function getPrevDevNotes(decisions: Decision[], epicId: string): string {
 /**
  * Retrieve architecture constraints from the decision store.
  * Looks for decisions with phase='solutioning', category='architecture'.
+ * Falls back to reading _bmad-output/architecture/architecture.md on disk if decisions are empty.
  */
 function getArchConstraints(deps: WorkflowDeps): string {
   try {
     const decisions = getDecisionsByPhase(deps.db, 'solutioning')
     const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
-    if (constraints.length === 0) return ''
-    return constraints.map((d: Decision) => d.value).join('\n\n')
+    if (constraints.length > 0) return constraints.map((d: Decision) => d.value).join('\n\n')
+
+    // File-based fallback: read architecture.md directly
+    if (deps.projectRoot) {
+      const fallback = readArchConstraintsFromFile(deps.projectRoot)
+      if (fallback) {
+        logger.info('Using file-based fallback for architecture constraints (decisions table empty)')
+        return fallback
+      }
+    }
+
+    return ''
   } catch (err) {
     logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to retrieve architecture constraints')
+    return ''
+  }
+}
+
+/**
+ * File-based fallback: read epic shard from _bmad-output/epics.md.
+ * Extracts the section for the target epic (## Epic N or ## N.) using regex.
+ * Returns the matched section content, or empty string if not found.
+ */
+function readEpicShardFromFile(projectRoot: string, epicId: string): string {
+  try {
+    // Check both planning-artifacts (standard BMAD layout) and root _bmad-output
+    const candidates = [
+      join(projectRoot, '_bmad-output', 'planning-artifacts', 'epics.md'),
+      join(projectRoot, '_bmad-output', 'epics.md'),
+    ]
+    const epicsPath = candidates.find((p) => existsSync(p))
+    if (!epicsPath) return ''
+
+    const content = readFileSync(epicsPath, 'utf-8')
+    // Extract the numeric part of epicId (e.g., '7' from '7' or 'epic-7')
+    const epicNum = epicId.replace(/^epic-/i, '')
+    // Match "## Epic N" or "## N." or "## N:" section until the next ## heading or EOF
+    const pattern = new RegExp(
+      `^## (?:Epic\\s+)?${epicNum}[.:\\s].*?(?=\\n## |$)`,
+      'ms',
+    )
+    const match = pattern.exec(content)
+    return match ? match[0].trim() : ''
+  } catch (err) {
+    logger.warn({ epicId, error: err instanceof Error ? err.message : String(err) }, 'File-based epic shard fallback failed')
+    return ''
+  }
+}
+
+/**
+ * File-based fallback: read architecture constraints from _bmad-output/architecture/architecture.md.
+ * Returns up to 1500 chars to stay within token budget.
+ */
+function readArchConstraintsFromFile(projectRoot: string): string {
+  try {
+    // Check both planning-artifacts (standard BMAD layout) and root _bmad-output
+    const candidates = [
+      join(projectRoot, '_bmad-output', 'planning-artifacts', 'architecture.md'),
+      join(projectRoot, '_bmad-output', 'architecture', 'architecture.md'),
+      join(projectRoot, '_bmad-output', 'architecture.md'),
+    ]
+    const archPath = candidates.find((p) => existsSync(p))
+    if (!archPath) return ''
+
+    const content = readFileSync(archPath, 'utf-8')
+    // Return a truncated version to fit within the token budget
+    return content.slice(0, 1500)
+  } catch (err) {
+    logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'File-based architecture fallback failed')
     return ''
   }
 }

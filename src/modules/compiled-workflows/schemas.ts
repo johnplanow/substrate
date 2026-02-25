@@ -16,7 +16,10 @@ import { z } from 'zod'
  * The agent must emit YAML matching this shape.
  */
 export const CreateStoryResultSchema = z.object({
-  result: z.enum(['success', 'failed']),
+  result: z.preprocess(
+    (val) => (val === 'failure' ? 'failed' : val),
+    z.enum(['success', 'failed']),
+  ),
   story_file: z.string().optional(),
   story_key: z.string().optional(),
   story_title: z.string().optional(),
@@ -48,7 +51,10 @@ const coerceToString = z.preprocess((val) => {
  * The agent must emit YAML matching this shape.
  */
 export const DevStoryResultSchema = z.object({
-  result: z.enum(['success', 'failed']),
+  result: z.preprocess(
+    (val) => (val === 'failure' ? 'failed' : val),
+    z.enum(['success', 'failed']),
+  ),
   ac_met: z.array(coerceToString),
   ac_failures: z.array(coerceToString),
   files_modified: z.array(z.string()),

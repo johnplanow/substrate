@@ -6,7 +6,7 @@
  * AC7 (token usage), AC8 (essential logic preservation).
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
@@ -35,6 +35,23 @@ vi.mock('../../../utils/logger.js', () => ({
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   getDecisionsByPhase: vi.fn(),
 }))
+
+// ---------------------------------------------------------------------------
+// Mock node:fs for file-based fallback tests
+// ---------------------------------------------------------------------------
+
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
+  return {
+    ...actual,
+    existsSync: vi.fn(actual.existsSync),
+    readFileSync: vi.fn(actual.readFileSync),
+  }
+})
+
+import { existsSync, readFileSync } from 'node:fs'
+const mockExistsSync = vi.mocked(existsSync)
+const mockReadFileSync = vi.mocked(readFileSync)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -807,5 +824,130 @@ describe('Decision store fallback behavior', () => {
     // Should inject the correct epic's content, not epic-9's
     expect(capturedPrompts[0]).toContain('CORRECT EPIC CONTENT for epic-10')
     expect(capturedPrompts[0]).not.toContain('WRONG EPIC CONTENT')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// File-based fallback when decisions table is empty
+// ---------------------------------------------------------------------------
+
+describe('File-based fallback for empty decisions table', () => {
+  afterEach(() => {
+    mockExistsSync.mockRestore()
+    mockReadFileSync.mockRestore()
+  })
+
+  it('falls back to epics.md when decisions table has no epic-shard rows', async () => {
+    // Empty decisions table
+    mockGetDecisionsByPhase.mockReturnValue([])
+
+    // Mock epics.md file
+    const epicsContent = `# Epics
+
+## Epic 7: Mode Selection & Game Setup
+
+Implement mode selection landing screen, variant configuration, and setup execution.
+
+### Stories
+- 7-1: Mode Selection & Game Setup Screen
+
+## Epic 8: Something Else
+`
+    mockExistsSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('epics.md')) return true
+      return false
+    })
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('epics.md')) return epicsContent
+      throw new Error('ENOENT')
+    })
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      { ...defaultParams, epicId: '7', storyKey: '7-1' },
+    )
+
+    expect(capturedPrompts[0]).toContain('Mode Selection & Game Setup')
+  })
+
+  it('falls back to architecture.md when solutioning decisions are empty', async () => {
+    // Empty decisions table
+    mockGetDecisionsByPhase.mockReturnValue([])
+
+    const archContent = '# Architecture\n\nModular monolith with XState state machines.\n\n## Key Decisions\n\nADR-001: Use Zustand for state management.'
+
+    mockExistsSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('architecture.md')) return true
+      return false
+    })
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('architecture.md')) return archContent
+      throw new Error('ENOENT')
+    })
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      defaultParams,
+    )
+
+    expect(capturedPrompts[0]).toContain('Modular monolith')
+  })
+
+  it('returns empty string gracefully when fallback files do not exist', async () => {
+    mockGetDecisionsByPhase.mockReturnValue([])
+    mockExistsSync.mockReturnValue(false)
+
+    const result = await runCreateStory(
+      makeDeps({ projectRoot: '/fake/project' }),
+      defaultParams,
+    )
+
+    // Should still succeed (dispatch runs, just with empty context sections)
+    expect(result.result).toBe('success')
+  })
+
+  it('does not attempt file fallback when projectRoot is not provided', async () => {
+    mockGetDecisionsByPhase.mockReturnValue([])
+
+    await runCreateStory(makeDeps(), defaultParams)
+
+    // existsSync should NOT have been called with epics.md or architecture.md paths
+    const fsCalls = mockExistsSync.mock.calls.map(c => String(c[0]))
+    expect(fsCalls.filter(p => p.includes('epics.md'))).toHaveLength(0)
+    expect(fsCalls.filter(p => p.includes('architecture.md'))).toHaveLength(0)
   })
 })

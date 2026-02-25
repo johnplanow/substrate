@@ -232,4 +232,35 @@ describe('CreateStoryResultSchema', () => {
     })
     expect(result.success).toBe(true)
   })
+
+  it('coerces "failure" to "failed" (agents naturally say "failure")', () => {
+    const result = CreateStoryResultSchema.safeParse({
+      result: 'failure',
+      story_file: '/path/to/story.md',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.result).toBe('failed')
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// DevStoryResultSchema — "failure" coercion
+// ---------------------------------------------------------------------------
+
+describe('DevStoryResultSchema — failure coercion', () => {
+  it('coerces "failure" to "failed" in result field', () => {
+    const result = DevStoryResultSchema.safeParse({
+      result: 'failure',
+      ac_met: [],
+      ac_failures: ['AC1: not done'],
+      files_modified: [],
+      tests: 'fail',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.result).toBe('failed')
+    }
+  })
 })

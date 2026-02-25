@@ -27,6 +27,8 @@ export interface WorkflowDeps {
   contextCompiler: ContextCompiler
   /** Agent dispatcher for spawning sub-agents */
   dispatcher: Dispatcher
+  /** Optional project root for file-based context fallback when decision store is empty */
+  projectRoot?: string
 }
 
 // ---------------------------------------------------------------------------

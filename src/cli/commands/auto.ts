@@ -756,6 +756,7 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
         maxReviewCycles: 3,
         pipelineRunId: pipelineRun.id,
       },
+      projectRoot,
     })
 
     if (outputFormat === 'human') {

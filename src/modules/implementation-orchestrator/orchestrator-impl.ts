@@ -51,6 +51,8 @@ export interface OrchestratorDeps {
   eventBus: TypedEventBus
   /** Orchestrator configuration */
   config: OrchestratorConfig
+  /** Optional project root for file-based context fallback */
+  projectRoot?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -88,7 +90,7 @@ function createPauseGate(): PauseGate {
 export function createImplementationOrchestrator(
   deps: OrchestratorDeps,
 ): ImplementationOrchestrator {
-  const { db, pack, contextCompiler, dispatcher, eventBus, config } = deps
+  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot } = deps
 
   // -- mutable orchestrator state --
 
@@ -176,7 +178,7 @@ export function createImplementationOrchestrator(
 
     try {
       const createResult = await runCreateStory(
-        { db, pack, contextCompiler, dispatcher },
+        { db, pack, contextCompiler, dispatcher, projectRoot },
         { epicId: storyKey.split('-')[0] ?? storyKey, storyKey, pipelineRunId: config.pipelineRunId },
       )
 
@@ -250,7 +252,7 @@ export function createImplementationOrchestrator(
 
     try {
       const devResult = await runDevStory(
-        { db, pack, contextCompiler, dispatcher },
+        { db, pack, contextCompiler, dispatcher, projectRoot },
         {
           storyKey,
           storyFilePath: storyFilePath ?? '',
@@ -314,7 +316,7 @@ export function createImplementationOrchestrator(
 
       try {
         const reviewResult = await runCodeReview(
-          { db, pack, contextCompiler, dispatcher },
+          { db, pack, contextCompiler, dispatcher, projectRoot },
           {
             storyKey,
             storyFilePath: storyFilePath ?? '',
