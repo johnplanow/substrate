@@ -753,7 +753,7 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
       eventBus,
       config: {
         maxConcurrency: concurrency,
-        maxReviewCycles: 3,
+        maxReviewCycles: 2,
         pipelineRunId: pipelineRun.id,
       },
       projectRoot,
@@ -1027,7 +1027,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           eventBus,
           config: {
             maxConcurrency: concurrency,
-            maxReviewCycles: 3,
+            maxReviewCycles: 2,
             pipelineRunId: runId,
           },
         })
@@ -1527,7 +1527,7 @@ async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): 
           eventBus,
           config: {
             maxConcurrency: concurrency,
-            maxReviewCycles: 3,
+            maxReviewCycles: 2,
             pipelineRunId: runId,
           },
         })

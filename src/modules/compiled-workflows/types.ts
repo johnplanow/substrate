@@ -84,6 +84,17 @@ export interface DevStoryParams {
   storyFilePath: string
   /** Optional pipeline run ID for decision store context */
   pipelineRunId?: string
+  /**
+   * Optional task scope string specifying which tasks to implement.
+   * When provided, the prompt instructs the agent to implement ONLY these tasks.
+   * Format: "T1: <title>\nT2: <title>\n..."
+   */
+  taskScope?: string
+  /**
+   * Optional list of files created/modified by previous batches.
+   * Injected into the prompt as prior context for subsequent batch dispatches.
+   */
+  priorFiles?: string[]
 }
 
 /**
@@ -167,6 +178,8 @@ export interface CodeReviewResult {
   error?: string
   /** Additional error details (schema validation failure) */
   details?: string
+  /** Raw agent output for artifact persistence (diagnosis of schema failures) */
+  rawOutput?: string
   /** Token usage from the dispatch */
   tokenUsage: {
     input: number

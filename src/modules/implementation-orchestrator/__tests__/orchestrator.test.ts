@@ -29,6 +29,7 @@ vi.mock('../../compiled-workflows/code-review.js', () => ({
 }))
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   updatePipelineRun: vi.fn(),
+  addTokenUsage: vi.fn(),
 }))
 vi.mock('../../../utils/logger.js', () => ({
   createLogger: vi.fn(() => ({

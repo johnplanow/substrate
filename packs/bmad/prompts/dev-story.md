@@ -5,6 +5,12 @@
 ### Story File Content
 {{story_content}}
 
+{{task_scope}}
+
+{{prior_files}}
+
+{{files_in_scope}}
+
 ### Test Patterns
 {{test_patterns}}
 

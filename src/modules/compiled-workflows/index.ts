@@ -58,3 +58,17 @@ export type { PromptSection, AssembleResult, SectionPriority } from './prompt-as
 // ---------------------------------------------------------------------------
 
 export { getGitDiffSummary, getGitDiffStatSummary } from './git-helpers.js'
+
+// ---------------------------------------------------------------------------
+// Story analyzer
+// ---------------------------------------------------------------------------
+
+export { analyzeStoryComplexity, TASKS_PER_BATCH } from './story-analyzer.js'
+export type { StoryAnalysis, StoryTask } from './story-analyzer.js'
+
+// ---------------------------------------------------------------------------
+// Task batch planner
+// ---------------------------------------------------------------------------
+
+export { planTaskBatches } from './task-batch-planner.js'
+export type { TaskBatch } from './task-batch-planner.js'

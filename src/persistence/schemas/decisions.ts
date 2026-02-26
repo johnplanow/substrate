@@ -160,6 +160,8 @@ export const TokenUsageSchema = z.object({
   input_tokens: z.number().int().min(0).default(0),
   output_tokens: z.number().int().min(0).default(0),
   cost_usd: z.number().min(0).default(0),
+  /** Optional JSON string containing batch context (added in migration 009) */
+  metadata: z.string().nullable().optional(),
   created_at: z.string().optional(),
 })
 export type TokenUsage = z.infer<typeof TokenUsageSchema>
@@ -170,5 +172,7 @@ export const AddTokenUsageInputSchema = z.object({
   input_tokens: z.number().int().min(0).default(0),
   output_tokens: z.number().int().min(0).default(0),
   cost_usd: z.number().min(0).default(0),
+  /** Optional JSON string for batch context (e.g., batchIndex, storyKey) */
+  metadata: z.string().nullable().optional(),
 })
 export type AddTokenUsageInput = z.infer<typeof AddTokenUsageInputSchema>

@@ -74,6 +74,10 @@ Story:
 Architecture:
 {{arch_constraints}}
 
+{{task_scope}}
+
+{{prior_files}}
+
 Test Patterns:
 {{test_patterns}}
 
@@ -866,6 +870,136 @@ describe('runDevStory', () => {
 
       expect(result.result).toBe('failed')
       expect(result.files_modified).toEqual([])
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // AC2 (13-3): taskScope injection into prompt
+  // -------------------------------------------------------------------------
+
+  describe('AC2 (13-3): taskScope prompt injection', () => {
+    it('injects task_scope section into prompt when taskScope param is provided', async () => {
+      const deps = createMockDeps()
+      let capturedPrompt = ''
+      vi.mocked(deps.dispatcher.dispatch).mockImplementation((req) => {
+        capturedPrompt = req.prompt
+        return {
+          id: 'test-id',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(createSuccessDispatchResult()),
+        }
+      })
+
+      await runDevStory(deps, {
+        ...DEFAULT_PARAMS,
+        taskScope: 'T1: Implement type extension\nT2: Update dev-story module',
+      })
+
+      expect(capturedPrompt).toContain('T1: Implement type extension')
+      expect(capturedPrompt).toContain('T2: Update dev-story module')
+      expect(capturedPrompt).toContain('ONLY the following tasks')
+    })
+
+    it('does not inject task_scope section when taskScope param is absent', async () => {
+      const deps = createMockDeps()
+      let capturedPrompt = ''
+      vi.mocked(deps.dispatcher.dispatch).mockImplementation((req) => {
+        capturedPrompt = req.prompt
+        return {
+          id: 'test-id',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(createSuccessDispatchResult()),
+        }
+      })
+
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(capturedPrompt).not.toContain('ONLY the following tasks')
+    })
+
+    it('does not inject task_scope when taskScope is empty string', async () => {
+      const deps = createMockDeps()
+      let capturedPrompt = ''
+      vi.mocked(deps.dispatcher.dispatch).mockImplementation((req) => {
+        capturedPrompt = req.prompt
+        return {
+          id: 'test-id',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(createSuccessDispatchResult()),
+        }
+      })
+
+      await runDevStory(deps, { ...DEFAULT_PARAMS, taskScope: '' })
+
+      expect(capturedPrompt).not.toContain('ONLY the following tasks')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // AC4 (13-3): priorFiles injection into prompt
+  // -------------------------------------------------------------------------
+
+  describe('AC4 (13-3): priorFiles prompt injection', () => {
+    it('injects prior_files section into prompt when priorFiles param is provided', async () => {
+      const deps = createMockDeps()
+      let capturedPrompt = ''
+      vi.mocked(deps.dispatcher.dispatch).mockImplementation((req) => {
+        capturedPrompt = req.prompt
+        return {
+          id: 'test-id',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(createSuccessDispatchResult()),
+        }
+      })
+
+      await runDevStory(deps, {
+        ...DEFAULT_PARAMS,
+        priorFiles: ['src/types.ts', 'src/impl.ts'],
+      })
+
+      expect(capturedPrompt).toContain('src/types.ts')
+      expect(capturedPrompt).toContain('src/impl.ts')
+      expect(capturedPrompt).toContain('prior batch')
+    })
+
+    it('does not inject prior_files section when priorFiles is absent', async () => {
+      const deps = createMockDeps()
+      let capturedPrompt = ''
+      vi.mocked(deps.dispatcher.dispatch).mockImplementation((req) => {
+        capturedPrompt = req.prompt
+        return {
+          id: 'test-id',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(createSuccessDispatchResult()),
+        }
+      })
+
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(capturedPrompt).not.toContain('prior batch')
+    })
+
+    it('does not inject prior_files when priorFiles is empty array', async () => {
+      const deps = createMockDeps()
+      let capturedPrompt = ''
+      vi.mocked(deps.dispatcher.dispatch).mockImplementation((req) => {
+        capturedPrompt = req.prompt
+        return {
+          id: 'test-id',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(createSuccessDispatchResult()),
+        }
+      })
+
+      await runDevStory(deps, { ...DEFAULT_PARAMS, priorFiles: [] })
+
+      expect(capturedPrompt).not.toContain('prior batch')
     })
   })
 

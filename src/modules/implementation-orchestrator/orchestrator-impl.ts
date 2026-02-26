@@ -12,12 +12,15 @@ import type { ContextCompiler } from '../context-compiler/context-compiler.js'
 import type { Dispatcher } from '../agent-dispatch/types.js'
 import type { TypedEventBus } from '../../core/event-bus.js'
 import { readFile } from 'node:fs/promises'
-import { updatePipelineRun, getDecisionsByPhase } from '../../persistence/queries/decisions.js'
+import { existsSync, readdirSync } from 'node:fs'
+import { join, basename } from 'node:path'
+import { updatePipelineRun, getDecisionsByPhase, registerArtifact } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { runCreateStory } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
+import { analyzeStoryComplexity, planTaskBatches } from '../compiled-workflows/index.js'
 import { detectConflictGroups } from './conflict-detector.js'
 import type { ImplementationOrchestrator } from './orchestrator.js'
 import type {
@@ -26,10 +29,11 @@ import type {
   OrchestratorStatus,
   StoryPhase,
   StoryState,
+  DecompositionMetrics,
+  PerBatchMetrics,
 } from './types.js'
+import { addTokenUsage } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
-
-const logger = createLogger('implementation-orchestrator')
 
 // ---------------------------------------------------------------------------
 // OrchestratorDeps
@@ -92,11 +96,14 @@ export function createImplementationOrchestrator(
 ): ImplementationOrchestrator {
   const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot } = deps
 
+  const logger = createLogger('implementation-orchestrator')
+
   // -- mutable orchestrator state --
 
   let _state: OrchestratorState = 'IDLE'
   let _startedAt: string | undefined
   let _completedAt: string | undefined
+  let _decomposition: DecompositionMetrics | undefined
 
   const _stories = new Map<string, StoryState>()
 
@@ -121,6 +128,9 @@ export function createImplementationOrchestrator(
         status.totalDurationMs =
           new Date(_completedAt).getTime() - new Date(_startedAt).getTime()
       }
+    }
+    if (_decomposition !== undefined) {
+      status.decomposition = { ..._decomposition }
     }
     return status
   }
@@ -176,6 +186,30 @@ export function createImplementationOrchestrator(
 
     let storyFilePath: string | undefined
 
+    // Check if a story file already exists for this story key.
+    // Pre-existing stories (e.g., from BMAD auto-implement) should be reused
+    // so their full task list is available for complexity analysis and batching.
+    const artifactsDir = projectRoot ? join(projectRoot, '_bmad-output', 'implementation-artifacts') : undefined
+    if (artifactsDir && existsSync(artifactsDir)) {
+      try {
+        const files = readdirSync(artifactsDir)
+        const match = files.find((f) => f.startsWith(`${storyKey}-`) && f.endsWith('.md'))
+        if (match) {
+          storyFilePath = join(artifactsDir, match)
+          logger.info({ storyKey, storyFilePath }, 'Found existing story file — skipping create-story')
+          eventBus.emit('orchestrator:story-phase-complete', {
+            storyKey,
+            phase: 'IN_STORY_CREATION',
+            result: { result: 'success', story_file: storyFilePath, story_key: storyKey },
+          })
+          persistState()
+        }
+      } catch {
+        // If directory read fails, fall through to create-story
+      }
+    }
+
+    if (storyFilePath === undefined) {
     try {
       const createResult = await runCreateStory(
         { db, pack, contextCompiler, dispatcher, projectRoot },
@@ -240,6 +274,7 @@ export function createImplementationOrchestrator(
       persistState()
       return
     }
+    } // end if (storyFilePath === undefined)
 
     // -- dev-story phase --
 
@@ -247,37 +282,177 @@ export function createImplementationOrchestrator(
     if (_state !== 'RUNNING') return
 
     updateStory(storyKey, { phase: 'IN_DEV' as StoryPhase })
+    persistState()
 
     let devFilesModified: string[] = []
+    // Per-batch file tracking for batched review (empty when single dispatch)
+    const batchFileGroups: Array<{ batchIndex: number; files: string[] }> = []
 
     try {
-      const devResult = await runDevStory(
-        { db, pack, contextCompiler, dispatcher, projectRoot },
-        {
-          storyKey,
-          storyFilePath: storyFilePath ?? '',
-          pipelineRunId: config.pipelineRunId,
-        },
+      // Analyze story complexity to determine whether batching is needed (AC1, AC7)
+      let storyContentForAnalysis = ''
+      try {
+        storyContentForAnalysis = await readFile(storyFilePath ?? '', 'utf-8')
+      } catch {
+        // If we can't read for analysis, fall back to single dispatch
+        logger.warn('Could not read story file for complexity analysis, using single dispatch', { storyKey })
+      }
+
+      const analysis = analyzeStoryComplexity(storyContentForAnalysis)
+      const batches = planTaskBatches(analysis)
+
+      logger.info(
+        { storyKey, estimatedScope: analysis.estimatedScope, batchCount: batches.length, taskCount: analysis.taskCount },
+        'Story complexity analyzed',
       )
 
-      devFilesModified = devResult.files_modified ?? []
+      if (analysis.estimatedScope === 'large' && batches.length > 1) {
+        // AC1: Large story — dispatch sequentially per batch
+        const allFilesModified = new Set<string>()
 
-      eventBus.emit('orchestrator:story-phase-complete', {
-        storyKey,
-        phase: 'IN_DEV',
-        result: devResult,
-      })
-      persistState()
+        // AC1: Record decomposition metrics on the orchestrator run result
+        _decomposition = {
+          totalTasks: analysis.taskCount,
+          batchCount: batches.length,
+          batchSizes: batches.map((b) => b.taskIds.length),
+        }
 
-      if (devResult.result === 'failed') {
-        // Dev agent failed but may have produced code (common when agent
-        // exhausts turns or exits non-zero after partial work). Proceed to
-        // code review — the reviewer will assess actual code state.
-        logger.warn('Dev-story reported failure, proceeding to code review', {
+        for (const batch of batches) {
+          await waitIfPaused()
+          if (_state !== 'RUNNING') break
+
+          // AC2: Build taskScope string listing this batch's tasks
+          const taskScope = batch.taskIds
+            .map((id, i) => `T${id}: ${batch.taskTitles[i] ?? ''}`)
+            .join('\n')
+
+          // AC4: Prior files from all previously accumulated batches
+          const priorFiles = allFilesModified.size > 0 ? Array.from(allFilesModified) : undefined
+
+          logger.info(
+            { storyKey, batchIndex: batch.batchIndex, taskCount: batch.taskIds.length },
+            'Dispatching dev-story batch',
+          )
+
+          const batchStartMs = Date.now()
+          let batchResult
+          try {
+            batchResult = await runDevStory(
+              { db, pack, contextCompiler, dispatcher, projectRoot },
+              {
+                storyKey,
+                storyFilePath: storyFilePath ?? '',
+                pipelineRunId: config.pipelineRunId,
+                taskScope,
+                priorFiles,
+              },
+            )
+          } catch (batchErr) {
+            // AC6: Batch failure — log and continue with partial files
+            const errMsg = batchErr instanceof Error ? batchErr.message : String(batchErr)
+            logger.warn(
+              { storyKey, batchIndex: batch.batchIndex, error: errMsg },
+              'Batch dispatch threw an exception — continuing with partial files',
+            )
+            continue
+          }
+
+          const batchDurationMs = Date.now() - batchStartMs
+          const batchFilesModified = batchResult.files_modified ?? []
+
+          // AC2: Emit per-batch metrics log entry
+          const batchMetrics: PerBatchMetrics = {
+            batchIndex: batch.batchIndex,
+            taskIds: batch.taskIds,
+            tokensUsed: {
+              input: batchResult.tokenUsage?.input ?? 0,
+              output: batchResult.tokenUsage?.output ?? 0,
+            },
+            durationMs: batchDurationMs,
+            filesModified: batchFilesModified,
+            result: batchResult.result === 'success' ? 'success' : 'failed',
+          }
+          logger.info(batchMetrics, 'Batch dev-story metrics')
+
+          // AC5: Accumulate files_modified across all batches
+          for (const f of batchFilesModified) {
+            allFilesModified.add(f)
+          }
+
+          // Track per-batch files for batched review
+          if (batchFilesModified.length > 0) {
+            batchFileGroups.push({ batchIndex: batch.batchIndex, files: batchFilesModified })
+          }
+
+          // AC5: Store batch context in token_usage metadata JSON
+          if (config.pipelineRunId !== undefined && batchResult.tokenUsage !== undefined) {
+            try {
+              addTokenUsage(db, config.pipelineRunId, {
+                phase: 'dev-story',
+                agent: `batch-${batch.batchIndex}`,
+                input_tokens: batchResult.tokenUsage.input,
+                output_tokens: batchResult.tokenUsage.output,
+                cost_usd: 0,
+                metadata: JSON.stringify({
+                  storyKey,
+                  batchIndex: batch.batchIndex,
+                  taskIds: batch.taskIds,
+                  durationMs: batchDurationMs,
+                  result: batchMetrics.result,
+                }),
+              })
+            } catch (tokenErr) {
+              logger.warn({ storyKey, batchIndex: batch.batchIndex, err: tokenErr }, 'Failed to record batch token usage')
+            }
+          }
+
+          if (batchResult.result === 'failed') {
+            // AC6: Batch returned failure — log and continue (partial progress)
+            logger.warn(
+              { storyKey, batchIndex: batch.batchIndex, error: batchResult.error },
+              'Batch dev-story reported failure — continuing with partial files',
+            )
+          }
+
+          eventBus.emit('orchestrator:story-phase-complete', {
+            storyKey,
+            phase: 'IN_DEV',
+            result: batchResult,
+          })
+          persistState()
+        }
+
+        devFilesModified = Array.from(allFilesModified)
+      } else {
+        // AC7: Small/medium story — single dispatch (existing behavior)
+        const devResult = await runDevStory(
+          { db, pack, contextCompiler, dispatcher, projectRoot },
+          {
+            storyKey,
+            storyFilePath: storyFilePath ?? '',
+            pipelineRunId: config.pipelineRunId,
+          },
+        )
+
+        devFilesModified = devResult.files_modified ?? []
+
+        eventBus.emit('orchestrator:story-phase-complete', {
           storyKey,
-          error: devResult.error,
-          filesModified: devFilesModified.length,
+          phase: 'IN_DEV',
+          result: devResult,
         })
+        persistState()
+
+        if (devResult.result === 'failed') {
+          // Dev agent failed but may have produced code (common when agent
+          // exhausts turns or exits non-zero after partial work). Proceed to
+          // code review — the reviewer will assess actual code state.
+          logger.warn('Dev-story reported failure, proceeding to code review', {
+            storyKey,
+            error: devResult.error,
+            filesModified: devFilesModified.length,
+          })
+        }
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
@@ -316,29 +491,124 @@ export function createImplementationOrchestrator(
       let issueList: unknown[] = []
 
       try {
-        const reviewResult = await runCodeReview(
-          { db, pack, contextCompiler, dispatcher, projectRoot },
-          {
-            storyKey,
-            storyFilePath: storyFilePath ?? '',
-            pipelineRunId: config.pipelineRunId,
-            filesModified: devFilesModified,
-            // Scope re-reviews: pass previous issues so the reviewer verifies fixes first
-            ...(previousIssueList.length > 0 ? { previousIssues: previousIssueList } : {}),
-          },
-        )
+        // Batched review: when decomposition produced multiple batches and this is
+        // the first review cycle, review each batch's files separately to keep diff
+        // sizes manageable for the headless reviewer. Re-reviews after fixes always
+        // review all files since fixes may cross batch boundaries.
+        const useBatchedReview = batchFileGroups.length > 1 && previousIssueList.length === 0
 
-        // Timeout retry: if the review timed out (phantom NEEDS_MAJOR_REWORK with
-        // no real analysis), retry once before treating it as a real verdict. This
-        // prevents a timeout from cascading into a wasted fix cycle + review cycle.
-        if (reviewResult.error?.includes('timeout') && !timeoutRetried) {
+        let reviewResult: Awaited<ReturnType<typeof runCodeReview>>
+
+        if (useBatchedReview) {
+          // Per-batch reviews — aggregate worst verdict + union issues
+          const allIssues: Array<{ severity: 'blocker' | 'major' | 'minor'; description: string; file?: string; line?: number }> = []
+          let worstVerdict: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK' = 'SHIP_IT'
+          let aggregateTokens = { input: 0, output: 0 }
+          let lastError: string | undefined
+          let lastRawOutput: string | undefined
+
+          const verdictRank = { 'SHIP_IT': 0, 'NEEDS_MINOR_FIXES': 1, 'NEEDS_MAJOR_REWORK': 2 } as const
+
+          for (const group of batchFileGroups) {
+            logger.info(
+              { storyKey, batchIndex: group.batchIndex, fileCount: group.files.length },
+              'Running batched code review',
+            )
+            const batchReview = await runCodeReview(
+              { db, pack, contextCompiler, dispatcher, projectRoot },
+              {
+                storyKey,
+                storyFilePath: storyFilePath ?? '',
+                workingDirectory: projectRoot,
+                pipelineRunId: config.pipelineRunId,
+                filesModified: group.files,
+              },
+            )
+
+            // Accumulate
+            if (batchReview.tokenUsage) {
+              aggregateTokens.input += batchReview.tokenUsage.input
+              aggregateTokens.output += batchReview.tokenUsage.output
+            }
+            for (const iss of batchReview.issue_list ?? []) {
+              allIssues.push(iss)
+            }
+            const bv = batchReview.verdict as keyof typeof verdictRank
+            if (verdictRank[bv] > verdictRank[worstVerdict]) {
+              worstVerdict = bv
+            }
+            if (batchReview.error) lastError = batchReview.error
+            if (batchReview.rawOutput) lastRawOutput = batchReview.rawOutput
+          }
+
+          // Synthesize aggregate result
+          reviewResult = {
+            verdict: worstVerdict,
+            issues: allIssues.length,
+            issue_list: allIssues,
+            error: lastError,
+            rawOutput: lastRawOutput,
+            tokenUsage: aggregateTokens,
+          }
+
+          logger.info(
+            { storyKey, batchCount: batchFileGroups.length, verdict: worstVerdict, issues: allIssues.length },
+            'Batched code review complete — aggregate result',
+          )
+        } else {
+          // Single review (small story or re-review after fix)
+          reviewResult = await runCodeReview(
+            { db, pack, contextCompiler, dispatcher, projectRoot },
+            {
+              storyKey,
+              storyFilePath: storyFilePath ?? '',
+              workingDirectory: projectRoot,
+              pipelineRunId: config.pipelineRunId,
+              filesModified: devFilesModified,
+              // Scope re-reviews: pass previous issues so the reviewer verifies fixes first
+              ...(previousIssueList.length > 0 ? { previousIssues: previousIssueList } : {}),
+            },
+          )
+        }
+
+        // Phantom review detection: if the verdict is NEEDS_MAJOR_REWORK but the
+        // issue list is empty, the reviewer failed to produce actionable output
+        // (schema validation failure, timeout, truncated response). Dispatching a
+        // fix agent with no specific issues to fix is pure waste (~$0.07/cycle).
+        // Retry the review once before treating it as a real verdict.
+        const isPhantomReview = reviewResult.verdict !== 'SHIP_IT'
+          && (reviewResult.issue_list === undefined || reviewResult.issue_list.length === 0)
+          && reviewResult.error !== undefined
+        if (isPhantomReview && !timeoutRetried) {
           timeoutRetried = true
-          logger.warn({ storyKey, reviewCycles }, 'Code review timed out — retrying once')
+          logger.warn(
+            { storyKey, reviewCycles, error: reviewResult.error },
+            'Phantom review detected (0 issues + error) — retrying review once',
+          )
           continue
         }
 
         verdict = reviewResult.verdict
         issueList = reviewResult.issue_list ?? []
+
+        // Improvement-aware verdict adjustment: when a re-review (cycle > 0)
+        // returns NEEDS_MAJOR_REWORK but issues decreased compared to the
+        // previous cycle, the fix agent made real progress. Demote to
+        // NEEDS_MINOR_FIXES so the pipeline dispatches a targeted sonnet fix
+        // instead of an expensive opus rework. This avoids escalation when
+        // only 1-2 residual issues remain from a previously larger set.
+        if (
+          verdict === 'NEEDS_MAJOR_REWORK'
+          && reviewCycles > 0
+          && previousIssueList.length > 0
+          && issueList.length < previousIssueList.length
+        ) {
+          logger.info(
+            { storyKey, originalVerdict: verdict, issuesBefore: previousIssueList.length, issuesAfter: issueList.length },
+            'Issues decreased between review cycles — demoting MAJOR_REWORK to MINOR_FIXES',
+          )
+          verdict = 'NEEDS_MINOR_FIXES'
+        }
 
         eventBus.emit('orchestrator:story-phase-complete', {
           storyKey,
@@ -346,8 +616,58 @@ export function createImplementationOrchestrator(
           result: reviewResult,
         })
 
+        // Persist review artifact with full issue details for post-mortem diagnosis
+        try {
+          const summary = reviewResult.error
+            ? `${verdict} (error: ${reviewResult.error}) — ${issueList.length} issues`
+            : `${verdict} — ${issueList.length} issues`
+          // Serialize full issue_list into content_hash for diagnostic queries.
+          // On successful reviews (parsed correctly), this captures the actual findings.
+          // On failures, it captures whatever partial data is available.
+          const issueDetails = issueList.length > 0
+            ? JSON.stringify(issueList)
+            : reviewResult.rawOutput
+              ? `raw:${reviewResult.rawOutput.slice(0, 500)}`
+              : undefined
+          registerArtifact(db, {
+            pipeline_run_id: config.pipelineRunId,
+            phase: 'code-review',
+            type: 'review-result',
+            path: storyFilePath ?? storyKey,
+            summary,
+            content_hash: issueDetails,
+          })
+        } catch {
+          // Artifact persistence is best-effort — never block the pipeline
+        }
+
         updateStory(storyKey, { lastVerdict: verdict })
         persistState()
+
+        // AC3 + AC4: Emit pipeline summary log line with decomposition and verdict info
+        {
+          const totalTokens = reviewResult.tokenUsage
+            ? reviewResult.tokenUsage.input + reviewResult.tokenUsage.output
+            : 0
+          const totalTokensK = totalTokens > 0 ? `${Math.round(totalTokens / 1000)}K` : '0'
+          const fileCount = devFilesModified.length
+          const parts: string[] = [`Code review completed: ${verdict}`]
+
+          // AC4: When agentVerdict differs from pipeline verdict, log both
+          if (reviewResult.agentVerdict !== undefined && reviewResult.agentVerdict !== verdict) {
+            parts[0] = `Code review completed: ${verdict} (agent: ${reviewResult.agentVerdict})`
+          }
+
+          // AC3: Include decomposition summary when batching was used
+          if (_decomposition !== undefined) {
+            parts.push(`decomposed: ${_decomposition.batchCount} batches`)
+          }
+
+          parts.push(`${fileCount} files`)
+          parts.push(`${totalTokensK} tokens`)
+
+          logger.info({ storyKey, verdict, agentVerdict: reviewResult.agentVerdict }, parts.join(' | '))
+        }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         updateStory(storyKey, {
@@ -459,6 +779,7 @@ export function createImplementationOrchestrator(
           agent: 'claude-code',
           taskType,
           ...(fixModel !== undefined ? { model: fixModel } : {}),
+          workingDirectory: projectRoot,
         })
         const fixResult = await handle.result
 

@@ -454,8 +454,8 @@ export function addTokenUsage(
   const validated = AddTokenUsageInputSchema.parse(usage)
 
   const stmt = db.prepare(`
-    INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd, metadata)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `)
   stmt.run(
     runId,
@@ -464,6 +464,7 @@ export function addTokenUsage(
     validated.input_tokens,
     validated.output_tokens,
     validated.cost_usd,
+    validated.metadata ?? null,
   )
 }
 

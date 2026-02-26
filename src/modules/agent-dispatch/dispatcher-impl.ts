@@ -351,6 +351,12 @@ export class DispatcherImpl implements Dispatcher {
 
     const startedAt = Date.now()
 
+    // Handle spawn errors — if the binary doesn't exist or can't be executed,
+    // the 'error' event fires. Without this handler, spawn failures are silent.
+    proc.on('error', (err: Error) => {
+      logger.error({ id, binary: cmd.binary, error: err.message }, 'Process spawn failed')
+    })
+
     // Write prompt to stdin and close — guard against EPIPE if process exits early
     if (proc.stdin !== null) {
       proc.stdin.on('error', (err: NodeJS.ErrnoException) => {

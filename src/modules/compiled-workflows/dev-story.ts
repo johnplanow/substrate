@@ -59,7 +59,7 @@ export async function runDevStory(
   deps: WorkflowDeps,
   params: DevStoryParams,
 ): Promise<DevStoryResult> {
-  const { storyKey, storyFilePath } = params
+  const { storyKey, storyFilePath, taskScope, priorFiles } = params
 
   logger.info({ storyKey, storyFilePath }, 'Starting compiled dev-story workflow')
 
@@ -166,8 +166,31 @@ export async function runDevStory(
   // Step 4: Assemble prompt with token budget enforcement
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // Build optional batch-dispatch sections (AC2, AC4 of story 13-3)
+  // ---------------------------------------------------------------------------
+
+  const taskScopeContent =
+    taskScope !== undefined && taskScope.trim().length > 0
+      ? `## Task Scope for This Batch\n\nImplement ONLY the following tasks from the story:\n\n${taskScope}\n\nDo NOT implement tasks outside this list. Other tasks will be handled in separate batch dispatches.`
+      : ''
+
+  const priorFilesContent =
+    priorFiles !== undefined && priorFiles.length > 0
+      ? `## Files Modified by Previous Batches\n\nThe following files were created or modified by prior batch dispatches. Review them for context before implementing:\n\n${priorFiles.map((f) => `- ${f}`).join('\n')}`
+      : ''
+
+  // Extract File List from story content to scope the dev agent's file creation.
+  // Stories include a "### File List" or "## File List" section listing expected
+  // files. When present, inject it as a scope directive to prevent the agent from
+  // creating extraneous files (test helpers, utilities, etc.) beyond the story spec.
+  const filesInScopeContent = extractFilesInScope(storyContent)
+
   const sections: PromptSection[] = [
     { name: 'story_content', content: storyContent, priority: 'required' },
+    { name: 'task_scope', content: taskScopeContent, priority: 'optional' },
+    { name: 'prior_files', content: priorFilesContent, priority: 'optional' },
+    { name: 'files_in_scope', content: filesInScopeContent, priority: 'optional' },
     { name: 'test_patterns', content: testPatternsContent, priority: 'optional' },
   ]
 
@@ -190,6 +213,7 @@ export async function runDevStory(
       taskType: 'dev-story',
       timeout: DEFAULT_TIMEOUT_MS,
       outputSchema: DevStoryResultSchema,
+      workingDirectory: deps.projectRoot,
     })
 
     dispatchResult = await handle.result
@@ -318,4 +342,41 @@ function makeFailureResult(error: string): DevStoryResult {
     error,
     tokenUsage: { input: 0, output: 0 },
   }
+}
+
+/**
+ * Extract the File List section from story content and build a scope directive.
+ *
+ * Stories contain a "### File List" or "## File List" section listing the expected
+ * files to create/modify. When found, returns a prompt section that constrains the
+ * dev agent to only those files, preventing scope explosion (e.g., 87 files when
+ * 15 were specified).
+ *
+ * Returns empty string if no File List section is found.
+ */
+function extractFilesInScope(storyContent: string): string {
+  // Match "## File List", "### File List", or "### Git Diff" / "## Dev Agent Record" as terminators
+  const fileListMatch = storyContent.match(
+    /^#{2,3}\s+File\s+List\s*\n([\s\S]*?)(?=\n#{2,3}\s|\n## Dev Agent Record|$)/im,
+  )
+  if (!fileListMatch || !fileListMatch[1]) return ''
+
+  const fileLines = fileListMatch[1]
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('-') && line.length > 2)
+
+  if (fileLines.length === 0) return ''
+
+  return [
+    '## Files In Scope',
+    '',
+    'The story specifies these files to create or modify. Stay within this scope:',
+    '',
+    ...fileLines,
+    '',
+    'You MAY create additional test files co-located with their implementation (e.g., `foo.test.ts` next to `foo.ts`).',
+    'Do NOT create utility modules, helper libraries, test fixtures, or infrastructure files beyond what the story specifies.',
+    'If you need to modify a file not in this list, include it in your `files_modified` output with a clear reason.',
+  ].join('\n')
 }

@@ -69,6 +69,46 @@ export interface OrchestratorConfig {
 }
 
 // ---------------------------------------------------------------------------
+// DecompositionMetrics
+// ---------------------------------------------------------------------------
+
+/**
+ * Decomposition metrics emitted when a story is dispatched via batched dev-story.
+ * Absent for non-decomposed (simple) stories — AC6: clean output for simple stories.
+ */
+export interface DecompositionMetrics {
+  /** Total number of tasks identified in the story */
+  totalTasks: number
+  /** Number of batches the tasks were split into */
+  batchCount: number
+  /** Number of tasks per batch, in dispatch order */
+  batchSizes: number[]
+}
+
+// ---------------------------------------------------------------------------
+// PerBatchMetrics
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-batch telemetry logged during the batched dev-story dispatch loop.
+ * Logged at INFO level for each batch dispatched (AC2).
+ */
+export interface PerBatchMetrics {
+  /** Zero-based index of this batch */
+  batchIndex: number
+  /** Task IDs included in this batch */
+  taskIds: number[]
+  /** Token usage from this batch dispatch */
+  tokensUsed: { input: number; output: number }
+  /** Wall-clock duration of this batch dispatch in milliseconds */
+  durationMs: number
+  /** Files reported as modified by this batch */
+  filesModified: string[]
+  /** Whether this batch completed successfully or failed */
+  result: 'success' | 'failed'
+}
+
+// ---------------------------------------------------------------------------
 // OrchestratorStatus
 // ---------------------------------------------------------------------------
 
@@ -86,4 +126,10 @@ export interface OrchestratorStatus {
   completedAt?: string
   /** Total elapsed milliseconds (only set when completedAt is set) */
   totalDurationMs?: number
+  /**
+   * Decomposition metrics for the most recent pipeline run.
+   * Present only when at least one story was decomposed into batches (AC1).
+   * Absent for simple (non-decomposed) stories (AC6).
+   */
+  decomposition?: DecompositionMetrics
 }

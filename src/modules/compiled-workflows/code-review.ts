@@ -190,6 +190,7 @@ export async function runCodeReview(
     agent: 'claude-code',
     taskType: 'code-review',
     outputSchema: CodeReviewResultSchema,
+    workingDirectory: deps.projectRoot,
   })
 
   let dispatchResult
@@ -209,19 +210,25 @@ export async function runCodeReview(
     output: dispatchResult.tokenEstimate.output,
   }
 
+  // Capture raw output for artifact persistence (diagnosis of failures)
+  const rawOutput = dispatchResult.output ?? undefined
+
   // Handle dispatch failures
   if (dispatchResult.status === 'failed') {
     const errorMsg = `Dispatch status: failed. Exit code: ${dispatchResult.exitCode}. ${dispatchResult.parseError ?? ''} ${dispatchResult.output ? `Stderr: ${dispatchResult.output}` : ''}`.trim()
     logger.warn({ storyKey, exitCode: dispatchResult.exitCode }, 'Code-review dispatch failed')
-    return defaultFailResult(errorMsg, tokenUsage)
+    return { ...defaultFailResult(errorMsg, tokenUsage), rawOutput }
   }
 
   if (dispatchResult.status === 'timeout') {
     logger.warn({ storyKey }, 'Code-review dispatch timed out')
-    return defaultFailResult(
-      'Dispatch status: timeout. The agent did not complete within the allowed time.',
-      tokenUsage,
-    )
+    return {
+      ...defaultFailResult(
+        'Dispatch status: timeout. The agent did not complete within the allowed time.',
+        tokenUsage,
+      ),
+      rawOutput,
+    }
   }
 
   // Step 8: Schema validation
@@ -234,6 +241,7 @@ export async function runCodeReview(
       issue_list: [],
       error: 'schema_validation_failed',
       details,
+      rawOutput,
       tokenUsage,
     }
   }
@@ -248,6 +256,7 @@ export async function runCodeReview(
       issue_list: [],
       error: 'schema_validation_failed',
       details,
+      rawOutput,
       tokenUsage,
     }
   }

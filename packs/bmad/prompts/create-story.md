@@ -30,9 +30,20 @@ Using the context above, write a complete, implementation-ready story file for s
    - Acceptance criteria in BDD Given/When/Then format (minimum 3, maximum 8)
    - Concrete tasks broken into 2–4 hour subtasks, each tied to specific ACs
    - Dev Notes with file paths, import patterns, testing requirements
-5. **Write the story file** to: `_bmad-output/implementation-artifacts/{{story_key}}-<kebab-title>.md`
+5. **Apply the scope cap** — see Scope Cap Guidance below
+6. **Write the story file** to: `_bmad-output/implementation-artifacts/{{story_key}}-<kebab-title>.md`
    - Status must be: `ready-for-dev`
    - Dev Agent Record section must be present but left blank (to be filled by dev agent)
+
+## Scope Cap Guidance
+
+**Aim for 6-7 acceptance criteria and 7-8 tasks per story.**
+
+Each story will be implemented by an AI agent in a single pass. Stories with more than 7 ACs tend to exceed agent capabilities and require decomposition, adding latency and complexity to the pipeline.
+
+If the scope requires more than 7 ACs, split into multiple sequential stories (e.g., `7-1a: Core Setup`, `7-1b: Advanced Features`). Splitting is preferable to cramming too much scope into a single story.
+
+This is guidance, not enforcement — if the scope genuinely fits in a slightly larger story, use your judgment. The goal is to avoid stories that will predictably fail during implementation.
 
 ## Output Contract
 
