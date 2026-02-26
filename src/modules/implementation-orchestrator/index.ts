@@ -30,3 +30,10 @@ export type {
 // ---------------------------------------------------------------------------
 
 export { detectConflictGroups } from './conflict-detector.js'
+
+// ---------------------------------------------------------------------------
+// Methodology context seeding
+// ---------------------------------------------------------------------------
+
+export { seedMethodologyContext } from './seed-methodology-context.js'
+export type { SeedResult } from './seed-methodology-context.js'

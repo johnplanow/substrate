@@ -128,6 +128,7 @@ export async function runCreateStory(
     agent: 'claude-code',
     taskType: 'create-story',
     outputSchema: CreateStoryResultSchema,
+    ...(deps.projectRoot !== undefined ? { workingDirectory: deps.projectRoot } : {}),
   })
 
   let dispatchResult

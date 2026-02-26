@@ -11,6 +11,8 @@
 
 {{files_in_scope}}
 
+{{project_context}}
+
 ### Test Patterns
 {{test_patterns}}
 

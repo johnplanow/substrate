@@ -13,7 +13,8 @@
  *  - All imports use .js extension (ESM)
  */
 
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { WorkflowDeps, DevStoryParams, DevStoryResult } from './types.js'
 import { DevStoryResultSchema } from './schemas.js'
 import { assemblePrompt } from './prompt-assembler.js'
@@ -186,11 +187,22 @@ export async function runDevStory(
   // creating extraneous files (test helpers, utilities, etc.) beyond the story spec.
   const filesInScopeContent = extractFilesInScope(storyContent)
 
+  // ---------------------------------------------------------------------------
+  // Build project context: read existing source files referenced by the story
+  // so the dev agent can see the code it needs to modify or integrate with.
+  // This fills the ~17K unused tokens in the 24K budget with real codebase context.
+  // ---------------------------------------------------------------------------
+
+  const projectContextContent = deps.projectRoot
+    ? await buildProjectContext(storyContent, deps.projectRoot)
+    : ''
+
   const sections: PromptSection[] = [
     { name: 'story_content', content: storyContent, priority: 'required' },
     { name: 'task_scope', content: taskScopeContent, priority: 'optional' },
     { name: 'prior_files', content: priorFilesContent, priority: 'optional' },
     { name: 'files_in_scope', content: filesInScopeContent, priority: 'optional' },
+    { name: 'project_context', content: projectContextContent, priority: 'important' },
     { name: 'test_patterns', content: testPatternsContent, priority: 'optional' },
   ]
 
@@ -213,7 +225,7 @@ export async function runDevStory(
       taskType: 'dev-story',
       timeout: DEFAULT_TIMEOUT_MS,
       outputSchema: DevStoryResultSchema,
-      workingDirectory: deps.projectRoot,
+      ...(deps.projectRoot !== undefined ? { workingDirectory: deps.projectRoot } : {}),
     })
 
     dispatchResult = await handle.result
@@ -272,7 +284,7 @@ export async function runDevStory(
     // but exhausted turns before emitting the YAML contract.
     let filesModified: string[] = []
     try {
-      filesModified = await getGitChangedFiles(process.cwd())
+      filesModified = await getGitChangedFiles(deps.projectRoot ?? process.cwd())
       if (filesModified.length > 0) {
         logger.info(
           { storyKey, fileCount: filesModified.length },
@@ -354,6 +366,111 @@ function makeFailureResult(error: string): DevStoryResult {
  *
  * Returns empty string if no File List section is found.
  */
+/**
+ * Build project context by reading existing source files referenced in the story.
+ *
+ * Stories reference files to modify (e.g., `src/app.tsx`, `src/state/game-data-store.ts`)
+ * in their Dev Notes, tasks, and File List sections. The dev agent needs to see these
+ * files to understand existing code structure, types, and imports.
+ *
+ * Strategy:
+ * 1. Extract file paths from story content (src/*.ts, src/*.tsx references)
+ * 2. Filter to files that ALREADY EXIST (files to create aren't useful)
+ * 3. Read each file, truncating large files to keep within budget
+ * 4. Format as a single context section with file headers
+ *
+ * Budget: uses ~8K-12K tokens of the ~17K unused budget (leaves room for growth).
+ * Files are read in order of reference frequency (most-referenced first).
+ */
+async function buildProjectContext(storyContent: string, projectRoot: string): Promise<string> {
+  const referencedPaths = extractReferencedFiles(storyContent)
+
+  if (referencedPaths.length === 0) return ''
+
+  // Filter to files that exist (skip files to be created)
+  const existingFiles: Array<{ path: string; content: string }> = []
+  const MAX_FILE_CHARS = 4_000 // ~1,000 tokens per file
+  const MAX_TOTAL_CHARS = 40_000 // ~10,000 tokens total context budget
+
+  let totalChars = 0
+
+  for (const filePath of referencedPaths) {
+    if (totalChars >= MAX_TOTAL_CHARS) break
+
+    const fullPath = join(projectRoot, filePath)
+    try {
+      const fileStat = await stat(fullPath)
+      if (!fileStat.isFile()) continue
+
+      let content = await readFile(fullPath, 'utf-8')
+
+      // Truncate large files, keeping the top (imports, types, exports)
+      if (content.length > MAX_FILE_CHARS) {
+        content = content.slice(0, MAX_FILE_CHARS) + '\n// ... (truncated)'
+      }
+
+      // Stop if adding this file would exceed total budget
+      if (totalChars + content.length > MAX_TOTAL_CHARS) break
+
+      existingFiles.push({ path: filePath, content })
+      totalChars += content.length
+    } catch {
+      // File doesn't exist or isn't readable — skip
+      continue
+    }
+  }
+
+  if (existingFiles.length === 0) return ''
+
+  const header = [
+    '### Existing Source Files (for reference)',
+    '',
+    'These files already exist in the project. Use them to understand existing patterns,',
+    'types, and imports. Modify them as specified in the story tasks.',
+    '',
+  ]
+
+  const fileBlocks = existingFiles.map((f) => [
+    `#### \`${f.path}\``,
+    '```typescript',
+    f.content,
+    '```',
+    '',
+  ].join('\n'))
+
+  return [...header, ...fileBlocks].join('\n')
+}
+
+/**
+ * Extract source file paths referenced in story content.
+ *
+ * Looks for patterns like `src/path/to/file.ts` or `src/path/to/file.tsx` in
+ * the story. Deduplicates and prioritizes files that appear in the "modify"
+ * section of the File List (existing files the agent needs to change) over
+ * files in task descriptions.
+ *
+ * Excludes test files (*.test.ts, *.test.tsx) since those will be created new.
+ */
+function extractReferencedFiles(storyContent: string): string[] {
+  // Match src/... paths ending in .ts or .tsx
+  const filePathRegex = /\bsrc\/[\w/.-]+\.tsx?\b/g
+  const matches = storyContent.match(filePathRegex) ?? []
+
+  // Count frequency — more referenced files are higher priority
+  const freq = new Map<string, number>()
+  for (const m of matches) {
+    freq.set(m, (freq.get(m) ?? 0) + 1)
+  }
+
+  // Sort by frequency (most-referenced first), then alphabetically
+  const sorted = [...freq.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([path]) => path)
+
+  // Filter out test files (those will be created, not read)
+  return sorted.filter((p) => !p.includes('.test.'))
+}
+
 function extractFilesInScope(storyContent: string): string {
   // Match "## File List", "### File List", or "### Git Diff" / "## Dev Agent Record" as terminators
   const fileListMatch = storyContent.match(

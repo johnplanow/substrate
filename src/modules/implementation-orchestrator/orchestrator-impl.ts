@@ -34,6 +34,7 @@ import type {
 } from './types.js'
 import { addTokenUsage } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
+import { seedMethodologyContext } from './seed-methodology-context.js'
 
 // ---------------------------------------------------------------------------
 // OrchestratorDeps
@@ -293,9 +294,12 @@ export function createImplementationOrchestrator(
       let storyContentForAnalysis = ''
       try {
         storyContentForAnalysis = await readFile(storyFilePath ?? '', 'utf-8')
-      } catch {
+      } catch (err) {
         // If we can't read for analysis, fall back to single dispatch
-        logger.warn('Could not read story file for complexity analysis, using single dispatch', { storyKey })
+        logger.error(
+          { storyKey, storyFilePath, error: err instanceof Error ? err.message : String(err) },
+          'Could not read story file for complexity analysis — falling back to single dispatch',
+        )
       }
 
       const analysis = analyzeStoryComplexity(storyContentForAnalysis)
@@ -903,6 +907,17 @@ export function createImplementationOrchestrator(
       pipelineRunId: config.pipelineRunId,
     })
     persistState()
+
+    // Seed methodology context from planning artifacts (idempotent)
+    if (projectRoot !== undefined) {
+      const seedResult = seedMethodologyContext(db, projectRoot)
+      if (seedResult.decisionsCreated > 0) {
+        logger.info(
+          { decisionsCreated: seedResult.decisionsCreated, skippedCategories: seedResult.skippedCategories },
+          'Methodology context seeded from planning artifacts',
+        )
+      }
+    }
 
     // Detect conflict groups
     const groups = detectConflictGroups(storyKeys)

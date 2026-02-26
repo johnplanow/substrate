@@ -556,6 +556,7 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
       concept,
       concurrency,
       outputFormat,
+      projectRoot,
     })
   }
 
@@ -835,10 +836,11 @@ interface FullPipelineOptions {
   concept?: string
   concurrency: number
   outputFormat: OutputFormat
+  projectRoot: string
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot } =
     options
 
   // Ensure database directory
@@ -1030,6 +1032,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             maxReviewCycles: 2,
             pipelineRunId: runId,
           },
+          projectRoot,
         })
 
         // Subscribe to events for progress reporting
@@ -1342,6 +1345,7 @@ export async function runAutoResume(options: AutoResumeOptions): Promise<number>
       concurrency,
       outputFormat,
       existingRunId: runId,
+      projectRoot,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -1376,6 +1380,7 @@ interface FullPipelineFromPhaseOptions {
   concurrency: number
   outputFormat: OutputFormat
   existingRunId?: string
+  projectRoot: string
 }
 
 async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): Promise<number> {
@@ -1390,6 +1395,7 @@ async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): 
     concurrency,
     outputFormat,
     existingRunId,
+    projectRoot,
   } = options
 
   if (!existsSync(dbDir)) {
@@ -1530,6 +1536,7 @@ async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): 
             maxReviewCycles: 2,
             pipelineRunId: runId,
           },
+          projectRoot,
         })
 
         eventBus.on('orchestrator:story-phase-complete', (payload) => {
