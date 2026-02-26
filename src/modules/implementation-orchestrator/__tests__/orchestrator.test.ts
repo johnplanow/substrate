@@ -443,10 +443,10 @@ describe('createImplementationOrchestrator', () => {
   // -------------------------------------------------------------------------
 
   describe('AC4: Escalation after max retries', () => {
-    it('escalates story after maxReviewCycles consecutive failures', async () => {
+    it('auto-approves story with only minor fixes at review cycle limit', async () => {
       mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
       mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
-      // Always return NEEDS_MINOR_FIXES — never SHIP_IT
+      // Always return NEEDS_MINOR_FIXES — converged on nits
       mockRunCodeReview.mockResolvedValue(makeCodeReviewMinorFixes())
 
       const orchestrator = createImplementationOrchestrator({
@@ -456,11 +456,12 @@ describe('createImplementationOrchestrator', () => {
 
       const status = await orchestrator.run(['5-1'])
 
-      expect(status.stories['5-1']?.phase).toBe('ESCALATED')
-      expect(status.state).toBe('COMPLETE') // orchestrator continues
+      // Auto-approved: minor fixes applied, then marked COMPLETE
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      expect(status.state).toBe('COMPLETE')
     })
 
-    it('emits orchestrator:story-escalated with last verdict and issues', async () => {
+    it('emits orchestrator:story-complete (not escalated) for minor fixes at limit', async () => {
       mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
       mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
       mockRunCodeReview.mockResolvedValue(makeCodeReviewMinorFixes())
@@ -473,19 +474,41 @@ describe('createImplementationOrchestrator', () => {
       await orchestrator.run(['5-1'])
 
       expect(eventBus.emit).toHaveBeenCalledWith(
-        'orchestrator:story-escalated',
+        'orchestrator:story-complete',
         expect.objectContaining({
           storyKey: '5-1',
-          lastVerdict: 'NEEDS_MINOR_FIXES',
         }),
       )
     })
 
-    it('continues processing remaining stories after escalation', async () => {
+    it('escalates story with major rework at review cycle limit', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      // Always return NEEDS_MAJOR_REWORK — fundamental issues remain
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewMajorRework())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxReviewCycles: 2 }),
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('ESCALATED')
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        'orchestrator:story-escalated',
+        expect.objectContaining({
+          storyKey: '5-1',
+          lastVerdict: 'NEEDS_MAJOR_REWORK',
+        }),
+      )
+    })
+
+    it('continues processing remaining stories after auto-approve', async () => {
       mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess())
       mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
       mockRunCodeReview
-        // 5-1: always fails
+        // 5-1: minor fixes (will be auto-approved)
         .mockResolvedValueOnce(makeCodeReviewMinorFixes())
         .mockResolvedValueOnce(makeCodeReviewMinorFixes())
         // 9-1: succeeds
@@ -496,11 +519,8 @@ describe('createImplementationOrchestrator', () => {
         config: defaultConfig({ maxReviewCycles: 2, maxConcurrency: 1 }),
       })
 
-      // 5-1 → compiled-workflows (same as 5-2), 9-1 → bmad-context-engine (different)
-      // Use unrelated keys so they are in separate conflict groups
       const status = await orchestrator.run(['5-1', '9-1'])
 
-      // orchestrator reaches COMPLETE (not FAILED)
       expect(status.state).toBe('COMPLETE')
     })
   })

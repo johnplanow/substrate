@@ -700,21 +700,110 @@ export function createImplementationOrchestrator(
         return
       }
 
-      // Exceeded max review cycles → escalate
+      // Exceeded max review cycles
       if (reviewCycles >= config.maxReviewCycles - 1) {
         const finalReviewCycles = reviewCycles + 1
+
+        // NEEDS_MAJOR_REWORK at the limit → escalate (fundamental issues remain)
+        if (verdict !== 'NEEDS_MINOR_FIXES') {
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            reviewCycles: finalReviewCycles,
+            completedAt: new Date().toISOString(),
+          })
+          eventBus.emit('orchestrator:story-escalated', {
+            storyKey,
+            lastVerdict: verdict,
+            reviewCycles: finalReviewCycles,
+            issues: issueList,
+          })
+          persistState()
+          return
+        }
+
+        // NEEDS_MINOR_FIXES at the limit → fix then auto-approve (converged on nits)
+        logger.info(
+          { storyKey, reviewCycles: finalReviewCycles, issueCount: issueList.length },
+          'Review cycles exhausted with only minor issues — applying fixes then auto-approving',
+        )
+
+        await waitIfPaused()
+        if (_state !== 'RUNNING') return
+
+        updateStory(storyKey, { phase: 'NEEDS_FIXES' as StoryPhase })
+        try {
+          let fixPrompt: string
+          try {
+            const fixTemplate = await pack.getPrompt('fix-story')
+            const storyContent = await readFile(storyFilePath ?? '', 'utf-8')
+            let reviewFeedback: string
+            if (issueList.length === 0) {
+              reviewFeedback = `Verdict: ${verdict}\nIssues: Minor issues flagged but no specifics provided. Review the story ACs and fix any remaining gaps.`
+            } else {
+              reviewFeedback = [
+                `Verdict: ${verdict}`,
+                `Issues (${issueList.length}):`,
+                ...issueList.map((issue, i) => {
+                  const iss = issue as { severity?: string; description?: string; file?: string; line?: number }
+                  return `  ${i + 1}. [${iss.severity ?? 'unknown'}] ${iss.description ?? 'no description'}${iss.file ? ` (${iss.file}${iss.line ? `:${iss.line}` : ''})` : ''}`
+                }),
+              ].join('\n')
+            }
+            let archConstraints = ''
+            try {
+              const decisions = getDecisionsByPhase(db, 'solutioning')
+              const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
+              archConstraints = constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
+            } catch { /* arch constraints are optional */ }
+            const sections = [
+              { name: 'story_content', content: storyContent, priority: 'required' as const },
+              { name: 'review_feedback', content: reviewFeedback, priority: 'required' as const },
+              { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
+            ]
+            const assembled = assemblePrompt(fixTemplate, sections, 24000)
+            fixPrompt = assembled.prompt
+          } catch {
+            fixPrompt = `Fix story ${storyKey}: verdict=${verdict}, minor fixes needed`
+            logger.warn('Failed to assemble auto-approve fix prompt, using fallback', { storyKey })
+          }
+
+          const handle = dispatcher.dispatch<unknown>({
+            prompt: fixPrompt,
+            agent: 'claude-code',
+            taskType: 'minor-fixes',
+            workingDirectory: projectRoot,
+          })
+          const fixResult = await handle.result
+
+          eventBus.emit('orchestrator:story-phase-complete', {
+            storyKey,
+            phase: 'IN_MINOR_FIX',
+            result: {
+              tokenUsage: fixResult.tokenEstimate
+                ? { input: fixResult.tokenEstimate.input, output: fixResult.tokenEstimate.output }
+                : undefined,
+            },
+          })
+
+          if (fixResult.status === 'timeout') {
+            logger.warn('Auto-approve fix timed out — approving anyway (issues were minor)', { storyKey })
+          }
+        } catch (err) {
+          logger.warn('Auto-approve fix dispatch failed — approving anyway (issues were minor)', { storyKey, err })
+        }
+
+        // Auto-approve: mark COMPLETE regardless of fix outcome (issues were minor)
         updateStory(storyKey, {
-          phase: 'ESCALATED' as StoryPhase,
+          phase: 'COMPLETE' as StoryPhase,
           reviewCycles: finalReviewCycles,
           completedAt: new Date().toISOString(),
         })
-        eventBus.emit('orchestrator:story-escalated', {
+        eventBus.emit('orchestrator:story-complete', {
           storyKey,
-          lastVerdict: verdict,
           reviewCycles: finalReviewCycles,
-          issues: issueList,
         })
         persistState()
+        keepReviewing = false
         return
       }
 
