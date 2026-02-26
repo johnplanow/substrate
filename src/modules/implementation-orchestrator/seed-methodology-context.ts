@@ -242,19 +242,19 @@ function extractArchSections(content: string): ArchSection[] {
   const sections: ArchSection[] = []
 
   // Extract tech stack section
-  const techStack = extractSection(content, /^##\s+(?:tech(?:nology)?\s*stack|stack\s*overview)/im)
+  const techStack = extractSection(content, /^##\s+(?:tech(?:nology)?\s*stack|stack\s*overview|starter\s+template)/im)
   if (techStack !== undefined) {
     sections.push({ key: 'tech-stack', value: techStack })
   }
 
-  // Extract ADRs section (or individual ADR summaries)
-  const adrs = extractSection(content, /^##\s+(?:ADR|Architecture\s+Decision\s+Record)/im)
+  // Extract ADRs / architectural decisions section
+  const adrs = extractSection(content, /^##\s+(?:ADR|(?:core\s+)?architect(?:ure|ural)\s+decision)/im)
   if (adrs !== undefined) {
     sections.push({ key: 'adrs', value: adrs })
   }
 
-  // Extract component/module overview
-  const components = extractSection(content, /^##\s+(?:component|module|system)\s+(?:overview|architecture|structure)/im)
+  // Extract component/module overview or implementation patterns
+  const components = extractSection(content, /^##\s+(?:(?:component|module|system)\s+(?:overview|architecture|structure)|implementation\s+patterns)/im)
   if (components !== undefined) {
     sections.push({ key: 'components', value: components })
   }

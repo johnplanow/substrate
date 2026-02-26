@@ -728,7 +728,7 @@ export function createImplementationOrchestrator(
       const taskType = verdict === 'NEEDS_MINOR_FIXES' ? 'minor-fixes' : 'major-rework'
 
       // Model escalation: use Opus for major rework, Sonnet for minor fixes
-      const fixModel = taskType === 'major-rework' ? 'claude-opus-4-5' : undefined
+      const fixModel = taskType === 'major-rework' ? 'claude-opus-4-6' : undefined
 
       try {
         // Assemble a context-aware fix prompt from the pack template

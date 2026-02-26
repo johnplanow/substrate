@@ -381,7 +381,7 @@ describe('createImplementationOrchestrator', () => {
 
       // The fix dispatch (not the code-review dispatch) should include model escalation
       expect(dispatcher.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ taskType: 'major-rework', model: 'claude-opus-4-5' }),
+        expect.objectContaining({ taskType: 'major-rework', model: 'claude-opus-4-6' }),
       )
     })
 

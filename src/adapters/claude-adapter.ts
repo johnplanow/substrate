@@ -25,7 +25,7 @@ import type {
 } from './types.js'
 
 /** Default model used when none is specified */
-const DEFAULT_MODEL = 'claude-sonnet-4-5'
+const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
 /** Approximate characters per token for estimation */
 const CHARS_PER_TOKEN = 3

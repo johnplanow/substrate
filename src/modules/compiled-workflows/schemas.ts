@@ -58,7 +58,22 @@ export const DevStoryResultSchema = z.object({
   ac_met: z.array(coerceToString),
   ac_failures: z.array(coerceToString),
   files_modified: z.array(z.string()),
-  tests: z.enum(['pass', 'fail']),
+  tests: z.preprocess((val) => {
+    if (typeof val === 'string') {
+      const lower = val.toLowerCase()
+      if (lower.includes('fail')) return 'fail'
+      return 'pass'
+    }
+    // Handle object form: { pass: N, fail: N }
+    if (val !== null && typeof val === 'object') {
+      const obj = val as Record<string, unknown>
+      if (typeof obj.fail === 'number' && obj.fail > 0) return 'fail'
+      return 'pass'
+    }
+    // Handle number: 0 = pass, >0 = fail count
+    if (typeof val === 'number') return val > 0 ? 'fail' : 'pass'
+    return 'pass'
+  }, z.enum(['pass', 'fail'])),
   notes: z.string().optional(),
 })
 

@@ -624,15 +624,50 @@ describe('Gap 7: Schema cross-consistency', () => {
     expect(result.success).toBe(true)
   })
 
-  it('DevStoryResultSchema rejects invalid tests enum value', () => {
-    const result = DevStoryResultSchema.safeParse({
+  it('DevStoryResultSchema coerces non-standard tests values to pass/fail', () => {
+    // "skipped" coerces to "pass" (no "fail" substring)
+    const skipped = DevStoryResultSchema.safeParse({
       result: 'success',
       ac_met: [],
       ac_failures: [],
       files_modified: [],
-      tests: 'skipped', // invalid
+      tests: 'skipped',
     })
-    expect(result.success).toBe(false)
+    expect(skipped.success).toBe(true)
+    if (skipped.success) expect(skipped.data.tests).toBe('pass')
+
+    // Object form { pass: 5, fail: 2 } coerces to "fail"
+    const objFail = DevStoryResultSchema.safeParse({
+      result: 'success',
+      ac_met: [],
+      ac_failures: [],
+      files_modified: [],
+      tests: { pass: 5, fail: 2 },
+    })
+    expect(objFail.success).toBe(true)
+    if (objFail.success) expect(objFail.data.tests).toBe('fail')
+
+    // Object form { pass: 5, fail: 0 } coerces to "pass"
+    const objPass = DevStoryResultSchema.safeParse({
+      result: 'success',
+      ac_met: [],
+      ac_failures: [],
+      files_modified: [],
+      tests: { pass: 5, fail: 0 },
+    })
+    expect(objPass.success).toBe(true)
+    if (objPass.success) expect(objPass.data.tests).toBe('pass')
+
+    // String "3 failing" coerces to "fail"
+    const strFail = DevStoryResultSchema.safeParse({
+      result: 'success',
+      ac_met: [],
+      ac_failures: [],
+      files_modified: [],
+      tests: '3 failing',
+    })
+    expect(strFail.success).toBe(true)
+    if (strFail.success) expect(strFail.data.tests).toBe('fail')
   })
 
   it('CodeReviewResultSchema accepts all three verdict values', () => {
