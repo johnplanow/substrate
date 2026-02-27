@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/substrate-header.png" alt="Substrate — Autonomous Software Development Pipeline" />
+</p>
+
 # Substrate
 
 Autonomous software development pipeline powered by multi-agent orchestration. Substrate takes a project idea from concept through analysis, planning, architecture, implementation, and code review — coordinating CLI-based AI agents (Claude Code, Codex, Gemini CLI) to do the work.
