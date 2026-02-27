@@ -219,14 +219,18 @@ export class WorkerPoolManagerImpl implements WorkerPoolManager {
       this._eventBus.emit('task:complete', {
         taskId,
         result: eventResult,
+        taskType: task.task_type ?? undefined,
       })
     }
 
-    const onError = (stderr: string, exitCode: number) => {
+    const onError = (stdout: string, stderr: string, exitCode: number) => {
       logger.debug({ taskId, workerId, exitCode }, 'worker onError')
 
       // Remove from pool
       this._activeWorkers.delete(workerId)
+
+      // Prefer stderr; fall back to stdout (some CLIs print errors there)
+      const message = stderr.trim() || stdout.trim() || `Process exited with code ${exitCode}`
 
       // Emit task:failed — the TaskGraphEngine subscribes to this event
       // and calls markTaskFailed internally. Do NOT call engine.markTaskFailed
@@ -234,7 +238,7 @@ export class WorkerPoolManagerImpl implements WorkerPoolManager {
       this._eventBus.emit('task:failed', {
         taskId,
         error: {
-          message: stderr,
+          message,
           code: String(exitCode),
         },
       })

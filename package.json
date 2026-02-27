@@ -1,5 +1,5 @@
 {
-  "name": "substrate",
+  "name": "substrate-ai",
   "version": "0.1.0",
   "description": "Substrate — multi-agent orchestration daemon for AI coding agents",
   "type": "module",

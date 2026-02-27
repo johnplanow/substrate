@@ -101,7 +101,7 @@ export class RoutingEngineImpl implements RoutingEngine {
       logger.info({ policyPath: this._policyPath }, 'Routing policy loaded successfully')
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      logger.warn({ policyPath: this._policyPath, err: message }, 'Routing policy not loaded — routing will use fallback behavior')
+      logger.debug({ policyPath: this._policyPath, err: message }, 'Routing policy not loaded — routing will use fallback behavior')
       this._policy = null
     }
 

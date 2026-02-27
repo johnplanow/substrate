@@ -74,7 +74,7 @@ export interface OrchestratorEvents {
   'task:progress': { taskId: TaskId; message: string; tokensUsed?: number }
 
   /** Task has completed successfully */
-  'task:complete': { taskId: TaskId; result: TaskResult }
+  'task:complete': { taskId: TaskId; result: TaskResult; taskType?: string }
 
   /** Task has failed with an error */
   'task:failed': { taskId: TaskId; error: TaskError }

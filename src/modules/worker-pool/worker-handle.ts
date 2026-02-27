@@ -21,7 +21,7 @@ import type { SpawnCommand } from '../../adapters/types.js'
 export type WorkerCompleteCallback = (stdout: string, stderr: string, exitCode: number) => void
 
 /** Called when the worker process exits with a non-zero code (or times out) */
-export type WorkerErrorCallback = (stderr: string, exitCode: number) => void
+export type WorkerErrorCallback = (stdout: string, stderr: string, exitCode: number) => void
 
 // ---------------------------------------------------------------------------
 // WorkerHandle
@@ -107,8 +107,10 @@ export class WorkerHandle {
       this._timeoutHandle = setTimeout(() => {
         this._timedOut = true
         proc.kill('SIGKILL')
+        const stdout = Buffer.concat(stdoutChunks).toString('utf-8')
         const stderr = Buffer.concat(stderrChunks).toString('utf-8')
         this._onError(
+          stdout,
           `Worker timed out after ${String(cmd.timeoutMs)}ms: ${stderr}`,
           1,
         )
@@ -135,7 +137,7 @@ export class WorkerHandle {
       if (code === 0) {
         this._onComplete(stdout, stderr, code)
       } else {
-        this._onError(stderr, code)
+        this._onError(stdout, stderr, code)
       }
     })
   }

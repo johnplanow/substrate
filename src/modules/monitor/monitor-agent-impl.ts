@@ -71,6 +71,7 @@ export class MonitorAgentImpl implements MonitorAgent {
       costUsd?: number
       agent?: string
     }
+    taskType?: string
   }) => void
 
   private readonly _onTaskFailed: (payload: {
@@ -99,7 +100,7 @@ export class MonitorAgentImpl implements MonitorAgent {
 
     // Bind handlers once so we can reference the same function for off()
     this._onTaskComplete = (payload) => {
-      const { taskId, result } = payload
+      const { taskId, result, taskType } = payload
       const agent = result.agent ?? ''
       let inputTokens: number | undefined
       let outputTokens: number | undefined
@@ -119,6 +120,7 @@ export class MonitorAgentImpl implements MonitorAgent {
         cost: result.costUsd,
         estimatedCost: result.costUsd,
         billingMode: 'api',
+        taskType,
       })
     }
 
