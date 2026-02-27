@@ -54,8 +54,8 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
   // AC1: Global installation via npm registry
   // -----------------------------------------------------------------------
   describe('AC1: Global installation via npm registry', () => {
-    it('should have name "substrate" (all lowercase, DNS-safe)', () => {
-      expect(packageJson.name).toBe('substrate')
+    it('should have name "substrate-ai" (all lowercase, DNS-safe)', () => {
+      expect(packageJson.name).toBe('substrate-ai')
     })
 
     it('should have bin entry pointing to dist/cli/index.js', () => {

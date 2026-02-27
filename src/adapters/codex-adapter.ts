@@ -4,7 +4,7 @@
  * Implements WorkerAdapter for the OpenAI Codex CLI agent.
  * Binary: `codex`
  * Execution: `codex exec --json` with task prompt on stdin
- * Billing: API-only (OpenAI API key required)
+ * Billing: Subscription (ChatGPT Plus/Pro via `codex login`) or API key
  */
 
 import { exec } from 'child_process'
@@ -36,8 +36,8 @@ function stripCodeFences(raw: string): string {
   return raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
 }
 
-/** Codex billing mode is API-only */
-const CODEX_BILLING_MODE: BillingMode = 'api'
+/** Codex default billing modes — subscription via `codex login`, or API key */
+const CODEX_BILLING_MODES: BillingMode[] = ['subscription', 'api']
 
 interface CodexJsonOutput {
   status?: 'success' | 'error' | 'completed' | 'failed'
@@ -66,7 +66,7 @@ interface CodexPlanOutput {
  * Adapter for the OpenAI Codex CLI agent.
  *
  * Codex CLI uses stdin for the prompt and outputs JSON when --json flag is used.
- * Codex is API-only — no subscription mode is supported.
+ * Codex supports subscription billing (via `codex login`) and API key billing.
  */
 export class CodexCLIAdapter implements WorkerAdapter {
   readonly id: AgentId = 'codex'
@@ -93,7 +93,7 @@ export class CodexCLIAdapter implements WorkerAdapter {
         healthy: true,
         version: output,
         ...(cliPath !== undefined ? { cliPath } : {}),
-        detectedBillingModes: [CODEX_BILLING_MODE],
+        detectedBillingModes: CODEX_BILLING_MODES,
         supportsHeadless: true,
       }
     } catch (err) {
@@ -320,7 +320,7 @@ export class CodexCLIAdapter implements WorkerAdapter {
     return {
       supportsJsonOutput: true,
       supportsStreaming: false,
-      supportsSubscriptionBilling: false,
+      supportsSubscriptionBilling: true,
       supportsApiBilling: true,
       supportsPlanGeneration: true,
       maxContextTokens: 128_000,

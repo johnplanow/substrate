@@ -75,7 +75,7 @@ describe('CodexCLIAdapter', () => {
 
       expect(result.healthy).toBe(true)
       expect(result.version).toBe('codex 0.1.0')
-      expect(result.detectedBillingModes).toEqual(['api'])
+      expect(result.detectedBillingModes).toEqual(['subscription', 'api'])
       expect(result.supportsHeadless).toBe(true)
     })
 
@@ -99,13 +99,13 @@ describe('CodexCLIAdapter', () => {
       expect(result.cliPath).toBeUndefined()
     })
 
-    it('always returns api billing mode (Codex is API-only)', async () => {
+    it('returns subscription and api billing modes', async () => {
       mockExecResolve('codex 0.1.0\n')
       mockExecResolve('/usr/local/bin/codex\n')
 
       const result = await adapter.healthCheck()
 
-      expect(result.detectedBillingModes).toEqual(['api'])
+      expect(result.detectedBillingModes).toEqual(['subscription', 'api'])
     })
   })
 
@@ -326,10 +326,10 @@ describe('CodexCLIAdapter', () => {
       expect(adapter.getCapabilities().supportsJsonOutput).toBe(true)
     })
 
-    it('is API-only (no subscription billing)', () => {
+    it('supports both subscription and API billing', () => {
       const caps = adapter.getCapabilities()
       expect(caps.supportsApiBilling).toBe(true)
-      expect(caps.supportsSubscriptionBilling).toBe(false)
+      expect(caps.supportsSubscriptionBilling).toBe(true)
     })
 
     it('supports plan generation', () => {

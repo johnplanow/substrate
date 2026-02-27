@@ -2,6 +2,8 @@
 
 Autonomous software development pipeline powered by multi-agent orchestration. Substrate takes a project idea from concept through analysis, planning, architecture, implementation, and code review — coordinating CLI-based AI agents (Claude Code, Codex, Gemini CLI) to do the work.
 
+Substrate follows a modular monolith pattern running as a single Node.js process. The orchestrator never calls LLMs directly — all intelligent work is delegated to CLI agents running as child processes in isolated git worktrees. The autonomous pipeline compiles BMAD methodology workflows into token-efficient agent dispatches.
+
 ## Prerequisites
 
 - **Node.js** 22.0.0 or later
@@ -75,7 +77,7 @@ substrate auto status                    # Check pipeline progress
 | Agent ID | CLI Tool | Billing |
 |----------|----------|---------|
 | `claude-code` | Claude Code | Subscription (Max) or API key |
-| `codex` | Codex CLI | API key (OpenAI) |
+| `codex` | Codex CLI | Subscription (ChatGPT Plus/Pro) or API key |
 | `gemini` | Gemini CLI | Subscription or API key |
 
 ## Commands
@@ -110,6 +112,30 @@ substrate auto status                    # Check pipeline progress
 
 Substrate reads configuration from `.substrate/config.yaml` in your project root. Run `substrate init` to generate a default config.
 
+## Development
+
+```bash
+# Clone and install
+git clone https://github.com/johnplanow/substrate.git
+cd substrate
+npm install
+
+# Build
+npm run build
+
+# Run tests
+npm test
+
+# Development mode (watch)
+npm run dev
+
+# Type check
+npm run typecheck
+
+# Lint
+npm run lint
+```
+
 ## Manual Task Graphs
 
 For fine-grained control, you can define exactly what agents should do in a YAML task graph:
@@ -143,34 +169,6 @@ substrate plan --graph tasks.yaml               # Preview without running
 ```
 
 Tasks without dependencies run in parallel. Each agent gets its own isolated git worktree.
-
-## Development
-
-```bash
-# Clone and install
-git clone https://github.com/johnplanow/substrate.git
-cd substrate
-npm install
-
-# Build
-npm run build
-
-# Run tests
-npm test
-
-# Development mode (watch)
-npm run dev
-
-# Type check
-npm run typecheck
-
-# Lint
-npm run lint
-```
-
-## Architecture
-
-Substrate follows a **modular monolith** pattern running as a single Node.js process. The orchestrator never calls LLMs directly — all intelligent work is delegated to CLI agents running as child processes in isolated git worktrees. The autonomous pipeline compiles BMAD methodology workflows into token-efficient agent dispatches.
 
 ## License
 
