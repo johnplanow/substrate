@@ -69,9 +69,16 @@ export class WorkerHandle {
   start(): void {
     const cmd = this._cmd
 
+    const childEnv: Record<string, string | undefined> = { ...process.env, ...cmd.env }
+    if (cmd.unsetEnvKeys !== undefined) {
+      for (const key of cmd.unsetEnvKeys) {
+        delete childEnv[key]
+      }
+    }
+
     const proc = spawn(cmd.binary, cmd.args, {
       cwd: cmd.cwd,
-      env: { ...process.env, ...cmd.env },
+      env: childEnv as NodeJS.ProcessEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
