@@ -17,6 +17,7 @@ amendment-delta-*.md
 # Build outputs
 dist/
 coverage/
+*.tgz
 
 # Dependencies
 node_modules/
