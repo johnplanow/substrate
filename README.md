@@ -13,6 +13,14 @@ Autonomous software development pipeline powered by multi-agent orchestration. S
 
 ## Installation
 
+Install as a project dependency:
+
+```bash
+npm install substrate-ai
+```
+
+Or install globally:
+
 ```bash
 npm install -g substrate-ai
 ```
@@ -20,7 +28,8 @@ npm install -g substrate-ai
 Verify the installation:
 
 ```bash
-substrate --version
+npx substrate --version   # project install
+substrate --version        # global install
 ```
 
 ## Quick Start
@@ -61,9 +70,49 @@ substrate auto resume                    # Pick up where you left off
 substrate auto status                    # Check pipeline progress
 ```
 
-### Manual Task Graphs (advanced)
+## Supported Agents
 
-For fine-grained control, define exactly what agents should do in a YAML task graph:
+| Agent ID | CLI Tool | Billing |
+|----------|----------|---------|
+| `claude-code` | Claude Code | Subscription (Max) or API key |
+| `codex` | Codex CLI | API key (OpenAI) |
+| `gemini` | Gemini CLI | Subscription or API key |
+
+## Commands
+
+### Pipeline
+
+| Command | Description |
+|---------|-------------|
+| `substrate brainstorm` | Interactive multi-persona ideation session |
+| `substrate auto init` | Initialize methodology pack for autonomous pipeline |
+| `substrate auto run` | Run the full pipeline (analysis → implement) |
+| `substrate auto run --from <phase>` | Start from a specific phase |
+| `substrate auto resume` | Resume an interrupted pipeline run |
+| `substrate auto status` | Show pipeline run status |
+
+### Monitoring
+
+| Command | Description |
+|---------|-------------|
+| `substrate monitor status` | View task metrics and agent performance |
+| `substrate monitor report` | Generate a detailed performance report |
+| `substrate cost-report` | View cost and token usage summary |
+
+### Setup
+
+| Command | Description |
+|---------|-------------|
+| `substrate init` | Initialize project configuration |
+| `substrate --help` | Show all available commands |
+
+## Configuration
+
+Substrate reads configuration from `.substrate/config.yaml` in your project root. Run `substrate init` to generate a default config.
+
+## Manual Task Graphs
+
+For fine-grained control, you can define exactly what agents should do in a YAML task graph:
 
 ```yaml
 version: "1"
@@ -89,57 +138,11 @@ tasks:
 ```
 
 ```bash
-substrate start --graph tasks.yaml
+substrate start --graph tasks.yaml              # Execute the graph
+substrate plan --graph tasks.yaml               # Preview without running
 ```
 
 Tasks without dependencies run in parallel. Each agent gets its own isolated git worktree.
-
-## Supported Agents
-
-| Agent ID | CLI Tool | Notes |
-|----------|----------|-------|
-| `claude-code` | Claude Code | Requires active Claude subscription or API key |
-| `codex` | Codex CLI | Requires OpenAI API key |
-| `gemini` | Gemini CLI | Requires Google API key |
-
-## Commands
-
-### Pipeline
-
-| Command | Description |
-|---------|-------------|
-| `substrate brainstorm` | Interactive multi-persona ideation session |
-| `substrate auto init` | Initialize methodology pack for autonomous pipeline |
-| `substrate auto run` | Run the full pipeline (analysis → implement) |
-| `substrate auto run --from <phase>` | Start from a specific phase |
-| `substrate auto resume` | Resume an interrupted pipeline run |
-| `substrate auto status` | Show pipeline run status |
-
-### Task Execution
-
-| Command | Description |
-|---------|-------------|
-| `substrate start --graph <file>` | Execute a task graph |
-| `substrate plan --graph <file>` | Preview execution plan without running |
-
-### Monitoring
-
-| Command | Description |
-|---------|-------------|
-| `substrate monitor status` | View task metrics and agent performance |
-| `substrate monitor report` | Generate a detailed performance report |
-| `substrate cost-report` | View cost and token usage summary |
-
-### Setup
-
-| Command | Description |
-|---------|-------------|
-| `substrate init` | Initialize project configuration |
-| `substrate --help` | Show all available commands |
-
-## Configuration
-
-Substrate reads configuration from `.substrate/config.yaml` in your project root. Run `substrate init` to generate a default config.
 
 ## Development
 
