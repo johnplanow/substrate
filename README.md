@@ -1,6 +1,6 @@
 # Substrate
 
-Multi-agent orchestration daemon for AI coding agents. Substrate coordinates multiple CLI-based AI agents (Claude Code, Codex, Gemini CLI) to work on complex software tasks in parallel using git worktrees.
+Autonomous software development pipeline powered by multi-agent orchestration. Substrate takes a project idea from concept through analysis, planning, architecture, implementation, and code review — coordinating CLI-based AI agents (Claude Code, Codex, Gemini CLI) to do the work.
 
 ## Prerequisites
 
@@ -25,47 +25,74 @@ substrate --version
 
 ## Quick Start
 
-1. **Initialize your project** (creates `.substrate/` config directory):
+### Autonomous Pipeline (recommended)
+
+Got an idea? Substrate can take it from concept to working code.
+
+1. **Brainstorm** — explore your idea with a multi-persona AI session:
 
 ```bash
-substrate init
+substrate brainstorm
 ```
 
-2. **Create a task graph** (`tasks.yaml`):
+2. **Initialize the pipeline** — set up the methodology pack and decision store:
+
+```bash
+substrate auto init
+```
+
+3. **Run the full pipeline** — analysis, planning, solutioning, and implementation:
+
+```bash
+substrate auto run
+```
+
+Substrate walks through the entire software development lifecycle autonomously:
+- **Analysis** — generates a product brief from your brainstorm
+- **Planning** — creates a PRD with requirements
+- **Solutioning** — produces architecture, epics, and stories
+- **Implementation** — dispatches agents to build, test, and code-review each story
+
+You can start from any phase or resume an interrupted run:
+
+```bash
+substrate auto run --from solutioning   # Skip to a specific phase
+substrate auto resume                    # Pick up where you left off
+substrate auto status                    # Check pipeline progress
+```
+
+### Manual Task Graphs (advanced)
+
+For fine-grained control, define exactly what agents should do in a YAML task graph:
 
 ```yaml
 version: "1"
 session:
-  name: "my-first-run"
+  name: "my-tasks"
 tasks:
   write-tests:
     name: "Write unit tests"
-    description: "Add unit tests for the utils module"
     prompt: |
       Look at the src/utils/ directory.
       Write comprehensive unit tests for all exported functions.
-      Save tests next to the source files following existing conventions.
     type: testing
     agent: claude-code
   update-docs:
     name: "Update README"
-    description: "Ensure README matches current project state"
     prompt: |
       Read the README.md and verify it accurately describes
-      the project structure and setup. Fix any inaccuracies.
+      the project. Fix any inaccuracies.
     type: docs
-    agent: claude-code
+    agent: codex
     depends_on:
       - write-tests
 ```
-
-3. **Run it**:
 
 ```bash
 substrate start --graph tasks.yaml
 ```
 
-Substrate will execute tasks respecting the dependency graph, spawning each agent in its own git worktree for isolation.
+Tasks without dependencies run in parallel. Each agent gets its own isolated git worktree.
 
 ## Supported Agents
 
@@ -77,13 +104,36 @@ Substrate will execute tasks respecting the dependency graph, spawning each agen
 
 ## Commands
 
+### Pipeline
+
+| Command | Description |
+|---------|-------------|
+| `substrate brainstorm` | Interactive multi-persona ideation session |
+| `substrate auto init` | Initialize methodology pack for autonomous pipeline |
+| `substrate auto run` | Run the full pipeline (analysis → implement) |
+| `substrate auto run --from <phase>` | Start from a specific phase |
+| `substrate auto resume` | Resume an interrupted pipeline run |
+| `substrate auto status` | Show pipeline run status |
+
+### Task Execution
+
 | Command | Description |
 |---------|-------------|
 | `substrate start --graph <file>` | Execute a task graph |
 | `substrate plan --graph <file>` | Preview execution plan without running |
+
+### Monitoring
+
+| Command | Description |
+|---------|-------------|
 | `substrate monitor status` | View task metrics and agent performance |
 | `substrate monitor report` | Generate a detailed performance report |
 | `substrate cost-report` | View cost and token usage summary |
+
+### Setup
+
+| Command | Description |
+|---------|-------------|
 | `substrate init` | Initialize project configuration |
 | `substrate --help` | Show all available commands |
 
@@ -95,7 +145,7 @@ Substrate reads configuration from `.substrate/config.yaml` in your project root
 
 ```bash
 # Clone and install
-git clone https://github.com/jplanow/ai-dev-toolkit-new.git
+git clone https://github.com/johnplanow/substrate.git
 cd substrate
 npm install
 
@@ -117,7 +167,7 @@ npm run lint
 
 ## Architecture
 
-Substrate follows a **modular monolith** pattern running as a single Node.js process with clearly separated internal modules. The orchestrator itself never calls LLMs directly — all intelligent work is delegated to CLI agents running as child processes in isolated git worktrees.
+Substrate follows a **modular monolith** pattern running as a single Node.js process. The orchestrator never calls LLMs directly — all intelligent work is delegated to CLI agents running as child processes in isolated git worktrees. The autonomous pipeline compiles BMAD methodology workflows into token-efficient agent dispatches.
 
 ## License
 
