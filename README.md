@@ -76,6 +76,31 @@ substrate auto resume                    # Pick up where you left off
 substrate auto status                    # Check pipeline progress
 ```
 
+### Pick Up an Existing BMAD Project
+
+Already have a project with BMAD artifacts (vanilla BMAD or the Beads-based ai-toolkit)? Substrate can pick up the remaining implementation work. It reads one directory — `_bmad-output/` — and doesn't care which tool created it.
+
+**What Substrate needs from your project:**
+
+| File | Required? | Purpose |
+|------|-----------|---------|
+| `_bmad-output/planning-artifacts/epics.md` | Yes | Parsed into per-epic context shards |
+| `_bmad-output/planning-artifacts/architecture.md` | Yes | Tech stack and constraints for agents |
+| `_bmad-output/implementation-artifacts/*.md` | Optional | Existing story files — Substrate skips create-story for any it finds |
+| `package.json` | Optional | Test framework detection |
+
+**Three commands:**
+
+```bash
+npm install substrate-ai
+substrate auto init                          # Seeds context from _bmad-output/
+substrate auto run --stories 5-3,5-4,6-1    # Only the unfinished story keys
+```
+
+For each story, Substrate runs: **create-story** (skipped if story file exists) → **dev-story** (implement) → **code-review** (adversarial review). Non-conflicting stories run in parallel automatically.
+
+Substrate does not read `sprint-status.yaml` or `.beads/` — you decide what's left by choosing which story keys to pass.
+
 ## Supported Agents
 
 | Agent ID | CLI Tool | Billing |
