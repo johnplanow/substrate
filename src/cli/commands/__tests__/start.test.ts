@@ -227,7 +227,10 @@ vi.mock('../../../persistence/monitor-database.js', () => ({
 }))
 
 vi.mock('../../../modules/monitor/monitor-agent-impl.js', () => ({
-  createMonitorAgent: () => ({}),
+  createMonitorAgent: () => ({
+    initialize: vi.fn(async () => {}),
+    shutdown: vi.fn(async () => {}),
+  }),
 }))
 
 vi.mock('../../../recovery/shutdown-handler.js', () => ({

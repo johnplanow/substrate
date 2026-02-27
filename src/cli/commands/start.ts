@@ -223,6 +223,7 @@ export async function runStartAction(options: StartActionOptions): Promise<numbe
     await adapterRegistry.discoverAndRegister()
     await gitWorktreeManager.initialize()
     await routingEngine.initialize()
+    await monitorAgent.initialize()
     await workerPoolManager.initialize()
 
     // AC8: No watcher in dry-run mode (already returned above)
@@ -462,7 +463,7 @@ export async function runStartAction(options: StartActionOptions): Promise<numbe
       await databaseService.shutdown()
     } catch { /* ignore */ }
     try {
-      monitorDatabase.close()
+      await monitorAgent.shutdown()
     } catch { /* ignore */ }
   }
 }

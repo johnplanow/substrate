@@ -122,7 +122,10 @@ vi.mock('../../../persistence/monitor-database.js', () => ({
 }))
 
 vi.mock('../../../modules/monitor/monitor-agent-impl.js', () => ({
-  createMonitorAgent: () => ({}),
+  createMonitorAgent: () => ({
+    initialize: vi.fn(async () => {}),
+    shutdown: vi.fn(async () => {}),
+  }),
 }))
 
 vi.mock('../../../modules/worker-pool/worker-pool-manager-impl.js', () => ({
