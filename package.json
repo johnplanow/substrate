@@ -7,7 +7,7 @@
   "author": "AI Dev Toolkit Contributors",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jplanow/ai-dev-toolkit-new.git"
+    "url": "https://github.com/johnplanow/substrate.git"
   },
   "engines": {
     "node": ">=22.0.0"
