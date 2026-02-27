@@ -25,17 +25,27 @@ import type { TypedEventBus } from '../../../core/event-bus.js'
 function createMockMonitorDb(): MonitorDatabase & {
   insertTaskMetrics: ReturnType<typeof vi.fn>
   updateAggregates: ReturnType<typeof vi.fn>
+  updatePerformanceAggregates: ReturnType<typeof vi.fn>
   getAggregates: ReturnType<typeof vi.fn>
+  getTaskMetricsDateRange: ReturnType<typeof vi.fn>
+  getAgentPerformance: ReturnType<typeof vi.fn>
+  getTaskTypeBreakdown: ReturnType<typeof vi.fn>
   pruneOldData: ReturnType<typeof vi.fn>
   rebuildAggregates: ReturnType<typeof vi.fn>
+  resetAllData: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
 } {
   return {
     insertTaskMetrics: vi.fn(),
     updateAggregates: vi.fn(),
+    updatePerformanceAggregates: vi.fn(),
     getAggregates: vi.fn().mockReturnValue([]),
+    getTaskMetricsDateRange: vi.fn().mockReturnValue({ earliest: null, latest: null }),
+    getAgentPerformance: vi.fn().mockReturnValue(null),
+    getTaskTypeBreakdown: vi.fn().mockReturnValue(null),
     pruneOldData: vi.fn().mockReturnValue(0),
     rebuildAggregates: vi.fn(),
+    resetAllData: vi.fn(),
     close: vi.fn(),
   }
 }

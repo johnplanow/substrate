@@ -26,6 +26,7 @@ export function applyMonitorSchema(db: BetterSqlite3Database): void {
       version_id  INTEGER PRIMARY KEY,
       applied_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    INSERT OR IGNORE INTO _schema_version (version_id) VALUES (1);
 
     -- Task-level execution metrics (AC1)
     CREATE TABLE IF NOT EXISTS task_metrics (
@@ -40,6 +41,7 @@ export function applyMonitorSchema(db: BetterSqlite3Database): void {
       cost           REAL    NOT NULL DEFAULT 0.0,
       estimated_cost REAL    NOT NULL DEFAULT 0.0,
       billing_mode   TEXT    NOT NULL DEFAULT 'api',
+      retries        INTEGER NOT NULL DEFAULT 0,
       recorded_at    TEXT    NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (task_id, recorded_at)
     );

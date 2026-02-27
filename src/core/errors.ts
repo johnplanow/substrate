@@ -118,3 +118,19 @@ export class RecoveryError extends AdtError {
     this.name = 'RecoveryError'
   }
 }
+
+/** Error thrown when a config file uses an incompatible format version */
+export class ConfigIncompatibleFormatError extends AdtError {
+  constructor(message: string, context: Record<string, unknown> = {}) {
+    super(message, 'CONFIG_INCOMPATIBLE_FORMAT', context)
+    this.name = 'ConfigIncompatibleFormatError'
+  }
+}
+
+/** Error thrown when a task graph file uses an incompatible format version */
+export class TaskGraphIncompatibleFormatError extends AdtError {
+  constructor(message: string, context: Record<string, unknown> = {}) {
+    super(message, 'TASK_GRAPH_INCOMPATIBLE_FORMAT', context)
+    this.name = 'TaskGraphIncompatibleFormatError'
+  }
+}

@@ -75,6 +75,27 @@ export interface OrchestratorConfig {
      * Custom task type taxonomy for classification overrides.
      */
     customTaxonomy?: Record<string, string[]>
+    /**
+     * Enable advisory routing recommendations based on performance data (AC6, FR68).
+     * When true, MonitorAgent.getRecommendation() returns recommendations for routing decisions.
+     * @default false
+     */
+    use_recommendations?: boolean
+    /**
+     * Minimum success rate improvement (percentage points) required to generate a recommendation.
+     * @default 5.0
+     */
+    recommendation_threshold_percentage?: number
+    /**
+     * Minimum number of tasks per (agent, task_type) pair before a recommendation is generated.
+     * @default 10
+     */
+    min_sample_size?: number
+    /**
+     * Number of days of historical data to analyze for recommendations.
+     * @default 90
+     */
+    recommendation_history_days?: number
   }
 }
 

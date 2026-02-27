@@ -207,7 +207,7 @@ export async function runUpgradeCommand(options: UpgradeCommandOptions): Promise
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     process.stderr.write(`Upgrade failed: ${message}\n`)
-    process.exit(1)
+    process.exitCode = 1
   }
 }
 

@@ -29,6 +29,7 @@ function createMockMonitorDb(
   aggregates: AggregateStats[] = [],
 ): MonitorDatabase & {
   getAggregates: ReturnType<typeof vi.fn>
+  getTaskMetricsDateRange: ReturnType<typeof vi.fn>
   insertTaskMetrics: ReturnType<typeof vi.fn>
   updateAggregates: ReturnType<typeof vi.fn>
   updatePerformanceAggregates: ReturnType<typeof vi.fn>
@@ -43,6 +44,7 @@ function createMockMonitorDb(
     updateAggregates: vi.fn(),
     updatePerformanceAggregates: vi.fn(),
     getAggregates: vi.fn().mockReturnValue(aggregates),
+    getTaskMetricsDateRange: vi.fn().mockReturnValue({ earliest: null, latest: null }),
     getAgentPerformance: vi.fn().mockReturnValue(null),
     getTaskTypeBreakdown: vi.fn().mockReturnValue(null),
     pruneOldData: vi.fn().mockReturnValue(0),
@@ -478,7 +480,8 @@ describe('RecommendationEngine', () => {
       const rec = engine.getMonitorRecommendation('coding')
       expect(rec).not.toBeNull()
       // Should be the highest confidence one (agent-c recommended, since it has best rate and high confidence)
-      expect(rec!.confidence).toBeDefined()
+      // agent-b and agent-c both have 55 tasks >= 50, so confidence is 'high'
+      expect(rec!.confidence).toBe('high')
     })
   })
 

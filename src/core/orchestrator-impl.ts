@@ -208,6 +208,10 @@ export async function createOrchestrator(config: OrchestratorConfig): Promise<Or
     config: {
       retentionDays: config.monitor?.retentionDays ?? 90,
       customTaxonomy: config.monitor?.customTaxonomy,
+      use_recommendations: config.monitor?.use_recommendations ?? false,
+      recommendation_threshold_percentage: config.monitor?.recommendation_threshold_percentage,
+      min_sample_size: config.monitor?.min_sample_size,
+      recommendation_history_days: config.monitor?.recommendation_history_days,
     },
   })
 

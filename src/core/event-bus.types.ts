@@ -37,7 +37,11 @@ export interface TaskResult {
   output?: string
   exitCode?: number
   tokensUsed?: number
+  inputTokens?: number
+  outputTokens?: number
+  durationMs?: number
   costUsd?: number
+  agent?: string
 }
 
 /** Error payload for a failed task */

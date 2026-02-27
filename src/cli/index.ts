@@ -159,8 +159,12 @@ async function main(): Promise<void> {
   try {
     const program = await createProgram()
     const version = await getPackageVersion()
-    // Non-blocking update check (AC3: never delays command output)
-    checkForUpdatesInBackground(version)
+    // Skip update notification when running the upgrade command itself
+    const activeCommand = process.argv[2]
+    if (activeCommand !== 'upgrade') {
+      // Non-blocking update check (AC3: never delays command output)
+      checkForUpdatesInBackground(version)
+    }
     await program.parseAsync(process.argv)
   } catch (error) {
     logger.error({ error }, 'CLI error')

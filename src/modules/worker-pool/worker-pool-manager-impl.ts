@@ -162,6 +162,17 @@ export class WorkerPoolManagerImpl implements WorkerPoolManager {
   // ---------------------------------------------------------------------------
 
   spawnWorker(task: Task, adapter: WorkerAdapter, worktreePath: string): WorkerHandle {
+    // Enforce maxConcurrency: reject spawn if pool is at capacity
+    if (this._maxConcurrency !== null && this._activeWorkers.size >= this._maxConcurrency) {
+      const taskId = task.id
+      logger.warn({ taskId, maxConcurrency: this._maxConcurrency, active: this._activeWorkers.size }, 'spawnWorker: at max concurrency, rejecting spawn')
+      this._eventBus.emit('task:failed', {
+        taskId,
+        error: { message: `Worker pool at max concurrency (${this._maxConcurrency})`, code: 'MAX_CONCURRENCY' },
+      })
+      throw new Error(`Worker pool at max concurrency (${this._maxConcurrency})`)
+    }
+
     const workerId = randomUUID()
     const taskId = task.id
 
@@ -192,7 +203,11 @@ export class WorkerPoolManagerImpl implements WorkerPoolManager {
         output: adapterResult.output,
         exitCode: adapterResult.exitCode,
         tokensUsed: adapterResult.metadata?.tokensUsed?.total,
+        inputTokens: adapterResult.metadata?.tokensUsed?.input,
+        outputTokens: adapterResult.metadata?.tokensUsed?.output,
+        durationMs: adapterResult.metadata?.executionTime,
         costUsd: undefined,
+        agent: adapter.id,
       }
 
       // Remove from pool

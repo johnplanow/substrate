@@ -272,6 +272,11 @@ export async function runMonitorReportAction(options: MonitorReportOptions): Pro
       process.stderr.write('Error: Invalid value for --days. Provide a positive integer (e.g. --days 7).\n')
       return MONITOR_EXIT_ERROR
     }
+    // AC3: days must be a positive integer (> 0)
+    if (days <= 0) {
+      process.stderr.write('Error: --days must be a positive integer greater than zero (e.g. --days 7).\n')
+      return MONITOR_EXIT_ERROR
+    }
     sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
   }
 
@@ -281,7 +286,7 @@ export async function runMonitorReportAction(options: MonitorReportOptions): Pro
     monitorDb = new MonitorDatabaseImpl(dbPath)
 
     const report = generateMonitorReport(monitorDb, {
-      sinceDate,
+      ...(sinceDate !== undefined ? { sinceDate } : {}),
       includeRecommendations,
     })
 
@@ -354,13 +359,8 @@ export async function runMonitorStatusAction(options: MonitorStatusOptions): Pro
     const distinctTaskTypes = [...new Set(aggregates.map((a) => a.taskType))]
     const totalTasks = aggregates.reduce((sum, a) => sum + a.totalTasks, 0)
 
-    // Get date range from last_updated field
-    const allDates = aggregates
-      .map((a) => a.lastUpdated)
-      .filter((d): d is string => typeof d === 'string' && d.length > 0)
-
-    const earliestDate = allDates.length > 0 ? allDates.reduce((a, b) => (a < b ? a : b)) : null
-    const latestDate = allDates.length > 0 ? allDates.reduce((a, b) => (a > b ? a : b)) : null
+    // Get date range from task_metrics table for accurate earliest/latest recorded_at
+    const { earliest: earliestDate, latest: latestDate } = monitorDb.getTaskMetricsDateRange()
 
     // Get database file size
     let dbSizeBytes = 0
@@ -600,8 +600,8 @@ export function registerMonitorCommand(
       }) => {
         const outputFormat = opts.json ? 'json' : (opts.outputFormat as 'table' | 'json')
         const exitCode = await runMonitorReportAction({
-          since: opts.since,
-          days: opts.days,
+          ...(opts.since !== undefined ? { since: opts.since } : {}),
+          ...(opts.days !== undefined ? { days: opts.days } : {}),
           outputFormat,
           includeRecommendations: opts.includeRecommendations,
           projectRoot,

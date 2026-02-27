@@ -173,9 +173,27 @@ export class VersionManagerImpl implements VersionManager {
   /**
    * Migrate the project configuration from one format version to another.
    * Delegates to the shared defaultConfigMigrator singleton.
+   * Loads the actual config from the project config file so migration functions receive real data.
    */
   migrateConfiguration(fromVersion: string, toVersion: string): MigrationResult {
-    const { result } = defaultConfigMigrator.migrate({}, fromVersion, toVersion)
+    let configObj: unknown = {}
+    try {
+      const _require = createRequire(import.meta.url)
+      const fs = _require('fs') as typeof import('fs')
+      const path = _require('path') as typeof import('path')
+      const yaml = _require('js-yaml') as typeof import('js-yaml')
+      const configPath = path.join(process.cwd(), '.substrate', 'config.yaml')
+      try {
+        const raw = fs.readFileSync(configPath, 'utf-8')
+        configObj = yaml.load(raw) ?? {}
+      } catch {
+        // No project config file — use empty object
+        configObj = {}
+      }
+    } catch {
+      configObj = {}
+    }
+    const { result } = defaultConfigMigrator.migrate(configObj, fromVersion, toVersion)
     return result
   }
 

@@ -824,4 +824,68 @@ describe('WorkerPoolManagerImpl', () => {
       expect(failedCalls).toHaveLength(0)
     })
   })
+
+  // -------------------------------------------------------------------------
+  // H1 Fix: maxConcurrency enforcement
+  // -------------------------------------------------------------------------
+
+  describe('maxConcurrency enforcement (H1 fix)', () => {
+    it('rejects spawn when at max concurrency after config:reloaded', async () => {
+      const eventBus = createMockEventBus()
+      const engine = createMockEngine()
+      const adapter = createMockAdapter()
+      const db = createMockDb(createMockTask())
+      const registry = createMockAdapterRegistry(adapter)
+
+      const manager = new WorkerPoolManagerImpl(eventBus, registry, engine, db)
+      await manager.initialize()
+
+      // Set maxConcurrency to 1 via config:reloaded event
+      const onCalls = (eventBus.on as ReturnType<typeof vi.fn>).mock.calls as Array<[string, (payload: unknown) => void]>
+      const configHandler = onCalls.find(([event]) => event === 'config:reloaded')![1]
+      configHandler({
+        newConfig: { global: { max_concurrent_tasks: 1 } },
+        changedKeys: ['global.max_concurrent_tasks'],
+      })
+
+      // First spawn succeeds
+      const task1 = createMockTask({ id: 'task-max-1' })
+      manager.spawnWorker(task1, adapter, '/tmp/wt')
+      expect(manager.getWorkerCount()).toBe(1)
+
+      // Second spawn should throw
+      const task2 = createMockTask({ id: 'task-max-2' })
+      expect(() => manager.spawnWorker(task2, adapter, '/tmp/wt2')).toThrow('Worker pool at max concurrency (1)')
+
+      // Verify task:failed event was emitted for the rejected task
+      const emitMock = eventBus.emit as ReturnType<typeof vi.fn>
+      const calls = emitMock.mock.calls as Array<[string, unknown]>
+      const failedCall = calls.find(([event, payload]) =>
+        event === 'task:failed' && (payload as { taskId: string }).taskId === 'task-max-2',
+      )
+      expect(failedCall).toBeDefined()
+      expect((failedCall![1] as { error: { code: string } }).error.code).toBe('MAX_CONCURRENCY')
+    })
+
+    it('allows spawn when maxConcurrency is null (default)', () => {
+      const eventBus = createMockEventBus()
+      const engine = createMockEngine()
+      const adapter = createMockAdapter()
+      const db = createMockDb(createMockTask())
+      const registry = createMockAdapterRegistry(adapter)
+
+      const manager = new WorkerPoolManagerImpl(eventBus, registry, engine, db)
+
+      // Without config:reloaded, _maxConcurrency is null — no limit
+      const task1 = createMockTask({ id: 'task-unlim-1' })
+      const task2 = createMockTask({ id: 'task-unlim-2' })
+
+      // Need separate fake processes for concurrent spawns
+      manager.spawnWorker(task1, adapter, '/tmp/wt1')
+      currentFakeProcess = createFakeProcess() // new process for second spawn
+      manager.spawnWorker(task2, adapter, '/tmp/wt2')
+
+      expect(manager.getWorkerCount()).toBe(2)
+    })
+  })
 })

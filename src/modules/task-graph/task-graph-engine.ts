@@ -40,6 +40,7 @@ import {
 import type { Task } from '../../persistence/queries/tasks.js'
 import { appendLog } from '../../persistence/queries/log.js'
 import { maskSecrets } from '../../cli/utils/masking.js'
+import { TaskGraphIncompatibleFormatError } from '../../core/errors.js'
 import { parseGraphFile, parseGraphString } from './task-parser.js'
 import type { GraphFormat } from './task-parser.js'
 import { validateGraph, ValidationError } from './task-validator.js'
@@ -368,7 +369,15 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
     logger.info({ filePath }, 'loadGraph: parsing file')
 
     // Parse
-    const raw = parseGraphFile(filePath)
+    let raw: unknown
+    try {
+      raw = parseGraphFile(filePath)
+    } catch (err) {
+      if (err instanceof TaskGraphIncompatibleFormatError) {
+        throw new ValidationError([err.message])
+      }
+      throw err
+    }
 
     // Validate
     const result = validateGraph(raw)
@@ -389,7 +398,15 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
     logger.info({ format }, 'loadGraphFromString: parsing content')
 
     // Parse
-    const raw = parseGraphString(content, format)
+    let raw: unknown
+    try {
+      raw = parseGraphString(content, format)
+    } catch (err) {
+      if (err instanceof TaskGraphIncompatibleFormatError) {
+        throw new ValidationError([err.message])
+      }
+      throw err
+    }
 
     // Validate
     const result = validateGraph(raw)

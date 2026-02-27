@@ -176,13 +176,14 @@ describe('upgrade command', () => {
       expect(logged).toContain('Successfully upgraded')
     })
 
-    it('calls process.exit(1) when npm install fails', async () => {
+    it('sets process.exitCode = 1 when npm install fails', async () => {
       const vm = buildMockVersionManager({})
       const mockSpawn = buildMockSpawn(1) // non-zero exit code
 
-      await expect(
-        runUpgradeCommand({ yes: true, versionManager: vm, spawnFn: mockSpawn })
-      ).rejects.toThrow('process.exit(1)')
+      await runUpgradeCommand({ yes: true, versionManager: vm, spawnFn: mockSpawn })
+      expect(process.exitCode).toBe(1)
+      // Reset for other tests
+      process.exitCode = undefined
     })
   })
 

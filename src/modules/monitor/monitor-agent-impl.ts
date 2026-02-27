@@ -54,7 +54,8 @@ export class MonitorAgentImpl implements MonitorAgent {
   private readonly _classifier: TaskTypeClassifier
   private readonly _retentionDays: number
   private readonly _retentionHourUtc: number
-  private _retentionTimer: ReturnType<typeof setInterval> | null = null
+  private _retentionTimer: ReturnType<typeof setTimeout> | null = null
+  private _retentionIntervalTimer: ReturnType<typeof setInterval> | null = null
   private readonly _recommendationEngine: RecommendationEngine | null
 
   // Bound handlers stored for clean unsubscription
@@ -64,7 +65,11 @@ export class MonitorAgentImpl implements MonitorAgent {
       output?: string
       exitCode?: number
       tokensUsed?: number
+      inputTokens?: number
+      outputTokens?: number
+      durationMs?: number
       costUsd?: number
+      agent?: string
     }
   }) => void
 
@@ -95,9 +100,22 @@ export class MonitorAgentImpl implements MonitorAgent {
     // Bind handlers once so we can reference the same function for off()
     this._onTaskComplete = (payload) => {
       const { taskId, result } = payload
-      this.recordTaskMetrics(taskId, '', 'success', {
-        inputTokens: result.tokensUsed,
-        outputTokens: 0,
+      const agent = result.agent ?? ''
+      let inputTokens: number | undefined
+      let outputTokens: number | undefined
+      if (result.inputTokens !== undefined || result.outputTokens !== undefined) {
+        inputTokens = result.inputTokens
+        outputTokens = result.outputTokens
+      } else if (result.tokensUsed !== undefined && result.tokensUsed > 0) {
+        // Estimate input/output split when only total is available.
+        // 70/30 is an approximation; use Math.max to avoid rounding to 0.
+        inputTokens = Math.max(1, Math.round(result.tokensUsed * 0.7))
+        outputTokens = Math.max(0, result.tokensUsed - inputTokens)
+      }
+      this.recordTaskMetrics(taskId, agent, 'success', {
+        inputTokens,
+        outputTokens,
+        durationMs: result.durationMs,
         cost: result.costUsd,
         estimatedCost: result.costUsd,
         billingMode: 'api',
@@ -136,10 +154,14 @@ export class MonitorAgentImpl implements MonitorAgent {
     this._eventBus.off('task:complete', this._onTaskComplete)
     this._eventBus.off('task:failed', this._onTaskFailed)
 
-    // Stop retention cron
+    // Stop retention cron (initial timeout and recurring interval)
     if (this._retentionTimer !== null) {
-      clearInterval(this._retentionTimer)
+      clearTimeout(this._retentionTimer)
       this._retentionTimer = null
+    }
+    if (this._retentionIntervalTimer !== null) {
+      clearInterval(this._retentionIntervalTimer)
+      this._retentionIntervalTimer = null
     }
 
     // Close database connection
@@ -232,13 +254,22 @@ export class MonitorAgentImpl implements MonitorAgent {
   }
 
   /**
+   * Update the task type classifier's taxonomy (Story 8.5).
+   * Subsequent recordTaskMetrics() calls will use the new taxonomy for classification.
+   */
+  setCustomTaxonomy(taxonomy: Record<string, string[]>): void {
+    this._classifier.setTaxonomy(taxonomy)
+  }
+
+  /**
    * Start the daily retention cron job.
-   * Runs every 24 hours to prune data older than retentionDays.
+   * First run fires at the next occurrence of _retentionHourUtc (UTC).
+   * Subsequent runs fire every 24 hours thereafter.
    */
   private _startRetentionCron(): void {
     const intervalMs = 24 * 60 * 60 * 1000 // 24 hours
 
-    this._retentionTimer = setInterval(() => {
+    const runPruning = () => {
       logger.info({ retentionDays: this._retentionDays }, 'Running retention pruning')
       try {
         const deleted = this._monitorDb.pruneOldData(this._retentionDays)
@@ -251,9 +282,32 @@ export class MonitorAgentImpl implements MonitorAgent {
       } catch (err) {
         logger.error({ err }, 'Retention pruning failed')
       }
-    }, intervalMs)
+    }
 
-    logger.debug({ intervalMs }, 'Retention cron started')
+    // Calculate delay until next occurrence of the configured UTC hour
+    const now = new Date()
+    const nextRun = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), this._retentionHourUtc, 0, 0, 0)
+    )
+    if (nextRun.getTime() <= now.getTime()) {
+      // Already past today's run time — schedule for tomorrow
+      nextRun.setUTCDate(nextRun.getUTCDate() + 1)
+    }
+    const delayMs = nextRun.getTime() - now.getTime()
+
+    logger.debug({ delayMs, retentionHourUtc: this._retentionHourUtc }, 'Retention cron scheduled')
+
+    const firstRunTimer = setTimeout(() => {
+      this._retentionTimer = null
+      runPruning()
+      // After the first run, schedule subsequent runs every 24 hours
+      this._retentionIntervalTimer = setInterval(runPruning, intervalMs)
+      this._retentionIntervalTimer.unref()
+    }, delayMs)
+    firstRunTimer.unref()
+
+    // Store timeout reference so shutdown() can cancel it if the first run hasn't fired yet
+    this._retentionTimer = firstRunTimer
   }
 }
 

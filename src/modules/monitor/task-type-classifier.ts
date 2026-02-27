@@ -22,15 +22,15 @@ const logger = createLogger('monitor:classifier')
  * Keywords are matched case-insensitively against the task title/description.
  */
 export const DEFAULT_TAXONOMY: Record<string, string[]> = {
-  testing: ['test', 'tests', 'spec', 'assert', 'verify', 'validate', 'coverage', 'e2e'],
-  debugging: ['fix', 'debug', 'resolve', 'patch', 'hotfix', 'bug', 'crash'],
-  refactoring: ['refactor', 'restructure', 'reorganize', 'cleanup', 'optimize'],
-  docs: ['document', 'readme', 'jsdoc', 'comment', 'guide', 'tutorial'],
-  api: ['endpoint', 'route', 'controller', 'rest', 'graphql', 'api'],
-  database: ['migration', 'schema', 'model', 'query', 'database', 'sql'],
+  testing: ['test', 'tests', 'spec', 'assert', 'verify', 'validate', 'coverage', 'e2e', 'unit', 'integration'],
+  debugging: ['fix', 'debug', 'resolve', 'patch', 'hotfix', 'bug', 'crash', 'error', 'issue'],
+  refactoring: ['refactor', 'restructure', 'reorganize', 'cleanup', 'optimize', 'clean', 'improve'],
+  docs: ['document', 'readme', 'jsdoc', 'comment', 'guide', 'tutorial', 'wiki', 'docstring'],
+  api: ['endpoint', 'route', 'controller', 'rest', 'graphql', 'api', 'request'],
+  database: ['migration', 'schema', 'model', 'query', 'database', 'sql', 'table', 'index', 'view'],
   ui: ['component', 'page', 'layout', 'style', 'css', 'frontend', 'ui', 'dom'],
-  devops: ['deploy', 'ci', 'cd', 'pipeline', 'docker', 'kubernetes', 'infra'],
-  coding: ['implement', 'create', 'build', 'add', 'write', 'develop'],
+  devops: ['deploy', 'ci', 'cd', 'pipeline', 'docker', 'kubernetes', 'infra', 'config'],
+  coding: ['implement', 'create', 'build', 'add', 'write', 'develop', 'feature', 'new'],
 }
 
 // ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ export const DEFAULT_TAXONOMY: Record<string, string[]> = {
  * classifier.classify({ title: 'Unknown task' })              // → 'coding'
  */
 export class TaskTypeClassifier {
-  private readonly _taxonomy: Record<string, string[]>
+  private _taxonomy: Record<string, string[]>
 
   constructor(customTaxonomy?: Record<string, string[]>) {
     if (customTaxonomy && Object.keys(customTaxonomy).length > 0) {
@@ -57,6 +57,15 @@ export class TaskTypeClassifier {
     } else {
       this._taxonomy = DEFAULT_TAXONOMY
     }
+  }
+
+  /**
+   * Replace the active taxonomy with a new custom one.
+   * Subsequent classify() calls will use the new taxonomy.
+   */
+  setTaxonomy(taxonomy: Record<string, string[]>): void {
+    this._taxonomy = taxonomy
+    logger.debug({ types: Object.keys(taxonomy) }, 'Taxonomy updated')
   }
 
   /**

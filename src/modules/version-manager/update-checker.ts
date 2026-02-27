@@ -76,6 +76,42 @@ export class UpdateChecker {
         safeReject(new UpdateCheckError(`Update check timed out after ${this.timeoutMs}ms`))
       }, this.timeoutMs)
 
+      const followRedirect = (location: string, hopsLeft: number): void => {
+        const redirectReq = https.get(location, (redirectRes) => {
+          // Handle up to 2 redirect hops
+          if (
+            redirectRes.statusCode !== undefined &&
+            redirectRes.statusCode >= 300 &&
+            redirectRes.statusCode < 400 &&
+            redirectRes.headers.location &&
+            hopsLeft > 0
+          ) {
+            redirectRes.resume()
+            followRedirect(redirectRes.headers.location, hopsLeft - 1)
+            return
+          }
+
+          if (redirectRes.statusCode !== 200) {
+            redirectRes.resume()
+            safeReject(
+              new UpdateCheckError(
+                `npm registry returned HTTP ${String(redirectRes.statusCode)} for ${packageName}`
+              )
+            )
+            return
+          }
+          collectBody(redirectRes, safeResolve, safeReject)
+        })
+        redirectReq.on('error', (err) => {
+          safeReject(new UpdateCheckError(`Update check network error: ${err.message}`))
+        })
+        // Apply the same timeout to redirect requests
+        redirectReq.setTimeout(this.timeoutMs, () => {
+          redirectReq.destroy()
+          safeReject(new UpdateCheckError(`Update check timed out after ${this.timeoutMs}ms`))
+        })
+      }
+
       req = https.get(url, (res) => {
         // Handle redirects
         if (
@@ -85,22 +121,8 @@ export class UpdateChecker {
           res.headers.location
         ) {
           res.resume()
-          // Follow redirect once
-          const redirectReq = https.get(res.headers.location, (redirectRes) => {
-            if (redirectRes.statusCode !== 200) {
-              redirectRes.resume()
-              safeReject(
-                new UpdateCheckError(
-                  `npm registry returned HTTP ${String(redirectRes.statusCode)} for ${packageName}`
-                )
-              )
-              return
-            }
-            collectBody(redirectRes, safeResolve, safeReject)
-          })
-          redirectReq.on('error', (err) => {
-            safeReject(new UpdateCheckError(`Update check network error: ${err.message}`))
-          })
+          // Follow up to 2 redirect hops
+          followRedirect(res.headers.location, 1)
           return
         }
 

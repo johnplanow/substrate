@@ -229,12 +229,7 @@ export function generateMonitorReport(
   // -------------------------------------------------------------------------
   // Compute summary
   // -------------------------------------------------------------------------
-  const allLastUpdated = aggregates
-    .map((a) => a.lastUpdated)
-    .filter((d): d is string => typeof d === 'string' && d.length > 0)
-
-  const earliestDate = allLastUpdated.length > 0 ? allLastUpdated.reduce((a, b) => (a < b ? a : b)) : null
-  const latestDate = allLastUpdated.length > 0 ? allLastUpdated.reduce((a, b) => (a > b ? a : b)) : null
+  const { earliest: earliestDate, latest: latestDate } = monitorDb.getTaskMetricsDateRange()
 
   const totalTasks = agentSummaries.reduce((sum, a) => sum + a.total_tasks, 0)
 

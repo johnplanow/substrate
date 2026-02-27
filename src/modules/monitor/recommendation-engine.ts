@@ -221,9 +221,13 @@ export class RecommendationEngine {
    */
   private _calculateConfidence(sampleSizeCurrent: number, sampleSizeRecommended: number): ConfidenceLevel {
     const minBoth = Math.min(sampleSizeCurrent, sampleSizeRecommended)
+    // Use the larger of the configured min or the default tier thresholds,
+    // so custom min_sample_size >= 50 still yields 'high' when both agents meet it.
+    const highThreshold = Math.max(50, this._filters.min_sample_size)
+    const mediumThreshold = Math.max(20, this._filters.min_sample_size)
 
-    if (minBoth >= 50) return 'high'
-    if (minBoth >= 20) return 'medium'
+    if (minBoth >= highThreshold) return 'high'
+    if (minBoth >= mediumThreshold) return 'medium'
     return 'low'
   }
 

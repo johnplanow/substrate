@@ -134,6 +134,12 @@ export interface MonitorDatabase {
    */
   resetAllData(): void
 
+  /**
+   * Get the earliest and latest recorded_at timestamps from the task_metrics table.
+   * Returns null for both when the table is empty.
+   */
+  getTaskMetricsDateRange(): { earliest: string | null; latest: string | null }
+
   /** Close the underlying database connection */
   close(): void
 }
@@ -176,7 +182,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
 
     // Prepare statements
     this._stmtInsertMetrics = this._db.prepare(`
-      INSERT OR REPLACE INTO task_metrics (
+      INSERT OR IGNORE INTO task_metrics (
         task_id, agent, task_type, outcome, failure_reason,
         input_tokens, output_tokens, duration_ms, cost, estimated_cost,
         billing_mode, recorded_at
@@ -451,30 +457,39 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
   rebuildAggregates(): void {
     const db = this._assertOpen()
 
-    // Recompute from scratch using task_metrics as source of truth
-    db.exec(`
-      DELETE FROM performance_aggregates;
+    // Recompute from scratch using task_metrics as source of truth.
+    // Wrapped in a transaction to prevent concurrent reads from seeing empty aggregates (C6 fix).
+    db.exec('BEGIN IMMEDIATE')
+    try {
+      db.exec(`
+        DELETE FROM performance_aggregates;
 
-      INSERT INTO performance_aggregates (
-        agent, task_type,
-        total_tasks, successful_tasks, failed_tasks,
-        total_input_tokens, total_output_tokens, total_duration_ms, total_cost,
-        last_updated
-      )
-      SELECT
-        agent,
-        task_type,
-        COUNT(*)                                                    AS total_tasks,
-        SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END)       AS successful_tasks,
-        SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END)       AS failed_tasks,
-        SUM(input_tokens)                                           AS total_input_tokens,
-        SUM(output_tokens)                                          AS total_output_tokens,
-        SUM(duration_ms)                                            AS total_duration_ms,
-        SUM(cost)                                                   AS total_cost,
-        datetime('now')                                             AS last_updated
-      FROM task_metrics
-      GROUP BY agent, task_type;
-    `)
+        INSERT INTO performance_aggregates (
+          agent, task_type,
+          total_tasks, successful_tasks, failed_tasks,
+          total_input_tokens, total_output_tokens, total_duration_ms, total_cost, total_retries,
+          last_updated
+        )
+        SELECT
+          agent,
+          task_type,
+          COUNT(*)                                                    AS total_tasks,
+          SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END)       AS successful_tasks,
+          SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END)       AS failed_tasks,
+          SUM(input_tokens)                                           AS total_input_tokens,
+          SUM(output_tokens)                                          AS total_output_tokens,
+          SUM(duration_ms)                                            AS total_duration_ms,
+          SUM(cost)                                                   AS total_cost,
+          COALESCE(SUM(retries), 0)                                   AS total_retries,
+          datetime('now')                                             AS last_updated
+        FROM task_metrics
+        GROUP BY agent, task_type;
+      `)
+      db.exec('COMMIT')
+    } catch (err) {
+      db.exec('ROLLBACK')
+      throw err
+    }
 
     logger.info('Rebuilt performance_aggregates from task_metrics')
   }
@@ -484,6 +499,15 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
     db.exec('DELETE FROM task_metrics')
     db.exec('DELETE FROM performance_aggregates')
     logger.info({ path: this._path }, 'Monitor data reset — all rows deleted')
+  }
+
+  getTaskMetricsDateRange(): { earliest: string | null; latest: string | null } {
+    const db = this._assertOpen()
+    const row = db.prepare(`
+      SELECT MIN(recorded_at) AS earliest, MAX(recorded_at) AS latest
+      FROM task_metrics
+    `).get() as { earliest: string | null; latest: string | null } | undefined
+    return { earliest: row?.earliest ?? null, latest: row?.latest ?? null }
   }
 
   close(): void {

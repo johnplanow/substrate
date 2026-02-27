@@ -80,5 +80,5 @@ export interface MonitorAgent extends BaseService {
   /**
    * Set a custom task type taxonomy for classification (Story 8.5).
    */
-  setCustomTaxonomy?(taxonomy: Record<string, string[]>): void
+  setCustomTaxonomy(taxonomy: Record<string, string[]>): void
 }

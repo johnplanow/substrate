@@ -50,6 +50,7 @@ const mockResetAllData = vi.fn()
 vi.mock('../../../persistence/monitor-database.js', () => ({
   MonitorDatabaseImpl: vi.fn().mockImplementation(() => ({
     getAggregates: (...args: unknown[]) => mockGetAggregates(...args),
+    getTaskMetricsDateRange: vi.fn().mockReturnValue({ earliest: null, latest: null }),
     getAgentPerformance: vi.fn().mockReturnValue(null),
     getTaskTypeBreakdown: vi.fn().mockReturnValue(null),
     insertTaskMetrics: vi.fn(),
@@ -204,8 +205,8 @@ describe('resolveMonitorDbPath()', () => {
 // ---------------------------------------------------------------------------
 
 describe('runMonitorReportAction()', () => {
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
-  let stderrSpy: ReturnType<typeof vi.spyOn>
+  let stdoutSpy: ReturnType<typeof vi.spyOn<typeof process.stdout, 'write'>>
+  let stderrSpy: ReturnType<typeof vi.spyOn<typeof process.stderr, 'write'>>
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -367,8 +368,8 @@ describe('runMonitorReportAction()', () => {
 // ---------------------------------------------------------------------------
 
 describe('runMonitorStatusAction()', () => {
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
-  let stderrSpy: ReturnType<typeof vi.spyOn>
+  let stdoutSpy: ReturnType<typeof vi.spyOn<typeof process.stdout, 'write'>>
+  let stderrSpy: ReturnType<typeof vi.spyOn<typeof process.stderr, 'write'>>
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -450,8 +451,8 @@ describe('runMonitorStatusAction()', () => {
 // ---------------------------------------------------------------------------
 
 describe('runMonitorResetAction()', () => {
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
-  let stderrSpy: ReturnType<typeof vi.spyOn>
+  let stdoutSpy: ReturnType<typeof vi.spyOn<typeof process.stdout, 'write'>>
+  let stderrSpy: ReturnType<typeof vi.spyOn<typeof process.stderr, 'write'>>
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -522,8 +523,8 @@ describe('runMonitorResetAction()', () => {
 // ---------------------------------------------------------------------------
 
 describe('runMonitorRecommendationsAction()', () => {
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
-  let stderrSpy: ReturnType<typeof vi.spyOn>
+  let stdoutSpy: ReturnType<typeof vi.spyOn<typeof process.stdout, 'write'>>
+  let stderrSpy: ReturnType<typeof vi.spyOn<typeof process.stderr, 'write'>>
 
   beforeEach(() => {
     vi.clearAllMocks()

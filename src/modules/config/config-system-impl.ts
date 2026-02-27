@@ -15,15 +15,17 @@ import { join, resolve } from 'path'
 import { homedir } from 'os'
 import yaml from 'js-yaml'
 import { createLogger } from '../../utils/logger.js'
-import { ConfigError } from '../../core/errors.js'
+import { ConfigError, ConfigIncompatibleFormatError } from '../../core/errors.js'
 import {
   SubstrateConfigSchema,
   PartialSubstrateConfigSchema,
+  CURRENT_CONFIG_FORMAT_VERSION,
   SUPPORTED_CONFIG_FORMAT_VERSIONS,
   type SubstrateConfig,
   type PartialSubstrateConfig,
 } from './config-schema.js'
 import { isVersionSupported, formatUnsupportedVersionError } from './version-utils.js'
+import { defaultConfigMigrator } from './config-migrator.js'
 import { DEFAULT_CONFIG } from './defaults.js'
 import type { ConfigSystem, ConfigSystemOptions } from './config-system.js'
 import { deepMask } from '../../cli/utils/masking.js'
@@ -324,6 +326,14 @@ export class ConfigSystemImpl implements ConfigSystem {
     return deepMask(config) as SubstrateConfig
   }
 
+  getConfigFormatVersion(): string {
+    return CURRENT_CONFIG_FORMAT_VERSION
+  }
+
+  isCompatible(version: string): boolean {
+    return SUPPORTED_CONFIG_FORMAT_VERSIONS.includes(version)
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -342,17 +352,36 @@ export class ConfigSystemImpl implements ConfigSystem {
 
     try {
       const raw = await readFile(filePath, 'utf-8')
-      const parsed = yaml.load(raw)
+      let parsed = yaml.load(raw)
 
-      // Pre-check config_format_version for a friendly error before Zod runs
+      // Pre-check config_format_version and attempt auto-migration before Zod runs (AC4, AC5)
       if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
         const rawObj = parsed as Record<string, unknown>
         const version = rawObj['config_format_version']
         if (version !== undefined && typeof version === 'string' && !isVersionSupported(version, SUPPORTED_CONFIG_FORMAT_VERSIONS)) {
-          throw new ConfigError(
-            formatUnsupportedVersionError('config', version, SUPPORTED_CONFIG_FORMAT_VERSIONS),
-            { filePath }
-          )
+          // Attempt auto-migration if a migration path exists (FR63)
+          if (defaultConfigMigrator.canMigrate(version, CURRENT_CONFIG_FORMAT_VERSION)) {
+            const migrationOutput = defaultConfigMigrator.migrate(
+              rawObj, version, CURRENT_CONFIG_FORMAT_VERSION, filePath,
+            )
+            if (migrationOutput.result.success) {
+              logger.info(
+                { from: version, to: CURRENT_CONFIG_FORMAT_VERSION, backup: migrationOutput.result.backupPath },
+                'Config auto-migrated successfully',
+              )
+              parsed = migrationOutput.config
+            } else {
+              throw new ConfigIncompatibleFormatError(
+                `Config migration failed: ${migrationOutput.result.manualStepsRequired.join('; ')}`,
+                { filePath, version },
+              )
+            }
+          } else {
+            throw new ConfigIncompatibleFormatError(
+              formatUnsupportedVersionError('config', version, SUPPORTED_CONFIG_FORMAT_VERSIONS),
+              { filePath },
+            )
+          }
         }
       }
 
@@ -370,6 +399,7 @@ export class ConfigSystemImpl implements ConfigSystem {
       return result.data
     } catch (err) {
       if (err instanceof ConfigError) throw err
+      if (err instanceof ConfigIncompatibleFormatError) throw err
       const message = err instanceof Error ? err.message : String(err)
       throw new ConfigError(
         `Failed to read config file at ${filePath}: ${message}`,

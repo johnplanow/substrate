@@ -161,9 +161,9 @@ export const SUPPORTED_TASK_GRAPH_VERSIONS: readonly string[] = ['1']
 export const SubstrateConfigSchema = z
   .object({
     /** Schema version for migration support (FR63) */
-    config_format_version: z.literal('1'),
+    config_format_version: z.enum(['1']),
     /** Task graph version for migration support */
-    task_graph_version: z.literal('1').optional(),
+    task_graph_version: z.enum(['1']).optional(),
     global: GlobalSettingsSchema,
     providers: ProvidersSchema,
     /** Cost tracker settings (Story 4.2) */
@@ -187,8 +187,8 @@ export type PartialGlobalSettings = z.infer<typeof PartialGlobalSettingsSchema>
 
 export const PartialSubstrateConfigSchema = z
   .object({
-    config_format_version: z.literal('1').optional(),
-    task_graph_version: z.literal('1').optional(),
+    config_format_version: z.enum(['1']).optional(),
+    task_graph_version: z.enum(['1']).optional(),
     global: PartialGlobalSettingsSchema.optional(),
     providers: z
       .object({

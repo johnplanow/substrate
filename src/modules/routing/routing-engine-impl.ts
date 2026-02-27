@@ -506,8 +506,8 @@ export class RoutingEngineImpl implements RoutingEngine {
     } catch (err) {
       // Never let advisory monitor errors affect routing
       logger.warn({ err, taskType }, 'Failed to get monitor recommendation — continuing without it')
-      // AC5: monitorInfluenced should remain true (monitor was consulted) but we need to
-      // reset it here since the consultation failed and returned no useful data
+      // AC5: monitor consultation failed, so the monitor did not influence this decision.
+      // Set monitorInfluenced to false since no useful recommendation was obtained.
       builder.withMonitorInfluenced(false)
     }
   }

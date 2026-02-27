@@ -71,4 +71,16 @@ export interface ConfigSystem {
    * Whether load() has been called and succeeded.
    */
   readonly isLoaded: boolean
+
+  /**
+   * Return the current config format version string.
+   */
+  getConfigFormatVersion(): string
+
+  /**
+   * Check whether the given config format version is compatible with this toolkit.
+   * @param version - Version string to check
+   * @returns true if the version is in SUPPORTED_CONFIG_FORMAT_VERSIONS
+   */
+  isCompatible(version: string): boolean
 }

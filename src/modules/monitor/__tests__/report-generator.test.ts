@@ -23,6 +23,7 @@ function createMockMonitorDb(
   aggregates: AggregateStats[] = [],
 ): MonitorDatabase & {
   getAggregates: ReturnType<typeof vi.fn>
+  getTaskMetricsDateRange: ReturnType<typeof vi.fn>
   insertTaskMetrics: ReturnType<typeof vi.fn>
   updateAggregates: ReturnType<typeof vi.fn>
   updatePerformanceAggregates: ReturnType<typeof vi.fn>
@@ -37,6 +38,7 @@ function createMockMonitorDb(
     updateAggregates: vi.fn(),
     updatePerformanceAggregates: vi.fn(),
     getAggregates: vi.fn().mockReturnValue(aggregates),
+    getTaskMetricsDateRange: vi.fn().mockReturnValue({ earliest: null, latest: null }),
     getAgentPerformance: vi.fn().mockReturnValue(null),
     getTaskTypeBreakdown: vi.fn().mockReturnValue(null),
     pruneOldData: vi.fn().mockReturnValue(0),

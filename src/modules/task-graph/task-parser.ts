@@ -9,6 +9,8 @@
 import { readFileSync } from 'node:fs'
 import { extname } from 'node:path'
 import { load as parse } from 'js-yaml'
+import { TaskGraphIncompatibleFormatError } from '../../core/errors.js'
+import { SUPPORTED_GRAPH_VERSIONS } from './schemas.js'
 import type { RawTaskGraph } from './schemas.js'
 
 // ---------------------------------------------------------------------------
@@ -64,9 +66,11 @@ function detectFormat(filePath: string): GraphFormat {
  * @throws {ParseError} on syntax errors
  */
 export function parseGraphString(content: string, format: GraphFormat): RawTaskGraph {
+  let parsed: unknown
+
   if (format === 'json') {
     try {
-      return JSON.parse(content) as RawTaskGraph
+      parsed = JSON.parse(content) as unknown
     } catch (err) {
       const original = err instanceof Error ? err : new Error(String(err))
       throw new ParseError(`JSON parse error: ${original.message}`, {
@@ -74,19 +78,34 @@ export function parseGraphString(content: string, format: GraphFormat): RawTaskG
         originalError: original,
       })
     }
+  } else {
+    // YAML
+    try {
+      parsed = parse(content)
+    } catch (err) {
+      const original = err instanceof Error ? err : new Error(String(err))
+      throw new ParseError(`YAML parse error: ${original.message}`, {
+        format: 'yaml',
+        originalError: original,
+      })
+    }
   }
 
-  // YAML
-  try {
-    const parsed = parse(content)
-    return parsed as RawTaskGraph
-  } catch (err) {
-    const original = err instanceof Error ? err : new Error(String(err))
-    throw new ParseError(`YAML parse error: ${original.message}`, {
-      format: 'yaml',
-      originalError: original,
-    })
+  // Check task graph version before returning
+  if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const rawObj = parsed as Record<string, unknown>
+    const version = rawObj['version']
+    if (version !== undefined && typeof version === 'string' && !(SUPPORTED_GRAPH_VERSIONS as readonly string[]).includes(version)) {
+      throw new TaskGraphIncompatibleFormatError(
+        `Task graph format version "${version}" is not supported. ` +
+          `This toolkit supports: ${SUPPORTED_GRAPH_VERSIONS.join(', ')}. ` +
+          `Please upgrade the toolkit: npm install -g substrate@latest`,
+        { version }
+      )
+    }
   }
+
+  return parsed as RawTaskGraph
 }
 
 // ---------------------------------------------------------------------------
