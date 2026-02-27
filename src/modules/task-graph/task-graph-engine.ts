@@ -762,6 +762,32 @@ export class TaskGraphEngineImpl implements TaskGraphEngine {
     // Wrap all inserts in a transaction — if anything fails, nothing is persisted
     const insertDep = db.prepare('INSERT INTO task_dependencies (task_id, depends_on) VALUES (?, ?)')
     const persist = db.transaction(() => {
+      // Clean up stale tasks from prior runs of the same graph.
+      // Task IDs are derived from graph keys (not UUIDs), so re-running the same
+      // graph would violate the PRIMARY KEY constraint on tasks.id without cleanup.
+      const taskKeys = Object.keys(graph.tasks)
+      const staleSessions = new Set<string>()
+      const selectSession = db.prepare('SELECT session_id FROM tasks WHERE id = ?')
+      for (const taskKey of taskKeys) {
+        const row = selectSession.get(taskKey) as { session_id: string } | undefined
+        if (row !== undefined) staleSessions.add(row.session_id)
+      }
+      if (staleSessions.size > 0) {
+        const deleteDeps = db.prepare('DELETE FROM task_dependencies WHERE task_id IN (SELECT id FROM tasks WHERE session_id = ?)')
+        const deleteLogs = db.prepare('DELETE FROM execution_log WHERE task_id IN (SELECT id FROM tasks WHERE session_id = ?)')
+        const deleteCosts = db.prepare('DELETE FROM cost_entries WHERE task_id IN (SELECT id FROM tasks WHERE session_id = ?)')
+        const deleteTasks = db.prepare('DELETE FROM tasks WHERE session_id = ?')
+        const archiveSession = db.prepare("UPDATE sessions SET status = 'abandoned', updated_at = datetime('now') WHERE id = ?")
+        for (const oldSessionId of staleSessions) {
+          deleteDeps.run(oldSessionId)
+          deleteLogs.run(oldSessionId)
+          deleteCosts.run(oldSessionId)
+          deleteTasks.run(oldSessionId)
+          archiveSession.run(oldSessionId)
+        }
+        logger.info({ staleSessionCount: staleSessions.size }, 'Cleaned up stale sessions from prior graph runs')
+      }
+
       // Insert session
       createSession(db, {
         id: sessionId,
