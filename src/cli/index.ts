@@ -172,6 +172,8 @@ async function main(): Promise<void> {
   }
 }
 
-// Run if this is the main module
-// Errors are handled internally by main() which calls process.exit(1)
-void main()
+// Run only when this is the entry point (not when imported in tests)
+const __cli_filename = fileURLToPath(import.meta.url)
+if (process.argv[1] === __cli_filename) {
+  void main()
+}

@@ -7,10 +7,11 @@ import { createGate } from '../modules/quality-gates/gate-registry.js';
 import { createDebatePanel } from '../modules/debate-panel/index.js';
 import { createPackLoader } from '../modules/methodology-pack/index.js';
 import { existsSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { join, resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 const DB_PATH = '/tmp/smoke-epic9.db';
-const PROJECT_ROOT = '/Users/John.Planow/code/jplanow/substrate';
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 let db: ReturnType<typeof Database>;
 
 beforeAll(() => {

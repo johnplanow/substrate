@@ -57,15 +57,6 @@ vi.mock('../../src/utils/logger.js', () => ({
   })),
 }))
 
-// Intercept process.exit so that the main() IIFE in index.ts (which runs
-// when the module is imported) does not terminate the test process.
-// The IIFE calls program.parseAsync(process.argv) which fails in test context.
-// We spy on process.exit before any import that triggers the IIFE.
-const exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null | undefined) => {
-  // suppress — do not actually exit
-  return undefined as never
-})
-
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
