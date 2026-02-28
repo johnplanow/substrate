@@ -120,7 +120,7 @@ export class VersionManagerImpl implements VersionManager {
 
     // Cache miss, expired, or forceRefresh — fetch from npm
     try {
-      const latestVersion = await this.updateChecker.fetchLatestVersion('substrate')
+      const latestVersion = await this.updateChecker.fetchLatestVersion('substrate-ai')
       const updateAvailable = latestVersion !== currentVersion
 
       // Write to cache (even when forceRefresh was used, so subsequent calls benefit)

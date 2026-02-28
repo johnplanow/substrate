@@ -172,7 +172,7 @@ export class UpdateChecker {
    * @returns A URL string pointing to the GitHub release page
    */
   getChangelog(latestVersion: string): string {
-    return `See https://github.com/jplanow/ai-dev-toolkit-new/releases/tag/v${latestVersion}`
+    return `See https://github.com/johnplanow/substrate/releases/tag/v${latestVersion}`
   }
 }
 

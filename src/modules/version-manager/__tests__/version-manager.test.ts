@@ -86,7 +86,7 @@ describe('VersionManagerImpl', () => {
       const manager = new VersionManagerImpl({ cache: mockCache, updateChecker: mockChecker })
       const result = await manager.checkForUpdates()
 
-      expect(mockChecker.fetchLatestVersion).toHaveBeenCalledWith('substrate')
+      expect(mockChecker.fetchLatestVersion).toHaveBeenCalledWith('substrate-ai')
       expect(mockCache.write).toHaveBeenCalled()
       expect(result.latestVersion).toBe('1.2.0')
       expect(result.updateAvailable).toBe(true)
@@ -133,7 +133,7 @@ describe('VersionManagerImpl', () => {
       const result = await manager.checkForUpdates(true)
 
       // Should have fetched from npm even though cache was fresh
-      expect(mockChecker.fetchLatestVersion).toHaveBeenCalledWith('substrate')
+      expect(mockChecker.fetchLatestVersion).toHaveBeenCalledWith('substrate-ai')
       expect(result.latestVersion).toBe('1.2.0')
     })
 

@@ -34,6 +34,18 @@ import { getTemplate, listTemplates } from './templates.js'
 
 const logger = createLogger('init')
 
+/**
+ * Detect whether the CLI was invoked via `npx substrate`.
+ * When true, prefix suggested commands with `npx `.
+ */
+function isNpxInvocation(): boolean {
+  return (
+    process.env['npm_execpath'] !== undefined &&
+    (process.env['npm_execpath']!.includes('npx') ||
+      process.env['npm_lifecycle_event'] === undefined)
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Exit codes
 // ---------------------------------------------------------------------------
@@ -429,19 +441,33 @@ export async function runInit(options: InitOptions = {}): Promise<number> {
   // ------------------------------------------------------------------
   // Success output
   // ------------------------------------------------------------------
+  const prefix = isNpxInvocation() ? 'npx ' : ''
+  const apiProviders = detectedAdapters
+    .filter((a) => {
+      const pk = ADAPTER_TO_PROVIDER[a.adapterId]
+      return pk && providers[pk]?.subscription_routing === 'api'
+    })
+    .map((a) => PROVIDER_KEY_ENV[ADAPTER_TO_PROVIDER[a.adapterId]!])
+    .filter(Boolean)
+
+  let nextSteps =
+    `\n  Next steps:\n` +
+    `    1. Run \`${prefix}substrate adapters check\` to verify your setup\n` +
+    `    2. Run \`${prefix}substrate config show\` to review your configuration\n`
+
+  if (apiProviders.length > 0) {
+    nextSteps +=
+      `\n  API key setup (only needed for providers using 'api' routing):\n` +
+      apiProviders.map((env) => `    export ${env}="your-key-here"`).join('\n') +
+      '\n'
+  }
+
   process.stdout.write(
     `\n  Substrate initialized successfully!\n` +
       `\n  Created:\n` +
       `    ${configPath}\n` +
       `    ${routingPolicyPath}\n` +
-      `\n  Next steps:\n` +
-      `    1. Set your API keys as environment variables:\n` +
-      Object.entries(PROVIDER_KEY_ENV)
-        .map(([, env]) => `       export ${env}="your-key-here"`)
-        .join('\n') +
-      '\n' +
-      `    2. Run \`substrate adapters check\` to verify your setup\n` +
-      `    3. Run \`substrate config show\` to review your configuration\n`
+      nextSteps
   )
 
   return INIT_EXIT_SUCCESS
