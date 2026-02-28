@@ -5,6 +5,20 @@
 
 // Core types
 export * from './core/types.js'
+
+// Pipeline event types (AC8: exported for external consumers)
+export type {
+  PipelineEvent,
+  PipelineStartEvent,
+  PipelineCompleteEvent,
+  StoryPhaseEvent,
+  StoryDoneEvent,
+  StoryEscalationEvent,
+  StoryWarnEvent,
+  StoryLogEvent,
+  EscalationIssue,
+  PipelinePhase,
+} from './modules/implementation-orchestrator/event-types.js'
 // Core errors
 export * from './core/errors.js'
 // Utilities
@@ -42,3 +56,6 @@ export type {
 export { ClaudeCodeAdapter } from './adapters/claude-adapter.js'
 export { CodexCLIAdapter } from './adapters/codex-adapter.js'
 export { GeminiCLIAdapter } from './adapters/gemini-adapter.js'
+
+// TUI Dashboard
+export * from './tui/index.js'

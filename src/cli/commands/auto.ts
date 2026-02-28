@@ -25,6 +25,11 @@ import { mkdirSync, existsSync, cpSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { createRequire } from 'node:module'
+import { createEventEmitter } from '../../modules/implementation-orchestrator/event-emitter.js'
+import { createProgressRenderer } from '../../modules/implementation-orchestrator/progress-renderer.js'
+import type { PipelinePhase } from '../../modules/implementation-orchestrator/event-types.js'
+import { runHelpAgent } from './help-agent.js'
+import { createTuiApp, isTuiCapable, printNonTtyWarning } from '../../tui/index.js'
 
 // ---------------------------------------------------------------------------
 // Package root resolution (ESM-compatible)
@@ -521,6 +526,83 @@ export async function scaffoldBmadFramework(
 }
 
 // ---------------------------------------------------------------------------
+// CLAUDE.md scaffold
+// ---------------------------------------------------------------------------
+
+export const CLAUDE_MD_START_MARKER = '<!-- substrate:start -->'
+export const CLAUDE_MD_END_MARKER = '<!-- substrate:end -->'
+
+/**
+ * Inject or update the substrate pipeline section in CLAUDE.md.
+ *
+ * Behaviour:
+ * - Reads the static section template from src/cli/templates/claude-md-substrate-section.md.
+ * - If CLAUDE.md does not exist, creates it with the substrate section.
+ * - If CLAUDE.md exists and already contains the substrate markers, replaces
+ *   the section (idempotent update) without touching any other content.
+ * - If CLAUDE.md exists but has no substrate markers, appends the section.
+ *
+ * This function is only called from `substrate auto init` — never from `auto run`.
+ */
+export async function scaffoldClaudeMd(projectRoot: string): Promise<void> {
+  const claudeMdPath = join(projectRoot, 'CLAUDE.md')
+  const pkgRoot = findPackageRoot(__dirname)
+  const templateName = 'claude-md-substrate-section.md'
+  // Check dist first (npm package / bundled build), then src (development)
+  let templatePath = join(pkgRoot, 'dist', 'cli', 'templates', templateName)
+  if (!existsSync(templatePath)) {
+    templatePath = join(pkgRoot, 'src', 'cli', 'templates', templateName)
+  }
+
+  // Load the section template
+  let sectionContent: string
+  try {
+    sectionContent = await readFile(templatePath, 'utf8')
+  } catch {
+    // Template not found — nothing to inject
+    logger.warn({ templatePath }, 'CLAUDE.md substrate section template not found; skipping')
+    return
+  }
+
+  // Normalise: ensure section ends with a newline
+  if (!sectionContent.endsWith('\n')) {
+    sectionContent += '\n'
+  }
+
+  let existingContent = ''
+  let claudeMdExists = false
+
+  try {
+    existingContent = await readFile(claudeMdPath, 'utf8')
+    claudeMdExists = true
+  } catch {
+    // File does not exist — will create it
+  }
+
+  let newContent: string
+
+  if (!claudeMdExists) {
+    // Fresh CLAUDE.md
+    newContent = sectionContent
+  } else if (existingContent.includes(CLAUDE_MD_START_MARKER)) {
+    // Replace existing substrate section (idempotent)
+    newContent = existingContent.replace(
+      new RegExp(
+        `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+      ),
+      sectionContent.trimEnd(),
+    )
+  } else {
+    // Append to existing CLAUDE.md
+    const separator = existingContent.endsWith('\n') ? '\n' : '\n\n'
+    newContent = existingContent + separator + sectionContent
+  }
+
+  await writeFile(claudeMdPath, newContent, 'utf8')
+  logger.info({ claudeMdPath }, 'Wrote substrate section to CLAUDE.md')
+}
+
+// ---------------------------------------------------------------------------
 // auto init action
 // ---------------------------------------------------------------------------
 
@@ -595,6 +677,9 @@ export async function runAutoInit(options: AutoInitOptions): Promise<number> {
     runMigrations(dbWrapper.db)
     dbWrapper.close()
 
+    // Step 2b: Scaffold CLAUDE.md with substrate pipeline section
+    await scaffoldClaudeMd(projectRoot)
+
     // Step 3: Output success
     const successMsg = `Pack '${packName}' and database initialized successfully at ${dbPath}`
     if (outputFormat === 'json') {
@@ -622,6 +707,27 @@ export async function runAutoInit(options: AutoInitOptions): Promise<number> {
 // auto run action
 // ---------------------------------------------------------------------------
 
+/**
+ * Map internal orchestrator phase names to pipeline event protocol phase names.
+ * Returns null for internal phases that don't correspond to an event phase
+ * (e.g., IN_MINOR_FIX / IN_MAJOR_FIX map to 'fix').
+ */
+function mapInternalPhaseToEventPhase(internalPhase: string): PipelinePhase | null {
+  switch (internalPhase) {
+    case 'IN_STORY_CREATION':
+      return 'create-story'
+    case 'IN_DEV':
+      return 'dev-story'
+    case 'IN_REVIEW':
+      return 'code-review'
+    case 'IN_MINOR_FIX':
+    case 'IN_MAJOR_FIX':
+      return 'fix'
+    default:
+      return null
+  }
+}
+
 export interface AutoRunOptions {
   pack: string
   from?: PhaseName
@@ -632,6 +738,12 @@ export interface AutoRunOptions {
   concurrency: number
   outputFormat: OutputFormat
   projectRoot: string
+  /** When true, emit structured NDJSON events on stdout (AC1) */
+  events?: boolean
+  /** When true, preserve full pino stderr output for debugging (AC5) */
+  verbose?: boolean
+  /** When true, activate the full-screen TUI dashboard (Story 15-5) */
+  tui?: boolean
 }
 
 export async function runAutoRun(options: AutoRunOptions): Promise<number> {
@@ -645,6 +757,9 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
     concurrency,
     outputFormat,
     projectRoot,
+    events: eventsFlag,
+    verbose: verboseFlag,
+    tui: tuiFlag,
   } = options
 
   // Validate --from phase
@@ -928,6 +1043,277 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
       })
     }
 
+    // AC6 (Story 15-5): Non-TTY rejection for --tui flag
+    if (tuiFlag === true && !isTuiCapable()) {
+      printNonTtyWarning()
+      // Fall through to default output (tuiApp remains undefined)
+    }
+
+    // AC5 (Story 15-2): Suppress pino stderr by default unless --verbose is set.
+    // This prevents raw JSON log lines from appearing in default terminal output.
+    if (verboseFlag !== true && eventsFlag !== true) {
+      // Override LOG_LEVEL to 'silent' so pino writes nothing to stderr.
+      // We only do this when NOT in --events mode (events mode is programmatic).
+      process.env.LOG_LEVEL = 'silent'
+    }
+
+    // AC1-AC6 (Story 15-5): Wire TUI dashboard when --tui flag is active and stdout is a TTY.
+    let tuiApp: ReturnType<typeof createTuiApp> | undefined
+    if (tuiFlag === true && isTuiCapable() && eventsFlag !== true && outputFormat === 'human') {
+      tuiApp = createTuiApp(process.stdout, process.stdin)
+
+      // Emit pipeline:start to TUI
+      tuiApp.handleEvent({
+        type: 'pipeline:start',
+        ts: new Date().toISOString(),
+        run_id: pipelineRun.id,
+        stories: storyKeys,
+        concurrency,
+      })
+
+      // Wire story phase events to the TUI
+      eventBus.on('orchestrator:story-phase-complete', (payload) => {
+        const phase = mapInternalPhaseToEventPhase(payload.phase)
+        if (phase !== null && tuiApp !== undefined) {
+          const result = payload.result as { story_file?: string; verdict?: string }
+          tuiApp.handleEvent({
+            type: 'story:phase',
+            ts: new Date().toISOString(),
+            key: payload.storyKey,
+            phase,
+            status: 'complete',
+            ...(phase === 'code-review' && result?.verdict !== undefined
+              ? { verdict: result.verdict }
+              : {}),
+            ...(phase === 'create-story' && result?.story_file !== undefined
+              ? { file: result.story_file }
+              : {}),
+          })
+        }
+      })
+
+      // Wire story:done events
+      eventBus.on('orchestrator:story-complete', (payload) => {
+        tuiApp?.handleEvent({
+          type: 'story:done',
+          ts: new Date().toISOString(),
+          key: payload.storyKey,
+          result: 'success',
+          review_cycles: payload.reviewCycles,
+        })
+      })
+
+      // Wire story:escalation events
+      eventBus.on('orchestrator:story-escalated', (payload) => {
+        const rawIssues = Array.isArray(payload.issues) ? payload.issues : []
+        const issues = rawIssues.map((issue) => {
+          const iss = issue as { severity?: string; file?: string; description?: string; desc?: string }
+          return {
+            severity: (iss.severity ?? 'unknown') as 'blocker' | 'major' | 'minor' | 'unknown',
+            file: iss.file ?? '',
+            desc: iss.desc ?? iss.description ?? '',
+          }
+        })
+        tuiApp?.handleEvent({
+          type: 'story:escalation',
+          ts: new Date().toISOString(),
+          key: payload.storyKey,
+          reason: payload.lastVerdict ?? 'escalated',
+          cycles: payload.reviewCycles ?? 0,
+          issues,
+        })
+      })
+    }
+
+    // AC1-AC4 (Story 15-2): Wire progress renderer when default human output is active
+    // (i.e., not --events and not --output-format json and not --tui).
+    let progressRenderer: ReturnType<typeof createProgressRenderer> | undefined
+    if (eventsFlag !== true && outputFormat === 'human' && tuiApp === undefined) {
+      progressRenderer = createProgressRenderer(process.stdout)
+
+      // Emit pipeline:start to renderer
+      progressRenderer.render({
+        type: 'pipeline:start',
+        ts: new Date().toISOString(),
+        run_id: pipelineRun.id,
+        stories: storyKeys,
+        concurrency,
+      })
+
+      // Wire story phase start events to the renderer (in_progress status)
+      eventBus.on('orchestrator:story-phase-start', (payload) => {
+        const phase = mapInternalPhaseToEventPhase(payload.phase)
+        if (phase !== null && progressRenderer !== undefined) {
+          progressRenderer.render({
+            type: 'story:phase',
+            ts: new Date().toISOString(),
+            key: payload.storyKey,
+            phase,
+            status: 'in_progress',
+          })
+        }
+      })
+
+      // Wire story phase events to the renderer
+      eventBus.on('orchestrator:story-phase-complete', (payload) => {
+        const phase = mapInternalPhaseToEventPhase(payload.phase)
+        if (phase !== null && progressRenderer !== undefined) {
+          const result = payload.result as { story_file?: string; verdict?: string }
+          progressRenderer.render({
+            type: 'story:phase',
+            ts: new Date().toISOString(),
+            key: payload.storyKey,
+            phase,
+            status: 'complete',
+            ...(phase === 'code-review' && result?.verdict !== undefined
+              ? { verdict: result.verdict }
+              : {}),
+            ...(phase === 'create-story' && result?.story_file !== undefined
+              ? { file: result.story_file }
+              : {}),
+          })
+        }
+      })
+
+      // Wire story:done events
+      eventBus.on('orchestrator:story-complete', (payload) => {
+        progressRenderer?.render({
+          type: 'story:done',
+          ts: new Date().toISOString(),
+          key: payload.storyKey,
+          result: 'success',
+          review_cycles: payload.reviewCycles,
+        })
+      })
+
+      // Wire story:escalation events
+      eventBus.on('orchestrator:story-escalated', (payload) => {
+        const rawIssues = Array.isArray(payload.issues) ? payload.issues : []
+        const issues = rawIssues.map((issue) => {
+          const iss = issue as { severity?: string; file?: string; description?: string; desc?: string }
+          return {
+            severity: (iss.severity ?? 'unknown') as 'blocker' | 'major' | 'minor' | 'unknown',
+            file: iss.file ?? '',
+            desc: iss.desc ?? iss.description ?? '',
+          }
+        })
+        progressRenderer?.render({
+          type: 'story:escalation',
+          ts: new Date().toISOString(),
+          key: payload.storyKey,
+          reason: payload.lastVerdict ?? 'escalated',
+          cycles: payload.reviewCycles ?? 0,
+          issues,
+        })
+      })
+
+      // Wire story:warn events for non-fatal warnings
+      eventBus.on('orchestrator:story-warn', (payload) => {
+        progressRenderer?.render({
+          type: 'story:warn',
+          ts: new Date().toISOString(),
+          key: payload.storyKey,
+          msg: payload.msg,
+        })
+      })
+    }
+
+    // AC1: Wire NDJSON event emitter when --events flag is active
+    let ndjsonEmitter: ReturnType<typeof createEventEmitter> | undefined
+    if (eventsFlag === true) {
+      ndjsonEmitter = createEventEmitter(process.stdout)
+
+      // AC2: pipeline:start — first event
+      ndjsonEmitter.emit({
+        type: 'pipeline:start',
+        ts: new Date().toISOString(),
+        run_id: pipelineRun.id,
+        stories: storyKeys,
+        concurrency,
+      })
+
+      // AC3: story:phase events for each pipeline phase (in_progress on start)
+      eventBus.on('orchestrator:story-phase-start', (payload) => {
+        const phase = mapInternalPhaseToEventPhase(payload.phase)
+        if (phase !== null) {
+          ndjsonEmitter!.emit({
+            type: 'story:phase',
+            ts: new Date().toISOString(),
+            key: payload.storyKey,
+            phase,
+            status: 'in_progress',
+          })
+        }
+      })
+
+      // AC3: story:phase events for each pipeline phase (complete on finish)
+      eventBus.on('orchestrator:story-phase-complete', (payload) => {
+        // Map internal phase names to event protocol phase names
+        const phase = mapInternalPhaseToEventPhase(payload.phase)
+        if (phase !== null) {
+          const result = payload.result as {
+            story_file?: string
+            verdict?: string
+          }
+          ndjsonEmitter!.emit({
+            type: 'story:phase',
+            ts: new Date().toISOString(),
+            key: payload.storyKey,
+            phase,
+            status: 'complete',
+            ...(phase === 'code-review' && result?.verdict !== undefined
+              ? { verdict: result.verdict }
+              : {}),
+            ...(phase === 'create-story' && result?.story_file !== undefined
+              ? { file: result.story_file }
+              : {}),
+          })
+        }
+      })
+
+      // AC4: story:done events on story completion
+      eventBus.on('orchestrator:story-complete', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'story:done',
+          ts: new Date().toISOString(),
+          key: payload.storyKey,
+          result: 'success',
+          review_cycles: payload.reviewCycles,
+        })
+      })
+
+      // AC5: story:escalation events on escalation
+      eventBus.on('orchestrator:story-escalated', (payload) => {
+        const rawIssues = Array.isArray(payload.issues) ? payload.issues : []
+        const issues = rawIssues.map((issue) => {
+          const iss = issue as { severity?: string; file?: string; description?: string; desc?: string }
+          return {
+            severity: (iss.severity ?? 'unknown') as 'blocker' | 'major' | 'minor' | 'unknown',
+            file: iss.file ?? '',
+            desc: iss.desc ?? iss.description ?? '',
+          }
+        })
+        ndjsonEmitter!.emit({
+          type: 'story:escalation',
+          ts: new Date().toISOString(),
+          key: payload.storyKey,
+          reason: payload.lastVerdict ?? 'escalated',
+          cycles: payload.reviewCycles ?? 0,
+          issues,
+        })
+      })
+
+      // AC6: story:warn events for non-fatal warnings
+      eventBus.on('orchestrator:story-warn', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'story:warn',
+          ts: new Date().toISOString(),
+          key: payload.storyKey,
+          msg: payload.msg,
+        })
+      })
+    }
+
     // Create orchestrator
     const orchestrator = createImplementationOrchestrator({
       db,
@@ -943,7 +1329,8 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
       projectRoot,
     })
 
-    if (outputFormat === 'human') {
+    // Display startup header (only in legacy human mode without progress renderer or NDJSON emitter)
+    if (outputFormat === 'human' && progressRenderer === undefined && ndjsonEmitter === undefined) {
       process.stdout.write(
         `Starting pipeline: ${storyKeys.length} story/stories, concurrency=${concurrency}\n`,
       )
@@ -954,10 +1341,64 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
     // Run the orchestrator
     const status = await orchestrator.run(storyKeys)
 
+    // Compute succeeded/failed/escalated for both progress renderer and ndjson emitter
+    const succeededKeys: string[] = []
+    const failedKeys: string[] = []
+    const escalatedKeys: string[] = []
+    for (const [key, s] of Object.entries(status.stories)) {
+      if (s.phase === 'COMPLETE') succeededKeys.push(key)
+      else if (s.phase === 'ESCALATED') {
+        if (s.error !== undefined) failedKeys.push(key)
+        else escalatedKeys.push(key)
+      } else {
+        failedKeys.push(key)
+      }
+    }
+
+    // pipeline:complete — emit to progress renderer (AC2 of Story 15-2)
+    if (progressRenderer !== undefined) {
+      progressRenderer.render({
+        type: 'pipeline:complete',
+        ts: new Date().toISOString(),
+        succeeded: succeededKeys,
+        failed: failedKeys,
+        escalated: escalatedKeys,
+      })
+    }
+
+    // pipeline:complete — emit to TUI app (Story 15-5)
+    if (tuiApp !== undefined) {
+      tuiApp.handleEvent({
+        type: 'pipeline:complete',
+        ts: new Date().toISOString(),
+        succeeded: succeededKeys,
+        failed: failedKeys,
+        escalated: escalatedKeys,
+      })
+    }
+
+    // AC2: pipeline:complete — last event (emitted after all stories settle)
+    if (ndjsonEmitter !== undefined) {
+      ndjsonEmitter.emit({
+        type: 'pipeline:complete',
+        ts: new Date().toISOString(),
+        succeeded: succeededKeys,
+        failed: failedKeys,
+        escalated: escalatedKeys,
+      })
+    }
+
     // Record final token usage for the run
     const tokenSummary = getTokenUsageSummary(db, pipelineRun.id)
 
-    // Output results
+    // Keep the process alive so the user can interact with the TUI (Story 15-5)
+    // Wait for TUI to exit BEFORE writing any plain-text summary to stdout, so
+    // that the alternate-screen buffer is restored before the summary appears.
+    if (tuiApp !== undefined) {
+      await tuiApp.waitForExit()
+    }
+
+    // Output results (after TUI has exited and restored the normal screen)
     if (outputFormat === 'json') {
       process.stdout.write(
         formatOutput(
@@ -970,7 +1411,10 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
           true,
         ) + '\n',
       )
-    } else {
+    } else if (tuiApp === undefined && ndjsonEmitter === undefined) {
+      // Only write plain-text summary when TUI and NDJSON emitter are not active;
+      // TUI displays pipeline status via its event-driven panels, and NDJSON
+      // emitter already emits pipeline:complete with structured data.
       process.stdout.write('\n')
       // Count story outcomes
       let completed = 0
@@ -2458,6 +2902,10 @@ export function registerAutoCommand(
       'Output format: human (default) or json',
       'human',
     )
+    .option('--events', 'Emit structured NDJSON events on stdout for programmatic consumption')
+    .option('--verbose', 'Show detailed pino log output')
+    .option('--help-agent', 'Print a machine-optimized prompt fragment for AI agents and exit')
+    .option('--tui', 'Show TUI dashboard')
     .action(
       async (opts: {
         pack: string
@@ -2469,7 +2917,17 @@ export function registerAutoCommand(
         concurrency: number
         projectRoot: string
         outputFormat: string
+        events?: boolean
+        verbose?: boolean
+        helpAgent?: boolean
+        tui?: boolean
       }) => {
+        // --help-agent: print agent instructions and exit without running the pipeline
+        if (opts.helpAgent) {
+          process.exitCode = await runHelpAgent()
+          return
+        }
+
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
 
         // Validate --from phase
@@ -2498,6 +2956,9 @@ export function registerAutoCommand(
           concurrency: opts.concurrency,
           outputFormat,
           projectRoot: opts.projectRoot,
+          events: opts.events,
+          verbose: opts.verbose,
+          tui: opts.tui,
         })
         process.exitCode = exitCode
       },

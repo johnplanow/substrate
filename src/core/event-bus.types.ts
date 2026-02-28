@@ -291,6 +291,12 @@ export interface OrchestratorEvents {
   /** Implementation orchestrator has started processing story keys */
   'orchestrator:started': { storyKeys: string[]; pipelineRunId?: string }
 
+  /** A story phase has started within the implementation orchestrator */
+  'orchestrator:story-phase-start': {
+    storyKey: string
+    phase: string
+  }
+
   /** A story phase has completed within the implementation orchestrator */
   'orchestrator:story-phase-complete': {
     storyKey: string
@@ -307,6 +313,12 @@ export interface OrchestratorEvents {
     lastVerdict: string
     reviewCycles: number
     issues: unknown[]
+  }
+
+  /** A non-fatal warning occurred during story processing */
+  'orchestrator:story-warn': {
+    storyKey: string
+    msg: string
   }
 
   /** Implementation orchestrator has finished all stories */

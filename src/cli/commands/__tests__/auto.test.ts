@@ -285,6 +285,13 @@ describe('runAutoInit', () => {
     mockRequireResolve.mockReturnValue('/fake/node_modules/bmad-method/package.json')
     mockRequireCall.mockReturnValue({ version: '6.0.3' })
     mockWriteFile.mockResolvedValue(undefined)
+    // Default: template readable, CLAUDE.md does not exist
+    mockReadFile.mockImplementation((path: string) => {
+      if (String(path).includes('claude-md-substrate-section')) {
+        return Promise.resolve('<!-- substrate:start -->\n## Substrate Pipeline\n<!-- substrate:end -->\n')
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
   })
 
   it('AC1: initializes pack and database, outputs success (human format)', async () => {
@@ -642,7 +649,7 @@ describe('runAutoRun', () => {
       expect.objectContaining({ methodology: 'bmad' }),
     )
     expect(mockOrchestratorRun).toHaveBeenCalledWith(['10-1'])
-    expect(stdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Starting pipeline'))
+    expect(stdoutWrite).toHaveBeenCalledWith(expect.stringContaining('substrate auto run —'))
     stdoutWrite.mockRestore()
   })
 
@@ -889,20 +896,21 @@ describe('runAutoRun', () => {
       result: { tokenUsage: { input: 1200, output: 800 } },
     }
 
-    // Capture the event listener for orchestrator:story-phase-complete
-    // and invoke it synchronously during orchestrator.run() to simulate event firing
-    let phaseCompleteListener: ((payload: PhasePayload) => void) | undefined
+    // Capture ALL event listeners for orchestrator:story-phase-complete
+    // (there are multiple: the token-usage listener and the progress renderer listener)
+    // and invoke them all synchronously during orchestrator.run() to simulate event firing
+    const phaseCompleteListeners: Array<(payload: PhasePayload) => void> = []
     const originalOn = mockEventBus.on
     mockEventBus.on.mockImplementation((event: string, listener: (payload: unknown) => void) => {
       if (event === 'orchestrator:story-phase-complete') {
-        phaseCompleteListener = listener as (payload: PhasePayload) => void
+        phaseCompleteListeners.push(listener as (payload: PhasePayload) => void)
       }
     })
 
-    // Make orchestrator.run fire the listener before resolving
+    // Make orchestrator.run fire all listeners before resolving
     mockOrchestratorRun.mockImplementation(async () => {
-      if (phaseCompleteListener !== undefined) {
-        phaseCompleteListener(phasePayload)
+      for (const listener of phaseCompleteListeners) {
+        listener(phasePayload)
       }
       return defaultStatus
     })
