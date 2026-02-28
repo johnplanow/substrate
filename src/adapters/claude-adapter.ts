@@ -365,29 +365,19 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private _detectBillingModes(versionOutput: string): BillingMode[] {
+  private _detectBillingModes(_versionOutput: string): BillingMode[] {
     // 1. If ADT_BILLING_MODE is explicitly set, respect it
     const explicit = process.env.ADT_BILLING_MODE
     if (explicit === 'subscription' || explicit === 'api' || explicit === 'free') {
       return [explicit]
     }
 
-    // 2. Claude supports both subscription and API — detect what's available
-    const modes: BillingMode[] = []
+    // 2. Claude Code is a subscription-first product — subscription is always available.
+    //    API billing is additionally available when an API key is present.
+    const modes: BillingMode[] = ['subscription']
 
-    // API key presence indicates API billing is available
     if (process.env.ANTHROPIC_API_KEY) {
       modes.push('api')
-    }
-
-    // Subscription indicator in version output
-    if (versionOutput.toLowerCase().includes('subscription')) {
-      modes.push('subscription')
-    }
-
-    // Claude Code supports both modes by default
-    if (modes.length === 0) {
-      return ['subscription', 'api']
     }
 
     return modes
