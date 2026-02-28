@@ -172,8 +172,17 @@ async function main(): Promise<void> {
   }
 }
 
-// Run only when this is the entry point (not when imported in tests)
+// Run only when this is the entry point (not when imported in tests).
+// Resolve symlinks so `npx substrate` (symlink in node_modules/.bin) still matches.
+import { realpathSync } from 'fs'
 const __cli_filename = fileURLToPath(import.meta.url)
-if (process.argv[1] === __cli_filename) {
+const isMainModule = (() => {
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(__cli_filename)
+  } catch {
+    return false
+  }
+})()
+if (isMainModule) {
   void main()
 }

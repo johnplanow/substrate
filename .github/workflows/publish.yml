@@ -34,6 +34,9 @@ jobs:
       - name: Run tests
         run: npx vitest run
 
+      - name: Use npm-ready README (absolute image URLs)
+        run: cp README.npm.md README.md
+
       - name: Dry run publish (verification)
         run: npm publish --dry-run
 
