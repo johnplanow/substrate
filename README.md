@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/substrate-header.png" alt="Substrate — Autonomous Software Development Pipeline" />
+  <img src="https://raw.githubusercontent.com/johnplanow/substrate/main/assets/substrate-header.png" alt="Substrate — Autonomous Software Development Pipeline" />
 </p>
 
 # Substrate
