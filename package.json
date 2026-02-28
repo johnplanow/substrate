@@ -23,7 +23,6 @@
   "bin": {
     "substrate": "./dist/cli/index.js"
   },
-  "readme": "README.npm.md",
   "main": "./dist/index.js",
   "exports": {
     ".": {
@@ -41,12 +40,11 @@
     "dist/**/*.json",
     "dist/cli/templates",
     "packs",
-    "README.md",
-    "README.npm.md"
+    "README.md"
   ],
   "scripts": {
     "build": "tsdown",
-    "postbuild": "cp -r src/cli/templates dist/cli/templates && sed 's|assets/substrate-header.png|https://github.com/user-attachments/assets/622dd577-2814-4657-bb28-112ed272486d|' README.md > README.npm.md",
+    "postbuild": "cp -r src/cli/templates dist/cli/templates",
     "dev": "tsx watch src/cli/index.ts",
     "test": "vitest run --coverage",
     "test:watch": "vitest",

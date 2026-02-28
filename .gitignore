@@ -19,7 +19,6 @@ amendment-delta-*.md
 
 # Build outputs
 dist/
-README.npm.md
 coverage/
 *.tgz
 
