@@ -1,1 +1,0 @@
-../../.ai-toolkit/bmad-commands/bmad-auto-solution.md

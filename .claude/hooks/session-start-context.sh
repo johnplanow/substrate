@@ -1,1 +1,0 @@
-../../.ai-toolkit/.claude/hooks/session-start-context.sh

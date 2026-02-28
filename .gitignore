@@ -9,7 +9,7 @@
 !.gemini/commands/
 !.codex/prompts/
 .obsidian/
-.ai-toolkit
+
 
 # Installed from bmad-method dependency — run 'substrate auto init' to populate
 _bmad/
