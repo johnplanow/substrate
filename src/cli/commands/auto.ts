@@ -33,11 +33,20 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 /**
- * Absolute path to the Substrate package root.
- *
- * In source:  src/cli/commands/ → 3 levels up = repo root
- * Post-build: dist/cli/commands/ → 3 levels up = dist parent = package root
+ * Find the package root by walking up until we find package.json.
+ * Works regardless of build output structure (tsdown bundles into
+ * dist/cli/index.js, not dist/cli/commands/auto.js).
  */
+export function findPackageRoot(startDir: string): string {
+  let dir = startDir
+  while (dir !== dirname(dir)) {
+    if (existsSync(join(dir, 'package.json'))) return dir
+    dir = dirname(dir)
+  }
+  return startDir
+}
+
+// Static export for tests (3 levels is correct from src/cli/commands/)
 export const PACKAGE_ROOT = join(__dirname, '..', '..', '..')
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createEventBus } from '../../core/event-bus.js'
@@ -418,7 +427,8 @@ export async function runAutoInit(options: AutoInitOptions): Promise<number> {
     const localManifest = join(packPath, 'manifest.yaml')
     let scaffolded = false
     if (!existsSync(localManifest) || force) {
-      const bundledPackPath = join(PACKAGE_ROOT, 'packs', packName)
+      const packageRoot = findPackageRoot(__dirname)
+      const bundledPackPath = join(packageRoot, 'packs', packName)
       if (!existsSync(join(bundledPackPath, 'manifest.yaml'))) {
         // Bundled pack missing — bad install
         const errorMsg = `Pack '${packName}' not found locally or in bundled packs. Try reinstalling Substrate.`
