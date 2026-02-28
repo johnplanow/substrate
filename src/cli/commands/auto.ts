@@ -1561,6 +1561,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         }
 
         if (result.result === 'failed') {
+          updatePipelineRun(db, runId, { status: 'failed' })
           const errorMsg = `Analysis phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -1595,6 +1596,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         }
 
         if (result.result === 'failed') {
+          updatePipelineRun(db, runId, { status: 'failed' })
           const errorMsg = `Planning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -1629,6 +1631,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         }
 
         if (result.result === 'failed') {
+          updatePipelineRun(db, runId, { status: 'failed' })
           const errorMsg = `Solutioning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -2092,6 +2095,7 @@ async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): 
           })
         }
         if (result.result === 'failed') {
+          updatePipelineRun(db, runId, { status: 'failed' })
           const errorMsg = `Analysis phase failed: ${result.error ?? 'unknown error'}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -2116,6 +2120,7 @@ async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): 
           })
         }
         if (result.result === 'failed') {
+          updatePipelineRun(db, runId, { status: 'failed' })
           const errorMsg = `Planning phase failed: ${result.error ?? 'unknown error'}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -2140,6 +2145,7 @@ async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): 
           })
         }
         if (result.result === 'failed') {
+          updatePipelineRun(db, runId, { status: 'failed' })
           const errorMsg = `Solutioning phase failed: ${result.error ?? 'unknown error'}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -2712,6 +2718,7 @@ export async function runAmendCommand(options: AutoAmendOptions): Promise<number
           })
         }
         if (result.result === 'failed') {
+          updatePipelineRun(db, amendmentRunId, { status: 'failed' })
           process.stderr.write(`Error: Analysis phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`)
           return 1
         }
@@ -2731,6 +2738,7 @@ export async function runAmendCommand(options: AutoAmendOptions): Promise<number
           })
         }
         if (result.result === 'failed') {
+          updatePipelineRun(db, amendmentRunId, { status: 'failed' })
           process.stderr.write(`Error: Planning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`)
           return 1
         }
@@ -2750,6 +2758,7 @@ export async function runAmendCommand(options: AutoAmendOptions): Promise<number
           })
         }
         if (result.result === 'failed') {
+          updatePipelineRun(db, amendmentRunId, { status: 'failed' })
           process.stderr.write(`Error: Solutioning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`)
           return 1
         }

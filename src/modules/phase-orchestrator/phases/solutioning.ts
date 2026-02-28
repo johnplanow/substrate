@@ -29,9 +29,10 @@
  */
 
 import {
-  createDecision,
+  upsertDecision,
   createRequirement,
   getDecisionsByPhaseForRun,
+  getArtifactByTypeForRun,
   registerArtifact,
 } from '../../../persistence/queries/decisions.js'
 import { createQualityGate } from '../../quality-gates/gate-impl.js'
@@ -49,13 +50,17 @@ import type {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Maximum total prompt token budget for architecture generation (3,000 tokens × 4 chars = 12,000 chars) */
-const MAX_ARCH_PROMPT_TOKENS = 3_000
-const MAX_ARCH_PROMPT_CHARS = MAX_ARCH_PROMPT_TOKENS * 4
+/** Base token budget for architecture generation (covers template + requirements) */
+const BASE_ARCH_PROMPT_TOKENS = 3_000
 
-/** Maximum total prompt token budget for story generation (4,000 tokens × 4 chars = 16,000 chars) */
-const MAX_STORY_PROMPT_TOKENS = 4_000
-const MAX_STORY_PROMPT_CHARS = MAX_STORY_PROMPT_TOKENS * 4
+/** Base token budget for story generation (covers template + requirements + architecture) */
+const BASE_STORY_PROMPT_TOKENS = 4_000
+
+/** Additional tokens per architecture decision injected into story generation prompt */
+const TOKENS_PER_DECISION = 100
+
+/** Absolute maximum prompt tokens (model context safety margin) */
+const ABSOLUTE_MAX_PROMPT_TOKENS = 12_000
 
 /** Placeholder in architecture prompt template */
 const REQUIREMENTS_PLACEHOLDER = '{{requirements}}'
@@ -75,6 +80,69 @@ const STORY_ARCHITECTURE_PLACEHOLDER = '{{architecture_decisions}}'
 
 /** Gap analysis placeholder used in retry prompt */
 const GAP_ANALYSIS_PLACEHOLDER = '{{gap_analysis}}'
+
+/** Priority order for decision categories when summarizing (higher priority kept first) */
+const DECISION_CATEGORY_PRIORITY = ['data', 'auth', 'api', 'frontend', 'infra', 'observability', 'ci']
+
+// ---------------------------------------------------------------------------
+// Dynamic budget calculation
+// ---------------------------------------------------------------------------
+
+/**
+ * Calculate the dynamic prompt token budget based on the number of decisions
+ * that will be injected into the prompt.
+ *
+ * @param baseBudget - Base token budget for the phase
+ * @param decisionCount - Number of decisions to inject
+ * @returns Calculated token budget, capped at ABSOLUTE_MAX_PROMPT_TOKENS
+ */
+export function calculateDynamicBudget(baseBudget: number, decisionCount: number): number {
+  const budget = baseBudget + decisionCount * TOKENS_PER_DECISION
+  return Math.min(budget, ABSOLUTE_MAX_PROMPT_TOKENS)
+}
+
+// ---------------------------------------------------------------------------
+// Decision summarization
+// ---------------------------------------------------------------------------
+
+/**
+ * Summarize architecture decisions into compact key:value one-liners,
+ * dropping rationale and optionally dropping lower-priority categories
+ * to fit within a character budget.
+ *
+ * @param decisions - Full architecture decisions from the decision store
+ * @param maxChars - Maximum character budget for the summarized output
+ * @returns Compact summary string
+ */
+export function summarizeDecisions(
+  decisions: Array<{ key: string; value: string; category?: string }>,
+  maxChars: number,
+): string {
+  // Sort by priority: known categories first, then alphabetical
+  const sorted = [...decisions].sort((a, b) => {
+    const aCat = (a.category ?? '').toLowerCase()
+    const bCat = (b.category ?? '').toLowerCase()
+    const aIdx = DECISION_CATEGORY_PRIORITY.indexOf(aCat)
+    const bIdx = DECISION_CATEGORY_PRIORITY.indexOf(bCat)
+    const aPri = aIdx === -1 ? DECISION_CATEGORY_PRIORITY.length : aIdx
+    const bPri = bIdx === -1 ? DECISION_CATEGORY_PRIORITY.length : bIdx
+    return aPri - bPri
+  })
+
+  const lines: string[] = ['## Architecture Decisions (Summarized)']
+  let currentLength = lines[0].length
+
+  for (const d of sorted) {
+    // Compact format: truncate long values
+    const truncatedValue = d.value.length > 120 ? d.value.slice(0, 117) + '...' : d.value
+    const line = `- ${d.key}: ${truncatedValue}`
+    if (currentLength + line.length + 1 > maxChars) break
+    lines.push(line)
+    currentLength += line.length + 1
+  }
+
+  return lines.join('\n')
+}
 
 // ---------------------------------------------------------------------------
 // formatRequirements
@@ -200,13 +268,16 @@ async function runArchitectureGeneration(
   // Step 2: Format requirements from decision store
   const formattedRequirements = formatRequirements(db, runId)
 
-  // Step 3: Assemble prompt within 3,000-token ceiling
+  // Step 3: Assemble prompt with dynamic token budget
   let prompt = template.replace(REQUIREMENTS_PLACEHOLDER, formattedRequirements)
 
   // Step 3b: Inject amendment context if provided
+  const dynamicBudgetTokens = calculateDynamicBudget(BASE_ARCH_PROMPT_TOKENS, 0)
+  const dynamicBudgetChars = dynamicBudgetTokens * 4
+
   if (amendmentContext !== undefined && amendmentContext !== '') {
     const framingLen = AMENDMENT_CONTEXT_HEADER.length + AMENDMENT_CONTEXT_FOOTER.length
-    const availableForContext = MAX_ARCH_PROMPT_CHARS - prompt.length - framingLen - TRUNCATED_MARKER.length
+    const availableForContext = dynamicBudgetChars - prompt.length - framingLen - TRUNCATED_MARKER.length
     let contextToInject = amendmentContext
     if (availableForContext <= 0) {
       contextToInject = ''
@@ -219,9 +290,9 @@ async function runArchitectureGeneration(
   }
 
   const estimatedTokens = Math.ceil(prompt.length / 4)
-  if (estimatedTokens > MAX_ARCH_PROMPT_TOKENS) {
+  if (estimatedTokens > dynamicBudgetTokens) {
     return {
-      error: `Architecture prompt exceeds token budget: ${estimatedTokens} tokens (max ${MAX_ARCH_PROMPT_TOKENS})`,
+      error: `Architecture prompt exceeds token budget: ${estimatedTokens} tokens (max ${dynamicBudgetTokens})`,
       tokenUsage: zeroTokenUsage,
     }
   }
@@ -272,9 +343,9 @@ async function runArchitectureGeneration(
 
   const decisions = parsed.architecture_decisions
 
-  // Step 5: Persist each decision to the decision store
+  // Step 5: Persist each decision to the decision store (upsert to deduplicate on retry)
   for (const decision of decisions) {
-    createDecision(db, {
+    upsertDecision(db, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
@@ -342,9 +413,17 @@ async function runStoryGeneration(
 
   // Step 2: Format requirements AND architecture decisions
   const formattedRequirements = formatRequirements(db, runId)
-  const formattedArchitecture = formatArchitectureDecisions(db, runId)
+  const archDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning').filter(
+    (d) => d.category === 'architecture',
+  )
 
-  // Step 3: Assemble prompt within 4,000-token ceiling
+  // Calculate dynamic budget based on decision count
+  const dynamicBudgetTokens = calculateDynamicBudget(BASE_STORY_PROMPT_TOKENS, archDecisions.length)
+  const dynamicBudgetChars = dynamicBudgetTokens * 4
+
+  let formattedArchitecture = formatArchitectureDecisions(db, runId)
+
+  // Step 3: Assemble prompt with dynamic token budget
   let prompt = template
     .replace(STORY_REQUIREMENTS_PLACEHOLDER, formattedRequirements)
     .replace(STORY_ARCHITECTURE_PLACEHOLDER, formattedArchitecture)
@@ -357,7 +436,7 @@ async function runStoryGeneration(
   // Step 3b: Inject amendment context if provided
   if (amendmentContext !== undefined && amendmentContext !== '') {
     const framingLen = AMENDMENT_CONTEXT_HEADER.length + AMENDMENT_CONTEXT_FOOTER.length
-    const availableForContext = MAX_STORY_PROMPT_CHARS - prompt.length - framingLen - TRUNCATED_MARKER.length
+    const availableForContext = dynamicBudgetChars - prompt.length - framingLen - TRUNCATED_MARKER.length
     let contextToInject = amendmentContext
     if (availableForContext <= 0) {
       contextToInject = ''
@@ -369,10 +448,26 @@ async function runStoryGeneration(
     }
   }
 
-  const estimatedTokens = Math.ceil(prompt.length / 4)
-  if (estimatedTokens > MAX_STORY_PROMPT_TOKENS) {
+  // Step 3c: If prompt exceeds dynamic budget, fall back to summarized decisions
+  let estimatedTokens = Math.ceil(prompt.length / 4)
+  if (estimatedTokens > dynamicBudgetTokens) {
+    const availableForDecisions = dynamicBudgetChars - (prompt.length - formattedArchitecture.length)
+    formattedArchitecture = summarizeDecisions(
+      archDecisions.map((d) => ({ key: d.key, value: d.value, category: d.category })),
+      Math.max(availableForDecisions, 200),
+    )
+    prompt = template
+      .replace(STORY_REQUIREMENTS_PLACEHOLDER, formattedRequirements)
+      .replace(STORY_ARCHITECTURE_PLACEHOLDER, formattedArchitecture)
+    if (gapAnalysis !== undefined) {
+      prompt = prompt.replace(GAP_ANALYSIS_PLACEHOLDER, gapAnalysis)
+    }
+    estimatedTokens = Math.ceil(prompt.length / 4)
+  }
+
+  if (estimatedTokens > dynamicBudgetTokens) {
     return {
-      error: `Story generation prompt exceeds token budget: ${estimatedTokens} tokens (max ${MAX_STORY_PROMPT_TOKENS})`,
+      error: `Story generation prompt exceeds token budget: ${estimatedTokens} tokens (max ${dynamicBudgetTokens})`,
       tokenUsage: zeroTokenUsage,
     }
   }
@@ -423,9 +518,9 @@ async function runStoryGeneration(
 
   const epics = parsed.epics
 
-  // Step 5: Store epics as decisions
+  // Step 5: Store epics as decisions (upsert to deduplicate on retry)
   for (const [epicIndex, epic] of epics.entries()) {
-    createDecision(db, {
+    upsertDecision(db, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'epics',
@@ -435,7 +530,7 @@ async function runStoryGeneration(
 
     // Step 5b: Store each story as a decision
     for (const story of epic.stories) {
-      createDecision(db, {
+      upsertDecision(db, {
         pipeline_run_id: runId,
         phase: 'solutioning',
         category: 'stories',
@@ -613,8 +708,26 @@ export async function runSolutioningPhase(
   let totalOutput = 0
 
   try {
-    // Step 1: Run architecture generation sub-phase
-    const archResult = await runArchitectureGeneration(deps, params)
+    // Step 1: Check if architecture artifact already exists (skip on retry)
+    const existingArchArtifact = getArtifactByTypeForRun(deps.db, params.runId, 'solutioning', 'architecture')
+    let archResult: ArchitectureGenerationSuccess | ArchitectureGenerationFailure
+
+    if (existingArchArtifact) {
+      // Architecture already completed — reuse existing decisions
+      const existingDecisions = getDecisionsByPhaseForRun(deps.db, params.runId, 'solutioning')
+        .filter((d) => d.category === 'architecture')
+      archResult = {
+        decisions: existingDecisions.map((d) => ({
+          key: d.key,
+          value: d.value,
+          rationale: d.rationale ?? '',
+        })),
+        artifactId: existingArchArtifact.id,
+        tokenUsage: { input: 0, output: 0 },
+      }
+    } else {
+      archResult = await runArchitectureGeneration(deps, params)
+    }
 
     // Accumulate token usage
     totalInput += archResult.tokenUsage.input

@@ -1126,3 +1126,165 @@ describe('runSolutioningPhase()', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 16-1 tests: Dynamic budget, decision summarization, phase transition
+// ---------------------------------------------------------------------------
+
+import { calculateDynamicBudget, summarizeDecisions } from '../solutioning.js'
+import {
+  getDecisionsByPhaseForRun,
+  registerArtifact,
+} from '../../../../persistence/queries/decisions.js'
+
+describe('Story 16-1: calculateDynamicBudget', () => {
+  it('returns base budget when no decisions', () => {
+    expect(calculateDynamicBudget(3000, 0)).toBe(3000)
+  })
+
+  it('scales budget with decision count', () => {
+    expect(calculateDynamicBudget(4000, 10)).toBe(5000)
+  })
+
+  it('caps at absolute maximum', () => {
+    expect(calculateDynamicBudget(4000, 200)).toBe(12000)
+  })
+
+  it('handles large decision counts gracefully', () => {
+    const result = calculateDynamicBudget(4000, 1000)
+    expect(result).toBe(12000) // capped
+  })
+})
+
+describe('Story 16-1: summarizeDecisions', () => {
+  it('produces compact key:value format', () => {
+    const decisions = [
+      { key: 'language', value: 'TypeScript', category: 'data' },
+      { key: 'database', value: 'SQLite', category: 'data' },
+    ]
+    const result = summarizeDecisions(decisions, 1000)
+    expect(result).toContain('language: TypeScript')
+    expect(result).toContain('database: SQLite')
+    expect(result).toContain('Summarized')
+  })
+
+  it('truncates long values', () => {
+    const longValue = 'x'.repeat(200)
+    const decisions = [{ key: 'long', value: longValue, category: 'data' }]
+    const result = summarizeDecisions(decisions, 1000)
+    expect(result).toContain('...')
+    expect(result.length).toBeLessThan(longValue.length)
+  })
+
+  it('drops lower-priority decisions when exceeding budget', () => {
+    const decisions = Array.from({ length: 50 }, (_, i) => ({
+      key: `decision-${i}`,
+      value: `value for decision ${i} with some extra text to take up space`,
+      category: i < 5 ? 'data' : 'observability',
+    }))
+    const result = summarizeDecisions(decisions, 500)
+    expect(result).toContain('decision-0') // high priority kept
+    expect(result.length).toBeLessThanOrEqual(500)
+  })
+
+  it('returns at least the header within tight budget', () => {
+    const decisions = [{ key: 'a', value: 'b', category: 'data' }]
+    const result = summarizeDecisions(decisions, 50)
+    expect(result).toContain('Architecture Decisions')
+  })
+})
+
+describe('Story 16-1: Architecture skip on retry (AC3)', () => {
+  let db: BetterSqlite3Database
+  let tmpDir: string
+  let runId: string
+
+  beforeEach(() => {
+    const testDb = createTestDb()
+    db = testDb.db
+    tmpDir = testDb.tmpDir
+    runId = createTestRun(db)
+    seedPlanningRequirements(db, runId)
+  })
+
+  afterEach(() => {
+    db.close()
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('skips architecture dispatch when architecture artifact already exists', async () => {
+    // Pre-seed architecture decisions and artifact
+    for (const decision of SAMPLE_ARCHITECTURE_DECISIONS) {
+      createDecision(db, {
+        pipeline_run_id: runId,
+        phase: 'solutioning',
+        category: 'architecture',
+        key: decision.key,
+        value: decision.value,
+        rationale: decision.rationale,
+      })
+    }
+    registerArtifact(db, {
+      pipeline_run_id: runId,
+      phase: 'solutioning',
+      type: 'architecture',
+      path: 'decision-store://solutioning/architecture',
+      summary: '4 architecture decisions',
+    })
+
+    // Dispatcher only has story-generation result (no architecture result needed)
+    const storyResult = makeStoryDispatchResult()
+    const dispatcher = makeSequentialDispatcher([storyResult])
+    const deps = makeDeps(db, dispatcher)
+
+    const result = await runSolutioningPhase(deps, { runId })
+
+    expect(result.result).toBe('success')
+    // Should only dispatch once (story-generation), not twice
+    expect(vi.mocked(dispatcher.dispatch).mock.calls).toHaveLength(1)
+    expect(vi.mocked(dispatcher.dispatch).mock.calls[0][0].taskType).toBe('story-generation')
+  })
+
+  it('runs architecture when no artifact exists', async () => {
+    const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
+    const deps = makeDeps(db, dispatcher)
+
+    const result = await runSolutioningPhase(deps, { runId })
+
+    expect(result.result).toBe('success')
+    expect(vi.mocked(dispatcher.dispatch).mock.calls).toHaveLength(2)
+    expect(vi.mocked(dispatcher.dispatch).mock.calls[0][0].taskType).toBe('architecture')
+  })
+})
+
+describe('Story 16-1: Decision deduplication in solutioning (AC4)', () => {
+  let db: BetterSqlite3Database
+  let tmpDir: string
+  let runId: string
+
+  beforeEach(() => {
+    const testDb = createTestDb()
+    db = testDb.db
+    tmpDir = testDb.tmpDir
+    runId = createTestRun(db)
+    seedPlanningRequirements(db, runId)
+  })
+
+  afterEach(() => {
+    db.close()
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('does not duplicate architecture decisions on multiple runs', async () => {
+    const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
+    const deps = makeDeps(db, dispatcher)
+
+    // Run solutioning twice
+    await runSolutioningPhase(deps, { runId })
+
+    // Count architecture decisions — should match single run count
+    const archDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+      .filter((d) => d.category === 'architecture')
+    expect(archDecisions).toHaveLength(SAMPLE_ARCHITECTURE_DECISIONS.length)
+  })
+})

@@ -18,6 +18,7 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../migrations/index.js'
 import {
   createDecision,
+  upsertDecision,
   getDecisionsByPhase,
   getDecisionByKey,
   updateDecision,
@@ -874,5 +875,121 @@ describe('Story 12-6: DecisionSchema includes superseded_by', () => {
     const result = DecisionSchema.parse(minimalDecision)
     expect(result.superseded_by).toBeUndefined()
     expect(result.rationale).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// upsertDecision (Story 16-1, AC4)
+// ---------------------------------------------------------------------------
+
+describe('upsertDecision — decision deduplication on retry', () => {
+  let db: BetterSqlite3Database
+
+  beforeEach(() => {
+    db = openTestDb()
+  })
+
+  it('inserts a new decision when no match exists', () => {
+    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    const result = upsertDecision(db, {
+      pipeline_run_id: run.id,
+      phase: 'solutioning',
+      category: 'architecture',
+      key: 'language',
+      value: 'TypeScript',
+    })
+    expect(result.key).toBe('language')
+    expect(result.value).toBe('TypeScript')
+
+    const all = getDecisionsByPhase(db, 'solutioning')
+    expect(all).toHaveLength(1)
+  })
+
+  it('updates existing decision with same pipeline_run_id + category + key', () => {
+    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    const original = upsertDecision(db, {
+      pipeline_run_id: run.id,
+      phase: 'solutioning',
+      category: 'architecture',
+      key: 'database',
+      value: 'PostgreSQL',
+      rationale: 'Original choice',
+    })
+
+    const updated = upsertDecision(db, {
+      pipeline_run_id: run.id,
+      phase: 'solutioning',
+      category: 'architecture',
+      key: 'database',
+      value: 'SQLite',
+      rationale: 'Changed to embedded',
+    })
+
+    expect(updated.id).toBe(original.id)
+    expect(updated.value).toBe('SQLite')
+    expect(updated.rationale).toBe('Changed to embedded')
+
+    const all = getDecisionsByPhase(db, 'solutioning')
+    expect(all).toHaveLength(1)
+  })
+
+  it('does not deduplicate decisions with different categories', () => {
+    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    upsertDecision(db, {
+      pipeline_run_id: run.id,
+      phase: 'solutioning',
+      category: 'architecture',
+      key: 'key-1',
+      value: 'value-a',
+    })
+    upsertDecision(db, {
+      pipeline_run_id: run.id,
+      phase: 'solutioning',
+      category: 'epics',
+      key: 'key-1',
+      value: 'value-b',
+    })
+
+    const all = getDecisionsByPhase(db, 'solutioning')
+    expect(all).toHaveLength(2)
+  })
+
+  it('does not deduplicate decisions with different pipeline_run_ids', () => {
+    const run1 = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    const run2 = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    upsertDecision(db, {
+      pipeline_run_id: run1.id,
+      phase: 'solutioning',
+      category: 'architecture',
+      key: 'database',
+      value: 'SQLite',
+    })
+    upsertDecision(db, {
+      pipeline_run_id: run2.id,
+      phase: 'solutioning',
+      category: 'architecture',
+      key: 'database',
+      value: 'PostgreSQL',
+    })
+
+    const all = getDecisionsByPhase(db, 'solutioning')
+    expect(all).toHaveLength(2)
+  })
+
+  it('count after N upserts equals count from single insert', () => {
+    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    for (let i = 0; i < 5; i++) {
+      upsertDecision(db, {
+        pipeline_run_id: run.id,
+        phase: 'solutioning',
+        category: 'architecture',
+        key: 'framework',
+        value: `attempt-${i}`,
+      })
+    }
+
+    const all = getDecisionsByPhase(db, 'solutioning')
+    expect(all).toHaveLength(1)
+    expect(all[0].value).toBe('attempt-4')
   })
 })

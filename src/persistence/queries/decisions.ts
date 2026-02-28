@@ -75,6 +75,34 @@ export function createDecision(db: BetterSqlite3Database, input: CreateDecisionI
 }
 
 /**
+ * Insert or update a decision record.
+ * If a decision with the same pipeline_run_id, category, and key already exists,
+ * update its value and rationale. Otherwise, insert a new record.
+ */
+export function upsertDecision(db: BetterSqlite3Database, input: CreateDecisionInput): Decision {
+  const validated = CreateDecisionInputSchema.parse(input)
+
+  // Check for existing decision with same pipeline_run_id + category + key
+  const existing = db
+    .prepare(
+      'SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = ? AND key = ? LIMIT 1',
+    )
+    .get(validated.pipeline_run_id ?? null, validated.category, validated.key) as
+    | Decision
+    | undefined
+
+  if (existing) {
+    updateDecision(db, existing.id, {
+      value: validated.value,
+      rationale: validated.rationale ?? undefined,
+    })
+    return db.prepare('SELECT * FROM decisions WHERE id = ?').get(existing.id) as Decision
+  }
+
+  return createDecision(db, input)
+}
+
+/**
  * Get all decisions for a given phase, ordered by created_at ascending.
  */
 export function getDecisionsByPhase(db: BetterSqlite3Database, phase: string): Decision[] {

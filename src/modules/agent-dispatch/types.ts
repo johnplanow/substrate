@@ -121,6 +121,13 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
  * Only defined for task types that benefit from explicit turn budgets.
  */
 export const DEFAULT_MAX_TURNS: Record<string, number> = {
+  'analysis': 15,
+  'planning': 20,
+  'architecture': 25,
+  'story-generation': 30,
+  'readiness-check': 20,
+  'elicitation': 15,
+  'critique': 15,
   'dev-story': 75,
   'major-rework': 50,
   'code-review': 25,
