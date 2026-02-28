@@ -91,6 +91,7 @@ const mockOrchestratorRun = vi.fn()
 const mockOrchestratorPause = vi.fn()
 const mockOrchestratorResume = vi.fn()
 const mockOrchestratorGetStatus = vi.fn()
+const mockDiscoverPendingStoryKeys = vi.fn()
 
 vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
   createImplementationOrchestrator: vi.fn(() => ({
@@ -99,6 +100,7 @@ vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
     resume: mockOrchestratorResume,
     getStatus: mockOrchestratorGetStatus,
   })),
+  discoverPendingStoryKeys: (...args: unknown[]) => mockDiscoverPendingStoryKeys(...args),
 }))
 
 // Mock decisions queries
@@ -136,6 +138,29 @@ vi.mock('fs', () => ({
   cpSync: (...args: unknown[]) => mockCpSync(...args),
 }))
 
+// Mock fs/promises for readFile and writeFile
+const mockReadFile = vi.fn()
+const mockWriteFile = vi.fn()
+
+vi.mock('fs/promises', () => ({
+  readFile: (...args: unknown[]) => mockReadFile(...args),
+  writeFile: (...args: unknown[]) => mockWriteFile(...args),
+}))
+
+// Mock node:module createRequire for bmad-method resolution
+const mockRequireResolve = vi.fn()
+const mockRequireCall = vi.fn()
+
+vi.mock('node:module', () => {
+  return {
+    createRequire: vi.fn(() => {
+      const req = (id: string) => mockRequireCall(id)
+      req.resolve = (id: string) => mockRequireResolve(id)
+      return req
+    }),
+  }
+})
+
 // ---------------------------------------------------------------------------
 // Import module under test AFTER mocks
 // ---------------------------------------------------------------------------
@@ -149,6 +174,9 @@ import {
   formatTokenTelemetry,
   validateStoryKey,
   PACKAGE_ROOT,
+  resolveBmadMethodSrcPath,
+  resolveBmadMethodVersion,
+  scaffoldBmadFramework,
 } from '../auto.js'
 
 // ---------------------------------------------------------------------------
@@ -253,6 +281,10 @@ describe('runAutoInit', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockExistsSync.mockReturnValue(true)
+    // Default: bmad-method resolves successfully
+    mockRequireResolve.mockReturnValue('/fake/node_modules/bmad-method/package.json')
+    mockRequireCall.mockReturnValue({ version: '6.0.3' })
+    mockWriteFile.mockResolvedValue(undefined)
   })
 
   it('AC1: initializes pack and database, outputs success (human format)', async () => {
@@ -583,6 +615,7 @@ describe('runAutoRun', () => {
     mockCreatePipelineRun.mockReturnValue(mockPipelineRun())
     mockOrchestratorRun.mockResolvedValue(defaultStatus)
     mockGetTokenUsageSummary.mockReturnValue([])
+    mockDiscoverPendingStoryKeys.mockReturnValue([])
 
     // Setup mock db.prepare for story discovery
     const mockPrepare = vi.fn().mockReturnValue({
@@ -759,6 +792,57 @@ describe('runAutoRun', () => {
     expect(exitCode).toBe(0)
     expect(mockOrchestratorRun).not.toHaveBeenCalled()
     expect(stdoutWrite).toHaveBeenCalledWith(expect.stringContaining('No pending stories'))
+    stdoutWrite.mockRestore()
+  })
+
+  it('AC4 (14.2): falls back to discoverPendingStoryKeys when requirements table is empty', async () => {
+    // requirements table returns nothing
+    const mockPrepare = vi.fn().mockReturnValue({
+      all: vi.fn().mockReturnValue([]),
+      get: vi.fn().mockReturnValue(undefined),
+    })
+    mockDb = { prepare: mockPrepare }
+    // epics.md fallback returns two pending stories
+    mockDiscoverPendingStoryKeys.mockReturnValue(['7-2', '7-3'])
+
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    const exitCode = await runAutoRun({
+      pack: 'bmad',
+      stories: undefined,
+      concurrency: 1,
+      outputFormat: 'human',
+      projectRoot: '/test/project',
+    })
+
+    expect(exitCode).toBe(0)
+    expect(mockDiscoverPendingStoryKeys).toHaveBeenCalledWith('/test/project')
+    expect(mockOrchestratorRun).toHaveBeenCalledWith(expect.arrayContaining(['7-2', '7-3']))
+    const allOutput = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
+    expect(allOutput).toContain('Discovered 2 pending stories from epics.md')
+    expect(allOutput).toContain('7-2')
+    expect(allOutput).toContain('7-3')
+    stdoutWrite.mockRestore()
+  })
+
+  it('AC5 (14.2): --stories flag takes precedence over epics.md fallback', async () => {
+    // Even if mockDiscoverPendingStoryKeys returns something, it should NOT be called
+    // when --stories is provided
+    mockDiscoverPendingStoryKeys.mockReturnValue(['7-2', '7-3'])
+
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    const exitCode = await runAutoRun({
+      pack: 'bmad',
+      stories: '10-1',
+      concurrency: 1,
+      outputFormat: 'human',
+      projectRoot: '/test/project',
+    })
+
+    expect(exitCode).toBe(0)
+    expect(mockDiscoverPendingStoryKeys).not.toHaveBeenCalled()
+    expect(mockOrchestratorRun).toHaveBeenCalledWith(['10-1'])
     stdoutWrite.mockRestore()
   })
 

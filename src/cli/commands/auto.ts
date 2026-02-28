@@ -24,6 +24,7 @@ import { dirname, join } from 'path'
 import { mkdirSync, existsSync, cpSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
+import { createRequire } from 'node:module'
 
 // ---------------------------------------------------------------------------
 // Package root resolution (ESM-compatible)
@@ -48,6 +49,37 @@ export function findPackageRoot(startDir: string): string {
 
 // Static export for tests (3 levels is correct from src/cli/commands/)
 export const PACKAGE_ROOT = join(__dirname, '..', '..', '..')
+
+/**
+ * Resolve the absolute path to the bmad-method package's src/ directory.
+ * Uses createRequire so it works in ESM without import.meta.resolve polyfills.
+ * Returns null if bmad-method is not installed.
+ */
+export function resolveBmadMethodSrcPath(fromDir: string = __dirname): string | null {
+  try {
+    const require = createRequire(join(fromDir, 'synthetic.js'))
+    const pkgJsonPath = require.resolve('bmad-method/package.json')
+    return join(dirname(pkgJsonPath), 'src')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Read the version field from bmad-method's package.json.
+ * Returns 'unknown' if not resolvable.
+ */
+export function resolveBmadMethodVersion(fromDir: string = __dirname): string {
+  try {
+    const require = createRequire(join(fromDir, 'synthetic.js'))
+    const pkgJsonPath = require.resolve('bmad-method/package.json')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const pkg = require(pkgJsonPath) as { version?: string }
+    return pkg.version ?? 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createEventBus } from '../../core/event-bus.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
@@ -56,7 +88,7 @@ import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
 import { AdapterRegistry } from '../../adapters/adapter-registry.js'
-import { createImplementationOrchestrator } from '../../modules/implementation-orchestrator/index.js'
+import { createImplementationOrchestrator, discoverPendingStoryKeys } from '../../modules/implementation-orchestrator/index.js'
 import { createPhaseOrchestrator } from '../../modules/phase-orchestrator/index.js'
 import { runAnalysisPhase } from '../../modules/phase-orchestrator/phases/analysis.js'
 import { runPlanningPhase } from '../../modules/phase-orchestrator/phases/planning.js'
@@ -404,6 +436,91 @@ export function formatPipelineSummary(
 }
 
 // ---------------------------------------------------------------------------
+// BMAD framework scaffolding
+// ---------------------------------------------------------------------------
+
+/**
+ * Subdirectories of bmad-method/src/ that constitute the framework.
+ * tea/ is an optional add-on that may or may not be present in the package.
+ */
+const BMAD_FRAMEWORK_DIRS = ['core', 'bmm', 'tea'] as const
+
+/**
+ * Scaffold the BMAD framework from the bmad-method npm dependency into
+ * <projectRoot>/_bmad/.
+ *
+ * Behaviour:
+ * - If _bmad/ already exists and --force is NOT set → skip silently.
+ * - If _bmad/ already exists and --force IS set → warn and replace.
+ * - Copies each of BMAD_FRAMEWORK_DIRS from bmad-method/src/ that exist.
+ * - Generates a minimal _config/config.yaml stub if it doesn't already exist.
+ * - Logs "Scaffolding BMAD framework from bmad-method@<version>".
+ */
+export async function scaffoldBmadFramework(
+  projectRoot: string,
+  force: boolean,
+  outputFormat: OutputFormat,
+): Promise<void> {
+  const bmadDest = join(projectRoot, '_bmad')
+  const bmadExists = existsSync(bmadDest)
+
+  if (bmadExists && !force) {
+    // Existing _bmad/ — respect it, do not overwrite
+    return
+  }
+
+  const bmadSrc = resolveBmadMethodSrcPath()
+  if (!bmadSrc) {
+    // bmad-method not installed — log a warning but don't fail init
+    if (outputFormat !== 'json') {
+      process.stderr.write(
+        'Warning: bmad-method is not installed. BMAD framework not scaffolded. Run: npm install bmad-method\n',
+      )
+    }
+    return
+  }
+
+  const version = resolveBmadMethodVersion()
+
+  if (force && bmadExists) {
+    process.stderr.write(
+      `Warning: Replacing existing _bmad/ framework with bmad-method@${version}\n`,
+    )
+  }
+
+  process.stdout.write(`Scaffolding BMAD framework from bmad-method@${version}\n`)
+  logger.info({ version, dest: bmadDest }, 'Scaffolding BMAD framework')
+
+  // Copy each framework directory that exists in bmad-method/src/
+  for (const dir of BMAD_FRAMEWORK_DIRS) {
+    const srcDir = join(bmadSrc, dir)
+    if (existsSync(srcDir)) {
+      const destDir = join(bmadDest, dir)
+      mkdirSync(destDir, { recursive: true })
+      cpSync(srcDir, destDir, { recursive: true })
+      logger.info({ dir, dest: destDir }, 'Scaffolded BMAD framework directory')
+    }
+  }
+
+  // Generate minimal _config/config.yaml stub if not already present
+  const configDir = join(bmadDest, '_config')
+  const configFile = join(configDir, 'config.yaml')
+  if (!existsSync(configFile)) {
+    mkdirSync(configDir, { recursive: true })
+    const configStub = [
+      '# BMAD framework configuration',
+      `# Scaffolded from bmad-method@${version} by substrate auto init`,
+      '# This file is project-specific — customize as needed.',
+      'user_name: Human',
+      'communication_language: English',
+      'document_output_language: English',
+    ].join('\n') + '\n'
+    await writeFile(configFile, configStub, 'utf8')
+    logger.info({ configFile }, 'Generated _bmad/_config/config.yaml stub')
+  }
+}
+
+// ---------------------------------------------------------------------------
 // auto init action
 // ---------------------------------------------------------------------------
 
@@ -423,6 +540,9 @@ export async function runAutoInit(options: AutoInitOptions): Promise<number> {
   const dbPath = join(dbDir, 'substrate.db')
 
   try {
+    // Step -1: Scaffold BMAD framework from bmad-method dependency (runs before pack scaffolding)
+    await scaffoldBmadFramework(projectRoot, force, outputFormat)
+
     // Step 0: Scaffold pack if not present locally (or --force flag used)
     const localManifest = join(packPath, 'manifest.yaml')
     let scaffolded = false
@@ -722,6 +842,16 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
         }
 
         storyKeys = storyKeys.filter((k) => !completedStoryKeys.has(k))
+      }
+
+      // Fallback: discover from epics.md if requirements table is empty
+      if (storyKeys.length === 0) {
+        storyKeys = discoverPendingStoryKeys(projectRoot)
+        if (storyKeys.length > 0) {
+          process.stdout.write(
+            `Discovered ${storyKeys.length} pending stories from epics.md: ${storyKeys.join(', ')}\n`,
+          )
+        }
       }
 
       if (storyKeys.length === 0) {

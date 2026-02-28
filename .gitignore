@@ -10,6 +10,9 @@
 !.codex/prompts/
 .obsidian/
 
+# Installed from bmad-method dependency — run 'substrate auto init' to populate
+_bmad/
+
 # BMAD artifacts (local planning docs)
 _bmad-output/
 
