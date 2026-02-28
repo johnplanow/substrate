@@ -19,10 +19,26 @@
 
 import type { Command } from 'commander'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { join } from 'path'
-import { mkdirSync, existsSync } from 'fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'path'
+import { mkdirSync, existsSync, cpSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
+
+// ---------------------------------------------------------------------------
+// Package root resolution (ESM-compatible)
+// ---------------------------------------------------------------------------
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
+/**
+ * Absolute path to the Substrate package root.
+ *
+ * In source:  src/cli/commands/ → 3 levels up = repo root
+ * Post-build: dist/cli/commands/ → 3 levels up = dist parent = package root
+ */
+export const PACKAGE_ROOT = join(__dirname, '..', '..', '..')
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createEventBus } from '../../core/event-bus.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
@@ -386,10 +402,11 @@ export interface AutoInitOptions {
   pack: string
   projectRoot: string
   outputFormat: OutputFormat
+  force?: boolean
 }
 
 export async function runAutoInit(options: AutoInitOptions): Promise<number> {
-  const { pack: packName, projectRoot, outputFormat } = options
+  const { pack: packName, projectRoot, outputFormat, force = false } = options
 
   const packPath = join(projectRoot, 'packs', packName)
   const dbRoot = await resolveMainRepoRoot(projectRoot)
@@ -397,13 +414,39 @@ export async function runAutoInit(options: AutoInitOptions): Promise<number> {
   const dbPath = join(dbDir, 'substrate.db')
 
   try {
+    // Step 0: Scaffold pack if not present locally (or --force flag used)
+    const localManifest = join(packPath, 'manifest.yaml')
+    let scaffolded = false
+    if (!existsSync(localManifest) || force) {
+      const bundledPackPath = join(PACKAGE_ROOT, 'packs', packName)
+      if (!existsSync(join(bundledPackPath, 'manifest.yaml'))) {
+        // Bundled pack missing — bad install
+        const errorMsg = `Pack '${packName}' not found locally or in bundled packs. Try reinstalling Substrate.`
+        if (outputFormat === 'json') {
+          process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+        } else {
+          process.stderr.write(`Error: ${errorMsg}\n`)
+        }
+        return 1
+      }
+      if (force && existsSync(localManifest)) {
+        logger.info({ pack: packName }, 'Replacing existing pack with bundled version')
+        process.stderr.write(`Warning: Replacing existing pack '${packName}' with bundled version\n`)
+      }
+      mkdirSync(dirname(packPath), { recursive: true })
+      cpSync(bundledPackPath, packPath, { recursive: true })
+      logger.info({ pack: packName, dest: packPath }, 'Scaffolded methodology pack')
+      process.stdout.write(`Scaffolding methodology pack '${packName}' into packs/${packName}/\n`)
+      scaffolded = true
+    }
+
     // Step 1: Validate the pack
     const packLoader = createPackLoader()
     try {
       await packLoader.load(packPath)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      const errorMsg = `Methodology pack '${packName}' not found. Run 'substrate auto init' first.\n${msg}`
+      const errorMsg = `Methodology pack '${packName}' not found. Check that packs/${packName}/manifest.yaml exists or try reinstalling Substrate.\n${msg}`
       if (outputFormat === 'json') {
         process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
       } else {
@@ -426,7 +469,7 @@ export async function runAutoInit(options: AutoInitOptions): Promise<number> {
     const successMsg = `Pack '${packName}' and database initialized successfully at ${dbPath}`
     if (outputFormat === 'json') {
       process.stdout.write(
-        formatOutput({ pack: packName, dbPath }, 'json', true) + '\n',
+        formatOutput({ pack: packName, dbPath, scaffolded }, 'json', true) + '\n',
       )
     } else {
       process.stdout.write(`${successMsg}\n`)
@@ -2238,17 +2281,19 @@ export function registerAutoCommand(
     .description('Initialize a methodology pack and decision store for autonomous pipeline')
     .option('--pack <name>', 'Methodology pack name', 'bmad')
     .option('--project-root <path>', 'Project root directory', projectRoot)
+    .option('--force', 'Overwrite existing local pack with bundled version')
     .option(
       '--output-format <format>',
       'Output format: human (default) or json',
       'human',
     )
-    .action(async (opts: { pack: string; projectRoot: string; outputFormat: string }) => {
+    .action(async (opts: { pack: string; projectRoot: string; outputFormat: string; force?: boolean }) => {
       const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
       const exitCode = await runAutoInit({
         pack: opts.pack,
         projectRoot: opts.projectRoot,
         outputFormat,
+        force: opts.force ?? false,
       })
       process.exitCode = exitCode
     })

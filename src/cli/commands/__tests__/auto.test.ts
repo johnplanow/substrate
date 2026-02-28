@@ -125,13 +125,15 @@ vi.mock('../../../core/event-bus.js', () => ({
   createEventBus: vi.fn(() => mockEventBus),
 }))
 
-// Mock fs for existsSync and mkdirSync
+// Mock fs for existsSync, mkdirSync, cpSync
 const mockExistsSync = vi.fn()
 const mockMkdirSync = vi.fn()
+const mockCpSync = vi.fn()
 
 vi.mock('fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
+  cpSync: (...args: unknown[]) => mockCpSync(...args),
 }))
 
 // ---------------------------------------------------------------------------
@@ -146,6 +148,7 @@ import {
   formatOutput,
   formatTokenTelemetry,
   validateStoryKey,
+  PACKAGE_ROOT,
 } from '../auto.js'
 
 // ---------------------------------------------------------------------------
@@ -271,7 +274,14 @@ describe('runAutoInit', () => {
 
   it('AC1: creates .substrate directory if it does not exist', async () => {
     mockPackLoad.mockResolvedValue(mockPack())
-    mockExistsSync.mockReturnValue(false)
+    // Local pack manifest missing, but bundled pack manifest exists (so scaffolding succeeds)
+    // .substrate dir also missing → mkdirSync should be called
+    mockExistsSync.mockImplementation((p: string) => {
+      // Bundled pack manifest in PACKAGE_ROOT → exists
+      if (p.includes(PACKAGE_ROOT) && p.endsWith('manifest.yaml')) return true
+      // Everything else (local manifest, .substrate dir) → does not exist
+      return false
+    })
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     const exitCode = await runAutoInit({
@@ -340,6 +350,217 @@ describe('runAutoInit', () => {
     expect(parsed.success).toBe(false)
     expect(parsed.error).toContain("not found")
     stdoutWrite.mockRestore()
+  })
+
+  // ---------------------------------------------------------------------------
+  // Story 14.1 — Pack Scaffolding Tests
+  // ---------------------------------------------------------------------------
+
+  it('AC2: scaffolds pack when local manifest is missing', async () => {
+    // Local manifest missing → existsSync for local = false; bundled = true; dbDir = false
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.includes('packs/bmad/manifest.yaml') && p.startsWith('/test/project')) return false
+      if (p.includes(`${PACKAGE_ROOT}/packs`) || p.includes('packs/bmad/manifest.yaml')) return true
+      return false // dbDir
+    })
+    mockPackLoad.mockResolvedValue(mockPack())
+
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const exitCode = await runAutoInit({
+      pack: 'bmad',
+      projectRoot: '/test/project',
+      outputFormat: 'human',
+    })
+
+    expect(exitCode).toBe(0)
+    expect(mockCpSync).toHaveBeenCalledWith(
+      expect.stringContaining('packs/bmad'),
+      '/test/project/packs/bmad',
+      { recursive: true },
+    )
+    const allOutput = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
+    expect(allOutput).toContain("Scaffolding methodology pack 'bmad' into packs/bmad/")
+    stdoutWrite.mockRestore()
+  })
+
+  it('AC3: skips scaffold when local pack already exists', async () => {
+    // Local manifest exists → no scaffolding
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.includes('.substrate') && !p.endsWith('.db')) return true // dbDir
+      return true // everything else including local manifest
+    })
+    mockPackLoad.mockResolvedValue(mockPack())
+
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const exitCode = await runAutoInit({
+      pack: 'bmad',
+      projectRoot: '/test/project',
+      outputFormat: 'human',
+    })
+
+    expect(exitCode).toBe(0)
+    expect(mockCpSync).not.toHaveBeenCalled()
+    stdoutWrite.mockRestore()
+  })
+
+  it('AC5: overwrites existing pack with --force flag', async () => {
+    // Local manifest exists, but --force is set
+    mockExistsSync.mockReturnValue(true)
+    mockPackLoad.mockResolvedValue(mockPack())
+
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const exitCode = await runAutoInit({
+      pack: 'bmad',
+      projectRoot: '/test/project',
+      outputFormat: 'human',
+      force: true,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(mockCpSync).toHaveBeenCalled()
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining("Replacing existing pack 'bmad' with bundled version"),
+    )
+    const allOutput = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
+    expect(allOutput).toContain("Scaffolding methodology pack 'bmad' into packs/bmad/")
+    stderrWrite.mockRestore()
+    stdoutWrite.mockRestore()
+  })
+
+  it('AC4: error when bundled pack is missing (bad install)', async () => {
+    // Local manifest missing AND bundled pack missing
+    mockExistsSync.mockReturnValue(false)
+    mockPackLoad.mockResolvedValue(mockPack())
+
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exitCode = await runAutoInit({
+      pack: 'bmad',
+      projectRoot: '/test/project',
+      outputFormat: 'human',
+    })
+
+    expect(exitCode).toBe(1)
+    expect(mockCpSync).not.toHaveBeenCalled()
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining("not found locally or in bundled packs"),
+    )
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining("reinstalling Substrate"),
+    )
+    stderrWrite.mockRestore()
+  })
+
+  it('AC4: bundled pack missing error in JSON format', async () => {
+    mockExistsSync.mockReturnValue(false)
+    mockPackLoad.mockResolvedValue(mockPack())
+
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const exitCode = await runAutoInit({
+      pack: 'bmad',
+      projectRoot: '/test/project',
+      outputFormat: 'json',
+    })
+
+    expect(exitCode).toBe(1)
+    const calls = stdoutWrite.mock.calls.map((c) => String(c[0]))
+    const jsonLine = calls.find((c) => c.includes('"success"'))
+    expect(jsonLine).toBeDefined()
+    const parsed = JSON.parse(jsonLine!)
+    expect(parsed.success).toBe(false)
+    expect(parsed.error).toContain("reinstalling Substrate")
+    stdoutWrite.mockRestore()
+  })
+
+  it('AC4: error message does NOT say "Run substrate auto init first"', async () => {
+    mockExistsSync.mockReturnValue(false)
+    mockPackLoad.mockResolvedValue(mockPack())
+
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    await runAutoInit({
+      pack: 'bmad',
+      projectRoot: '/test/project',
+      outputFormat: 'human',
+    })
+
+    const allOutput = stderrWrite.mock.calls.map((c) => String(c[0])).join('')
+    expect(allOutput).not.toContain("Run 'substrate auto init'")
+    stderrWrite.mockRestore()
+  })
+
+  it('AC6: JSON output includes scaffolded field when pack is copied', async () => {
+    // Local manifest missing → scaffold happens
+    mockExistsSync.mockImplementation((p: string) => {
+      if (typeof p === 'string' && p.startsWith('/test/project') && p.endsWith('manifest.yaml')) return false
+      return true
+    })
+    mockPackLoad.mockResolvedValue(mockPack())
+
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const exitCode = await runAutoInit({
+      pack: 'bmad',
+      projectRoot: '/test/project',
+      outputFormat: 'json',
+    })
+
+    expect(exitCode).toBe(0)
+    const calls = stdoutWrite.mock.calls.map((c) => String(c[0]))
+    const jsonLine = calls.find((c) => c.includes('"success"'))
+    expect(jsonLine).toBeDefined()
+    const parsed = JSON.parse(jsonLine!)
+    expect(parsed.success).toBe(true)
+    expect(parsed.data.scaffolded).toBe(true)
+    stdoutWrite.mockRestore()
+  })
+
+  it('AC6: JSON output scaffolded is false when pack already exists', async () => {
+    mockExistsSync.mockReturnValue(true)
+    mockPackLoad.mockResolvedValue(mockPack())
+
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const exitCode = await runAutoInit({
+      pack: 'bmad',
+      projectRoot: '/test/project',
+      outputFormat: 'json',
+    })
+
+    expect(exitCode).toBe(0)
+    const calls = stdoutWrite.mock.calls.map((c) => String(c[0]))
+    const jsonLine = calls.find((c) => c.includes('"success"'))
+    expect(jsonLine).toBeDefined()
+    const parsed = JSON.parse(jsonLine!)
+    expect(parsed.success).toBe(true)
+    expect(parsed.data.scaffolded).toBe(false)
+    stdoutWrite.mockRestore()
+  })
+
+  it('AC7: human-readable scaffold message printed when copying pack', async () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (typeof p === 'string' && p.startsWith('/test/project') && p.endsWith('manifest.yaml')) return false
+      return true
+    })
+    mockPackLoad.mockResolvedValue(mockPack())
+
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    await runAutoInit({
+      pack: 'bmad',
+      projectRoot: '/test/project',
+      outputFormat: 'human',
+    })
+
+    const allOutput = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
+    expect(allOutput).toContain("Scaffolding methodology pack 'bmad' into packs/bmad/")
+    stdoutWrite.mockRestore()
+  })
+
+  it('AC5: --force flag is registered on auto init command', () => {
+    const program = new Command()
+    registerAutoCommand(program, '1.0.0', '/test/project')
+
+    const autoCmd = program.commands.find((c) => c.name() === 'auto')!
+    const initCmd = autoCmd.commands.find((c) => c.name() === 'init')!
+    const forceOpt = initCmd.options.find((o) => o.long === '--force')
+    expect(forceOpt).toBeDefined()
   })
 })
 
