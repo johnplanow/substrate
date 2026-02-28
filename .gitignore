@@ -10,6 +10,9 @@
 !.codex/prompts/
 .obsidian/
 
+# BMAD artifacts (local planning docs)
+_bmad-output/
+
 # Runtime state
 .substrate/
 amendment-delta-*.md
