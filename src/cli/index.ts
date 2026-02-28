@@ -145,8 +145,9 @@ function checkForUpdatesInBackground(currentVersion: string): void {
     const vm = createVersionManager()
     const result = await vm.checkForUpdates()
     if (result.updateAvailable) {
+      const pfx = process.env['npm_command'] === 'exec' ? 'npx ' : ''
       process.stderr.write(
-        `\nUpdate available: ${result.currentVersion} → ${result.latestVersion}. Run \`substrate upgrade\` to update.\n`
+        `\nUpdate available: ${result.currentVersion} → ${result.latestVersion}. Run \`${pfx}substrate upgrade\` to update.\n`
       )
     }
   }).catch(() => {

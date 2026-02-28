@@ -39,11 +39,7 @@ const logger = createLogger('init')
  * When true, prefix suggested commands with `npx `.
  */
 function isNpxInvocation(): boolean {
-  return (
-    process.env['npm_execpath'] !== undefined &&
-    (process.env['npm_execpath']!.includes('npx') ||
-      process.env['npm_lifecycle_event'] === undefined)
-  )
+  return process.env['npm_command'] === 'exec'
 }
 
 // ---------------------------------------------------------------------------
