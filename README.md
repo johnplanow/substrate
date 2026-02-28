@@ -4,9 +4,9 @@
 
 # Substrate
 
-Autonomous software development pipeline powered by multi-agent orchestration. Substrate takes a project idea from concept through analysis, planning, architecture, implementation, and code review — coordinating CLI-based AI agents (Claude Code, Codex, Gemini CLI) to do the work.
+Substrate is an autonomous software development pipeline. Describe your project in plain language and Substrate handles the rest — coordinating multiple AI coding agents (Claude Code, Codex, Gemini CLI) working in parallel across isolated branches to take your idea from concept through implementation and code review.
 
-Substrate follows a modular monolith pattern running as a single Node.js process. The orchestrator never calls LLMs directly — all intelligent work is delegated to CLI agents running as child processes in isolated git worktrees. The autonomous pipeline compiles BMAD methodology workflows into token-efficient agent dispatches.
+Unlike API-based orchestrators, Substrate routes work through the CLI tools you already have installed, maximizing your existing AI subscriptions before falling back to pay-per-token billing. Runs are persistent and resumable — no lost work, no re-execution waste, full cost visibility across every provider.
 
 ## Prerequisites
 
