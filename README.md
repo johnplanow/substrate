@@ -38,6 +38,8 @@ npx substrate --version   # project install
 substrate --version        # global install
 ```
 
+> Examples below use `[npx] substrate` — include `npx` for project installs, omit for global.
+
 ## Quick Start
 
 ### Autonomous Pipeline (recommended)
@@ -47,19 +49,19 @@ Got an idea? Substrate can take it from concept to working code.
 1. **Brainstorm** — explore your idea with a multi-persona AI session:
 
 ```bash
-substrate brainstorm
+[npx] substrate brainstorm
 ```
 
 2. **Initialize the pipeline** — set up the methodology pack and decision store:
 
 ```bash
-substrate auto init
+[npx] substrate auto init
 ```
 
 3. **Run the full pipeline** — analysis, planning, solutioning, and implementation:
 
 ```bash
-substrate auto run
+[npx] substrate auto run
 ```
 
 Substrate walks through the entire software development lifecycle autonomously:
@@ -71,9 +73,9 @@ Substrate walks through the entire software development lifecycle autonomously:
 You can start from any phase or resume an interrupted run:
 
 ```bash
-substrate auto run --from solutioning   # Skip to a specific phase
-substrate auto resume                    # Pick up where you left off
-substrate auto status                    # Check pipeline progress
+[npx] substrate auto run --from solutioning   # Skip to a specific phase
+[npx] substrate auto resume                    # Pick up where you left off
+[npx] substrate auto status                    # Check pipeline progress
 ```
 
 ### Pick Up an Existing BMAD Project
@@ -93,8 +95,8 @@ Already have a project with BMAD artifacts (vanilla BMAD or the Beads-based ai-t
 
 ```bash
 npm install substrate-ai
-substrate auto init                          # Seeds context from _bmad-output/
-substrate auto run --stories 5-3,5-4,6-1    # Only the unfinished story keys
+[npx] substrate auto init                          # Seeds context from _bmad-output/
+[npx] substrate auto run --stories 5-3,5-4,6-1    # Only the unfinished story keys
 ```
 
 For each story, Substrate runs: **create-story** (skipped if story file exists) → **dev-story** (implement) → **code-review** (adversarial review). Non-conflicting stories run in parallel automatically.
@@ -139,7 +141,7 @@ Substrate does not read `sprint-status.yaml` or `.beads/` — you decide what's 
 
 ## Configuration
 
-Substrate reads configuration from `.substrate/config.yaml` in your project root. Run `substrate init` to generate a default config.
+Substrate reads configuration from `.substrate/config.yaml` in your project root. Run `[npx] substrate init` to generate a default config.
 
 ## Development
 
@@ -193,8 +195,8 @@ tasks:
 ```
 
 ```bash
-substrate start --graph tasks.yaml              # Execute the graph
-substrate plan --graph tasks.yaml               # Preview without running
+[npx] substrate start --graph tasks.yaml              # Execute the graph
+[npx] substrate plan --graph tasks.yaml               # Preview without running
 ```
 
 Tasks without dependencies run in parallel. Each agent gets its own isolated git worktree.
