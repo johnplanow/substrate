@@ -24,8 +24,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Configure npm registry for OIDC publishing
-        run: npm config set registry https://registry.npmjs.org/
+      - name: Upgrade npm for OIDC trusted publishing (requires >= 11.5.1)
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: npm ci
