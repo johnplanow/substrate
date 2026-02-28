@@ -33,7 +33,7 @@ jobs:
         continue-on-error: true
 
       - name: Run tests
-        run: npm test
+        run: npx vitest run
         continue-on-error: true
 
       - name: Build
