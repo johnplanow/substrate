@@ -18,10 +18,14 @@ import {
   createDecision,
   createRequirement,
   getDecisionsByPhaseForRun,
+  getPipelineRunById,
   registerArtifact,
 } from '../../../persistence/queries/decisions.js'
-import { runSteps } from '../step-runner.js'
+import { runSteps, resolveContext, formatDecisionsForInjection } from '../step-runner.js'
 import type { StepDefinition } from '../step-runner.js'
+import { createLogger } from '../../../utils/logger.js'
+
+const logger = createLogger('planning-phase')
 import {
   PlanningOutputSchema,
   PlanningClassificationOutputSchema,
@@ -66,6 +70,48 @@ const BRIEF_FIELDS = [
   'constraints',
   'technology_constraints',
 ] as const
+
+// ---------------------------------------------------------------------------
+// Tech stack constraint validation
+// ---------------------------------------------------------------------------
+
+/** Keywords indicating JavaScript/TypeScript/Node.js ecosystem */
+const JS_TS_PATTERN = /\b(TypeScript|JavaScript|Node\.js|NestJS|Express|Fastify|Hapi|Koa|Next\.js.*backend|Next\.js.*API|Deno|Bun)\b/i
+
+/** Keywords indicating non-JS backend languages that satisfy high-concurrency constraints */
+const COMPLIANT_LANG_PATTERN = /\b(Kotlin|JVM|Java|Go\b|Golang|Rust|C#|\.NET|Scala|Erlang|Elixir)\b/i
+
+/**
+ * Check whether the tech stack's language/framework fields violate technology
+ * constraints that exclude JavaScript/Node.js from backend services.
+ *
+ * @returns A violation message if detected, or null if compliant.
+ */
+function detectTechStackViolation(
+  techStack: Record<string, string>,
+  technologyConstraints: Array<{ key: string; value: string }>,
+): string | null {
+  // Check if any technology constraint discourages/excludes JS/Node
+  const constraintsText = technologyConstraints.map((c) => c.value).join(' ')
+  const excludesJS =
+    /\b(excluded|not.*right choice|not.*recommended|avoid|do not use|prohibited)\b/i.test(constraintsText) &&
+    /\b(JavaScript|Node\.js|TypeScript)\b/i.test(constraintsText)
+  const prefersNonJS = COMPLIANT_LANG_PATTERN.test(constraintsText) &&
+    /\b(prefer|must|required|evaluate|choose)\b/i.test(constraintsText)
+
+  if (!excludesJS && !prefersNonJS) return null // No relevant constraint
+
+  // Check the language and framework fields for JS/TS
+  const langValue = techStack['language'] ?? ''
+  const frameworkValue = techStack['framework'] ?? techStack['backend_framework'] ?? ''
+
+  if (JS_TS_PATTERN.test(langValue) || JS_TS_PATTERN.test(frameworkValue)) {
+    return `Tech stack violates technology constraints: language="${langValue}", framework="${frameworkValue}". ` +
+      `Constraints specify: ${constraintsText.substring(0, 200)}`
+  }
+
+  return null
+}
 
 // ---------------------------------------------------------------------------
 // formatProductBrief
@@ -153,6 +199,7 @@ function buildPlanningSteps(): StepDefinition[] {
         { placeholder: 'classification', source: 'step:planning-step-1-classification' },
         { placeholder: 'functional_requirements', source: 'step:planning-step-2-frs' },
         { placeholder: 'technology_constraints', source: 'decision:analysis.technology-constraints' },
+        { placeholder: 'concept', source: 'param:concept' },
       ],
       persist: [
         { field: 'non_functional_requirements', category: 'non-functional-requirements', key: 'array' },
@@ -195,8 +242,19 @@ async function runPlanningMultiStep(
       }
     }
 
+    // Retrieve original concept from pipeline run config_json so planning step 3
+    // can see the user's unfiltered technology constraint language.
+    let concept = ''
+    const run = getPipelineRunById(db, runId)
+    if (run?.config_json) {
+      try {
+        const config = JSON.parse(run.config_json) as { concept?: string }
+        concept = config.concept ?? ''
+      } catch { /* ignore parse errors */ }
+    }
+
     const steps = buildPlanningSteps()
-    const result = await runSteps(steps, deps, params.runId, 'planning', {})
+    const result = await runSteps(steps, deps, params.runId, 'planning', { concept })
 
     if (!result.success) {
       return {
@@ -209,7 +267,8 @@ async function runPlanningMultiStep(
 
     // Extract outputs from steps
     const frsOutput = result.steps[1]?.parsed
-    const nfrsOutput = result.steps[2]?.parsed
+    let nfrsOutput = result.steps[2]?.parsed
+    let totalTokenUsage = { ...result.tokenUsage }
 
     if (!frsOutput || !nfrsOutput) {
       return {
@@ -217,6 +276,74 @@ async function runPlanningMultiStep(
         error: 'incomplete_steps',
         details: 'Not all planning steps produced output',
         tokenUsage: result.tokenUsage,
+      }
+    }
+
+    // Validate tech stack against technology constraints — retry step 3 once if violated
+    const techStack = nfrsOutput.tech_stack as Record<string, string> | undefined
+    if (techStack) {
+      const techConstraintDecisions = allAnalysisDecisions.filter(
+        (d) => d.category === 'technology-constraints',
+      )
+      const violation = detectTechStackViolation(techStack, techConstraintDecisions)
+
+      if (violation) {
+        logger.warn({ violation }, 'Tech stack constraint violation detected — retrying step 3 with correction')
+
+        // Build a corrected prompt: prepend the violation as feedback
+        const correctionPrefix =
+          `CRITICAL CORRECTION: Your previous output was rejected because it violates the stated technology constraints.\n\n` +
+          `Violation: ${violation}\n\n` +
+          `You MUST NOT use TypeScript, JavaScript, or Node.js for ANY backend service. ` +
+          `Choose from Go, Kotlin/JVM, or Rust as stated in the technology constraints.\n\n` +
+          `Re-generate your output with a compliant tech stack. Everything else (NFRs, domain model, out-of-scope) can remain the same.\n\n---\n\n`
+
+        // Re-dispatch step 3 with correction prefix
+        const step3Template = await deps.pack.getPrompt('planning-step-3-nfrs')
+
+        // Resolve the same context refs as the original step 3
+        const stepOutputs = new Map<string, Record<string, unknown>>()
+        stepOutputs.set('planning-step-1-classification', result.steps[0]?.parsed ?? {})
+        stepOutputs.set('planning-step-2-frs', frsOutput)
+
+        let correctedPrompt = step3Template
+        const step3Def = steps[2]
+        for (const ref of step3Def?.context ?? []) {
+          const value = resolveContext(ref, deps, runId, { concept }, stepOutputs)
+          correctedPrompt = correctedPrompt.replace(`{{${ref.placeholder}}}`, value)
+        }
+        correctedPrompt = correctionPrefix + correctedPrompt
+
+        const retryHandle = deps.dispatcher.dispatch({
+          prompt: correctedPrompt,
+          agent: 'claude-code',
+          taskType: 'planning-nfrs',
+          outputSchema: PlanningNFRsOutputSchema,
+        })
+        const retryResult = await retryHandle.result
+        totalTokenUsage.input += retryResult.tokenEstimate.input
+        totalTokenUsage.output += retryResult.tokenEstimate.output
+
+        if (
+          retryResult.status === 'completed' &&
+          retryResult.parsed !== null &&
+          (retryResult.parsed as Record<string, unknown>).result !== 'failed'
+        ) {
+          const retryParsed = retryResult.parsed as Record<string, unknown>
+          const retryTechStack = retryParsed.tech_stack as Record<string, string> | undefined
+          const retryViolation = retryTechStack
+            ? detectTechStackViolation(retryTechStack, techConstraintDecisions)
+            : null
+
+          if (!retryViolation) {
+            logger.info('Retry produced compliant tech stack — using corrected output')
+            nfrsOutput = retryParsed
+          } else {
+            logger.warn({ retryViolation }, 'Retry still violates constraints — using original output')
+          }
+        } else {
+          logger.warn('Retry dispatch failed — using original output')
+        }
       }
     }
 
@@ -231,7 +358,7 @@ async function runPlanningMultiStep(
         result: 'failed',
         error: 'missing_functional_requirements',
         details: 'FRs step did not return functional_requirements',
-        tokenUsage: result.tokenUsage,
+        tokenUsage: totalTokenUsage,
       }
     }
 
@@ -240,7 +367,7 @@ async function runPlanningMultiStep(
         result: 'failed',
         error: 'missing_non_functional_requirements',
         details: 'NFRs step did not return non_functional_requirements',
-        tokenUsage: result.tokenUsage,
+        tokenUsage: totalTokenUsage,
       }
     }
 
@@ -272,7 +399,7 @@ async function runPlanningMultiStep(
       result: 'success',
       requirements_count: requirementsCount,
       user_stories_count: userStoriesCount,
-      tokenUsage: result.tokenUsage,
+      tokenUsage: totalTokenUsage,
     }
     const artifactId = result.steps[2]?.artifactId
     if (artifactId !== undefined) {

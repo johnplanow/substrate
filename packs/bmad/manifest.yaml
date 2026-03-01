@@ -58,6 +58,8 @@ phases:
             source: "step:planning-step-2-frs"
           - placeholder: technology_constraints
             source: "decision:analysis.technology-constraints"
+          - placeholder: concept
+            source: "param:concept"
         critique: true
   - name: ux-design
     description: UX discovery, design system, and user journey mapping (optional — runs when uxDesign is true)

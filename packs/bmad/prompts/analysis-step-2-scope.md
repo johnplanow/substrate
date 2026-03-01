@@ -36,6 +36,7 @@ Building on the vision analysis above, define the **scope**: core features, succ
    - Extract explicit technology preferences or exclusions stated in the concept
    - Cloud platform choices (e.g., "GCP", "AWS"), programming language mandates (e.g., "Kotlin/JVM", "Node.js excluded"), framework preferences, infrastructure choices
    - If the concept has a "Technology Constraints" section, extract ALL items from it into this field
+   - **Preserve the FULL scope of the user's restriction** — if the user says a technology is "not the right choice" for the backend, do NOT narrow it to a specific subsystem (e.g., "excluded from critical path only"). The exclusion applies to ALL backend services unless the user explicitly limits the scope.
    - Include ONLY preferences explicitly stated by the user — do not infer or add your own
    - If none are stated in the concept, emit an empty array
 

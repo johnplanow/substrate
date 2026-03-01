@@ -12,7 +12,7 @@
  *  8. Returns a typed AnalysisResult
  */
 
-import { createDecision, registerArtifact } from '../../../persistence/queries/decisions.js'
+import { createDecision, upsertDecision, registerArtifact } from '../../../persistence/queries/decisions.js'
 import { runSteps } from '../step-runner.js'
 import type { StepDefinition } from '../step-runner.js'
 import { AnalysisOutputSchema, AnalysisVisionOutputSchema, AnalysisScopeOutputSchema } from './schemas.js'
@@ -50,6 +50,39 @@ const BRIEF_FIELDS = [
   'constraints',
   'technology_constraints',
 ] as const
+
+// ---------------------------------------------------------------------------
+// Technology constraint reclassification
+// ---------------------------------------------------------------------------
+
+/** Pattern matching cloud platforms, languages, frameworks, and infra tech */
+const TECH_CONSTRAINT_PATTERN =
+  /\b(GCP|AWS|Azure|Google Cloud|Cloud Run|GKE|Cloud SQL|Memorystore|Pub\/Sub|BigQuery|EKS|Lambda|S3|Kotlin|JVM|Java|Go\b|Golang|Rust|Node\.js|JavaScript|TypeScript|Python|C#|\.NET|Spring Boot|Ktor|Micronaut|Quarkus|NestJS|Express|multi-region|active-active|AES-256|TLS\s*1\.[23]|encryption at rest|encryption in transit)/i
+
+/**
+ * Scan constraints for technology-related items and move them to
+ * technology_constraints. Models consistently lump all constraints
+ * together despite prompt instructions to separate them.
+ */
+function reclassifyTechnologyConstraints(brief: ProductBrief): void {
+  if (brief.technology_constraints.length > 0) return // model already separated them
+
+  const techItems: string[] = []
+  const nonTechItems: string[] = []
+
+  for (const c of brief.constraints) {
+    if (TECH_CONSTRAINT_PATTERN.test(c)) {
+      techItems.push(c)
+    } else {
+      nonTechItems.push(c)
+    }
+  }
+
+  if (techItems.length > 0) {
+    brief.constraints = nonTechItems
+    brief.technology_constraints = techItems
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Multi-step analysis definitions
@@ -148,7 +181,25 @@ async function runAnalysisMultiStep(
       technology_constraints: (scopeOutput.technology_constraints as string[]) ?? [],
     }
 
-    // The step runner already persisted individual fields and registered artifact
+    // Post-process: reclassify technology items that the model put in constraints
+    reclassifyTechnologyConstraints(brief)
+    if (brief.technology_constraints.length > 0) {
+      upsertDecision(deps.db, {
+        pipeline_run_id: params.runId,
+        phase: 'analysis',
+        category: 'product-brief',
+        key: 'constraints',
+        value: JSON.stringify(brief.constraints),
+      })
+      upsertDecision(deps.db, {
+        pipeline_run_id: params.runId,
+        phase: 'analysis',
+        category: 'technology-constraints',
+        key: 'technology_constraints',
+        value: JSON.stringify(brief.technology_constraints),
+      })
+    }
+
     const analysisResult: AnalysisResult = {
       result: 'success',
       product_brief: brief,
