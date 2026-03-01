@@ -12,6 +12,18 @@ bd close <id>         # Complete work
 bd sync               # Sync with git
 ```
 
+## Dev Workflow — Testing Local CLI Changes
+
+**IMPORTANT:** The `substrate` command is a globally installed published version — it does NOT run your local changes.
+
+To test local CLI changes:
+1. Build first: `npm run build`
+2. Run via: `npm run substrate:dev -- <args>`
+
+Example: `npm run substrate:dev -- auto run --events --stories 10-1`
+
+**Never run bare `substrate` to test local changes.** It will silently use the published version, not your code.
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.

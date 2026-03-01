@@ -54,7 +54,8 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "substrate:dev": "node dist/cli/index.js"
   },
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",
