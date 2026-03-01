@@ -18,12 +18,12 @@
  *     e. Parses StoryGenerationOutputSchema from YAML output
  *     f. Stores epics and stories as decisions; creates Requirement records per story
  *     g. Registers stories artifact
- *  3. Readiness Check:
- *     a. Queries all planning-phase functional requirements for this run
- *     b. Queries all solutioning-phase stories for this run
- *     c. Uses QualityGate to check FR-to-story traceability
- *     d. If gate fails and no retries yet, re-dispatches story generation with gap analysis
- *     e. Runs readiness check again after retry
+ *  3. Adversarial Readiness Check (Story 16.6):
+ *     a. Assembles comprehensive context (FRs, NFRs, architecture decisions, stories, UX decisions)
+ *     b. Dispatches readiness-check sub-agent for adversarial review
+ *     c. Agent evaluates FR coverage, architecture compliance, story quality, UX alignment, dependency validity
+ *     d. Handles verdict: READY (proceed), NEEDS_WORK (retry with gap analysis), NOT_READY (fail)
+ *     e. If NEEDS_WORK with blockers: retries story generation with gap analysis, re-checks (max 1 retry)
  *     f. Returns { result: 'failed', readiness_passed: false } if still failing after retry
  *  4. Returns a typed SolutioningResult with decision/epic/story counts and readiness status
  */
@@ -35,10 +35,11 @@ import {
   getArtifactByTypeForRun,
   registerArtifact,
 } from '../../../persistence/queries/decisions.js'
-import { createQualityGate } from '../../quality-gates/gate-impl.js'
 import { createLogger } from '../../../utils/logger.js'
 import { calculateDynamicBudget, summarizeDecisions } from '../budget-utils.js'
 import { runSteps } from '../step-runner.js'
+import { ReadinessOutputSchema } from '../schemas/readiness-output.js'
+import type { ReadinessFinding, ReadinessOutput } from '../schemas/readiness-output.js'
 
 import type { StepDefinition } from '../step-runner.js'
 import {
@@ -86,6 +87,13 @@ const STORY_ARCHITECTURE_PLACEHOLDER = '{{architecture_decisions}}'
 
 /** Gap analysis placeholder used in retry prompt */
 const GAP_ANALYSIS_PLACEHOLDER = '{{gap_analysis}}'
+
+/** Placeholders in readiness-check prompt template */
+const READINESS_FR_PLACEHOLDER = '{{functional_requirements}}'
+const READINESS_NFR_PLACEHOLDER = '{{non_functional_requirements}}'
+const READINESS_ARCH_PLACEHOLDER = STORY_ARCHITECTURE_PLACEHOLDER
+const READINESS_STORIES_PLACEHOLDER = '{{stories}}'
+const READINESS_UX_PLACEHOLDER = '{{ux_decisions}}'
 
 // Re-export shared utilities for backward compatibility with existing importers
 // (e.g., solutioning.test.ts).
@@ -528,104 +536,222 @@ async function runStoryGeneration(
 // ---------------------------------------------------------------------------
 
 /**
- * Run the readiness check using a QualityGate to verify FR-to-story traceability.
+ * Result types for the adversarial readiness check.
+ */
+type ReadinessCheckSuccess = {
+  verdict: 'READY' | 'NEEDS_WORK' | 'NOT_READY'
+  findings: ReadinessFinding[]
+  coverageScore: number
+  tokenUsage: { input: number; output: number }
+}
+
+type ReadinessCheckError = {
+  verdict: 'error'
+  error: string
+  tokenUsage: { input: number; output: number }
+}
+
+type ReadinessCheckResult = ReadinessCheckSuccess | ReadinessCheckError
+
+/**
+ * Format functional requirements from pre-fetched planning phase decisions for prompt injection.
+ * Accepts pre-fetched planning decisions to avoid duplicate DB queries (shared with formatNFRsForReadiness).
+ */
+function formatFRsForReadiness(planningDecisions: Array<{ category: string; key: string; value: string }>): string {
+  const frDecisions = planningDecisions.filter((d) => d.category === 'functional-requirements')
+
+  if (frDecisions.length === 0) {
+    return '(No functional requirements found)'
+  }
+
+  const lines: string[] = []
+  for (const [i, d] of frDecisions.entries()) {
+    try {
+      const fr = JSON.parse(d.value) as { description: string; priority: string }
+      lines.push(`- [${d.key ?? `FR-${i}`}] [${fr.priority?.toUpperCase() ?? 'MUST'}] ${fr.description}`)
+    } catch {
+      lines.push(`- [${d.key ?? `FR-${i}`}] ${d.value}`)
+    }
+  }
+  return lines.join('\n')
+}
+
+/**
+ * Format non-functional requirements from pre-fetched planning phase decisions for prompt injection.
+ * Accepts pre-fetched planning decisions to avoid duplicate DB queries (shared with formatFRsForReadiness).
+ */
+function formatNFRsForReadiness(planningDecisions: Array<{ category: string; key: string; value: string }>): string {
+  const nfrDecisions = planningDecisions.filter((d) => d.category === 'non-functional-requirements')
+
+  if (nfrDecisions.length === 0) {
+    return '(No non-functional requirements found)'
+  }
+
+  const lines: string[] = []
+  for (const d of nfrDecisions) {
+    try {
+      const nfr = JSON.parse(d.value) as { description: string; category: string }
+      lines.push(`- [${nfr.category?.toUpperCase() ?? 'NFR'}] ${nfr.description}`)
+    } catch {
+      lines.push(`- ${d.value}`)
+    }
+  }
+  return lines.join('\n')
+}
+
+/**
+ * Format all stories from solutioning phase for prompt injection.
+ */
+function formatStoriesForReadiness(db: import('better-sqlite3').Database, runId: string): string {
+  const solutioningDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+  const storyDecisions = solutioningDecisions.filter((d) => d.category === 'stories')
+
+  if (storyDecisions.length === 0) {
+    return '(No stories found)'
+  }
+
+  const lines: string[] = []
+  for (const d of storyDecisions) {
+    try {
+      const story = JSON.parse(d.value) as {
+        key?: string
+        title?: string
+        description?: string
+        ac?: string[]
+        acceptance_criteria?: string[]
+        priority?: string
+      }
+      lines.push(`### Story ${story.key ?? d.key}: ${story.title ?? '(untitled)'}`)
+      lines.push(`**Priority**: ${story.priority ?? 'must'}`)
+      lines.push(`**Description**: ${story.description ?? ''}`)
+      const acList = story.acceptance_criteria ?? story.ac
+      if (acList && acList.length > 0) {
+        lines.push('**Acceptance Criteria**:')
+        for (const ac of acList) {
+          lines.push(`  - ${ac}`)
+        }
+      }
+      lines.push('')
+    } catch {
+      lines.push(`### Story ${d.key}: ${d.value}`)
+      lines.push('')
+    }
+  }
+  return lines.join('\n')
+}
+
+/**
+ * Format UX decisions from the UX design phase (if any) for prompt injection.
+ */
+function formatUxDecisionsForReadiness(db: import('better-sqlite3').Database, runId: string): string {
+  const uxDecisions = getDecisionsByPhaseForRun(db, runId, 'ux-design')
+
+  if (uxDecisions.length === 0) {
+    return ''
+  }
+
+  const lines: string[] = ['### UX Design Decisions']
+  for (const d of uxDecisions) {
+    lines.push(`- **${d.key}** [${d.category}]: ${d.value}`)
+  }
+  return lines.join('\n')
+}
+
+/**
+ * Run the adversarial readiness check by dispatching a sub-agent.
  *
- * For each functional requirement from the planning phase, checks if at least
- * one solutioning-phase story references it (simple substring keyword match).
+ * Assembles comprehensive context (FRs, NFRs, architecture decisions, stories,
+ * optional UX decisions) and dispatches a readiness-check agent to perform a
+ * proper adversarial review — replacing the old QualityGate keyword matcher.
  *
  * @param deps - Shared phase dependencies
  * @param runId - Pipeline run ID to scope the query
- * @returns Object with `passed` boolean and optional `gaps` array (uncovered FRs)
+ * @returns Readiness check result with verdict, findings, and coverage score
  */
 async function runReadinessCheck(
   deps: PhaseDeps,
   runId: string,
-): Promise<{ passed: boolean; gaps?: string[] }> {
-  const { db } = deps
+): Promise<ReadinessCheckResult> {
+  const { db, pack, dispatcher } = deps
 
-  // Query all functional requirements from planning phase for this run
+  const zeroTokenUsage = { input: 0, output: 0 }
+
+  // Step 1: Retrieve readiness-check prompt template
+  let template: string
+  try {
+    template = await pack.getPrompt('readiness-check')
+  } catch {
+    return { verdict: 'error', error: 'readiness-check prompt template not found in methodology pack', tokenUsage: zeroTokenUsage }
+  }
+
+  // Step 2: Assemble context from decision store
+  // Fetch planning decisions once and share between FR and NFR formatters (avoids duplicate DB query)
   const planningDecisions = getDecisionsByPhaseForRun(db, runId, 'planning')
-  const frDecisions = planningDecisions.filter((d) => d.category === 'functional-requirements')
+  const formattedFRs = formatFRsForReadiness(planningDecisions)
+  const formattedNFRs = formatNFRsForReadiness(planningDecisions)
+  const formattedArchitecture = formatArchitectureDecisions(db, runId)
+  const formattedStories = formatStoriesForReadiness(db, runId)
+  const formattedUx = formatUxDecisionsForReadiness(db, runId)
 
-  // Parse FR descriptions
-  const functionalRequirements: string[] = []
-  for (const d of frDecisions) {
-    try {
-      const fr = JSON.parse(d.value) as { description: string }
-      if (fr.description) {
-        functionalRequirements.push(fr.description)
-      }
-    } catch {
-      functionalRequirements.push(d.value)
-    }
+  // Step 3: Build prompt — inject all context into placeholders
+  let prompt = template
+    .replace(READINESS_FR_PLACEHOLDER, formattedFRs)
+    .replace(READINESS_NFR_PLACEHOLDER, formattedNFRs)
+    .replace(READINESS_ARCH_PLACEHOLDER, formattedArchitecture)
+    .replace(READINESS_STORIES_PLACEHOLDER, formattedStories)
+
+  // Inject UX decisions section or remove placeholder if no UX data
+  if (formattedUx) {
+    prompt = prompt.replace(READINESS_UX_PLACEHOLDER, formattedUx)
+  } else {
+    prompt = prompt.replace(READINESS_UX_PLACEHOLDER, '')
   }
 
-  // Query all stories from solutioning phase for this run
-  const solutioningDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-  const storyDecisions = solutioningDecisions.filter((d) => d.category === 'stories')
-
-  // Parse story content for keyword matching
-  const stories: Array<{ description: string; ac: string[] }> = []
-  for (const d of storyDecisions) {
-    try {
-      const story = JSON.parse(d.value) as {
-        description?: string
-        ac?: string[]
-        title?: string
-      }
-      stories.push({
-        description: [story.title ?? '', story.description ?? ''].join(' '),
-        ac: story.ac ?? [],
-      })
-    } catch {
-      stories.push({ description: d.value, ac: [] })
-    }
-  }
-
-  // Build the coverage structure for the gate evaluator
-  const coverageData = { functionalRequirements, stories }
-
-  // Use QualityGate to check FR-to-story traceability
-  const gate = createQualityGate({
-    name: 'solutioning-readiness',
-    maxRetries: 0,
-    evaluator: (output: unknown) => {
-      const data = output as typeof coverageData
-      const gaps: string[] = []
-
-      for (const fr of data.functionalRequirements) {
-        // Simple keyword/substring match — MVP approach per story spec
-        const frLower = fr.toLowerCase()
-        const frKeywords = frLower.split(/\s+/).filter((w) => w.length > 4)
-
-        const covered = data.stories.some((story) => {
-          const storyText = [story.description, ...story.ac].join(' ').toLowerCase()
-          // Check if any keyword from the FR appears in the story text
-          return frKeywords.some((kw) => storyText.includes(kw)) || storyText.includes(frLower)
-        })
-
-        if (!covered) {
-          gaps.push(fr)
-        }
-      }
-
-      return {
-        pass: gaps.length === 0,
-        issues: gaps.map((g) => `Uncovered FR: ${g}`),
-        severity: gaps.length === 0 ? ('info' as const) : ('error' as const),
-      }
-    },
+  // Step 4: Dispatch readiness-check sub-agent
+  const handle = dispatcher.dispatch({
+    prompt,
+    agent: 'claude-code',
+    taskType: 'readiness-check',
+    outputSchema: ReadinessOutputSchema,
   })
 
-  const gateResult = gate.evaluate(coverageData)
+  const dispatchResult = await handle.result
+  const tokenEstimate = dispatchResult.tokenEstimate
+  const tokenUsage = { input: tokenEstimate.input, output: tokenEstimate.output }
 
-  if (gateResult.action === 'proceed') {
-    return { passed: true }
+  logger.info(
+    { runId, durationMs: dispatchResult.durationMs, tokens: tokenEstimate },
+    'Readiness check dispatch completed',
+  )
+
+  if (dispatchResult.status === 'timeout') {
+    return { verdict: 'error', error: `Readiness check agent timed out after ${dispatchResult.durationMs}ms`, tokenUsage }
   }
 
-  // Extract gaps from gate issues
-  const gaps = gateResult.issues.map((issue) => issue.replace(/^Uncovered FR: /, ''))
-  return { passed: false, gaps }
+  if (dispatchResult.status === 'failed') {
+    return {
+      verdict: 'error',
+      error: `Readiness check dispatch failed: ${dispatchResult.parseError ?? dispatchResult.output}`,
+      tokenUsage,
+    }
+  }
+
+  if (dispatchResult.parsed === null || dispatchResult.parseError !== null) {
+    return {
+      verdict: 'error',
+      error: `Readiness check schema validation failed: ${dispatchResult.parseError ?? 'No parsed output'}`,
+      tokenUsage,
+    }
+  }
+
+  const parsed = dispatchResult.parsed as ReadinessOutput
+
+  return {
+    verdict: parsed.verdict,
+    findings: parsed.findings ?? [],
+    coverageScore: parsed.coverage_score,
+    tokenUsage,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -952,73 +1078,267 @@ export async function runSolutioningPhase(
       }
     }
 
-    // Step 5: Run readiness check
+    // Step 5: Run adversarial readiness check (sub-agent dispatch, not keyword matching)
     const readinessResult = await runReadinessCheck(deps, params.runId)
 
-    // Step 6: If readiness fails, retry once with gap analysis
-    if (!readinessResult.passed) {
-      const gaps = readinessResult.gaps ?? []
+    // Accumulate token usage from readiness check
+    totalInput += readinessResult.tokenUsage.input
+    totalOutput += readinessResult.tokenUsage.output
 
-      // Compile gap analysis for re-dispatch
-      const gapAnalysis = [
-        '## Gap Analysis: Uncovered Functional Requirements',
-        'The following functional requirements are not covered by any generated story:',
-        ...gaps.map((g) => `- ${g}`),
-        '',
-        'Please generate additional stories to cover these requirements.',
-      ].join('\n')
+    // Step 5a: Handle readiness agent error
+    if (readinessResult.verdict === 'error') {
+      logger.error({ runId: params.runId, error: readinessResult.error }, 'Readiness check agent failed')
+      return {
+        result: 'failed',
+        error: 'readiness_check_error',
+        details: readinessResult.error,
+        readiness_passed: false,
+        artifact_ids: [archResult.artifactId, storyResult.artifactId],
+        tokenUsage: { input: totalInput, output: totalOutput },
+      }
+    }
 
-      // Re-dispatch story generation with gap analysis
-      const retryResult = await runStoryGeneration(deps, params, gapAnalysis)
+    logger.info(
+      { runId: params.runId, verdict: readinessResult.verdict, coverageScore: readinessResult.coverageScore, findingCount: readinessResult.findings.length },
+      'Readiness check verdict received',
+    )
 
-      // Accumulate token usage from retry
-      totalInput += retryResult.tokenUsage.input
-      totalOutput += retryResult.tokenUsage.output
+    // Step 5b: NOT_READY — fail immediately (AC7)
+    if (readinessResult.verdict === 'NOT_READY') {
+      const blockers = readinessResult.findings.filter((f) => f.severity === 'blocker')
+      const majorFindings = readinessResult.findings.filter((f) => f.severity === 'major')
 
-      if ('error' in retryResult) {
-        // Retry dispatch failed — return failure with gaps
-        return {
-          result: 'failed',
-          error: 'story_generation_retry_failed',
-          details: retryResult.error,
-          readiness_passed: false,
-          gaps,
-          artifact_ids: [archResult.artifactId, storyResult.artifactId],
-          tokenUsage: { input: totalInput, output: totalOutput },
-        }
+      // Store findings in decision store (AC7)
+      for (const [i, finding] of readinessResult.findings.entries()) {
+        upsertDecision(deps.db, {
+          pipeline_run_id: params.runId,
+          phase: 'solutioning',
+          category: 'readiness-findings',
+          key: `finding-${i + 1}`,
+          value: JSON.stringify(finding),
+        })
       }
 
-      // Re-check readiness after retry
-      const retryReadiness = await runReadinessCheck(deps, params.runId)
+      // Emit detailed failure report via event bus (AC7)
+      logger.error(
+        {
+          runId: params.runId,
+          verdict: 'NOT_READY',
+          coverageScore: readinessResult.coverageScore,
+          blockers: blockers.length,
+          major: majorFindings.length,
+          findings: readinessResult.findings,
+        },
+        'Readiness check returned NOT_READY — solutioning phase failed',
+      )
 
-      if (!retryReadiness.passed) {
-        // Still failing after retry — return failure per AC6
+      // Emit typed events via event bus (T9, AC7)
+      if (deps.eventBus) {
+        deps.eventBus.emit('solutioning:readiness-check', {
+          runId: params.runId,
+          verdict: 'NOT_READY',
+          coverageScore: readinessResult.coverageScore,
+          findingCount: readinessResult.findings.length,
+          blockerCount: blockers.length,
+        })
+        deps.eventBus.emit('solutioning:readiness-failed', {
+          runId: params.runId,
+          verdict: 'NOT_READY',
+          coverageScore: readinessResult.coverageScore,
+          findings: readinessResult.findings.map((f) => ({
+            category: f.category,
+            severity: f.severity,
+            description: f.description,
+            affected_items: f.affected_items,
+          })),
+        })
+      }
+
+      return {
+        result: 'failed',
+        error: 'readiness_not_ready',
+        details: `Readiness check returned NOT_READY: ${blockers.length} blockers, coverage score ${readinessResult.coverageScore}%`,
+        readiness_passed: false,
+        gaps: readinessResult.findings.filter((f) => f.category === 'fr_coverage').map((f) => f.description),
+        artifact_ids: [archResult.artifactId, storyResult.artifactId],
+        tokenUsage: { input: totalInput, output: totalOutput },
+      }
+    }
+
+    // Step 5c: NEEDS_WORK with blocker findings — retry story generation with gap analysis (AC6)
+    if (readinessResult.verdict === 'NEEDS_WORK') {
+      const blockers = readinessResult.findings.filter((f) => f.severity === 'blocker')
+
+      if (blockers.length > 0) {
+        // Store NEEDS_WORK findings in decision store (T8)
+        for (const [i, finding] of readinessResult.findings.entries()) {
+          upsertDecision(deps.db, {
+            pipeline_run_id: params.runId,
+            phase: 'solutioning',
+            category: 'readiness-findings',
+            key: `finding-${i + 1}`,
+            value: JSON.stringify(finding),
+          })
+        }
+
+        // Emit event for NEEDS_WORK verdict (T9)
+        if (deps.eventBus) {
+          deps.eventBus.emit('solutioning:readiness-check', {
+            runId: params.runId,
+            verdict: 'NEEDS_WORK',
+            coverageScore: readinessResult.coverageScore,
+            findingCount: readinessResult.findings.length,
+            blockerCount: blockers.length,
+          })
+        }
+
+        // Format gap analysis from blocker findings (AC6)
+        const gapAnalysis = [
+          '## Gap Analysis: Readiness Check Blocker Findings',
+          'The readiness check identified the following blocker issues that must be addressed:',
+          '',
+          ...blockers.map((f) => [
+            `### [${f.category.toUpperCase()}] ${f.description}`,
+            f.affected_items.length > 0 ? `Affected: ${f.affected_items.join(', ')}` : '',
+          ].filter(Boolean).join('\n')),
+          '',
+          'Please generate additional or revised stories to specifically address each blocker above.',
+        ].join('\n')
+
+        logger.info(
+          { runId: params.runId, blockerCount: blockers.length },
+          'Readiness NEEDS_WORK with blockers — retrying story generation with gap analysis',
+        )
+
+        // Re-dispatch story generation with gap analysis (AC6)
+        const retryResult = await runStoryGeneration(deps, params, gapAnalysis)
+
+        // Accumulate token usage from retry
+        totalInput += retryResult.tokenUsage.input
+        totalOutput += retryResult.tokenUsage.output
+
+        if ('error' in retryResult) {
+          return {
+            result: 'failed',
+            error: 'story_generation_retry_failed',
+            details: retryResult.error,
+            readiness_passed: false,
+            gaps: blockers.map((f) => f.description),
+            artifact_ids: [archResult.artifactId, storyResult.artifactId],
+            tokenUsage: { input: totalInput, output: totalOutput },
+          }
+        }
+
+        // Re-check readiness after retry (max 1 retry, 2 total checks per AC6)
+        const retryReadiness = await runReadinessCheck(deps, params.runId)
+
+        // Accumulate token usage from retry readiness check
+        totalInput += retryReadiness.tokenUsage.input
+        totalOutput += retryReadiness.tokenUsage.output
+
+        if (retryReadiness.verdict === 'error') {
+          return {
+            result: 'failed',
+            error: 'readiness_check_error',
+            details: retryReadiness.error,
+            readiness_passed: false,
+            artifact_ids: [archResult.artifactId, storyResult.artifactId, retryResult.artifactId],
+            tokenUsage: { input: totalInput, output: totalOutput },
+          }
+        }
+
+        if (retryReadiness.verdict === 'NOT_READY' || retryReadiness.verdict === 'NEEDS_WORK') {
+          // Still not READY after retry — fail (AC6)
+          const retryBlockers = retryReadiness.findings.filter((f) => f.severity === 'blocker')
+
+          logger.error(
+            { runId: params.runId, verdict: retryReadiness.verdict, retryBlockers: retryBlockers.length },
+            'Readiness check failed after maximum retries',
+          )
+
+          return {
+            result: 'failed',
+            error: 'readiness_check_failed',
+            details: `Readiness check failed after maximum retries: verdict=${retryReadiness.verdict}, coverage=${retryReadiness.coverageScore}%`,
+            readiness_passed: false,
+            gaps: retryReadiness.findings
+              .filter((f) => f.category === 'fr_coverage')
+              .map((f) => f.description),
+            artifact_ids: [archResult.artifactId, storyResult.artifactId, retryResult.artifactId],
+            tokenUsage: { input: totalInput, output: totalOutput },
+          }
+        }
+
+        // Retry succeeded — READY after gap analysis retry
+        const retryStories = retryResult.epics.reduce(
+          (sum, epic) => sum + epic.stories.length,
+          0,
+        )
+
+        // Log any remaining minor findings as warnings (AC8)
+        const minorFindings = retryReadiness.findings.filter((f) => f.severity === 'minor')
+        if (minorFindings.length > 0) {
+          logger.warn({ runId: params.runId, minorFindings }, 'Readiness READY with minor findings after retry')
+        }
+
+        // Emit READY event after successful retry (AC8, T9 — observability for event bus consumers)
+        if (deps.eventBus) {
+          deps.eventBus.emit('solutioning:readiness-check', {
+            runId: params.runId,
+            verdict: 'READY',
+            coverageScore: retryReadiness.coverageScore,
+            findingCount: retryReadiness.findings.length,
+            blockerCount: 0,
+          })
+        }
+
         return {
-          result: 'failed',
-          error: 'readiness_check_failed',
-          details: 'Readiness check failed after maximum retries',
-          readiness_passed: false,
-          gaps: retryReadiness.gaps ?? gaps,
+          result: 'success',
+          architecture_decisions: archResult.decisions.length,
+          epics: retryResult.epics.length,
+          stories: retryStories,
+          readiness_passed: true,
           artifact_ids: [archResult.artifactId, storyResult.artifactId, retryResult.artifactId],
           tokenUsage: { input: totalInput, output: totalOutput },
         }
       }
 
-      // Retry succeeded — compute counts from retry result
-      const retryStories = retryResult.epics.reduce(
-        (sum, epic) => sum + epic.stories.length,
-        0,
+      // NEEDS_WORK but no blockers — only major/minor findings, proceed with warnings
+      const majorFindings = readinessResult.findings.filter((f) => f.severity === 'major')
+      logger.warn(
+        { runId: params.runId, majorCount: majorFindings.length, findings: readinessResult.findings },
+        'Readiness NEEDS_WORK (no blockers) — proceeding with warnings',
       )
 
-      return {
-        result: 'success',
-        architecture_decisions: archResult.decisions.length,
-        epics: retryResult.epics.length,
-        stories: retryStories,
-        readiness_passed: true,
-        artifact_ids: [archResult.artifactId, storyResult.artifactId, retryResult.artifactId],
-        tokenUsage: { input: totalInput, output: totalOutput },
+      // Emit event for NEEDS_WORK-no-blockers verdict (T9)
+      if (deps.eventBus) {
+        deps.eventBus.emit('solutioning:readiness-check', {
+          runId: params.runId,
+          verdict: 'NEEDS_WORK',
+          coverageScore: readinessResult.coverageScore,
+          findingCount: readinessResult.findings.length,
+          blockerCount: 0,
+        })
       }
+    }
+
+    // Step 5d: READY or NEEDS_WORK without blockers — gate satisfied (AC8)
+    // Log minor findings as warnings
+    const minorFindings = readinessResult.findings.filter((f) => f.severity === 'minor')
+    if (minorFindings.length > 0) {
+      const verdictLabel = readinessResult.verdict === 'READY' ? 'READY' : 'NEEDS_WORK (no blockers)'
+      logger.warn({ runId: params.runId, verdict: readinessResult.verdict, minorFindings }, `Readiness ${verdictLabel} with minor findings — proceeding`)
+    }
+
+    // Emit READY event via event bus (T9, AC8)
+    if (readinessResult.verdict === 'READY' && deps.eventBus) {
+      deps.eventBus.emit('solutioning:readiness-check', {
+        runId: params.runId,
+        verdict: 'READY',
+        coverageScore: readinessResult.coverageScore,
+        findingCount: readinessResult.findings.length,
+        blockerCount: 0,
+      })
     }
 
     // Step 7: Return success result with counts

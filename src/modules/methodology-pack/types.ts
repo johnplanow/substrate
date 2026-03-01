@@ -92,6 +92,12 @@ export interface PackManifest {
   constraints: Record<string, string>
   /** Map of template name → relative path to template file */
   templates: Record<string, string>
+  /**
+   * When true, the optional UX design phase is inserted between planning and solutioning.
+   * Defaults to false. Can be overridden at runtime with `--skip-ux`.
+   * (Story 16.5)
+   */
+  uxDesign?: boolean
 }
 
 // ---------------------------------------------------------------------------

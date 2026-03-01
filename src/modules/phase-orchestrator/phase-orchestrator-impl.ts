@@ -152,8 +152,9 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
     this._db = deps.db
     this._pack = deps.pack
     this._qualityGates = deps.qualityGates
-    // Start with the built-in phases
-    this._phases = createBuiltInPhases()
+    // Start with the built-in phases, conditionally including UX design based on pack manifest
+    const uxDesignEnabled = this._pack.manifest.uxDesign === true
+    this._phases = createBuiltInPhases({ uxDesignEnabled })
 
     // Merge any additional phases defined in the methodology pack.
     // Pack phases use a lightweight definition (string gate names, no callbacks),
@@ -402,6 +403,52 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
   getPhases(): PhaseDefinition[] {
     return [...this._phases]
   }
+
+  // -------------------------------------------------------------------------
+  // markPhaseFailed
+  // -------------------------------------------------------------------------
+
+  markPhaseFailed(runId: string, phase: string, reason: string): void {
+    // 1. Update pipeline run status to 'failed'
+    updatePipelineRun(this._db, runId, { status: 'failed' })
+
+    // 2. Record the failure reason in the phase history via config_json
+    const run = getPipelineRunById(this._db, runId)
+    if (!run) return
+
+    const config = parseConfigJson(run.config_json)
+    const history = config.phaseHistory
+
+    // Find the current (non-completed) entry for this phase and mark it failed
+    const currentEntry = history.find((h) => h.phase === phase && !h.completedAt)
+    if (currentEntry) {
+      currentEntry.completedAt = new Date().toISOString()
+      currentEntry.gateResults = [
+        {
+          gate: 'sub-phase-execution',
+          passed: false,
+          error: reason,
+        },
+      ]
+    } else {
+      // If no in-progress entry found, append a failure record
+      history.push({
+        phase,
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        gateResults: [
+          {
+            gate: 'sub-phase-execution',
+            passed: false,
+            error: reason,
+          },
+        ],
+      })
+    }
+
+    const newConfigJson = JSON.stringify({ ...config, phaseHistory: history })
+    updatePipelineRunConfig(this._db, runId, newConfigJson)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -411,8 +458,10 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
 /**
  * Create a new PhaseOrchestrator with the given dependencies.
  *
- * The orchestrator is pre-loaded with the four built-in phases
- * (analysis, planning, solutioning, implementation).
+ * The orchestrator is pre-loaded with the built-in phases
+ * (analysis, planning, [ux-design,] solutioning, implementation).
+ * The optional ux-design phase is inserted between planning and solutioning
+ * when `pack.manifest.uxDesign === true`.
  */
 export function createPhaseOrchestrator(deps: PhaseOrchestratorDeps): PhaseOrchestrator {
   return new PhaseOrchestratorImpl(deps)

@@ -2,6 +2,11 @@ name: bmad
 version: 1.0.0
 description: BMAD methodology for autonomous software development
 
+# Optional UX design phase (Story 16.5).
+# When true, a 'ux-design' phase runs between planning and solutioning.
+# Set to false (or omit) to skip UX design and proceed directly to solutioning.
+uxDesign: true
+
 phases:
   - name: analysis
     description: Product discovery and brief creation
@@ -52,6 +57,42 @@ phases:
           - placeholder: functional_requirements
             source: "step:planning-step-2-frs"
         critique: true
+  - name: ux-design
+    description: UX discovery, design system, and user journey mapping (optional — runs when uxDesign is true)
+    entryGates: [prd-complete]
+    exitGates: [ux-design-complete]
+    artifacts: [ux-design]
+    steps:
+      - name: ux-step-1-discovery
+        template: ux-step-1-discovery
+        context:
+          - placeholder: product_brief
+            source: "decision:analysis.product-brief"
+          - placeholder: requirements
+            source: "decision:planning.functional-requirements"
+        elicitate: true
+      - name: ux-step-2-design-system
+        template: ux-step-2-design-system
+        context:
+          - placeholder: product_brief
+            source: "decision:analysis.product-brief"
+          - placeholder: requirements
+            source: "decision:planning.functional-requirements"
+          - placeholder: ux_discovery
+            source: "step:ux-step-1-discovery"
+        elicitate: true
+      - name: ux-step-3-journeys
+        template: ux-step-3-journeys
+        context:
+          - placeholder: product_brief
+            source: "decision:analysis.product-brief"
+          - placeholder: requirements
+            source: "decision:planning.functional-requirements"
+          - placeholder: ux_discovery
+            source: "step:ux-step-1-discovery"
+          - placeholder: design_system
+            source: "step:ux-step-2-design-system"
+        critique: true
   - name: solutioning
     description: Architecture and epic/story breakdown
     entryGates: [prd-complete]
@@ -73,6 +114,8 @@ phases:
             source: "decision:planning.functional-requirements"
           - placeholder: starter_decisions
             source: "step:architecture-step-1-context"
+          - placeholder: ux_decisions
+            source: "decision:ux-design.ux-design"
         outputCategory: architecture
         elicitate: true
       - name: architecture-step-3-patterns
@@ -128,6 +171,10 @@ prompts:
   architecture-step-3-patterns: prompts/architecture-step-3-patterns.md
   stories-step-1-epics: prompts/stories-step-1-epics.md
   stories-step-2-stories: prompts/stories-step-2-stories.md
+  # UX design step prompts (Story 16-5)
+  ux-step-1-discovery: prompts/ux-step-1-discovery.md
+  ux-step-2-design-system: prompts/ux-step-2-design-system.md
+  ux-step-3-journeys: prompts/ux-step-3-journeys.md
   # Elicitation prompt (Story 16-3)
   elicitation-apply: prompts/elicitation-apply.md
   # Critique and refinement prompts (Story 16-4)
@@ -136,6 +183,8 @@ prompts:
   critique-architecture: prompts/critique-architecture.md
   critique-stories: prompts/critique-stories.md
   refine-artifact: prompts/refine-artifact.md
+  # Readiness check prompt (Story 16-6)
+  readiness-check: prompts/readiness-check.md
 
 constraints:
   create-story: constraints/create-story.yaml

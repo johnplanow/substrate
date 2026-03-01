@@ -251,6 +251,55 @@ export const EpicDesignOutputSchema = z.object({
 export type EpicDesignOutputSchemaType = z.infer<typeof EpicDesignOutputSchema>
 
 // ---------------------------------------------------------------------------
+// UX Design phase schemas (Story 16.5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Step 1 output: UX Discovery + Core Experience.
+ * Covers user personas, core experience goals, and emotional response targets.
+ * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ */
+export const UxDiscoveryOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  target_personas: z.array(z.string().min(1)).optional(),
+  core_experience: z.string().optional(),
+  emotional_goals: z.array(z.string().min(1)).optional(),
+  inspiration_references: z.array(z.string()).default([]),
+})
+
+export type UxDiscoveryOutputSchemaType = z.infer<typeof UxDiscoveryOutputSchema>
+
+/**
+ * Step 2 output: Design System + Visual Foundation.
+ * Covers design system approach, visual language, and design directions.
+ * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ */
+export const UxDesignSystemOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  design_system: z.string().optional(),
+  visual_foundation: z.string().optional(),
+  design_principles: z.array(z.string().min(1)).optional(),
+  color_and_typography: z.string().optional(),
+})
+
+export type UxDesignSystemOutputSchemaType = z.infer<typeof UxDesignSystemOutputSchema>
+
+/**
+ * Step 3 output: User Journeys + Component Strategy + Accessibility.
+ * Covers user flows, component architecture, UX patterns, and a11y guidelines.
+ * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ */
+export const UxJourneysOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  user_journeys: z.array(z.string().min(1)).optional(),
+  component_strategy: z.string().optional(),
+  ux_patterns: z.array(z.string()).default([]),
+  accessibility_guidelines: z.array(z.string()).default([]),
+})
+
+export type UxJourneysOutputSchemaType = z.infer<typeof UxJourneysOutputSchema>
+
+// ---------------------------------------------------------------------------
 // Elicitation output schema (Story 16.3)
 // ---------------------------------------------------------------------------
 

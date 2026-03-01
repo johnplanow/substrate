@@ -8,11 +8,16 @@
 ### Foundational Decisions (from Step 1)
 {{starter_decisions}}
 
+### UX Design Decisions (from UX Design Phase, if applicable)
+{{ux_decisions}}
+
 ---
 
 ## Mission
 
 Building on the foundational architecture decisions, produce **detailed architecture decisions** covering authentication, error handling, testing strategy, and remaining architectural concerns. Do NOT repeat decisions from Step 1 — extend and complement them.
+
+If UX Design decisions are provided above, use them to inform frontend framework selection, component library choices, and UI rendering approach.
 
 ## Instructions
 
@@ -21,9 +26,11 @@ Building on the foundational architecture decisions, produce **detailed architec
    - **Error handling**: Strategy for errors, logging, monitoring
    - **Testing strategy**: Unit/integration/E2E split, framework choices
    - **Security**: Input validation, data protection, dependency management
+   - **Frontend (if applicable)**: Framework, component library, and rendering strategy — informed by UX design decisions if available
 
 2. **Build on foundational decisions:**
    - Reference the system architecture and data storage choices from Step 1
+   - If UX decisions are present, align frontend architecture with the specified design system and component strategy
    - Ensure new decisions are compatible with existing ones
    - Don't contradict or repeat previous decisions
 

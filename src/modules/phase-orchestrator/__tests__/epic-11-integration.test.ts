@@ -1164,13 +1164,23 @@ describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () 
       value: JSON.stringify({ description: 'Users can create tasks with title and description', priority: 'must' }),
     })
 
+    const READINESS_OUTPUT_TOKENS = { verdict: 'READY', coverage_score: 100, findings: [] }
+
     // Each dispatch returns different token estimates
     const dispatcherWithTokens: Dispatcher = {
       dispatch: vi.fn((opts: { taskType: string }) => {
-        const output = opts.taskType === 'architecture' ? ARCHITECTURE_OUTPUT : STORY_GENERATION_OUTPUT
-        const tokenEstimate = opts.taskType === 'architecture'
-          ? { input: 300, output: 100 }
-          : { input: 500, output: 200 }
+        let output: unknown
+        let tokenEstimate: { input: number; output: number }
+        if (opts.taskType === 'architecture') {
+          output = ARCHITECTURE_OUTPUT
+          tokenEstimate = { input: 300, output: 100 }
+        } else if (opts.taskType === 'readiness-check') {
+          output = READINESS_OUTPUT_TOKENS
+          tokenEstimate = { input: 500, output: 0 }
+        } else {
+          output = STORY_GENERATION_OUTPUT
+          tokenEstimate = { input: 500, output: 200 }
+        }
         const handle: DispatchHandle & { result: Promise<DispatchResult<unknown>> } = {
           id: `h-${opts.taskType}`,
           status: 'completed',
@@ -1197,8 +1207,8 @@ describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () 
     const result = await runSolutioningPhase(deps, { runId })
 
     expect(result.result).toBe('success')
-    // Total tokens = architecture (300+100) + story-gen (500+200) = 800+300
-    expect(result.tokenUsage.input).toBe(800)
+    // Total tokens = architecture (300+100) + story-gen (500+200) + readiness (500+0) = 1300+300
+    expect(result.tokenUsage.input).toBe(1300)
     expect(result.tokenUsage.output).toBe(300)
   })
 })

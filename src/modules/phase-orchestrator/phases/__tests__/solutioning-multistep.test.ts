@@ -138,15 +138,22 @@ function makeDispatchResult(parsed: unknown, index: number): DispatchResult<unkn
   }
 }
 
+const READINESS_OUTPUT = {
+  verdict: 'READY' as const,
+  coverage_score: 100,
+  findings: [],
+}
+
 function makeMultiStepDispatcher(): Dispatcher {
   let callIndex = 0
-  // 5 dispatches: 3 arch steps + 2 story steps
+  // 6 dispatches: 3 arch steps + 2 story steps + 1 readiness check
   const results = [
     ARCH_CONTEXT_OUTPUT,
     ARCH_DECISIONS_OUTPUT,
     ARCH_PATTERNS_OUTPUT,
     EPIC_DESIGN_OUTPUT,
     STORY_GEN_OUTPUT,
+    READINESS_OUTPUT,
   ]
 
   return {
@@ -226,6 +233,9 @@ function makeMultiStepPack(): MethodologyPack {
     },
     getPhases: vi.fn().mockReturnValue([]),
     getPrompt: vi.fn().mockImplementation((key: string) => {
+      if (key === 'readiness-check') {
+        return Promise.resolve('Readiness: {{functional_requirements}} {{non_functional_requirements}} {{architecture_decisions}} {{stories}} {{ux_decisions}}')
+      }
       return Promise.resolve(`Template: {{requirements}} {{architecture_decisions}}`)
     }),
     getConstraints: vi.fn().mockResolvedValue([]),
@@ -278,8 +288,8 @@ describe('runSolutioningPhase() multi-step path', () => {
     const result = await runSolutioningPhase(deps, params)
 
     expect(result.result).toBe('success')
-    // 3 arch steps + 2 story steps = 5 dispatches
-    expect(dispatcher.dispatch).toHaveBeenCalledTimes(5)
+    // 3 arch steps + 2 story steps + 1 readiness check = 6 dispatches
+    expect(dispatcher.dispatch).toHaveBeenCalledTimes(6)
   })
 
   it('persists architecture decisions from all 3 arch steps', async () => {
@@ -352,9 +362,9 @@ describe('runSolutioningPhase() multi-step path', () => {
 
     const result = await runSolutioningPhase(deps, params)
 
-    // 5 dispatches × (100 input + 50 output) each
-    expect(result.tokenUsage.input).toBe(500)
-    expect(result.tokenUsage.output).toBe(250)
+    // 6 dispatches × (100 input + 50 output) each (3 arch + 2 story + 1 readiness)
+    expect(result.tokenUsage.input).toBe(600)
+    expect(result.tokenUsage.output).toBe(300)
   })
 
   it('falls back to single-dispatch when no steps defined', async () => {
@@ -405,7 +415,7 @@ describe('runSolutioningPhase() multi-step path', () => {
         }],
       }],
     }
-    const results = [singleArchOutput, singleStoryOutput]
+    const results = [singleArchOutput, singleStoryOutput, READINESS_OUTPUT]
 
     const dispatcher: Dispatcher = {
       dispatch: vi.fn().mockImplementation(() => {
@@ -424,14 +434,22 @@ describe('runSolutioningPhase() multi-step path', () => {
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
+    // noStepsPack needs to handle the readiness-check prompt
+    vi.mocked(noStepsPack.getPrompt).mockImplementation((key: string) => {
+      if (key === 'readiness-check') {
+        return Promise.resolve('Readiness: {{functional_requirements}} {{non_functional_requirements}} {{architecture_decisions}} {{stories}} {{ux_decisions}}')
+      }
+      return Promise.resolve('Template: {{requirements}} {{architecture_decisions}} {{gap_analysis}}')
+    })
+
     const deps = makeDeps(db, dispatcher, noStepsPack)
     const params: SolutioningPhaseParams = { runId }
 
     const result = await runSolutioningPhase(deps, params)
 
     expect(result.result).toBe('success')
-    // Single-dispatch: 1 arch + 1 story = 2 dispatches
-    expect(dispatcher.dispatch).toHaveBeenCalledTimes(2)
+    // Single-dispatch: 1 arch + 1 story + 1 readiness = 3 dispatches
+    expect(dispatcher.dispatch).toHaveBeenCalledTimes(3)
     expect(noStepsPack.getPrompt).toHaveBeenCalledWith('architecture')
     expect(noStepsPack.getPrompt).toHaveBeenCalledWith('story-generation')
   })

@@ -167,6 +167,43 @@ function makeStoryDispatchResult(
 }
 
 /**
+ * Create a readiness check dispatch result with the specified verdict.
+ * @param verdict - The readiness verdict (default: READY)
+ * @param blockerCount - Number of blocker findings to include (default: 0)
+ */
+function makeReadinessDispatchResult(
+  verdict: 'READY' | 'NEEDS_WORK' | 'NOT_READY' = 'READY',
+  blockerCount = 0,
+  overrides: Partial<DispatchResult<unknown>> = {},
+): DispatchResult<unknown> {
+  const findings: Array<{ category: string; severity: string; description: string; affected_items: string[] }> = []
+  for (let i = 0; i < blockerCount; i++) {
+    findings.push({
+      category: 'fr_coverage',
+      severity: 'blocker',
+      description: `FR-${i} is not covered by any story`,
+      affected_items: [`FR-${i}`],
+    })
+  }
+  const coverageScore = verdict === 'READY' ? 100 : verdict === 'NEEDS_WORK' ? 60 : 30
+  return {
+    id: 'dispatch-readiness-001',
+    status: 'completed',
+    exitCode: 0,
+    output: 'yaml output',
+    parsed: {
+      verdict,
+      coverage_score: coverageScore,
+      findings,
+    },
+    parseError: null,
+    durationMs: 500,
+    tokenEstimate: { input: 0, output: 0 },
+    ...overrides,
+  }
+}
+
+/**
  * Create a dispatcher that handles multiple sequential dispatches.
  * Results are consumed in order: first call returns results[0], etc.
  */
@@ -195,13 +232,17 @@ function makeDispatcher(result: DispatchResult<unknown>): Dispatcher {
   return makeSequentialDispatcher([result, result])
 }
 
+const DEFAULT_READINESS_TEMPLATE = 'Check readiness:\nFR: {{functional_requirements}}\nNFR: {{non_functional_requirements}}\nArch: {{architecture_decisions}}\nStories: {{stories}}\n{{ux_decisions}}'
+
 function makePack(
   archTemplate = 'Generate architecture for:\n\n{{requirements}}\n\nOutput YAML.',
   storyTemplate = 'Generate stories for:\n\n{{requirements}}\n\n{{architecture_decisions}}\n\n{{gap_analysis}}\n\nOutput YAML.',
+  readinessTemplate = DEFAULT_READINESS_TEMPLATE,
 ): MethodologyPack {
   const getPrompt = vi.fn().mockImplementation((name: string) => {
     if (name === 'architecture') return Promise.resolve(archTemplate)
     if (name === 'story-generation') return Promise.resolve(storyTemplate)
+    if (name === 'readiness-check') return Promise.resolve(readinessTemplate)
     return Promise.resolve('')
   })
   return {
@@ -486,8 +527,8 @@ describe('runSolutioningPhase()', () => {
       expect(result.readiness_passed).toBe(true)
     })
 
-    it('returns failure with gaps when FRs are not covered by stories', async () => {
-      // Seed an FR that has no match in the stories
+    it('returns failure with gaps when readiness check returns NOT_READY', async () => {
+      // Seed planning requirements
       createDecision(db, {
         pipeline_run_id: runId,
         phase: 'planning',
@@ -499,7 +540,6 @@ describe('runSolutioningPhase()', () => {
         }),
       })
 
-      // Use stories that don't mention the FR at all
       const noMatchEpics: EpicDefinition[] = [
         {
           title: 'Basic UI',
@@ -519,19 +559,19 @@ describe('runSolutioningPhase()', () => {
         parsed: { result: 'success', epics: noMatchEpics },
       })
 
-      // Dispatcher needs to handle: arch, story, retry-story
-      // Since readiness fails once and then fails again (no new stories added), we return 'failed'
+      // Dispatch sequence: arch, story, readiness(NEEDS_WORK+blocker), retry-story, readiness(NOT_READY)
       const dispatcher = makeSequentialDispatcher([
         makeArchDispatchResult(),
         storyResult,
-        // retry will get same non-matching result
+        makeReadinessDispatchResult('NEEDS_WORK', 1),
         makeStoryDispatchResult({ parsed: { result: 'success', epics: noMatchEpics } }),
+        makeReadinessDispatchResult('NOT_READY', 1),
       ])
       const deps = makeDeps(db, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
-      // The readiness check should fail due to uncovered quantum FR
+      // The readiness check should fail due to NOT_READY verdict after retry
       expect(result.readiness_passed).toBe(false)
     })
   })
@@ -541,7 +581,7 @@ describe('runSolutioningPhase()', () => {
   // -------------------------------------------------------------------------
 
   describe('AC6: Retry on readiness failure', () => {
-    it('dispatches story generation a second time with gap analysis when readiness fails', async () => {
+    it('dispatches story generation a second time with gap analysis when readiness returns NEEDS_WORK', async () => {
       // Seed a unique FR that won't be covered initially
       createDecision(db, {
         pipeline_run_id: runId,
@@ -570,22 +610,24 @@ describe('runSolutioningPhase()', () => {
         },
       ]
 
-      // First story dispatch returns no-match, second also no-match but we verify 3 total dispatches
+      // Dispatch sequence: arch, story, readiness(NEEDS_WORK+blocker), retry-story, readiness(NEEDS_WORK still)
       const dispatcher = makeSequentialDispatcher([
         makeArchDispatchResult(),
         makeStoryDispatchResult({ parsed: { result: 'success', epics: noMatchEpics } }),
+        makeReadinessDispatchResult('NEEDS_WORK', 1),
         makeStoryDispatchResult({ parsed: { result: 'success', epics: noMatchEpics } }),
+        makeReadinessDispatchResult('NEEDS_WORK', 1),
       ])
       const deps = makeDeps(db, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
-      // dispatcher.dispatch should have been called 3 times:
-      // 1. architecture, 2. story-generation, 3. story-generation (retry)
-      expect(dispatcher.dispatch).toHaveBeenCalledTimes(3)
+      // dispatcher.dispatch should have been called 5 times:
+      // 1. architecture, 2. story-generation, 3. readiness-check, 4. story-generation (retry), 5. readiness-check (retry)
+      expect(dispatcher.dispatch).toHaveBeenCalledTimes(5)
     })
 
-    it('gap analysis prompt includes uncovered requirements', async () => {
+    it('gap analysis prompt includes uncovered requirements (blocker findings)', async () => {
       createDecision(db, {
         pipeline_run_id: runId,
         phase: 'planning',
@@ -613,21 +655,25 @@ describe('runSolutioningPhase()', () => {
         },
       ]
 
+      // Dispatch sequence: arch, story, readiness(NEEDS_WORK+blocker), retry-story, readiness(NEEDS_WORK)
       const dispatcher = makeSequentialDispatcher([
         makeArchDispatchResult(),
         makeStoryDispatchResult({ parsed: { result: 'success', epics: noMatchEpics } }),
+        makeReadinessDispatchResult('NEEDS_WORK', 1),
         makeStoryDispatchResult({ parsed: { result: 'success', epics: noMatchEpics } }),
+        makeReadinessDispatchResult('NEEDS_WORK', 1),
       ])
       const deps = makeDeps(db, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
-      // Third dispatch (retry story generation) should contain gap analysis in prompt
-      const retryCall = vi.mocked(dispatcher.dispatch).mock.calls[2][0]
+      // Fourth dispatch (index 3) is retry story generation — should contain gap analysis
+      const retryCall = vi.mocked(dispatcher.dispatch).mock.calls[3][0]
       expect(retryCall.prompt).toContain('Gap Analysis')
+      expect(retryCall.taskType).toBe('story-generation')
     })
 
-    it('returns failure with readiness_passed=false when retry also fails', async () => {
+    it('returns failure with readiness_passed=false when retry readiness also fails', async () => {
       createDecision(db, {
         pipeline_run_id: runId,
         phase: 'planning',
@@ -655,10 +701,13 @@ describe('runSolutioningPhase()', () => {
         },
       ]
 
+      // Dispatch sequence: arch, story, readiness(NEEDS_WORK+blocker), retry-story, readiness(NEEDS_WORK still)
       const dispatcher = makeSequentialDispatcher([
         makeArchDispatchResult(),
         makeStoryDispatchResult({ parsed: { result: 'success', epics: noMatchEpics } }),
+        makeReadinessDispatchResult('NEEDS_WORK', 1),
         makeStoryDispatchResult({ parsed: { result: 'success', epics: noMatchEpics } }),
+        makeReadinessDispatchResult('NEEDS_WORK', 1),
       ])
       const deps = makeDeps(db, dispatcher)
 
@@ -668,7 +717,7 @@ describe('runSolutioningPhase()', () => {
       expect(result.readiness_passed).toBe(false)
     })
 
-    it('returns success with readiness_passed=true when retry covers all FRs', async () => {
+    it('returns success with readiness_passed=true when retry readiness returns READY', async () => {
       createDecision(db, {
         pipeline_run_id: runId,
         phase: 'planning',
@@ -714,10 +763,13 @@ describe('runSolutioningPhase()', () => {
         },
       ]
 
+      // Dispatch sequence: arch, story(no-match), readiness(NEEDS_WORK+blocker), retry-story(match), readiness(READY)
       const dispatcher = makeSequentialDispatcher([
         makeArchDispatchResult(),
         makeStoryDispatchResult({ parsed: { result: 'success', epics: noMatchEpics } }),
+        makeReadinessDispatchResult('NEEDS_WORK', 1),
         makeStoryDispatchResult({ parsed: { result: 'success', epics: matchingEpics } }),
+        makeReadinessDispatchResult('READY'),
       ])
       const deps = makeDeps(db, dispatcher)
 
@@ -1037,14 +1089,15 @@ describe('runSolutioningPhase()', () => {
       const storyResult = makeStoryDispatchResult({
         tokenEstimate: { input: 600, output: 300 },
       })
-      const dispatcher = makeSequentialDispatcher([archResult, storyResult])
+      // Readiness check uses tokenEstimate: { input: 0, output: 0 } by default
+      const dispatcher = makeSequentialDispatcher([archResult, storyResult, makeReadinessDispatchResult('READY')])
       const deps = makeDeps(db, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
-      // Total should be sum of both dispatches
-      expect(result.tokenUsage.input).toBe(1000) // 400 + 600
-      expect(result.tokenUsage.output).toBe(450) // 150 + 300
+      // Total should be sum of arch + story + readiness (readiness has 0 tokens by default)
+      expect(result.tokenUsage.input).toBe(1000) // 400 + 600 + 0
+      expect(result.tokenUsage.output).toBe(450) // 150 + 300 + 0
     })
 
     it('returns tokenUsage { input: 0, output: 0 } when pack.getPrompt throws', async () => {
@@ -1103,14 +1156,18 @@ describe('runSolutioningPhase()', () => {
       expect(result.tokenUsage.output).toBeGreaterThan(0)
     })
 
-    it('dispatches exactly twice (architecture then story generation) in happy path', async () => {
+    it('dispatches exactly 3 times (architecture, story generation, readiness check) in happy path', async () => {
       seedPlanningRequirements(db, runId)
-      const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
+      const dispatcher = makeSequentialDispatcher([
+        makeArchDispatchResult(),
+        makeStoryDispatchResult(),
+        makeReadinessDispatchResult('READY'),
+      ])
       const deps = makeDeps(db, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
-      expect(dispatcher.dispatch).toHaveBeenCalledTimes(2)
+      expect(dispatcher.dispatch).toHaveBeenCalledTimes(3)
     })
 
     it('architecture dispatch happens before story generation dispatch', async () => {
@@ -1232,27 +1289,31 @@ describe('Story 16-1: Architecture skip on retry (AC3)', () => {
       summary: '4 architecture decisions',
     })
 
-    // Dispatcher only has story-generation result (no architecture result needed)
+    // Dispatcher has story-generation + readiness-check results (no architecture result needed)
     const storyResult = makeStoryDispatchResult()
-    const dispatcher = makeSequentialDispatcher([storyResult])
+    const dispatcher = makeSequentialDispatcher([storyResult, makeReadinessDispatchResult('READY')])
     const deps = makeDeps(db, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
     expect(result.result).toBe('success')
-    // Should only dispatch once (story-generation), not twice
-    expect(vi.mocked(dispatcher.dispatch).mock.calls).toHaveLength(1)
+    // Should dispatch twice: story-generation + readiness-check (architecture is skipped)
+    expect(vi.mocked(dispatcher.dispatch).mock.calls).toHaveLength(2)
     expect(vi.mocked(dispatcher.dispatch).mock.calls[0][0].taskType).toBe('story-generation')
   })
 
   it('runs architecture when no artifact exists', async () => {
-    const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
+    const dispatcher = makeSequentialDispatcher([
+      makeArchDispatchResult(),
+      makeStoryDispatchResult(),
+      makeReadinessDispatchResult('READY'),
+    ])
     const deps = makeDeps(db, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
     expect(result.result).toBe('success')
-    expect(vi.mocked(dispatcher.dispatch).mock.calls).toHaveLength(2)
+    expect(vi.mocked(dispatcher.dispatch).mock.calls).toHaveLength(3)
     expect(vi.mocked(dispatcher.dispatch).mock.calls[0][0].taskType).toBe('architecture')
   })
 })

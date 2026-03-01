@@ -4,7 +4,7 @@
  * Provides the autonomous implementation pipeline CLI interface:
  *   substrate auto init [--pack bmad] [--project-root .]
  *   substrate auto run [--pack bmad] [--from <phase>] [--concept <text>] [--concept-file <path>]
- *                      [--stories 10-1,10-2] [--concurrency 3] [--output-format json]
+ *                      [--stories 10-1,10-2] [--concurrency 3] [--output-format json] [--skip-ux]
  *   substrate auto resume [--run-id <id>] [--output-format json]
  *   substrate auto status [--output-format json] [--run-id <id>]
  *   substrate auto amend [--concept <text>] [--concept-file <path>] [--run-id <id>]
@@ -98,6 +98,7 @@ import { createPhaseOrchestrator } from '../../modules/phase-orchestrator/index.
 import { runAnalysisPhase } from '../../modules/phase-orchestrator/phases/analysis.js'
 import { runPlanningPhase } from '../../modules/phase-orchestrator/phases/planning.js'
 import { runSolutioningPhase } from '../../modules/phase-orchestrator/phases/solutioning.js'
+import { runUxDesignPhase } from '../../modules/phase-orchestrator/phases/ux-design.js'
 import {
   createPipelineRun,
   createDecision,
@@ -762,6 +763,8 @@ export interface AutoRunOptions {
   verbose?: boolean
   /** When true, activate the full-screen TUI dashboard (Story 15-5) */
   tui?: boolean
+  /** When true, skip the UX design phase even if enabled in the pack manifest (AC7) */
+  skipUx?: boolean
 }
 
 export async function runAutoRun(options: AutoRunOptions): Promise<number> {
@@ -778,6 +781,7 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
     events: eventsFlag,
     verbose: verboseFlag,
     tui: tuiFlag,
+    skipUx,
   } = options
 
   // Validate --from phase
@@ -863,6 +867,8 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
       concurrency,
       outputFormat,
       projectRoot,
+      ...(eventsFlag === true ? { events: true } : {}),
+      ...(skipUx === true ? { skipUx: true } : {}),
     })
   }
 
@@ -1531,10 +1537,14 @@ interface FullPipelineOptions {
   concurrency: number
   outputFormat: OutputFormat
   projectRoot: string
+  /** When true, emit structured NDJSON events on stdout for phase transitions and failures */
+  events?: boolean
+  /** When true, skip UX design phase even if enabled in pack manifest (AC7) */
+  skipUx?: boolean
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx } =
     options
 
   // Ensure database directory
@@ -1587,8 +1597,12 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
     const phaseDeps = { db, pack, contextCompiler, dispatcher }
 
-    // Create PhaseOrchestrator
-    const phaseOrchestrator = createPhaseOrchestrator({ db, pack })
+    // Create PhaseOrchestrator — when --skip-ux is set, override uxDesign to false
+    const packForOrchestrator =
+      skipUx === true && pack.manifest.uxDesign === true
+        ? { ...pack, manifest: { ...pack.manifest, uxDesign: false as const } }
+        : pack
+    const phaseOrchestrator = createPhaseOrchestrator({ db, pack: packForOrchestrator })
 
     // Start the run
     const startedAt = Date.now()
@@ -1600,7 +1614,11 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     }
 
     // Execute phases in order starting from startPhase
-    const phaseOrder: PhaseName[] = ['analysis', 'planning', 'solutioning', 'implementation']
+    // Include 'ux-design' between planning and solutioning when the pack has it enabled
+    const uxEnabled = packForOrchestrator.manifest.uxDesign === true
+    const phaseOrder: Array<PhaseName | 'ux-design'> = uxEnabled
+      ? ['analysis', 'planning', 'ux-design', 'solutioning', 'implementation']
+      : ['analysis', 'planning', 'solutioning', 'implementation']
     const startIdx = phaseOrder.indexOf(startPhase)
 
     for (let i = startIdx; i < phaseOrder.length; i++) {
@@ -1681,6 +1699,41 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`,
           )
         }
+      } else if (currentPhase === 'ux-design') {
+        const result = await runUxDesignPhase(phaseDeps, { runId })
+
+        // Record token usage
+        if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
+          const costUsd =
+            (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          addTokenUsage(db, runId, {
+            phase: 'ux-design',
+            agent: 'claude-code',
+            input_tokens: result.tokenUsage.input,
+            output_tokens: result.tokenUsage.output,
+            cost_usd: costUsd,
+          })
+        }
+
+        if (result.result === 'failed') {
+          updatePipelineRun(db, runId, { status: 'failed' })
+          const errorMsg = `UX design phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}`
+          if (outputFormat === 'human') {
+            process.stderr.write(`Error: ${errorMsg}\n`)
+          } else {
+            process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+          }
+          return 1
+        }
+
+        if (outputFormat === 'human') {
+          process.stdout.write(
+            `[UX-DESIGN] Complete — UX design artifact registered (artifact: ${result.artifact_id ?? 'n/a'})\n`,
+          )
+          process.stdout.write(
+            `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`,
+          )
+        }
       } else if (currentPhase === 'solutioning') {
         const result = await runSolutioningPhase(phaseDeps, { runId })
 
@@ -1698,8 +1751,19 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         }
 
         if (result.result === 'failed') {
-          updatePipelineRun(db, runId, { status: 'failed' })
           const errorMsg = `Solutioning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}`
+          // Use markPhaseFailed to record failure in phase history AND update status to 'failed'
+          phaseOrchestrator.markPhaseFailed(runId, 'solutioning', errorMsg)
+          // Surface failure via NDJSON event stream when --events is active
+          if (eventsFlag === true) {
+            const ndjsonEmitter = createEventEmitter(process.stdout)
+            ndjsonEmitter.emit({
+              type: 'story:warn',
+              ts: new Date().toISOString(),
+              key: 'solutioning',
+              msg: errorMsg,
+            })
+          }
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
           } else {
@@ -3693,6 +3757,7 @@ export function registerAutoCommand(
     .option('--verbose', 'Show detailed pino log output')
     .option('--help-agent', 'Print a machine-optimized prompt fragment for AI agents and exit')
     .option('--tui', 'Show TUI dashboard')
+    .option('--skip-ux', 'Skip the UX design phase even if enabled in the pack manifest')
     .action(
       async (opts: {
         pack: string
@@ -3708,6 +3773,7 @@ export function registerAutoCommand(
         verbose?: boolean
         helpAgent?: boolean
         tui?: boolean
+        skipUx?: boolean
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -3746,6 +3812,7 @@ export function registerAutoCommand(
           events: opts.events,
           verbose: opts.verbose,
           tui: opts.tui,
+          skipUx: opts.skipUx,
         })
         process.exitCode = exitCode
       },

@@ -113,6 +113,8 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
   'code-review': 900_000,
   'minor-fixes': 600_000,
   'major-rework': 900_000,
+  // Readiness check sub-agent (Story 16.6) — 10 minute timeout
+  'readiness-check': 600_000,
   // Elicitation sub-agent (Story 16.3) — 15 minute timeout
   'elicitation': 900_000,
   // Multi-step phase decomposition step types (shorter per-step budgets)

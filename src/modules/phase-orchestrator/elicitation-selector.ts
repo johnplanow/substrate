@@ -48,8 +48,9 @@ export interface ElicitationContext {
    * - 'prd'          → Planning phase (PRD/requirements)
    * - 'architecture' → Solutioning phase (architecture decisions)
    * - 'stories'      → Solutioning phase (epics/stories)
+   * - 'ux-design'    → UX Design phase (personas, journeys, design systems)
    */
-  content_type: 'brief' | 'prd' | 'architecture' | 'stories'
+  content_type: 'brief' | 'prd' | 'architecture' | 'stories' | 'ux-design'
   /** Optional domain keywords to influence selection */
   domain_keywords?: string[]
   /** Complexity score 0.0–1.0 (boosts technical/advanced methods when high) */
@@ -117,6 +118,19 @@ const CATEGORY_AFFINITY: Record<string, Record<string, number>> = {
     technical: 0.3,
     advanced: 0.2,
     competitive: 0.2,
+    learning: 0.1,
+    philosophical: 0.1,
+    retrospective: 0.1,
+  },
+  'ux-design': {
+    creative: 1.0,
+    collaboration: 0.9,
+    research: 0.8,
+    core: 0.5,
+    risk: 0.4,
+    advanced: 0.3,
+    competitive: 0.3,
+    technical: 0.2,
     learning: 0.1,
     philosophical: 0.1,
     retrospective: 0.1,
@@ -277,6 +291,7 @@ export function selectMethods(
  *  - planning phase          → 'prd'
  *  - solutioning + arch step → 'architecture'
  *  - solutioning + story/epic step → 'stories'
+ *  - ux-design phase         → 'ux-design'
  *  - default                 → 'brief'
  *
  * @param phase    - Pipeline phase name
@@ -289,6 +304,7 @@ export function deriveContentType(
 ): ElicitationContext['content_type'] {
   if (phase === 'analysis') return 'brief'
   if (phase === 'planning') return 'prd'
+  if (phase === 'ux-design') return 'ux-design'
   if (phase === 'solutioning') {
     if (stepName.includes('arch')) return 'architecture'
     if (stepName.includes('stor') || stepName.includes('epic')) return 'stories'

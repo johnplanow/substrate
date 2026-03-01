@@ -354,4 +354,30 @@ export interface OrchestratorEvents {
     phase: string
     elapsedMs: number
   }
+
+  // -------------------------------------------------------------------------
+  // Solutioning phase events
+  // -------------------------------------------------------------------------
+
+  /** Readiness check has completed — emitted for all verdicts (READY, NEEDS_WORK, NOT_READY) */
+  'solutioning:readiness-check': {
+    runId: string
+    verdict: 'READY' | 'NEEDS_WORK' | 'NOT_READY'
+    coverageScore: number
+    findingCount: number
+    blockerCount: number
+  }
+
+  /** Readiness check returned NOT_READY — solutioning phase will not proceed to implementation */
+  'solutioning:readiness-failed': {
+    runId: string
+    verdict: 'NOT_READY'
+    coverageScore: number
+    findings: Array<{
+      category: string
+      severity: string
+      description: string
+      affected_items: string[]
+    }>
+  }
 }

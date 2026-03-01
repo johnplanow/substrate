@@ -538,15 +538,16 @@ describe('BMAD pack integration', () => {
     expect(pack.manifest.version).toBeDefined()
   })
 
-  it('BMAD pack has 4 phases', async () => {
+  it('BMAD pack has 5 phases (including optional ux-design)', async () => {
     const loader = createPackLoader()
     const pack = await loader.load(bmadPackPath)
     const phases = pack.getPhases()
 
-    expect(phases).toHaveLength(4)
+    expect(phases).toHaveLength(5)
     const phaseNames = phases.map((p) => p.name)
     expect(phaseNames).toContain('analysis')
     expect(phaseNames).toContain('planning')
+    expect(phaseNames).toContain('ux-design')
     expect(phaseNames).toContain('solutioning')
     expect(phaseNames).toContain('implementation')
   })

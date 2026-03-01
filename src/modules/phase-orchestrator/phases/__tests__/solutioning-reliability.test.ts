@@ -357,9 +357,9 @@ describe('AC3: Architecture-to-stories phase transition', () => {
 
     const result = await runSolutioningPhase(deps, params)
 
-    // Architecture dispatch should be skipped — only 1 dispatch for story generation
-    expect(dispatcher.dispatch).toHaveBeenCalledTimes(1)
-    // Should only call getPrompt for story-generation (not architecture)
+    // Architecture dispatch should be skipped — only 2 dispatches: story generation + readiness check
+    expect(dispatcher.dispatch).toHaveBeenCalledTimes(2)
+    // Should only call getPrompt for story-generation (not architecture) + readiness-check
     expect(pack.getPrompt).toHaveBeenCalledWith('story-generation')
     expect(pack.getPrompt).not.toHaveBeenCalledWith('architecture')
 
@@ -417,8 +417,8 @@ describe('AC3: Architecture-to-stories phase transition', () => {
 
     const result = await runSolutioningPhase(deps, params)
 
-    // Both architecture and story generation dispatches should occur
-    expect(dispatcher.dispatch).toHaveBeenCalledTimes(2)
+    // Architecture + story generation + readiness check dispatches should occur
+    expect(dispatcher.dispatch).toHaveBeenCalledTimes(3)
     expect(pack.getPrompt).toHaveBeenCalledWith('architecture')
     expect(pack.getPrompt).toHaveBeenCalledWith('story-generation')
     expect(result.result).toBe('success')
@@ -624,6 +624,6 @@ describe('AC2: Dynamic prompt token budget in single-dispatch story generation',
 
     // Should succeed — dynamic budget should accommodate the 20 decisions
     expect(result.result).toBe('success')
-    expect(dispatcher.dispatch).toHaveBeenCalledTimes(1) // Only story generation
+    expect(dispatcher.dispatch).toHaveBeenCalledTimes(2) // story generation + readiness check
   })
 })

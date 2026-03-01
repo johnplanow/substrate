@@ -1,11 +1,12 @@
 /**
  * Built-in phase definitions for the Phase Orchestrator.
  *
- * Defines the four standard phases of the BMAD pipeline:
+ * Defines the standard phases of the BMAD pipeline:
  *   1. analysis      — no entry gates; exit gate: product-brief artifact exists
  *   2. planning      — entry: product-brief exists; exit: prd exists
- *   3. solutioning   — entry: prd exists; exit: architecture + stories exist
- *   4. implementation — entry: architecture + stories exist + readiness check
+ *   3. ux-design     — optional; entry: prd exists; exit: ux-design artifact exists
+ *   4. solutioning   — entry: prd exists (+ ux-design when enabled); exit: architecture + stories exist
+ *   5. implementation — entry: architecture + stories exist + readiness check
  */
 
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
@@ -116,6 +117,44 @@ export function createPlanningPhaseDefinition(): PhaseDefinition {
 }
 
 // ---------------------------------------------------------------------------
+// UX Design phase (optional)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create the UX Design phase definition.
+ *
+ * Entry gates: 'prd' artifact from planning must exist
+ * Exit gates: 'ux-design' artifact must exist for this run
+ *
+ * This phase is inserted between planning and solutioning when UX design is
+ * enabled in the pack manifest (`uxDesign: true`).
+ */
+export function createUxDesignPhaseDefinition(): PhaseDefinition {
+  return {
+    name: 'ux-design',
+    description:
+      'Design the user experience: personas, core experience vision, design system, visual foundation, user journeys, and accessibility guidelines.',
+    entryGates: [createArtifactExistsGate('planning', 'prd')],
+    exitGates: [createArtifactExistsGate('ux-design', 'ux-design')],
+    onEnter: async (_db: BetterSqlite3Database, runId: string): Promise<void> => {
+      logPhase(`UX Design phase starting for run ${runId}`)
+    },
+    onExit: async (db: BetterSqlite3Database, runId: string): Promise<void> => {
+      const artifact = getArtifactByTypeForRun(db, runId, 'ux-design', 'ux-design')
+      if (artifact === undefined) {
+        logPhase(
+          `UX Design phase exit WARNING: ux-design artifact not found for run ${runId}`,
+        )
+      } else {
+        logPhase(
+          `UX Design phase completed for run ${runId} — ux-design artifact registered: ${artifact.id}`,
+        )
+      }
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Solutioning phase
 // ---------------------------------------------------------------------------
 
@@ -189,13 +228,37 @@ export function createImplementationPhaseDefinition(): PhaseDefinition {
 // ---------------------------------------------------------------------------
 
 /**
- * Return all four built-in phase definitions in execution order.
+ * Configuration options for built-in phase registration.
  */
-export function createBuiltInPhases(): PhaseDefinition[] {
-  return [
+export interface BuiltInPhasesConfig {
+  /**
+   * When true, the optional UX design phase is inserted between planning and solutioning.
+   * Corresponds to `uxDesign: true` in the pack manifest.
+   * Defaults to false.
+   */
+  uxDesignEnabled?: boolean
+}
+
+/**
+ * Return the built-in phase definitions in execution order.
+ *
+ * When `uxDesignEnabled` is true, the `ux-design` phase is inserted between
+ * `planning` and `solutioning`, with its own entry/exit gates.
+ *
+ * @param config - Optional configuration for conditional phase inclusion
+ */
+export function createBuiltInPhases(config?: BuiltInPhasesConfig): PhaseDefinition[] {
+  const phases: PhaseDefinition[] = [
     createAnalysisPhaseDefinition(),
     createPlanningPhaseDefinition(),
-    createSolutioningPhaseDefinition(),
-    createImplementationPhaseDefinition(),
   ]
+
+  if (config?.uxDesignEnabled === true) {
+    phases.push(createUxDesignPhaseDefinition())
+  }
+
+  phases.push(createSolutioningPhaseDefinition())
+  phases.push(createImplementationPhaseDefinition())
+
+  return phases
 }

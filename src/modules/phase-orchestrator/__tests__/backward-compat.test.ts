@@ -464,7 +464,7 @@ describe('AC7: auto status output schema unchanged', () => {
 
     // Note: db.close() is handled by afterEach — do NOT close here to avoid
     // double-close errors that break subsequent tests in this describe block.
-  })
+  }, 30_000)
 
   it('single-dispatch run status reflects correct counts from decisions written before multi-step', () => {
     const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })

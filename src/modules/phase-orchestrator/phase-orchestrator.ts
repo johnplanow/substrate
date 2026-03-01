@@ -88,4 +88,18 @@ export interface PhaseOrchestrator {
    * @returns Array of phase definitions in execution order
    */
   getPhases(): PhaseDefinition[]
+
+  /**
+   * Mark the current phase as failed in the pipeline run status.
+   *
+   * Updates the pipeline run status to 'failed' and records the failure
+   * reason in the phase history. Called by the CLI when a sub-phase
+   * dispatcher returns an error to ensure the run does not silently
+   * remain in 'running' state (AC5: failure state handling).
+   *
+   * @param runId - The pipeline run ID
+   * @param phase - The phase name that failed (e.g., 'solutioning')
+   * @param reason - Human-readable failure reason
+   */
+  markPhaseFailed(runId: string, phase: string, reason: string): void
 }

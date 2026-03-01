@@ -9,6 +9,7 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { Dispatcher } from '../../agent-dispatch/types.js'
+import type { TypedEventBus } from '../../../core/event-bus.js'
 
 // ---------------------------------------------------------------------------
 // Shared phase dependencies
@@ -27,6 +28,12 @@ export interface PhaseDeps {
   contextCompiler: ContextCompiler
   /** Sub-agent dispatcher (spawns agents, collects YAML output) */
   dispatcher: Dispatcher
+  /**
+   * Optional event bus for emitting phase lifecycle events.
+   * When provided, readiness check verdicts are broadcast as typed events.
+   * When omitted, phase execution proceeds with logger-only output.
+   */
+  eventBus?: TypedEventBus
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +177,49 @@ export interface PlanningResult {
   /** Additional error details such as schema validation messages */
   details?: string
   /** Token usage for the dispatched agent */
+  tokenUsage: {
+    input: number
+    output: number
+  }
+}
+
+// ---------------------------------------------------------------------------
+// UX Design phase types
+// ---------------------------------------------------------------------------
+
+/**
+ * Parameters for the UX design phase.
+ */
+export interface UxDesignPhaseParams {
+  /** The pipeline run ID for this execution */
+  runId: string
+}
+
+/**
+ * A UX design decision produced by the UX design phase.
+ */
+export interface UxDesignDecision {
+  /** Category of the UX decision (e.g., 'discovery', 'design-system', 'journeys') */
+  category: string
+  /** Unique key for this decision */
+  key: string
+  /** The decision value */
+  value: string
+}
+
+/**
+ * Result of the UX design phase execution.
+ */
+export interface UxDesignResult {
+  /** Whether the phase completed successfully or failed */
+  result: 'success' | 'failed'
+  /** The artifact ID registered in the decision store (only present on success) */
+  artifact_id?: string
+  /** Error description (only present on failure) */
+  error?: string
+  /** Additional error details */
+  details?: string
+  /** Token usage for the dispatched agents */
   tokenUsage: {
     input: number
     output: number

@@ -17,7 +17,7 @@ import { registerArtifact, getPipelineRunById } from '../../../persistence/queri
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import { createPhaseOrchestrator } from '../phase-orchestrator-impl.js'
 import type { PhaseDefinition } from '../types.js'
-import { runGates, serializePhaseHistory, deserializePhaseHistory } from '../phase-orchestrator-impl.js'
+import { runGates, serializePhaseHistory, deserializePhaseHistory, parseConfigJson } from '../phase-orchestrator-impl.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -686,6 +686,90 @@ describe('PhaseOrchestrator — core', () => {
       expect(deserializePhaseHistory('"string"')).toEqual([])
       expect(deserializePhaseHistory('42')).toEqual([])
       expect(deserializePhaseHistory('{}')).toEqual([])
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // markPhaseFailed (AC5: failure state handling)
+  // -------------------------------------------------------------------------
+
+  describe('markPhaseFailed()', () => {
+    it('sets pipeline run status to "failed"', async () => {
+      const pack = createMockPack()
+      const orchestrator = createPhaseOrchestrator({ db, pack })
+
+      const runId = await orchestrator.startRun('Test concept', 'solutioning')
+
+      // Verify initial status is 'running'
+      const runBefore = getPipelineRunById(db, runId)
+      expect(runBefore?.status).toBe('running')
+
+      orchestrator.markPhaseFailed(runId, 'solutioning', 'Architecture agent timed out')
+
+      const runAfter = getPipelineRunById(db, runId)
+      expect(runAfter?.status).toBe('failed')
+    })
+
+    it('records failure reason in phase history', async () => {
+      const pack = createMockPack()
+      const orchestrator = createPhaseOrchestrator({ db, pack })
+
+      const runId = await orchestrator.startRun('Test concept', 'solutioning')
+
+      const failureReason = 'Solutioning phase failed: architecture_generation_failed — prompt too long'
+      orchestrator.markPhaseFailed(runId, 'solutioning', failureReason)
+
+      const runAfter = getPipelineRunById(db, runId)
+      const config = parseConfigJson(runAfter?.config_json)
+      const solutioningEntry = config.phaseHistory.find((h) => h.phase === 'solutioning')
+
+      expect(solutioningEntry).toBeDefined()
+      expect(solutioningEntry?.completedAt).toBeDefined()
+      const failedGate = solutioningEntry?.gateResults.find((g) => g.passed === false)
+      expect(failedGate).toBeDefined()
+      expect(failedGate?.error).toBe(failureReason)
+    })
+
+    it('pipeline run is not left in "running" state after failure', async () => {
+      const pack = createMockPack()
+      const orchestrator = createPhaseOrchestrator({ db, pack })
+
+      const runId = await orchestrator.startRun('Test concept', 'solutioning')
+
+      orchestrator.markPhaseFailed(runId, 'solutioning', 'Story generation dispatch failed')
+
+      const status = await orchestrator.getRunStatus(runId)
+      expect(status.status).toBe('failed')
+      // Confirm it is NOT 'running'
+      expect(status.status).not.toBe('running')
+    })
+
+    it('handles non-existent runId gracefully (no throw)', () => {
+      const pack = createMockPack()
+      const orchestrator = createPhaseOrchestrator({ db, pack })
+
+      expect(() => {
+        orchestrator.markPhaseFailed('non-existent-run-id', 'solutioning', 'some error')
+      }).not.toThrow()
+    })
+
+    it('creates phase history entry when phase has no in-progress entry', async () => {
+      const pack = createMockPack()
+      const orchestrator = createPhaseOrchestrator({ db, pack })
+
+      // Start run with analysis but then mark solutioning (skipped phase) as failed
+      const runId = await orchestrator.startRun('Test concept', 'analysis')
+
+      orchestrator.markPhaseFailed(runId, 'solutioning', 'Unexpected solutioning failure')
+
+      const runAfter = getPipelineRunById(db, runId)
+      const config = parseConfigJson(runAfter?.config_json)
+      const solutioningEntry = config.phaseHistory.find((h) => h.phase === 'solutioning')
+
+      // Should have created an entry even though solutioning wasn't the current phase
+      expect(solutioningEntry).toBeDefined()
+      const failedGate = solutioningEntry?.gateResults.find((g) => g.passed === false)
+      expect(failedGate).toBeDefined()
     })
   })
 })

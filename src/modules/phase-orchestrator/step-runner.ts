@@ -107,6 +107,14 @@ export interface StepDefinition {
    * tracked separately. Elicitation failure is non-blocking.
    */
   elicitate?: boolean
+  /**
+   * Optional list of preferred elicitation method names to hint the elicitation
+   * subsystem toward techniques well-suited for this step's content type.
+   * For example, UX discovery steps may prefer 'User Persona Focus Group' and
+   * 'SCAMPER'. When provided, these names are passed as domain keywords to the
+   * elicitation selector to boost their selection probability.
+   */
+  elicitationMethods?: string[]
 }
 
 /**

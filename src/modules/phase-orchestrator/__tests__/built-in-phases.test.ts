@@ -5,7 +5,7 @@
  * analysis, planning, solutioning, and implementation.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import Database from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
@@ -18,8 +18,11 @@ import {
   createPlanningPhaseDefinition,
   createSolutioningPhaseDefinition,
   createImplementationPhaseDefinition,
+  createUxDesignPhaseDefinition,
+  createBuiltInPhases,
 } from '../built-in-phases.js'
-import { runGates } from '../phase-orchestrator-impl.js'
+import { runGates, createPhaseOrchestrator } from '../phase-orchestrator-impl.js'
+import type { MethodologyPack } from '../../methodology-pack/types.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -324,5 +327,247 @@ describe('Built-in Phase Definitions', () => {
 
       expect(result.passed).toBe(true)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T8: Conditional UX design phase registration tests
+// ---------------------------------------------------------------------------
+
+function makeMockPackWithUxDesign(uxDesign?: boolean): MethodologyPack {
+  return {
+    manifest: {
+      name: 'test-pack',
+      version: '1.0.0',
+      description: 'Test pack',
+      phases: [],
+      prompts: {},
+      constraints: {},
+      templates: {},
+      ...(uxDesign !== undefined ? { uxDesign } : {}),
+    },
+    getPhases: vi.fn().mockReturnValue([]),
+    getPrompt: vi.fn().mockResolvedValue(''),
+    getConstraints: vi.fn().mockResolvedValue([]),
+    getTemplate: vi.fn().mockResolvedValue(''),
+  }
+}
+
+describe('createBuiltInPhases - conditional UX design registration (T8)', () => {
+  it('returns 4 phases by default (no uxDesignEnabled)', () => {
+    const phases = createBuiltInPhases()
+    expect(phases).toHaveLength(4)
+  })
+
+  it('returns 4 phases when uxDesignEnabled is false', () => {
+    const phases = createBuiltInPhases({ uxDesignEnabled: false })
+    expect(phases).toHaveLength(4)
+  })
+
+  it('returns 5 phases when uxDesignEnabled is true', () => {
+    const phases = createBuiltInPhases({ uxDesignEnabled: true })
+    expect(phases).toHaveLength(5)
+  })
+
+  it('does NOT include ux-design phase by default', () => {
+    const phases = createBuiltInPhases()
+    const names = phases.map((p) => p.name)
+    expect(names).not.toContain('ux-design')
+  })
+
+  it('includes ux-design phase when uxDesignEnabled is true', () => {
+    const phases = createBuiltInPhases({ uxDesignEnabled: true })
+    const names = phases.map((p) => p.name)
+    expect(names).toContain('ux-design')
+  })
+
+  it('ux-design phase is inserted between planning and solutioning', () => {
+    const phases = createBuiltInPhases({ uxDesignEnabled: true })
+    const names = phases.map((p) => p.name)
+    const uxIdx = names.indexOf('ux-design')
+    const planningIdx = names.indexOf('planning')
+    const solutioningIdx = names.indexOf('solutioning')
+
+    expect(uxIdx).toBe(planningIdx + 1)
+    expect(solutioningIdx).toBe(uxIdx + 1)
+  })
+
+  it('phase order with UX enabled is analysis, planning, ux-design, solutioning, implementation', () => {
+    const phases = createBuiltInPhases({ uxDesignEnabled: true })
+    const names = phases.map((p) => p.name)
+    expect(names).toEqual(['analysis', 'planning', 'ux-design', 'solutioning', 'implementation'])
+  })
+
+  it('phase order without UX is analysis, planning, solutioning, implementation', () => {
+    const phases = createBuiltInPhases({ uxDesignEnabled: false })
+    const names = phases.map((p) => p.name)
+    expect(names).toEqual(['analysis', 'planning', 'solutioning', 'implementation'])
+  })
+})
+
+describe('createUxDesignPhaseDefinition (T8)', () => {
+  let db: BetterSqlite3Database
+  let tmpDir: string
+  let runId: string
+
+  beforeEach(() => {
+    const result = createTestDb()
+    db = result.db
+    tmpDir = result.tmpDir
+    runId = createTestRun(db)
+  })
+
+  afterEach(() => {
+    db.close()
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('has name "ux-design"', () => {
+    const phase = createUxDesignPhaseDefinition()
+    expect(phase.name).toBe('ux-design')
+  })
+
+  it('has one entry gate checking for prd artifact from planning', () => {
+    const phase = createUxDesignPhaseDefinition()
+    expect(phase.entryGates).toHaveLength(1)
+    expect(phase.entryGates[0].name).toContain('prd')
+  })
+
+  it('has one exit gate checking for ux-design artifact', () => {
+    const phase = createUxDesignPhaseDefinition()
+    expect(phase.exitGates).toHaveLength(1)
+    expect(phase.exitGates[0].name).toContain('ux-design')
+  })
+
+  it('entry gate fails when prd artifact is missing', async () => {
+    const phase = createUxDesignPhaseDefinition()
+    const result = await runGates(phase.entryGates, db, runId)
+    expect(result.passed).toBe(false)
+    expect(result.failures[0].gate).toContain('prd')
+  })
+
+  it('entry gate passes when prd artifact exists', async () => {
+    registerArtifactForRun(db, runId, 'planning', 'prd')
+    const phase = createUxDesignPhaseDefinition()
+    const result = await runGates(phase.entryGates, db, runId)
+    expect(result.passed).toBe(true)
+  })
+
+  it('exit gate fails when ux-design artifact is missing', async () => {
+    const phase = createUxDesignPhaseDefinition()
+    const result = await runGates(phase.exitGates, db, runId)
+    expect(result.passed).toBe(false)
+    expect(result.failures[0].gate).toContain('ux-design')
+  })
+
+  it('exit gate passes when ux-design artifact exists', async () => {
+    registerArtifactForRun(db, runId, 'ux-design', 'ux-design')
+    const phase = createUxDesignPhaseDefinition()
+    const result = await runGates(phase.exitGates, db, runId)
+    expect(result.passed).toBe(true)
+  })
+
+  it('has onEnter and onExit callbacks', () => {
+    const phase = createUxDesignPhaseDefinition()
+    expect(typeof phase.onEnter).toBe('function')
+    expect(typeof phase.onExit).toBe('function')
+  })
+})
+
+describe('PhaseOrchestrator - conditional UX design registration (T8)', () => {
+  let db: BetterSqlite3Database
+  let tmpDir: string
+
+  beforeEach(() => {
+    const result = createTestDb()
+    db = result.db
+    tmpDir = result.tmpDir
+  })
+
+  afterEach(() => {
+    db.close()
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('registers 4 phases when pack manifest has uxDesign: false', () => {
+    const pack = makeMockPackWithUxDesign(false)
+    const orchestrator = createPhaseOrchestrator({ db, pack })
+    expect(orchestrator.getPhases()).toHaveLength(4)
+  })
+
+  it('registers 5 phases when pack manifest has uxDesign: true', () => {
+    const pack = makeMockPackWithUxDesign(true)
+    const orchestrator = createPhaseOrchestrator({ db, pack })
+    expect(orchestrator.getPhases()).toHaveLength(5)
+  })
+
+  it('does NOT include ux-design when pack manifest has uxDesign: false', () => {
+    const pack = makeMockPackWithUxDesign(false)
+    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const names = orchestrator.getPhases().map((p) => p.name)
+    expect(names).not.toContain('ux-design')
+  })
+
+  it('includes ux-design when pack manifest has uxDesign: true', () => {
+    const pack = makeMockPackWithUxDesign(true)
+    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const names = orchestrator.getPhases().map((p) => p.name)
+    expect(names).toContain('ux-design')
+  })
+
+  it('does NOT include ux-design when pack manifest has no uxDesign field', () => {
+    const pack = makeMockPackWithUxDesign(undefined)
+    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const names = orchestrator.getPhases().map((p) => p.name)
+    expect(names).not.toContain('ux-design')
+  })
+
+  it('ux-design is between planning and solutioning when uxDesign: true', () => {
+    const pack = makeMockPackWithUxDesign(true)
+    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const names = orchestrator.getPhases().map((p) => p.name)
+    const uxIdx = names.indexOf('ux-design')
+    const planningIdx = names.indexOf('planning')
+    const solutioningIdx = names.indexOf('solutioning')
+    expect(uxIdx).toBe(planningIdx + 1)
+    expect(solutioningIdx).toBe(uxIdx + 1)
+  })
+
+  it('can advance from planning to ux-design when prd artifact exists and uxDesign enabled', async () => {
+    const pack = makeMockPackWithUxDesign(true)
+    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const runId = await orchestrator.startRun('Test concept')
+
+    // Complete analysis
+    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await orchestrator.advancePhase(runId)
+
+    // Complete planning
+    registerArtifactForRun(db, runId, 'planning', 'prd')
+    const result = await orchestrator.advancePhase(runId)
+
+    expect(result.advanced).toBe(true)
+    expect(result.phase).toBe('ux-design')
+  })
+
+  it('can advance from ux-design to solutioning when ux-design artifact exists', async () => {
+    const pack = makeMockPackWithUxDesign(true)
+    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const runId = await orchestrator.startRun('Test concept')
+
+    // Complete analysis
+    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await orchestrator.advancePhase(runId)
+
+    // Complete planning
+    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await orchestrator.advancePhase(runId)
+
+    // Complete ux-design
+    registerArtifactForRun(db, runId, 'ux-design', 'ux-design')
+    const result = await orchestrator.advancePhase(runId)
+
+    expect(result.advanced).toBe(true)
+    expect(result.phase).toBe('solutioning')
   })
 })
