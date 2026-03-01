@@ -16,6 +16,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { updatePipelineRun, getDecisionsByPhase, registerArtifact } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
+import { writeStoryMetrics } from '../../persistence/queries/metrics.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { runCreateStory } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
@@ -116,6 +117,62 @@ export function createImplementationOrchestrator(
   let _heartbeatTimer: ReturnType<typeof setInterval> | null = null
   const HEARTBEAT_INTERVAL_MS = 30_000
   const WATCHDOG_TIMEOUT_MS = 600_000 // 10 minutes
+
+  // -- per-story phase timing state (for AC2 of Story 17-2) --
+  const _phaseStartMs = new Map<string, Map<string, number>>() // storyKey → phase → start ms
+  const _phaseEndMs = new Map<string, Map<string, number>>()   // storyKey → phase → end ms
+  const _storyDispatches = new Map<string, number>()           // storyKey → dispatch count
+
+  function startPhase(storyKey: string, phase: string): void {
+    if (!_phaseStartMs.has(storyKey)) _phaseStartMs.set(storyKey, new Map())
+    _phaseStartMs.get(storyKey)!.set(phase, Date.now())
+  }
+
+  function endPhase(storyKey: string, phase: string): void {
+    if (!_phaseEndMs.has(storyKey)) _phaseEndMs.set(storyKey, new Map())
+    _phaseEndMs.get(storyKey)!.set(phase, Date.now())
+  }
+
+  function incrementDispatches(storyKey: string): void {
+    _storyDispatches.set(storyKey, (_storyDispatches.get(storyKey) ?? 0) + 1)
+  }
+
+  function buildPhaseDurationsJson(storyKey: string): string {
+    const starts = _phaseStartMs.get(storyKey)
+    const ends = _phaseEndMs.get(storyKey)
+    if (!starts || starts.size === 0) return '{}'
+    const durations: Record<string, number> = {}
+    for (const [phase, startMs] of starts) {
+      const endMs = ends?.get(phase) ?? Date.now()
+      durations[phase] = Math.round((endMs - startMs) / 1000)
+    }
+    return JSON.stringify(durations)
+  }
+
+  function writeStoryMetricsBestEffort(storyKey: string, result: string, reviewCycles: number): void {
+    if (config.pipelineRunId === undefined) return
+    try {
+      const storyState = _stories.get(storyKey)
+      const startedAt = storyState?.startedAt
+      const completedAt = storyState?.completedAt ?? new Date().toISOString()
+      const wallClockSeconds = startedAt
+        ? Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000)
+        : 0
+      writeStoryMetrics(db, {
+        run_id: config.pipelineRunId,
+        story_key: storyKey,
+        result,
+        phase_durations_json: buildPhaseDurationsJson(storyKey),
+        started_at: startedAt,
+        completed_at: completedAt,
+        wall_clock_seconds: wallClockSeconds,
+        review_cycles: reviewCycles,
+        dispatches: _storyDispatches.get(storyKey) ?? 0,
+      })
+    } catch (err) {
+      logger.warn({ err, storyKey }, 'Failed to write story metrics (best-effort)')
+    }
+  }
 
   // -- helpers --
 
@@ -241,6 +298,7 @@ export function createImplementationOrchestrator(
     await waitIfPaused()
     if (_state !== 'RUNNING') return
 
+    startPhase(storyKey, 'create-story')
     updateStory(storyKey, {
       phase: 'IN_STORY_CREATION' as StoryPhase,
       startedAt: new Date().toISOString(),
@@ -273,11 +331,13 @@ export function createImplementationOrchestrator(
 
     if (storyFilePath === undefined) {
     try {
+      incrementDispatches(storyKey)
       const createResult = await runCreateStory(
         { db, pack, contextCompiler, dispatcher, projectRoot },
         { epicId: storyKey.split('-')[0] ?? storyKey, storyKey, pipelineRunId: config.pipelineRunId },
       )
 
+      endPhase(storyKey, 'create-story')
       eventBus.emit('orchestrator:story-phase-complete', {
         storyKey,
         phase: 'IN_STORY_CREATION',
@@ -292,6 +352,7 @@ export function createImplementationOrchestrator(
           error: errMsg,
           completedAt: new Date().toISOString(),
         })
+        writeStoryMetricsBestEffort(storyKey, 'failed', 0)
         eventBus.emit('orchestrator:story-escalated', {
           storyKey,
           lastVerdict: 'create-story-failed',
@@ -309,6 +370,7 @@ export function createImplementationOrchestrator(
           error: errMsg,
           completedAt: new Date().toISOString(),
         })
+        writeStoryMetricsBestEffort(storyKey, 'failed', 0)
         eventBus.emit('orchestrator:story-escalated', {
           storyKey,
           lastVerdict: 'create-story-no-file',
@@ -322,11 +384,13 @@ export function createImplementationOrchestrator(
       storyFilePath = createResult.story_file
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
+      endPhase(storyKey, 'create-story')
       updateStory(storyKey, {
         phase: 'ESCALATED' as StoryPhase,
         error: errMsg,
         completedAt: new Date().toISOString(),
       })
+      writeStoryMetricsBestEffort(storyKey, 'failed', 0)
       eventBus.emit('orchestrator:story-escalated', {
         storyKey,
         lastVerdict: 'create-story-exception',
@@ -343,6 +407,7 @@ export function createImplementationOrchestrator(
     await waitIfPaused()
     if (_state !== 'RUNNING') return
 
+    startPhase(storyKey, 'dev-story')
     updateStory(storyKey, { phase: 'IN_DEV' as StoryPhase })
     persistState()
 
@@ -400,6 +465,7 @@ export function createImplementationOrchestrator(
           )
 
           const batchStartMs = Date.now()
+          incrementDispatches(storyKey)
           let batchResult
           try {
             batchResult = await runDevStory(
@@ -490,6 +556,7 @@ export function createImplementationOrchestrator(
         devFilesModified = Array.from(allFilesModified)
       } else {
         // AC7: Small/medium story — single dispatch (existing behavior)
+        incrementDispatches(storyKey)
         const devResult = await runDevStory(
           { db, pack, contextCompiler, dispatcher, projectRoot },
           {
@@ -521,11 +588,13 @@ export function createImplementationOrchestrator(
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
+      endPhase(storyKey, 'dev-story')
       updateStory(storyKey, {
         phase: 'ESCALATED' as StoryPhase,
         error: errMsg,
         completedAt: new Date().toISOString(),
       })
+      writeStoryMetricsBestEffort(storyKey, 'failed', 0)
       eventBus.emit('orchestrator:story-escalated', {
         storyKey,
         lastVerdict: 'dev-story-exception',
@@ -537,6 +606,7 @@ export function createImplementationOrchestrator(
     }
 
     // -- code-review phase (with retry/rework) --
+    endPhase(storyKey, 'dev-story')
 
     let reviewCycles = 0
     let keepReviewing = true
@@ -547,6 +617,7 @@ export function createImplementationOrchestrator(
       await waitIfPaused()
       if (_state !== 'RUNNING') return
 
+      if (reviewCycles === 0) startPhase(storyKey, 'code-review')
       updateStory(storyKey, {
         phase: 'IN_REVIEW' as StoryPhase,
         reviewCycles,
@@ -579,6 +650,7 @@ export function createImplementationOrchestrator(
               { storyKey, batchIndex: group.batchIndex, fileCount: group.files.length },
               'Running batched code review',
             )
+            incrementDispatches(storyKey)
             const batchReview = await runCodeReview(
               { db, pack, contextCompiler, dispatcher, projectRoot },
               {
@@ -622,6 +694,7 @@ export function createImplementationOrchestrator(
           )
         } else {
           // Single review (small story or re-review after fix)
+          incrementDispatches(storyKey)
           reviewResult = await runCodeReview(
             { db, pack, contextCompiler, dispatcher, projectRoot },
             {
@@ -735,11 +808,13 @@ export function createImplementationOrchestrator(
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
+        endPhase(storyKey, 'code-review')
         updateStory(storyKey, {
           phase: 'ESCALATED' as StoryPhase,
           error: errMsg,
           completedAt: new Date().toISOString(),
         })
+        writeStoryMetricsBestEffort(storyKey, 'failed', reviewCycles)
         eventBus.emit('orchestrator:story-escalated', {
           storyKey,
           lastVerdict: 'code-review-exception',
@@ -751,10 +826,12 @@ export function createImplementationOrchestrator(
       }
 
       if (verdict === 'SHIP_IT') {
+        endPhase(storyKey, 'code-review')
         updateStory(storyKey, {
           phase: 'COMPLETE' as StoryPhase,
           completedAt: new Date().toISOString(),
         })
+        writeStoryMetricsBestEffort(storyKey, 'success', reviewCycles + 1)
         eventBus.emit('orchestrator:story-complete', { storyKey, reviewCycles })
         persistState()
         keepReviewing = false
@@ -767,11 +844,13 @@ export function createImplementationOrchestrator(
 
         // NEEDS_MAJOR_REWORK at the limit → escalate (fundamental issues remain)
         if (verdict !== 'NEEDS_MINOR_FIXES') {
+          endPhase(storyKey, 'code-review')
           updateStory(storyKey, {
             phase: 'ESCALATED' as StoryPhase,
             reviewCycles: finalReviewCycles,
             completedAt: new Date().toISOString(),
           })
+          writeStoryMetricsBestEffort(storyKey, 'escalated', finalReviewCycles)
           eventBus.emit('orchestrator:story-escalated', {
             storyKey,
             lastVerdict: verdict,
@@ -854,11 +933,13 @@ export function createImplementationOrchestrator(
         }
 
         // Auto-approve: mark COMPLETE regardless of fix outcome (issues were minor)
+        endPhase(storyKey, 'code-review')
         updateStory(storyKey, {
           phase: 'COMPLETE' as StoryPhase,
           reviewCycles: finalReviewCycles,
           completedAt: new Date().toISOString(),
         })
+        writeStoryMetricsBestEffort(storyKey, 'success', finalReviewCycles)
         eventBus.emit('orchestrator:story-complete', {
           storyKey,
           reviewCycles: finalReviewCycles,
@@ -928,6 +1009,7 @@ export function createImplementationOrchestrator(
           logger.warn('Failed to assemble fix prompt, using fallback', { storyKey, taskType })
         }
 
+        incrementDispatches(storyKey)
         const handle = dispatcher.dispatch<unknown>({
           prompt: fixPrompt,
           agent: 'claude-code',
@@ -950,11 +1032,13 @@ export function createImplementationOrchestrator(
 
         if (fixResult.status === 'timeout') {
           logger.warn('Fix dispatch timed out — escalating story', { storyKey, taskType })
+          endPhase(storyKey, 'code-review')
           updateStory(storyKey, {
             phase: 'ESCALATED' as StoryPhase,
             error: `fix-dispatch-timeout (${taskType})`,
             completedAt: new Date().toISOString(),
           })
+          writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
           eventBus.emit('orchestrator:story-escalated', {
             storyKey,
             lastVerdict: verdict,

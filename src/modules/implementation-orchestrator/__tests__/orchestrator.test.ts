@@ -30,6 +30,13 @@ vi.mock('../../compiled-workflows/code-review.js', () => ({
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   updatePipelineRun: vi.fn(),
   addTokenUsage: vi.fn(),
+  getDecisionsByPhase: vi.fn().mockReturnValue([]),
+  registerArtifact: vi.fn(),
+}))
+vi.mock('../../../persistence/queries/metrics.js', () => ({
+  writeRunMetrics: vi.fn(),
+  writeStoryMetrics: vi.fn(),
+  aggregateTokenUsageForRun: vi.fn().mockReturnValue({ input: 0, output: 0, cost: 0 }),
 }))
 vi.mock('../../../utils/logger.js', () => ({
   createLogger: vi.fn(() => ({

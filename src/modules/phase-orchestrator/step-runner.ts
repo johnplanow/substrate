@@ -22,6 +22,13 @@ import {
 import { calculateDynamicBudget, summarizeDecisions } from './budget-utils.js'
 import { createLogger } from '../../utils/logger.js'
 import type { PhaseDeps } from './phases/types.js'
+import { runCritiqueLoop } from './critique-loop.js'
+import {
+  selectMethods,
+  deriveContentType,
+  type ElicitationMethod,
+} from './elicitation-selector.js'
+import { ElicitationOutputSchema } from './phases/schemas.js'
 
 const logger = createLogger('step-runner')
 
@@ -84,6 +91,22 @@ export interface StepDefinition {
   persist: PersistMapping[]
   /** Optional artifact registration on success */
   registerArtifact?: ArtifactRegistration
+  /**
+   * When true, a critique loop is run after the step completes successfully.
+   * The critique agent evaluates the artifact and may trigger a refinement pass
+   * before the step result is finalized. Token costs from the critique loop are
+   * included in the overall token usage totals. Critique failure is non-blocking
+   * — the pipeline continues even if the critique loop errors.
+   */
+  critique?: boolean
+  /**
+   * When true, automated elicitation runs after the step completes successfully.
+   * The elicitation selector picks 1-2 methods appropriate for the content type,
+   * dispatches a sub-agent to apply each method, and stores insights in the
+   * decision store with category 'elicitation'. Token costs from elicitation are
+   * tracked separately. Elicitation failure is non-blocking.
+   */
+  elicitate?: boolean
 }
 
 /**
@@ -102,6 +125,8 @@ export interface StepResult {
   tokenUsage: { input: number; output: number }
   /** Registered artifact ID (if any) */
   artifactId?: string
+  /** Token usage from elicitation dispatches (separate from main step tokens) */
+  elicitationTokenUsage?: { input: number; output: number }
 }
 
 /**
@@ -114,6 +139,8 @@ export interface MultiStepResult {
   steps: StepResult[]
   /** Aggregated token usage across all steps */
   tokenUsage: { input: number; output: number }
+  /** Aggregated token usage from elicitation dispatches across all steps */
+  elicitationTokenUsage: { input: number; output: number }
   /** Error from the first failed step (if any) */
   error?: string
 }
@@ -262,6 +289,9 @@ export async function runSteps(
   const stepOutputs = new Map<string, Record<string, unknown>>()
   let totalInput = 0
   let totalOutput = 0
+  let totalElicitationInput = 0
+  let totalElicitationOutput = 0
+  const usedElicitationMethods: string[] = []
 
   for (const step of steps) {
     try {
@@ -341,6 +371,7 @@ export async function runSteps(
             success: false,
             steps: stepResults,
             tokenUsage: { input: totalInput, output: totalOutput },
+            elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput },
             error: errorMsg,
           }
         }
@@ -366,20 +397,20 @@ export async function runSteps(
       if (dispatchResult.status === 'timeout') {
         const errorMsg = `Step '${step.name}' timed out after ${dispatchResult.durationMs}ms`
         stepResults.push({ name: step.name, success: false, parsed: null, error: errorMsg, tokenUsage })
-        return { success: false, steps: stepResults, tokenUsage: { input: totalInput, output: totalOutput }, error: errorMsg }
+        return { success: false, steps: stepResults, tokenUsage: { input: totalInput, output: totalOutput }, elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput }, error: errorMsg }
       }
 
       if (dispatchResult.status === 'failed') {
         const errorMsg = `Step '${step.name}' dispatch failed: ${dispatchResult.parseError ?? dispatchResult.output}`
         stepResults.push({ name: step.name, success: false, parsed: null, error: errorMsg, tokenUsage })
-        return { success: false, steps: stepResults, tokenUsage: { input: totalInput, output: totalOutput }, error: errorMsg }
+        return { success: false, steps: stepResults, tokenUsage: { input: totalInput, output: totalOutput }, elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput }, error: errorMsg }
       }
 
       // 6. Validate parsed output
       if (dispatchResult.parsed === null || dispatchResult.parseError !== null) {
         const errorMsg = `Step '${step.name}' schema validation failed: ${dispatchResult.parseError ?? 'No parsed output'}`
         stepResults.push({ name: step.name, success: false, parsed: null, error: errorMsg, tokenUsage })
-        return { success: false, steps: stepResults, tokenUsage: { input: totalInput, output: totalOutput }, error: errorMsg }
+        return { success: false, steps: stepResults, tokenUsage: { input: totalInput, output: totalOutput }, elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput }, error: errorMsg }
       }
 
       const parsed = dispatchResult.parsed as Record<string, unknown>
@@ -387,7 +418,7 @@ export async function runSteps(
       if (parsed.result === 'failed') {
         const errorMsg = `Step '${step.name}' agent reported failure`
         stepResults.push({ name: step.name, success: false, parsed: null, error: errorMsg, tokenUsage })
-        return { success: false, steps: stepResults, tokenUsage: { input: totalInput, output: totalOutput }, error: errorMsg }
+        return { success: false, steps: stepResults, tokenUsage: { input: totalInput, output: totalOutput }, elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput }, error: errorMsg }
       }
 
       // 7. Store output in step outputs map for subsequent steps
@@ -442,6 +473,145 @@ export async function runSteps(
         artifactId = artifact.id
       }
 
+      // 10. Run critique loop if configured (non-blocking — failure does not abort step)
+      if (step.critique === true) {
+        try {
+          // Serialize the step output as the artifact to critique
+          const artifactContent = JSON.stringify(parsed, null, 2)
+          const critiqueResult = await runCritiqueLoop(
+            artifactContent,
+            phase,
+            runId,
+            phase,
+            deps,
+          )
+          // Add critique and refinement token costs to running totals
+          totalInput += critiqueResult.critiqueTokens.input + critiqueResult.refinementTokens.input
+          totalOutput += critiqueResult.critiqueTokens.output + critiqueResult.refinementTokens.output
+          logger.info(
+            {
+              step: step.name,
+              verdict: critiqueResult.verdict,
+              iterations: critiqueResult.iterations,
+              totalMs: critiqueResult.totalMs,
+            },
+            'Step critique loop complete',
+          )
+        } catch (critiqueErr) {
+          // Critique errors are non-blocking — log and continue
+          const critiqueMsg = critiqueErr instanceof Error ? critiqueErr.message : String(critiqueErr)
+          logger.warn(
+            { step: step.name, err: critiqueMsg },
+            'Step critique loop threw an error — continuing without critique',
+          )
+        }
+      }
+
+      // 11. Run automated elicitation if configured (non-blocking — failure does not abort step)
+      let stepElicitationTokens: { input: number; output: number } | undefined
+      if (step.elicitate === true) {
+        try {
+          const contentType = deriveContentType(phase, step.name)
+          const selectedMethods = selectMethods(
+            { content_type: contentType },
+            usedElicitationMethods,
+          )
+
+          if (selectedMethods.length > 0) {
+            logger.info(
+              {
+                step: step.name,
+                methods: selectedMethods.map((m) => m.name),
+                contentType,
+              },
+              'Running automated elicitation',
+            )
+
+            // Load elicitation prompt template
+            const elicitationTemplate = await deps.pack.getPrompt('elicitation-apply')
+            const artifactContent = JSON.stringify(parsed, null, 2)
+            let elicitInput = 0
+            let elicitOutput = 0
+            let roundIndex = 0
+
+            for (const method of selectedMethods) {
+              roundIndex++
+              // Fill the prompt template with method data
+              const elicitPrompt = elicitationTemplate
+                .replace(/\{\{method_name\}\}/g, method.name)
+                .replace(/\{\{method_description\}\}/g, method.description)
+                .replace(/\{\{output_pattern\}\}/g, method.output_pattern)
+                .replace(/\{\{artifact_content\}\}/g, artifactContent)
+
+              // Dispatch elicitation agent
+              const elicitHandle = deps.dispatcher.dispatch({
+                prompt: elicitPrompt,
+                agent: 'claude-code',
+                taskType: 'elicitation',
+                outputSchema: ElicitationOutputSchema,
+              })
+
+              const elicitResult = await elicitHandle.result
+              elicitInput += elicitResult.tokenEstimate.input
+              elicitOutput += elicitResult.tokenEstimate.output
+
+              // Store results in decision store if dispatch succeeded
+              if (
+                elicitResult.status === 'completed' &&
+                elicitResult.parsed !== null
+              ) {
+                const elicitParsed = elicitResult.parsed as { result: string; insights: string }
+                if (elicitParsed.result === 'success' && elicitParsed.insights) {
+                  // Store method name
+                  upsertDecision(deps.db, {
+                    pipeline_run_id: runId,
+                    phase,
+                    category: 'elicitation',
+                    key: `${phase}-round-${roundIndex}-method`,
+                    value: method.name,
+                  })
+                  // Store insights
+                  upsertDecision(deps.db, {
+                    pipeline_run_id: runId,
+                    phase,
+                    category: 'elicitation',
+                    key: `${phase}-round-${roundIndex}-insights`,
+                    value: elicitParsed.insights,
+                  })
+                  logger.info(
+                    { step: step.name, method: method.name, roundIndex },
+                    'Elicitation insights stored in decision store',
+                  )
+                }
+              } else {
+                logger.warn(
+                  {
+                    step: step.name,
+                    method: method.name,
+                    status: elicitResult.status,
+                  },
+                  'Elicitation dispatch did not produce valid output — skipping',
+                )
+              }
+
+              // Track used methods for rotation
+              usedElicitationMethods.push(method.name)
+            }
+
+            stepElicitationTokens = { input: elicitInput, output: elicitOutput }
+            totalElicitationInput += elicitInput
+            totalElicitationOutput += elicitOutput
+          }
+        } catch (elicitErr) {
+          // Elicitation errors are non-blocking — log and continue
+          const elicitMsg = elicitErr instanceof Error ? elicitErr.message : String(elicitErr)
+          logger.warn(
+            { step: step.name, err: elicitMsg },
+            'Step elicitation threw an error — continuing without elicitation',
+          )
+        }
+      }
+
       const stepResult: StepResult = {
         name: step.name,
         success: true,
@@ -451,6 +621,9 @@ export async function runSteps(
       }
       if (artifactId !== undefined) {
         stepResult.artifactId = artifactId
+      }
+      if (stepElicitationTokens !== undefined) {
+        stepResult.elicitationTokenUsage = stepElicitationTokens
       }
       stepResults.push(stepResult)
     } catch (err) {
@@ -467,6 +640,7 @@ export async function runSteps(
         success: false,
         steps: stepResults,
         tokenUsage: { input: totalInput, output: totalOutput },
+        elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput },
         error: errorMsg,
       }
     }
@@ -476,5 +650,6 @@ export async function runSteps(
     success: true,
     steps: stepResults,
     tokenUsage: { input: totalInput, output: totalOutput },
+    elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput },
   }
 }

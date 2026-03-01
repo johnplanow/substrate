@@ -64,7 +64,7 @@
     "js-yaml": "^4.1.1",
     "pino": "^9.6.0",
     "semver": "^7.6.3",
-    "substrate-ai": "^0.1.19",
+    "substrate-ai": "^0.1.22",
     "zod": "^4.3.6"
   },
   "devDependencies": {

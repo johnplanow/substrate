@@ -249,3 +249,18 @@ export const EpicDesignOutputSchema = z.object({
 })
 
 export type EpicDesignOutputSchemaType = z.infer<typeof EpicDesignOutputSchema>
+
+// ---------------------------------------------------------------------------
+// Elicitation output schema (Story 16.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Zod schema for the YAML output emitted by an elicitation sub-agent.
+ * The agent returns structured insights from applying an elicitation method.
+ */
+export const ElicitationOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  insights: z.string(),
+})
+
+export type ElicitationOutputSchemaType = z.infer<typeof ElicitationOutputSchema>

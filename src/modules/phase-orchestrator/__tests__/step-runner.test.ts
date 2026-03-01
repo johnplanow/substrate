@@ -548,6 +548,326 @@ describe('step-runner', () => {
   })
 
   // -------------------------------------------------------------------------
+  // runSteps — elicitation integration (Story 16.3)
+  // -------------------------------------------------------------------------
+
+  describe('runSteps() — elicitation integration', () => {
+    it('runs elicitation after step when elicitate: true is set', async () => {
+      const pack = makePack({
+        'step-1': 'Analyze: {{concept}}',
+        'elicitation-apply': '# Elicitation: {{method_name}}\n\n**Description:** {{method_description}}\n\n**Output Pattern:** {{output_pattern}}\n\n## Artifact\n\n{{artifact_content}}\n\nReturn YAML.',
+      })
+
+      const stepDispatchResult = makeDispatchResult({
+        id: 'd-1',
+        parsed: { result: 'success', value: 'vision-output' },
+        tokenEstimate: { input: 100, output: 50 },
+      })
+      // Two elicitation dispatch results (one per selected method)
+      const elicitResult1 = makeDispatchResult({
+        id: 'd-elicit-1',
+        parsed: { result: 'success', insights: 'Insight from method 1: users need async' },
+        tokenEstimate: { input: 80, output: 40 },
+      })
+      const elicitResult2 = makeDispatchResult({
+        id: 'd-elicit-2',
+        parsed: { result: 'success', insights: 'Insight from method 2: simplify model' },
+        tokenEstimate: { input: 70, output: 35 },
+      })
+
+      const dispatcher = makeDispatcher([stepDispatchResult, elicitResult1, elicitResult2])
+      const deps = makeDeps(db, dispatcher, pack)
+
+      const steps: StepDefinition[] = [{
+        name: 'step-1',
+        taskType: 'analysis-vision',
+        outputSchema: TestOutputSchema,
+        context: [{ placeholder: 'concept', source: 'param:concept' }],
+        persist: [{ field: 'value', category: 'test-cat', key: 'vision' }],
+        elicitate: true,
+      }]
+
+      const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'Build a CLI' })
+
+      expect(result.success).toBe(true)
+      expect(result.steps).toHaveLength(1)
+      expect(result.steps[0]!.success).toBe(true)
+
+      // Main step tokens
+      expect(result.tokenUsage.input).toBe(100)
+      expect(result.tokenUsage.output).toBe(50)
+
+      // Elicitation tokens tracked separately
+      expect(result.elicitationTokenUsage.input).toBe(150) // 80 + 70
+      expect(result.elicitationTokenUsage.output).toBe(75) // 40 + 35
+      expect(result.steps[0]!.elicitationTokenUsage).toBeDefined()
+      expect(result.steps[0]!.elicitationTokenUsage!.input).toBe(150)
+
+      // Dispatcher called 3 times: 1 step + 2 elicitation
+      expect(dispatcher.dispatch).toHaveBeenCalledTimes(3)
+
+      // Elicitation results stored in decision store
+      const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+      const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
+      expect(elicitDecisions.length).toBe(4) // 2 methods × (method + insights)
+      expect(elicitDecisions.find((d) => d.key === 'analysis-round-1-method')).toBeDefined()
+      expect(elicitDecisions.find((d) => d.key === 'analysis-round-1-insights')).toBeDefined()
+      expect(elicitDecisions.find((d) => d.key === 'analysis-round-2-method')).toBeDefined()
+      expect(elicitDecisions.find((d) => d.key === 'analysis-round-2-insights')).toBeDefined()
+    })
+
+    it('does not run elicitation when elicitate is not set', async () => {
+      const pack = makePack({ 'step-1': 'Analyze: {{concept}}' })
+
+      const dispResult = makeDispatchResult({
+        parsed: { result: 'success', value: 'test' },
+      })
+      const dispatcher = makeDispatcher([dispResult])
+      const deps = makeDeps(db, dispatcher, pack)
+
+      const steps: StepDefinition[] = [{
+        name: 'step-1',
+        taskType: 'analysis-vision',
+        outputSchema: TestOutputSchema,
+        context: [{ placeholder: 'concept', source: 'param:concept' }],
+        persist: [],
+        // No elicitate flag
+      }]
+
+      const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
+
+      expect(result.success).toBe(true)
+      expect(result.elicitationTokenUsage.input).toBe(0)
+      expect(result.elicitationTokenUsage.output).toBe(0)
+      // Only step dispatch, no elicitation dispatch
+      expect(dispatcher.dispatch).toHaveBeenCalledTimes(1)
+    })
+
+    it('handles elicitation dispatch failure gracefully (non-blocking)', async () => {
+      const pack = makePack({
+        'step-1': 'Analyze: {{concept}}',
+        'elicitation-apply': '# {{method_name}} {{method_description}} {{output_pattern}} {{artifact_content}}',
+      })
+
+      const stepResult = makeDispatchResult({
+        id: 'd-1',
+        parsed: { result: 'success', value: 'output' },
+        tokenEstimate: { input: 100, output: 50 },
+      })
+      const failedElicit: DispatchResult<unknown> = {
+        id: 'd-elicit-1',
+        status: 'failed',
+        exitCode: 1,
+        output: 'Agent error',
+        parsed: null,
+        parseError: 'Parse failed',
+        durationMs: 100,
+        tokenEstimate: { input: 50, output: 0 },
+      }
+
+      const dispatcher = makeDispatcher([stepResult, failedElicit, failedElicit])
+      const deps = makeDeps(db, dispatcher, pack)
+
+      const steps: StepDefinition[] = [{
+        name: 'step-1',
+        taskType: 'analysis-vision',
+        outputSchema: TestOutputSchema,
+        context: [{ placeholder: 'concept', source: 'param:concept' }],
+        persist: [],
+        elicitate: true,
+      }]
+
+      const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
+
+      // Step still succeeds even though elicitation failed
+      expect(result.success).toBe(true)
+      expect(result.steps[0]!.success).toBe(true)
+
+      // No elicitation decisions stored on failure
+      const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+      const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
+      expect(elicitDecisions.length).toBe(0)
+    })
+
+    it('handles elicitation prompt loading error gracefully', async () => {
+      // Pack that fails to load elicitation-apply prompt
+      const pack = makePack({ 'step-1': 'Analyze: {{concept}}' })
+      vi.mocked(pack.getPrompt).mockImplementation((key: string) => {
+        if (key === 'step-1') return Promise.resolve('Analyze: {{concept}}')
+        return Promise.reject(new Error('Template not found: ' + key))
+      })
+
+      const dispResult = makeDispatchResult({
+        parsed: { result: 'success', value: 'output' },
+      })
+      const dispatcher = makeDispatcher([dispResult])
+      const deps = makeDeps(db, dispatcher, pack)
+
+      const steps: StepDefinition[] = [{
+        name: 'step-1',
+        taskType: 'analysis-vision',
+        outputSchema: TestOutputSchema,
+        context: [{ placeholder: 'concept', source: 'param:concept' }],
+        persist: [],
+        elicitate: true,
+      }]
+
+      const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
+
+      // Step still succeeds — elicitation error is non-blocking
+      expect(result.success).toBe(true)
+    })
+
+    it('fills elicitation prompt placeholders with method data', async () => {
+      const elicitTemplate = '# {{method_name}}: {{method_description}} | {{output_pattern}}\n\n{{artifact_content}}'
+      const pack = makePack({
+        'step-1': 'Analyze: {{concept}}',
+        'elicitation-apply': elicitTemplate,
+      })
+
+      const stepResult = makeDispatchResult({
+        id: 'd-1',
+        parsed: { result: 'success', value: 'test-output' },
+        tokenEstimate: { input: 100, output: 50 },
+      })
+      const elicitResult = makeDispatchResult({
+        id: 'd-elicit-1',
+        parsed: { result: 'success', insights: 'Test insight' },
+        tokenEstimate: { input: 60, output: 30 },
+      })
+
+      const dispatcher = makeDispatcher([stepResult, elicitResult, elicitResult])
+      const deps = makeDeps(db, dispatcher, pack)
+
+      const steps: StepDefinition[] = [{
+        name: 'step-1',
+        taskType: 'analysis-vision',
+        outputSchema: TestOutputSchema,
+        context: [{ placeholder: 'concept', source: 'param:concept' }],
+        persist: [],
+        elicitate: true,
+      }]
+
+      await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
+
+      // Verify elicitation dispatch was called with filled prompt
+      const dispatchCalls = vi.mocked(dispatcher.dispatch).mock.calls
+      expect(dispatchCalls.length).toBeGreaterThanOrEqual(2)
+
+      // Second call should be elicitation with taskType 'elicitation'
+      const elicitCall = dispatchCalls[1]!
+      expect(elicitCall[0].taskType).toBe('elicitation')
+      // Prompt should not have any remaining placeholders
+      expect(elicitCall[0].prompt).not.toContain('{{method_name}}')
+      expect(elicitCall[0].prompt).not.toContain('{{method_description}}')
+      expect(elicitCall[0].prompt).not.toContain('{{output_pattern}}')
+      expect(elicitCall[0].prompt).not.toContain('{{artifact_content}}')
+    })
+
+    it('uses ElicitationOutputSchema for elicitation dispatch validation', async () => {
+      const pack = makePack({
+        'step-1': 'Analyze: {{concept}}',
+        'elicitation-apply': '{{method_name}} {{method_description}} {{output_pattern}} {{artifact_content}}',
+      })
+
+      const stepResult = makeDispatchResult({
+        parsed: { result: 'success', value: 'output' },
+      })
+      const elicitResult = makeDispatchResult({
+        parsed: { result: 'success', insights: 'Insights here' },
+      })
+
+      const dispatcher = makeDispatcher([stepResult, elicitResult, elicitResult])
+      const deps = makeDeps(db, dispatcher, pack)
+
+      const steps: StepDefinition[] = [{
+        name: 'step-1',
+        taskType: 'analysis-vision',
+        outputSchema: TestOutputSchema,
+        context: [{ placeholder: 'concept', source: 'param:concept' }],
+        persist: [],
+        elicitate: true,
+      }]
+
+      await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
+
+      const calls = vi.mocked(dispatcher.dispatch).mock.calls
+      // Elicitation calls should pass the ElicitationOutputSchema
+      for (let i = 1; i < calls.length; i++) {
+        expect(calls[i]![0].outputSchema).toBeDefined()
+      }
+    })
+
+    it('tracks elicitation method rotation across multiple steps', async () => {
+      const pack = makePack({
+        'step-1': 'Analyze: {{concept}}',
+        'step-2': 'Plan: {{concept}}',
+        'elicitation-apply': '{{method_name}} {{method_description}} {{output_pattern}} {{artifact_content}}',
+      })
+
+      // 1 step + 2 elicits for step-1, then 1 step + 2 elicits for step-2 = 6 total
+      const stepResult1 = makeDispatchResult({
+        id: 'd-1',
+        parsed: { result: 'success', value: 'v1' },
+        tokenEstimate: { input: 100, output: 50 },
+      })
+      const stepResult2 = makeDispatchResult({
+        id: 'd-2',
+        parsed: { result: 'success', value: 'v2' },
+        tokenEstimate: { input: 100, output: 50 },
+      })
+      const elicitResult = makeDispatchResult({
+        id: 'd-e',
+        parsed: { result: 'success', insights: 'insight' },
+        tokenEstimate: { input: 50, output: 25 },
+      })
+
+      const dispatcher = makeDispatcher([
+        stepResult1, elicitResult, elicitResult,
+        stepResult2, elicitResult, elicitResult,
+      ])
+      const deps = makeDeps(db, dispatcher, pack)
+
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [],
+          elicitate: true,
+        },
+        {
+          name: 'step-2',
+          taskType: 'planning-classification',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [],
+          elicitate: true,
+        },
+      ]
+
+      const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
+
+      expect(result.success).toBe(true)
+      expect(result.steps).toHaveLength(2)
+
+      // Both steps should have elicitation tokens
+      expect(result.steps[0]!.elicitationTokenUsage).toBeDefined()
+      expect(result.steps[1]!.elicitationTokenUsage).toBeDefined()
+
+      // Total elicitation tokens accumulated
+      expect(result.elicitationTokenUsage.input).toBeGreaterThan(0)
+      expect(result.elicitationTokenUsage.output).toBeGreaterThan(0)
+
+      // Decision store should have elicitation entries from both steps
+      const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+      const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
+      expect(elicitDecisions.length).toBeGreaterThanOrEqual(4) // at least 2 methods × 2 (method + insights)
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // calculateDynamicBudget
   // -------------------------------------------------------------------------
 

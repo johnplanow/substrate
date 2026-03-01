@@ -109,6 +109,17 @@ import {
   updatePipelineRun,
 } from '../../persistence/queries/decisions.js'
 import type { PipelineRun, TokenUsageSummary } from '../../persistence/queries/decisions.js'
+import {
+  writeRunMetrics,
+  listRunMetrics,
+  getRunMetrics,
+  tagRunAsBaseline,
+  getBaselineRunMetrics,
+  getStoryMetricsForRun,
+  aggregateTokenUsageForRun,
+  compareRunMetrics,
+} from '../../persistence/queries/metrics.js'
+import type { RunMetricsRow, RunMetricsDelta } from '../../persistence/queries/metrics.js'
 import { createLogger } from '../../utils/logger.js'
 import {
   VALID_PHASES,
@@ -1384,6 +1395,31 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
       } else {
         failedKeys.push(key)
       }
+    }
+
+    // AC1 (Story 17-2): Write run-level metrics to DB on pipeline terminal state
+    try {
+      const runEndMs = Date.now()
+      const runStartMs = new Date(pipelineRun.created_at).getTime()
+      const tokenAgg = aggregateTokenUsageForRun(db, pipelineRun.id)
+      writeRunMetrics(db, {
+        run_id: pipelineRun.id,
+        methodology: pack.manifest.name,
+        status: failedKeys.length > 0 ? 'failed' : 'completed',
+        started_at: pipelineRun.created_at,
+        completed_at: new Date().toISOString(),
+        wall_clock_seconds: Math.round((runEndMs - runStartMs) / 1000),
+        total_input_tokens: tokenAgg.input,
+        total_output_tokens: tokenAgg.output,
+        total_cost_usd: tokenAgg.cost,
+        stories_attempted: storyKeys.length,
+        stories_succeeded: succeededKeys.length,
+        stories_failed: failedKeys.length,
+        stories_escalated: escalatedKeys.length,
+        concurrency_setting: concurrency,
+      })
+    } catch (metricsErr) {
+      logger.warn({ err: metricsErr }, 'Failed to write run metrics (best-effort)')
     }
 
     // pipeline:complete — emit to progress renderer (AC2 of Story 15-2)
@@ -3463,6 +3499,132 @@ export async function runAmendCommand(options: AutoAmendOptions): Promise<number
 }
 
 // ---------------------------------------------------------------------------
+// auto metrics action (Story 17-2 AC3)
+// ---------------------------------------------------------------------------
+
+export interface AutoMetricsOptions {
+  outputFormat: OutputFormat
+  projectRoot: string
+  limit?: number
+  compare?: [string, string]
+  tagBaseline?: string
+}
+
+export async function runAutoMetrics(options: AutoMetricsOptions): Promise<number> {
+  const { outputFormat, projectRoot, limit = 10, compare, tagBaseline } = options
+
+  const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+
+  if (!existsSync(dbPath)) {
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput({ runs: [], message: 'No metrics yet — no pipeline database found.' }, 'json', true) + '\n')
+    } else {
+      process.stdout.write('No metrics yet — no pipeline database found.\n')
+    }
+    return 0
+  }
+
+  const dbWrapper = new DatabaseWrapper(dbPath)
+  try {
+    dbWrapper.open()
+    runMigrations(dbWrapper.db)
+    const db = dbWrapper.db
+
+    // Tag-baseline mode (AC4)
+    if (tagBaseline !== undefined) {
+      const row = getRunMetrics(db, tagBaseline)
+      if (!row) {
+        const msg = `Run '${tagBaseline}' not found in run_metrics.`
+        if (outputFormat === 'json') {
+          process.stdout.write(formatOutput(null, 'json', false, msg) + '\n')
+        } else {
+          process.stderr.write(`Error: ${msg}\n`)
+        }
+        return 1
+      }
+      tagRunAsBaseline(db, tagBaseline)
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput({ tagged_baseline: tagBaseline }, 'json', true) + '\n')
+      } else {
+        process.stdout.write(`Baseline tagged: ${tagBaseline}\n`)
+      }
+      return 0
+    }
+
+    // Compare mode
+    if (compare !== undefined) {
+      const [idA, idB] = compare
+      const delta = compareRunMetrics(db, idA, idB)
+      if (delta === null) {
+        const msg = `One or both run IDs not found in metrics: ${idA}, ${idB}`
+        if (outputFormat === 'json') {
+          process.stdout.write(formatOutput(null, 'json', false, msg) + '\n')
+        } else {
+          process.stderr.write(`Error: ${msg}\n`)
+        }
+        return 1
+      }
+
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput(delta, 'json', true) + '\n')
+      } else {
+        const sign = (n: number) => (n > 0 ? '+' : '')
+        process.stdout.write(`\nMetrics Comparison: ${idA.slice(0, 8)} vs ${idB.slice(0, 8)}\n`)
+        process.stdout.write(`  Input tokens:   ${sign(delta.token_input_delta)}${delta.token_input_delta.toLocaleString()} (${sign(delta.token_input_pct)}${delta.token_input_pct}%)\n`)
+        process.stdout.write(`  Output tokens:  ${sign(delta.token_output_delta)}${delta.token_output_delta.toLocaleString()} (${sign(delta.token_output_pct)}${delta.token_output_pct}%)\n`)
+        process.stdout.write(`  Wall clock:     ${sign(delta.wall_clock_delta_seconds)}${delta.wall_clock_delta_seconds}s (${sign(delta.wall_clock_pct)}${delta.wall_clock_pct}%)\n`)
+        process.stdout.write(`  Review cycles:  ${sign(delta.review_cycles_delta)}${delta.review_cycles_delta} (${sign(delta.review_cycles_pct)}${delta.review_cycles_pct}%)\n`)
+        process.stdout.write(`  Cost USD:       ${sign(delta.cost_delta)}$${Math.abs(delta.cost_delta).toFixed(4)} (${sign(delta.cost_pct)}${delta.cost_pct}%)\n`)
+      }
+      return 0
+    }
+
+    // List mode
+    const runs: RunMetricsRow[] = listRunMetrics(db, limit)
+
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput({ runs }, 'json', true) + '\n')
+    } else {
+      if (runs.length === 0) {
+        process.stdout.write('No run metrics recorded yet. Run `substrate auto run` to generate metrics.\n')
+        return 0
+      }
+      process.stdout.write(`\nPipeline Run Metrics (last ${runs.length} runs)\n`)
+      process.stdout.write('─'.repeat(80) + '\n')
+      for (const run of runs) {
+        const isBaseline = run.is_baseline ? ' [BASELINE]' : ''
+        process.stdout.write(`\nRun: ${run.run_id}${isBaseline}\n`)
+        process.stdout.write(`  Status:    ${run.status}  |  Methodology: ${run.methodology}\n`)
+        process.stdout.write(`  Started:   ${run.started_at}\n`)
+        if (run.completed_at) {
+          process.stdout.write(`  Completed: ${run.completed_at}  (${run.wall_clock_seconds}s)\n`)
+        }
+        process.stdout.write(`  Stories:   attempted=${run.stories_attempted} succeeded=${run.stories_succeeded} failed=${run.stories_failed} escalated=${run.stories_escalated}\n`)
+        process.stdout.write(`  Tokens:    ${(run.total_input_tokens ?? 0).toLocaleString()} in / ${(run.total_output_tokens ?? 0).toLocaleString()} out  $${(run.total_cost_usd ?? 0).toFixed(4)}\n`)
+        process.stdout.write(`  Cycles:    ${run.total_review_cycles}  |  Dispatches: ${run.total_dispatches}  |  Concurrency: ${run.concurrency_setting}\n`)
+      }
+    }
+    return 0
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, msg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${msg}\n`)
+    }
+    logger.error({ err }, 'auto metrics failed')
+    return 1
+  } finally {
+    try {
+      dbWrapper.close()
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // registerAutoCommand
 // ---------------------------------------------------------------------------
 
@@ -3746,6 +3908,46 @@ export function registerAutoCommand(
           from: opts.from as PhaseName | undefined,
           projectRoot: opts.projectRoot,
           pack: opts.pack,
+        })
+        process.exitCode = exitCode
+      },
+    )
+
+  // ----------- auto metrics -----------
+  auto
+    .command('metrics')
+    .description('Show historical pipeline run metrics and cross-run comparison')
+    .option('--project-root <path>', 'Project root directory', projectRoot)
+    .option(
+      '--output-format <format>',
+      'Output format: human (default) or json',
+      'human',
+    )
+    .option('--limit <n>', 'Number of runs to show (default: 10)', (v) => parseInt(v, 10), 10)
+    .option('--compare <run-id-a,run-id-b>', 'Compare two runs side-by-side (comma-separated IDs, e.g. abc123,def456)')
+    .option('--tag-baseline <run-id>', 'Mark a run as the performance baseline')
+    .action(
+      async (opts: {
+        projectRoot: string
+        outputFormat: string
+        limit: number
+        compare?: string
+        tagBaseline?: string
+      }) => {
+        const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
+        let compareIds: [string, string] | undefined
+        if (opts.compare !== undefined) {
+          const parts = opts.compare.split(',').map((s) => s.trim())
+          if (parts.length === 2 && parts[0] && parts[1]) {
+            compareIds = [parts[0], parts[1]]
+          }
+        }
+        const exitCode = await runAutoMetrics({
+          outputFormat,
+          projectRoot: opts.projectRoot,
+          limit: opts.limit,
+          compare: compareIds,
+          tagBaseline: opts.tagBaseline,
         })
         process.exitCode = exitCode
       },
