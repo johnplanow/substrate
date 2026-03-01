@@ -112,6 +112,7 @@ import {
 import type { PipelineRun, TokenUsageSummary } from '../../persistence/queries/decisions.js'
 import {
   writeRunMetrics,
+  incrementRunRestarts,
   listRunMetrics,
   getRunMetrics,
   tagRunAsBaseline,
@@ -1508,6 +1509,8 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
       const storyMetrics = getStoryMetricsForRun(db, pipelineRun.id)
       const totalReviewCycles = storyMetrics.reduce((sum, m) => sum + (m.review_cycles ?? 0), 0)
       const totalDispatches = storyMetrics.reduce((sum, m) => sum + (m.dispatches ?? 0), 0)
+      // restarts is preserved automatically by writeRunMetrics (ON CONFLICT DO UPDATE keeps
+      // the DB-side value), so there is no TOCTOU race from a concurrent incrementRunRestarts().
       writeRunMetrics(db, {
         run_id: pipelineRun.id,
         methodology: pack.manifest.name,
@@ -1525,6 +1528,8 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
         total_review_cycles: totalReviewCycles,
         total_dispatches: totalDispatches,
         concurrency_setting: concurrency,
+        max_concurrent_actual: status.maxConcurrentActual ?? Math.min(concurrency, storyKeys.length),
+        // restarts: not passed — writeRunMetrics preserves the DB-side value on upsert
       })
     } catch (metricsErr) {
       logger.warn({ err: metricsErr }, 'Failed to write run metrics (best-effort)')
@@ -3105,6 +3110,8 @@ export interface SupervisorDeps {
   killPid: (pid: number, signal: NodeJS.Signals) => void
   resumePipeline: (opts: AutoResumeOptions) => Promise<number>
   sleep: (ms: number) => Promise<void>
+  /** Called after each successful restart to increment the restarts counter in run_metrics. */
+  incrementRestarts: (runId: string, projectRoot: string) => void
 }
 
 function defaultSupervisorDeps(): SupervisorDeps {
@@ -3115,6 +3122,27 @@ function defaultSupervisorDeps(): SupervisorDeps {
     },
     resumePipeline: runAutoResume,
     sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    incrementRestarts: (() => {
+      // Cache the db handle across calls so that a fresh connection is not
+      // opened and closed on every supervisor restart (connection-per-call
+      // would be wasteful given restarts are infrequent but the pattern should
+      // not accumulate file descriptors over many restarts).
+      let cachedDbWrapper: DatabaseWrapper | null = null
+      return (runId: string, projectRoot: string) => {
+        try {
+          if (cachedDbWrapper === null) {
+            const dbDir = join(projectRoot, '.substrate')
+            const dbPath = join(dbDir, 'substrate.db')
+            cachedDbWrapper = new DatabaseWrapper(dbPath)
+          }
+          incrementRunRestarts(cachedDbWrapper.getDb(), runId)
+        } catch {
+          // Best-effort — never block the supervisor
+          try { cachedDbWrapper?.close() } catch { /* ignore close errors */ }
+          cachedDbWrapper = null // reset so next call retries the connection
+        }
+      }
+    })(),
   }
 }
 
@@ -3134,7 +3162,7 @@ export async function runAutoSupervisor(
   deps: Partial<SupervisorDeps> = {},
 ): Promise<number> {
   const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack } = options
-  const { getHealth, killPid, resumePipeline, sleep } = { ...defaultSupervisorDeps(), ...deps }
+  const { getHealth, killPid, resumePipeline, sleep, incrementRestarts } = { ...defaultSupervisorDeps(), ...deps }
 
   let restartCount = 0
   const startTime = Date.now()
@@ -3268,6 +3296,11 @@ export async function runAutoSupervisor(
 
       // Restart the pipeline
       restartCount++
+
+      // Persist restart count to run_metrics so writeRunMetrics captures it (Issue 2 fix)
+      if (health.run_id !== null) {
+        incrementRestarts(health.run_id, projectRoot)
+      }
 
       emitEvent({
         type: 'supervisor:restart',
@@ -3736,12 +3769,13 @@ export async function runAutoMetrics(options: AutoMetricsOptions): Promise<numbe
         process.stdout.write(formatOutput(delta, 'json', true) + '\n')
       } else {
         const sign = (n: number) => (n > 0 ? '+' : '')
+        const fmtPct = (pct: number | null) => pct === null ? 'N/A' : `${sign(pct)}${pct}%`
         process.stdout.write(`\nMetrics Comparison: ${idA.slice(0, 8)} vs ${idB.slice(0, 8)}\n`)
-        process.stdout.write(`  Input tokens:   ${sign(delta.token_input_delta)}${delta.token_input_delta.toLocaleString()} (${sign(delta.token_input_pct)}${delta.token_input_pct}%)\n`)
-        process.stdout.write(`  Output tokens:  ${sign(delta.token_output_delta)}${delta.token_output_delta.toLocaleString()} (${sign(delta.token_output_pct)}${delta.token_output_pct}%)\n`)
-        process.stdout.write(`  Wall clock:     ${sign(delta.wall_clock_delta_seconds)}${delta.wall_clock_delta_seconds}s (${sign(delta.wall_clock_pct)}${delta.wall_clock_pct}%)\n`)
-        process.stdout.write(`  Review cycles:  ${sign(delta.review_cycles_delta)}${delta.review_cycles_delta} (${sign(delta.review_cycles_pct)}${delta.review_cycles_pct}%)\n`)
-        process.stdout.write(`  Cost USD:       ${sign(delta.cost_delta)}$${Math.abs(delta.cost_delta).toFixed(4)} (${sign(delta.cost_pct)}${delta.cost_pct}%)\n`)
+        process.stdout.write(`  Input tokens:   ${sign(delta.token_input_delta)}${delta.token_input_delta.toLocaleString()} (${fmtPct(delta.token_input_pct)})\n`)
+        process.stdout.write(`  Output tokens:  ${sign(delta.token_output_delta)}${delta.token_output_delta.toLocaleString()} (${fmtPct(delta.token_output_pct)})\n`)
+        process.stdout.write(`  Wall clock:     ${sign(delta.wall_clock_delta_seconds)}${delta.wall_clock_delta_seconds}s (${fmtPct(delta.wall_clock_pct)})\n`)
+        process.stdout.write(`  Review cycles:  ${sign(delta.review_cycles_delta)}${delta.review_cycles_delta} (${fmtPct(delta.review_cycles_pct)})\n`)
+        process.stdout.write(`  Cost USD:       ${delta.cost_delta < 0 ? '-' : sign(delta.cost_delta)}$${Math.abs(delta.cost_delta).toFixed(4)} (${fmtPct(delta.cost_pct)})\n`)
       }
       return 0
     }

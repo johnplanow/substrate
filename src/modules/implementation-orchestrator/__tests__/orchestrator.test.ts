@@ -654,6 +654,29 @@ describe('createImplementationOrchestrator', () => {
       expect(callOrder.filter((c) => c.includes('10-5'))).toHaveLength(3)
     })
 
+    it('tracks maxConcurrentActual equal to the number of groups that ran concurrently', async () => {
+      // 6-1, 7-1, 8-1 each map to distinct modules (task-graph, worker-pool, monitor)
+      // so detectConflictGroups assigns each to its own group.  With maxConcurrency=3
+      // all three groups are enqueued together, meaning maxConcurrentActual should be 3.
+      mockRunCreateStory.mockImplementation(async (_deps, params) =>
+        makeCreateStorySuccess(params.storyKey),
+      )
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxConcurrency: 3 }),
+      })
+
+      const status = await orchestrator.run(['6-1', '7-1', '8-1'])
+
+      expect(status.stories['6-1']?.phase).toBe('COMPLETE')
+      expect(status.stories['7-1']?.phase).toBe('COMPLETE')
+      expect(status.stories['8-1']?.phase).toBe('COMPLETE')
+      expect(status.maxConcurrentActual).toBe(3)
+    })
+
     it('serializes conflicting stories within the same group', async () => {
       // 10-1 and 10-2 both map to compiled-workflows → serialized
       const callOrder: string[] = []

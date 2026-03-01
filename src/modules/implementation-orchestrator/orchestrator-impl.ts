@@ -123,6 +123,9 @@ export function createImplementationOrchestrator(
   const _phaseEndMs = new Map<string, Map<string, number>>()   // storyKey → phase → end ms
   const _storyDispatches = new Map<string, number>()           // storyKey → dispatch count
 
+  // -- actual peak concurrency observed during runWithConcurrency --
+  let _maxConcurrentActual = 0
+
   function startPhase(storyKey: string, phase: string): void {
     if (!_phaseStartMs.has(storyKey)) _phaseStartMs.set(storyKey, new Map())
     _phaseStartMs.get(storyKey)!.set(phase, Date.now())
@@ -142,9 +145,16 @@ export function createImplementationOrchestrator(
     const ends = _phaseEndMs.get(storyKey)
     if (!starts || starts.size === 0) return '{}'
     const durations: Record<string, number> = {}
+    const nowMs = Date.now()
     for (const [phase, startMs] of starts) {
-      const endMs = ends?.get(phase) ?? Date.now()
-      durations[phase] = Math.round((endMs - startMs) / 1000)
+      const endMs = ends?.get(phase)
+      if (endMs === undefined) {
+        logger.warn(
+          { storyKey, phase },
+          'Phase has no end time — story may have errored mid-phase. Duration capped to now() and may be inflated.',
+        )
+      }
+      durations[phase] = Math.round(((endMs ?? nowMs) - startMs) / 1000)
     }
     return JSON.stringify(durations)
   }
@@ -199,6 +209,9 @@ export function createImplementationOrchestrator(
     }
     if (_decomposition !== undefined) {
       status.decomposition = { ..._decomposition }
+    }
+    if (_maxConcurrentActual > 0) {
+      status.maxConcurrentActual = _maxConcurrentActual
     }
     return status
   }
@@ -1099,6 +1112,10 @@ export function createImplementationOrchestrator(
         if (idx !== -1) running.splice(idx, 1)
       })
       running.push(p)
+      // Track peak actual concurrency
+      if (running.length > _maxConcurrentActual) {
+        _maxConcurrentActual = running.length
+      }
     }
 
     // Seed up to maxConcurrency concurrent tasks

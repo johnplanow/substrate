@@ -132,4 +132,9 @@ export interface OrchestratorStatus {
    * Absent for simple (non-decomposed) stories (AC6).
    */
   decomposition?: DecompositionMetrics
+  /**
+   * Peak number of conflict groups running concurrently during this run.
+   * Always <= maxConcurrency and <= total group count.
+   */
+  maxConcurrentActual?: number
 }

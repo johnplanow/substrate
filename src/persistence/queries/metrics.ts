@@ -68,19 +68,43 @@ export interface TokenAggregate {
 
 /**
  * Write or update run-level metrics.
+ *
+ * Uses INSERT ... ON CONFLICT DO UPDATE to avoid a TOCTOU race on the
+ * `restarts` counter: when a row already exists, `restarts` is preserved from
+ * the DB (so any `incrementRunRestarts()` calls made by the supervisor between
+ * the caller's read and this write are not silently overwritten).
  */
 export function writeRunMetrics(
   db: BetterSqlite3Database,
   input: RunMetricsInput,
 ): void {
   const stmt = db.prepare(`
-    INSERT OR REPLACE INTO run_metrics (
+    INSERT INTO run_metrics (
       run_id, methodology, status, started_at, completed_at,
       wall_clock_seconds, total_input_tokens, total_output_tokens, total_cost_usd,
       stories_attempted, stories_succeeded, stories_failed, stories_escalated,
       total_review_cycles, total_dispatches, concurrency_setting, max_concurrent_actual, restarts,
       is_baseline
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(run_id) DO UPDATE SET
+      methodology = excluded.methodology,
+      status = excluded.status,
+      started_at = excluded.started_at,
+      completed_at = excluded.completed_at,
+      wall_clock_seconds = excluded.wall_clock_seconds,
+      total_input_tokens = excluded.total_input_tokens,
+      total_output_tokens = excluded.total_output_tokens,
+      total_cost_usd = excluded.total_cost_usd,
+      stories_attempted = excluded.stories_attempted,
+      stories_succeeded = excluded.stories_succeeded,
+      stories_failed = excluded.stories_failed,
+      stories_escalated = excluded.stories_escalated,
+      total_review_cycles = excluded.total_review_cycles,
+      total_dispatches = excluded.total_dispatches,
+      concurrency_setting = excluded.concurrency_setting,
+      max_concurrent_actual = excluded.max_concurrent_actual,
+      restarts = run_metrics.restarts,
+      is_baseline = run_metrics.is_baseline
   `)
   stmt.run(
     input.run_id,
@@ -149,6 +173,24 @@ export function getBaselineRunMetrics(
   return db.prepare('SELECT * FROM run_metrics WHERE is_baseline = 1 LIMIT 1').get() as RunMetricsRow | undefined
 }
 
+/**
+ * Increment the restart count for a run by 1.
+ * Called by the supervisor each time it successfully restarts the pipeline.
+ * If the run_id does not yet exist in run_metrics, a placeholder row is
+ * inserted so the restart count is not lost — writeRunMetrics will overwrite
+ * all other fields when the run reaches a terminal state.
+ */
+export function incrementRunRestarts(
+  db: BetterSqlite3Database,
+  runId: string,
+): void {
+  db.prepare(`
+    INSERT INTO run_metrics (run_id, methodology, status, started_at, restarts)
+    VALUES (?, 'unknown', 'running', datetime('now'), 1)
+    ON CONFLICT(run_id) DO UPDATE SET restarts = run_metrics.restarts + 1
+  `).run(runId)
+}
+
 // ---------------------------------------------------------------------------
 // Story metrics queries
 // ---------------------------------------------------------------------------
@@ -215,14 +257,19 @@ export interface RunMetricsDelta {
   run_id_b: string
   token_input_delta: number
   token_output_delta: number
-  token_input_pct: number
-  token_output_pct: number
+  /** null when the base run had 0 input tokens (change is undefined/infinite) */
+  token_input_pct: number | null
+  /** null when the base run had 0 output tokens */
+  token_output_pct: number | null
   wall_clock_delta_seconds: number
-  wall_clock_pct: number
+  /** null when the base run had 0 wall-clock seconds */
+  wall_clock_pct: number | null
   review_cycles_delta: number
-  review_cycles_pct: number
+  /** null when the base run had 0 review cycles */
+  review_cycles_pct: number | null
   cost_delta: number
-  cost_pct: number
+  /** null when the base run had 0 cost */
+  cost_pct: number | null
 }
 
 /**
@@ -239,8 +286,8 @@ export function compareRunMetrics(
   const b = getRunMetrics(db, runIdB)
   if (!a || !b) return null
 
-  const pct = (base: number, diff: number): number =>
-    base === 0 ? 0 : Math.round((diff / base) * 100 * 10) / 10
+  const pct = (base: number, diff: number): number | null =>
+    base === 0 ? null : Math.round((diff / base) * 100 * 10) / 10
 
   const inputDelta = b.total_input_tokens - a.total_input_tokens
   const outputDelta = b.total_output_tokens - a.total_output_tokens

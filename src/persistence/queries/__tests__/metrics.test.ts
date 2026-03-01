@@ -16,6 +16,8 @@ import {
   writeRunMetrics,
   writeStoryMetrics,
   aggregateTokenUsageForRun,
+  aggregateTokenUsageForStory,
+  incrementRunRestarts,
   getRunMetrics,
   listRunMetrics,
   tagRunAsBaseline,
@@ -443,7 +445,7 @@ describe('compareRunMetrics (T10)', () => {
     expect(delta.token_input_pct).toBeCloseTo(-16.7)
   })
 
-  it('handles zero base values without dividing by zero', () => {
+  it('returns null pct fields when base values are zero (undefined/infinite change)', () => {
     seedRunMetrics(db, {
       run_id: 'run-zero',
       total_input_tokens: 0,
@@ -451,9 +453,9 @@ describe('compareRunMetrics (T10)', () => {
       wall_clock_seconds: 0,
     })
     const delta = compareRunMetrics(db, 'run-zero', 'run-C1')!
-    expect(delta.token_input_pct).toBe(0)
-    expect(delta.review_cycles_pct).toBe(0)
-    expect(delta.wall_clock_pct).toBe(0)
+    expect(delta.token_input_pct).toBeNull()
+    expect(delta.review_cycles_pct).toBeNull()
+    expect(delta.wall_clock_pct).toBeNull()
   })
 
   it('populates run_id_a and run_id_b correctly', () => {
@@ -538,5 +540,157 @@ describe('getRunSummaryForSupervisor (T10 / AC5)', () => {
     // When the queried run is the baseline, skip delta calculation
     expect(summary.token_vs_baseline_pct).toBeNull()
     expect(summary.review_cycles_vs_baseline_pct).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// aggregateTokenUsageForStory (T9 — previously untested)
+// ---------------------------------------------------------------------------
+
+describe('aggregateTokenUsageForStory', () => {
+  let db: BetterSqlite3Database
+
+  beforeEach(() => {
+    db = openDb()
+  })
+
+  afterEach(() => {
+    db.close()
+  })
+
+  function insertTokenUsageWithMetadata(
+    db: BetterSqlite3Database,
+    runId: string,
+    phase: string,
+    input: number,
+    output: number,
+    cost: number,
+    metadata: string | null,
+  ): void {
+    db.prepare(
+      `INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(runId, phase, 'claude', input, output, cost, metadata)
+  }
+
+  it('returns zeros when no token_usage rows exist for the run', () => {
+    insertPipelineRun(db, 'run-story-empty')
+    const agg = aggregateTokenUsageForStory(db, 'run-story-empty', '17-1')
+    expect(agg.input).toBe(0)
+    expect(agg.output).toBe(0)
+    expect(agg.cost).toBe(0)
+  })
+
+  it('returns zeros when no rows match the given storyKey', () => {
+    insertPipelineRun(db, 'run-story-nomatch')
+    insertTokenUsageWithMetadata(
+      db, 'run-story-nomatch', 'dev-story', 100, 50, 0.005,
+      JSON.stringify({ storyKey: '17-2' }),
+    )
+    const agg = aggregateTokenUsageForStory(db, 'run-story-nomatch', '17-1')
+    expect(agg.input).toBe(0)
+    expect(agg.output).toBe(0)
+    expect(agg.cost).toBe(0)
+  })
+
+  it('returns zeros when metadata is NULL', () => {
+    insertPipelineRun(db, 'run-story-null-meta')
+    insertTokenUsageWithMetadata(
+      db, 'run-story-null-meta', 'dev-story', 100, 50, 0.005, null,
+    )
+    const agg = aggregateTokenUsageForStory(db, 'run-story-null-meta', '17-1')
+    expect(agg.input).toBe(0)
+    expect(agg.output).toBe(0)
+    expect(agg.cost).toBe(0)
+  })
+
+  it('aggregates only rows matching the given storyKey', () => {
+    insertPipelineRun(db, 'run-story-match')
+    // Matching rows for story 17-1
+    insertTokenUsageWithMetadata(
+      db, 'run-story-match', 'dev-story', 100, 50, 0.005,
+      JSON.stringify({ storyKey: '17-1' }),
+    )
+    insertTokenUsageWithMetadata(
+      db, 'run-story-match', 'code-review', 200, 80, 0.010,
+      JSON.stringify({ storyKey: '17-1' }),
+    )
+    // Non-matching row for story 17-2
+    insertTokenUsageWithMetadata(
+      db, 'run-story-match', 'dev-story', 999, 999, 0.999,
+      JSON.stringify({ storyKey: '17-2' }),
+    )
+    const agg = aggregateTokenUsageForStory(db, 'run-story-match', '17-1')
+    expect(agg.input).toBe(300)
+    expect(agg.output).toBe(130)
+    expect(agg.cost).toBeCloseTo(0.015)
+  })
+
+  it('does not aggregate rows from a different run', () => {
+    insertPipelineRun(db, 'run-story-other-run-a')
+    insertPipelineRun(db, 'run-story-other-run-b')
+    insertTokenUsageWithMetadata(
+      db, 'run-story-other-run-a', 'dev-story', 500, 200, 0.02,
+      JSON.stringify({ storyKey: '17-1' }),
+    )
+    const agg = aggregateTokenUsageForStory(db, 'run-story-other-run-b', '17-1')
+    expect(agg.input).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// incrementRunRestarts
+// ---------------------------------------------------------------------------
+
+describe('incrementRunRestarts', () => {
+  let db: BetterSqlite3Database
+
+  beforeEach(() => {
+    db = openDb()
+  })
+
+  afterEach(() => {
+    db.close()
+  })
+
+  it('increments restarts from 0 to 1 on first call', () => {
+    seedRunMetrics(db, { run_id: 'run-restart-1', restarts: 0 })
+    incrementRunRestarts(db, 'run-restart-1')
+    expect(getRunMetrics(db, 'run-restart-1')!.restarts).toBe(1)
+  })
+
+  it('increments restarts multiple times correctly', () => {
+    seedRunMetrics(db, { run_id: 'run-restart-2', restarts: 0 })
+    incrementRunRestarts(db, 'run-restart-2')
+    incrementRunRestarts(db, 'run-restart-2')
+    incrementRunRestarts(db, 'run-restart-2')
+    expect(getRunMetrics(db, 'run-restart-2')!.restarts).toBe(3)
+  })
+
+  it('does not throw when the run_id does not yet exist', () => {
+    // Should not throw — inserts a placeholder row so the count is preserved
+    expect(() => incrementRunRestarts(db, 'nonexistent-run')).not.toThrow()
+  })
+
+  it('preserves restart count when writeRunMetrics is called after incrementRunRestarts on nonexistent row', () => {
+    // Simulates the real pipeline sequence: supervisor restarts before
+    // writeRunMetrics has ever been called for a run_id.
+    incrementRunRestarts(db, 'run-restart-preexist')
+    incrementRunRestarts(db, 'run-restart-preexist')
+    // Now writeRunMetrics is called at pipeline terminal state
+    writeRunMetrics(db, {
+      run_id: 'run-restart-preexist',
+      methodology: 'bmad',
+      status: 'completed',
+      started_at: '2026-01-01T00:00:00.000Z',
+    })
+    expect(getRunMetrics(db, 'run-restart-preexist')!.restarts).toBe(2)
+  })
+
+  it('does not affect other runs', () => {
+    seedRunMetrics(db, { run_id: 'run-restart-3a', restarts: 0 })
+    seedRunMetrics(db, { run_id: 'run-restart-3b', restarts: 0 })
+    incrementRunRestarts(db, 'run-restart-3a')
+    expect(getRunMetrics(db, 'run-restart-3b')!.restarts).toBe(0)
   })
 })
