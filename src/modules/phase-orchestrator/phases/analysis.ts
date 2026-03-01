@@ -48,6 +48,7 @@ const BRIEF_FIELDS = [
   'core_features',
   'success_metrics',
   'constraints',
+  'technology_constraints',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -83,6 +84,7 @@ function buildAnalysisSteps(): StepDefinition[] {
         { field: 'core_features', category: 'product-brief', key: 'core_features' },
         { field: 'success_metrics', category: 'product-brief', key: 'success_metrics' },
         { field: 'constraints', category: 'product-brief', key: 'constraints' },
+        { field: 'technology_constraints', category: 'technology-constraints', key: 'technology_constraints' },
       ],
       registerArtifact: {
         type: 'product-brief',
@@ -106,15 +108,13 @@ async function runAnalysisMultiStep(
   const zeroTokenUsage = { input: 0, output: 0 }
 
   try {
-    // Truncate concept if needed
-    let effectiveConcept = params.concept
-    if (params.concept.length > MAX_CONCEPT_CHARS) {
-      effectiveConcept = params.concept.slice(0, MAX_CONCEPT_CHARS) + '...'
-    }
-
+    // Multi-step path: do NOT truncate the concept here — the step runner's
+    // own token budget management handles prompt sizing.  Truncating to
+    // MAX_CONCEPT_CHARS drops technology constraints and other sections
+    // that appear later in longer concept documents.
     const steps = buildAnalysisSteps()
     const result = await runSteps(steps, deps, params.runId, 'analysis', {
-      concept: effectiveConcept,
+      concept: params.concept,
     })
 
     if (!result.success) {
@@ -145,6 +145,7 @@ async function runAnalysisMultiStep(
       core_features: scopeOutput.core_features as string[],
       success_metrics: scopeOutput.success_metrics as string[],
       constraints: (scopeOutput.constraints as string[]) ?? [],
+      technology_constraints: (scopeOutput.technology_constraints as string[]) ?? [],
     }
 
     // The step runner already persisted individual fields and registered artifact

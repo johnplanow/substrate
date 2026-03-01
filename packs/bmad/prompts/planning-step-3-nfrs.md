@@ -11,6 +11,9 @@
 ### Functional Requirements (from Step 2)
 {{functional_requirements}}
 
+### Technology Constraints (from Analysis Phase)
+{{technology_constraints}}
+
 ---
 
 ## Mission
@@ -29,7 +32,8 @@ Complete the PRD by defining **non-functional requirements**, **tech stack**, **
    - Key-value pairs mapping technology concerns to specific choices
    - Use real, current technologies — do not fabricate frameworks
    - Cover at minimum: language, framework, database, testing
-   - Choices should align with the product brief constraints
+   - **MUST honor stated technology constraints** — if the analysis specifies a cloud platform, language, or framework preference, use it. Do not substitute alternatives unless the constraint is technically impossible for the requirements.
+   - If you must deviate from a stated constraint, explicitly note the deviation and rationale
 
 3. **Build the domain model:**
    - Key entities and their relationships

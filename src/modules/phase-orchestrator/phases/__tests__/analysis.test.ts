@@ -48,6 +48,7 @@ const SAMPLE_BRIEF: ProductBrief = {
   core_features: ['task creation', 'task assignment', 'progress tracking'],
   success_metrics: ['50% reduction in missed deadlines', '90% user satisfaction'],
   constraints: ['must run on web browsers', 'GDPR compliant'],
+  technology_constraints: [],
 }
 
 const SAMPLE_OUTPUT = {
@@ -263,7 +264,7 @@ describe('runAnalysisPhase()', () => {
         )
         .all(runId) as Array<{ key: string; value: string }>
 
-      expect(decisions).toHaveLength(5)
+      expect(decisions).toHaveLength(6)
 
       const keyMap = Object.fromEntries(decisions.map((d) => [d.key, d.value]))
       expect(keyMap['problem_statement']).toBe(SAMPLE_BRIEF.problem_statement)
@@ -271,6 +272,7 @@ describe('runAnalysisPhase()', () => {
       expect(JSON.parse(keyMap['core_features'])).toEqual(SAMPLE_BRIEF.core_features)
       expect(JSON.parse(keyMap['success_metrics'])).toEqual(SAMPLE_BRIEF.success_metrics)
       expect(JSON.parse(keyMap['constraints'])).toEqual(SAMPLE_BRIEF.constraints)
+      expect(JSON.parse(keyMap['technology_constraints'])).toEqual(SAMPLE_BRIEF.technology_constraints)
     })
 
     it('stores array values as JSON-serialized strings', async () => {

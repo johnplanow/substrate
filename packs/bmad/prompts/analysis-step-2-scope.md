@@ -26,12 +26,20 @@ Building on the vision analysis above, define the **scope**: core features, succ
    - Include both leading indicators (engagement, adoption) and lagging indicators (retention, revenue)
    - Be specific enough to measure
 
-3. **Identify constraints:**
-   - Technical limitations, regulatory requirements, budget boundaries
-   - Timeline pressures, platform restrictions, or integration requirements
+3. **Identify constraints** (business, regulatory, and operational — NOT technology choices):
+   - Regulatory requirements, budget boundaries, compliance mandates
+   - Timeline pressures, integration requirements, market restrictions
+   - Do NOT include cloud platform, language, or framework choices here — those go in `technology_constraints`
    - Omit if genuinely none exist
 
-4. **Quality bar**: A product manager should be able to write a PRD from the combined vision + scope output.
+4. **Identify technology constraints** (technology choices and restrictions ONLY):
+   - Extract explicit technology preferences or exclusions stated in the concept
+   - Cloud platform choices (e.g., "GCP", "AWS"), programming language mandates (e.g., "Kotlin/JVM", "Node.js excluded"), framework preferences, infrastructure choices
+   - If the concept has a "Technology Constraints" section, extract ALL items from it into this field
+   - Include ONLY preferences explicitly stated by the user — do not infer or add your own
+   - If none are stated in the concept, emit an empty array
+
+5. **Quality bar**: A product manager should be able to write a PRD from the combined vision + scope output.
 
 ## Output Contract
 
@@ -50,6 +58,8 @@ success_metrics:
 constraints:
   - "CLI-only interface limits audience to terminal-comfortable users"
   - "Must work offline with local storage, no cloud dependency"
+technology_constraints:
+  - "Must use PostgreSQL for primary data store"
 ```
 
 If you cannot produce valid output:

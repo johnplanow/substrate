@@ -21,6 +21,7 @@ export const ProductBriefSchema = z.object({
   core_features: z.array(z.string().min(1)).min(1),
   success_metrics: z.array(z.string().min(1)).min(1),
   constraints: z.array(z.string()).default([]),
+  technology_constraints: z.array(z.string()).optional().default([]),
 })
 
 export type ProductBriefSchemaType = z.infer<typeof ProductBriefSchema>
@@ -61,6 +62,7 @@ export const AnalysisScopeOutputSchema = z.object({
   core_features: z.array(z.string().min(1)).min(1).optional(),
   success_metrics: z.array(z.string().min(1)).min(1).optional(),
   constraints: z.array(z.string()).default([]),
+  technology_constraints: z.array(z.string()).optional().default([]),
 })
 
 export type AnalysisScopeOutputSchemaType = z.infer<typeof AnalysisScopeOutputSchema>

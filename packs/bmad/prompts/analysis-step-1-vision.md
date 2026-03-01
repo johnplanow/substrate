@@ -20,7 +20,7 @@ Analyze the project concept above and produce a focused **vision analysis**: a c
 
 2. **Generate a research-grade problem statement:**
    - A clear, specific articulation of the problem (minimum 2-3 sentences)
-   - Ground it in user pain, not technology
+   - Ground the problem statement in user pain, not technology choices
    - Include the impact of the problem remaining unsolved
 
 3. **Identify target users:**

@@ -61,7 +61,14 @@ For EVERY story:
 3. Does the story have a clear definition of done?
    - Missing or ambiguous DoD = **minor** finding
 
-### Step 4: UX Alignment (Conditional)
+### Step 4: Constraint Adherence
+
+1. Does the architecture honor all technology constraints from the product brief?
+2. If any technology constraint was overridden, is there an explicit rationale?
+3. Flag any silent deviations (constraint ignored without explanation) as **blocker** findings
+4. Flag deviations with rationale as **major** findings
+
+### Step 5: UX Alignment (Conditional)
 
 **Only if UX decisions are provided above:**
 
@@ -73,7 +80,7 @@ For EVERY story that involves user-facing functionality:
 
 **If no UX decisions were provided, skip this step entirely.**
 
-### Step 5: Dependency Validity
+### Step 6: Dependency Validity
 
 For EVERY story with dependencies on other stories:
 1. Do the referenced stories actually exist (check story keys)?
@@ -81,7 +88,7 @@ For EVERY story with dependencies on other stories:
 3. Flag invalid references as **blocker** findings
 4. Flag potentially circular dependencies as **major** findings
 
-### Step 6: Final Verdict
+### Step 7: Final Verdict
 
 Determine your verdict:
 - **NOT_READY**: Any of these conditions are true:
@@ -123,7 +130,7 @@ findings:
 ```
 
 Valid verdict values: READY, NEEDS_WORK, NOT_READY
-Valid category values: fr_coverage, architecture_compliance, story_quality, ux_alignment, dependency_validity
+Valid category values: fr_coverage, architecture_compliance, story_quality, constraint_adherence, ux_alignment, dependency_validity
 Valid severity values: blocker, major, minor
 
 If you cannot perform the review:

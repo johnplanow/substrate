@@ -64,6 +64,7 @@ const BRIEF_FIELDS = [
   'core_features',
   'success_metrics',
   'constraints',
+  'technology_constraints',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -151,6 +152,7 @@ function buildPlanningSteps(): StepDefinition[] {
         { placeholder: 'product_brief', source: 'decision:analysis.product-brief' },
         { placeholder: 'classification', source: 'step:planning-step-1-classification' },
         { placeholder: 'functional_requirements', source: 'step:planning-step-2-frs' },
+        { placeholder: 'technology_constraints', source: 'decision:analysis.technology-constraints' },
       ],
       persist: [
         { field: 'non_functional_requirements', category: 'non-functional-requirements', key: 'array' },

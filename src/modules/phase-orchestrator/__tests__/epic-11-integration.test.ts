@@ -133,6 +133,7 @@ const ANALYSIS_OUTPUT = {
     core_features: ['create tasks', 'assign tasks', 'track progress'],
     success_metrics: ['50% less time lost', '90% satisfaction'],
     constraints: ['must be web-based', 'GDPR compliant'],
+    technology_constraints: [],
   } satisfies ProductBrief,
 }
 
@@ -667,8 +668,8 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
       .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning'`)
       .get(runId) as { cnt: number }
 
-    // Analysis: 5 product-brief fields
-    expect(analysisDecs.cnt).toBe(5)
+    // Analysis: 6 product-brief fields (including technology_constraints)
+    expect(analysisDecs.cnt).toBe(6)
     // Planning: 3 FRs + 2 NFRs + 1 user story + 3 tech stack entries + 1 domain model + 1 out-of-scope = 11
     expect(planningDecs.cnt).toBeGreaterThanOrEqual(8)
     // Solutioning: architecture decisions + epic decisions + story decisions

@@ -71,6 +71,8 @@ export interface ProductBrief {
   success_metrics: string[]
   /** List of technical, business, or regulatory constraints */
   constraints: string[]
+  /** Explicit technology preferences or restrictions stated by the user (cloud, language, framework) */
+  technology_constraints: string[]
 }
 
 /**
