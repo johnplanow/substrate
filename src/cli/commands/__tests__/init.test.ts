@@ -380,7 +380,7 @@ describe('runInit - existing .substrate/ directory', () => {
         registry: createMockRegistry(NO_ADAPTERS_REPORT),
       })
       const output = getOutput()
-      expect(output).toContain('.substrate/ already exists')
+      expect(output).toContain('Already initialized')
     } finally {
       restore()
     }

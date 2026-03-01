@@ -318,13 +318,14 @@ export async function runInit(options: InitOptions = {}): Promise<number> {
         false
       )
       if (!overwrite) {
-        process.stdout.write('  Init cancelled — existing configuration preserved.\n')
+        process.stdout.write('  Already initialized — existing configuration is current. No changes needed.\n')
+        process.stdout.write('  Run `substrate auto init` to scaffold methodology packs and agent settings.\n')
         return INIT_EXIT_ALREADY_EXISTS
       }
     } else {
       // Non-interactive: skip silently
       process.stdout.write(
-        `  .substrate/ already exists — skipping init (use --yes to force overwrite in interactive mode)\n`
+        `  Already initialized — existing configuration is current. Use --yes to force overwrite.\n`
       )
       return INIT_EXIT_ALREADY_EXISTS
     }

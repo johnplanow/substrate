@@ -58,7 +58,7 @@ export class VersionManagerImpl implements VersionManager {
   getCurrentVersion(): string {
     try {
       const _require = createRequire(import.meta.url)
-      const pkg = _require('../../../package.json') as { version?: string }
+      const pkg = _require('../../package.json') as { version?: string }
       return typeof pkg.version === 'string' && pkg.version.length > 0 ? pkg.version : '0.0.0'
     } catch {
       return '0.0.0'
