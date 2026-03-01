@@ -161,6 +161,50 @@ export interface StoryLogEvent {
 }
 
 // ---------------------------------------------------------------------------
+// PipelineHeartbeatEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted periodically (every 30s) when no other progress events have fired.
+ * Allows parent agents to distinguish "working silently" from "stuck".
+ */
+export interface PipelineHeartbeatEvent {
+  type: 'pipeline:heartbeat'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Unique identifier for the current pipeline run */
+  run_id: string
+  /** Number of sub-agent dispatches currently running */
+  active_dispatches: number
+  /** Number of dispatches that have completed */
+  completed_dispatches: number
+  /** Number of dispatches waiting to start */
+  queued_dispatches: number
+}
+
+// ---------------------------------------------------------------------------
+// StoryStallEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the watchdog timer detects no progress for an extended period.
+ * Indicates a likely stall that may require operator intervention.
+ */
+export interface StoryStallEvent {
+  type: 'story:stall'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Unique identifier for the current pipeline run */
+  run_id: string
+  /** Story key that appears stalled */
+  story_key: string
+  /** Phase the story was in when the stall was detected */
+  phase: string
+  /** Milliseconds since the last progress event */
+  elapsed_ms: number
+}
+
+// ---------------------------------------------------------------------------
 // PipelineEvent discriminated union
 // ---------------------------------------------------------------------------
 
@@ -184,6 +228,8 @@ export type PipelineEvent =
   | StoryEscalationEvent
   | StoryWarnEvent
   | StoryLogEvent
+  | PipelineHeartbeatEvent
+  | StoryStallEvent
 
 // ---------------------------------------------------------------------------
 // Compile-time source of truth for all event type discriminants
@@ -210,6 +256,8 @@ export const EVENT_TYPE_NAMES = [
   'story:escalation',
   'story:warn',
   'story:log',
+  'pipeline:heartbeat',
+  'story:stall',
 ] as const
 
 /**

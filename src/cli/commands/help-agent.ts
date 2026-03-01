@@ -149,6 +149,30 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'msg', type: 'string', description: 'Log message.' },
     ],
   },
+  {
+    type: 'pipeline:heartbeat',
+    description: 'Periodic heartbeat emitted every 30s when no other progress events have fired.',
+    when: 'Every 30 seconds during pipeline execution. Allows detection of stalled pipelines.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
+      { name: 'run_id', type: 'string', description: 'Pipeline run ID.' },
+      { name: 'active_dispatches', type: 'number', description: 'Number of sub-agents currently running.' },
+      { name: 'completed_dispatches', type: 'number', description: 'Number of dispatches completed.' },
+      { name: 'queued_dispatches', type: 'number', description: 'Number of dispatches waiting to start.' },
+    ],
+  },
+  {
+    type: 'story:stall',
+    description: 'Emitted when the watchdog detects no progress for an extended period (default: 10 minutes).',
+    when: 'When a story has shown no progress for longer than the watchdog timeout. Indicates likely stall.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
+      { name: 'run_id', type: 'string', description: 'Pipeline run ID.' },
+      { name: 'story_key', type: 'string', description: 'Story key that appears stalled.' },
+      { name: 'phase', type: 'string', description: 'Phase the story was in when stall was detected.' },
+      { name: 'elapsed_ms', type: 'number', description: 'Milliseconds since last progress event.' },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

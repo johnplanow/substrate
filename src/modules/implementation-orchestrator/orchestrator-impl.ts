@@ -111,6 +111,12 @@ export function createImplementationOrchestrator(
   let _paused = false
   let _pauseGate: PauseGate | null = null
 
+  // -- heartbeat / watchdog state --
+  let _lastProgressTs = Date.now()
+  let _heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  const HEARTBEAT_INTERVAL_MS = 30_000
+  const WATCHDOG_TIMEOUT_MS = 600_000 // 10 minutes
+
   // -- helpers --
 
   function getStatus(): OrchestratorStatus {
@@ -145,6 +151,7 @@ export function createImplementationOrchestrator(
 
   function persistState(): void {
     if (config.pipelineRunId === undefined) return
+    recordProgress()
     try {
       const serialized = JSON.stringify(getStatus())
       updatePipelineRun(db, config.pipelineRunId, {
@@ -153,6 +160,60 @@ export function createImplementationOrchestrator(
       })
     } catch (err) {
       logger.warn('Failed to persist orchestrator state', { err })
+    }
+  }
+
+  function recordProgress(): void {
+    _lastProgressTs = Date.now()
+  }
+
+  function startHeartbeat(): void {
+    if (_heartbeatTimer !== null) return
+    _heartbeatTimer = setInterval(() => {
+      if (_state !== 'RUNNING') return
+      let active = 0
+      let completed = 0
+      let queued = 0
+      for (const s of _stories.values()) {
+        if (s.phase === 'COMPLETE' || s.phase === 'ESCALATED') completed++
+        else if (s.phase === 'PENDING') queued++
+        else active++
+      }
+
+      eventBus.emit('orchestrator:heartbeat', {
+        runId: config.pipelineRunId ?? '',
+        activeDispatches: active,
+        completedDispatches: completed,
+        queuedDispatches: queued,
+      })
+
+      // Watchdog: check for stalls
+      const elapsed = Date.now() - _lastProgressTs
+      if (elapsed >= WATCHDOG_TIMEOUT_MS) {
+        // Find the story that's been in-progress the longest
+        for (const [key, s] of _stories) {
+          if (s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED') {
+            logger.warn({ storyKey: key, phase: s.phase, elapsedMs: elapsed }, 'Watchdog: possible stall detected')
+            eventBus.emit('orchestrator:stall', {
+              runId: config.pipelineRunId ?? '',
+              storyKey: key,
+              phase: s.phase,
+              elapsedMs: elapsed,
+            })
+          }
+        }
+      }
+    }, HEARTBEAT_INTERVAL_MS)
+    // Ensure the timer doesn't prevent process exit
+    if (_heartbeatTimer && typeof _heartbeatTimer === 'object' && 'unref' in _heartbeatTimer) {
+      _heartbeatTimer.unref()
+    }
+  }
+
+  function stopHeartbeat(): void {
+    if (_heartbeatTimer !== null) {
+      clearInterval(_heartbeatTimer)
+      _heartbeatTimer = null
     }
   }
 
@@ -996,6 +1057,8 @@ export function createImplementationOrchestrator(
       pipelineRunId: config.pipelineRunId,
     })
     persistState()
+    recordProgress()
+    startHeartbeat()
 
     // Seed methodology context from planning artifacts (idempotent)
     if (projectRoot !== undefined) {
@@ -1020,6 +1083,7 @@ export function createImplementationOrchestrator(
     try {
       await runWithConcurrency(groups, config.maxConcurrency)
     } catch (err) {
+      stopHeartbeat()
       _state = 'FAILED'
       _completedAt = new Date().toISOString()
       persistState()
@@ -1027,6 +1091,7 @@ export function createImplementationOrchestrator(
       return getStatus()
     }
 
+    stopHeartbeat()
     _state = 'COMPLETE'
     _completedAt = new Date().toISOString()
 

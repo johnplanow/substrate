@@ -102,6 +102,7 @@ import {
   createPipelineRun,
   createDecision,
   getLatestRun,
+  getPipelineRunById,
   getDecisionsByPhaseForRun,
   addTokenUsage,
   getTokenUsageSummary,
@@ -240,6 +241,10 @@ interface PipelineStatusOutput {
   total_tokens: { input: number; output: number; cost_usd: number }
   decisions_count: number
   stories_count: number
+  /** ISO-8601 timestamp of the most recent pipeline activity (Story 16-7 AC4) */
+  last_activity: string
+  /** Seconds since last pipeline activity (Story 16-7 AC4) */
+  staleness_seconds: number
 }
 
 /**
@@ -326,6 +331,8 @@ export function buildPipelineStatusOutput(
     },
     decisions_count: decisionsCount,
     stories_count: storiesCount,
+    last_activity: run.updated_at,
+    staleness_seconds: Math.round((Date.now() - new Date(run.updated_at).getTime()) / 1000),
   }
 }
 
@@ -1310,6 +1317,30 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
           ts: new Date().toISOString(),
           key: payload.storyKey,
           msg: payload.msg,
+        })
+      })
+
+      // Heartbeat events (Story 16-7 AC1)
+      eventBus.on('orchestrator:heartbeat', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'pipeline:heartbeat',
+          ts: new Date().toISOString(),
+          run_id: payload.runId,
+          active_dispatches: payload.activeDispatches,
+          completed_dispatches: payload.completedDispatches,
+          queued_dispatches: payload.queuedDispatches,
+        })
+      })
+
+      // Stall detection events (Story 16-7 AC2)
+      eventBus.on('orchestrator:stall', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'story:stall',
+          ts: new Date().toISOString(),
+          run_id: payload.runId,
+          story_key: payload.storyKey,
+          phase: payload.phase,
+          elapsed_ms: payload.elapsedMs,
         })
       })
     }
@@ -2491,6 +2522,255 @@ export async function runAutoStatus(options: AutoStatusOptions): Promise<number>
 }
 
 // ---------------------------------------------------------------------------
+// auto health action (Story 16-7 AC3)
+// ---------------------------------------------------------------------------
+
+export interface AutoHealthOptions {
+  outputFormat: OutputFormat
+  runId?: string
+  projectRoot: string
+}
+
+type HealthVerdict = 'HEALTHY' | 'STALLED' | 'NO_PIPELINE_RUNNING'
+
+interface ProcessInfo {
+  orchestrator_pid: number | null
+  child_pids: number[]
+  zombies: number[]
+}
+
+interface PipelineHealthOutput {
+  verdict: HealthVerdict
+  run_id: string | null
+  status: string | null
+  current_phase: string | null
+  staleness_seconds: number
+  last_activity: string
+  process: ProcessInfo
+  stories: {
+    active: number
+    completed: number
+    escalated: number
+    details: Record<string, { phase: string; review_cycles: number }>
+  }
+}
+
+function inspectProcessTree(): ProcessInfo {
+  const result: ProcessInfo = { orchestrator_pid: null, child_pids: [], zombies: [] }
+  try {
+    const { execFileSync } = require('node:child_process') as typeof import('node:child_process')
+    const psOutput = execFileSync('ps', ['-eo', 'pid,ppid,stat,command'], { encoding: 'utf-8', timeout: 5000 })
+    const lines = psOutput.split('\n')
+
+    // Find substrate auto run process
+    for (const line of lines) {
+      if (line.includes('substrate auto run') && !line.includes('grep')) {
+        const match = line.trim().match(/^(\d+)/)
+        if (match) {
+          result.orchestrator_pid = parseInt(match[1], 10)
+          break
+        }
+      }
+    }
+
+    // Find children and zombies
+    if (result.orchestrator_pid !== null) {
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/)
+        if (parts.length >= 3) {
+          const pid = parseInt(parts[0], 10)
+          const ppid = parseInt(parts[1], 10)
+          const stat = parts[2]
+          if (ppid === result.orchestrator_pid && pid !== result.orchestrator_pid) {
+            result.child_pids.push(pid)
+            if (stat.includes('Z')) {
+              result.zombies.push(pid)
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Process inspection failed — return empty result
+  }
+  return result
+}
+
+export async function runAutoHealth(options: AutoHealthOptions): Promise<number> {
+  const { outputFormat, runId, projectRoot } = options
+
+  const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+
+  if (!existsSync(dbPath)) {
+    const output: PipelineHealthOutput = {
+      verdict: 'NO_PIPELINE_RUNNING',
+      run_id: null,
+      status: null,
+      current_phase: null,
+      staleness_seconds: 0,
+      last_activity: '',
+      process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+      stories: { active: 0, completed: 0, escalated: 0, details: {} },
+    }
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(output, 'json', true) + '\n')
+    } else {
+      process.stdout.write('NO_PIPELINE_RUNNING — no substrate database found\n')
+    }
+    return 0
+  }
+
+  const dbWrapper = new DatabaseWrapper(dbPath)
+
+  try {
+    dbWrapper.open()
+    const db = dbWrapper.db
+
+    let run: PipelineRun | undefined
+    if (runId !== undefined) {
+      run = getPipelineRunById(db, runId)
+    } else {
+      run = getLatestRun(db)
+    }
+
+    if (run === undefined) {
+      const output: PipelineHealthOutput = {
+        verdict: 'NO_PIPELINE_RUNNING',
+        run_id: null,
+        status: null,
+        current_phase: null,
+        staleness_seconds: 0,
+        last_activity: '',
+        process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+        stories: { active: 0, completed: 0, escalated: 0, details: {} },
+      }
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput(output, 'json', true) + '\n')
+      } else {
+        process.stdout.write('NO_PIPELINE_RUNNING — no pipeline runs found\n')
+      }
+      return 0
+    }
+
+    // Compute staleness
+    const updatedAt = new Date(run.updated_at)
+    const stalenessSeconds = Math.round((Date.now() - updatedAt.getTime()) / 1000)
+
+    // Parse story state from token_usage_json
+    let storyDetails: Record<string, { phase: string; review_cycles: number }> = {}
+    let active = 0
+    let completed = 0
+    let escalated = 0
+
+    try {
+      if (run.token_usage_json) {
+        const state = JSON.parse(run.token_usage_json) as {
+          stories?: Record<string, { phase: string; reviewCycles: number }>
+        }
+        if (state.stories) {
+          for (const [key, s] of Object.entries(state.stories)) {
+            storyDetails[key] = { phase: s.phase, review_cycles: s.reviewCycles }
+            if (s.phase === 'COMPLETE') completed++
+            else if (s.phase === 'ESCALATED') escalated++
+            else if (s.phase !== 'PENDING') active++
+          }
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+
+    // Inspect process tree
+    const processInfo = inspectProcessTree()
+
+    // Derive verdict
+    let verdict: HealthVerdict = 'NO_PIPELINE_RUNNING'
+    if (run.status === 'running') {
+      if (processInfo.zombies.length > 0) {
+        verdict = 'STALLED'
+      } else if (stalenessSeconds > 600) {
+        verdict = 'STALLED'
+      } else if (processInfo.orchestrator_pid !== null && processInfo.child_pids.length === 0 && active > 0) {
+        verdict = 'STALLED'
+      } else {
+        verdict = 'HEALTHY'
+      }
+    } else if (run.status === 'completed' || run.status === 'failed' || run.status === 'stopped') {
+      verdict = 'NO_PIPELINE_RUNNING'
+    }
+
+    const output: PipelineHealthOutput = {
+      verdict,
+      run_id: run.id,
+      status: run.status,
+      current_phase: run.current_phase,
+      staleness_seconds: stalenessSeconds,
+      last_activity: run.updated_at,
+      process: processInfo,
+      stories: { active, completed, escalated, details: storyDetails },
+    }
+
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(output, 'json', true) + '\n')
+    } else {
+      // Human-readable output
+      const verdictLabel = verdict === 'HEALTHY' ? 'HEALTHY'
+        : verdict === 'STALLED' ? 'STALLED'
+        : 'NO PIPELINE RUNNING'
+      process.stdout.write(`\nPipeline Health: ${verdictLabel}\n`)
+      process.stdout.write(`  Run:          ${run.id}\n`)
+      process.stdout.write(`  Status:       ${run.status}\n`)
+      process.stdout.write(`  Phase:        ${run.current_phase ?? 'N/A'}\n`)
+      process.stdout.write(`  Last Active:  ${run.updated_at} (${stalenessSeconds}s ago)\n`)
+
+      if (processInfo.orchestrator_pid !== null) {
+        process.stdout.write(`  Orchestrator: PID ${processInfo.orchestrator_pid}\n`)
+        process.stdout.write(`  Children:     ${processInfo.child_pids.length} active`)
+        if (processInfo.zombies.length > 0) {
+          process.stdout.write(` (${processInfo.zombies.length} ZOMBIE)`)
+        }
+        process.stdout.write('\n')
+      } else {
+        process.stdout.write('  Orchestrator: not running\n')
+      }
+
+      if (Object.keys(storyDetails).length > 0) {
+        process.stdout.write('\n  Stories:\n')
+        for (const [key, s] of Object.entries(storyDetails)) {
+          process.stdout.write(`    ${key}: ${s.phase} (${s.review_cycles} review cycles)\n`)
+        }
+        process.stdout.write(`\n  Summary: ${active} active, ${completed} completed, ${escalated} escalated\n`)
+      }
+    }
+
+    return 0
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, msg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${msg}\n`)
+    }
+    logger.error({ err }, 'auto health failed')
+    return 1
+  } finally {
+    try {
+      dbWrapper.close()
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// auto status enhancement (Story 16-7 AC4)
+// ---------------------------------------------------------------------------
+
+// Note: `last_activity` and `staleness_seconds` are added to PipelineStatusOutput
+// in the buildPipelineStatusOutput function below.
+
+// ---------------------------------------------------------------------------
 // Amendment supersession detection
 // ---------------------------------------------------------------------------
 
@@ -3023,6 +3303,27 @@ export function registerAutoCommand(
     .action(async (opts: { runId?: string; projectRoot: string; outputFormat: string }) => {
       const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
       const exitCode = await runAutoStatus({
+        outputFormat,
+        runId: opts.runId,
+        projectRoot: opts.projectRoot,
+      })
+      process.exitCode = exitCode
+    })
+
+  // ----------- auto health -----------
+  auto
+    .command('health')
+    .description('Check pipeline health: process status, stall detection, and verdict')
+    .option('--run-id <id>', 'Pipeline run ID to query (defaults to latest)')
+    .option('--project-root <path>', 'Project root directory', projectRoot)
+    .option(
+      '--output-format <format>',
+      'Output format: human (default) or json',
+      'human',
+    )
+    .action(async (opts: { runId?: string; projectRoot: string; outputFormat: string }) => {
+      const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
+      const exitCode = await runAutoHealth({
         outputFormat,
         runId: opts.runId,
         projectRoot: opts.projectRoot,

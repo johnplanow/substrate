@@ -63,7 +63,7 @@ function approximateTokenCount(text: string): number {
 // ---------------------------------------------------------------------------
 
 describe('PIPELINE_EVENT_METADATA', () => {
-  it('contains all 7 PipelineEvent types', () => {
+  it('contains all PipelineEvent types', () => {
     const expectedTypes = [
       'pipeline:start',
       'pipeline:complete',
@@ -72,6 +72,8 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'story:escalation',
       'story:warn',
       'story:log',
+      'pipeline:heartbeat',
+      'story:stall',
     ]
     const actualTypes = PIPELINE_EVENT_METADATA.map((e) => e.type)
     for (const t of expectedTypes) {

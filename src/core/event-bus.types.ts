@@ -334,4 +334,24 @@ export interface OrchestratorEvents {
 
   /** Implementation orchestrator has been resumed */
   'orchestrator:resumed': Record<string, never>
+
+  // -------------------------------------------------------------------------
+  // Implementation orchestrator health events
+  // -------------------------------------------------------------------------
+
+  /** Periodic heartbeat emitted every 30s during pipeline execution */
+  'orchestrator:heartbeat': {
+    runId: string
+    activeDispatches: number
+    completedDispatches: number
+    queuedDispatches: number
+  }
+
+  /** Watchdog detected no progress for an extended period */
+  'orchestrator:stall': {
+    runId: string
+    storyKey: string
+    phase: string
+    elapsedMs: number
+  }
 }
