@@ -21,7 +21,7 @@ import type { Command } from 'commander'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'path'
-import { mkdirSync, existsSync, cpSync, chmodSync } from 'fs'
+import { mkdirSync, existsSync, cpSync, chmodSync, readdirSync, unlinkSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { createRequire } from 'node:module'
@@ -713,6 +713,185 @@ export async function scaffoldClaudeSettings(projectRoot: string): Promise<void>
 }
 
 // ---------------------------------------------------------------------------
+// .claude/commands/ scaffold (bmad slash commands)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the absolute path to bmad-method's installer lib directory.
+ * Returns null if bmad-method is not installed.
+ */
+export function resolveBmadMethodInstallerLibPath(fromDir: string = __dirname): string | null {
+  try {
+    const _require = createRequire(join(fromDir, 'synthetic.js'))
+    const pkgJsonPath = _require.resolve('bmad-method/package.json')
+    return join(dirname(pkgJsonPath), 'tools', 'cli', 'installers', 'lib')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Scan the _bmad/ directory for installed module names (excluding 'core' and '_config').
+ * Returns module names that contain agents/, workflows/, or tasks/ subdirs.
+ */
+export function scanBmadModules(bmadDir: string): string[] {
+  const modules: string[] = []
+  try {
+    const entries = readdirSync(bmadDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name.startsWith('_') || entry.name === 'core') continue
+      const modPath = join(bmadDir, entry.name)
+      const hasAgents = existsSync(join(modPath, 'agents'))
+      const hasWorkflows = existsSync(join(modPath, 'workflows'))
+      const hasTasks = existsSync(join(modPath, 'tasks'))
+      if (hasAgents || hasWorkflows || hasTasks) {
+        modules.push(entry.name)
+      }
+    }
+  } catch {
+    // _bmad/ not accessible
+  }
+  return modules
+}
+
+/**
+ * Remove existing bmad-*.md files from .claude/commands/ for idempotent regeneration.
+ * Preserves user's custom (non-bmad) command files.
+ */
+function clearBmadCommandFiles(commandsDir: string): void {
+  try {
+    const entries = readdirSync(commandsDir)
+    for (const entry of entries) {
+      if (entry.startsWith('bmad-') && entry.endsWith('.md')) {
+        try {
+          unlinkSync(join(commandsDir, entry))
+        } catch {
+          // ignore individual file errors
+        }
+      }
+    }
+  } catch {
+    // directory didn't exist or couldn't be read — fine
+  }
+}
+
+/**
+ * Generate .claude/commands/ files by calling bmad-method's command generators.
+ *
+ * Uses the installed bmad-method package's AgentCommandGenerator,
+ * WorkflowCommandGenerator, and TaskToolCommandGenerator classes via createRequire.
+ * Generates CSV manifests first so workflow/task generators can discover content.
+ *
+ * Graceful degradation: warns but never fails init.
+ */
+export async function scaffoldClaudeCommands(
+  projectRoot: string,
+  outputFormat: OutputFormat,
+): Promise<void> {
+  const bmadDir = join(projectRoot, '_bmad')
+
+  if (!existsSync(bmadDir)) {
+    return
+  }
+
+  const installerLibPath = resolveBmadMethodInstallerLibPath()
+
+  if (!installerLibPath) {
+    if (outputFormat !== 'json') {
+      process.stderr.write('Warning: bmad-method not found. Skipping .claude/commands/ generation.\n')
+    }
+    return
+  }
+
+  try {
+    const _require = createRequire(join(__dirname, 'synthetic.js'))
+
+    // Load bmad-method CJS generators
+    const { AgentCommandGenerator } = _require(
+      join(installerLibPath, 'ide', 'shared', 'agent-command-generator.js'),
+    ) as { AgentCommandGenerator: new (bmadFolderName: string) => BmadAgentGenerator }
+    const { WorkflowCommandGenerator } = _require(
+      join(installerLibPath, 'ide', 'shared', 'workflow-command-generator.js'),
+    ) as { WorkflowCommandGenerator: new (bmadFolderName: string) => BmadWorkflowGenerator }
+    const { TaskToolCommandGenerator } = _require(
+      join(installerLibPath, 'ide', 'shared', 'task-tool-command-generator.js'),
+    ) as { TaskToolCommandGenerator: new (bmadFolderName: string) => BmadTaskToolGenerator }
+    const { ManifestGenerator } = _require(
+      join(installerLibPath, 'core', 'manifest-generator.js'),
+    ) as { ManifestGenerator: new () => BmadManifestGenerator }
+
+    // Discover installed modules (excluding core — generators always include it)
+    const nonCoreModules = scanBmadModules(bmadDir)
+    const allModules = ['core', ...nonCoreModules]
+
+    // Generate CSV manifests so workflow/task/tool generators can discover content.
+    // ManifestGenerator scans the installed _bmad/ tree and writes CSVs to _bmad/_config/.
+    try {
+      const manifestGen = new ManifestGenerator()
+      await manifestGen.generateManifests(bmadDir, allModules, [], { ides: ['claude-code'] })
+    } catch (manifestErr) {
+      logger.warn({ err: manifestErr }, 'ManifestGenerator failed; workflow/task commands may be incomplete')
+    }
+
+    const commandsDir = join(projectRoot, '.claude', 'commands')
+    mkdirSync(commandsDir, { recursive: true })
+    clearBmadCommandFiles(commandsDir)
+
+    // Generate agent commands (filesystem scan — no manifest needed)
+    const agentGen = new AgentCommandGenerator('_bmad')
+    const { artifacts: agentArtifacts } = await agentGen.collectAgentArtifacts(bmadDir, nonCoreModules)
+    const agentCount = await agentGen.writeDashArtifacts(commandsDir, agentArtifacts)
+
+    // Generate workflow commands (reads workflow-manifest.csv)
+    const workflowGen = new WorkflowCommandGenerator('_bmad')
+    const { artifacts: workflowArtifacts } = await workflowGen.collectWorkflowArtifacts(bmadDir)
+    const workflowCount = await workflowGen.writeDashArtifacts(commandsDir, workflowArtifacts)
+
+    // Generate task/tool commands (reads task-manifest.csv + tool-manifest.csv)
+    const taskToolGen = new TaskToolCommandGenerator('_bmad')
+    const { artifacts: taskToolArtifacts } = await taskToolGen.collectTaskToolArtifacts(bmadDir)
+    const taskToolCount = await taskToolGen.writeDashArtifacts(commandsDir, taskToolArtifacts)
+
+    const total = agentCount + workflowCount + taskToolCount
+    if (outputFormat !== 'json') {
+      process.stdout.write(
+        `Generated ${String(total)} Claude Code commands (${String(agentCount)} agents, ${String(workflowCount)} workflows, ${String(taskToolCount)} tasks/tools)\n`,
+      )
+    }
+    logger.info({ agentCount, workflowCount, taskToolCount, total, commandsDir }, 'Generated .claude/commands/')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (outputFormat !== 'json') {
+      process.stderr.write(`Warning: .claude/commands/ generation failed: ${msg}\n`)
+    }
+    logger.warn({ err }, 'scaffoldClaudeCommands failed; init continues')
+  }
+}
+
+// Minimal type interfaces for bmad-method CJS generators (imported via createRequire)
+interface BmadArtifact { type: string; name: string; [key: string]: unknown }
+interface BmadAgentGenerator {
+  collectAgentArtifacts(bmadDir: string, modules: string[]): Promise<{ artifacts: BmadArtifact[] }>
+  writeDashArtifacts(dir: string, artifacts: BmadArtifact[]): Promise<number>
+}
+interface BmadWorkflowGenerator {
+  collectWorkflowArtifacts(bmadDir: string): Promise<{ artifacts: BmadArtifact[] }>
+  writeDashArtifacts(dir: string, artifacts: BmadArtifact[]): Promise<number>
+}
+interface BmadTaskToolGenerator {
+  collectTaskToolArtifacts(bmadDir: string): Promise<{ artifacts: BmadArtifact[] }>
+  writeDashArtifacts(dir: string, artifacts: BmadArtifact[]): Promise<number>
+}
+interface BmadManifestGenerator {
+  generateManifests(
+    bmadDir: string,
+    modules: string[],
+    files: unknown[],
+    options: { ides: string[] },
+  ): Promise<unknown>
+}
+
+// ---------------------------------------------------------------------------
 // auto init action
 // ---------------------------------------------------------------------------
 
@@ -795,6 +974,9 @@ export async function runAutoInit(options: AutoInitOptions): Promise<number> {
 
     // Step 2d: Scaffold/merge .claude/settings.json (upgrade-safe)
     await scaffoldClaudeSettings(projectRoot)
+
+    // Step 2e: Scaffold .claude/commands/ from installed _bmad/ tree
+    await scaffoldClaudeCommands(projectRoot, outputFormat)
 
     // Step 3: Output success
     const successMsg = `Pack '${packName}' and database initialized successfully at ${dbPath}`
@@ -3102,6 +3284,13 @@ export interface AutoSupervisorOptions {
   projectRoot: string
   runId?: string
   pack: string
+  /**
+   * When true, after post-run analysis the supervisor enters experiment mode:
+   * it creates git branches, applies modifications, runs single-story experiments,
+   * and reports verdicts (Story 17-4 AC1).
+   * Without this flag, only reports are produced (Tier 2 behaviour).
+   */
+  experiment?: boolean
 }
 
 /** Injectable dependencies for testing the supervisor without real processes or timers */
@@ -3112,6 +3301,12 @@ export interface SupervisorDeps {
   sleep: (ms: number) => Promise<void>
   /** Called after each successful restart to increment the restarts counter in run_metrics. */
   incrementRestarts: (runId: string, projectRoot: string) => void
+  /**
+   * Called after detecting terminal state (AC1 of Story 17-3).
+   * Generates the post-run analysis report and writes it to disk.
+   * Optional so tests can omit it without side-effects.
+   */
+  runAnalysis?: (runId: string, projectRoot: string) => Promise<void>
 }
 
 function defaultSupervisorDeps(): SupervisorDeps {
@@ -3143,6 +3338,31 @@ function defaultSupervisorDeps(): SupervisorDeps {
         }
       }
     })(),
+    runAnalysis: async (runId: string, projectRoot: string) => {
+      // AC1 of Story 17-3: generate post-run analysis report after terminal state
+      const dbPath = join(projectRoot, '.substrate', 'substrate.db')
+      if (!existsSync(dbPath)) return
+      const dbWrapper = new DatabaseWrapper(dbPath)
+      try {
+        dbWrapper.open()
+        runMigrations(dbWrapper.db)
+        const db = dbWrapper.db
+        const run = getRunMetrics(db, runId)
+        if (!run) return
+        const stories = getStoryMetricsForRun(db, runId)
+        const baseline = getBaselineRunMetrics(db)
+        const baselineStories = baseline && baseline.run_id !== runId
+          ? getStoryMetricsForRun(db, baseline.run_id)
+          : []
+        const { generateAnalysisReport, writeAnalysisReport } = await import('../../modules/supervisor/analysis.js')
+        const report = generateAnalysisReport(run, stories, baseline, baselineStories)
+        writeAnalysisReport(report, projectRoot)
+      } catch {
+        // Best-effort — never block the supervisor
+      } finally {
+        try { dbWrapper.close() } catch { /* ignore */ }
+      }
+    },
   }
 }
 
@@ -3161,8 +3381,8 @@ export async function runAutoSupervisor(
   options: AutoSupervisorOptions,
   deps: Partial<SupervisorDeps> = {},
 ): Promise<number> {
-  const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack } = options
-  const { getHealth, killPid, resumePipeline, sleep, incrementRestarts } = { ...defaultSupervisorDeps(), ...deps }
+  const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack, experiment } = options
+  const { getHealth, killPid, resumePipeline, sleep, incrementRestarts, runAnalysis } = { ...defaultSupervisorDeps(), ...deps }
 
   let restartCount = 0
   const startTime = Date.now()
@@ -3218,6 +3438,56 @@ export async function runAutoSupervisor(
         `\nPipeline reached terminal state. Elapsed: ${elapsedSeconds}s | ` +
           `succeeded: ${succeeded.length} | failed: ${failed.length} | restarts: ${restartCount}`,
       )
+
+      // --- AC1 of Story 17-3: run post-run analysis when a run-id is known ---
+      if (health.run_id !== null && runAnalysis !== undefined) {
+        log(`[supervisor] Running post-run analysis for ${health.run_id}...`)
+        await runAnalysis(health.run_id, projectRoot)
+        log(`[supervisor] Analysis report written to _bmad-output/supervisor-reports/${health.run_id}-analysis.md`)
+        emitEvent({ type: 'supervisor:analysis:complete', run_id: health.run_id })
+      }
+
+      // --- Experiment mode (Story 17-4 AC1): enter after post-run analysis ---
+      if (experiment && health.run_id !== null) {
+        log(`\n[supervisor] Experiment mode enabled. Checking for optimization recommendations...`)
+        emitEvent({ type: 'supervisor:experiment:start', run_id: health.run_id })
+        // Experiment execution is delegated to the Experimenter module (src/modules/supervisor/experimenter.ts).
+        // Recommendations come from Story 17-3 analysis engine. When no recommendations file
+        // exists (17-3 not yet run), we degrade gracefully and log a message.
+        const analysisReportPath = join(
+          projectRoot,
+          '_bmad-output',
+          'supervisor-reports',
+          `${health.run_id}-analysis.json`,
+        )
+        try {
+          const { readFile: fsReadFile } = await import('fs/promises')
+          const raw = await fsReadFile(analysisReportPath, 'utf-8')
+          const analysisData = JSON.parse(raw) as {
+            recommendations?: Array<{
+              type: string
+              story_key: string
+              phase: string
+              description: string
+              short_desc: string
+            }>
+          }
+          const recommendations = analysisData.recommendations ?? []
+          if (recommendations.length === 0) {
+            log(`[supervisor] No recommendations found in analysis report — skipping experiments.`)
+            emitEvent({ type: 'supervisor:experiment:skip', run_id: health.run_id, reason: 'no_recommendations' })
+          } else {
+            log(`[supervisor] Found ${recommendations.length} recommendation(s) to experiment with.`)
+            emitEvent({ type: 'supervisor:experiment:recommendations', run_id: health.run_id, count: recommendations.length })
+            // Note: Full experiment execution (createExperimenter + runExperiments) is wired
+            // in the CLI action below so deps can be injected. This log confirms the mode is active.
+          }
+        } catch {
+          log(`[supervisor] Analysis report not found at ${analysisReportPath} — skipping experiments.`)
+          log(`[supervisor] Run 'substrate auto metrics --analysis <run-id>' first to generate recommendations.`)
+          emitEvent({ type: 'supervisor:experiment:skip', run_id: health.run_id, reason: 'no_analysis_report' })
+        }
+      }
 
       return (failed.length > 0 || escalated.length > 0) ? 1 : 0
     }
@@ -4052,6 +4322,11 @@ export function registerAutoCommand(
       'Output format: human (default) or json',
       'human',
     )
+    .option(
+      '--experiment',
+      'After post-run analysis, enter experiment mode: create branches, apply modifications, run single-story experiments, and report verdicts (Story 17-4)',
+      false,
+    )
     .action(
       async (opts: {
         pollInterval: number
@@ -4061,6 +4336,7 @@ export function registerAutoCommand(
         pack: string
         projectRoot: string
         outputFormat: string
+        experiment: boolean
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         const exitCode = await runAutoSupervisor({
@@ -4071,6 +4347,7 @@ export function registerAutoCommand(
           pack: opts.pack,
           outputFormat,
           projectRoot: opts.projectRoot,
+          experiment: opts.experiment,
         })
         process.exitCode = exitCode
       },

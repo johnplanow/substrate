@@ -1,9 +1,8 @@
 ---
-name: 'review-adversarial-general'
-description: 'Cynically review content and produce findings'
+description: 'Perform a Cynical Review and produce a findings report. Use when the user requests a critical review of something'
 ---
 
-# review-adversarial-general
+# Adversarial Review (General)
 
 Read the entire task file at: {project-root}/_bmad/core/tasks/review-adversarial-general.xml
 

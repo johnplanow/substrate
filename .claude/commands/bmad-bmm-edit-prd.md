@@ -1,7 +1,13 @@
 ---
-name: 'edit-prd'
-description: 'Edit and improve an existing PRD - enhance clarity, completeness, and quality'
-disable-model-invocation: true
+description: 'Edit an existing PRD. Use when the user says ""edit this PRD"".'
 ---
 
-IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL @{project-root}/_bmad/bmm/workflows/2-plan-workflows/create-prd/workflow-edit-prd.md, READ its entire contents and follow its directions exactly!
+IT IS CRITICAL THAT YOU FOLLOW THESE STEPS - while staying in character as the current agent persona you may have loaded:
+
+<steps CRITICAL="TRUE">
+1. Always LOAD the FULL @_bmad/core/tasks/workflow.xml
+2. READ its entire contents - this is the CORE OS for EXECUTING the specific workflow-config @_bmad/bmm/workflows/2-plan-workflows/create-prd/workflow-edit-prd.md
+3. Pass the yaml path _bmad/bmm/workflows/2-plan-workflows/create-prd/workflow-edit-prd.md as 'workflow-config' parameter to the workflow.xml instructions
+4. Follow workflow.xml instructions EXACTLY as written to process and follow the specific workflow config and its instructions
+5. Save outputs after EACH section when generating any documents from templates
+</steps>
