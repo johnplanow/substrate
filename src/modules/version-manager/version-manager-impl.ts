@@ -9,6 +9,7 @@ import { createRequire } from 'module'
 import { fileURLToPath } from 'url'
 import { dirname, resolve } from 'path'
 import { readFileSync } from 'fs'
+import * as semver from 'semver'
 import type { VersionManager, VersionCheckResult, UpgradePreview } from './version-manager.js'
 import { UpdateChecker } from './update-checker.js'
 import { VersionCache } from './version-cache.js'
@@ -129,7 +130,7 @@ export class VersionManagerImpl implements VersionManager {
     if (!forceRefresh) {
       const cached = this.cache.read()
       if (cached !== null) {
-        const updateAvailable = cached.latestVersion !== currentVersion
+        const updateAvailable = semver.gt(cached.latestVersion, currentVersion)
         return {
           currentVersion,
           latestVersion: cached.latestVersion,
@@ -143,7 +144,7 @@ export class VersionManagerImpl implements VersionManager {
     // Cache miss, expired, or forceRefresh — fetch from npm
     try {
       const latestVersion = await this.updateChecker.fetchLatestVersion('substrate-ai')
-      const updateAvailable = latestVersion !== currentVersion
+      const updateAvailable = semver.gt(latestVersion, currentVersion)
 
       // Write to cache (even when forceRefresh was used, so subsequent calls benefit)
       this.cache.write({
