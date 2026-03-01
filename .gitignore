@@ -2,6 +2,7 @@
 !.claude/commands/
 !.claude/hooks/
 !.claude/settings.json
+!.claude/statusline.sh
 .codex/*
 !.codex/.gitkeep
 .beads/

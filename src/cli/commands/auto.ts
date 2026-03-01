@@ -21,7 +21,7 @@ import type { Command } from 'commander'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'path'
-import { mkdirSync, existsSync, cpSync } from 'fs'
+import { mkdirSync, existsSync, cpSync, chmodSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { createRequire } from 'node:module'
@@ -156,6 +156,23 @@ const BMAD_BASELINE_TOKENS = 23_800
 
 /** Story key pattern: <epic>-<story> e.g. "10-1" */
 const STORY_KEY_PATTERN = /^\d+-\d+$/
+
+/**
+ * Top-level keys in .claude/settings.json that substrate owns.
+ * On init, these are set/updated unconditionally.
+ * User-defined keys outside this set are never touched.
+ */
+export const SUBSTRATE_OWNED_SETTINGS_KEYS = ['statusLine'] as const
+
+function getSubstrateDefaultSettings(): Record<string, unknown> {
+  return {
+    statusLine: {
+      type: 'command',
+      command: 'bash "$CLAUDE_PROJECT_DIR"/.claude/statusline.sh',
+      padding: 0,
+    },
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -622,6 +639,79 @@ export async function scaffoldClaudeMd(projectRoot: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// .claude/statusline.sh scaffold
+// ---------------------------------------------------------------------------
+
+/**
+ * Scaffold the statusline script from the bundled template.
+ *
+ * Always overwrites — substrate fully owns this file.
+ */
+export async function scaffoldStatuslineScript(projectRoot: string): Promise<void> {
+  const pkgRoot = findPackageRoot(__dirname)
+  const templateName = 'statusline.sh'
+  let templatePath = join(pkgRoot, 'dist', 'cli', 'templates', templateName)
+  if (!existsSync(templatePath)) {
+    templatePath = join(pkgRoot, 'src', 'cli', 'templates', templateName)
+  }
+
+  let content: string
+  try {
+    content = await readFile(templatePath, 'utf8')
+  } catch {
+    logger.warn({ templatePath }, 'statusline.sh template not found; skipping')
+    return
+  }
+
+  const claudeDir = join(projectRoot, '.claude')
+  const statuslinePath = join(claudeDir, 'statusline.sh')
+  mkdirSync(claudeDir, { recursive: true })
+  await writeFile(statuslinePath, content, 'utf8')
+  chmodSync(statuslinePath, 0o755)
+  logger.info({ statuslinePath }, 'Wrote .claude/statusline.sh')
+}
+
+// ---------------------------------------------------------------------------
+// .claude/settings.json scaffold (upgrade-safe merge)
+// ---------------------------------------------------------------------------
+
+/**
+ * Scaffold or merge .claude/settings.json with substrate-owned settings.
+ *
+ * Merge strategy:
+ * - Keys in SUBSTRATE_OWNED_SETTINGS_KEYS are set/updated unconditionally.
+ * - All other keys (permissions, hooks, etc.) are preserved as-is.
+ * - $schema is added only if not already present.
+ */
+export async function scaffoldClaudeSettings(projectRoot: string): Promise<void> {
+  const claudeDir = join(projectRoot, '.claude')
+  const settingsPath = join(claudeDir, 'settings.json')
+
+  let existing: Record<string, unknown> = {}
+  try {
+    const raw = await readFile(settingsPath, 'utf8')
+    existing = JSON.parse(raw)
+  } catch {
+    // File doesn't exist or invalid JSON — start fresh
+  }
+
+  const defaults = getSubstrateDefaultSettings()
+  const merged = { ...existing }
+
+  for (const key of SUBSTRATE_OWNED_SETTINGS_KEYS) {
+    merged[key] = defaults[key]
+  }
+
+  if (!merged['$schema']) {
+    merged['$schema'] = 'https://json.schemastore.org/claude-code-settings.json'
+  }
+
+  mkdirSync(claudeDir, { recursive: true })
+  await writeFile(settingsPath, JSON.stringify(merged, null, 2) + '\n', 'utf8')
+  logger.info({ settingsPath }, 'Wrote substrate settings to .claude/settings.json')
+}
+
+// ---------------------------------------------------------------------------
 // auto init action
 // ---------------------------------------------------------------------------
 
@@ -698,6 +788,12 @@ export async function runAutoInit(options: AutoInitOptions): Promise<number> {
 
     // Step 2b: Scaffold CLAUDE.md with substrate pipeline section
     await scaffoldClaudeMd(projectRoot)
+
+    // Step 2c: Scaffold .claude/statusline.sh from template
+    await scaffoldStatuslineScript(projectRoot)
+
+    // Step 2d: Scaffold/merge .claude/settings.json (upgrade-safe)
+    await scaffoldClaudeSettings(projectRoot)
 
     // Step 3: Output success
     const successMsg = `Pack '${packName}' and database initialized successfully at ${dbPath}`
@@ -1040,6 +1136,7 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
             input_tokens: input,
             output_tokens: output,
             cost_usd: costUsd,
+            metadata: JSON.stringify({ storyKey: payload.storyKey }),
           })
         }
       } catch (err) {
@@ -1408,10 +1505,13 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
       const runEndMs = Date.now()
       const runStartMs = new Date(pipelineRun.created_at).getTime()
       const tokenAgg = aggregateTokenUsageForRun(db, pipelineRun.id)
+      const storyMetrics = getStoryMetricsForRun(db, pipelineRun.id)
+      const totalReviewCycles = storyMetrics.reduce((sum, m) => sum + (m.review_cycles ?? 0), 0)
+      const totalDispatches = storyMetrics.reduce((sum, m) => sum + (m.dispatches ?? 0), 0)
       writeRunMetrics(db, {
         run_id: pipelineRun.id,
         methodology: pack.manifest.name,
-        status: failedKeys.length > 0 ? 'failed' : 'completed',
+        status: (failedKeys.length > 0 || escalatedKeys.length > 0) ? 'failed' : 'completed',
         started_at: pipelineRun.created_at,
         completed_at: new Date().toISOString(),
         wall_clock_seconds: Math.round((runEndMs - runStartMs) / 1000),
@@ -1422,6 +1522,8 @@ export async function runAutoRun(options: AutoRunOptions): Promise<number> {
         stories_succeeded: succeededKeys.length,
         stories_failed: failedKeys.length,
         stories_escalated: escalatedKeys.length,
+        total_review_cycles: totalReviewCycles,
+        total_dispatches: totalDispatches,
         concurrency_setting: concurrency,
       })
     } catch (metricsErr) {
@@ -3068,7 +3170,7 @@ export async function runAutoSupervisor(
         .filter(([, s]) => s.phase === 'COMPLETE')
         .map(([k]) => k)
       const failed = Object.entries(health.stories.details)
-        .filter(([, s]) => s.phase !== 'COMPLETE' && s.phase !== 'PENDING')
+        .filter(([, s]) => s.phase !== 'COMPLETE' && s.phase !== 'PENDING' && s.phase !== 'ESCALATED')
         .map(([k]) => k)
       const escalated = Object.entries(health.stories.details)
         .filter(([, s]) => s.phase === 'ESCALATED')
@@ -3089,7 +3191,7 @@ export async function runAutoSupervisor(
           `succeeded: ${succeeded.length} | failed: ${failed.length} | restarts: ${restartCount}`,
       )
 
-      return failed.length > 0 ? 1 : 0
+      return (failed.length > 0 || escalated.length > 0) ? 1 : 0
     }
 
     // --- Stall detection: kill if staleness exceeds threshold ---
@@ -3175,23 +3277,23 @@ export async function runAutoSupervisor(
 
       log(`Supervisor: Restarting pipeline (attempt ${restartCount}/${maxRestarts})`)
 
-      // Fire-and-forget resume — supervisor continues polling; errors are logged/emitted
-      resumePipeline({
-        runId: health.run_id ?? undefined,
-        outputFormat,
-        projectRoot,
-        concurrency: 3,
-        pack,
-      }).catch((err: unknown) => {
+      // Await resume so the pipeline has started before we poll health again.
+      // Without this, the next poll could see NO_PIPELINE_RUNNING and exit prematurely.
+      try {
+        await resumePipeline({
+          runId: health.run_id ?? undefined,
+          outputFormat,
+          projectRoot,
+          concurrency: 3,
+          pack,
+        })
+      } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err)
         log(`Supervisor: Resume error: ${message}`)
         if (outputFormat === 'json') {
-          process.stderr.write(
-            JSON.stringify({ type: 'supervisor:error', reason: 'resume_failed', message, ts: new Date().toISOString() }) +
-              '\n',
-          )
+          emitEvent({ type: 'supervisor:error' as any, reason: 'resume_failed', message })
         }
-      })
+      }
     }
 
     // Wait for next poll interval

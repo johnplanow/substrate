@@ -16,7 +16,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { updatePipelineRun, getDecisionsByPhase, registerArtifact } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
-import { writeStoryMetrics } from '../../persistence/queries/metrics.js'
+import { writeStoryMetrics, aggregateTokenUsageForStory } from '../../persistence/queries/metrics.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { runCreateStory } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
@@ -158,6 +158,7 @@ export function createImplementationOrchestrator(
       const wallClockSeconds = startedAt
         ? Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000)
         : 0
+      const tokenAgg = aggregateTokenUsageForStory(db, config.pipelineRunId, storyKey)
       writeStoryMetrics(db, {
         run_id: config.pipelineRunId,
         story_key: storyKey,
@@ -166,6 +167,9 @@ export function createImplementationOrchestrator(
         started_at: startedAt,
         completed_at: completedAt,
         wall_clock_seconds: wallClockSeconds,
+        input_tokens: tokenAgg.input,
+        output_tokens: tokenAgg.output,
+        cost_usd: tokenAgg.cost,
         review_cycles: reviewCycles,
         dispatches: _storyDispatches.get(storyKey) ?? 0,
       })

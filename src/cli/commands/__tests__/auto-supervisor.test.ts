@@ -56,10 +56,12 @@ function makeStalled(stalenessSeconds = 700, overrides: Partial<PipelineHealthOu
 function makeTerminal(
   succeeded: string[] = [],
   failed: string[] = [],
+  escalated: string[] = [],
 ): PipelineHealthOutput {
   const details: Record<string, { phase: string; review_cycles: number }> = {}
   for (const k of succeeded) details[k] = { phase: 'COMPLETE', review_cycles: 0 }
-  for (const k of failed) details[k] = { phase: 'ESCALATED', review_cycles: 3 }
+  for (const k of failed) details[k] = { phase: 'FAILED', review_cycles: 3 }
+  for (const k of escalated) details[k] = { phase: 'ESCALATED', review_cycles: 3 }
 
   return {
     verdict: 'NO_PIPELINE_RUNNING',
@@ -72,7 +74,7 @@ function makeTerminal(
     stories: {
       active: 0,
       completed: succeeded.length,
-      escalated: failed.length,
+      escalated: escalated.length,
       details,
     },
   }
@@ -256,7 +258,7 @@ describe('runAutoSupervisor — AC5: terminal state summary and exit codes', () 
     expect(exitCode).toBe(0)
   })
 
-  it('exits 1 when any story failed/escalated', async () => {
+  it('exits 1 when any story failed', async () => {
     const deps: Partial<SupervisorDeps> = {
       getHealth: vi.fn().mockResolvedValue(makeTerminal(['17-1'], ['17-2'])),
       sleep: vi.fn().mockResolvedValue(undefined),
@@ -266,6 +268,37 @@ describe('runAutoSupervisor — AC5: terminal state summary and exit codes', () 
 
     const exitCode = await runAutoSupervisor(makeOptions(), deps)
     expect(exitCode).toBe(1)
+  })
+
+  it('exits 1 when any story escalated (even if none failed)', async () => {
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeTerminal(['17-1'], [], ['17-2'])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+    }
+
+    const exitCode = await runAutoSupervisor(makeOptions(), deps)
+    expect(exitCode).toBe(1)
+  })
+
+  it('partitions stories into succeeded/failed/escalated without overlap', async () => {
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeTerminal(['17-1'], ['17-2'], ['17-3'])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+    }
+
+    await runAutoSupervisor(makeOptions({ outputFormat: 'json' }), deps)
+
+    const output = stdoutCapture.getOutput()
+    const summaryLine = output.trim().split('\n').find((l) => l.includes('supervisor:summary'))
+    expect(summaryLine).toBeDefined()
+    const evt = JSON.parse(summaryLine!)
+    expect(evt.succeeded).toEqual(['17-1'])
+    expect(evt.failed).toEqual(['17-2'])
+    expect(evt.escalated).toEqual(['17-3'])
   })
 
   it('exits 0 when no stories at all (no run found)', async () => {

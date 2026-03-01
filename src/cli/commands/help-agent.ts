@@ -338,6 +338,41 @@ Initialize a methodology pack and decision store.
 \`\`\`
 substrate auto init [--pack bmad] [--project-root .]
 \`\`\`
+
+### substrate auto supervisor
+Long-running process that monitors pipeline health, kills stalled runs, and auto-restarts.
+
+\`\`\`
+substrate auto supervisor [options]
+\`\`\`
+
+Options:
+- \`--poll-interval <seconds>\` — Health check interval (default: 60)
+- \`--stall-threshold <seconds>\` — Staleness before killing (default: 600)
+- \`--max-restarts <n>\` — Maximum restart attempts (default: 3)
+- \`--output-format <format>\` — Output format: human (default) or json
+
+Exit codes: 0 = all succeeded, 1 = failures/escalations, 2 = max restarts exceeded.
+
+### substrate auto metrics
+Show historical pipeline run metrics and cross-run comparison.
+
+\`\`\`
+substrate auto metrics [options]
+\`\`\`
+
+Options:
+- \`--limit <n>\` — Number of runs to show (default: 10)
+- \`--compare <run-id-a,run-id-b>\` — Compare two runs side-by-side (token, time, review cycle deltas)
+- \`--tag-baseline <run-id>\` — Mark a run as the performance baseline
+- \`--output-format <format>\` — Output format: human (default) or json
+
+### substrate auto health
+Check pipeline health, stall detection, and process status.
+
+\`\`\`
+substrate auto health [--output-format json]
+\`\`\`
 `
 }
 

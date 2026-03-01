@@ -331,3 +331,26 @@ export function aggregateTokenUsageForRun(
 
   return row ?? { input: 0, output: 0, cost: 0 }
 }
+
+/**
+ * Aggregate token usage for a specific story within a pipeline run.
+ * Matches rows where the metadata JSON contains the given storyKey.
+ */
+export function aggregateTokenUsageForStory(
+  db: BetterSqlite3Database,
+  runId: string,
+  storyKey: string,
+): TokenAggregate {
+  const row = db.prepare(`
+    SELECT
+      COALESCE(SUM(input_tokens), 0) as input,
+      COALESCE(SUM(output_tokens), 0) as output,
+      COALESCE(SUM(cost_usd), 0) as cost
+    FROM token_usage
+    WHERE pipeline_run_id = ?
+      AND metadata IS NOT NULL
+      AND json_extract(metadata, '$.storyKey') = ?
+  `).get(runId, storyKey) as TokenAggregate | undefined
+
+  return row ?? { input: 0, output: 0, cost: 0 }
+}
