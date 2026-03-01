@@ -6,6 +6,9 @@
  */
 
 import { createRequire } from 'module'
+import { fileURLToPath } from 'url'
+import { dirname, resolve } from 'path'
+import { readFileSync } from 'fs'
 import type { VersionManager, VersionCheckResult, UpgradePreview } from './version-manager.js'
 import { UpdateChecker } from './update-checker.js'
 import { VersionCache } from './version-cache.js'
@@ -53,13 +56,31 @@ export class VersionManagerImpl implements VersionManager {
 
   /**
    * Read the current package version from the bundled package.json.
+   * Tries multiple relative paths because the bundler may place this chunk
+   * at different depths (e.g. dist/version-manager-impl-xxx.js vs
+   * src/modules/version-manager/version-manager-impl.ts).
    * Falls back to '0.0.0' if the file is unreadable.
    */
   getCurrentVersion(): string {
     try {
-      const _require = createRequire(import.meta.url)
-      const pkg = _require('../../package.json') as { version?: string }
-      return typeof pkg.version === 'string' && pkg.version.length > 0 ? pkg.version : '0.0.0'
+      const __dirname = dirname(fileURLToPath(import.meta.url))
+      const candidates = [
+        resolve(__dirname, '../package.json'),       // dist/chunk.js → repo root
+        resolve(__dirname, '../../package.json'),     // dist/cli/index.js → repo root
+        resolve(__dirname, '../../../package.json'),  // src/modules/version-manager/ → repo root
+      ]
+      for (const candidate of candidates) {
+        try {
+          const raw = readFileSync(candidate, 'utf-8')
+          const pkg = JSON.parse(raw) as { version?: string; name?: string }
+          if (pkg.name === 'substrate-ai' && typeof pkg.version === 'string' && pkg.version.length > 0) {
+            return pkg.version
+          }
+        } catch {
+          // try next
+        }
+      }
+      return '0.0.0'
     } catch {
       return '0.0.0'
     }
@@ -103,16 +124,17 @@ export class VersionManagerImpl implements VersionManager {
       }
     }
 
-    // Check cache — if fresh and not forcing a refresh, return cached result without a network call
+    // Check cache — if fresh and not forcing a refresh, return cached result without a network call.
+    // Always use the live currentVersion (not the cached one) since the package may have been upgraded.
     if (!forceRefresh) {
       const cached = this.cache.read()
       if (cached !== null) {
-        const updateAvailable = cached.latestVersion !== cached.currentVersion
+        const updateAvailable = cached.latestVersion !== currentVersion
         return {
-          currentVersion: cached.currentVersion,
+          currentVersion,
           latestVersion: cached.latestVersion,
           updateAvailable,
-          isBreaking: this.updateChecker.isBreaking(cached.currentVersion, cached.latestVersion),
+          isBreaking: this.updateChecker.isBreaking(currentVersion, cached.latestVersion),
           changelog: this.updateChecker.getChangelog(cached.latestVersion),
         }
       }

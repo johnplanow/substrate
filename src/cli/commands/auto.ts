@@ -21,7 +21,7 @@ import type { Command } from 'commander'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'path'
-import { mkdirSync, existsSync, cpSync, chmodSync, readdirSync, unlinkSync } from 'fs'
+import { mkdirSync, existsSync, cpSync, chmodSync, readdirSync, unlinkSync, readFileSync, writeFileSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { createRequire } from 'node:module'
@@ -776,11 +776,81 @@ function clearBmadCommandFiles(commandsDir: string): void {
 }
 
 /**
+ * Compile .agent.yaml files to .md format using bmad-method's agent compiler.
+ * The command generators only recognize compiled .md files with <agent> XML tags.
+ * Scans _bmad/core/agents/ and _bmad/{module}/agents/ for uncompiled YAML files.
+ *
+ * @returns number of agents compiled
+ */
+async function compileBmadAgents(bmadDir: string): Promise<number> {
+  const _require = createRequire(join(__dirname, 'synthetic.js'))
+
+  // Resolve compiler path from bmad-method package
+  let compilerPath: string
+  try {
+    const pkgJsonPath = _require.resolve('bmad-method/package.json')
+    compilerPath = join(dirname(pkgJsonPath), 'tools', 'cli', 'lib', 'agent', 'compiler.js')
+  } catch {
+    return 0
+  }
+
+  const { compileAgent } = _require(compilerPath) as {
+    compileAgent: (yaml: string, answers?: Record<string, unknown>, name?: string, path?: string) => Promise<{ xml: string }>
+  }
+
+  // Collect all agent dirs: core/agents/ + each module's agents/
+  const agentDirs: string[] = []
+  const coreAgentsDir = join(bmadDir, 'core', 'agents')
+  if (existsSync(coreAgentsDir)) agentDirs.push(coreAgentsDir)
+
+  try {
+    const entries = readdirSync(bmadDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name === 'core' || entry.name.startsWith('.') || entry.name.startsWith('_')) continue
+      const modAgentsDir = join(bmadDir, entry.name, 'agents')
+      if (existsSync(modAgentsDir)) agentDirs.push(modAgentsDir)
+    }
+  } catch {
+    // ignore
+  }
+
+  let compiled = 0
+  for (const agentDir of agentDirs) {
+    try {
+      const files = readdirSync(agentDir)
+      for (const file of files) {
+        if (!file.endsWith('.agent.yaml')) continue
+        const yamlPath = join(agentDir, file)
+        const mdPath = join(agentDir, file.replace('.agent.yaml', '.md'))
+
+        // Skip if already compiled
+        if (existsSync(mdPath)) continue
+
+        try {
+          const yamlContent = readFileSync(yamlPath, 'utf-8')
+          const agentName = file.replace('.agent.yaml', '')
+          const result = await compileAgent(yamlContent, {}, agentName, mdPath)
+          writeFileSync(mdPath, result.xml, 'utf-8')
+          compiled++
+        } catch (compileErr) {
+          logger.debug({ err: compileErr, file }, 'Failed to compile agent YAML')
+        }
+      }
+    } catch {
+      // ignore dir read errors
+    }
+  }
+
+  return compiled
+}
+
+/**
  * Generate .claude/commands/ files by calling bmad-method's command generators.
  *
  * Uses the installed bmad-method package's AgentCommandGenerator,
  * WorkflowCommandGenerator, and TaskToolCommandGenerator classes via createRequire.
- * Generates CSV manifests first so workflow/task generators can discover content.
+ * Compiles agent YAML to MD first, then generates CSV manifests so workflow/task
+ * generators can discover content.
  *
  * Graceful degradation: warns but never fails init.
  */
@@ -805,6 +875,17 @@ export async function scaffoldClaudeCommands(
 
   try {
     const _require = createRequire(join(__dirname, 'synthetic.js'))
+
+    // Compile .agent.yaml files to .md so the command generators can discover them.
+    // The generators only recognize compiled .md files containing <agent> XML tags.
+    try {
+      const compiledCount = await compileBmadAgents(bmadDir)
+      if (compiledCount > 0) {
+        logger.info({ compiledCount }, 'Compiled agent YAML files to MD')
+      }
+    } catch (compileErr) {
+      logger.warn({ err: compileErr }, 'Agent compilation failed; agent commands may be incomplete')
+    }
 
     // Load bmad-method CJS generators
     const { AgentCommandGenerator } = _require(
