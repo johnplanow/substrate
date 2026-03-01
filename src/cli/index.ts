@@ -34,6 +34,16 @@ import { registerUpgradeCommand } from './commands/upgrade.js'
 // can exceed the default limit of 10.
 process.setMaxListeners(30)
 
+// Handle EPIPE gracefully when piped to `head`, `grep -m`, `tail`, etc.
+// When the downstream reader closes the pipe, exit cleanly instead of stalling
+// with unhandled errors that leave the process alive but brain-dead.
+process.stdout.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EPIPE') process.exit(0)
+})
+process.stderr.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EPIPE') process.exit(0)
+})
+
 const logger = createLogger('cli')
 
 /** Resolve the package.json path relative to this file */
