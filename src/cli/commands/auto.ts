@@ -3354,7 +3354,8 @@ function defaultSupervisorDeps(): SupervisorDeps {
         const baselineStories = baseline && baseline.run_id !== runId
           ? getStoryMetricsForRun(db, baseline.run_id)
           : []
-        const { generateAnalysisReport, writeAnalysisReport } = await import('../../modules/supervisor/analysis.js')
+        const analysisPath = '../../modules/supervisor/analysis.js'
+        const { generateAnalysisReport, writeAnalysisReport } = await import(/* @vite-ignore */ analysisPath)
         const report = generateAnalysisReport(run, stories, baseline, baselineStories)
         writeAnalysisReport(report, projectRoot)
       } catch {
