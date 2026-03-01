@@ -20,7 +20,14 @@ import {
   getDecisionsByPhaseForRun,
   registerArtifact,
 } from '../../../persistence/queries/decisions.js'
-import { PlanningOutputSchema } from './schemas.js'
+import { runSteps } from '../step-runner.js'
+import type { StepDefinition } from '../step-runner.js'
+import {
+  PlanningOutputSchema,
+  PlanningClassificationOutputSchema,
+  PlanningFRsOutputSchema,
+  PlanningNFRsOutputSchema,
+} from './schemas.js'
 import type {
   FunctionalRequirement,
   NonFunctionalRequirement,
@@ -102,15 +109,193 @@ function formatProductBriefFromDecisions(
 }
 
 // ---------------------------------------------------------------------------
+// Multi-step planning definitions
+// ---------------------------------------------------------------------------
+
+/**
+ * Build step definitions for 3-step planning decomposition.
+ */
+function buildPlanningSteps(): StepDefinition[] {
+  return [
+    {
+      name: 'planning-step-1-classification',
+      taskType: 'planning-classification',
+      outputSchema: PlanningClassificationOutputSchema,
+      context: [
+        { placeholder: 'product_brief', source: 'decision:analysis.product-brief' },
+      ],
+      persist: [
+        { field: 'project_type', category: 'classification', key: 'project_type' },
+        { field: 'vision', category: 'classification', key: 'vision' },
+        { field: 'key_goals', category: 'classification', key: 'key_goals' },
+      ],
+    },
+    {
+      name: 'planning-step-2-frs',
+      taskType: 'planning-frs',
+      outputSchema: PlanningFRsOutputSchema,
+      context: [
+        { placeholder: 'product_brief', source: 'decision:analysis.product-brief' },
+        { placeholder: 'classification', source: 'step:planning-step-1-classification' },
+      ],
+      persist: [
+        { field: 'functional_requirements', category: 'functional-requirements', key: 'array' },
+        { field: 'user_stories', category: 'user-stories', key: 'array' },
+      ],
+    },
+    {
+      name: 'planning-step-3-nfrs',
+      taskType: 'planning-nfrs',
+      outputSchema: PlanningNFRsOutputSchema,
+      context: [
+        { placeholder: 'product_brief', source: 'decision:analysis.product-brief' },
+        { placeholder: 'classification', source: 'step:planning-step-1-classification' },
+        { placeholder: 'functional_requirements', source: 'step:planning-step-2-frs' },
+      ],
+      persist: [
+        { field: 'non_functional_requirements', category: 'non-functional-requirements', key: 'array' },
+        { field: 'tech_stack', category: 'tech-stack', key: 'tech_stack' },
+        { field: 'domain_model', category: 'domain-model', key: 'entities' },
+        { field: 'out_of_scope', category: 'out-of-scope', key: 'items' },
+      ],
+      registerArtifact: {
+        type: 'prd',
+        path: 'decision-store://planning/prd',
+        summarize: (parsed) => {
+          const nfrs = parsed.non_functional_requirements as unknown[] | undefined
+          return `Planning complete: ${nfrs?.length ?? 0} NFRs, tech stack defined`
+        },
+      },
+    },
+  ]
+}
+
+/**
+ * Run planning phase using multi-step decomposition (3 steps).
+ */
+async function runPlanningMultiStep(
+  deps: PhaseDeps,
+  params: PlanningPhaseParams,
+): Promise<PlanningResult> {
+  const { db, runId } = { db: deps.db, runId: params.runId }
+  const zeroTokenUsage = { input: 0, output: 0 }
+
+  try {
+    // Verify product brief exists
+    const allAnalysisDecisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+    const productBriefDecisions = allAnalysisDecisions.filter((d) => d.category === 'product-brief')
+    if (productBriefDecisions.length === 0) {
+      return {
+        result: 'failed',
+        error: 'missing_product_brief',
+        details: 'No product brief decisions found in the analysis phase.',
+        tokenUsage: zeroTokenUsage,
+      }
+    }
+
+    const steps = buildPlanningSteps()
+    const result = await runSteps(steps, deps, params.runId, 'planning', {})
+
+    if (!result.success) {
+      return {
+        result: 'failed',
+        error: result.error ?? 'multi_step_failed',
+        details: result.error ?? 'Multi-step planning failed',
+        tokenUsage: result.tokenUsage,
+      }
+    }
+
+    // Extract outputs from steps
+    const frsOutput = result.steps[1]?.parsed
+    const nfrsOutput = result.steps[2]?.parsed
+
+    if (!frsOutput || !nfrsOutput) {
+      return {
+        result: 'failed',
+        error: 'incomplete_steps',
+        details: 'Not all planning steps produced output',
+        tokenUsage: result.tokenUsage,
+      }
+    }
+
+    const frs = frsOutput.functional_requirements as FunctionalRequirement[] | undefined
+    const nfrs = nfrsOutput.non_functional_requirements as NonFunctionalRequirement[] | undefined
+    const userStories = frsOutput.user_stories as
+      | Array<{ title: string; description: string }>
+      | undefined
+
+    if (!frs?.length) {
+      return {
+        result: 'failed',
+        error: 'missing_functional_requirements',
+        details: 'FRs step did not return functional_requirements',
+        tokenUsage: result.tokenUsage,
+      }
+    }
+
+    if (!nfrs?.length) {
+      return {
+        result: 'failed',
+        error: 'missing_non_functional_requirements',
+        details: 'NFRs step did not return non_functional_requirements',
+        tokenUsage: result.tokenUsage,
+      }
+    }
+
+    // Create Requirement records for FRs
+    for (const fr of frs) {
+      createRequirement(db, {
+        pipeline_run_id: params.runId,
+        source: 'planning-phase',
+        type: 'functional',
+        description: fr.description,
+        priority: fr.priority,
+      })
+    }
+
+    // Create Requirement records for NFRs
+    for (const nfr of nfrs) {
+      createRequirement(db, {
+        pipeline_run_id: params.runId,
+        source: 'planning-phase',
+        type: 'non_functional',
+        description: nfr.description,
+        priority: 'should',
+      })
+    }
+
+    const requirementsCount = frs.length + nfrs.length
+    const userStoriesCount = userStories?.length ?? 0
+    const planningResult: PlanningResult = {
+      result: 'success',
+      requirements_count: requirementsCount,
+      user_stories_count: userStoriesCount,
+      tokenUsage: result.tokenUsage,
+    }
+    const artifactId = result.steps[2]?.artifactId
+    if (artifactId !== undefined) {
+      planningResult.artifact_id = artifactId
+    }
+    return planningResult
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return {
+      result: 'failed',
+      error: message,
+      tokenUsage: zeroTokenUsage,
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // runPlanningPhase
 // ---------------------------------------------------------------------------
 
 /**
  * Execute the planning phase of the BMAD pipeline.
  *
- * Retrieves the compiled planning prompt, injects the product brief from the
- * analysis phase decision store, dispatches to a claude-code agent, validates
- * the output, creates requirement records, and persists planning decisions.
+ * If the manifest defines steps for the planning phase, uses multi-step
+ * decomposition. Otherwise falls back to the single-dispatch code path.
  *
  * @param deps - Shared phase dependencies (db, pack, contextCompiler, dispatcher)
  * @param params - Phase parameters (runId)
@@ -122,6 +307,12 @@ export async function runPlanningPhase(
 ): Promise<PlanningResult> {
   const { db, pack, dispatcher } = deps
   const { runId, amendmentContext } = params
+
+  // Check if manifest defines steps for the planning phase → use multi-step path
+  const planningPhase = pack.manifest.phases?.find((p) => p.name === 'planning')
+  if (planningPhase?.steps && planningPhase.steps.length > 0 && !amendmentContext) {
+    return runPlanningMultiStep(deps, params)
+  }
 
   // Zero token usage as default for error paths
   const zeroTokenUsage = { input: 0, output: 0 }

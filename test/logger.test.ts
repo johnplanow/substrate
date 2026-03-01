@@ -22,9 +22,18 @@ describe('Logger Utility', () => {
     })
 
     it('should create a logger with debug level by default in test env', () => {
-      const log = createLogger('test-debug')
-      // In test (non-production) environment, default is debug
-      expect(['debug', 'trace', 'info']).toContain(log.level)
+      // Temporarily unset LOG_LEVEL to test the default behavior (env may set it)
+      const originalLogLevel = process.env.LOG_LEVEL
+      try {
+        delete process.env.LOG_LEVEL
+        const log = createLogger('test-debug', { pretty: false })
+        // In test (non-production) environment, default is debug
+        expect(['debug', 'trace', 'info']).toContain(log.level)
+      } finally {
+        if (originalLogLevel !== undefined) {
+          process.env.LOG_LEVEL = originalLogLevel
+        }
+      }
     })
 
     it('should create loggers with different names', () => {

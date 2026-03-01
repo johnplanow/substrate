@@ -37,6 +37,35 @@ export const AnalysisOutputSchema = z.object({
 export type AnalysisOutputSchemaType = z.infer<typeof AnalysisOutputSchema>
 
 // ---------------------------------------------------------------------------
+// Analysis step-level schemas (multi-step decomposition)
+// ---------------------------------------------------------------------------
+
+/**
+ * Step 1 output: Vision & problem analysis.
+ * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ */
+export const AnalysisVisionOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  problem_statement: z.string().min(10).optional(),
+  target_users: z.array(z.string().min(1)).min(1).optional(),
+})
+
+export type AnalysisVisionOutputSchemaType = z.infer<typeof AnalysisVisionOutputSchema>
+
+/**
+ * Step 2 output: Scope & features (builds on vision output).
+ * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ */
+export const AnalysisScopeOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  core_features: z.array(z.string().min(1)).min(1).optional(),
+  success_metrics: z.array(z.string().min(1)).min(1).optional(),
+  constraints: z.array(z.string()).default([]),
+})
+
+export type AnalysisScopeOutputSchemaType = z.infer<typeof AnalysisScopeOutputSchema>
+
+// ---------------------------------------------------------------------------
 // Planning phase schemas
 // ---------------------------------------------------------------------------
 
@@ -85,6 +114,49 @@ export const PlanningOutputSchema = z.object({
 })
 
 export type PlanningOutputSchemaType = z.infer<typeof PlanningOutputSchema>
+
+// ---------------------------------------------------------------------------
+// Planning step-level schemas (multi-step decomposition)
+// ---------------------------------------------------------------------------
+
+/**
+ * Step 1 output: Project classification & vision.
+ * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ */
+export const PlanningClassificationOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  project_type: z.string().min(1).optional(),
+  vision: z.string().min(10).optional(),
+  key_goals: z.array(z.string().min(1)).min(1).optional(),
+})
+
+export type PlanningClassificationOutputSchemaType = z.infer<typeof PlanningClassificationOutputSchema>
+
+/**
+ * Step 2 output: Functional requirements & user stories.
+ * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ */
+export const PlanningFRsOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  functional_requirements: z.array(FunctionalRequirementSchema).min(3).optional(),
+  user_stories: z.array(UserStorySchema).min(1).optional(),
+})
+
+export type PlanningFRsOutputSchemaType = z.infer<typeof PlanningFRsOutputSchema>
+
+/**
+ * Step 3 output: NFRs, tech stack, domain model, out-of-scope.
+ * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ */
+export const PlanningNFRsOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  non_functional_requirements: z.array(NonFunctionalRequirementSchema).min(2).optional(),
+  tech_stack: z.record(z.string(), z.string()).optional(),
+  domain_model: z.record(z.string(), z.unknown()).optional(),
+  out_of_scope: z.array(z.string()).default([]),
+})
+
+export type PlanningNFRsOutputSchemaType = z.infer<typeof PlanningNFRsOutputSchema>
 
 // ---------------------------------------------------------------------------
 // Solutioning phase schemas
@@ -145,3 +217,35 @@ export const StoryGenerationOutputSchema = z.object({
 })
 
 export type StoryGenerationOutputSchemaType = z.infer<typeof StoryGenerationOutputSchema>
+
+// ---------------------------------------------------------------------------
+// Solutioning step-level schemas (multi-step decomposition)
+// ---------------------------------------------------------------------------
+
+/**
+ * Architecture Step 1 output: Context analysis — initial architecture decisions.
+ * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ */
+export const ArchContextOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  architecture_decisions: z.array(ArchitectureDecisionSchema).min(1).optional(),
+})
+
+export type ArchContextOutputSchemaType = z.infer<typeof ArchContextOutputSchema>
+
+/**
+ * Epic Design Step output: Epic structure with FR coverage mapping.
+ * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ */
+export const EpicDesignOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  epics: z.array(
+    z.object({
+      title: z.string().min(3),
+      description: z.string().min(5),
+      fr_coverage: z.array(z.string()).default([]),
+    }),
+  ).min(1).optional(),
+})
+
+export type EpicDesignOutputSchemaType = z.infer<typeof EpicDesignOutputSchema>

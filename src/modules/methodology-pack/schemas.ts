@@ -5,6 +5,37 @@
 import { z } from 'zod'
 
 // ---------------------------------------------------------------------------
+// Step Context Reference Schema
+// ---------------------------------------------------------------------------
+
+/**
+ * A reference to a context value to inject into a step prompt.
+ * Sources can be params (runtime parameters) or decisions (from the decision store).
+ */
+export const ContextRefSchema = z.object({
+  /** Placeholder name in the template, e.g. "concept" for {{concept}} */
+  placeholder: z.string().min(1),
+  /** Source path: "param:key" for runtime params, "decision:phase.category" for decisions */
+  source: z.string().min(1),
+})
+
+// ---------------------------------------------------------------------------
+// Step Definition Schema
+// ---------------------------------------------------------------------------
+
+/**
+ * A single step within a multi-step phase decomposition.
+ */
+export const StepDefinitionSchema = z.object({
+  /** Unique name for this step within the phase */
+  name: z.string().min(1),
+  /** Prompt template key (must exist in the manifest prompts section) */
+  template: z.string().min(1),
+  /** Context references to inject into the template */
+  context: z.array(ContextRefSchema).default([]),
+})
+
+// ---------------------------------------------------------------------------
 // Phase Definition Schema
 // ---------------------------------------------------------------------------
 
@@ -14,6 +45,8 @@ export const PhaseDefinitionSchema = z.object({
   entryGates: z.array(z.string()),
   exitGates: z.array(z.string()),
   artifacts: z.array(z.string()),
+  /** Optional multi-step decomposition. If present, the phase uses step-by-step execution. */
+  steps: z.array(StepDefinitionSchema).optional(),
 })
 
 // ---------------------------------------------------------------------------

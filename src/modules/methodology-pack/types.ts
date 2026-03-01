@@ -9,6 +9,37 @@
  */
 
 // ---------------------------------------------------------------------------
+// Step Context Reference
+// ---------------------------------------------------------------------------
+
+/**
+ * A reference to a context value to inject into a step prompt.
+ * Sources can be params (runtime parameters) or decisions (from the decision store).
+ */
+export interface ContextRef {
+  /** Placeholder name in the template, e.g. "concept" for {{concept}} */
+  placeholder: string
+  /** Source path: "param:key" for runtime params, "decision:phase.category" for decisions */
+  source: string
+}
+
+// ---------------------------------------------------------------------------
+// Step Definition
+// ---------------------------------------------------------------------------
+
+/**
+ * A single step within a multi-step phase decomposition.
+ */
+export interface StepDefinition {
+  /** Unique name for this step within the phase */
+  name: string
+  /** Prompt template key (must exist in the manifest prompts section) */
+  template: string
+  /** Context references to inject into the template */
+  context: ContextRef[]
+}
+
+// ---------------------------------------------------------------------------
 // Phase Definition
 // ---------------------------------------------------------------------------
 
@@ -21,6 +52,8 @@ export interface PhaseDefinition {
   entryGates: string[]
   exitGates: string[]
   artifacts: string[]
+  /** Optional multi-step decomposition. If present, the phase uses step-by-step execution. */
+  steps?: StepDefinition[]
 }
 
 // ---------------------------------------------------------------------------

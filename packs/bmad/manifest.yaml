@@ -8,16 +8,92 @@ phases:
     entryGates: []
     exitGates: [product-brief-complete]
     artifacts: [product-brief]
+    steps:
+      - name: analysis-step-1-vision
+        template: analysis-step-1-vision
+        context:
+          - placeholder: concept
+            source: "param:concept"
+      - name: analysis-step-2-scope
+        template: analysis-step-2-scope
+        context:
+          - placeholder: concept
+            source: "param:concept"
+          - placeholder: vision_output
+            source: "step:analysis-step-1-vision"
   - name: planning
     description: PRD and requirements generation
     entryGates: [product-brief-complete]
     exitGates: [prd-complete]
     artifacts: [prd]
+    steps:
+      - name: planning-step-1-classification
+        template: planning-step-1-classification
+        context:
+          - placeholder: product_brief
+            source: "decision:analysis.product-brief"
+      - name: planning-step-2-frs
+        template: planning-step-2-frs
+        context:
+          - placeholder: product_brief
+            source: "decision:analysis.product-brief"
+          - placeholder: classification
+            source: "step:planning-step-1-classification"
+      - name: planning-step-3-nfrs
+        template: planning-step-3-nfrs
+        context:
+          - placeholder: product_brief
+            source: "decision:analysis.product-brief"
+          - placeholder: classification
+            source: "step:planning-step-1-classification"
+          - placeholder: functional_requirements
+            source: "step:planning-step-2-frs"
   - name: solutioning
     description: Architecture and epic/story breakdown
     entryGates: [prd-complete]
     exitGates: [architecture-complete, stories-complete, readiness-check]
     artifacts: [architecture, epics, stories]
+    steps:
+      - name: architecture-step-1-context
+        template: architecture-step-1-context
+        context:
+          - placeholder: requirements
+            source: "decision:planning.functional-requirements"
+          - placeholder: nfr
+            source: "decision:planning.non-functional-requirements"
+        outputCategory: architecture
+      - name: architecture-step-2-decisions
+        template: architecture-step-2-decisions
+        context:
+          - placeholder: requirements
+            source: "decision:planning.functional-requirements"
+          - placeholder: starter_decisions
+            source: "step:architecture-step-1-context"
+        outputCategory: architecture
+      - name: architecture-step-3-patterns
+        template: architecture-step-3-patterns
+        context:
+          - placeholder: architecture_decisions
+            source: "decision:solutioning.architecture"
+        outputCategory: architecture
+      - name: stories-step-1-epics
+        template: stories-step-1-epics
+        context:
+          - placeholder: requirements
+            source: "decision:planning.functional-requirements"
+          - placeholder: architecture_decisions
+            source: "decision:solutioning.architecture"
+        outputCategory: epic-design
+      - name: stories-step-2-stories
+        template: stories-step-2-stories
+        context:
+          - placeholder: epic_structure
+            source: "step:stories-step-1-epics"
+          - placeholder: requirements
+            source: "decision:planning.functional-requirements"
+          - placeholder: architecture_decisions
+            source: "decision:solutioning.architecture"
+        outputCategory: stories
   - name: implementation
     description: Code generation, testing, and review
     entryGates: [stories-complete]
@@ -33,6 +109,17 @@ prompts:
   dev-story: prompts/dev-story.md
   code-review: prompts/code-review.md
   fix-story: prompts/fix-story.md
+  # Multi-step phase decomposition prompts
+  analysis-step-1-vision: prompts/analysis-step-1-vision.md
+  analysis-step-2-scope: prompts/analysis-step-2-scope.md
+  planning-step-1-classification: prompts/planning-step-1-classification.md
+  planning-step-2-frs: prompts/planning-step-2-frs.md
+  planning-step-3-nfrs: prompts/planning-step-3-nfrs.md
+  architecture-step-1-context: prompts/architecture-step-1-context.md
+  architecture-step-2-decisions: prompts/architecture-step-2-decisions.md
+  architecture-step-3-patterns: prompts/architecture-step-3-patterns.md
+  stories-step-1-epics: prompts/stories-step-1-epics.md
+  stories-step-2-stories: prompts/stories-step-2-stories.md
 
 constraints:
   create-story: constraints/create-story.yaml

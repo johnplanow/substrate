@@ -13,7 +13,9 @@
  */
 
 import { createDecision, registerArtifact } from '../../../persistence/queries/decisions.js'
-import { AnalysisOutputSchema } from './schemas.js'
+import { runSteps } from '../step-runner.js'
+import type { StepDefinition } from '../step-runner.js'
+import { AnalysisOutputSchema, AnalysisVisionOutputSchema, AnalysisScopeOutputSchema } from './schemas.js'
 import type { AnalysisPhaseParams, AnalysisResult, PhaseDeps, ProductBrief } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -49,15 +51,132 @@ const BRIEF_FIELDS = [
 ] as const
 
 // ---------------------------------------------------------------------------
+// Multi-step analysis definitions
+// ---------------------------------------------------------------------------
+
+/**
+ * Build step definitions for 2-step analysis decomposition.
+ */
+function buildAnalysisSteps(): StepDefinition[] {
+  return [
+    {
+      name: 'analysis-step-1-vision',
+      taskType: 'analysis-vision',
+      outputSchema: AnalysisVisionOutputSchema,
+      context: [
+        { placeholder: 'concept', source: 'param:concept' },
+      ],
+      persist: [
+        { field: 'problem_statement', category: 'product-brief', key: 'problem_statement' },
+        { field: 'target_users', category: 'product-brief', key: 'target_users' },
+      ],
+    },
+    {
+      name: 'analysis-step-2-scope',
+      taskType: 'analysis-scope',
+      outputSchema: AnalysisScopeOutputSchema,
+      context: [
+        { placeholder: 'concept', source: 'param:concept' },
+        { placeholder: 'vision_output', source: 'step:analysis-step-1-vision' },
+      ],
+      persist: [
+        { field: 'core_features', category: 'product-brief', key: 'core_features' },
+        { field: 'success_metrics', category: 'product-brief', key: 'success_metrics' },
+        { field: 'constraints', category: 'product-brief', key: 'constraints' },
+      ],
+      registerArtifact: {
+        type: 'product-brief',
+        path: 'decision-store://analysis/product-brief',
+        summarize: (parsed) => {
+          const features = parsed.core_features as string[] | undefined
+          return features ? `${features.length} core features defined` : 'Product brief complete'
+        },
+      },
+    },
+  ]
+}
+
+/**
+ * Run analysis phase using multi-step decomposition (2 steps).
+ */
+async function runAnalysisMultiStep(
+  deps: PhaseDeps,
+  params: AnalysisPhaseParams,
+): Promise<AnalysisResult> {
+  const zeroTokenUsage = { input: 0, output: 0 }
+
+  try {
+    // Truncate concept if needed
+    let effectiveConcept = params.concept
+    if (params.concept.length > MAX_CONCEPT_CHARS) {
+      effectiveConcept = params.concept.slice(0, MAX_CONCEPT_CHARS) + '...'
+    }
+
+    const steps = buildAnalysisSteps()
+    const result = await runSteps(steps, deps, params.runId, 'analysis', {
+      concept: effectiveConcept,
+    })
+
+    if (!result.success) {
+      return {
+        result: 'failed',
+        error: result.error ?? 'multi_step_failed',
+        details: result.error ?? 'Multi-step analysis failed',
+        tokenUsage: result.tokenUsage,
+      }
+    }
+
+    // Reconstruct ProductBrief from step outputs
+    const visionOutput = result.steps[0]?.parsed
+    const scopeOutput = result.steps[1]?.parsed
+
+    if (!visionOutput || !scopeOutput) {
+      return {
+        result: 'failed',
+        error: 'incomplete_steps',
+        details: 'Not all analysis steps produced output',
+        tokenUsage: result.tokenUsage,
+      }
+    }
+
+    const brief: ProductBrief = {
+      problem_statement: visionOutput.problem_statement as string,
+      target_users: visionOutput.target_users as string[],
+      core_features: scopeOutput.core_features as string[],
+      success_metrics: scopeOutput.success_metrics as string[],
+      constraints: (scopeOutput.constraints as string[]) ?? [],
+    }
+
+    // The step runner already persisted individual fields and registered artifact
+    const analysisResult: AnalysisResult = {
+      result: 'success',
+      product_brief: brief,
+      tokenUsage: result.tokenUsage,
+    }
+    const artifactId = result.steps[1]?.artifactId
+    if (artifactId !== undefined) {
+      analysisResult.artifact_id = artifactId
+    }
+    return analysisResult
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return {
+      result: 'failed',
+      error: message,
+      tokenUsage: zeroTokenUsage,
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // runAnalysisPhase
 // ---------------------------------------------------------------------------
 
 /**
  * Execute the analysis phase of the BMAD pipeline.
  *
- * Retrieves the compiled analysis prompt, injects the user concept,
- * dispatches to a claude-code agent, validates the output, and persists
- * the product brief to the decision store.
+ * If the manifest defines steps for the analysis phase, uses multi-step
+ * decomposition. Otherwise falls back to the single-dispatch code path.
  *
  * @param deps - Shared phase dependencies (db, pack, contextCompiler, dispatcher)
  * @param params - Phase parameters (runId, concept)
@@ -69,6 +188,12 @@ export async function runAnalysisPhase(
 ): Promise<AnalysisResult> {
   const { db, pack, dispatcher } = deps
   const { runId, concept, amendmentContext } = params
+
+  // Check if manifest defines steps for the analysis phase → use multi-step path
+  const analysisPhase = pack.manifest.phases?.find((p) => p.name === 'analysis')
+  if (analysisPhase?.steps && analysisPhase.steps.length > 0 && !amendmentContext) {
+    return runAnalysisMultiStep(deps, params)
+  }
 
   // Zero token usage as default for error paths
   const zeroTokenUsage = { input: 0, output: 0 }

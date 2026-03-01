@@ -36,7 +36,17 @@ import {
   registerArtifact,
 } from '../../../persistence/queries/decisions.js'
 import { createQualityGate } from '../../quality-gates/gate-impl.js'
-import { ArchitectureOutputSchema, StoryGenerationOutputSchema } from './schemas.js'
+import { createLogger } from '../../../utils/logger.js'
+import { calculateDynamicBudget, summarizeDecisions } from '../budget-utils.js'
+import { runSteps } from '../step-runner.js'
+
+import type { StepDefinition } from '../step-runner.js'
+import {
+  ArchitectureOutputSchema,
+  StoryGenerationOutputSchema,
+  ArchContextOutputSchema,
+  EpicDesignOutputSchema,
+} from './schemas.js'
 import type {
   ArchitectureDecision,
   EpicDefinition,
@@ -45,6 +55,8 @@ import type {
   SolutioningResult,
   StoryDefinition,
 } from './types.js'
+
+const logger = createLogger('solutioning')
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -55,12 +67,6 @@ const BASE_ARCH_PROMPT_TOKENS = 3_000
 
 /** Base token budget for story generation (covers template + requirements + architecture) */
 const BASE_STORY_PROMPT_TOKENS = 4_000
-
-/** Additional tokens per architecture decision injected into story generation prompt */
-const TOKENS_PER_DECISION = 100
-
-/** Absolute maximum prompt tokens (model context safety margin) */
-const ABSOLUTE_MAX_PROMPT_TOKENS = 12_000
 
 /** Placeholder in architecture prompt template */
 const REQUIREMENTS_PLACEHOLDER = '{{requirements}}'
@@ -81,68 +87,9 @@ const STORY_ARCHITECTURE_PLACEHOLDER = '{{architecture_decisions}}'
 /** Gap analysis placeholder used in retry prompt */
 const GAP_ANALYSIS_PLACEHOLDER = '{{gap_analysis}}'
 
-/** Priority order for decision categories when summarizing (higher priority kept first) */
-const DECISION_CATEGORY_PRIORITY = ['data', 'auth', 'api', 'frontend', 'infra', 'observability', 'ci']
-
-// ---------------------------------------------------------------------------
-// Dynamic budget calculation
-// ---------------------------------------------------------------------------
-
-/**
- * Calculate the dynamic prompt token budget based on the number of decisions
- * that will be injected into the prompt.
- *
- * @param baseBudget - Base token budget for the phase
- * @param decisionCount - Number of decisions to inject
- * @returns Calculated token budget, capped at ABSOLUTE_MAX_PROMPT_TOKENS
- */
-export function calculateDynamicBudget(baseBudget: number, decisionCount: number): number {
-  const budget = baseBudget + decisionCount * TOKENS_PER_DECISION
-  return Math.min(budget, ABSOLUTE_MAX_PROMPT_TOKENS)
-}
-
-// ---------------------------------------------------------------------------
-// Decision summarization
-// ---------------------------------------------------------------------------
-
-/**
- * Summarize architecture decisions into compact key:value one-liners,
- * dropping rationale and optionally dropping lower-priority categories
- * to fit within a character budget.
- *
- * @param decisions - Full architecture decisions from the decision store
- * @param maxChars - Maximum character budget for the summarized output
- * @returns Compact summary string
- */
-export function summarizeDecisions(
-  decisions: Array<{ key: string; value: string; category?: string }>,
-  maxChars: number,
-): string {
-  // Sort by priority: known categories first, then alphabetical
-  const sorted = [...decisions].sort((a, b) => {
-    const aCat = (a.category ?? '').toLowerCase()
-    const bCat = (b.category ?? '').toLowerCase()
-    const aIdx = DECISION_CATEGORY_PRIORITY.indexOf(aCat)
-    const bIdx = DECISION_CATEGORY_PRIORITY.indexOf(bCat)
-    const aPri = aIdx === -1 ? DECISION_CATEGORY_PRIORITY.length : aIdx
-    const bPri = bIdx === -1 ? DECISION_CATEGORY_PRIORITY.length : bIdx
-    return aPri - bPri
-  })
-
-  const lines: string[] = ['## Architecture Decisions (Summarized)']
-  let currentLength = lines[0].length
-
-  for (const d of sorted) {
-    // Compact format: truncate long values
-    const truncatedValue = d.value.length > 120 ? d.value.slice(0, 117) + '...' : d.value
-    const line = `- ${d.key}: ${truncatedValue}`
-    if (currentLength + line.length + 1 > maxChars) break
-    lines.push(line)
-    currentLength += line.length + 1
-  }
-
-  return lines.join('\n')
-}
+// Re-export shared utilities for backward compatibility with existing importers
+// (e.g., solutioning.test.ts).
+export { calculateDynamicBudget, summarizeDecisions } from '../budget-utils.js'
 
 // ---------------------------------------------------------------------------
 // formatRequirements
@@ -682,6 +629,232 @@ async function runReadinessCheck(
 }
 
 // ---------------------------------------------------------------------------
+// Multi-step architecture generation
+// ---------------------------------------------------------------------------
+
+/**
+ * Build step definitions for 3-step architecture decomposition.
+ */
+function buildArchitectureSteps(): StepDefinition[] {
+  return [
+    {
+      name: 'architecture-step-1-context',
+      taskType: 'arch-context',
+      outputSchema: ArchContextOutputSchema,
+      context: [
+        { placeholder: 'requirements', source: 'decision:planning.functional-requirements' },
+        { placeholder: 'nfr', source: 'decision:planning.non-functional-requirements' },
+      ],
+      persist: [
+        { field: 'architecture_decisions', category: 'architecture', key: 'array' },
+      ],
+    },
+    {
+      name: 'architecture-step-2-decisions',
+      taskType: 'arch-decisions',
+      outputSchema: ArchContextOutputSchema,
+      context: [
+        { placeholder: 'requirements', source: 'decision:planning.functional-requirements' },
+        { placeholder: 'starter_decisions', source: 'step:architecture-step-1-context' },
+      ],
+      persist: [
+        { field: 'architecture_decisions', category: 'architecture', key: 'array' },
+      ],
+    },
+    {
+      name: 'architecture-step-3-patterns',
+      taskType: 'arch-patterns',
+      outputSchema: ArchContextOutputSchema,
+      context: [
+        { placeholder: 'architecture_decisions', source: 'decision:solutioning.architecture' },
+      ],
+      persist: [
+        { field: 'architecture_decisions', category: 'architecture', key: 'array' },
+      ],
+      registerArtifact: {
+        type: 'architecture',
+        path: 'decision-store://solutioning/architecture',
+        summarize: (parsed) => {
+          const decisions = parsed.architecture_decisions as unknown[] | undefined
+          return `${decisions?.length ?? 0} pattern decisions (multi-step)`
+        },
+      },
+    },
+  ]
+}
+
+/**
+ * Run architecture generation using multi-step decomposition (3 steps).
+ */
+async function runArchitectureGenerationMultiStep(
+  deps: PhaseDeps,
+  params: SolutioningPhaseParams,
+): Promise<ArchitectureGenerationSuccess | ArchitectureGenerationFailure> {
+  const steps = buildArchitectureSteps()
+  const result = await runSteps(steps, deps, params.runId, 'solutioning', {})
+
+  if (!result.success) {
+    return {
+      error: result.error ?? 'multi_step_arch_failed',
+      tokenUsage: result.tokenUsage,
+    }
+  }
+
+  // Collect all architecture decisions from the decision store (accumulated across steps)
+  const allDecisions = getDecisionsByPhaseForRun(deps.db, params.runId, 'solutioning')
+    .filter((d) => d.category === 'architecture')
+
+  const decisions: ArchitectureDecision[] = allDecisions.map((d) => {
+    // Each decision was persisted as JSON; try to parse for structured fields
+    try {
+      const parsed = JSON.parse(d.value) as Partial<ArchitectureDecision>
+      return {
+        category: parsed.category ?? d.category,
+        key: parsed.key ?? d.key,
+        value: parsed.value ?? d.value,
+        rationale: parsed.rationale ?? d.rationale ?? '',
+      }
+    } catch {
+      return {
+        category: d.category,
+        key: d.key,
+        value: d.value,
+        rationale: d.rationale ?? '',
+      }
+    }
+  })
+
+  const artifactId = result.steps[result.steps.length - 1]?.artifactId ?? ''
+
+  return {
+    decisions,
+    artifactId,
+    tokenUsage: result.tokenUsage,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Multi-step story generation
+// ---------------------------------------------------------------------------
+
+/**
+ * Build step definitions for 2-step story decomposition.
+ */
+function buildStorySteps(): StepDefinition[] {
+  return [
+    {
+      name: 'stories-step-1-epics',
+      taskType: 'story-epics',
+      outputSchema: EpicDesignOutputSchema,
+      context: [
+        { placeholder: 'requirements', source: 'decision:planning.functional-requirements' },
+        { placeholder: 'architecture_decisions', source: 'decision:solutioning.architecture' },
+      ],
+      persist: [
+        { field: 'epics', category: 'epic-design', key: 'array' },
+      ],
+    },
+    {
+      name: 'stories-step-2-stories',
+      taskType: 'story-stories',
+      outputSchema: StoryGenerationOutputSchema,
+      context: [
+        { placeholder: 'epic_structure', source: 'step:stories-step-1-epics' },
+        { placeholder: 'requirements', source: 'decision:planning.functional-requirements' },
+        { placeholder: 'architecture_decisions', source: 'decision:solutioning.architecture' },
+      ],
+      persist: [], // Story persistence handled inline below (matches existing pattern)
+      registerArtifact: {
+        type: 'stories',
+        path: 'decision-store://solutioning/stories',
+        summarize: (parsed) => {
+          const epics = parsed.epics as EpicDefinition[] | undefined
+          const totalStories = epics?.reduce((sum, e) => sum + (e.stories?.length ?? 0), 0) ?? 0
+          return `${epics?.length ?? 0} epics, ${totalStories} stories (multi-step)`
+        },
+      },
+    },
+  ]
+}
+
+/**
+ * Run story generation using multi-step decomposition (2 steps).
+ */
+async function runStoryGenerationMultiStep(
+  deps: PhaseDeps,
+  params: SolutioningPhaseParams,
+): Promise<StoryGenerationSuccess | StoryGenerationFailure> {
+  const steps = buildStorySteps()
+  const result = await runSteps(steps, deps, params.runId, 'solutioning', {})
+
+  if (!result.success) {
+    return {
+      error: result.error ?? 'multi_step_story_failed',
+      tokenUsage: result.tokenUsage,
+    }
+  }
+
+  const storyStep = result.steps.find((s) => s.name === 'stories-step-2-stories')
+  const storyOutput = storyStep?.parsed
+  if (!storyOutput || !storyOutput.epics) {
+    return {
+      error: 'Story generation step produced no epics',
+      tokenUsage: result.tokenUsage,
+    }
+  }
+
+  const epics = storyOutput.epics as EpicDefinition[]
+
+  // Persist epics and stories (same logic as single-dispatch path)
+  for (const [epicIndex, epic] of epics.entries()) {
+    upsertDecision(deps.db, {
+      pipeline_run_id: params.runId,
+      phase: 'solutioning',
+      category: 'epics',
+      key: `epic-${epicIndex + 1}`,
+      value: JSON.stringify({ title: epic.title, description: epic.description }),
+    })
+
+    for (const story of epic.stories) {
+      upsertDecision(deps.db, {
+        pipeline_run_id: params.runId,
+        phase: 'solutioning',
+        category: 'stories',
+        key: story.key,
+        value: JSON.stringify({
+          key: story.key,
+          title: story.title,
+          description: story.description,
+          ac: story.acceptance_criteria,
+          priority: story.priority,
+        }),
+      })
+    }
+  }
+
+  // Create Requirement records for each story
+  for (const epic of epics) {
+    for (const story of epic.stories) {
+      createRequirement(deps.db, {
+        pipeline_run_id: params.runId,
+        source: 'solutioning-phase',
+        type: 'functional',
+        description: `${story.title}: ${story.description}`,
+        priority: story.priority,
+      })
+    }
+  }
+
+  const artifactId = storyStep?.artifactId ?? ''
+
+  return {
+    epics,
+    artifactId,
+    tokenUsage: result.tokenUsage,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // runSolutioningPhase
 // ---------------------------------------------------------------------------
 
@@ -708,6 +881,10 @@ export async function runSolutioningPhase(
   let totalOutput = 0
 
   try {
+    // Determine if multi-step mode is available
+    const solutioningPhase = deps.pack.manifest.phases?.find((p) => p.name === 'solutioning')
+    const hasSteps = solutioningPhase?.steps && solutioningPhase.steps.length > 0 && !params.amendmentContext
+
     // Step 1: Check if architecture artifact already exists (skip on retry)
     const existingArchArtifact = getArtifactByTypeForRun(deps.db, params.runId, 'solutioning', 'architecture')
     let archResult: ArchitectureGenerationSuccess | ArchitectureGenerationFailure
@@ -716,8 +893,13 @@ export async function runSolutioningPhase(
       // Architecture already completed — reuse existing decisions
       const existingDecisions = getDecisionsByPhaseForRun(deps.db, params.runId, 'solutioning')
         .filter((d) => d.category === 'architecture')
+      logger.info(
+        { runId: params.runId, artifactId: existingArchArtifact.id, decisionCount: existingDecisions.length },
+        'Architecture artifact already exists — skipping architecture sub-phase, transitioning to story generation',
+      )
       archResult = {
         decisions: existingDecisions.map((d) => ({
+          category: d.category,
           key: d.key,
           value: d.value,
           rationale: d.rationale ?? '',
@@ -725,6 +907,8 @@ export async function runSolutioningPhase(
         artifactId: existingArchArtifact.id,
         tokenUsage: { input: 0, output: 0 },
       }
+    } else if (hasSteps) {
+      archResult = await runArchitectureGenerationMultiStep(deps, params)
     } else {
       archResult = await runArchitectureGeneration(deps, params)
     }
@@ -743,8 +927,15 @@ export async function runSolutioningPhase(
       }
     }
 
-    // Step 3: Run story generation sub-phase
-    const storyResult = await runStoryGeneration(deps, params)
+    // Step 3: Architecture→Story Generation transition
+    logger.info(
+      { runId: params.runId, decisionCount: archResult.decisions.length, mode: hasSteps ? 'multi-step' : 'single-dispatch' },
+      'Architecture sub-phase complete — transitioning to story generation',
+    )
+
+    const storyResult = hasSteps
+      ? await runStoryGenerationMultiStep(deps, params)
+      : await runStoryGeneration(deps, params)
 
     // Accumulate token usage
     totalInput += storyResult.tokenUsage.input

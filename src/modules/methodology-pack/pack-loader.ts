@@ -113,7 +113,7 @@ class PackLoaderImpl implements PackLoader {
       )
     }
 
-    return new MethodologyPackImpl(manifest, packPath)
+    return new MethodologyPackImpl(manifest as import('./types.js').PackManifest, packPath)
   }
 
   async discover(projectRoot: string): Promise<PackInfo[]> {

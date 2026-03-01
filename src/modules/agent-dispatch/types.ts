@@ -113,6 +113,17 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
   'code-review': 900_000,
   'minor-fixes': 600_000,
   'major-rework': 900_000,
+  // Multi-step phase decomposition step types (shorter per-step budgets)
+  'analysis-vision': 180_000,
+  'analysis-scope': 180_000,
+  'planning-classification': 180_000,
+  'planning-frs': 240_000,
+  'planning-nfrs': 240_000,
+  'arch-context': 180_000,
+  'arch-decisions': 240_000,
+  'arch-patterns': 240_000,
+  'story-epics': 240_000,
+  'story-stories': 300_000,
 }
 
 /**
@@ -133,6 +144,17 @@ export const DEFAULT_MAX_TURNS: Record<string, number> = {
   'code-review': 25,
   'create-story': 20,
   'minor-fixes': 25,
+  // Multi-step phase decomposition step types (tighter per-step budgets)
+  'analysis-vision': 8,
+  'analysis-scope': 10,
+  'planning-classification': 8,
+  'planning-frs': 12,
+  'planning-nfrs': 12,
+  'arch-context': 10,
+  'arch-decisions': 15,
+  'arch-patterns': 12,
+  'story-epics': 15,
+  'story-stories': 20,
 }
 
 // ---------------------------------------------------------------------------
