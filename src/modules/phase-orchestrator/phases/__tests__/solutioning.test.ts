@@ -1204,12 +1204,12 @@ describe('Story 16-1: calculateDynamicBudget', () => {
   })
 
   it('caps at absolute maximum', () => {
-    expect(calculateDynamicBudget(4000, 200)).toBe(12000)
+    expect(calculateDynamicBudget(4000, 200)).toBe(20000)
   })
 
   it('handles large decision counts gracefully', () => {
     const result = calculateDynamicBudget(4000, 1000)
-    expect(result).toBe(12000) // capped
+    expect(result).toBe(20000) // capped
   })
 })
 

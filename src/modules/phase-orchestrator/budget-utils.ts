@@ -11,7 +11,7 @@
 // ---------------------------------------------------------------------------
 
 /** Absolute maximum prompt tokens (model context safety margin) */
-export const ABSOLUTE_MAX_PROMPT_TOKENS = 12_000
+export const ABSOLUTE_MAX_PROMPT_TOKENS = 20_000
 
 /** Additional tokens per architecture decision injected into story generation prompt */
 export const TOKENS_PER_DECISION = 100

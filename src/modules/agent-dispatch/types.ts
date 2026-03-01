@@ -127,7 +127,7 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
   'arch-decisions': 240_000,
   'arch-patterns': 240_000,
   'story-epics': 240_000,
-  'story-stories': 300_000,
+  'story-stories': 600_000,
 }
 
 /**
