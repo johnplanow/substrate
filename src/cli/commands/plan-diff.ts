@@ -57,7 +57,7 @@ export interface PlanDiffActionOptions {
 export async function runPlanDiffAction(options: PlanDiffActionOptions): Promise<number> {
   const { planId, fromVersion, toVersion, projectRoot, outputFormat } = options
 
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
   const dbWrapper = new DatabaseWrapper(dbPath)
 
   try {

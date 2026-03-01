@@ -62,7 +62,7 @@ export async function runPlanRefineAction(options: PlanRefineActionOptions): Pro
     return REFINE_EXIT_USAGE_ERROR
   }
 
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
   const dbWrapper = new DatabaseWrapper(dbPath)
 
   try {

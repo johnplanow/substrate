@@ -1207,7 +1207,7 @@ describe('service lifecycle and cleanup', () => {
     // Return false only for the .substrate dir existence check (not for the graph file)
     _mockExistsSync.mockImplementation((p: unknown) => {
       const path = String(p)
-      if (path.endsWith('.substrate') && !path.includes('state.db')) return false
+      if (path.endsWith('.substrate') && !path.includes('substrate.db')) return false
       return true
     })
 

@@ -55,7 +55,7 @@ describe('CrashRecoveryManager — integration', () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'substrate-test-'))
-    const dbPath = join(tmpDir, 'state.db')
+    const dbPath = join(tmpDir, 'substrate.db')
     const wrapper = new DatabaseWrapper(dbPath)
     wrapper.open()
     runMigrations(wrapper.db)

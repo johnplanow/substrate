@@ -59,7 +59,7 @@ function createTempProjectDir(): { projectRoot: string; substrateDir: string; db
   _tmpDir = join(tmpdir(), `substrate-e2e-${randomUUID()}`)
   const substrateDir = join(_tmpDir, '.substrate')
   mkdirSync(substrateDir, { recursive: true })
-  const dbPath = join(substrateDir, 'state.db')
+  const dbPath = join(substrateDir, 'substrate.db')
 
   const db = new BetterSqlite3(dbPath)
   db.pragma('journal_mode = WAL')
@@ -461,7 +461,7 @@ describe('cross-story flow: start → fail tasks → retry', () => {
 
     expect(exitCode).toBe(0)
 
-    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'state.db'))
+    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'substrate.db'))
     expect(getTaskStatus(verifyDb, 'task-a')).toBe('pending')
     expect(getTaskStatus(verifyDb, 'task-b')).toBe('pending')
     expect(getTaskStatus(verifyDb, 'task-c')).toBe('completed')
@@ -489,7 +489,7 @@ describe('cross-story flow: start → fail tasks → retry', () => {
     expect(getStdout()).toContain('task-fail')
 
     // Verify no state change occurred
-    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'state.db'))
+    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'substrate.db'))
     expect(getTaskStatus(verifyDb, 'task-fail')).toBe('failed')
     verifyDb.close()
   })
@@ -512,7 +512,7 @@ describe('cross-story flow: start → fail tasks → retry', () => {
       projectRoot,
     })
 
-    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'state.db'))
+    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'substrate.db'))
     expect(getTaskRetryCount(verifyDb, 'task-a')).toBe(1)
     expect(getTaskRetryCount(verifyDb, 'task-b')).toBe(2)
     verifyDb.close()
@@ -540,7 +540,7 @@ describe('cross-story flow: start → fail tasks → retry', () => {
 
     expect(exitCode).toBe(0)
 
-    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'state.db'))
+    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'substrate.db'))
     // task-a stays failed (exceeded max)
     expect(getTaskStatus(verifyDb, 'task-a')).toBe('failed')
     // task-b is reset

@@ -49,7 +49,7 @@ describe('plan review/approval integration', () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'substrate-test-'))
-    const dbPath = join(tmpDir, 'state.db')
+    const dbPath = join(tmpDir, 'substrate.db')
     db = new Database(dbPath)
     runMigrations(db)
   })

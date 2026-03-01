@@ -351,7 +351,7 @@ interface SavePlanInput {
 
 async function savePlan(input: SavePlanInput): Promise<void> {
   const { planId, goal, planningAgent, estimatedExecutionCost, taskCount, planYaml, projectRoot, status } = input
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
   const dbWrapper = new DatabaseWrapper(dbPath)
   try {
     dbWrapper.open()
@@ -667,7 +667,7 @@ export async function runPlanReviewAction(options: PlanActionOptions): Promise<n
  */
 export async function runPlanListAction(options: PlanListOptions): Promise<number> {
   const { outputFormat, projectRoot } = options
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
   const dbWrapper = new DatabaseWrapper(dbPath)
 
   try {
@@ -709,7 +709,7 @@ export async function runPlanShowAction(
   options: PlanShowOptions,
 ): Promise<number> {
   const { outputFormat, projectRoot } = options
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
   const dbWrapper = new DatabaseWrapper(dbPath)
 
   try {

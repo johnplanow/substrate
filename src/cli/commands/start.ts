@@ -156,7 +156,7 @@ export async function runStartAction(options: StartActionOptions): Promise<numbe
   }
 
   // Determine database path
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
 
   // Ensure .substrate directory exists
   const substrateDir = join(projectRoot, '.substrate')

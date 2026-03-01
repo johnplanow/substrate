@@ -113,7 +113,7 @@ export async function runRetryAction(options: RetryActionOptions): Promise<numbe
     projectRoot,
   } = options
 
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
 
   if (!existsSync(dbPath)) {
     process.stderr.write(
@@ -295,7 +295,7 @@ async function runFollowMode(opts: {
 }): Promise<number> {
   const { sessionId, eligibleTaskIds, projectRoot, outputFormat } = opts
 
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
 
   const eventBus = createEventBus()
   const databaseService = createDatabaseService(dbPath)

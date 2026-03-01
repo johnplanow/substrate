@@ -57,7 +57,7 @@ describe('Execution log — integration', () => {
 
   beforeEach(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'substrate-log-test-'))
-    const dbPath = join(tmpDir, 'state.db')
+    const dbPath = join(tmpDir, 'substrate.db')
     dbService = new DatabaseServiceImpl(dbPath)
     const eventBus = createEventBus()
     engine = new TaskGraphEngineImpl(eventBus, dbService)

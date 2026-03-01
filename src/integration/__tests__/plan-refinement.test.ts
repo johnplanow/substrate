@@ -49,7 +49,7 @@ describe('plan refinement version tracking integration', () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'substrate-plan-refine-test-'))
-    db = new Database(join(tmpDir, 'state.db'))
+    db = new Database(join(tmpDir, 'substrate.db'))
     runMigrations(db)
   })
 

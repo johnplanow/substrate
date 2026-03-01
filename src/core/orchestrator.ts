@@ -15,7 +15,7 @@ import type { TypedEventBus } from './event-bus.js'
  * Configuration required to initialize the orchestrator.
  */
 export interface OrchestratorConfig {
-  /** Path to the SQLite database file (e.g., ".substrate/state.db") */
+  /** Path to the SQLite database file (e.g., ".substrate/substrate.db") */
   databasePath: string
 
   /** Working directory for the orchestrated project */

@@ -482,7 +482,7 @@ describe('GAP 3: CLI Cost Command reads from real DB written by CostTracker', ()
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'substrate-e2e-'))
     const substratDir = path.join(tmpDir, '.substrate')
     fs.mkdirSync(substratDir, { recursive: true })
-    dbPath = path.join(substratDir, 'state.db')
+    dbPath = path.join(substratDir, 'substrate.db')
 
     // Write real data to the file-based DB
     const fileDb = new Database(dbPath)

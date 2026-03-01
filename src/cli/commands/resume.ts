@@ -111,7 +111,7 @@ export async function runResumeAction(options: ResumeActionOptions): Promise<num
   // Paused-session mode: sessionId provided — resume a paused session
   // ---------------------------------------------------------------------------
 
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
 
   if (!existsSync(dbPath)) {
     process.stderr.write(`Error: No Substrate database found at ${dbPath}. Run 'substrate init' first.\n`)

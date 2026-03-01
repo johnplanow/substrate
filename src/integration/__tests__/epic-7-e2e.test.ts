@@ -168,11 +168,11 @@ function seedPlanWithVersions(
 }
 
 /**
- * Return the path where CLI commands expect the state.db to live.
- * This is: <projectRoot>/.substrate/state.db
+ * Return the path where CLI commands expect the substrate.db to live.
+ * This is: <projectRoot>/.substrate/substrate.db
  */
 function dbCliPath(projectRoot: string): string {
-  return join(projectRoot, '.substrate', 'state.db')
+  return join(projectRoot, '.substrate', 'substrate.db')
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@ describe('Epic 7 E2E Integration', () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'substrate-epic7-e2e-'))
-    // CLI commands use: join(projectRoot, '.substrate', 'state.db')
+    // CLI commands use: join(projectRoot, '.substrate', 'substrate.db')
     // so we must put the DB there for CLI action tests to work
     mkdirSync(join(tmpDir, '.substrate'), { recursive: true })
     db = new Database(dbCliPath(tmpDir))

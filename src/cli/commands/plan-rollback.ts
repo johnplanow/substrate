@@ -63,7 +63,7 @@ export async function runPlanRollbackAction(
 ): Promise<number> {
   const { planId, toVersion, projectRoot, outputFormat, autoApprove = false } = options
 
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
   const dbWrapper = new DatabaseWrapper(dbPath)
 
   try {

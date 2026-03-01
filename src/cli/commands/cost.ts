@@ -269,7 +269,7 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
     version = '0.0.0',
   } = options
 
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
 
   // Check if database exists
   if (!existsSync(dbPath)) {

@@ -86,7 +86,7 @@ async function promptConfirmation(sessionId: string): Promise<boolean> {
 export async function runCancelAction(options: CancelActionOptions): Promise<number> {
   const { sessionId, outputFormat, yes, projectRoot, version = '0.0.0' } = options
 
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
 
   if (!existsSync(dbPath)) {
     process.stderr.write(`Error: No Substrate database found at ${dbPath}. Run 'substrate init' first.\n`)

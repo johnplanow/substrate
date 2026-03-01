@@ -36,7 +36,7 @@ function createTempDb(): { dbPath: string; db: BetterSqlite3Database; projectRoo
   _tmpDir = join(tmpdir(), `substrate-test-${randomUUID()}`)
   const substrateDir = join(_tmpDir, '.substrate')
   mkdirSync(substrateDir, { recursive: true })
-  const dbPath = join(substrateDir, 'state.db')
+  const dbPath = join(substrateDir, 'substrate.db')
 
   const db = new BetterSqlite3(dbPath)
   db.pragma('journal_mode = WAL')

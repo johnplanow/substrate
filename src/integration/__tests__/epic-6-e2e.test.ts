@@ -106,7 +106,7 @@ describe('GAP-1: CrashRecoveryManager — interaction with execution_log', () =>
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'epic6-gap1-'))
-    db = openDb(join(tmpDir, 'state.db'))
+    db = openDb(join(tmpDir, 'substrate.db'))
   })
 
   afterEach(() => {
@@ -232,7 +232,7 @@ describe('GAP-2: setupGracefulShutdown — DB writes are correct', () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'epic6-gap2-'))
-    db = openDb(join(tmpDir, 'state.db'))
+    db = openDb(join(tmpDir, 'substrate.db'))
   })
 
   afterEach(() => {
@@ -349,7 +349,7 @@ describe('GAP-3: runLogAction — end-to-end DB to CLI output', () => {
     projectRoot = tmpDir
     mkdirSync(join(projectRoot, '.substrate'), { recursive: true })
 
-    dbService = new DatabaseServiceImpl(join(projectRoot, '.substrate', 'state.db'))
+    dbService = new DatabaseServiceImpl(join(projectRoot, '.substrate', 'substrate.db'))
     const eventBus = createEventBus()
     engine = new TaskGraphEngineImpl(eventBus, dbService)
     await dbService.initialize()
@@ -585,7 +585,7 @@ describe('GAP-4: crash recovery → resume → execution_log continuity', () => 
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'epic6-gap4-'))
-    dbPath = join(tmpDir, 'state.db')
+    dbPath = join(tmpDir, 'substrate.db')
   })
 
   afterEach(() => {

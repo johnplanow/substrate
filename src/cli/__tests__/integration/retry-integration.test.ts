@@ -31,7 +31,7 @@ function createTempDb(): { dbPath: string; db: BetterSqlite3Database; projectRoo
   _tmpDir = join(tmpdir(), `substrate-retry-test-${randomUUID()}`)
   const substrateDir = join(_tmpDir, '.substrate')
   mkdirSync(substrateDir, { recursive: true })
-  const dbPath = join(substrateDir, 'state.db')
+  const dbPath = join(substrateDir, 'substrate.db')
 
   const db = new BetterSqlite3(dbPath)
   db.pragma('journal_mode = WAL')
@@ -204,7 +204,7 @@ describe('retry integration: dry-run mode', () => {
     expect(exitCode).toBe(0)
 
     // Open fresh DB to verify no changes
-    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'state.db'))
+    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'substrate.db'))
     expect(getTaskStatus(verifyDb, 'task-a')).toBe('failed')
     expect(getTaskStatus(verifyDb, 'task-b')).toBe('failed')
     expect(getTaskStatus(verifyDb, 'task-c')).toBe('completed')
@@ -276,7 +276,7 @@ describe('retry integration: normal retry (no --follow)', () => {
 
     expect(exitCode).toBe(0)
 
-    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'state.db'))
+    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'substrate.db'))
 
     // Failed tasks reset to pending
     expect(getTaskStatus(verifyDb, 'task-a')).toBe('pending')
@@ -313,7 +313,7 @@ describe('retry integration: normal retry (no --follow)', () => {
       projectRoot,
     })
 
-    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'state.db'))
+    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'substrate.db'))
     const signals = getSignals(verifyDb, sessionId)
     expect(signals).toHaveLength(1)
     expect(signals[0].signal).toBe('resume')
@@ -369,7 +369,7 @@ describe('retry integration: max-retries guard', () => {
 
     expect(exitCode).toBe(0)
 
-    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'state.db'))
+    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'substrate.db'))
     expect(getTaskStatus(verifyDb, 'task-overretried')).toBe('failed')
     expect(getTaskStatus(verifyDb, 'task-eligible')).toBe('pending')
     verifyDb.close()
@@ -402,7 +402,7 @@ describe('retry integration: --task flag', () => {
 
     expect(exitCode).toBe(0)
 
-    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'state.db'))
+    const verifyDb = new BetterSqlite3(join(projectRoot, '.substrate', 'substrate.db'))
     expect(getTaskStatus(verifyDb, 'task-a')).toBe('pending')
     expect(getTaskStatus(verifyDb, 'task-b')).toBe('failed')
     verifyDb.close()

@@ -159,7 +159,7 @@ export async function runStatusAction(options: StatusActionOptions): Promise<num
     projectRoot,
   } = options
 
-  const dbPath = join(projectRoot, '.substrate', 'state.db')
+  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
 
   if (!existsSync(dbPath)) {
     process.stderr.write(
