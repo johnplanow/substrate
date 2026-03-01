@@ -2531,7 +2531,7 @@ export interface AutoHealthOptions {
   projectRoot: string
 }
 
-type HealthVerdict = 'HEALTHY' | 'STALLED' | 'NO_PIPELINE_RUNNING'
+export type HealthVerdict = 'HEALTHY' | 'STALLED' | 'NO_PIPELINE_RUNNING'
 
 interface ProcessInfo {
   orchestrator_pid: number | null
@@ -2539,7 +2539,7 @@ interface ProcessInfo {
   zombies: number[]
 }
 
-interface PipelineHealthOutput {
+export interface PipelineHealthOutput {
   verdict: HealthVerdict
   run_id: string | null
   status: string | null
@@ -2760,6 +2760,342 @@ export async function runAutoHealth(options: AutoHealthOptions): Promise<number>
     } catch {
       // ignore
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Internal health data fetch (used by supervisor and tests)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch pipeline health data as a structured object without any stdout side-effects.
+ * Used by runAutoSupervisor to poll health without formatting overhead.
+ *
+ * Returns a NO_PIPELINE_RUNNING health object for all graceful "no data" cases
+ * (missing DB, missing run, terminal run status). Throws only on unexpected errors.
+ */
+export async function getAutoHealthData(options: {
+  runId?: string
+  projectRoot: string
+}): Promise<PipelineHealthOutput> {
+  const { runId, projectRoot } = options
+
+  const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+
+  const NO_PIPELINE: PipelineHealthOutput = {
+    verdict: 'NO_PIPELINE_RUNNING',
+    run_id: null,
+    status: null,
+    current_phase: null,
+    staleness_seconds: 0,
+    last_activity: '',
+    process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+    stories: { active: 0, completed: 0, escalated: 0, details: {} },
+  }
+
+  if (!existsSync(dbPath)) {
+    return NO_PIPELINE
+  }
+
+  const dbWrapper = new DatabaseWrapper(dbPath)
+  try {
+    dbWrapper.open()
+    const db = dbWrapper.db
+
+    let run: PipelineRun | undefined
+    if (runId !== undefined) {
+      run = getPipelineRunById(db, runId)
+    } else {
+      run = getLatestRun(db)
+    }
+
+    if (run === undefined) {
+      return NO_PIPELINE
+    }
+
+    // Compute staleness
+    const updatedAt = new Date(run.updated_at)
+    const stalenessSeconds = Math.round((Date.now() - updatedAt.getTime()) / 1000)
+
+    // Parse story state from token_usage_json
+    let storyDetails: Record<string, { phase: string; review_cycles: number }> = {}
+    let active = 0
+    let completed = 0
+    let escalated = 0
+
+    try {
+      if (run.token_usage_json) {
+        const state = JSON.parse(run.token_usage_json) as {
+          stories?: Record<string, { phase: string; reviewCycles: number }>
+        }
+        if (state.stories) {
+          for (const [key, s] of Object.entries(state.stories)) {
+            storyDetails[key] = { phase: s.phase, review_cycles: s.reviewCycles }
+            if (s.phase === 'COMPLETE') completed++
+            else if (s.phase === 'ESCALATED') escalated++
+            else if (s.phase !== 'PENDING') active++
+          }
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+
+    // Inspect process tree
+    const processInfo = inspectProcessTree()
+
+    // Derive verdict
+    let verdict: HealthVerdict = 'NO_PIPELINE_RUNNING'
+    if (run.status === 'running') {
+      if (processInfo.zombies.length > 0) {
+        verdict = 'STALLED'
+      } else if (stalenessSeconds > 600) {
+        verdict = 'STALLED'
+      } else if (processInfo.orchestrator_pid !== null && processInfo.child_pids.length === 0 && active > 0) {
+        verdict = 'STALLED'
+      } else {
+        verdict = 'HEALTHY'
+      }
+    } else if (run.status === 'completed' || run.status === 'failed' || run.status === 'stopped') {
+      verdict = 'NO_PIPELINE_RUNNING'
+    }
+
+    return {
+      verdict,
+      run_id: run.id,
+      status: run.status,
+      current_phase: run.current_phase,
+      staleness_seconds: stalenessSeconds,
+      last_activity: run.updated_at,
+      process: processInfo,
+      stories: { active, completed, escalated, details: storyDetails },
+    }
+  } finally {
+    try {
+      dbWrapper.close()
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// auto supervisor action
+// ---------------------------------------------------------------------------
+
+export interface AutoSupervisorOptions {
+  /** How often to poll pipeline health, in seconds. Default: 60 */
+  pollInterval: number
+  /** Staleness in seconds that triggers a kill. Default: 600 */
+  stallThreshold: number
+  /** Maximum number of automatic restarts before aborting. Default: 3 */
+  maxRestarts: number
+  outputFormat: OutputFormat
+  projectRoot: string
+  runId?: string
+  pack: string
+}
+
+/** Injectable dependencies for testing the supervisor without real processes or timers */
+export interface SupervisorDeps {
+  getHealth: (opts: { runId?: string; projectRoot: string }) => Promise<PipelineHealthOutput>
+  killPid: (pid: number, signal: NodeJS.Signals) => void
+  resumePipeline: (opts: AutoResumeOptions) => Promise<number>
+  sleep: (ms: number) => Promise<void>
+}
+
+function defaultSupervisorDeps(): SupervisorDeps {
+  return {
+    getHealth: getAutoHealthData,
+    killPid: (pid, signal) => {
+      process.kill(pid, signal)
+    },
+    resumePipeline: runAutoResume,
+    sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+  }
+}
+
+/**
+ * Run the pipeline supervisor — a long-running watchdog that polls pipeline health
+ * and automatically kills and restarts stalled pipelines.
+ *
+ * State machine: POLLING → (stall detected) → KILLING → RESTARTING → POLLING
+ *
+ * Exit codes:
+ *   0 — pipeline reached terminal state with no failures
+ *   1 — pipeline completed with failures or escalations
+ *   2 — max restarts exceeded (safety valve triggered)
+ */
+export async function runAutoSupervisor(
+  options: AutoSupervisorOptions,
+  deps: Partial<SupervisorDeps> = {},
+): Promise<number> {
+  const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack } = options
+  const { getHealth, killPid, resumePipeline, sleep } = { ...defaultSupervisorDeps(), ...deps }
+
+  let restartCount = 0
+  const startTime = Date.now()
+
+  function emitEvent(event: Record<string, unknown>): void {
+    if (outputFormat === 'json') {
+      const stamped = { ...event, ts: new Date().toISOString() }
+      process.stdout.write(JSON.stringify(stamped) + '\n')
+    }
+  }
+
+  function log(message: string): void {
+    if (outputFormat === 'human') {
+      process.stdout.write(message + '\n')
+    }
+  }
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const health = await getHealth({ runId, projectRoot })
+    const ts = new Date().toISOString()
+
+    log(
+      `[${ts}] Health: ${health.verdict} | staleness=${health.staleness_seconds}s | ` +
+        `stories: active=${health.stories.active} completed=${health.stories.completed} escalated=${health.stories.escalated}`,
+    )
+
+    // --- Terminal state: pipeline has completed, failed, or stopped ---
+    if (health.verdict === 'NO_PIPELINE_RUNNING') {
+      const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
+
+      const succeeded = Object.entries(health.stories.details)
+        .filter(([, s]) => s.phase === 'COMPLETE')
+        .map(([k]) => k)
+      const failed = Object.entries(health.stories.details)
+        .filter(([, s]) => s.phase !== 'COMPLETE' && s.phase !== 'PENDING')
+        .map(([k]) => k)
+      const escalated = Object.entries(health.stories.details)
+        .filter(([, s]) => s.phase === 'ESCALATED')
+        .map(([k]) => k)
+
+      emitEvent({
+        type: 'supervisor:summary',
+        run_id: health.run_id,
+        elapsed_seconds: elapsedSeconds,
+        succeeded,
+        failed,
+        escalated,
+        restarts: restartCount,
+      })
+
+      log(
+        `\nPipeline reached terminal state. Elapsed: ${elapsedSeconds}s | ` +
+          `succeeded: ${succeeded.length} | failed: ${failed.length} | restarts: ${restartCount}`,
+      )
+
+      return failed.length > 0 ? 1 : 0
+    }
+
+    // --- Stall detection: kill if staleness exceeds threshold ---
+    // Check staleness directly so that configurable --stall-threshold values below the
+    // hardcoded 600s in getAutoHealthData (which governs the STALLED verdict) take effect.
+    if (health.staleness_seconds >= stallThreshold) {
+      const pids = [
+        ...(health.process.orchestrator_pid !== null ? [health.process.orchestrator_pid] : []),
+        ...health.process.child_pids,
+      ]
+
+      emitEvent({
+        type: 'supervisor:kill',
+        run_id: health.run_id,
+        reason: 'stall',
+        staleness_seconds: health.staleness_seconds,
+        pids,
+      })
+
+      log(
+        `Supervisor: Stall confirmed (${health.staleness_seconds}s ≥ ${stallThreshold}s threshold). Killing PIDs: ${pids.join(', ') || 'none'}`,
+      )
+
+      // SIGTERM first — graceful shutdown
+      for (const pid of pids) {
+        try {
+          killPid(pid, 'SIGTERM')
+        } catch {
+          // Process may already be dead — ignore
+        }
+      }
+
+      // 5-second grace period, then SIGKILL
+      await sleep(5000)
+      for (const pid of pids) {
+        try {
+          killPid(pid, 'SIGKILL')
+        } catch {
+          // Process may already be dead — ignore
+        }
+      }
+
+      // AC4 liveness check: verify processes are dead before restarting
+      if (pids.length > 0) {
+        let allDead = false
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await sleep(1000)
+          allDead = pids.every((pid) => {
+            try {
+              process.kill(pid, 0)
+              return false // still alive
+            } catch {
+              return true // ESRCH: process is dead
+            }
+          })
+          if (allDead) break
+        }
+        if (!allDead) {
+          log(`Supervisor: Warning: Some PIDs may still be alive after SIGKILL`)
+        }
+      }
+
+      // Safety valve: check max restarts before attempting restart
+      if (restartCount >= maxRestarts) {
+        emitEvent({
+          type: 'supervisor:abort',
+          run_id: health.run_id,
+          reason: 'max_restarts_exceeded',
+          attempts: restartCount,
+        })
+        log(`Supervisor: Max restarts (${maxRestarts}) exceeded. Aborting.`)
+        return 2
+      }
+
+      // Restart the pipeline
+      restartCount++
+
+      emitEvent({
+        type: 'supervisor:restart',
+        run_id: health.run_id,
+        attempt: restartCount,
+      })
+
+      log(`Supervisor: Restarting pipeline (attempt ${restartCount}/${maxRestarts})`)
+
+      // Fire-and-forget resume — supervisor continues polling; errors are logged/emitted
+      resumePipeline({
+        runId: health.run_id ?? undefined,
+        outputFormat,
+        projectRoot,
+        concurrency: 3,
+        pack,
+      }).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err)
+        log(`Supervisor: Resume error: ${message}`)
+        if (outputFormat === 'json') {
+          process.stderr.write(
+            JSON.stringify({ type: 'supervisor:error', reason: 'resume_failed', message, ts: new Date().toISOString() }) +
+              '\n',
+          )
+        }
+      })
+    }
+
+    // Wait for next poll interval
+    await sleep(pollInterval * 1000)
   }
 }
 
@@ -3330,6 +3666,50 @@ export function registerAutoCommand(
       })
       process.exitCode = exitCode
     })
+
+  // ----------- auto supervisor -----------
+  auto
+    .command('supervisor')
+    .description('Monitor a pipeline run and automatically recover from stalls')
+    .option('--poll-interval <seconds>', 'Health poll interval in seconds', (v) => parseInt(v, 10), 60)
+    .option(
+      '--stall-threshold <seconds>',
+      'Staleness in seconds before killing a stalled pipeline',
+      (v) => parseInt(v, 10),
+      600,
+    )
+    .option('--max-restarts <n>', 'Maximum automatic restarts before aborting', (v) => parseInt(v, 10), 3)
+    .option('--run-id <id>', 'Pipeline run ID to monitor (defaults to latest)')
+    .option('--pack <name>', 'Methodology pack name', 'bmad')
+    .option('--project-root <path>', 'Project root directory', projectRoot)
+    .option(
+      '--output-format <format>',
+      'Output format: human (default) or json',
+      'human',
+    )
+    .action(
+      async (opts: {
+        pollInterval: number
+        stallThreshold: number
+        maxRestarts: number
+        runId?: string
+        pack: string
+        projectRoot: string
+        outputFormat: string
+      }) => {
+        const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
+        const exitCode = await runAutoSupervisor({
+          pollInterval: opts.pollInterval,
+          stallThreshold: opts.stallThreshold,
+          maxRestarts: opts.maxRestarts,
+          runId: opts.runId,
+          pack: opts.pack,
+          outputFormat,
+          projectRoot: opts.projectRoot,
+        })
+        process.exitCode = exitCode
+      },
+    )
 
   // ----------- auto amend -----------
   auto

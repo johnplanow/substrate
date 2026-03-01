@@ -205,6 +205,76 @@ export interface StoryStallEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Supervisor events (emitted by `substrate auto supervisor`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the supervisor kills a stalled pipeline process tree.
+ */
+export interface SupervisorKillEvent {
+  type: 'supervisor:kill'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Pipeline run ID that was killed */
+  run_id: string | null
+  /** Reason for the kill — always 'stall' for threshold-triggered kills */
+  reason: 'stall'
+  /** Seconds the pipeline had been stalled */
+  staleness_seconds: number
+  /** PIDs that were killed (orchestrator + child processes) */
+  pids: number[]
+}
+
+/**
+ * Emitted when the supervisor restarts a killed pipeline.
+ */
+export interface SupervisorRestartEvent {
+  type: 'supervisor:restart'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Pipeline run ID being resumed */
+  run_id: string | null
+  /** Restart attempt number (1-based) */
+  attempt: number
+}
+
+/**
+ * Emitted when the supervisor exceeds the maximum restart limit and aborts.
+ */
+export interface SupervisorAbortEvent {
+  type: 'supervisor:abort'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Pipeline run ID that was abandoned */
+  run_id: string | null
+  /** Reason for aborting */
+  reason: 'max_restarts_exceeded'
+  /** Number of restart attempts that were made */
+  attempts: number
+}
+
+/**
+ * Emitted when the supervisor detects a terminal pipeline state and exits.
+ */
+export interface SupervisorSummaryEvent {
+  type: 'supervisor:summary'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Pipeline run ID */
+  run_id: string | null
+  /** Total elapsed seconds from supervisor start to terminal state */
+  elapsed_seconds: number
+  /** Story keys that completed successfully */
+  succeeded: string[]
+  /** Story keys that failed (non-COMPLETE, non-PENDING phases) */
+  failed: string[]
+  /** Story keys that were escalated */
+  escalated: string[]
+  /** Number of restart cycles performed by the supervisor */
+  restarts: number
+}
+
+// ---------------------------------------------------------------------------
 // PipelineEvent discriminated union
 // ---------------------------------------------------------------------------
 
@@ -230,6 +300,10 @@ export type PipelineEvent =
   | StoryLogEvent
   | PipelineHeartbeatEvent
   | StoryStallEvent
+  | SupervisorKillEvent
+  | SupervisorRestartEvent
+  | SupervisorAbortEvent
+  | SupervisorSummaryEvent
 
 // ---------------------------------------------------------------------------
 // Compile-time source of truth for all event type discriminants
@@ -258,6 +332,10 @@ export const EVENT_TYPE_NAMES = [
   'story:log',
   'pipeline:heartbeat',
   'story:stall',
+  'supervisor:kill',
+  'supervisor:restart',
+  'supervisor:abort',
+  'supervisor:summary',
 ] as const
 
 /**

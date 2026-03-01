@@ -173,6 +173,53 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'elapsed_ms', type: 'number', description: 'Milliseconds since last progress event.' },
     ],
   },
+  {
+    type: 'supervisor:kill',
+    description: 'Emitted by the supervisor when it kills a stalled pipeline process tree.',
+    when: 'When the supervisor detects a STALLED verdict and staleness exceeds the stall threshold.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
+      { name: 'run_id', type: 'string|null', description: 'Pipeline run ID that was killed.' },
+      { name: 'reason', type: 'stall', description: 'Reason for the kill — always "stall" for threshold-triggered kills.' },
+      { name: 'staleness_seconds', type: 'number', description: 'Seconds the pipeline had been stalled.' },
+      { name: 'pids', type: 'number[]', description: 'PIDs that were killed (orchestrator + child processes).' },
+    ],
+  },
+  {
+    type: 'supervisor:restart',
+    description: 'Emitted by the supervisor when it restarts a killed pipeline via auto resume.',
+    when: 'Immediately after killing a stalled pipeline, when the restart count is within the max limit.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
+      { name: 'run_id', type: 'string|null', description: 'Pipeline run ID being resumed.' },
+      { name: 'attempt', type: 'number', description: 'Restart attempt number (1-based).' },
+    ],
+  },
+  {
+    type: 'supervisor:abort',
+    description: 'Emitted by the supervisor when it exceeds the maximum restart limit and gives up.',
+    when: 'When the restart count reaches or exceeds --max-restarts and another stall is detected.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
+      { name: 'run_id', type: 'string|null', description: 'Pipeline run ID that was abandoned.' },
+      { name: 'reason', type: 'max_restarts_exceeded', description: 'Always "max_restarts_exceeded".' },
+      { name: 'attempts', type: 'number', description: 'Number of restart attempts that were made.' },
+    ],
+  },
+  {
+    type: 'supervisor:summary',
+    description: 'Emitted by the supervisor when the pipeline reaches a terminal state.',
+    when: 'When the supervisor detects a NO_PIPELINE_RUNNING verdict (completed, failed, or stopped).',
+    fields: [
+      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
+      { name: 'run_id', type: 'string|null', description: 'Pipeline run ID.' },
+      { name: 'elapsed_seconds', type: 'number', description: 'Total elapsed seconds from supervisor start to terminal state.' },
+      { name: 'succeeded', type: 'string[]', description: 'Story keys that completed successfully.' },
+      { name: 'failed', type: 'string[]', description: 'Story keys that failed (non-COMPLETE, non-PENDING phases).' },
+      { name: 'escalated', type: 'string[]', description: 'Story keys that were escalated.' },
+      { name: 'restarts', type: 'number', description: 'Number of restart cycles performed by the supervisor.' },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

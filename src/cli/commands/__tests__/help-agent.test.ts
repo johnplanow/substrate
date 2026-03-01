@@ -74,6 +74,10 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'story:log',
       'pipeline:heartbeat',
       'story:stall',
+      'supervisor:kill',
+      'supervisor:restart',
+      'supervisor:abort',
+      'supervisor:summary',
     ]
     const actualTypes = PIPELINE_EVENT_METADATA.map((e) => e.type)
     for (const t of expectedTypes) {
