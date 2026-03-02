@@ -4,9 +4,9 @@
 
 # Substrate
 
-Substrate is an autonomous software development pipeline. Describe your project in plain language and Substrate handles the rest — coordinating multiple AI coding agents (Claude Code, Codex, Gemini CLI) working in parallel across isolated branches to take your idea from concept through implementation and code review.
+Substrate is an autonomous software development pipeline you operate from Claude Code. Describe your project, and Substrate coordinates multiple AI coding agents (Claude Code, Codex, Gemini CLI) working in parallel across isolated branches — from concept through implementation and code review. A built-in supervisor watches for stalls, auto-recovers, and after each run analyzes what happened and experiments with improvements — closing the loop automatically.
 
-Unlike API-based orchestrators, Substrate routes work through the CLI tools you already have installed, maximizing your existing AI subscriptions before falling back to pay-per-token billing. Runs are persistent and resumable — no lost work, no re-execution waste, full cost visibility across every provider.
+Unlike API-based orchestrators, Substrate routes work through the CLI tools you already have installed, maximizing your existing AI subscriptions before falling back to pay-per-token billing. Runs are persistent and resumable with full cost visibility across every provider.
 
 ## Prerequisites
 
@@ -17,54 +17,50 @@ Unlike API-based orchestrators, Substrate routes work through the CLI tools you 
   - [Codex CLI](https://github.com/openai/codex) (`codex`)
   - Gemini CLI (`gemini`)
 
-## Installation
+## Quick Start
 
-Install as a project dependency:
+### Install
 
-```bash
-npm install substrate-ai
-```
-
-Or install globally:
+Install globally and initialize in your project:
 
 ```bash
 npm install -g substrate-ai
+substrate init
 ```
 
-Verify the installation:
-
-```bash
-npx substrate --version   # project install
-substrate --version        # global install
-```
-
-> Examples below use `[npx] substrate` — include `npx` for project installs, omit for global.
-
-## Quick Start
-
-### Using Substrate from Claude Code
-
-The primary way to use Substrate is from inside a Claude Code session. Substrate teaches Claude how to operate the pipeline automatically — no manual configuration needed.
-
-1. **Install and initialize** in your project:
+Or as a project dependency:
 
 ```bash
 npm install substrate-ai
-[npx] substrate init
+npx substrate init
 ```
 
-This scaffolds CLAUDE.md with a `## Substrate Pipeline` section containing behavioral directives. Claude Code reads this on session start.
+This scaffolds CLAUDE.md with behavioral directives and generates `.claude/commands/` slash commands. Claude Code reads these on session start and knows how to operate the pipeline automatically.
 
-2. **Start a Claude Code session.** Claude sees the substrate instructions automatically and knows to run `substrate run --help-agent` on first use to learn the full event protocol, commands, and interaction patterns.
+### Use Substrate From Claude
 
-3. **Tell Claude what to build.** Claude drives the pipeline conversationally — running stories, parsing structured events, handling escalations, offering to fix review issues, and summarizing results. You stay in control: Claude always asks before re-running failed stories or applying fixes.
+Start a Claude Code session in your project. Claude automatically sees the substrate instructions and slash commands. From there:
 
-```bash
-# What Claude runs under the hood:
-substrate run --events --stories 7-1,7-2   # Structured NDJSON for Claude to parse
-substrate run                               # Human-readable progress (default)
-substrate run --help-agent                  # Full protocol reference (<2000 tokens)
-```
+- **"Run the substrate pipeline"** — Claude runs the full lifecycle from analysis through implementation
+- **"Run substrate for stories 7-1, 7-2, 7-3"** — Claude implements specific stories
+- **"/substrate-run"** — invoke the slash command directly for a guided pipeline run
+- **"/substrate-supervisor"** — launch the supervisor to monitor, recover stalls, and run experiments
+
+Claude parses structured events, handles escalations, offers to fix review issues, and summarizes results. You stay in control — Claude always asks before re-running failed stories or applying fixes.
+
+### Monitor and Self-Improve
+
+While the pipeline runs (or after it finishes), tell Claude in the same or a separate session:
+
+> "Run the substrate supervisor with experiments"
+
+The supervisor watches the pipeline, kills stalls, and auto-restarts. When the run completes, it analyzes what happened — bottlenecks, token waste, slow stories — then runs A/B experiments on prompts and config in isolated worktrees. Improvements get auto-PRed; regressions get discarded.
+
+Later, ask Claude to compare runs:
+
+> "Compare the last two substrate runs"
+
+This is the full loop: run → watch → analyze → experiment → improve.
 
 ### Pick Up an Existing BMAD Project
 
@@ -79,35 +75,13 @@ Already have a project with BMAD artifacts (from vanilla BMAD, the Beads-based a
 | `_bmad-output/implementation-artifacts/*.md` | Optional | Existing story files — Substrate skips create-story for any it finds |
 | `package.json` | Optional | Test framework detection |
 
-**Setup (one-time):**
-
-```bash
-npm install substrate-ai
-[npx] substrate init
-```
-
-**Then start a Claude Code session and tell it what to do:**
+After the same install + init from [Quick Start](#quick-start), start a Claude Code session and tell it what to do:
 
 > "Run the substrate pipeline to implement the remaining stories."
 
 Claude reads the CLAUDE.md scaffold, discovers the substrate commands, and drives the pipeline — implementing stories, handling code review cycles, and summarizing results. You stay in the loop for escalations and failed stories.
 
 Substrate reads one directory — `_bmad-output/` — and doesn't care which tool created it. It does not read `sprint-status.yaml` or `.beads/` — you decide what's left by choosing which story keys to pass.
-
-### Autonomous Pipeline (standalone)
-
-Substrate also runs standalone without an AI agent driving it:
-
-```bash
-[npx] substrate brainstorm                         # Explore your idea
-[npx] substrate init                          # Set up methodology pack
-[npx] substrate run                           # Full pipeline: analysis → implement
-[npx] substrate run --from solutioning        # Skip to a specific phase
-[npx] substrate resume                        # Pick up where you left off
-[npx] substrate status                        # Check pipeline progress
-```
-
-The pipeline walks through the full software development lifecycle: analysis, planning, solutioning, and implementation — dispatching agents to build, test, and code-review each story.
 
 ## Supported Worker Agents
 
@@ -120,8 +94,6 @@ Substrate dispatches work to CLI-based AI agents running as child processes. It 
 | `gemini` | Gemini CLI | Subscription or API key |
 
 All three agents are fully supported as worker targets. Substrate auto-discovers available agents and routes work based on adapter health checks and configuration.
-
-> **Note on agent scaffolding:** Separately from worker dispatch, Substrate can also scaffold instruction files that teach an AI agent how to *drive* the pipeline as a front-end. Today, `substrate init` generates a CLAUDE.md scaffold for Claude Code (see [AI Agent Integration](#ai-agent-integration)). Equivalent scaffolds for Codex (`AGENTS.md`) and Gemini (`GEMINI.md`) are planned.
 
 ## Pipeline Observability
 
@@ -154,11 +126,11 @@ Pipeline complete: 5 succeeded, 0 failed, 1 escalated
 For programmatic consumption, `--events` emits newline-delimited JSON events on stdout:
 
 ```bash
-[npx] substrate run --events
-[npx] substrate run --events --stories 7-1,7-2
+substrate run --events
+substrate run --events --stories 7-1,7-2
 ```
 
-Seven event types form a discriminated union on the `type` field:
+Event types form a discriminated union on the `type` field:
 
 | Event | Description |
 |-------|-------------|
@@ -169,6 +141,9 @@ Seven event types form a discriminated union on the `type` field:
 | `story:escalation` | Story escalated after exhausting review cycles — includes issue list with severities |
 | `story:warn` | Non-fatal warning (e.g., token ceiling truncation) |
 | `story:log` | Informational progress message |
+| `supervisor:*` | Supervisor lifecycle events — `kill`, `restart`, `abort`, `summary` |
+| `supervisor:analysis:*` | Post-run analysis events — `complete`, `error` |
+| `supervisor:experiment:*` | Experiment loop events — `start`, `skip`, `recommendations`, `complete`, `error` |
 
 All events carry a `ts` (ISO-8601 timestamp) field. The full TypeScript types are exported from the package:
 
@@ -185,12 +160,12 @@ if (event.type === 'story:escalation') {
 
 ## AI Agent Integration
 
-Substrate is designed to be operated by AI agents, not just humans. Two mechanisms teach agents how to interact with the pipeline at runtime:
+Substrate is designed to be operated by AI agents, not just humans. Three mechanisms teach agents how to interact with the pipeline at runtime:
 
 ### Self-Describing CLI (`--help-agent`)
 
 ```bash
-[npx] substrate run --help-agent
+substrate run --help-agent
 ```
 
 Outputs a machine-optimized markdown prompt fragment (<2000 tokens) that an AI agent can ingest as a system prompt. Generated from the same TypeScript type definitions as the event emitter, so documentation never drifts from implementation. Includes:
@@ -206,24 +181,38 @@ Outputs a machine-optimized markdown prompt fragment (<2000 tokens) that an AI a
 
 - Instructions to run `--help-agent` on first use
 - Event-driven interaction patterns (escalation handling, fix offers, confirmation requirements)
+- Supervisor workflow guidance (when to use `run` vs `supervisor` vs `supervisor --experiment`)
 - Section is wrapped in `<!-- substrate:start/end -->` markers for idempotent updates
 - Re-running `init` updates the substrate section while preserving all other CLAUDE.md content
 
+### Slash Commands
+
+`substrate init` also generates `.claude/commands/` slash commands that Claude Code can invoke directly:
+
+- `/substrate-run` — Start or resume a pipeline run with structured events
+- `/substrate-supervisor` — Launch the supervisor monitor with stall detection and auto-restart
+- `/substrate-metrics` — Query run history, compare runs, and read analysis reports
+
+These commands encode the recommended invocation patterns so Claude uses the right flags without needing to memorize them.
+
 ## Commands
+
+These commands are invoked by AI agents (Claude Code, Codex, Gemini CLI) during pipeline operation. You typically don't run them directly — you tell your agent what to do and it selects the right command.
 
 ### Pipeline
 
 | Command | Description |
 |---------|-------------|
 | `substrate brainstorm` | Interactive multi-persona ideation session |
-| `substrate init` | Initialize methodology pack for autonomous pipeline |
+| `substrate init` | Initialize config, methodology pack, CLAUDE.md scaffold, and slash commands |
 | `substrate run` | Run the full pipeline (analysis → implement) |
 | `substrate run --events` | Emit NDJSON event stream on stdout |
-| `substrate run --verbose` | Show full pino log output on stderr |
-| `substrate run --help-agent` | Print agent instruction prompt fragment and exit |
+| `substrate run --stories <keys>` | Run specific stories (e.g., `7-1,7-2`) |
 | `substrate run --from <phase>` | Start from a specific phase |
+| `substrate run --help-agent` | Print agent instruction prompt fragment and exit |
 | `substrate resume` | Resume an interrupted pipeline run |
 | `substrate status` | Show pipeline run status |
+| `substrate amend` | Run an amendment pipeline against a completed run |
 
 ### Observability
 
@@ -231,10 +220,21 @@ Outputs a machine-optimized markdown prompt fragment (<2000 tokens) that an AI a
 |---------|-------------|
 | `substrate health` | Check pipeline health, stall detection, and process status |
 | `substrate supervisor` | Long-running monitor that kills stalled runs and auto-restarts |
-| `substrate metrics` | Historical pipeline run metrics and cross-run comparison |
-| `substrate monitor status` | View task metrics and agent performance |
+| `substrate supervisor --experiment` | Self-improvement loop: post-run analysis + A/B experiments |
+| `substrate metrics` | Historical pipeline run metrics |
+| `substrate metrics --compare <a,b>` | Side-by-side comparison of two runs |
+| `substrate metrics --analysis <run-id>` | Read the analysis report for a specific run |
+| `substrate monitor status` | View agent performance metrics |
 | `substrate monitor report` | Generate a detailed performance report |
+| `substrate monitor recommendations` | Display routing recommendations from performance data |
 | `substrate cost` | View cost and token usage summary |
+
+### Worktree Management
+
+| Command | Description |
+|---------|-------------|
+| `substrate merge` | Detect conflicts and merge task worktree branches into the target branch |
+| `substrate worktrees` | List all active git worktrees and their associated tasks |
 
 ### Setup
 
@@ -242,11 +242,12 @@ Outputs a machine-optimized markdown prompt fragment (<2000 tokens) that an AI a
 |---------|-------------|
 | `substrate adapters` | List and check available AI agent adapters |
 | `substrate config` | Show, set, export, or import configuration |
+| `substrate upgrade` | Check for updates and upgrade to the latest version |
 | `substrate --help` | Show all available commands |
 
 ## Configuration
 
-Substrate reads configuration from `.substrate/config.yaml` in your project root. Run `[npx] substrate init` to generate a default config.
+Substrate reads configuration from `.substrate/config.yaml` in your project root. Run `substrate init` to generate a default config.
 
 ## Development
 
