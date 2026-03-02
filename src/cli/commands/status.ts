@@ -1,302 +1,205 @@
 /**
  * `substrate status` command
  *
- * Displays the real-time state of an active or recently completed orchestration session.
+ * Shows the status of the most recent (or specified) pipeline run.
  *
  * Usage:
- *   substrate status                          Show most recent session (AC2)
- *   substrate status <sessionId>             Show specific session (AC1)
- *   substrate status <sessionId> --watch     Poll and stream NDJSON (AC3)
- *   substrate status <sessionId> --output-format json  Single NDJSON snapshot (AC4)
- *   substrate status <sessionId> --show-graph          ASCII dependency graph (AC8)
+ *   substrate status                          Show latest pipeline run status
+ *   substrate status --run-id <id>           Show status for a specific run
+ *   substrate status --output-format json    JSON output
  *
  * Exit codes:
- *   0 - Success (snapshot displayed or watch loop completed)
- *   1 - System error (unexpected exception)
- *   2 - Usage error (session not found, invalid args)
+ *   0 - Success
+ *   1 - Error
  */
 
 import type { Command } from 'commander'
 import { join } from 'path'
 import { existsSync } from 'fs'
+import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
-import { runMigrations } from '../../persistence/migrations/index.js'
-import { getSession, getLatestSessionId } from '../../persistence/queries/sessions.js'
-import { getAllTasks } from '../../persistence/queries/tasks.js'
-import { emitStatusSnapshot } from '../formatters/streaming.js'
-import { renderStatusHuman, renderTaskGraph } from '../formatters/status-formatter.js'
-import type { StatusSnapshot, SessionStatus, TaskNode } from '../types/status.js'
+import {
+  getLatestRun,
+  getTokenUsageSummary,
+} from '../../persistence/queries/decisions.js'
+import type { PipelineRun } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
+import type { OutputFormat } from './pipeline-shared.js'
+import {
+  formatOutput,
+  formatTokenTelemetry,
+  buildPipelineStatusOutput,
+  formatPipelineStatusHuman,
+} from './pipeline-shared.js'
 
 const logger = createLogger('status-cmd')
-
-// ---------------------------------------------------------------------------
-// Exit codes
-// ---------------------------------------------------------------------------
-
-export const STATUS_EXIT_SUCCESS = 0
-export const STATUS_EXIT_ERROR = 1
-export const STATUS_EXIT_NOT_FOUND = 2
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/**
- * Options for the status action.
- */
-export interface StatusActionOptions {
-  sessionId?: string
-  watch: boolean
-  outputFormat: 'human' | 'json'
-  showGraph: boolean
-  pollIntervalMs: number
+export interface StatusOptions {
+  outputFormat: OutputFormat
+  runId?: string
   projectRoot: string
 }
 
 // ---------------------------------------------------------------------------
-// fetchStatusSnapshot
+// Action
 // ---------------------------------------------------------------------------
 
-/**
- * Query the database for a complete status snapshot of a session.
- *
- * Uses read-only prepared statements — no writes (AC7 / NFR2).
- * Returns null if the session does not exist.
- */
-export function fetchStatusSnapshot(
-  wrapper: DatabaseWrapper,
-  sessionId: string,
-): StatusSnapshot | null {
-  const db = wrapper.db
+export async function runStatusAction(options: StatusOptions): Promise<number> {
+  const { outputFormat, runId, projectRoot } = options
 
-  const session = getSession(db, sessionId)
-  if (!session) {
-    return null
-  }
-
-  const now = Date.now()
-  const startedAt = session.created_at
-  // SQLite datetime('now') returns UTC in "YYYY-MM-DD HH:MM:SS" format (no timezone
-  // indicator). Node.js parses this as local time unless we normalise to ISO-8601 UTC.
-  const normalisedStartedAt = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(startedAt)
-    ? startedAt.replace(' ', 'T') + 'Z'
-    : startedAt
-  const startMs = new Date(normalisedStartedAt).getTime()
-  const elapsedMs = isNaN(startMs) ? 0 : now - startMs
-
-  // Map session status to the union type
-  const statusMap: Record<string, SessionStatus> = {
-    active: 'active',
-    paused: 'paused',
-    cancelled: 'cancelled',
-    complete: 'complete',
-    completed: 'complete',
-  }
-  const status: SessionStatus = statusMap[session.status] ?? 'active'
-
-  // Query all tasks for this session (read-only)
-  const allTasks = getAllTasks(db, sessionId)
-
-  const taskCounts = {
-    total: allTasks.length,
-    pending: allTasks.filter((t) => t.status === 'pending').length,
-    running: allTasks.filter((t) => t.status === 'running').length,
-    completed: allTasks.filter((t) => t.status === 'completed').length,
-    failed: allTasks.filter((t) => t.status === 'failed').length,
-  }
-
-  const runningTasks = allTasks
-    .filter((t) => t.status === 'running')
-    .map((t) => {
-      const taskStartMs = t.started_at ? new Date(t.started_at).getTime() : startMs
-      const taskElapsedMs = isNaN(taskStartMs) ? 0 : now - taskStartMs
-      return {
-        taskId: t.id,
-        agent: t.agent ?? 'unknown',
-        startedAt: t.started_at ?? startedAt,
-        elapsedMs: taskElapsedMs,
-      }
-    })
-
-  const totalCostUsd = session.total_cost_usd ?? 0
-
-  return {
-    sessionId,
-    status,
-    startedAt,
-    elapsedMs,
-    taskCounts,
-    runningTasks,
-    totalCostUsd,
-  }
-}
-
-// ---------------------------------------------------------------------------
-// isTerminalStatus
-// ---------------------------------------------------------------------------
-
-function isTerminalStatus(status: SessionStatus): boolean {
-  return status === 'complete' || status === 'cancelled'
-}
-
-// ---------------------------------------------------------------------------
-// runStatusAction — testable core logic
-// ---------------------------------------------------------------------------
-
-/**
- * Core action for the status command.
- *
- * Returns exit code. Separated from Commander integration for testability.
- */
-export async function runStatusAction(options: StatusActionOptions): Promise<number> {
-  const {
-    sessionId: explicitSessionId,
-    watch,
-    outputFormat,
-    showGraph,
-    pollIntervalMs,
-    projectRoot,
-  } = options
-
-  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
+  const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const dbPath = join(dbRoot, '.substrate', 'substrate.db')
 
   if (!existsSync(dbPath)) {
-    process.stderr.write(
-      `Error: No Substrate database found at ${dbPath}. Run 'substrate init' first.\n`,
-    )
-    return STATUS_EXIT_ERROR
+    const errorMsg = `Decision store not initialized. Run 'substrate init' first.`
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${errorMsg}\n`)
+    }
+    return 1
   }
 
-  let wrapper: DatabaseWrapper | null = null
+  const dbWrapper = new DatabaseWrapper(dbPath)
 
   try {
-    wrapper = new DatabaseWrapper(dbPath)
-    wrapper.open()
-    const db = wrapper.db
+    dbWrapper.open()
+    const db = dbWrapper.db
 
-    // Run migrations to ensure schema is up-to-date
-    runMigrations(db)
+    // Query pipeline run
+    let run: PipelineRun | undefined
+    if (runId !== undefined && runId !== '') {
+      run = db
+        .prepare('SELECT * FROM pipeline_runs WHERE id = ?')
+        .get(runId) as PipelineRun | undefined
+    } else {
+      run = getLatestRun(db)
+    }
 
-    // Resolve session ID
-    let resolvedSessionId: string | null = explicitSessionId ?? null
-    if (!resolvedSessionId) {
-      resolvedSessionId = getLatestSessionId(db)
-      if (!resolvedSessionId) {
-        process.stdout.write('No sessions found.\n')
-        return STATUS_EXIT_SUCCESS
+    if (run === undefined) {
+      const errorMsg =
+        runId !== undefined
+          ? `Pipeline run '${runId}' not found.`
+          : 'No pipeline runs found. Run `substrate run` first.'
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+      } else {
+        process.stderr.write(`Error: ${errorMsg}\n`)
       }
+      return 1
     }
 
-    // Verify session exists (AC6)
-    const sessionExists = getSession(db, resolvedSessionId)
-    if (!sessionExists) {
-      process.stderr.write(`Error: Session not found: ${resolvedSessionId}\n`)
-      return STATUS_EXIT_NOT_FOUND
-    }
+    // Get token usage summary
+    const tokenSummary = getTokenUsageSummary(db, run.id)
 
-    // --watch mode: polling loop (AC3)
-    if (watch) {
-      return await new Promise<number>((resolve) => {
-        // eslint-disable-next-line prefer-const
-        let interval: ReturnType<typeof setInterval>
+    // Count decisions and stories
+    const decisionsCount =
+      (
+        db
+          .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
+          .get(run.id) as { cnt: number } | undefined
+      )?.cnt ?? 0
 
-        const poll = () => {
-          try {
-            const snapshot = fetchStatusSnapshot(wrapper!, resolvedSessionId!)
-            if (!snapshot) {
-              process.stderr.write(`Error: Session not found: ${resolvedSessionId}\n`)
-              clearInterval(interval)
-              resolve(STATUS_EXIT_NOT_FOUND)
-              return
+    const storiesCount =
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
+          )
+          .get(run.id) as { cnt: number } | undefined
+      )?.cnt ?? 0
+
+    if (outputFormat === 'json') {
+      // AC5: output the exact schema defined in the story
+      const statusOutput = buildPipelineStatusOutput(run, tokenSummary, decisionsCount, storiesCount)
+      process.stdout.write(
+        formatOutput(statusOutput, 'json', true) + '\n',
+      )
+    } else {
+      // Check if this is a phase-level run (has phaseHistory) or legacy implementation-only run
+      let hasPhaseHistory = false
+      try {
+        const config = JSON.parse(run.config_json ?? '{}') as { phaseHistory?: unknown[] }
+        hasPhaseHistory = Array.isArray(config.phaseHistory) && config.phaseHistory.length > 0
+      } catch {
+        // ignore
+      }
+
+      if (hasPhaseHistory) {
+        // Phase-level status display
+        const statusOutput = buildPipelineStatusOutput(run, tokenSummary, decisionsCount, storiesCount)
+        process.stdout.write(formatPipelineStatusHuman(statusOutput) + '\n')
+      } else {
+        // Legacy human-readable status (implementation-only)
+        process.stdout.write(`Pipeline Run: ${run.id}\n`)
+        process.stdout.write(`  Status:       ${run.status}\n`)
+        process.stdout.write(`  Methodology:  ${run.methodology}\n`)
+        process.stdout.write(`  Phase:        ${run.current_phase ?? 'N/A'}\n`)
+        process.stdout.write(`  Created:      ${run.created_at}\n`)
+        process.stdout.write(`  Updated:      ${run.updated_at}\n`)
+
+        // Story breakdown if available
+        let storyState: unknown = null
+        try {
+          if (run.token_usage_json !== null && run.token_usage_json !== undefined) {
+            storyState = JSON.parse(run.token_usage_json)
+          } else if (run.config_json !== null && run.config_json !== undefined) {
+            storyState = JSON.parse(run.config_json)
+          }
+        } catch {
+          // Ignore parse errors
+        }
+
+        if (
+          storyState !== null &&
+          typeof storyState === 'object' &&
+          'stories' in (storyState as Record<string, unknown>)
+        ) {
+          const stories = (
+            storyState as { stories: Record<string, { phase: string; reviewCycles: number }> }
+          ).stories
+          const storyEntries = Object.entries(stories)
+          if (storyEntries.length > 0) {
+            process.stdout.write('\nPer-Story Breakdown:\n')
+            let completed = 0
+            let pending = 0
+            let escalated = 0
+            for (const [key, s] of storyEntries) {
+              process.stdout.write(`  ${key}: ${s.phase} (review cycles: ${s.reviewCycles})\n`)
+              if (s.phase === 'COMPLETE') completed++
+              else if (s.phase === 'ESCALATED') escalated++
+              else pending++
             }
-
-            emitStatusSnapshot(snapshot)
-
-            if (isTerminalStatus(snapshot.status)) {
-              clearInterval(interval)
-              resolve(STATUS_EXIT_SUCCESS)
-            }
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
-            process.stderr.write(`Error: ${message}\n`)
-            clearInterval(interval)
-            resolve(STATUS_EXIT_ERROR)
+            process.stdout.write(
+              `\nSummary: ${completed} completed, ${pending} pending, ${escalated} escalated\n`,
+            )
           }
         }
-
-        // Register SIGINT handler (AC3)
-        const sigintHandler = () => {
-          clearInterval(interval)
-          resolve(STATUS_EXIT_SUCCESS)
-        }
-        process.once('SIGINT', sigintHandler)
-
-        // Start polling loop
-        poll()
-        interval = setInterval(poll, pollIntervalMs)
-      })
-    }
-
-    // Single snapshot
-    const snapshot = fetchStatusSnapshot(wrapper, resolvedSessionId)
-    if (!snapshot) {
-      process.stderr.write(`Error: Session not found: ${resolvedSessionId}\n`)
-      return STATUS_EXIT_NOT_FOUND
-    }
-
-    // --output-format json: emit single NDJSON line (AC4)
-    if (outputFormat === 'json') {
-      emitStatusSnapshot(snapshot)
-      return STATUS_EXIT_SUCCESS
-    }
-
-    // Human-readable output (AC5)
-    process.stdout.write(renderStatusHuman(snapshot) + '\n')
-
-    // --show-graph: render ASCII task dependency graph (AC8)
-    if (showGraph) {
-      const allTasks = getAllTasks(db, resolvedSessionId)
-      const taskNodes: TaskNode[] = allTasks.map((t) => {
-        // Dependencies stored in task_dependencies table; we include a minimal
-        // TaskNode here — full dependency resolution requires a separate query.
-        return {
-          id: t.id,
-          name: t.name,
-          status: t.status,
-          dependencies: [],
-        }
-      })
-
-      // Load dependency relationships
-      const depsStmt = db.prepare(
-        'SELECT task_id, depends_on FROM task_dependencies WHERE task_id IN (SELECT id FROM tasks WHERE session_id = ?)',
-      )
-      type DepRow = { task_id: string; depends_on: string }
-      const depRows = depsStmt.all(resolvedSessionId) as DepRow[]
-      for (const row of depRows) {
-        const node = taskNodes.find((n) => n.id === row.task_id)
-        if (node) {
-          node.dependencies.push(row.depends_on)
-        }
       }
 
-      process.stdout.write('\n' + renderTaskGraph(snapshot, taskNodes) + '\n')
+      process.stdout.write('\n')
+      process.stdout.write(formatTokenTelemetry(tokenSummary) + '\n')
     }
 
-    return STATUS_EXIT_SUCCESS
+    return 0
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`Error: ${message}\n`)
-    logger.error({ err }, 'runStatusAction failed')
-    return STATUS_EXIT_ERROR
+    const msg = err instanceof Error ? err.message : String(err)
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, msg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${msg}\n`)
+    }
+    logger.error({ err }, 'status action failed')
+    return 1
   } finally {
-    if (wrapper !== null) {
-      try {
-        wrapper.close()
-      } catch {
-        // Ignore close errors
-      }
+    try {
+      dbWrapper.close()
+    } catch {
+      // ignore
     }
   }
 }
@@ -305,51 +208,28 @@ export async function runStatusAction(options: StatusActionOptions): Promise<num
 // registerStatusCommand
 // ---------------------------------------------------------------------------
 
-/**
- * Register the `substrate status` command with the CLI program.
- *
- * @param program     - Commander program instance
- * @param version     - Current Substrate package version (unused, reserved for future use)
- * @param projectRoot - Project root directory (defaults to process.cwd())
- */
 export function registerStatusCommand(
   program: Command,
   _version = '0.0.0',
   projectRoot = process.cwd(),
 ): void {
   program
-    .command('status [sessionId]')
-    .description('Show the current status of an orchestration session')
-    .option('--watch', 'Poll and stream NDJSON status updates', false)
+    .command('status')
+    .description('Show status of the most recent (or specified) pipeline run')
+    .option('--run-id <id>', 'Pipeline run ID to query (defaults to latest)')
+    .option('--project-root <path>', 'Project root directory', projectRoot)
     .option(
       '--output-format <format>',
-      'Output format: human (default) or json (NDJSON)',
+      'Output format: human (default) or json',
       'human',
     )
-    .option('--show-graph', 'Display ASCII task dependency graph', false)
-    .option(
-      '--poll-interval <ms>',
-      'Polling interval for --watch mode in milliseconds',
-      '2000',
-    )
-    .action(async (sessionId: string | undefined, opts: {
-      watch: boolean
-      outputFormat: string
-      showGraph: boolean
-      pollInterval: string
-    }) => {
-      const outputFormat: 'human' | 'json' = opts.outputFormat === 'json' ? 'json' : 'human'
-      const pollIntervalMs = parseInt(opts.pollInterval, 10) || 2000
-
+    .action(async (opts: { runId?: string; projectRoot: string; outputFormat: string }) => {
+      const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
       const exitCode = await runStatusAction({
-        ...(sessionId !== undefined && { sessionId }),
-        watch: opts.watch,
         outputFormat,
-        showGraph: opts.showGraph,
-        pollIntervalMs,
-        projectRoot,
+        runId: opts.runId,
+        projectRoot: opts.projectRoot,
       })
-
       process.exitCode = exitCode
     })
 }

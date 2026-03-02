@@ -29,7 +29,12 @@ import {
   getSessionCostSummaryFiltered,
   getPlanningCostTotal,
 } from '../../persistence/queries/cost.js'
-import { getLatestSessionId } from '../../persistence/queries/sessions.js'
+// getLatestSessionId removed — sessions table is no longer populated by the auto pipeline.
+// The cost command will report "No cost data found" since cost_entries is also dead.
+// Use `substrate metrics` for pipeline cost information instead.
+function getLatestSessionId(_db: import('better-sqlite3').Database): string | null {
+  return null
+}
 import { formatTable, buildJsonOutput } from '../utils/formatting.js'
 import type { CLIJsonOutput } from '../utils/formatting.js'
 import type { SessionCostSummary, AgentCostBreakdown, CostEntry } from '../../modules/cost-tracker/types.js'

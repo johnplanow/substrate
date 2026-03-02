@@ -225,7 +225,7 @@ export function createTuiApp(
 
   function renderOverviewLayout(lines: string[], cols: number, rows: number): void {
     // Header
-    lines.push(bold(colorize('  substrate auto run --tui', ANSI.BRIGHT_WHITE, useColor), useColor))
+    lines.push(bold(colorize('  substrate run --tui', ANSI.BRIGHT_WHITE, useColor), useColor))
     if (state.headerLine) {
       lines.push(colorize(`  ${state.headerLine}`, ANSI.BRIGHT_BLACK, useColor))
     }
@@ -300,7 +300,7 @@ export function createTuiApp(
   }
 
   function renderHelpView(lines: string[], cols: number, _rows: number): void {
-    lines.push(bold(colorize('  substrate auto run --tui', ANSI.BRIGHT_WHITE, useColor), useColor))
+    lines.push(bold(colorize('  substrate run --tui', ANSI.BRIGHT_WHITE, useColor), useColor))
     lines.push('')
 
     const helpLines = renderHelpOverlay({ useColor, width: cols })

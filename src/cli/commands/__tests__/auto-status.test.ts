@@ -26,7 +26,7 @@ import {
   formatPipelineSummary,
   formatTokenTelemetry,
   formatOutput,
-} from '../auto.js'
+} from '../pipeline-shared.js'
 
 // ---------------------------------------------------------------------------
 // In-memory DB helpers
@@ -538,12 +538,12 @@ describe('formatTokenTelemetry', () => {
 describe('Error message strings', () => {
   it('status with no runs returns expected error message text', () => {
     // Verify the error message text for no runs
-    const errorMsg = 'No pipeline runs found. Run `substrate auto run` first.'
+    const errorMsg = 'No pipeline runs found. Run `substrate run` first.'
     expect(errorMsg).toContain('No pipeline runs found')
   })
 
   it('status with missing db returns expected error message text', () => {
-    const errorMsg = `Decision store not initialized. Run 'substrate auto init' first.`
+    const errorMsg = `Decision store not initialized. Run 'substrate init' first.`
     expect(errorMsg).toContain('Decision store not initialized')
   })
 })

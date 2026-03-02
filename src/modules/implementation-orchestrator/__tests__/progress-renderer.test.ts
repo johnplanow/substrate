@@ -128,7 +128,7 @@ describe('createProgressRenderer — non-TTY mode', () => {
     renderer.render(startEvent(['10-1', '10-2'], 3))
 
     const out = output()
-    expect(out).toContain('substrate auto run — 2 stories, concurrency 3')
+    expect(out).toContain('substrate run — 2 stories, concurrency 3')
   })
 
   it('writes a blank line after the header in non-TTY mode', () => {
@@ -138,7 +138,7 @@ describe('createProgressRenderer — non-TTY mode', () => {
     renderer.render(startEvent(['10-1']))
 
     const out = output()
-    expect(out).toContain('substrate auto run — 1 stories, concurrency 3\n\n')
+    expect(out).toContain('substrate run — 1 stories, concurrency 3\n\n')
   })
 
   it('writes a phase line for story:phase in_progress', () => {
@@ -410,7 +410,7 @@ describe('createProgressRenderer — TTY mode', () => {
 
     renderer.render(startEvent(['10-1', '10-2'], 2))
 
-    expect(output()).toContain('substrate auto run — 2 stories, concurrency 2')
+    expect(output()).toContain('substrate run — 2 stories, concurrency 2')
   })
 
   it('includes story key in TTY render after pipeline:start', () => {
@@ -511,7 +511,7 @@ describe('createProgressRenderer — TTY mode', () => {
 
     const out = output()
     // Header should appear at least twice (once on start, once on complete)
-    const occurrences = out.split('substrate auto run — 1 stories, concurrency 2').length - 1
+    const occurrences = out.split('substrate run — 1 stories, concurrency 2').length - 1
     expect(occurrences).toBeGreaterThanOrEqual(2)
   })
 
@@ -584,7 +584,7 @@ describe('createProgressRenderer — isTTY override', () => {
     renderer.render(startEvent(['10-1']))
 
     // In TTY mode, header is written without extra blank line (redraw handles it)
-    expect(output()).toContain('substrate auto run — 1 stories, concurrency 3')
+    expect(output()).toContain('substrate run — 1 stories, concurrency 3')
   })
 
   it('defaults to non-TTY when stream.isTTY is undefined', () => {
@@ -596,6 +596,6 @@ describe('createProgressRenderer — isTTY override', () => {
     renderer.render(startEvent(['10-1']))
 
     // Non-TTY mode: header + blank line
-    expect(output()).toContain('substrate auto run — 1 stories, concurrency 3\n\n')
+    expect(output()).toContain('substrate run — 1 stories, concurrency 3\n\n')
   })
 })

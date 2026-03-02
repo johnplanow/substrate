@@ -1,253 +1,583 @@
 /**
  * `substrate resume` command
  *
- * Handles two resume modes:
+ * Resumes a previously interrupted pipeline run from its last checkpoint.
  *
- * 1. Crash-recovery mode (AC7 — no sessionId provided):
- *    Auto-detects the most-recent session with status = 'interrupted' via
- *    CrashRecoveryManager.findInterruptedSession(), re-queues stuck tasks via
- *    CrashRecoveryManager.recover(), and starts execution via
- *    taskGraphEngine.startExecution().
+ *   substrate resume [--run-id <id>] [--pack bmad] [--stop-after <phase>]
+ *                    [--concurrency 3] [--project-root .] [--output-format json]
  *
- *    Usage:
- *      substrate resume                             Auto-detect and resume interrupted session
- *      substrate resume --max-concurrency 2         Override concurrency
- *      substrate resume --output-format json        JSON (NDJSON) output
+ * Architecture (ADR-001: Modular Monolith):
+ *   CLI is a thin wiring layer — all business logic lives in modules.
  *
- * 2. Paused-session mode (legacy — sessionId provided programmatically):
- *    Resumes a paused orchestration session by writing a 'resume' signal to
- *    the session_signals table so the running orchestrator process will
- *    re-enable task dispatching.
- *
- * Exit codes:
- *   0   - Success
- *   1   - System error (unexpected exception)
- *   2   - Usage error (session not found, invalid state transition)
- *   3   - Budget exceeded (crash-recovery mode only)
- *   4   - All tasks failed (crash-recovery mode only)
- *   130 - User interrupted (crash-recovery mode only)
+ * Database (ADR-003: SQLite WAL):
+ *   Uses DatabaseWrapper from src/persistence/database.ts for all DB access.
  */
 
 import type { Command } from 'commander'
 import { join } from 'path'
-import { existsSync } from 'fs'
+import { mkdirSync, existsSync } from 'fs'
+import { resolveMainRepoRoot } from '../../utils/git-root.js'
+import { createEventBus } from '../../core/event-bus.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
 import { runMigrations } from '../../persistence/migrations/index.js'
+import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
+import { createContextCompiler } from '../../modules/context-compiler/index.js'
+import { createDispatcher } from '../../modules/agent-dispatch/index.js'
+import { AdapterRegistry } from '../../adapters/adapter-registry.js'
+import { createImplementationOrchestrator } from '../../modules/implementation-orchestrator/index.js'
+import { createPhaseOrchestrator } from '../../modules/phase-orchestrator/index.js'
+import { runAnalysisPhase } from '../../modules/phase-orchestrator/phases/analysis.js'
+import { runPlanningPhase } from '../../modules/phase-orchestrator/phases/planning.js'
+import { runSolutioningPhase } from '../../modules/phase-orchestrator/phases/solutioning.js'
+import {
+  getLatestRun,
+  addTokenUsage,
+  getTokenUsageSummary,
+  updatePipelineRun,
+} from '../../persistence/queries/decisions.js'
+import type { PipelineRun } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
-import { runStartAction } from './start.js'
-import type { StartActionOptions } from './start.js'
+import {
+  VALID_PHASES,
+  createStopAfterGate,
+  formatPhaseCompletionSummary,
+} from '../../modules/stop-after/index.js'
+import type { PhaseName } from '../../modules/stop-after/index.js'
+import {
+  type OutputFormat,
+  formatOutput,
+  BMAD_BASELINE_TOKENS_FULL,
+  buildPipelineStatusOutput,
+  formatPipelineSummary,
+} from './pipeline-shared.js'
 
 const logger = createLogger('resume-cmd')
 
 // ---------------------------------------------------------------------------
-// Exit codes
+// resume action
 // ---------------------------------------------------------------------------
 
-export const RESUME_EXIT_SUCCESS = 0
-export const RESUME_EXIT_ERROR = 1
-export const RESUME_EXIT_USAGE_ERROR = 2
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface ResumeActionOptions {
-  /**
-   * Session ID to resume (paused-session mode).
-   * When omitted, crash-recovery mode is used (auto-detect interrupted session).
-   */
-  sessionId?: string
-  outputFormat: 'human' | 'json'
+export interface ResumeOptions {
+  runId?: string
+  stopAfter?: PhaseName
+  outputFormat: OutputFormat
   projectRoot: string
-  version?: string
-  /** Max concurrency override (crash-recovery mode only) */
-  maxConcurrency?: number
-  /** When true, config hot-reload watcher is disabled (crash-recovery mode only) */
-  noWatchConfig?: boolean
+  concurrency: number
+  pack: string
 }
 
-// ---------------------------------------------------------------------------
-// runResumeAction — testable core logic
-// ---------------------------------------------------------------------------
+export async function runResumeAction(options: ResumeOptions): Promise<number> {
+  const { runId: specifiedRunId, stopAfter, outputFormat, projectRoot, concurrency, pack: packName } = options
 
-/**
- * Core action for the resume command.
- *
- * When sessionId is provided: resumes a paused session (writes a 'resume' signal).
- * When sessionId is omitted: delegates to runStartAction with resumeMode=true,
- *   which auto-detects the most-recent interrupted (crash-recovered) session.
- *
- * Returns the exit code.
- */
-export async function runResumeAction(options: ResumeActionOptions): Promise<number> {
-  const {
-    sessionId,
-    outputFormat,
-    projectRoot,
-    version = '0.0.0',
-    maxConcurrency,
-    noWatchConfig = false,
-  } = options
-
-  // ---------------------------------------------------------------------------
-  // Crash-recovery mode: no sessionId provided — delegate to runStartAction
-  // ---------------------------------------------------------------------------
-
-  if (sessionId === undefined) {
-    const startOptions: StartActionOptions = {
-      graphFile: undefined,
-      dryRun: false,
-      maxConcurrency,
-      outputFormat,
-      projectRoot,
-      version,
-      noWatchConfig,
-      resumeMode: true,
+  // Validate --stop-after phase (before any DB writes) (AC7)
+  if (stopAfter !== undefined && !VALID_PHASES.includes(stopAfter)) {
+    const errorMsg = `Invalid phase: "${stopAfter}". Valid phases: ${VALID_PHASES.join(', ')}`
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${errorMsg}\n`)
     }
-    return runStartAction(startOptions)
+    return 1
   }
 
-  // ---------------------------------------------------------------------------
-  // Paused-session mode: sessionId provided — resume a paused session
-  // ---------------------------------------------------------------------------
-
-  const dbPath = join(projectRoot, '.substrate', 'substrate.db')
+  const packPath = join(projectRoot, 'packs', packName)
+  const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const dbPath = join(dbRoot, '.substrate', 'substrate.db')
 
   if (!existsSync(dbPath)) {
-    process.stderr.write(`Error: No Substrate database found at ${dbPath}. Run 'substrate init' first.\n`)
-    return RESUME_EXIT_ERROR
+    const errorMsg = `Decision store not initialized. Run 'substrate init' first.`
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${errorMsg}\n`)
+    }
+    return 1
   }
 
-  let wrapper: DatabaseWrapper | null = null
+  const dbWrapper = new DatabaseWrapper(dbPath)
 
   try {
-    wrapper = new DatabaseWrapper(dbPath)
-    wrapper.open()
-    const db = wrapper.db
+    dbWrapper.open()
+    const db = dbWrapper.db
 
-    runMigrations(db)
-
-    // Query session by ID
-    const session = db
-      .prepare('SELECT id, status FROM sessions WHERE id = ?')
-      .get(sessionId) as { id: string; status: string } | undefined
-
-    if (!session) {
-      process.stderr.write(`Error: Session not found: ${sessionId}\n`)
-      return RESUME_EXIT_USAGE_ERROR
-    }
-
-    // AC4: invalid state transition
-    if (session.status !== 'paused') {
-      const msg = `Session ${sessionId} is ${session.status} — can only resume a paused session.`
+    // Load methodology pack
+    const packLoader = createPackLoader()
+    let pack
+    try {
+      pack = await packLoader.load(packPath)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      const errorMsg = `Methodology pack '${packName}' not found. Run 'substrate init' first.\n${msg}`
       if (outputFormat === 'json') {
-        const line = JSON.stringify({
-          event: 'session:resume',
-          timestamp: new Date().toISOString(),
-          data: {
-            sessionId,
-            previousStatus: session.status,
-            newStatus: session.status,
-            message: msg,
-          },
-        })
-        process.stdout.write(line + '\n')
+        process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
       } else {
-        process.stdout.write(msg + '\n')
+        process.stderr.write(`Error: ${errorMsg}\n`)
       }
-      return RESUME_EXIT_USAGE_ERROR
+      return 1
     }
 
-    const previousStatus = session.status
-
-    // Atomically update session status and insert signal
-    db.transaction(() => {
-      db.prepare(`UPDATE sessions SET status = 'active', updated_at = datetime('now') WHERE id = ?`).run(sessionId)
-      db.prepare(
-        `INSERT INTO session_signals (session_id, signal) VALUES (?, 'resume')`,
-      ).run(sessionId)
-    })()
-
-    // Count pending tasks
-    const pendingCount = (db
-      .prepare(`SELECT COUNT(*) as cnt FROM tasks WHERE session_id = ? AND status IN ('pending', 'ready')`)
-      .get(sessionId) as { cnt: number }).cnt
-
-    const humanMsg = `Session ${sessionId} resumed. ${pendingCount} tasks pending.`
-
-    if (outputFormat === 'json') {
-      const line = JSON.stringify({
-        event: 'session:resume',
-        timestamp: new Date().toISOString(),
-        data: {
-          sessionId,
-          previousStatus,
-          newStatus: 'active',
-          message: humanMsg,
-        },
-      })
-      process.stdout.write(line + '\n')
+    // Load pipeline run
+    let run: PipelineRun | undefined
+    if (specifiedRunId !== undefined && specifiedRunId !== '') {
+      run = db
+        .prepare('SELECT * FROM pipeline_runs WHERE id = ?')
+        .get(specifiedRunId) as PipelineRun | undefined
     } else {
-      process.stdout.write(humanMsg + '\n')
+      run = getLatestRun(db)
     }
 
-    return RESUME_EXIT_SUCCESS
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`Error: ${message}\n`)
-    logger.error({ err }, 'runResumeAction failed')
-    return RESUME_EXIT_ERROR
-  } finally {
-    if (wrapper !== null) {
-      try {
-        wrapper.close()
-      } catch {
-        // Ignore close errors
+    if (run === undefined) {
+      const errorMsg =
+        specifiedRunId !== undefined
+          ? `Pipeline run '${specifiedRunId}' not found.`
+          : 'No pipeline runs found. Run `substrate run --from analysis` first.'
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+      } else {
+        process.stderr.write(`Error: ${errorMsg}\n`)
       }
+      return 1
+    }
+
+    const runId = run.id
+
+    if (outputFormat === 'human') {
+      process.stdout.write(`Resuming pipeline run: ${runId}\n`)
+    }
+
+    // Create PhaseOrchestrator and determine resume point
+    const phaseOrchestrator = createPhaseOrchestrator({ db, pack })
+    const runStatus = await phaseOrchestrator.resumeRun(runId)
+
+    const resumePhase = runStatus.currentPhase as PhaseName | null
+
+    if (resumePhase === null || runStatus.status === 'completed') {
+      if (outputFormat === 'human') {
+        process.stdout.write('Pipeline run is already completed.\n')
+      } else {
+        process.stdout.write(formatOutput({ runId, status: 'completed' }, 'json', true) + '\n')
+      }
+      return 0
+    }
+
+    if (outputFormat === 'human') {
+      process.stdout.write(`Resuming from phase: ${resumePhase}\n`)
+    }
+
+    // Get concept from config_json
+    let concept = ''
+    try {
+      const config = JSON.parse(run.config_json ?? '{}') as { concept?: string }
+      concept = config.concept ?? ''
+    } catch {
+      // ignore
+    }
+
+    // Determine db directory from db path
+    const dbDir = dbPath.replace('/substrate.db', '')
+
+    // Execute remaining phases
+    return runFullPipelineFromPhase({
+      packName,
+      packPath,
+      dbDir,
+      dbPath,
+      startPhase: resumePhase,
+      stopAfter,
+      concept,
+      concurrency,
+      outputFormat,
+      existingRunId: runId,
+      projectRoot,
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, msg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${msg}\n`)
+    }
+    logger.error({ err }, 'auto resume failed')
+    return 1
+  } finally {
+    try {
+      dbWrapper.close()
+    } catch {
+      // ignore
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// registerResumeCommand
+// Full pipeline execution from a specific phase with an existing run ID
 // ---------------------------------------------------------------------------
 
-/**
- * Register the `substrate resume` command with the CLI program.
- *
- * The CLI command operates in crash-recovery mode (no sessionId argument).
- *
- * @param program     - Commander program instance
- * @param version     - Current Substrate package version (for JSON output)
- * @param projectRoot - Project root directory (defaults to process.cwd())
- */
+export interface FullPipelineFromPhaseOptions {
+  packName: string
+  packPath: string
+  dbDir: string
+  dbPath: string
+  startPhase: PhaseName
+  stopAfter?: PhaseName
+  concept: string
+  concurrency: number
+  outputFormat: OutputFormat
+  existingRunId?: string
+  projectRoot: string
+}
+
+export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): Promise<number> {
+  const {
+    packName,
+    packPath,
+    dbDir,
+    dbPath,
+    startPhase,
+    stopAfter,
+    concept,
+    concurrency,
+    outputFormat,
+    existingRunId,
+    projectRoot,
+  } = options
+
+  if (!existsSync(dbDir)) {
+    mkdirSync(dbDir, { recursive: true })
+  }
+
+  const dbWrapper = new DatabaseWrapper(dbPath)
+
+  try {
+    dbWrapper.open()
+    runMigrations(dbWrapper.db)
+    const db = dbWrapper.db
+
+    const packLoader = createPackLoader()
+    let pack
+    try {
+      pack = await packLoader.load(packPath)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      const errorMsg = `Methodology pack '${packName}' not found. Run 'substrate init' first.\n${msg}`
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+      } else {
+        process.stderr.write(`Error: ${errorMsg}\n`)
+      }
+      return 1
+    }
+
+    const eventBus = createEventBus()
+    const contextCompiler = createContextCompiler({ db })
+    const adapterRegistry = new AdapterRegistry()
+    await adapterRegistry.discoverAndRegister()
+    const dispatcher = createDispatcher({ eventBus, adapterRegistry })
+    const phaseDeps = { db, pack, contextCompiler, dispatcher }
+
+    const phaseOrchestrator = createPhaseOrchestrator({ db, pack })
+
+    const startedAt = Date.now()
+    let runId: string
+
+    if (existingRunId !== undefined) {
+      runId = existingRunId
+    } else {
+      runId = await phaseOrchestrator.startRun(concept, startPhase)
+    }
+
+    const phaseOrder: PhaseName[] = ['analysis', 'planning', 'solutioning', 'implementation']
+    const startIdx = phaseOrder.indexOf(startPhase)
+
+    for (let i = startIdx; i < phaseOrder.length; i++) {
+      const currentPhase = phaseOrder[i]
+
+      if (outputFormat === 'human') {
+        process.stdout.write(`\n[${currentPhase.toUpperCase()}] Starting...\n`)
+      }
+
+      if (currentPhase === 'analysis') {
+        const result = await runAnalysisPhase(phaseDeps, { runId, concept })
+        if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
+          const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          addTokenUsage(db, runId, {
+            phase: 'analysis',
+            agent: 'claude-code',
+            input_tokens: result.tokenUsage.input,
+            output_tokens: result.tokenUsage.output,
+            cost_usd: costUsd,
+          })
+        }
+        if (result.result === 'failed') {
+          updatePipelineRun(db, runId, { status: 'failed' })
+          const errorMsg = `Analysis phase failed: ${result.error ?? 'unknown error'}`
+          if (outputFormat === 'human') {
+            process.stderr.write(`Error: ${errorMsg}\n`)
+          } else {
+            process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+          }
+          return 1
+        }
+        if (outputFormat === 'human') {
+          process.stdout.write(`[ANALYSIS] Complete\n`)
+        }
+      } else if (currentPhase === 'planning') {
+        const result = await runPlanningPhase(phaseDeps, { runId })
+        if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
+          const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          addTokenUsage(db, runId, {
+            phase: 'planning',
+            agent: 'claude-code',
+            input_tokens: result.tokenUsage.input,
+            output_tokens: result.tokenUsage.output,
+            cost_usd: costUsd,
+          })
+        }
+        if (result.result === 'failed') {
+          updatePipelineRun(db, runId, { status: 'failed' })
+          const errorMsg = `Planning phase failed: ${result.error ?? 'unknown error'}`
+          if (outputFormat === 'human') {
+            process.stderr.write(`Error: ${errorMsg}\n`)
+          } else {
+            process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+          }
+          return 1
+        }
+        if (outputFormat === 'human') {
+          process.stdout.write(`[PLANNING] Complete\n`)
+        }
+      } else if (currentPhase === 'solutioning') {
+        const result = await runSolutioningPhase(phaseDeps, { runId })
+        if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
+          const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          addTokenUsage(db, runId, {
+            phase: 'solutioning',
+            agent: 'claude-code',
+            input_tokens: result.tokenUsage.input,
+            output_tokens: result.tokenUsage.output,
+            cost_usd: costUsd,
+          })
+        }
+        if (result.result === 'failed') {
+          updatePipelineRun(db, runId, { status: 'failed' })
+          const errorMsg = `Solutioning phase failed: ${result.error ?? 'unknown error'}`
+          if (outputFormat === 'human') {
+            process.stderr.write(`Error: ${errorMsg}\n`)
+          } else {
+            process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+          }
+          return 1
+        }
+        if (outputFormat === 'human') {
+          process.stdout.write(`[SOLUTIONING] Complete\n`)
+        }
+      } else if (currentPhase === 'implementation') {
+        const orchestrator = createImplementationOrchestrator({
+          db,
+          pack,
+          contextCompiler,
+          dispatcher,
+          eventBus,
+          config: {
+            maxConcurrency: concurrency,
+            maxReviewCycles: 2,
+            pipelineRunId: runId,
+          },
+          projectRoot,
+        })
+
+        eventBus.on('orchestrator:story-phase-complete', (payload) => {
+          try {
+            const result = payload.result as { tokenUsage?: { input: number; output: number } }
+            if (result?.tokenUsage !== undefined) {
+              const { input, output } = result.tokenUsage
+              const costUsd = (input * 3 + output * 15) / 1_000_000
+              addTokenUsage(db, runId, {
+                phase: payload.phase,
+                agent: 'claude-code',
+                input_tokens: input,
+                output_tokens: output,
+                cost_usd: costUsd,
+              })
+            }
+          } catch (err) {
+            logger.warn({ err }, 'Failed to record token usage')
+          }
+        })
+
+        const storyDecisions = db
+          .prepare(
+            `SELECT description FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
+          )
+          .all(runId) as Array<{ description: string }>
+
+        const storyKeys: string[] = []
+        for (const req of storyDecisions) {
+          const keyMatch = /^(\d+-\d+):/.exec(req.description)
+          if (keyMatch) {
+            storyKeys.push(keyMatch[1])
+          }
+        }
+
+        await orchestrator.run(storyKeys)
+
+        if (outputFormat === 'human') {
+          process.stdout.write('[IMPLEMENTATION] Complete\n')
+        }
+      }
+
+      // Evaluate stop-after gate after each phase completes (AC8: between phases, not mid-phase)
+      if (stopAfter !== undefined && currentPhase === stopAfter) {
+        const gate = createStopAfterGate(stopAfter)
+        if (gate.shouldHalt()) {
+          // Count decisions for summary
+          const decisionsCount =
+            (db
+              .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
+              .get(runId) as { cnt: number } | undefined)?.cnt ?? 0
+
+          // Update run status to 'stopped' atomically before emitting summary (AC4)
+          updatePipelineRun(db, runId, { status: 'stopped' })
+
+          // Emit phase completion summary (AC5)
+          const phaseStartedAt = new Date(startedAt).toISOString()
+          const phaseCompletedAt = new Date().toISOString()
+          const summary = formatPhaseCompletionSummary({
+            phaseName: stopAfter,
+            startedAt: phaseStartedAt,
+            completedAt: phaseCompletedAt,
+            decisionsCount,
+            // artifact paths not available at integration level; summary uses phase metadata only
+            artifactPaths: [],
+            runId,
+          })
+          process.stdout.write(summary + '\n')
+          return 0
+        }
+      }
+
+      // Advance phase (except after implementation)
+      if (i < phaseOrder.length - 1) {
+        const advanceResult = await phaseOrchestrator.advancePhase(runId)
+        if (!advanceResult.advanced) {
+          const gateErrors =
+            advanceResult.gateFailures?.map((f) => f.error).join('; ') ?? 'unknown gate failure'
+          const errorMsg = `Phase gate check failed after ${currentPhase}: ${gateErrors}`
+          if (outputFormat === 'human') {
+            process.stderr.write(`Error: ${errorMsg}\n`)
+          } else {
+            process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+          }
+          return 1
+        }
+      }
+    }
+
+    // Final summary
+    const tokenSummary = getTokenUsageSummary(db, runId)
+    const durationMs = Date.now() - startedAt
+
+    const decisionsCount =
+      (
+        db
+          .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
+          .get(runId) as { cnt: number } | undefined
+      )?.cnt ?? 0
+
+    const storiesCount =
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
+          )
+          .get(runId) as { cnt: number } | undefined
+      )?.cnt ?? 0
+
+    const finalRun = db.prepare('SELECT * FROM pipeline_runs WHERE id = ?').get(runId) as
+      | PipelineRun
+      | undefined
+
+    if (outputFormat === 'json') {
+      const statusOutput = buildPipelineStatusOutput(
+        finalRun ?? ({ id: runId } as PipelineRun),
+        tokenSummary,
+        decisionsCount,
+        storiesCount,
+      )
+      process.stdout.write(formatOutput(statusOutput, 'json', true) + '\n')
+    } else {
+      process.stdout.write('\n')
+      process.stdout.write(
+        formatPipelineSummary(
+          finalRun ?? ({ id: runId } as PipelineRun),
+          tokenSummary,
+          decisionsCount,
+          storiesCount,
+          durationMs,
+          'human',
+        ) + '\n',
+      )
+    }
+
+    return 0
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, msg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${msg}\n`)
+    }
+    logger.error({ err }, 'pipeline from phase failed')
+    return 1
+  } finally {
+    try {
+      dbWrapper.close()
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Command registration
+// ---------------------------------------------------------------------------
+
 export function registerResumeCommand(
   program: Command,
-  version = '0.0.0',
+  _version = '0.0.0',
   projectRoot = process.cwd(),
 ): void {
   program
     .command('resume')
-    .description('Resume the most-recent interrupted (crash-recovered) orchestration session')
-    .option('--max-concurrency <n>', 'Maximum number of concurrent tasks', parseInt)
+    .description('Resume a previously interrupted pipeline run')
+    .option('--run-id <id>', 'Pipeline run ID to resume (defaults to latest)')
+    .option('--pack <name>', 'Methodology pack name', 'bmad')
+    .option('--stop-after <phase>', 'Stop pipeline after this phase completes (overrides saved state)')
+    .option('--concurrency <n>', 'Maximum parallel conflict groups', (v: string) => parseInt(v, 10), 3)
+    .option('--project-root <path>', 'Project root directory', projectRoot)
     .option(
       '--output-format <format>',
-      'Output format: human (default) or json (NDJSON streaming)',
+      'Output format: human (default) or json',
       'human',
     )
-    .option('--no-watch-config', 'Disable config file watching during orchestration')
-    .action(async (opts: { maxConcurrency?: number; outputFormat: string; watchConfig: boolean }) => {
-      const outputFormat: 'human' | 'json' = opts.outputFormat === 'json' ? 'json' : 'human'
-
-      // CLI always uses crash-recovery mode (no sessionId)
-      const exitCode = await runResumeAction({
-        outputFormat,
-        projectRoot,
-        maxConcurrency: opts.maxConcurrency,
-        version,
-        noWatchConfig: !opts.watchConfig,
-      })
-
-      process.exitCode = exitCode
-    })
+    .action(
+      async (opts: {
+        runId?: string
+        stopAfter?: string
+        pack: string
+        concurrency: number
+        projectRoot: string
+        outputFormat: string
+      }) => {
+        const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
+        const exitCode = await runResumeAction({
+          runId: opts.runId,
+          stopAfter: opts.stopAfter as PhaseName | undefined,
+          outputFormat,
+          projectRoot: opts.projectRoot,
+          concurrency: opts.concurrency,
+          pack: opts.pack,
+        })
+        process.exitCode = exitCode
+      },
+    )
 }

@@ -5,7 +5,7 @@
  *  1. The existing database schema (decisions, artifacts tables — columns unchanged)
  *  2. Decisions written by old single-dispatch runs are still readable by the
  *     new multi-step query functions (getDecisionsByPhaseForRun, getArtifactByTypeForRun)
- *  3. substrate auto status JSON output schema fields are unchanged (no regressions)
+ *  3. substrate status JSON output schema fields are unchanged (no regressions)
  *
  * These tests intentionally DO NOT invoke the multi-step path — they simulate
  * the legacy single-dispatch write pattern and verify the new code can read it.
@@ -417,7 +417,7 @@ describe('AC7: auto status output schema unchanged', () => {
 
   it('buildPipelineStatusOutput produces all required schema fields', async () => {
     // Import the function that produces the JSON status used by agents
-    const { buildPipelineStatusOutput } = await import('../../../cli/commands/auto.js')
+    const { buildPipelineStatusOutput } = await import('../../../cli/commands/pipeline-shared.js')
 
     const run = createPipelineRun(db, {
       methodology: 'bmad',

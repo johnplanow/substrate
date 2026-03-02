@@ -1,24 +1,30 @@
 /**
  * `substrate init` command
  *
- * Creates a `.substrate/` directory in the current project with:
- *   - config.yaml  (sensible defaults + detected provider settings)
- *   - routing-policy.yaml  (default routing policy)
+ * Combined initialization:
+ *   1. Creates .substrate/ directory with config.yaml + routing-policy.yaml
+ *   2. Scaffolds BMAD framework, CLAUDE.md, statusline, settings, commands
+ *   3. Initializes database + runs migrations
  *
- * Runs adapter discovery and prompts for per-provider subscription routing.
+ * Usage:
+ *   substrate init                             Initialize with defaults
+ *   substrate init --pack bmad                Specify methodology pack
+ *   substrate init --project-root <path>      Target directory
+ *   substrate init -y                          Skip interactive prompts
+ *   substrate init --force                    Force overwrite of existing files
+ *   substrate init --output-format json       JSON output
  *
- * Also supports task graph template generation:
- *   substrate init --list-templates          List all available templates
- *   substrate init --template <name>         Generate a template task graph
- *   substrate init --template <name> --output custom/path.yaml
- *   substrate init --template <name> --force  Overwrite existing file
+ * Exit codes:
+ *   0 - Success
+ *   1 - Error
  */
 
 import type { Command } from 'commander'
-import { mkdir, writeFile, access } from 'fs/promises'
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
-import { join, resolve, dirname, isAbsolute } from 'path'
+import { mkdir, writeFile, access, readFile } from 'fs/promises'
+import { mkdirSync, writeFileSync, existsSync, readFileSync, cpSync, chmodSync, readdirSync, unlinkSync } from 'fs'
+import { join, resolve, dirname } from 'path'
 import yaml from 'js-yaml'
+import { createRequire } from 'node:module'
 import { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { DEFAULT_CONFIG, DEFAULT_ROUTING_POLICY } from '../../modules/config/defaults.js'
 import type {
@@ -28,19 +34,24 @@ import type {
   RoutingPolicy,
 } from '../../modules/config/config-schema.js'
 import { CURRENT_CONFIG_FORMAT_VERSION, CURRENT_TASK_GRAPH_VERSION } from '../../modules/config/config-schema.js'
+import { resolveMainRepoRoot } from '../../utils/git-root.js'
+import { DatabaseWrapper } from '../../persistence/database.js'
+import { runMigrations } from '../../persistence/migrations/index.js'
+import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createLogger } from '../../utils/logger.js'
 import { ConfigError } from '../../core/errors.js'
-import { getTemplate, listTemplates } from './templates.js'
+import type { OutputFormat } from './pipeline-shared.js'
+import {
+  findPackageRoot,
+  resolveBmadMethodSrcPath,
+  resolveBmadMethodVersion,
+  SUBSTRATE_OWNED_SETTINGS_KEYS,
+  getSubstrateDefaultSettings,
+  formatOutput,
+} from './pipeline-shared.js'
 
 const logger = createLogger('init')
-
-/**
- * Detect whether the CLI was invoked via `npx substrate`.
- * When true, prefix suggested commands with `npx `.
- */
-function isNpxInvocation(): boolean {
-  return process.env['npm_command'] === 'exec'
-}
+const __dirname = dirname(new URL(import.meta.url).pathname)
 
 // ---------------------------------------------------------------------------
 // Exit codes
@@ -48,149 +59,432 @@ function isNpxInvocation(): boolean {
 
 export const INIT_EXIT_SUCCESS = 0
 export const INIT_EXIT_ERROR = 1
-export const INIT_EXIT_ALREADY_EXISTS = 2
-export const INIT_EXIT_USAGE_ERROR = 2  // alias — same value as ALREADY_EXISTS for template errors
 
 // ---------------------------------------------------------------------------
-// Template action — generate a task graph template file
+// BMAD framework scaffolding
 // ---------------------------------------------------------------------------
 
-export interface TemplateOptions {
-  /** Template name to generate */
-  template: string
-  /** Output file path (default: tasks.yaml in cwd) */
-  output?: string
-  /** Overwrite existing file without prompting */
-  force?: boolean
-  /** Output format: 'human' (default) or 'json' (NDJSON) */
-  outputFormat?: 'human' | 'json'
-  /** Working directory (defaults to process.cwd()) */
-  cwd?: string
+const BMAD_FRAMEWORK_DIRS = ['core', 'bmm', 'tea'] as const
+
+export async function scaffoldBmadFramework(
+  projectRoot: string,
+  force: boolean,
+  outputFormat: OutputFormat,
+): Promise<void> {
+  const bmadDest = join(projectRoot, '_bmad')
+  const bmadExists = existsSync(bmadDest)
+
+  if (bmadExists && !force) {
+    return
+  }
+
+  const bmadSrc = resolveBmadMethodSrcPath()
+  if (!bmadSrc) {
+    if (outputFormat !== 'json') {
+      process.stderr.write(
+        'Warning: bmad-method is not installed. BMAD framework not scaffolded. Run: npm install bmad-method\n',
+      )
+    }
+    return
+  }
+
+  const version = resolveBmadMethodVersion()
+
+  if (force && bmadExists) {
+    process.stderr.write(
+      `Warning: Replacing existing _bmad/ framework with bmad-method@${version}\n`,
+    )
+  }
+
+  process.stdout.write(`Scaffolding BMAD framework from bmad-method@${version}\n`)
+  logger.info({ version, dest: bmadDest }, 'Scaffolding BMAD framework')
+
+  for (const dir of BMAD_FRAMEWORK_DIRS) {
+    const srcDir = join(bmadSrc, dir)
+    if (existsSync(srcDir)) {
+      const destDir = join(bmadDest, dir)
+      mkdirSync(destDir, { recursive: true })
+      cpSync(srcDir, destDir, { recursive: true })
+      logger.info({ dir, dest: destDir }, 'Scaffolded BMAD framework directory')
+    }
+  }
+
+  const configDir = join(bmadDest, '_config')
+  const configFile = join(configDir, 'config.yaml')
+  if (!existsSync(configFile)) {
+    mkdirSync(configDir, { recursive: true })
+    const configStub = [
+      '# BMAD framework configuration',
+      `# Scaffolded from bmad-method@${version} by substrate init`,
+      '# This file is project-specific — customize as needed.',
+      'user_name: Human',
+      'communication_language: English',
+      'document_output_language: English',
+    ].join('\n') + '\n'
+    await writeFile(configFile, configStub, 'utf8')
+    logger.info({ configFile }, 'Generated _bmad/_config/config.yaml stub')
+  }
 }
 
-/**
- * Run the template generation action.
- *
- * @returns exit code (0 = success, 2 = usage error)
- */
-export function runTemplateAction(options: TemplateOptions): number {
-  const { template: templateName, force = false, outputFormat = 'human' } = options
-  const cwd = options.cwd ?? process.cwd()
+// ---------------------------------------------------------------------------
+// CLAUDE.md scaffold
+// ---------------------------------------------------------------------------
 
-  // AC8: Look up the template
-  const templateDef = getTemplate(templateName)
-  if (templateDef === undefined) {
-    process.stderr.write(
-      `Error: Unknown template '${templateName}'. Run 'substrate init --list-templates' to see available templates.\n`
-    )
-    return INIT_EXIT_USAGE_ERROR
+export const CLAUDE_MD_START_MARKER = '<!-- substrate:start -->'
+export const CLAUDE_MD_END_MARKER = '<!-- substrate:end -->'
+
+export async function scaffoldClaudeMd(projectRoot: string): Promise<void> {
+  const claudeMdPath = join(projectRoot, 'CLAUDE.md')
+  const pkgRoot = findPackageRoot(__dirname)
+  const templateName = 'claude-md-substrate-section.md'
+  let templatePath = join(pkgRoot, 'dist', 'cli', 'templates', templateName)
+  if (!existsSync(templatePath)) {
+    templatePath = join(pkgRoot, 'src', 'cli', 'templates', templateName)
   }
 
-  // AC6: Resolve output path
-  const rawOutput = options.output ?? 'tasks.yaml'
-  const outputPath = isAbsolute(rawOutput) ? rawOutput : join(cwd, rawOutput)
-
-  // Track whether file existed before we write (for AC7 suffix message)
-  const fileExistedBefore = existsSync(outputPath)
-
-  // AC7: Overwrite protection
-  if (fileExistedBefore && !force) {
-    process.stderr.write(
-      `Error: ${outputPath} already exists. Use --force to overwrite.\n`
-    )
-    return INIT_EXIT_USAGE_ERROR
+  let sectionContent: string
+  try {
+    sectionContent = await readFile(templatePath, 'utf8')
+  } catch {
+    logger.warn({ templatePath }, 'CLAUDE.md substrate section template not found; skipping')
+    return
   }
 
-  // Read template content
+  if (!sectionContent.endsWith('\n')) {
+    sectionContent += '\n'
+  }
+
+  let existingContent = ''
+  let claudeMdExists = false
+
+  try {
+    existingContent = await readFile(claudeMdPath, 'utf8')
+    claudeMdExists = true
+  } catch {
+    // File does not exist — will create it
+  }
+
+  let newContent: string
+
+  if (!claudeMdExists) {
+    newContent = sectionContent
+  } else if (existingContent.includes(CLAUDE_MD_START_MARKER)) {
+    newContent = existingContent.replace(
+      new RegExp(
+        `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+      ),
+      sectionContent.trimEnd(),
+    )
+  } else {
+    const separator = existingContent.endsWith('\n') ? '\n' : '\n\n'
+    newContent = existingContent + separator + sectionContent
+  }
+
+  await writeFile(claudeMdPath, newContent, 'utf8')
+  logger.info({ claudeMdPath }, 'Wrote substrate section to CLAUDE.md')
+}
+
+// ---------------------------------------------------------------------------
+// .claude/statusline.sh scaffold
+// ---------------------------------------------------------------------------
+
+export async function scaffoldStatuslineScript(projectRoot: string): Promise<void> {
+  const pkgRoot = findPackageRoot(__dirname)
+  const templateName = 'statusline.sh'
+  let templatePath = join(pkgRoot, 'dist', 'cli', 'templates', templateName)
+  if (!existsSync(templatePath)) {
+    templatePath = join(pkgRoot, 'src', 'cli', 'templates', templateName)
+  }
+
   let content: string
   try {
-    content = readFileSync(templateDef.filePath, 'utf-8')
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`Error: failed to read template file — ${message}\n`)
-    return INIT_EXIT_ERROR
+    content = await readFile(templatePath, 'utf8')
+  } catch {
+    logger.warn({ templatePath }, 'statusline.sh template not found; skipping')
+    return
   }
 
-  // AC6: Create parent directories if needed
-  try {
-    mkdirSync(dirname(outputPath), { recursive: true })
-    writeFileSync(outputPath, content, 'utf-8')
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`Error: failed to write template file — ${message}\n`)
-    return INIT_EXIT_ERROR
-  }
-
-  // AC6, AC7: Success message
-  const suffix = fileExistedBefore && force ? ' (overwritten)' : ''
-  process.stdout.write(`Template written to: ${outputPath}${suffix}\n`)
-
-  // AC10: NDJSON event
-  if (outputFormat === 'json') {
-    const event = {
-      event: 'template:generated',
-      timestamp: new Date().toISOString(),
-      data: {
-        template: templateName,
-        outputPath,
-        taskCount: templateDef.taskCount,
-      },
-    }
-    process.stdout.write(JSON.stringify(event) + '\n')
-  }
-
-  return INIT_EXIT_SUCCESS
-}
-
-
-/**
- * Handle --list-templates flag.
- *
- * @returns exit code
- */
-export function runListTemplates(): number {
-  const templates = listTemplates()
-  process.stdout.write('Available task graph templates:\n')
-  for (const t of templates) {
-    // Pad name to 24 chars for alignment
-    const paddedName = t.name.padEnd(24)
-    process.stdout.write(`  ${paddedName}${t.description}\n`)
-  }
-  return INIT_EXIT_SUCCESS
+  const claudeDir = join(projectRoot, '.claude')
+  const statuslinePath = join(claudeDir, 'statusline.sh')
+  mkdirSync(claudeDir, { recursive: true })
+  await writeFile(statuslinePath, content, 'utf8')
+  chmodSync(statuslinePath, 0o755)
+  logger.info({ statuslinePath }, 'Wrote .claude/statusline.sh')
 }
 
 // ---------------------------------------------------------------------------
-// Provider config builder
+// .claude/settings.json scaffold (upgrade-safe merge)
+// ---------------------------------------------------------------------------
+
+export async function scaffoldClaudeSettings(projectRoot: string): Promise<void> {
+  const claudeDir = join(projectRoot, '.claude')
+  const settingsPath = join(claudeDir, 'settings.json')
+
+  let existing: Record<string, unknown> = {}
+  try {
+    const raw = await readFile(settingsPath, 'utf8')
+    existing = JSON.parse(raw)
+  } catch {
+    // File doesn't exist or invalid JSON — start fresh
+  }
+
+  const defaults = getSubstrateDefaultSettings()
+  const merged = { ...existing }
+
+  for (const key of SUBSTRATE_OWNED_SETTINGS_KEYS) {
+    merged[key] = defaults[key]
+  }
+
+  if (!merged['$schema']) {
+    merged['$schema'] = 'https://json.schemastore.org/claude-code-settings.json'
+  }
+
+  mkdirSync(claudeDir, { recursive: true })
+  await writeFile(settingsPath, JSON.stringify(merged, null, 2) + '\n', 'utf8')
+  logger.info({ settingsPath }, 'Wrote substrate settings to .claude/settings.json')
+}
+
+// ---------------------------------------------------------------------------
+// .claude/commands/ scaffold (bmad slash commands)
+// ---------------------------------------------------------------------------
+
+export function resolveBmadMethodInstallerLibPath(fromDir: string = __dirname): string | null {
+  try {
+    const _require = createRequire(join(fromDir, 'synthetic.js'))
+    const pkgJsonPath = _require.resolve('bmad-method/package.json')
+    return join(dirname(pkgJsonPath), 'tools', 'cli', 'installers', 'lib')
+  } catch {
+    return null
+  }
+}
+
+export function scanBmadModules(bmadDir: string): string[] {
+  const modules: string[] = []
+  try {
+    const entries = readdirSync(bmadDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name.startsWith('_') || entry.name === 'core') continue
+      const modPath = join(bmadDir, entry.name)
+      const hasAgents = existsSync(join(modPath, 'agents'))
+      const hasWorkflows = existsSync(join(modPath, 'workflows'))
+      const hasTasks = existsSync(join(modPath, 'tasks'))
+      if (hasAgents || hasWorkflows || hasTasks) {
+        modules.push(entry.name)
+      }
+    }
+  } catch {
+    // _bmad/ not accessible
+  }
+  return modules
+}
+
+function clearBmadCommandFiles(commandsDir: string): void {
+  try {
+    const entries = readdirSync(commandsDir)
+    for (const entry of entries) {
+      if (entry.startsWith('bmad-') && entry.endsWith('.md')) {
+        try {
+          unlinkSync(join(commandsDir, entry))
+        } catch {
+          // ignore individual file errors
+        }
+      }
+    }
+  } catch {
+    // directory didn't exist or couldn't be read — fine
+  }
+}
+
+async function compileBmadAgents(bmadDir: string): Promise<number> {
+  const _require = createRequire(join(__dirname, 'synthetic.js'))
+
+  let compilerPath: string
+  try {
+    const pkgJsonPath = _require.resolve('bmad-method/package.json')
+    compilerPath = join(dirname(pkgJsonPath), 'tools', 'cli', 'lib', 'agent', 'compiler.js')
+  } catch {
+    return 0
+  }
+
+  const { compileAgent } = _require(compilerPath) as {
+    compileAgent: (yaml: string, answers?: Record<string, unknown>, name?: string, path?: string) => Promise<{ xml: string }>
+  }
+
+  const agentDirs: string[] = []
+  const coreAgentsDir = join(bmadDir, 'core', 'agents')
+  if (existsSync(coreAgentsDir)) agentDirs.push(coreAgentsDir)
+
+  try {
+    const entries = readdirSync(bmadDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name === 'core' || entry.name.startsWith('.') || entry.name.startsWith('_')) continue
+      const modAgentsDir = join(bmadDir, entry.name, 'agents')
+      if (existsSync(modAgentsDir)) agentDirs.push(modAgentsDir)
+    }
+  } catch {
+    // ignore
+  }
+
+  let compiled = 0
+  for (const agentDir of agentDirs) {
+    try {
+      const files = readdirSync(agentDir)
+      for (const file of files) {
+        if (!file.endsWith('.agent.yaml')) continue
+        const yamlPath = join(agentDir, file)
+        const mdPath = join(agentDir, file.replace('.agent.yaml', '.md'))
+
+        if (existsSync(mdPath)) continue
+
+        try {
+          const yamlContent = readFileSync(yamlPath, 'utf-8')
+          const agentName = file.replace('.agent.yaml', '')
+          const result = await compileAgent(yamlContent, {}, agentName, mdPath)
+          writeFileSync(mdPath, result.xml, 'utf-8')
+          compiled++
+        } catch (compileErr) {
+          logger.debug({ err: compileErr, file }, 'Failed to compile agent YAML')
+        }
+      }
+    } catch {
+      // ignore dir read errors
+    }
+  }
+
+  return compiled
+}
+
+// Minimal type interfaces for bmad-method CJS generators
+interface BmadArtifact { type: string; name: string; [key: string]: unknown }
+interface BmadAgentGenerator {
+  collectAgentArtifacts(bmadDir: string, modules: string[]): Promise<{ artifacts: BmadArtifact[] }>
+  writeDashArtifacts(dir: string, artifacts: BmadArtifact[]): Promise<number>
+}
+interface BmadWorkflowGenerator {
+  collectWorkflowArtifacts(bmadDir: string): Promise<{ artifacts: BmadArtifact[] }>
+  writeDashArtifacts(dir: string, artifacts: BmadArtifact[]): Promise<number>
+}
+interface BmadTaskToolGenerator {
+  collectTaskToolArtifacts(bmadDir: string): Promise<{ artifacts: BmadArtifact[] }>
+  writeDashArtifacts(dir: string, artifacts: BmadArtifact[]): Promise<number>
+}
+interface BmadManifestGenerator {
+  generateManifests(
+    bmadDir: string,
+    modules: string[],
+    files: unknown[],
+    options: { ides: string[] },
+  ): Promise<unknown>
+}
+
+export async function scaffoldClaudeCommands(
+  projectRoot: string,
+  outputFormat: OutputFormat,
+): Promise<void> {
+  const bmadDir = join(projectRoot, '_bmad')
+
+  if (!existsSync(bmadDir)) {
+    return
+  }
+
+  const installerLibPath = resolveBmadMethodInstallerLibPath()
+
+  if (!installerLibPath) {
+    if (outputFormat !== 'json') {
+      process.stderr.write('Warning: bmad-method not found. Skipping .claude/commands/ generation.\n')
+    }
+    return
+  }
+
+  try {
+    const _require = createRequire(join(__dirname, 'synthetic.js'))
+
+    try {
+      const compiledCount = await compileBmadAgents(bmadDir)
+      if (compiledCount > 0) {
+        logger.info({ compiledCount }, 'Compiled agent YAML files to MD')
+      }
+    } catch (compileErr) {
+      logger.warn({ err: compileErr }, 'Agent compilation failed; agent commands may be incomplete')
+    }
+
+    const { AgentCommandGenerator } = _require(
+      join(installerLibPath, 'ide', 'shared', 'agent-command-generator.js'),
+    ) as { AgentCommandGenerator: new (bmadFolderName: string) => BmadAgentGenerator }
+    const { WorkflowCommandGenerator } = _require(
+      join(installerLibPath, 'ide', 'shared', 'workflow-command-generator.js'),
+    ) as { WorkflowCommandGenerator: new (bmadFolderName: string) => BmadWorkflowGenerator }
+    const { TaskToolCommandGenerator } = _require(
+      join(installerLibPath, 'ide', 'shared', 'task-tool-command-generator.js'),
+    ) as { TaskToolCommandGenerator: new (bmadFolderName: string) => BmadTaskToolGenerator }
+    const { ManifestGenerator } = _require(
+      join(installerLibPath, 'core', 'manifest-generator.js'),
+    ) as { ManifestGenerator: new () => BmadManifestGenerator }
+
+    const nonCoreModules = scanBmadModules(bmadDir)
+    const allModules = ['core', ...nonCoreModules]
+
+    try {
+      const manifestGen = new ManifestGenerator()
+      await manifestGen.generateManifests(bmadDir, allModules, [], { ides: ['claude-code'] })
+    } catch (manifestErr) {
+      logger.warn({ err: manifestErr }, 'ManifestGenerator failed; workflow/task commands may be incomplete')
+    }
+
+    const commandsDir = join(projectRoot, '.claude', 'commands')
+    mkdirSync(commandsDir, { recursive: true })
+    clearBmadCommandFiles(commandsDir)
+
+    const agentGen = new AgentCommandGenerator('_bmad')
+    const { artifacts: agentArtifacts } = await agentGen.collectAgentArtifacts(bmadDir, nonCoreModules)
+    const agentCount = await agentGen.writeDashArtifacts(commandsDir, agentArtifacts)
+
+    const workflowGen = new WorkflowCommandGenerator('_bmad')
+    const { artifacts: workflowArtifacts } = await workflowGen.collectWorkflowArtifacts(bmadDir)
+    const workflowCount = await workflowGen.writeDashArtifacts(commandsDir, workflowArtifacts)
+
+    const taskToolGen = new TaskToolCommandGenerator('_bmad')
+    const { artifacts: taskToolArtifacts } = await taskToolGen.collectTaskToolArtifacts(bmadDir)
+    const taskToolCount = await taskToolGen.writeDashArtifacts(commandsDir, taskToolArtifacts)
+
+    const total = agentCount + workflowCount + taskToolCount
+    if (outputFormat !== 'json') {
+      process.stdout.write(
+        `Generated ${String(total)} Claude Code commands (${String(agentCount)} agents, ${String(workflowCount)} workflows, ${String(taskToolCount)} tasks/tools)\n`,
+      )
+    }
+    logger.info({ agentCount, workflowCount, taskToolCount, total, commandsDir }, 'Generated .claude/commands/')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (outputFormat !== 'json') {
+      process.stderr.write(`Warning: .claude/commands/ generation failed: ${msg}\n`)
+    }
+    logger.warn({ err }, 'scaffoldClaudeCommands failed; init continues')
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Provider config builder (from old init.ts)
 // ---------------------------------------------------------------------------
 
 const PROVIDER_DEFAULTS = DEFAULT_CONFIG.providers
 
-/**
- * Map from AdapterRegistry adapter ID to provider key in config.
- */
 const ADAPTER_TO_PROVIDER: Record<string, keyof typeof PROVIDER_DEFAULTS> = {
   'claude-code': 'claude',
   codex: 'codex',
   gemini: 'gemini',
 }
 
-/**
- * Map of provider → which env var holds its API key.
- */
 const PROVIDER_KEY_ENV: Record<string, string> = {
   claude: 'ANTHROPIC_API_KEY',
   codex: 'OPENAI_API_KEY',
   gemini: 'GOOGLE_API_KEY',
 }
 
-/**
- * Build provider config for a discovered adapter.
- * Uses detected CLI path and billing mode from health check.
- */
 function buildProviderConfig(
   adapterId: string,
   cliPath: string | undefined,
-  subscriptionRouting: SubscriptionRouting
+  subscriptionRouting: SubscriptionRouting,
 ): ProviderConfig {
   const providerKey = ADAPTER_TO_PROVIDER[adapterId] ?? adapterId
   const defaults = (PROVIDER_DEFAULTS as Record<string, ProviderConfig>)[providerKey]
@@ -205,16 +499,12 @@ function buildProviderConfig(
 }
 
 // ---------------------------------------------------------------------------
-// Interactive prompting (non-interactive uses defaults)
+// Interactive prompting
 // ---------------------------------------------------------------------------
 
-/**
- * Prompt for subscription routing for a single provider.
- * In non-interactive mode (CI / piped stdin), returns 'auto'.
- */
 async function promptSubscriptionRouting(
   providerName: string,
-  nonInteractive: boolean
+  nonInteractive: boolean,
 ): Promise<SubscriptionRouting> {
   if (nonInteractive) return 'auto'
 
@@ -240,34 +530,10 @@ async function promptSubscriptionRouting(
         } else {
           resolve('auto')
         }
-      }
+      },
     )
   })
 }
-
-/**
- * Prompt for confirmation (y/n). Returns true for yes.
- */
-async function promptYesNo(question: string, nonInteractive: boolean): Promise<boolean> {
-  if (nonInteractive) return false
-
-  const readline = await import('readline')
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  })
-
-  return new Promise<boolean>((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close()
-      resolve(answer.trim().toLowerCase() === 'y')
-    })
-  })
-}
-
-// ---------------------------------------------------------------------------
-// Directory existence check
-// ---------------------------------------------------------------------------
 
 async function directoryExists(path: string): Promise<boolean> {
   try {
@@ -279,133 +545,128 @@ async function directoryExists(path: string): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
-// Main init logic
+// Combined init action
 // ---------------------------------------------------------------------------
 
 export interface InitOptions {
+  /** Methodology pack name */
+  pack: string
   /** Target directory (defaults to cwd) */
-  directory?: string
-  /** Skip interactive prompts and use defaults */
+  projectRoot: string
+  /** Output format */
+  outputFormat: OutputFormat
+  /** Force overwrite of existing files */
+  force?: boolean
+  /** Skip interactive prompts */
   yes?: boolean
   /** AdapterRegistry to use (injectable for testing) */
   registry?: AdapterRegistry
 }
 
 /**
- * Core init logic — separated from Commander action for testability.
+ * Core init logic — combines old init (config files) + auto init (pack scaffolding).
  *
- * @returns exit code (0 = success, 1 = error, 2 = already exists + skipped)
+ * @returns exit code (0 = success, 1 = error)
  */
-export async function runInit(options: InitOptions = {}): Promise<number> {
-  const targetDir = options.directory
-    ? resolve(options.directory)
-    : resolve(process.cwd())
-  const nonInteractive = options.yes ?? false
-  const substrateDir = join(targetDir, '.substrate')
+export async function runInitAction(options: InitOptions): Promise<number> {
+  const {
+    pack: packName,
+    projectRoot,
+    outputFormat,
+    force = false,
+    yes: nonInteractive = false,
+  } = options
+
+  const packPath = join(projectRoot, 'packs', packName)
+  const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const substrateDir = join(dbRoot, '.substrate')
+  const dbPath = join(substrateDir, 'substrate.db')
   const configPath = join(substrateDir, 'config.yaml')
   const routingPolicyPath = join(substrateDir, 'routing-policy.yaml')
 
-  // ------------------------------------------------------------------
-  // Check if .substrate/ already exists
-  // ------------------------------------------------------------------
-  if (await directoryExists(substrateDir)) {
-    if (!nonInteractive) {
-      process.stdout.write(
-        `\n  .substrate/ directory already exists at ${substrateDir}\n`
-      )
-      const overwrite = await promptYesNo(
-        '  Overwrite existing configuration? [y/N]: ',
-        false
-      )
-      if (!overwrite) {
-        process.stdout.write('  Already initialized — existing configuration is current. No changes needed.\n')
-        process.stdout.write('  Run `substrate auto init` to scaffold methodology packs and agent settings.\n')
-        return INIT_EXIT_ALREADY_EXISTS
-      }
-    } else {
-      // Non-interactive: skip silently
-      process.stdout.write(
-        `  Already initialized — existing configuration is current. Use --yes to force overwrite.\n`
-      )
-      return INIT_EXIT_ALREADY_EXISTS
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Run adapter discovery
-  // ------------------------------------------------------------------
-  process.stdout.write('\n  Discovering installed AI agents...\n')
-  const registry = options.registry ?? new AdapterRegistry()
-
-  let discoveryReport
   try {
-    discoveryReport = await registry.discoverAndRegister()
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    logger.error({ err }, 'Adapter discovery failed')
-    process.stderr.write(`  Error: adapter discovery failed — ${message}\n`)
-    return INIT_EXIT_ERROR
-  }
+    // ---------------------------------------------------------------
+    // Step 1: Create .substrate/ directory + config files
+    // ---------------------------------------------------------------
+    const substrateExists = await directoryExists(substrateDir)
 
-  const detectedAdapters = discoveryReport.results.filter((r) => r.registered)
-  if (detectedAdapters.length > 0) {
-    process.stdout.write(
-      `  Detected ${String(detectedAdapters.length)} provider(s): ` +
-        detectedAdapters.map((a) => a.displayName).join(', ') +
-        '\n'
-    )
-  } else {
-    process.stdout.write('  No AI agents detected. You can configure them manually later.\n')
-  }
-
-  // ------------------------------------------------------------------
-  // Build provider configuration (with optional prompts)
-  // ------------------------------------------------------------------
-  const providers: SubstrateConfig['providers'] = {}
-
-  for (const adapterResult of discoveryReport.results) {
-    const providerKey = ADAPTER_TO_PROVIDER[adapterResult.adapterId]
-    if (!providerKey) continue
-
-    if (adapterResult.registered) {
-      const routing = await promptSubscriptionRouting(
-        adapterResult.displayName,
-        nonInteractive
-      )
-      providers[providerKey] = buildProviderConfig(
-        adapterResult.adapterId,
-        adapterResult.healthResult.cliPath,
-        routing
-      )
-    } else {
-      // Include disabled provider entry with defaults
-      const defaults = (PROVIDER_DEFAULTS as Record<string, ProviderConfig>)[providerKey]
-      if (defaults) {
-        providers[providerKey] = { ...defaults, enabled: false }
+    if (substrateExists && !force && !nonInteractive) {
+      // Interactive: warn but continue (config files are idempotent)
+      if (outputFormat !== 'json') {
+        process.stdout.write(`  .substrate/ directory already exists at ${substrateDir}\n`)
       }
     }
-  }
 
-  // If no adapters found at all, use full defaults
-  const configProviders =
-    Object.keys(providers).length > 0 ? providers : DEFAULT_CONFIG.providers
+    // Adapter discovery
+    if (outputFormat !== 'json') {
+      process.stdout.write('\n  Discovering installed AI agents...\n')
+    }
+    const registry = options.registry ?? new AdapterRegistry()
 
-  // ------------------------------------------------------------------
-  // Build full config document
-  // ------------------------------------------------------------------
-  const config: SubstrateConfig = {
-    config_format_version: CURRENT_CONFIG_FORMAT_VERSION,
-    task_graph_version: CURRENT_TASK_GRAPH_VERSION,
-    global: DEFAULT_CONFIG.global,
-    providers: configProviders,
-  }
+    let discoveryReport
+    try {
+      discoveryReport = await registry.discoverAndRegister()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error({ err }, 'Adapter discovery failed')
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput(null, 'json', false, `Adapter discovery failed: ${message}`) + '\n')
+      } else {
+        process.stderr.write(`  Error: adapter discovery failed — ${message}\n`)
+      }
+      return INIT_EXIT_ERROR
+    }
 
-  const routingPolicy: RoutingPolicy = structuredClone(DEFAULT_ROUTING_POLICY)
+    const detectedAdapters = discoveryReport.results.filter((r) => r.registered)
+    if (outputFormat !== 'json') {
+      if (detectedAdapters.length > 0) {
+        process.stdout.write(
+          `  Detected ${String(detectedAdapters.length)} provider(s): ` +
+            detectedAdapters.map((a) => a.displayName).join(', ') +
+            '\n',
+        )
+      } else {
+        process.stdout.write('  No AI agents detected. You can configure them manually later.\n')
+      }
+    }
 
-  // ------------------------------------------------------------------
-  // Write files
-  // ------------------------------------------------------------------
-  try {
+    // Build provider configuration
+    const providers: SubstrateConfig['providers'] = {}
+    for (const adapterResult of discoveryReport.results) {
+      const providerKey = ADAPTER_TO_PROVIDER[adapterResult.adapterId]
+      if (!providerKey) continue
+
+      if (adapterResult.registered) {
+        const routing = await promptSubscriptionRouting(
+          adapterResult.displayName,
+          nonInteractive,
+        )
+        providers[providerKey] = buildProviderConfig(
+          adapterResult.adapterId,
+          adapterResult.healthResult.cliPath,
+          routing,
+        )
+      } else {
+        const defaults = (PROVIDER_DEFAULTS as Record<string, ProviderConfig>)[providerKey]
+        if (defaults) {
+          providers[providerKey] = { ...defaults, enabled: false }
+        }
+      }
+    }
+
+    const configProviders =
+      Object.keys(providers).length > 0 ? providers : DEFAULT_CONFIG.providers
+
+    const config: SubstrateConfig = {
+      config_format_version: CURRENT_CONFIG_FORMAT_VERSION,
+      task_graph_version: CURRENT_TASK_GRAPH_VERSION,
+      global: DEFAULT_CONFIG.global,
+      providers: configProviders,
+    }
+
+    const routingPolicy: RoutingPolicy = structuredClone(DEFAULT_ROUTING_POLICY)
+
+    // Write config files
     await mkdir(substrateDir, { recursive: true })
 
     const configHeader =
@@ -428,114 +689,150 @@ export async function runInit(options: InitOptions = {}): Promise<number> {
       `# Customize rules to match your workflow and available agents.\n\n`
 
     await writeFile(routingPolicyPath, routingHeader + yaml.dump(routingPolicy), 'utf-8')
+
+    // ---------------------------------------------------------------
+    // Step 2: Scaffold BMAD framework
+    // ---------------------------------------------------------------
+    await scaffoldBmadFramework(projectRoot, force, outputFormat)
+
+    // ---------------------------------------------------------------
+    // Step 3: Scaffold pack
+    // ---------------------------------------------------------------
+    const localManifest = join(packPath, 'manifest.yaml')
+    let scaffolded = false
+    if (!existsSync(localManifest) || force) {
+      const packageRoot = findPackageRoot(__dirname)
+      const bundledPackPath = join(packageRoot, 'packs', packName)
+      if (!existsSync(join(bundledPackPath, 'manifest.yaml'))) {
+        const errorMsg = `Pack '${packName}' not found locally or in bundled packs. Try reinstalling Substrate.`
+        if (outputFormat === 'json') {
+          process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+        } else {
+          process.stderr.write(`Error: ${errorMsg}\n`)
+        }
+        return INIT_EXIT_ERROR
+      }
+      if (force && existsSync(localManifest)) {
+        logger.info({ pack: packName }, 'Replacing existing pack with bundled version')
+        process.stderr.write(`Warning: Replacing existing pack '${packName}' with bundled version\n`)
+      }
+      mkdirSync(dirname(packPath), { recursive: true })
+      cpSync(bundledPackPath, packPath, { recursive: true })
+      logger.info({ pack: packName, dest: packPath }, 'Scaffolded methodology pack')
+      if (outputFormat !== 'json') {
+        process.stdout.write(`Scaffolding methodology pack '${packName}' into packs/${packName}/\n`)
+      }
+      scaffolded = true
+    }
+
+    // Validate the pack
+    const packLoader = createPackLoader()
+    try {
+      await packLoader.load(packPath)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      const errorMsg = `Methodology pack '${packName}' not found. Check that packs/${packName}/manifest.yaml exists or try reinstalling Substrate.\n${msg}`
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+      } else {
+        process.stderr.write(`Error: ${errorMsg}\n`)
+      }
+      return INIT_EXIT_ERROR
+    }
+
+    // ---------------------------------------------------------------
+    // Step 4: Initialize database
+    // ---------------------------------------------------------------
+    const dbWrapper = new DatabaseWrapper(dbPath)
+    dbWrapper.open()
+    runMigrations(dbWrapper.db)
+    dbWrapper.close()
+
+    // ---------------------------------------------------------------
+    // Step 5: Scaffold CLAUDE.md, statusline, settings, commands
+    // ---------------------------------------------------------------
+    await scaffoldClaudeMd(projectRoot)
+    await scaffoldStatuslineScript(projectRoot)
+    await scaffoldClaudeSettings(projectRoot)
+    await scaffoldClaudeCommands(projectRoot, outputFormat)
+
+    // ---------------------------------------------------------------
+    // Step 6: Success output
+    // ---------------------------------------------------------------
+    const successMsg = `Pack '${packName}' and database initialized successfully at ${dbPath}`
+    if (outputFormat === 'json') {
+      process.stdout.write(
+        formatOutput({ pack: packName, dbPath, scaffolded, configPath, routingPolicyPath }, 'json', true) + '\n',
+      )
+    } else {
+      process.stdout.write(`\n  Substrate initialized successfully!\n\n`)
+      process.stdout.write(`  Created:\n`)
+      process.stdout.write(`    ${configPath}\n`)
+      process.stdout.write(`    ${routingPolicyPath}\n`)
+      process.stdout.write(`    ${dbPath}\n`)
+      process.stdout.write(`\n  ${successMsg}\n`)
+
+      const prefix = process.env['npm_command'] === 'exec' ? 'npx ' : ''
+      process.stdout.write(
+        `\n  Next steps:\n` +
+          `    1. Run \`${prefix}substrate adapters check\` to verify your setup\n` +
+          `    2. Run \`${prefix}substrate config show\` to review your configuration\n` +
+          `    3. Run \`${prefix}substrate run --from analysis --concept "your idea"\` to start the pipeline\n`,
+      )
+    }
+
+    return INIT_EXIT_SUCCESS
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    logger.error({ err }, 'Failed to write config files')
-    process.stderr.write(`  Error: failed to write configuration — ${message}\n`)
+    const msg = err instanceof Error ? err.message : String(err)
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, msg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${msg}\n`)
+    }
+    logger.error({ err }, 'init failed')
     return INIT_EXIT_ERROR
   }
-
-  // ------------------------------------------------------------------
-  // Success output
-  // ------------------------------------------------------------------
-  const prefix = isNpxInvocation() ? 'npx ' : ''
-  const apiProviders = detectedAdapters
-    .filter((a) => {
-      const pk = ADAPTER_TO_PROVIDER[a.adapterId]
-      return pk && providers[pk]?.subscription_routing === 'api'
-    })
-    .map((a) => PROVIDER_KEY_ENV[ADAPTER_TO_PROVIDER[a.adapterId]!])
-    .filter(Boolean)
-
-  let nextSteps =
-    `\n  Next steps:\n` +
-    `    1. Run \`${prefix}substrate adapters check\` to verify your setup\n` +
-    `    2. Run \`${prefix}substrate config show\` to review your configuration\n`
-
-  if (apiProviders.length > 0) {
-    nextSteps +=
-      `\n  API key setup (only needed for providers using 'api' routing):\n` +
-      apiProviders.map((env) => `    export ${env}="your-key-here"`).join('\n') +
-      '\n'
-  }
-
-  process.stdout.write(
-    `\n  Substrate initialized successfully!\n` +
-      `\n  Created:\n` +
-      `    ${configPath}\n` +
-      `    ${routingPolicyPath}\n` +
-      nextSteps
-  )
-
-  return INIT_EXIT_SUCCESS
 }
 
 // ---------------------------------------------------------------------------
 // Commander registration
 // ---------------------------------------------------------------------------
 
-/**
- * Register the `init` command on a Commander program.
- */
 export function registerInitCommand(
   program: Command,
   _version: string,
-  registry?: AdapterRegistry
+  registry?: AdapterRegistry,
 ): void {
   program
     .command('init')
     .description(
-      'Initialize Substrate in the current directory — creates .substrate/config.yaml with sensible defaults'
+      'Initialize Substrate — creates config, scaffolds methodology pack, and sets up database',
     )
+    .option('--pack <name>', 'Methodology pack name', 'bmad')
+    .option('--project-root <path>', 'Project root directory', process.cwd())
     .option('-y, --yes', 'Skip all interactive prompts and use defaults', false)
-    .option(
-      '-d, --directory <path>',
-      'Target directory (defaults to current working directory)'
-    )
-    // Template flags (AC1–AC10 of Story 5.8)
-    .option('--list-templates', 'List all available task graph templates', false)
-    .option('--template <name>', 'Generate a task graph from a built-in template')
-    .option('--output <path>', 'Output path for template file (default: tasks.yaml in cwd)')
-    .option('--force', 'Overwrite existing output file without prompting', false)
+    .option('--force', 'Overwrite existing files and packs', false)
     .option(
       '--output-format <format>',
-      'Output format: human (default) or json (NDJSON event)',
-      'human'
+      'Output format: human (default) or json',
+      'human',
     )
     .action(async (opts: {
+      pack: string
+      projectRoot: string
       yes: boolean
-      directory?: string
-      listTemplates: boolean
-      template?: string
-      output?: string
       force: boolean
       outputFormat: string
     }) => {
-      // Template path: --list-templates or --template take priority over project init
-      if (opts.listTemplates) {
-        const exitCode = runListTemplates()
-        process.exit(exitCode)
-        return
-      }
-
-      if (opts.template !== undefined) {
-        const outputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
-        const exitCode = runTemplateAction({
-          template: opts.template,
-          ...(opts.output !== undefined && { output: opts.output }),
-          force: opts.force,
-          outputFormat,
-        })
-        process.exit(exitCode)
-        return
-      }
-
-      // Default path: project initialization
-      const exitCode = await runInit({
-        ...(opts.directory !== undefined && { directory: opts.directory }),
+      const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
+      const exitCode = await runInitAction({
+        pack: opts.pack,
+        projectRoot: opts.projectRoot,
+        outputFormat,
+        force: opts.force,
         yes: opts.yes,
         ...(registry !== undefined && { registry }),
       })
-      process.exit(exitCode)
+      process.exitCode = exitCode
     })
 }

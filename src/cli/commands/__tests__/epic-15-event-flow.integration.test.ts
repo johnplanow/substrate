@@ -3,8 +3,8 @@
  *
  * These tests cover cross-module interactions that unit tests do not address:
  *
- * GAP-1: Event emitter -> runAutoRun wiring (--events flag produces NDJSON on stdout)
- * GAP-2: Flag mutual exclusion gates in runAutoRun:
+ * GAP-1: Event emitter -> runRunAction wiring (--events flag produces NDJSON on stdout)
+ * GAP-2: Flag mutual exclusion gates in runRunAction:
  *         - --events blocks progressRenderer creation
  *         - --tui + non-TTY falls back to progressRenderer path (or default)
  *         - --output-format json blocks all renderer/emitter wiring
@@ -166,7 +166,7 @@ vi.mock('../../../modules/stop-after/index.js', () => ({
 // Import modules under test AFTER mocks
 // ---------------------------------------------------------------------------
 
-import { runAutoRun, registerAutoCommand } from '../auto.js'
+import { runRunAction, registerRunCommand } from '../run.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -264,7 +264,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
   })
 
   it('writes pipeline:start as the first NDJSON line on stdout', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -283,7 +283,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
   })
 
   it('pipeline:start event includes run_id, stories, concurrency fields', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1,10-2',
       concurrency: 3,
@@ -308,7 +308,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
   })
 
   it('pipeline:complete is the last NDJSON event emitted', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -341,7 +341,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
       return defaultStatus
     })
 
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -370,7 +370,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
       return defaultStatus
     })
 
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -408,7 +408,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
       }
     })
 
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -430,7 +430,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
   })
 
   it('all NDJSON lines are valid JSON (none contain non-JSON prefixes)', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -485,7 +485,7 @@ describe('GAP-2: Flag mutual exclusion — --events blocks progressRenderer', ()
   })
 
   it('with --events, stdout does NOT contain the human progress header', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -495,13 +495,13 @@ describe('GAP-2: Flag mutual exclusion — --events blocks progressRenderer', ()
     })
 
     const allOutput = stdoutChunks.join('')
-    // The progress renderer writes "substrate auto run —" as its header.
+    // The progress renderer writes "substrate run —" as its header.
     // With --events, this must NOT appear since stdout is reserved for NDJSON.
-    expect(allOutput).not.toContain('substrate auto run —')
+    expect(allOutput).not.toContain('substrate run —')
   })
 
   it('with --events, stdout contains only parseable NDJSON (no human-readable lines)', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -521,7 +521,7 @@ describe('GAP-2: Flag mutual exclusion — --events blocks progressRenderer', ()
   })
 
   it('without --events, human progress header is written to stdout', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -531,14 +531,14 @@ describe('GAP-2: Flag mutual exclusion — --events blocks progressRenderer', ()
     })
 
     const allOutput = stdoutChunks.join('')
-    // Progress renderer header: "substrate auto run — N stories, concurrency M"
-    expect(allOutput).toContain('substrate auto run —')
+    // Progress renderer header: "substrate run — N stories, concurrency M"
+    expect(allOutput).toContain('substrate run —')
   })
 
   it('with --output-format json, no progress renderer header written', async () => {
     const stdoutSpy = vi.spyOn(process.stdout, 'write')
 
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -548,13 +548,13 @@ describe('GAP-2: Flag mutual exclusion — --events blocks progressRenderer', ()
 
     const allOutput = stdoutSpy.mock.calls.map((c) => String(c[0])).join('')
     // Progress renderer should NOT be active for JSON output format
-    expect(allOutput).not.toContain('substrate auto run —')
+    expect(allOutput).not.toContain('substrate run —')
   })
 
   it('with --output-format json, stdout contains a single JSON success blob at end', async () => {
     const stdoutSpy = vi.spyOn(process.stdout, 'write')
 
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -579,47 +579,41 @@ describe('GAP-2: Flag mutual exclusion — --events blocks progressRenderer', ()
 // GAP-3: --help-agent flag registered on CLI `run` subcommand
 // ---------------------------------------------------------------------------
 
-describe('GAP-3: --help-agent flag is registered on auto run', () => {
-  it('auto run subcommand has --help-agent option registered', () => {
+describe('GAP-3: --help-agent flag is registered on run command', () => {
+  it('run command has --help-agent option registered', () => {
     const program = new Command()
-    registerAutoCommand(program, '1.0.0', '/test/project')
+    registerRunCommand(program, '1.0.0', '/test/project')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')
-    expect(autoCmd).toBeDefined()
-
-    const runCmd = autoCmd!.commands.find((c) => c.name() === 'run')
+    const runCmd = program.commands.find((c) => c.name() === 'run')
     expect(runCmd).toBeDefined()
 
     const helpAgentOpt = runCmd!.options.find((o) => o.long === '--help-agent')
     expect(helpAgentOpt).toBeDefined()
   })
 
-  it('--events flag is registered on auto run', () => {
+  it('--events flag is registered on run command', () => {
     const program = new Command()
-    registerAutoCommand(program, '1.0.0', '/test/project')
+    registerRunCommand(program, '1.0.0', '/test/project')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')!
-    const runCmd = autoCmd.commands.find((c) => c.name() === 'run')!
+    const runCmd = program.commands.find((c) => c.name() === 'run')!
     const eventsOpt = runCmd.options.find((o) => o.long === '--events')
     expect(eventsOpt).toBeDefined()
   })
 
-  it('--verbose flag is registered on auto run', () => {
+  it('--verbose flag is registered on run command', () => {
     const program = new Command()
-    registerAutoCommand(program, '1.0.0', '/test/project')
+    registerRunCommand(program, '1.0.0', '/test/project')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')!
-    const runCmd = autoCmd.commands.find((c) => c.name() === 'run')!
+    const runCmd = program.commands.find((c) => c.name() === 'run')!
     const verboseOpt = runCmd.options.find((o) => o.long === '--verbose')
     expect(verboseOpt).toBeDefined()
   })
 
-  it('--tui flag is registered on auto run', () => {
+  it('--tui flag is registered on run command', () => {
     const program = new Command()
-    registerAutoCommand(program, '1.0.0', '/test/project')
+    registerRunCommand(program, '1.0.0', '/test/project')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')!
-    const runCmd = autoCmd.commands.find((c) => c.name() === 'run')!
+    const runCmd = program.commands.find((c) => c.name() === 'run')!
     const tuiOpt = runCmd.options.find((o) => o.long === '--tui')
     expect(tuiOpt).toBeDefined()
   })
@@ -683,7 +677,7 @@ describe('GAP-4: Internal phase name -> event protocol phase mapping', () => {
         return defaultStatus
       })
 
-      await runAutoRun({
+      await runRunAction({
         pack: 'bmad',
         stories: '10-1',
         concurrency: 1,
@@ -717,7 +711,7 @@ describe('GAP-4: Internal phase name -> event protocol phase mapping', () => {
       return defaultStatus
     })
 
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -782,7 +776,7 @@ describe('GAP-5: --verbose flag sets LOG_LEVEL', () => {
   })
 
   it('without --verbose and without --events, sets LOG_LEVEL to silent', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -796,7 +790,7 @@ describe('GAP-5: --verbose flag sets LOG_LEVEL', () => {
   })
 
   it('with --verbose, does NOT set LOG_LEVEL to silent', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -811,7 +805,7 @@ describe('GAP-5: --verbose flag sets LOG_LEVEL', () => {
   })
 
   it('with --events, does NOT set LOG_LEVEL to silent', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -870,7 +864,7 @@ describe('GAP-6: pipeline:complete NDJSON carries correct story outcome arrays',
       },
     })
 
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1,10-2',
       concurrency: 2,
@@ -900,7 +894,7 @@ describe('GAP-6: pipeline:complete NDJSON carries correct story outcome arrays',
       },
     })
 
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1,10-2',
       concurrency: 2,
@@ -928,7 +922,7 @@ describe('GAP-6: pipeline:complete NDJSON carries correct story outcome arrays',
       },
     })
 
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -987,7 +981,7 @@ describe('GAP-7: progressRenderer only active in default human mode', () => {
   })
 
   it('human mode WITHOUT --events writes progress header containing story count', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1,10-2',
       concurrency: 2,
@@ -996,14 +990,14 @@ describe('GAP-7: progressRenderer only active in default human mode', () => {
     })
 
     const allOutput = stdoutChunks.join('')
-    // Progress renderer: "substrate auto run — N stories, concurrency M"
-    expect(allOutput).toContain('substrate auto run —')
+    // Progress renderer: "substrate run — N stories, concurrency M"
+    expect(allOutput).toContain('substrate run —')
     expect(allOutput).toContain('2 stories')
     expect(allOutput).toContain('concurrency 2')
   })
 
   it('human mode WITHOUT --events writes Pipeline complete summary at end', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -1016,7 +1010,7 @@ describe('GAP-7: progressRenderer only active in default human mode', () => {
   })
 
   it('json mode does NOT write progress header', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -1025,7 +1019,7 @@ describe('GAP-7: progressRenderer only active in default human mode', () => {
     })
 
     const allOutput = stdoutChunks.join('')
-    expect(allOutput).not.toContain('substrate auto run —')
+    expect(allOutput).not.toContain('substrate run —')
   })
 })
 
@@ -1066,7 +1060,7 @@ describe('GAP-8: TUI not started when --events is active', () => {
   })
 
   it('with --events active, stdout does NOT contain TUI alt-screen escape codes', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -1082,7 +1076,7 @@ describe('GAP-8: TUI not started when --events is active', () => {
   })
 
   it('with --output-format json active, stdout does NOT contain TUI alt-screen codes', async () => {
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -1101,7 +1095,7 @@ describe('GAP-8: TUI not started when --events is active', () => {
 // Verify scaffoldClaudeMd is called AFTER pack scaffolding and db init
 // ---------------------------------------------------------------------------
 
-describe('CLAUDE.md scaffold is called from runAutoInit (not runAutoRun)', () => {
+describe('CLAUDE.md scaffold is called from runAutoInit (not runRunAction)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     resetEventBusListeners()
@@ -1137,10 +1131,10 @@ describe('CLAUDE.md scaffold is called from runAutoInit (not runAutoRun)', () =>
     vi.restoreAllMocks()
   })
 
-  it('runAutoRun does NOT call writeFile for CLAUDE.md', async () => {
+  it('runRunAction does NOT call writeFile for CLAUDE.md', async () => {
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    await runAutoRun({
+    await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,

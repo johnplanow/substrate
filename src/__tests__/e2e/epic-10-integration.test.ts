@@ -75,7 +75,7 @@ import {
 import {
   formatOutput,
   formatTokenTelemetry,
-} from '../../cli/commands/auto.js'
+} from '../../cli/commands/pipeline-shared.js'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockRunDevStory = vi.mocked(runDevStory)

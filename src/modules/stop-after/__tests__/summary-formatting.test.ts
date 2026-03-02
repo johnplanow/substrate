@@ -68,9 +68,9 @@ describe('formatPhaseCompletionSummary()', () => {
       expect(result).toContain('abc123')
     })
 
-    it('contains "substrate auto resume"', () => {
+    it('contains "substrate resume"', () => {
       const result = formatPhaseCompletionSummary(makeParams())
-      expect(result).toContain('substrate auto resume')
+      expect(result).toContain('substrate resume')
     })
 
     it('contains "45 seconds" duration', () => {
@@ -121,7 +121,7 @@ describe('formatPhaseCompletionSummary()', () => {
       const result = formatPhaseCompletionSummary(
         makeParams({ artifactPaths: [], decisionsCount: 0 }),
       )
-      expect(result).toContain('substrate auto resume')
+      expect(result).toContain('substrate resume')
       expect(result).toContain('--run-id')
     })
   })
@@ -141,7 +141,7 @@ describe('formatPhaseCompletionSummary()', () => {
       const result = formatPhaseCompletionSummary(
         makeParams({ artifactPaths: manyArtifacts, decisionsCount: 100, runId: 'run-xyz-999' }),
       )
-      expect(result).toContain('substrate auto resume --run-id run-xyz-999')
+      expect(result).toContain('substrate resume --run-id run-xyz-999')
     })
 
     it('contains truncation indicator when artifacts are truncated', () => {
@@ -235,9 +235,9 @@ describe('formatPhaseCompletionSummary()', () => {
   })
 
   describe('resume command exact format', () => {
-    it('resume command syntax is "substrate auto resume --run-id <id>"', () => {
+    it('resume command syntax is "substrate resume --run-id <id>"', () => {
       const result = formatPhaseCompletionSummary(makeParams({ runId: 'test-run-id-42' }))
-      expect(result).toContain('substrate auto resume --run-id test-run-id-42')
+      expect(result).toContain('substrate resume --run-id test-run-id-42')
     })
   })
 

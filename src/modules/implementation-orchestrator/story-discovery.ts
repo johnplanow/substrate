@@ -5,7 +5,7 @@
  *   - parseStoryKeysFromEpics: Extract N-M story keys from epics.md content
  *   - discoverPendingStoryKeys: Diff epics.md against existing story files
  *
- * Used as a fallback in `substrate auto run` when the requirements table is empty
+ * Used as a fallback in `substrate run` when the requirements table is empty
  * (e.g. projects that ran BMAD manually and skipped the full Substrate pipeline).
  */
 

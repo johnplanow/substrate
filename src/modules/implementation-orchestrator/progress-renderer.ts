@@ -126,7 +126,7 @@ export function createProgressRenderer(
   // Per-story state map
   const storyState = new Map<string, StoryState>()
 
-  // Header line (e.g., "substrate auto run — 6 stories, concurrency 3")
+  // Header line (e.g., "substrate run — 6 stories, concurrency 3")
   let headerLine = ''
 
   // Number of lines we last rendered (used to overwrite in TTY mode)
@@ -225,7 +225,7 @@ export function createProgressRenderer(
   // ---------------------------------------------------------------------------
 
   function handleStart(event: PipelineStartEvent): void {
-    headerLine = `substrate auto run — ${event.stories.length} stories, concurrency ${event.concurrency}`
+    headerLine = `substrate run — ${event.stories.length} stories, concurrency ${event.concurrency}`
 
     for (const key of event.stories) {
       storyOrder.push(key)

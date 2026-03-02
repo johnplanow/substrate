@@ -15,7 +15,6 @@ import * as path from 'node:path'
 import { access } from 'node:fs/promises'
 import type { TypedEventBus } from '../../core/event-bus.js'
 import type { DatabaseService } from '../../persistence/database.js'
-import { getTask, updateTaskWorktree } from '../../persistence/queries/tasks.js'
 import { createLogger } from '../../utils/logger.js'
 import type { GitWorktreeManager, WorktreeInfo, ConflictReport, MergeResult } from './git-worktree-manager.js'
 import * as gitUtils from './git-utils.js'
@@ -153,17 +152,7 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
 
     const createdAt = new Date()
 
-    // AC2: Update Task record with worktree_path field (if DB is available)
-    if (this._db !== null) {
-      try {
-        updateTaskWorktree(this._db.db, taskId, {
-          worktree_path: worktreePath,
-          worktree_branch: branchName,
-        })
-      } catch (err) {
-        logger.warn({ taskId, err }, 'createWorktree: failed to update task record (task may not be in DB)')
-      }
-    }
+    // Task record tracking removed — task-graph system no longer in use
 
     // AC1: Emit worktree:created event
     this._eventBus.emit('worktree:created', {
@@ -218,16 +207,7 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
       logger.warn({ taskId, branchName, err }, 'removeBranch failed during cleanup')
     }
 
-    // AC3: Update Task record with cleanup timestamp (if DB is available)
-    if (this._db !== null) {
-      try {
-        updateTaskWorktree(this._db.db, taskId, {
-          worktree_cleaned_at: new Date().toISOString(),
-        })
-      } catch (err) {
-        logger.warn({ taskId, err }, 'cleanupWorktree: failed to update task record')
-      }
-    }
+    // Task record tracking removed — task-graph system no longer in use
 
     // AC3: Emit worktree:removed event
     this._eventBus.emit('worktree:removed', {
@@ -248,20 +228,7 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
       // Extract taskId from path (last segment of the path)
       const taskId = path.basename(worktreePath)
 
-      // AC4: Check if corresponding task exists and is running (if DB available)
-      if (this._db !== null) {
-        try {
-          const task = getTask(this._db.db, taskId)
-          if (task !== undefined && (task.status === 'running' || task.status === 'queued')) {
-            // Task is still active — don't clean up
-            logger.debug({ taskId }, 'cleanupAllWorktrees: task is still active, skipping')
-            continue
-          }
-        } catch (err) {
-          // If we can't check the task, clean up to be safe
-          logger.warn({ taskId, err }, 'cleanupAllWorktrees: failed to check task status, cleaning up')
-        }
-      }
+      // Task status check removed — task-graph system no longer in use
 
       // AC4: Remove orphaned worktree
       let worktreeRemoved = false
@@ -393,16 +360,7 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
       mergedFiles,
     })
 
-    // Update task record with merge info (if DB is available)
-    if (this._db !== null) {
-      try {
-        updateTaskWorktree(this._db.db, taskId, {
-          worktree_cleaned_at: new Date().toISOString(),
-        })
-      } catch (err) {
-        logger.warn({ taskId, err }, 'mergeWorktree: failed to update task record after merge')
-      }
-    }
+    // Task record tracking removed — task-graph system no longer in use
 
     const result: MergeResult = {
       success: true,

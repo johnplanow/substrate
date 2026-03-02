@@ -59,7 +59,8 @@ vi.mock('../../../utils/git-root.js', () => ({
 // Import module under test AFTER mocks
 // ---------------------------------------------------------------------------
 
-import { runAutoInit, PACKAGE_ROOT } from '../auto.js'
+import { runInitAction } from '../init.js'
+import { PACKAGE_ROOT } from '../pipeline-shared.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -113,10 +114,11 @@ describe('auto init pack scaffolding integration', () => {
     // tmpDir has no packs/ directory yet
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: tmpDir,
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -136,10 +138,11 @@ describe('auto init pack scaffolding integration', () => {
   it('AC2: database is initialized after scaffolding', async () => {
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: tmpDir,
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -155,10 +158,11 @@ describe('auto init pack scaffolding integration', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: tmpDir,
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -184,11 +188,12 @@ describe('auto init pack scaffolding integration', () => {
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: tmpDir,
       outputFormat: 'human',
       force: true,
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -209,10 +214,11 @@ describe('auto init pack scaffolding integration', () => {
   it('AC6: JSON output includes scaffolded:true when pack is copied', async () => {
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: tmpDir,
       outputFormat: 'json',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -234,10 +240,11 @@ describe('auto init pack scaffolding integration', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: tmpDir,
       outputFormat: 'json',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)

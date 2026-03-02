@@ -1,7 +1,7 @@
 /**
- * Unit tests for `substrate auto amend` subcommand
+ * Unit tests for `substrate amend` command
  *
- * Tests: src/cli/commands/auto.ts — runAmendCommand() and amend subcommand registration
+ * Tests: src/cli/commands/auto.ts — runAmendAction() and amend subcommand registration
  *
  * Covers all 10 Acceptance Criteria:
  *   AC1: amend subcommand registered in registerAutoCommand()
@@ -172,7 +172,7 @@ vi.mock('../../../modules/phase-orchestrator/phases/solutioning.js', () => ({
 // Import SUT
 // ---------------------------------------------------------------------------
 
-import { runAmendCommand, registerAutoCommand } from '../auto.js'
+import { runAmendAction, registerAmendCommand } from '../amend.js'
 import { updatePipelineRun } from '../../../persistence/queries/decisions.js'
 import { writeFile } from 'fs/promises'
 
@@ -264,24 +264,20 @@ afterEach(() => {
 // AC1: amend subcommand registration
 // ---------------------------------------------------------------------------
 
-describe('AC1: amend subcommand registration', () => {
-  it('registers amend subcommand within registerAutoCommand()', () => {
+describe('AC1: amend command registration', () => {
+  it('registers amend command via registerAmendCommand()', () => {
     const program = new Command()
-    registerAutoCommand(program, '0.0.0', '/test/project')
+    registerAmendCommand(program, '0.0.0', '/test/project')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')
-    expect(autoCmd).toBeDefined()
-
-    const amendCmd = autoCmd?.commands.find((c) => c.name() === 'amend')
+    const amendCmd = program.commands.find((c) => c.name() === 'amend')
     expect(amendCmd).toBeDefined()
   })
 
   it('amend --help shows required options', () => {
     const program = new Command()
-    registerAutoCommand(program, '0.0.0', '/test/project')
+    registerAmendCommand(program, '0.0.0', '/test/project')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')
-    const amendCmd = autoCmd?.commands.find((c) => c.name() === 'amend')
+    const amendCmd = program.commands.find((c) => c.name() === 'amend')
 
     expect(amendCmd).toBeDefined()
     const helpText = amendCmd!.helpInformation()
@@ -292,12 +288,11 @@ describe('AC1: amend subcommand registration', () => {
     expect(helpText).toContain('--run-id')
   })
 
-  it('amend subcommand description mentions amendment and existing run', () => {
+  it('amend command description mentions amendment and existing run', () => {
     const program = new Command()
-    registerAutoCommand(program, '0.0.0', '/test/project')
+    registerAmendCommand(program, '0.0.0', '/test/project')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')
-    const amendCmd = autoCmd?.commands.find((c) => c.name() === 'amend')
+    const amendCmd = program.commands.find((c) => c.name() === 'amend')
 
     expect(amendCmd!.description()).toMatch(/amendment/i)
     expect(amendCmd!.description()).toMatch(/existing run|completed run/i)
@@ -310,7 +305,7 @@ describe('AC1: amend subcommand registration', () => {
 
 describe('AC2: flag validation — --concept or --concept-file required', () => {
   it('exits 1 with error when neither --concept nor --concept-file provided', async () => {
-    const result = await runAmendCommand({
+    const result = await runAmendAction({
       projectRoot: '/test/project',
       pack: 'bmad',
     })
@@ -322,17 +317,17 @@ describe('AC2: flag validation — --concept or --concept-file required', () => 
   })
 
   it('does not open DB when concept validation fails', async () => {
-    await runAmendCommand({ projectRoot: '/test/project', pack: 'bmad' })
+    await runAmendAction({ projectRoot: '/test/project', pack: 'bmad' })
     expect(mockOpen).not.toHaveBeenCalled()
   })
 
   it('accepts --concept inline text', async () => {
-    const result = await runAmendCommand({ ...baseOptions })
+    const result = await runAmendAction({ ...baseOptions })
     expect(result).toBe(0)
   })
 
   it('accepts --concept-file and reads file content', async () => {
-    const result = await runAmendCommand({
+    const result = await runAmendAction({
       conceptFile: '/path/to/concept.txt',
       projectRoot: '/test/project',
       pack: 'bmad',
@@ -341,7 +336,7 @@ describe('AC2: flag validation — --concept or --concept-file required', () => 
   })
 
   it('when both --concept and --concept-file provided, --concept-file takes precedence', async () => {
-    await runAmendCommand({
+    await runAmendAction({
       concept: 'inline concept',
       conceptFile: '/path/to/concept.txt',
       projectRoot: '/test/project',
@@ -356,7 +351,7 @@ describe('AC2: flag validation — --concept or --concept-file required', () => 
     const { readFile: mockReadFile } = await import('fs/promises')
     vi.mocked(mockReadFile).mockRejectedValueOnce(new Error('file not found'))
 
-    const result = await runAmendCommand({
+    const result = await runAmendAction({
       conceptFile: '/nonexistent/concept.txt',
       projectRoot: '/test/project',
       pack: 'bmad',
@@ -380,7 +375,7 @@ describe('AC3: --stop-after / --from conflict validation', () => {
       error: '--stop-after phase is before start phase',
     })
 
-    const result = await runAmendCommand({
+    const result = await runAmendAction({
       ...baseOptions,
       stopAfter: 'analysis' as any,
       from: 'planning' as any,
@@ -398,7 +393,7 @@ describe('AC3: --stop-after / --from conflict validation', () => {
       error: 'conflict',
     })
 
-    await runAmendCommand({
+    await runAmendAction({
       ...baseOptions,
       stopAfter: 'analysis' as any,
       from: 'planning' as any,
@@ -408,7 +403,7 @@ describe('AC3: --stop-after / --from conflict validation', () => {
   })
 
   it('calls validateStopAfterFromConflict with stopAfter and from', async () => {
-    await runAmendCommand({
+    await runAmendAction({
       ...baseOptions,
       stopAfter: 'planning' as any,
       from: 'analysis' as any,
@@ -418,7 +413,7 @@ describe('AC3: --stop-after / --from conflict validation', () => {
   })
 
   it('proceeds if no conflict', async () => {
-    const result = await runAmendCommand({
+    const result = await runAmendAction({
       ...baseOptions,
       stopAfter: 'planning' as any,
       from: 'analysis' as any,
@@ -435,30 +430,30 @@ describe('AC3: --stop-after / --from conflict validation', () => {
 
 describe('AC4: getLatestCompletedRun() when --run-id not provided', () => {
   it('calls getLatestCompletedRun() when --run-id not given', async () => {
-    await runAmendCommand({ ...baseOptions })
+    await runAmendAction({ ...baseOptions })
     expect(mockGetLatestCompletedRun).toHaveBeenCalled()
   })
 
   it('exits 1 with error message when no completed run found', async () => {
     mockGetLatestCompletedRun.mockReturnValueOnce(undefined)
 
-    const result = await runAmendCommand({ ...baseOptions })
+    const result = await runAmendAction({ ...baseOptions })
 
     expect(result).toBe(1)
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining("No completed pipeline run found. Run 'substrate auto run' first."),
+      expect.stringContaining("No completed pipeline run found. Run 'substrate run' first."),
     )
   })
 
   it('uses specified --run-id directly without calling getLatestCompletedRun()', async () => {
-    await runAmendCommand({ ...baseOptions, runId: 'explicit-run-id' })
+    await runAmendAction({ ...baseOptions, runId: 'explicit-run-id' })
     expect(mockGetLatestCompletedRun).not.toHaveBeenCalled()
   })
 
   it('uses the ID from the latest completed run', async () => {
     mockGetLatestCompletedRun.mockReturnValueOnce({ id: 'latest-completed-id', status: 'completed' })
 
-    await runAmendCommand({ ...baseOptions })
+    await runAmendAction({ ...baseOptions })
 
     expect(mockCreateAmendmentRun).toHaveBeenCalledWith(
       expect.anything(),
@@ -473,7 +468,7 @@ describe('AC4: getLatestCompletedRun() when --run-id not provided', () => {
 
 describe('AC5: createAmendmentRun() creates DB record', () => {
   it('calls createAmendmentRun() with parentRunId', async () => {
-    await runAmendCommand({ ...baseOptions, runId: 'explicit-parent-id' })
+    await runAmendAction({ ...baseOptions, runId: 'explicit-parent-id' })
 
     expect(mockCreateAmendmentRun).toHaveBeenCalledWith(
       expect.anything(),
@@ -488,7 +483,7 @@ describe('AC5: createAmendmentRun() creates DB record', () => {
       throw new Error('Parent run is not completed')
     })
 
-    const result = await runAmendCommand({ ...baseOptions })
+    const result = await runAmendAction({ ...baseOptions })
 
     expect(result).toBe(1)
     expect(stderrSpy).toHaveBeenCalledWith(
@@ -497,7 +492,7 @@ describe('AC5: createAmendmentRun() creates DB record', () => {
   })
 
   it('new run has a generated UUID', async () => {
-    await runAmendCommand({ ...baseOptions })
+    await runAmendAction({ ...baseOptions })
 
     expect(mockCreateAmendmentRun).toHaveBeenCalledWith(
       expect.anything(),
@@ -512,7 +507,7 @@ describe('AC5: createAmendmentRun() creates DB record', () => {
 
 describe('AC6: createAmendmentContextHandler() and context injection', () => {
   it('calls createAmendmentContextHandler with db, parentRunId, and concept', async () => {
-    await runAmendCommand({ ...baseOptions, runId: 'parent-id' })
+    await runAmendAction({ ...baseOptions, runId: 'parent-id' })
 
     expect(mockCreateAmendmentContextHandler).toHaveBeenCalledWith(
       expect.anything(),
@@ -525,7 +520,7 @@ describe('AC6: createAmendmentContextHandler() and context injection', () => {
     // No stop-after, so all 4 phases should run
     mockShouldHalt.mockReturnValue(false)
 
-    await runAmendCommand({ ...baseOptions })
+    await runAmendAction({ ...baseOptions })
 
     // Called once per phase (4 phases by default)
     expect(mockLoadContextForPhase).toHaveBeenCalledTimes(4)
@@ -538,7 +533,7 @@ describe('AC6: createAmendmentContextHandler() and context injection', () => {
   it('respects --from flag: skips phases before from', async () => {
     mockShouldHalt.mockReturnValue(false)
 
-    await runAmendCommand({ ...baseOptions, from: 'planning' as any })
+    await runAmendAction({ ...baseOptions, from: 'planning' as any })
 
     // Should only call loadContextForPhase for planning, solutioning, implementation
     expect(mockLoadContextForPhase).not.toHaveBeenCalledWith('analysis')
@@ -556,7 +551,7 @@ describe('AC7: stop-after gate reused', () => {
   it('halts phase loop when stop-after gate returns true', async () => {
     mockShouldHalt.mockReturnValue(true)
 
-    await runAmendCommand({ ...baseOptions, stopAfter: 'analysis' as any })
+    await runAmendAction({ ...baseOptions, stopAfter: 'analysis' as any })
 
     // Should stop after analysis, not call for planning etc.
     expect(mockLoadContextForPhase).toHaveBeenCalledWith('analysis')
@@ -566,7 +561,7 @@ describe('AC7: stop-after gate reused', () => {
   it('calls updatePipelineRun with stopped status on halt', async () => {
     mockShouldHalt.mockReturnValue(true)
 
-    await runAmendCommand({ ...baseOptions, stopAfter: 'analysis' as any })
+    await runAmendAction({ ...baseOptions, stopAfter: 'analysis' as any })
 
     expect(updatePipelineRun).toHaveBeenCalledWith(
       expect.anything(),
@@ -579,7 +574,7 @@ describe('AC7: stop-after gate reused', () => {
     mockShouldHalt.mockReturnValue(true)
     mockFormatPhaseCompletionSummary.mockReturnValue('Phase stop summary for analysis')
 
-    await runAmendCommand({ ...baseOptions, stopAfter: 'analysis' as any })
+    await runAmendAction({ ...baseOptions, stopAfter: 'analysis' as any })
 
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Phase stop summary for analysis'))
   })
@@ -587,7 +582,7 @@ describe('AC7: stop-after gate reused', () => {
   it('does not call generateDeltaDocument when stopped early', async () => {
     mockShouldHalt.mockReturnValue(true)
 
-    await runAmendCommand({ ...baseOptions, stopAfter: 'analysis' as any })
+    await runAmendAction({ ...baseOptions, stopAfter: 'analysis' as any })
 
     // Delta doc is still generated after stop (per AC8 which says "or is stopped after the final phase")
     // Actually the spec says "if loop completes (or after stop)" — let's verify delta is generated
@@ -603,7 +598,7 @@ describe('AC7: stop-after gate reused', () => {
   it('exits 0 after stop-after halt', async () => {
     mockShouldHalt.mockReturnValue(true)
 
-    const result = await runAmendCommand({ ...baseOptions, stopAfter: 'analysis' as any })
+    const result = await runAmendAction({ ...baseOptions, stopAfter: 'analysis' as any })
 
     expect(result).toBe(0)
   })
@@ -617,7 +612,7 @@ describe('AC8: generateDeltaDocument() on completion', () => {
   it('calls generateDeltaDocument() when phase loop completes', async () => {
     mockShouldHalt.mockReturnValue(false)
 
-    await runAmendCommand({ ...baseOptions })
+    await runAmendAction({ ...baseOptions })
 
     expect(mockGenerateDeltaDocument).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -630,7 +625,7 @@ describe('AC8: generateDeltaDocument() on completion', () => {
   it('writes formatted delta document to disk', async () => {
     mockShouldHalt.mockReturnValue(false)
 
-    await runAmendCommand({ ...baseOptions })
+    await runAmendAction({ ...baseOptions })
 
     expect(writeFile).toHaveBeenCalledWith(
       expect.stringContaining('amendment-delta-test-amendment-run-id.md'),
@@ -642,7 +637,7 @@ describe('AC8: generateDeltaDocument() on completion', () => {
   it('prints delta document path to stdout', async () => {
     mockShouldHalt.mockReturnValue(false)
 
-    await runAmendCommand({ ...baseOptions })
+    await runAmendAction({ ...baseOptions })
 
     expect(stdoutSpy).toHaveBeenCalledWith(
       expect.stringContaining('amendment-delta-test-amendment-run-id.md'),
@@ -653,7 +648,7 @@ describe('AC8: generateDeltaDocument() on completion', () => {
     mockShouldHalt.mockReturnValue(false)
     mockGenerateDeltaDocument.mockRejectedValueOnce(new Error('delta gen failed'))
 
-    const result = await runAmendCommand({ ...baseOptions })
+    const result = await runAmendAction({ ...baseOptions })
 
     expect(result).toBe(0)
     expect(stderrSpy).toHaveBeenCalledWith(
@@ -666,7 +661,7 @@ describe('AC8: generateDeltaDocument() on completion', () => {
     const { writeFile: mockWriteFile } = await import('fs/promises')
     vi.mocked(mockWriteFile).mockRejectedValueOnce(new Error('disk full'))
 
-    const result = await runAmendCommand({ ...baseOptions })
+    const result = await runAmendAction({ ...baseOptions })
 
     expect(result).toBe(0)
   })
@@ -676,7 +671,7 @@ describe('AC8: generateDeltaDocument() on completion', () => {
     const fakeDecisions = [{ id: 'decision-1', category: 'arch', key: 'k', value: 'v', phase: 'analysis' }]
     mockGetParentDecisions.mockReturnValue(fakeDecisions)
 
-    await runAmendCommand({ ...baseOptions })
+    await runAmendAction({ ...baseOptions })
 
     expect(mockGenerateDeltaDocument).toHaveBeenCalledWith(
       expect.objectContaining({ parentDecisions: fakeDecisions }),
@@ -692,7 +687,7 @@ describe('AC9: phase loop with context injection and flag behavior', () => {
   it('runs all 4 phases when no --from or --stop-after provided', async () => {
     mockShouldHalt.mockReturnValue(false)
 
-    await runAmendCommand({ ...baseOptions })
+    await runAmendAction({ ...baseOptions })
 
     expect(mockLoadContextForPhase).toHaveBeenCalledTimes(4)
   })
@@ -700,7 +695,7 @@ describe('AC9: phase loop with context injection and flag behavior', () => {
   it('starts from solutioning when --from solutioning is provided', async () => {
     mockShouldHalt.mockReturnValue(false)
 
-    await runAmendCommand({ ...baseOptions, from: 'solutioning' as any })
+    await runAmendAction({ ...baseOptions, from: 'solutioning' as any })
 
     expect(mockLoadContextForPhase).not.toHaveBeenCalledWith('analysis')
     expect(mockLoadContextForPhase).not.toHaveBeenCalledWith('planning')
@@ -711,7 +706,7 @@ describe('AC9: phase loop with context injection and flag behavior', () => {
   it('stops after planning when --stop-after planning', async () => {
     mockShouldHalt.mockReturnValue(true)
 
-    await runAmendCommand({ ...baseOptions, stopAfter: 'planning' as any })
+    await runAmendAction({ ...baseOptions, stopAfter: 'planning' as any })
 
     expect(mockLoadContextForPhase).toHaveBeenCalledWith('analysis')
     expect(mockLoadContextForPhase).toHaveBeenCalledWith('planning')
@@ -722,7 +717,7 @@ describe('AC9: phase loop with context injection and flag behavior', () => {
     mockShouldHalt.mockReturnValue(true)
     mockValidateStopAfterFromConflict.mockReturnValue({ valid: true })
 
-    await runAmendCommand({
+    await runAmendAction({
       ...baseOptions,
       from: 'planning' as any,
       stopAfter: 'solutioning' as any,
@@ -739,18 +734,12 @@ describe('AC9: phase loop with context injection and flag behavior', () => {
 // AC10: No modifications to src/cli/index.ts
 // ---------------------------------------------------------------------------
 
-describe('AC10: amend subcommand is nested in auto, not top-level', () => {
-  it('amend is registered as a subcommand of auto, not a top-level command', () => {
+describe('AC10: amend command is registered as a top-level command', () => {
+  it('amend is registered as a top-level command via registerAmendCommand', () => {
     const program = new Command()
-    registerAutoCommand(program, '0.0.0', '/test/project')
+    registerAmendCommand(program, '0.0.0', '/test/project')
 
-    // Top-level commands should not include 'amend'
-    const topLevelNames = program.commands.map((c) => c.name())
-    expect(topLevelNames).not.toContain('amend')
-
-    // auto subcommands should include 'amend'
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')
-    const amendCmd = autoCmd?.commands.find((c) => c.name() === 'amend')
+    const amendCmd = program.commands.find((c) => c.name() === 'amend')
     expect(amendCmd).toBeDefined()
   })
 })
@@ -764,7 +753,7 @@ describe('error paths', () => {
     const { existsSync } = await import('fs')
     vi.mocked(existsSync).mockReturnValueOnce(false)
 
-    const result = await runAmendCommand({ ...baseOptions })
+    const result = await runAmendAction({ ...baseOptions })
 
     expect(result).toBe(1)
     expect(stderrSpy).toHaveBeenCalledWith(
@@ -775,7 +764,7 @@ describe('error paths', () => {
   it('exits 0 on full success', async () => {
     mockShouldHalt.mockReturnValue(false)
 
-    const result = await runAmendCommand({ ...baseOptions })
+    const result = await runAmendAction({ ...baseOptions })
 
     expect(result).toBe(0)
   })

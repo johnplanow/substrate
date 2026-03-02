@@ -1,5 +1,5 @@
 /**
- * TUI Dashboard module for substrate auto run --tui
+ * TUI Dashboard module for substrate run --tui
  *
  * Exports the main TUI application factory and non-TTY detection utilities.
  */

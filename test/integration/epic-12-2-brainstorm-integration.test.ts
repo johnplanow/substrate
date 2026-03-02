@@ -125,8 +125,8 @@ describe('Gap 1: createProgram() registers brainstorm command (12-4 AC1 + AC2)',
     const program = await createProgram()
     const commandNames = program.commands.map((c) => c.name())
 
-    // Both auto and brainstorm must be present — verifies no regression (12-4 AC5)
-    expect(commandNames).toContain('auto')
+    // Pipeline commands and brainstorm must be present — verifies no regression (12-4 AC5)
+    expect(commandNames).toContain('run')
     expect(commandNames).toContain('brainstorm')
   })
 

@@ -634,7 +634,7 @@ export async function runBrainstormSession(
           const filePath = await saveSessionToDisk(session, projectRoot, outputPath)
           process.stdout.write(`\n${SEPARATOR}\n`)
           process.stdout.write(`Concept file saved: ${filePath}\n`)
-          process.stdout.write(`\nNext step: substrate auto run --concept-file ${filePath}\n`)
+          process.stdout.write(`\nNext step: substrate run --concept-file ${filePath}\n`)
           process.stdout.write(`${SEPARATOR}\n\n`)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)

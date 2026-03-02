@@ -2,7 +2,7 @@
  * Pipeline event type definitions for the NDJSON event protocol.
  *
  * These types form a discriminated union `PipelineEvent` that is emitted
- * on stdout when `substrate auto run --events` is active.
+ * on stdout when `substrate run --events` is active.
  *
  * All events carry a `ts` ISO-8601 timestamp generated at emit time.
  */
@@ -205,7 +205,7 @@ export interface StoryStallEvent {
 }
 
 // ---------------------------------------------------------------------------
-// Supervisor events (emitted by `substrate auto supervisor`)
+// Supervisor events (emitted by `substrate supervisor`)
 // ---------------------------------------------------------------------------
 
 /**

@@ -1,5 +1,5 @@
 /**
- * TUI Dashboard types for substrate auto run --tui
+ * TUI Dashboard types for substrate run --tui
  *
  * These types define the internal state model used by the TUI components.
  */

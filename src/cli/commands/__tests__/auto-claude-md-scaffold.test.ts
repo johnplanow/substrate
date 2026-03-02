@@ -1,7 +1,7 @@
 /**
  * Unit tests for Story 15.4: CLAUDE.md Scaffold Update
  *
- * Tests the scaffoldClaudeMd function and its integration with runAutoInit.
+ * Tests the scaffoldClaudeMd function and its integration with runInitAction.
  *
  * AC1: Fresh init includes substrate section with required commands
  * AC2: Section includes behavioral directives
@@ -68,10 +68,14 @@ vi.mock('fs', () => ({
 // Mock fs/promises
 const mockReadFile = vi.fn()
 const mockWriteFile = vi.fn()
+const mockMkdir = vi.fn().mockResolvedValue(undefined)
+const mockAccess = vi.fn().mockRejectedValue(new Error('ENOENT'))
 
 vi.mock('fs/promises', () => ({
   readFile: (...args: unknown[]) => mockReadFile(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
+  mkdir: (...args: unknown[]) => mockMkdir(...args),
+  access: (...args: unknown[]) => mockAccess(...args),
 }))
 
 // Mock node:module createRequire for bmad-method resolution
@@ -101,7 +105,9 @@ vi.mock('../../../modules/agent-dispatch/index.js', () => ({
   })),
 }))
 vi.mock('../../../adapters/adapter-registry.js', () => ({
-  AdapterRegistry: vi.fn().mockImplementation(() => ({ discoverAndRegister: vi.fn() })),
+  AdapterRegistry: vi.fn().mockImplementation(() => ({
+    discoverAndRegister: vi.fn().mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] }),
+  })),
 }))
 vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
   createImplementationOrchestrator: vi.fn(() => ({
@@ -128,11 +134,11 @@ vi.mock('../../../core/event-bus.js', () => ({
 
 import {
   scaffoldClaudeMd,
-  runAutoInit,
-  PACKAGE_ROOT,
+  runInitAction,
   CLAUDE_MD_START_MARKER,
   CLAUDE_MD_END_MARKER,
-} from '../auto.js'
+} from '../init.js'
+import { PACKAGE_ROOT } from '../pipeline-shared.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -144,9 +150,9 @@ const SUBSTRATE_SECTION = `<!-- substrate:start -->
 This project uses Substrate for automated implementation pipelines.
 
 ### Quick Start
-- Run \`substrate auto --help-agent\` to get full pipeline interaction instructions
-- Run \`substrate auto run --events\` to execute the pipeline with structured event output
-- Run \`substrate auto run --events --stories 7-1,7-2\` to run specific stories
+- Run \`substrate run --help-agent\` to get full pipeline interaction instructions
+- Run \`substrate run --events\` to execute the pipeline with structured event output
+- Run \`substrate run --events --stories 7-1,7-2\` to run specific stories
 
 ### Agent Behavior
 - On story escalation: read the flagged files and issues, propose a fix, ask the user before applying
@@ -211,8 +217,8 @@ describe('scaffoldClaudeMd', () => {
     await scaffoldClaudeMd('/test/project')
 
     const [, writeContent] = mockWriteFile.mock.calls[0]
-    expect(String(writeContent)).toContain('substrate auto run --events')
-    expect(String(writeContent)).toContain('substrate auto --help-agent')
+    expect(String(writeContent)).toContain('substrate run --events')
+    expect(String(writeContent)).toContain('substrate run --help-agent')
   })
 
   it('AC2: substrate section includes behavioral directives', async () => {
@@ -264,7 +270,7 @@ User-added content that must be preserved.
 
     // New substrate section is present
     expect(content).toContain('## Substrate Pipeline')
-    expect(content).toContain('substrate auto run --events')
+    expect(content).toContain('substrate run --events')
 
     // Old section content is gone
     expect(content).not.toContain('Old version of the section.')
@@ -334,10 +340,10 @@ User-added content that must be preserved.
 })
 
 // ---------------------------------------------------------------------------
-// Tests: runAutoInit calls scaffoldClaudeMd
+// Tests: runInitAction calls scaffoldClaudeMd
 // ---------------------------------------------------------------------------
 
-describe('runAutoInit CLAUDE.md scaffold integration', () => {
+describe('runInitAction CLAUDE.md scaffold integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockExistsSync.mockReturnValue(true)
@@ -365,10 +371,11 @@ describe('runAutoInit CLAUDE.md scaffold integration', () => {
   it('AC1: auto init writes CLAUDE.md with substrate section', async () => {
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -385,14 +392,14 @@ describe('runAutoInit CLAUDE.md scaffold integration', () => {
 
   it('AC5: auto run does not write CLAUDE.md', async () => {
     // Verify that CLAUDE.md path is not written by reading all writeFile calls
-    // We test this by checking that scaffoldClaudeMd is only called from runAutoInit,
+    // We test this by checking that scaffoldClaudeMd is only called from runInitAction,
     // not from any run path. Since this is a unit test we simply assert that
-    // runAutoInit is what calls writeFile with CLAUDE.md — auto run is tested separately.
+    // runInitAction is what calls writeFile with CLAUDE.md — auto run is tested separately.
     // This test validates AC5 by ensuring auto run does NOT invoke scaffoldClaudeMd.
     // We confirm the template path and CLAUDE.md path are not touched in a run scenario.
 
     // In this test suite, no auto run is invoked — confirm writeFile is never called
-    // for CLAUDE.md unless runAutoInit is explicitly called.
+    // for CLAUDE.md unless runInitAction is explicitly called.
     expect(mockWriteFile).not.toHaveBeenCalled()
   })
 })

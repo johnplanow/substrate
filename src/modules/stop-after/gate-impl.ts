@@ -93,7 +93,7 @@ export function formatPhaseCompletionSummary(params: CompletionSummaryParams): s
   const capitalizedPhase = phaseName.charAt(0).toUpperCase() + phaseName.slice(1)
   const duration = formatDuration(startedAt, completedAt)
   const nextDesc = nextPhaseDescription ?? NEXT_PHASE_DESCRIPTIONS[phaseName]
-  const resumeCommand = `substrate auto resume --run-id ${runId}`
+  const resumeCommand = `substrate resume --run-id ${runId}`
 
   // Build the required non-artifact parts first
   const headerLine = `${capitalizedPhase} phase completed successfully.`

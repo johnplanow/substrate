@@ -4,9 +4,9 @@
 This project uses Substrate for automated implementation pipelines.
 
 ### Quick Start
-- Run `substrate auto --help-agent` to get full pipeline interaction instructions
-- Run `substrate auto run --events` to execute the pipeline with structured event output
-- Run `substrate auto run --events --stories 7-1,7-2` to run specific stories
+- Run `substrate run --help-agent` to get full pipeline interaction instructions
+- Run `substrate run --events` to execute the pipeline with structured event output
+- Run `substrate run --events --stories 7-1,7-2` to run specific stories
 
 ### Agent Behavior
 - On story escalation: read the flagged files and issues, propose a fix, ask the user before applying

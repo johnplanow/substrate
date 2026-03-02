@@ -55,9 +55,9 @@ Emit ONLY this YAML block as your final output — no other text.
 ```yaml
 result: success
 user_journeys:
-  - "First run: User installs CLI → runs 'substrate auto init' → provides project concept → pipeline starts automatically → watches real-time progress → reviews results"
-  - "Resume after failure: User sees failed story → inspects error → runs 'substrate auto resume' → pipeline retries from last checkpoint → completes successfully"
-  - "Amend existing run: User wants to change direction → runs 'substrate auto amend --concept ...' → sees diff of changes → approves → pipeline re-runs affected phases"
+  - "First run: User installs CLI → runs 'substrate init' → provides project concept → pipeline starts automatically → watches real-time progress → reviews results"
+  - "Resume after failure: User sees failed story → inspects error → runs 'substrate resume' → pipeline retries from last checkpoint → completes successfully"
+  - "Amend existing run: User wants to change direction → runs 'substrate amend --concept ...' → sees diff of changes → approves → pipeline re-runs affected phases"
 component_strategy: "Priority components: (1) Pipeline status view — hierarchical phase/story progress with real-time updates; (2) Story detail panel — structured view of AC, tasks, and test results; (3) Error inspector — contextual error display with suggested fixes"
 ux_patterns:
   - "Streaming output: display pipeline logs in real-time with ANSI color preservation"

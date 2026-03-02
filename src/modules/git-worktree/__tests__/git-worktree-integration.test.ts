@@ -257,27 +257,27 @@ describe('GitWorktreeManager Integration', () => {
   // Task record worktree_path field
   // -------------------------------------------------------------------------
 
-  describe('Task record worktree_path field update', () => {
-    it('updates task worktree_path when worktree is created', async () => {
+  describe('Task record worktree_path field (task-graph tracking removed)', () => {
+    it('does not call DB when worktree is created', async () => {
       const db = createMockDb()
       const eventBus = createRealEventBus()
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT, '.substrate-worktrees', db)
 
       await manager.createWorktree('task-db-test')
 
-      // Should have called db.prepare (for updateTaskWorktree)
-      expect(db.db.prepare).toHaveBeenCalled()
+      // Task record tracking was removed — DB should NOT be called
+      expect(db.db.prepare).not.toHaveBeenCalled()
     })
 
-    it('updates task worktree_cleaned_at when worktree is cleaned up', async () => {
+    it('does not call DB when worktree is cleaned up', async () => {
       const db = createMockDb()
       const eventBus = createRealEventBus()
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT, '.substrate-worktrees', db)
 
       await manager.cleanupWorktree('task-cleanup-test')
 
-      // Should have called db.prepare (for updateTaskWorktree with worktree_cleaned_at)
-      expect(db.db.prepare).toHaveBeenCalled()
+      // Task record tracking was removed — DB should NOT be called
+      expect(db.db.prepare).not.toHaveBeenCalled()
     })
   })
 
@@ -304,7 +304,7 @@ describe('GitWorktreeManager Integration', () => {
       await manager.shutdown()
     })
 
-    it('skips active tasks during recovery', async () => {
+    it('cleans up all orphaned worktrees during recovery (task status check removed)', async () => {
       const orphanedPaths = [
         path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-active'),
       ]
@@ -316,8 +316,8 @@ describe('GitWorktreeManager Integration', () => {
 
       await manager.initialize()
 
-      // Active task should NOT be cleaned up
-      expect(gitUtils.removeWorktree).not.toHaveBeenCalled()
+      // Task status check was removed — all orphaned worktrees are cleaned up
+      expect(gitUtils.removeWorktree).toHaveBeenCalledOnce()
 
       await manager.shutdown()
     })

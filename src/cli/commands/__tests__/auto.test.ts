@@ -7,7 +7,7 @@
  *   AC3: auto status — queries latest run, formats output
  *   AC4: --output-format json — all outputs wrapped in { success, data, error }
  *   AC5: Token telemetry — addTokenUsage called, BMAD baseline comparison shown
- *   AC6: Command registration — registerAutoCommand registers init/run/status
+ *   AC6: Command registration — registerXxxCommand registers init/run/status
  *   AC7: Error handling — missing pack, missing DB, invalid story keys
  *   AC8: Run without stories — discovers from decision store
  */
@@ -141,10 +141,14 @@ vi.mock('fs', () => ({
 // Mock fs/promises for readFile and writeFile
 const mockReadFile = vi.fn()
 const mockWriteFile = vi.fn()
+const mockMkdir = vi.fn().mockResolvedValue(undefined)
+const mockAccess = vi.fn().mockRejectedValue(new Error('ENOENT'))
 
 vi.mock('fs/promises', () => ({
   readFile: (...args: unknown[]) => mockReadFile(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
+  mkdir: (...args: unknown[]) => mockMkdir(...args),
+  access: (...args: unknown[]) => mockAccess(...args),
 }))
 
 // Mock node:module createRequire for bmad-method resolution
@@ -166,18 +170,20 @@ vi.mock('node:module', () => {
 // ---------------------------------------------------------------------------
 
 import {
-  runAutoInit,
-  runAutoRun,
-  runAutoStatus,
-  registerAutoCommand,
   formatOutput,
   formatTokenTelemetry,
   validateStoryKey,
   PACKAGE_ROOT,
   resolveBmadMethodSrcPath,
   resolveBmadMethodVersion,
+} from '../pipeline-shared.js'
+import {
+  runInitAction,
   scaffoldBmadFramework,
-} from '../auto.js'
+  registerInitCommand,
+} from '../init.js'
+import { runRunAction, registerRunCommand } from '../run.js'
+import { runStatusAction, registerStatusCommand } from '../status.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -277,7 +283,7 @@ describe('formatTokenTelemetry', () => {
   })
 })
 
-describe('runAutoInit', () => {
+describe('runInitAction', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockExistsSync.mockReturnValue(true)
@@ -285,6 +291,7 @@ describe('runAutoInit', () => {
     mockRequireResolve.mockReturnValue('/fake/node_modules/bmad-method/package.json')
     mockRequireCall.mockReturnValue({ version: '6.0.3' })
     mockWriteFile.mockResolvedValue(undefined)
+    mockDiscoverAndRegister.mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] })
     // Default: template readable, CLAUDE.md does not exist
     mockReadFile.mockImplementation((path: string) => {
       if (String(path).includes('claude-md-substrate-section')) {
@@ -298,10 +305,11 @@ describe('runAutoInit', () => {
     mockPackLoad.mockResolvedValue(mockPack())
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -323,14 +331,15 @@ describe('runAutoInit', () => {
     })
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
-    expect(mockMkdirSync).toHaveBeenCalledWith('/test/project/.substrate', { recursive: true })
+    expect(mockMkdir).toHaveBeenCalledWith('/test/project/.substrate', { recursive: true })
     stdoutWrite.mockRestore()
   })
 
@@ -338,10 +347,11 @@ describe('runAutoInit', () => {
     mockPackLoad.mockResolvedValue(mockPack())
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'json',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -358,10 +368,11 @@ describe('runAutoInit', () => {
     mockPackLoad.mockRejectedValue(new Error('manifest.yaml not found'))
 
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'nonexistent',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(1)
@@ -375,10 +386,11 @@ describe('runAutoInit', () => {
     mockPackLoad.mockRejectedValue(new Error('manifest.yaml not found'))
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'nonexistent',
       projectRoot: '/test/project',
       outputFormat: 'json',
+      yes: true,
     })
 
     expect(exitCode).toBe(1)
@@ -405,10 +417,11 @@ describe('runAutoInit', () => {
     mockPackLoad.mockResolvedValue(mockPack())
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -431,10 +444,11 @@ describe('runAutoInit', () => {
     mockPackLoad.mockResolvedValue(mockPack())
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -449,11 +463,12 @@ describe('runAutoInit', () => {
 
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
       force: true,
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -473,10 +488,11 @@ describe('runAutoInit', () => {
     mockPackLoad.mockResolvedValue(mockPack())
 
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(1)
@@ -495,10 +511,11 @@ describe('runAutoInit', () => {
     mockPackLoad.mockResolvedValue(mockPack())
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'json',
+      yes: true,
     })
 
     expect(exitCode).toBe(1)
@@ -511,15 +528,16 @@ describe('runAutoInit', () => {
     stdoutWrite.mockRestore()
   })
 
-  it('AC4: error message does NOT say "Run substrate auto init first"', async () => {
+  it('AC4: error message does NOT say "Run substrate init first" with old auto prefix', async () => {
     mockExistsSync.mockReturnValue(false)
     mockPackLoad.mockResolvedValue(mockPack())
 
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    await runAutoInit({
+    await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     const allOutput = stderrWrite.mock.calls.map((c) => String(c[0])).join('')
@@ -536,10 +554,11 @@ describe('runAutoInit', () => {
     mockPackLoad.mockResolvedValue(mockPack())
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'json',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -557,10 +576,11 @@ describe('runAutoInit', () => {
     mockPackLoad.mockResolvedValue(mockPack())
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'json',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -581,10 +601,11 @@ describe('runAutoInit', () => {
     mockPackLoad.mockResolvedValue(mockPack())
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    await runAutoInit({
+    await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     const allOutput = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
@@ -592,18 +613,17 @@ describe('runAutoInit', () => {
     stdoutWrite.mockRestore()
   })
 
-  it('AC5: --force flag is registered on auto init command', () => {
+  it('AC5: --force flag is registered on init command', () => {
     const program = new Command()
-    registerAutoCommand(program, '1.0.0', '/test/project')
+    registerInitCommand(program, '1.0.0', '/test/project')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')!
-    const initCmd = autoCmd.commands.find((c) => c.name() === 'init')!
+    const initCmd = program.commands.find((c) => c.name() === 'init')!
     const forceOpt = initCmd.options.find((o) => o.long === '--force')
     expect(forceOpt).toBeDefined()
   })
 })
 
-describe('runAutoRun', () => {
+describe('runRunAction', () => {
   const defaultStatus = {
     state: 'COMPLETE',
     stories: {
@@ -635,7 +655,7 @@ describe('runAutoRun', () => {
   it('AC2: creates pipeline run, starts orchestrator, outputs progress', async () => {
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoRun({
+    const exitCode = await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 2,
@@ -649,7 +669,7 @@ describe('runAutoRun', () => {
       expect.objectContaining({ methodology: 'bmad' }),
     )
     expect(mockOrchestratorRun).toHaveBeenCalledWith(['10-1'])
-    expect(stdoutWrite).toHaveBeenCalledWith(expect.stringContaining('substrate auto run —'))
+    expect(stdoutWrite).toHaveBeenCalledWith(expect.stringContaining('substrate run —'))
     stdoutWrite.mockRestore()
   })
 
@@ -663,7 +683,7 @@ describe('runAutoRun', () => {
       },
     })
 
-    const exitCode = await runAutoRun({
+    const exitCode = await runRunAction({
       pack: 'bmad',
       stories: '10-1,10-2',
       concurrency: 2,
@@ -679,7 +699,7 @@ describe('runAutoRun', () => {
   it('AC4: outputs JSON with { success, data } structure', async () => {
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoRun({
+    const exitCode = await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -701,7 +721,7 @@ describe('runAutoRun', () => {
   it('AC7: rejects invalid story key format', async () => {
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoRun({
+    const exitCode = await runRunAction({
       pack: 'bmad',
       stories: 'abc',
       concurrency: 1,
@@ -719,7 +739,7 @@ describe('runAutoRun', () => {
   it('AC7: invalid story key format in JSON mode outputs structured error', async () => {
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoRun({
+    const exitCode = await runRunAction({
       pack: 'bmad',
       stories: 'bad-key-format-xyz',
       concurrency: 1,
@@ -741,7 +761,7 @@ describe('runAutoRun', () => {
 
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoRun({
+    const exitCode = await runRunAction({
       pack: 'missing-pack',
       stories: '10-1',
       concurrency: 1,
@@ -767,7 +787,7 @@ describe('runAutoRun', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoRun({
+    const exitCode = await runRunAction({
       pack: 'bmad',
       stories: undefined,
       concurrency: 1,
@@ -788,7 +808,7 @@ describe('runAutoRun', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoRun({
+    const exitCode = await runRunAction({
       pack: 'bmad',
       stories: undefined,
       concurrency: 1,
@@ -814,7 +834,7 @@ describe('runAutoRun', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoRun({
+    const exitCode = await runRunAction({
       pack: 'bmad',
       stories: undefined,
       concurrency: 1,
@@ -839,7 +859,7 @@ describe('runAutoRun', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoRun({
+    const exitCode = await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -867,7 +887,7 @@ describe('runAutoRun', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoRun({
+    const exitCode = await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -917,7 +937,7 @@ describe('runAutoRun', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoRun({
+    const exitCode = await runRunAction({
       pack: 'bmad',
       stories: '10-1',
       concurrency: 1,
@@ -942,7 +962,7 @@ describe('runAutoRun', () => {
   })
 })
 
-describe('runAutoStatus', () => {
+describe('runStatusAction', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockExistsSync.mockReturnValue(true)
@@ -959,7 +979,7 @@ describe('runAutoStatus', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoStatus({
+    const exitCode = await runStatusAction({
       outputFormat: 'human',
       projectRoot: '/test/project',
     })
@@ -981,7 +1001,7 @@ describe('runAutoStatus', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoStatus({
+    const exitCode = await runStatusAction({
       outputFormat: 'human',
       runId: 'specific-run-id',
       projectRoot: '/test/project',
@@ -1006,7 +1026,7 @@ describe('runAutoStatus', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoStatus({
+    const exitCode = await runStatusAction({
       outputFormat: 'json',
       projectRoot: '/test/project',
     })
@@ -1027,7 +1047,7 @@ describe('runAutoStatus', () => {
 
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoStatus({
+    const exitCode = await runStatusAction({
       outputFormat: 'human',
       projectRoot: '/test/project',
     })
@@ -1047,7 +1067,7 @@ describe('runAutoStatus', () => {
 
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoStatus({
+    const exitCode = await runStatusAction({
       outputFormat: 'human',
       projectRoot: '/test/project',
     })
@@ -1077,7 +1097,7 @@ describe('runAutoStatus', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoStatus({
+    const exitCode = await runStatusAction({
       outputFormat: 'human',
       projectRoot: '/test/project',
     })
@@ -1107,7 +1127,7 @@ describe('runAutoStatus', () => {
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoStatus({
+    const exitCode = await runStatusAction({
       outputFormat: 'human',
       projectRoot: '/test/project',
     })
@@ -1121,46 +1141,42 @@ describe('runAutoStatus', () => {
   })
 })
 
-describe('registerAutoCommand', () => {
-  it('AC6: registers auto command group with init, run, status subcommands', () => {
+describe('command registration', () => {
+  it('AC6: registers init, run, status as top-level commands', () => {
     const program = new Command()
-    registerAutoCommand(program, '1.0.0', '/test/project')
+    registerInitCommand(program, '1.0.0', '/test/project')
+    registerRunCommand(program, '1.0.0', '/test/project')
+    registerStatusCommand(program, '1.0.0', '/test/project')
 
-    // Check that 'auto' command is registered
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')
-    expect(autoCmd).toBeDefined()
-
-    // Check subcommands
-    const subCmdNames = autoCmd!.commands.map((c) => c.name())
-    expect(subCmdNames).toContain('init')
-    expect(subCmdNames).toContain('run')
-    expect(subCmdNames).toContain('status')
+    const cmdNames = program.commands.map((c) => c.name())
+    expect(cmdNames).toContain('init')
+    expect(cmdNames).toContain('run')
+    expect(cmdNames).toContain('status')
   })
 
-  it('AC6: auto help shows description for each subcommand', () => {
+  it('AC6: each command is registered and defined', () => {
     const program = new Command()
-    registerAutoCommand(program, '1.0.0', '/test/project')
+    registerInitCommand(program, '1.0.0', '/test/project')
+    registerRunCommand(program, '1.0.0', '/test/project')
+    registerStatusCommand(program, '1.0.0', '/test/project')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')
-    expect(autoCmd).toBeDefined()
-    expect(autoCmd!.description()).toBe('Autonomous implementation pipeline')
-
-    const initCmd = autoCmd!.commands.find((c) => c.name() === 'init')
-    const runCmd = autoCmd!.commands.find((c) => c.name() === 'run')
-    const statusCmd = autoCmd!.commands.find((c) => c.name() === 'status')
+    const initCmd = program.commands.find((c) => c.name() === 'init')
+    const runCmd = program.commands.find((c) => c.name() === 'run')
+    const statusCmd = program.commands.find((c) => c.name() === 'status')
 
     expect(initCmd).toBeDefined()
     expect(runCmd).toBeDefined()
     expect(statusCmd).toBeDefined()
   })
 
-  it('AC6: all subcommands have --output-format option', () => {
+  it('AC6: all commands have --output-format option', () => {
     const program = new Command()
-    registerAutoCommand(program, '1.0.0', '/test/project')
+    registerInitCommand(program, '1.0.0', '/test/project')
+    registerRunCommand(program, '1.0.0', '/test/project')
+    registerStatusCommand(program, '1.0.0', '/test/project')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')!
-    for (const subCmd of autoCmd.commands) {
-      const optNames = subCmd.options.map((o) => o.long)
+    for (const cmd of program.commands) {
+      const optNames = cmd.options.map((o) => o.long)
       expect(optNames).toContain('--output-format')
     }
   })

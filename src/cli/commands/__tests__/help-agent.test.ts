@@ -247,9 +247,9 @@ describe('generateEventSchemaSection', () => {
 })
 
 describe('generateCommandReferenceSection', () => {
-  it('documents substrate auto run command', () => {
+  it('documents substrate run command', () => {
     const output = generateCommandReferenceSection()
-    expect(output).toContain('substrate auto run')
+    expect(output).toContain('substrate run')
   })
 
   it('documents --events flag', () => {
@@ -274,23 +274,23 @@ describe('generateCommandReferenceSection', () => {
 
   it('includes example usage', () => {
     const output = generateCommandReferenceSection()
-    expect(output).toContain('substrate auto run --events')
+    expect(output).toContain('substrate run --events')
     expect(output).toContain('--stories')
   })
 
-  it('documents substrate auto status command', () => {
+  it('documents substrate status command', () => {
     const output = generateCommandReferenceSection()
-    expect(output).toContain('substrate auto status')
+    expect(output).toContain('substrate status')
   })
 
-  it('documents substrate auto resume command', () => {
+  it('documents substrate resume command', () => {
     const output = generateCommandReferenceSection()
-    expect(output).toContain('substrate auto resume')
+    expect(output).toContain('substrate resume')
   })
 
-  it('documents substrate auto init command', () => {
+  it('documents substrate init command', () => {
     const output = generateCommandReferenceSection()
-    expect(output).toContain('substrate auto init')
+    expect(output).toContain('substrate init')
   })
 
   it('contains h2 header', () => {
@@ -345,7 +345,7 @@ describe('generateHelpAgentOutput', () => {
 
   it('includes h1 header', () => {
     const output = generateHelpAgentOutput('0.1.0')
-    expect(output).toContain('# Substrate Auto Pipeline — Agent Instructions')
+    expect(output).toContain('# Substrate Pipeline — Agent Instructions')
   })
 
   it('includes commands section', () => {
@@ -455,7 +455,7 @@ describe('runHelpAgent', () => {
     const exitCode = await runHelpAgent()
     expect(stdoutSpy).toHaveBeenCalledOnce()
     const written = stdoutSpy.mock.calls[0][0] as string
-    expect(written).toContain('# Substrate Auto Pipeline — Agent Instructions')
+    expect(written).toContain('# Substrate Pipeline — Agent Instructions')
   })
 
   it('returns exit code 0 (AC1)', async () => {

@@ -2,7 +2,7 @@
  * Unit tests for upgrade-safe .claude/settings.json and statusline.sh scaffolding.
  *
  * Tests scaffoldClaudeSettings (JSON merge), scaffoldStatuslineScript, and
- * their integration with runAutoInit.
+ * their integration with runInitAction.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -65,10 +65,14 @@ vi.mock('fs', () => ({
 // Mock fs/promises
 const mockReadFile = vi.fn()
 const mockWriteFile = vi.fn()
+const mockMkdir = vi.fn().mockResolvedValue(undefined)
+const mockAccess = vi.fn().mockRejectedValue(new Error('ENOENT'))
 
 vi.mock('fs/promises', () => ({
   readFile: (...args: unknown[]) => mockReadFile(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
+  mkdir: (...args: unknown[]) => mockMkdir(...args),
+  access: (...args: unknown[]) => mockAccess(...args),
 }))
 
 // Mock node:module createRequire for bmad-method resolution
@@ -98,7 +102,9 @@ vi.mock('../../../modules/agent-dispatch/index.js', () => ({
   })),
 }))
 vi.mock('../../../adapters/adapter-registry.js', () => ({
-  AdapterRegistry: vi.fn().mockImplementation(() => ({ discoverAndRegister: vi.fn() })),
+  AdapterRegistry: vi.fn().mockImplementation(() => ({
+    discoverAndRegister: vi.fn().mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] }),
+  })),
 }))
 vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
   createImplementationOrchestrator: vi.fn(() => ({
@@ -126,9 +132,9 @@ vi.mock('../../../core/event-bus.js', () => ({
 import {
   scaffoldClaudeSettings,
   scaffoldStatuslineScript,
-  SUBSTRATE_OWNED_SETTINGS_KEYS,
-  runAutoInit,
-} from '../auto.js'
+  runInitAction,
+} from '../init.js'
+import { SUBSTRATE_OWNED_SETTINGS_KEYS } from '../pipeline-shared.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -402,10 +408,10 @@ describe('SUBSTRATE_OWNED_SETTINGS_KEYS', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Tests: runAutoInit integration
+// Tests: runInitAction integration
 // ---------------------------------------------------------------------------
 
-describe('runAutoInit settings scaffold integration', () => {
+describe('runInitAction settings scaffold integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockExistsSync.mockReturnValue(true)
@@ -437,10 +443,11 @@ describe('runAutoInit settings scaffold integration', () => {
   it('auto init writes .claude/statusline.sh', async () => {
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -457,10 +464,11 @@ describe('runAutoInit settings scaffold integration', () => {
   it('auto init writes .claude/settings.json with statusLine', async () => {
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -498,10 +506,11 @@ describe('runAutoInit settings scaffold integration', () => {
       return Promise.reject(new Error('ENOENT'))
     })
 
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)

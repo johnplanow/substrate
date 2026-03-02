@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdir, rm, readFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { runInit } from '../../commands/init.js'
+import { runInitAction } from '../../commands/init.js'
 import { runConfigShow, runConfigSet } from '../../commands/config.js'
 import type { AdapterRegistry, DiscoveryReport } from '../../../adapters/adapter-registry.js'
 import { createConfigSystem } from '../../../modules/config/config-system-impl.js'
@@ -78,8 +78,10 @@ describe('init creates valid config files', () => {
   it('creates config.yaml with valid format', async () => {
     const restore = silenceOutput()
     try {
-      await runInit({
-        directory: testDir,
+      await runInitAction({
+        pack: 'bmad',
+        projectRoot: testDir,
+        outputFormat: 'human',
         yes: true,
         registry: createMockRegistry(),
       })
@@ -96,8 +98,10 @@ describe('init creates valid config files', () => {
   it('created config.yaml is loadable by ConfigSystem', async () => {
     const restore = silenceOutput()
     try {
-      await runInit({
-        directory: testDir,
+      await runInitAction({
+        pack: 'bmad',
+        projectRoot: testDir,
+        outputFormat: 'human',
         yes: true,
         registry: createMockRegistry(),
       })
@@ -114,8 +118,10 @@ describe('init creates valid config files', () => {
   it('creates routing-policy.yaml with default provider', async () => {
     const restore = silenceOutput()
     try {
-      await runInit({
-        directory: testDir,
+      await runInitAction({
+        pack: 'bmad',
+        projectRoot: testDir,
+        outputFormat: 'human',
         yes: true,
         registry: createMockRegistry(),
       })
@@ -137,8 +143,10 @@ describe('init → config show', () => {
   it('config show returns SUCCESS after init', async () => {
     const restore = silenceOutput()
     try {
-      await runInit({
-        directory: testDir,
+      await runInitAction({
+        pack: 'bmad',
+        projectRoot: testDir,
+        outputFormat: 'human',
         yes: true,
         registry: createMockRegistry(),
       })
@@ -162,8 +170,10 @@ describe('init → config show', () => {
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
     try {
-      await runInit({
-        directory: testDir,
+      await runInitAction({
+        pack: 'bmad',
+        projectRoot: testDir,
+        outputFormat: 'human',
         yes: true,
         registry: createMockRegistry(),
       })
@@ -192,8 +202,10 @@ describe('init → config set → config show', () => {
   it('shows updated log_level after config set', async () => {
     const restore = silenceOutput()
     try {
-      await runInit({
-        directory: testDir,
+      await runInitAction({
+        pack: 'bmad',
+        projectRoot: testDir,
+        outputFormat: 'human',
         yes: true,
         registry: createMockRegistry(),
       })
@@ -234,8 +246,10 @@ describe('environment variable overrides', () => {
   it('ADT_LOG_LEVEL overrides config file value', async () => {
     const restore = silenceOutput()
     try {
-      await runInit({
-        directory: testDir,
+      await runInitAction({
+        pack: 'bmad',
+        projectRoot: testDir,
+        outputFormat: 'human',
         yes: true,
         registry: createMockRegistry(),
       })
@@ -259,8 +273,10 @@ describe('credential masking', () => {
   it('config show does not reveal environment variable values in output', async () => {
     const restore = silenceOutput()
     try {
-      await runInit({
-        directory: testDir,
+      await runInitAction({
+        pack: 'bmad',
+        projectRoot: testDir,
+        outputFormat: 'human',
         yes: true,
         registry: createMockRegistry(),
       })

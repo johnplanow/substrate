@@ -28,7 +28,7 @@ import {
   createPipelineRun,
 } from '../../src/persistence/queries/decisions.js'
 import { createAmendmentContextHandler } from '../../src/modules/amendment-handlers/index.js'
-import { runPostPhaseSupersessionDetection } from '../../src/cli/commands/auto.js'
+import { runPostPhaseSupersessionDetection } from '../../src/cli/commands/amend.js'
 import { runAnalysisPhase } from '../../src/modules/phase-orchestrator/phases/analysis.js'
 import { runPlanningPhase } from '../../src/modules/phase-orchestrator/phases/planning.js'
 import type { PhaseDeps, ProductBrief } from '../../src/modules/phase-orchestrator/phases/types.js'

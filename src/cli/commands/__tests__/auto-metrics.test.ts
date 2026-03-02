@@ -1,5 +1,5 @@
 /**
- * Unit tests for `substrate auto metrics` command (Story 17-2).
+ * Unit tests for `substrate metrics` command (Story 17-2).
  *
  * Coverage:
  *   - AC3: Metrics query command (list, compare, tag-baseline)
@@ -17,8 +17,8 @@ import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { writeRunMetrics, writeStoryMetrics } from '../../../persistence/queries/metrics.js'
-import { runAutoMetrics } from '../auto.js'
-import type { AutoMetricsOptions } from '../auto.js'
+import { runMetricsAction } from '../metrics.js'
+import type { MetricsOptions } from '../metrics.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -92,7 +92,7 @@ function seedRun(db: BetterSqlite3Database, runId: string, overrides: Record<str
 // Tests: List Mode (AC3)
 // ---------------------------------------------------------------------------
 
-describe('runAutoMetrics — AC3: list mode', () => {
+describe('runMetricsAction — AC3: list mode', () => {
   let stdoutCapture: ReturnType<typeof captureStdout>
   let projectRoot: string
   let db: BetterSqlite3Database
@@ -115,7 +115,7 @@ describe('runAutoMetrics — AC3: list mode', () => {
     seedRun(db, 'run-002', { started_at: '2026-01-16T00:00:00.000Z' })
     db.close()
 
-    const exitCode = await runAutoMetrics({ outputFormat: 'human', projectRoot })
+    const exitCode = await runMetricsAction({ outputFormat: 'human', projectRoot })
     expect(exitCode).toBe(0)
 
     const output = stdoutCapture.getOutput()
@@ -128,7 +128,7 @@ describe('runAutoMetrics — AC3: list mode', () => {
     seedRun(db, 'run-001')
     db.close()
 
-    const exitCode = await runAutoMetrics({ outputFormat: 'json', projectRoot })
+    const exitCode = await runMetricsAction({ outputFormat: 'json', projectRoot })
     expect(exitCode).toBe(0)
 
     const output = stdoutCapture.getOutput()
@@ -144,7 +144,7 @@ describe('runAutoMetrics — AC3: list mode', () => {
     seedRun(db, 'run-003', { started_at: '2026-01-17T00:00:00.000Z' })
     db.close()
 
-    const exitCode = await runAutoMetrics({ outputFormat: 'json', projectRoot, limit: 2 })
+    const exitCode = await runMetricsAction({ outputFormat: 'json', projectRoot, limit: 2 })
     expect(exitCode).toBe(0)
 
     const parsed = JSON.parse(stdoutCapture.getOutput())
@@ -154,7 +154,7 @@ describe('runAutoMetrics — AC3: list mode', () => {
   it('shows empty message when no runs exist', async () => {
     db.close()
 
-    const exitCode = await runAutoMetrics({ outputFormat: 'human', projectRoot })
+    const exitCode = await runMetricsAction({ outputFormat: 'human', projectRoot })
     expect(exitCode).toBe(0)
 
     expect(stdoutCapture.getOutput()).toContain('No run metrics recorded yet')
@@ -165,7 +165,7 @@ describe('runAutoMetrics — AC3: list mode', () => {
 // Tests: Compare Mode (AC3)
 // ---------------------------------------------------------------------------
 
-describe('runAutoMetrics — AC3: compare mode', () => {
+describe('runMetricsAction — AC3: compare mode', () => {
   let stdoutCapture: ReturnType<typeof captureStdout>
   let stderrCapture: ReturnType<typeof captureStderr>
   let projectRoot: string
@@ -191,7 +191,7 @@ describe('runAutoMetrics — AC3: compare mode', () => {
     seedRun(db, 'run-002', { total_input_tokens: 8000, total_cost_usd: 0.08 })
     db.close()
 
-    const exitCode = await runAutoMetrics({
+    const exitCode = await runMetricsAction({
       outputFormat: 'human',
       projectRoot,
       compare: ['run-001', 'run-002'],
@@ -208,7 +208,7 @@ describe('runAutoMetrics — AC3: compare mode', () => {
     seedRun(db, 'run-002', { total_input_tokens: 7500, wall_clock_seconds: 900 })
     db.close()
 
-    const exitCode = await runAutoMetrics({
+    const exitCode = await runMetricsAction({
       outputFormat: 'json',
       projectRoot,
       compare: ['run-001', 'run-002'],
@@ -225,7 +225,7 @@ describe('runAutoMetrics — AC3: compare mode', () => {
     seedRun(db, 'run-001')
     db.close()
 
-    const exitCode = await runAutoMetrics({
+    const exitCode = await runMetricsAction({
       outputFormat: 'human',
       projectRoot,
       compare: ['run-001', 'run-missing'],
@@ -238,7 +238,7 @@ describe('runAutoMetrics — AC3: compare mode', () => {
 // Tests: Tag Baseline (AC4)
 // ---------------------------------------------------------------------------
 
-describe('runAutoMetrics — AC4: tag baseline', () => {
+describe('runMetricsAction — AC4: tag baseline', () => {
   let stdoutCapture: ReturnType<typeof captureStdout>
   let stderrCapture: ReturnType<typeof captureStderr>
   let projectRoot: string
@@ -263,7 +263,7 @@ describe('runAutoMetrics — AC4: tag baseline', () => {
     seedRun(db, 'run-001')
     db.close()
 
-    const exitCode = await runAutoMetrics({
+    const exitCode = await runMetricsAction({
       outputFormat: 'human',
       projectRoot,
       tagBaseline: 'run-001',
@@ -276,7 +276,7 @@ describe('runAutoMetrics — AC4: tag baseline', () => {
     seedRun(db, 'run-001')
     db.close()
 
-    const exitCode = await runAutoMetrics({
+    const exitCode = await runMetricsAction({
       outputFormat: 'json',
       projectRoot,
       tagBaseline: 'run-001',
@@ -291,7 +291,7 @@ describe('runAutoMetrics — AC4: tag baseline', () => {
   it('returns error when tagging non-existent run', async () => {
     db.close()
 
-    const exitCode = await runAutoMetrics({
+    const exitCode = await runMetricsAction({
       outputFormat: 'human',
       projectRoot,
       tagBaseline: 'run-missing',
@@ -304,7 +304,7 @@ describe('runAutoMetrics — AC4: tag baseline', () => {
 // Tests: Error Handling
 // ---------------------------------------------------------------------------
 
-describe('runAutoMetrics — error handling', () => {
+describe('runMetricsAction — error handling', () => {
   let stdoutCapture: ReturnType<typeof captureStdout>
 
   beforeEach(() => {
@@ -320,7 +320,7 @@ describe('runAutoMetrics — error handling', () => {
     mkdirSync(fakeRoot, { recursive: true })
 
     try {
-      const exitCode = await runAutoMetrics({
+      const exitCode = await runMetricsAction({
         outputFormat: 'human',
         projectRoot: fakeRoot,
       })
@@ -336,7 +336,7 @@ describe('runAutoMetrics — error handling', () => {
     mkdirSync(fakeRoot, { recursive: true })
 
     try {
-      const exitCode = await runAutoMetrics({
+      const exitCode = await runMetricsAction({
         outputFormat: 'json',
         projectRoot: fakeRoot,
       })

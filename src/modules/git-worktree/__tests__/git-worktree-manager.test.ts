@@ -252,16 +252,16 @@ describe('GitWorktreeManagerImpl', () => {
       await expect(manager.createWorktree('   ')).rejects.toThrow()
     })
 
-    it('updates Task record with worktree_path when DB is provided', async () => {
+    it('does not update Task record when DB is provided (task-graph tracking removed)', async () => {
       const eventBus = createMockEventBus()
       const db = createMockDb()
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT, '.substrate-worktrees', db)
 
       await manager.createWorktree('task-db')
 
-      // The DB run method should have been called (via updateTaskWorktree)
+      // Task record tracking was removed — DB should NOT be called
       const dbPrepare = db.db.prepare as ReturnType<typeof vi.fn>
-      expect(dbPrepare).toHaveBeenCalled()
+      expect(dbPrepare).not.toHaveBeenCalled()
     })
 
     it('proceeds without error even if DB update fails', async () => {
@@ -370,15 +370,16 @@ describe('GitWorktreeManagerImpl', () => {
       expect(removedCall).toBeDefined()
     })
 
-    it('updates task record with worktree_cleaned_at when DB is provided', async () => {
+    it('does not update task record when DB is provided (task-graph tracking removed)', async () => {
       const eventBus = createMockEventBus()
       const db = createMockDb()
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT, '.substrate-worktrees', db)
 
       await manager.cleanupWorktree('task-db-cleanup')
 
+      // Task record tracking was removed — DB should NOT be called
       const dbPrepare = db.db.prepare as ReturnType<typeof vi.fn>
-      expect(dbPrepare).toHaveBeenCalled()
+      expect(dbPrepare).not.toHaveBeenCalled()
     })
   })
 
@@ -443,7 +444,7 @@ describe('GitWorktreeManagerImpl', () => {
       )
     })
 
-    it('skips worktrees for running tasks when DB is provided', async () => {
+    it('cleans up all orphaned worktrees regardless of DB (task status check removed)', async () => {
       const orphanedPaths = [
         path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-running'),
       ]
@@ -451,19 +452,13 @@ describe('GitWorktreeManagerImpl', () => {
 
       const eventBus = createMockEventBus()
       const db = createMockDb()
-      // Mock DB to return a running task
-      ;(db.db.prepare as ReturnType<typeof vi.fn>).mockReturnValue({
-        get: vi.fn(() => ({ id: 'task-running', status: 'running' })),
-        all: vi.fn(() => []),
-        run: vi.fn(() => ({ changes: 1 })),
-      })
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT, '.substrate-worktrees', db)
 
       const count = await manager.cleanupAllWorktrees()
 
-      // Should skip the running task worktree
-      expect(count).toBe(0)
-      expect(gitUtils.removeWorktree).not.toHaveBeenCalled()
+      // Task status check was removed — all orphaned worktrees are cleaned up
+      expect(count).toBe(1)
+      expect(gitUtils.removeWorktree).toHaveBeenCalledOnce()
     })
 
     it('removes worktrees for non-running tasks when DB is provided', async () => {

@@ -1,5 +1,5 @@
 /**
- * Unit tests for `substrate auto supervisor` command (Story 17-1).
+ * Unit tests for `substrate supervisor` command (Story 17-1).
  *
  * Tests the supervisor state machine using injected mock dependencies to avoid
  * real process manipulation, real timers, or real DB access.
@@ -13,8 +13,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { runAutoSupervisor, registerAutoCommand } from '../auto.js'
-import type { PipelineHealthOutput, AutoSupervisorOptions, SupervisorDeps } from '../auto.js'
+import { runSupervisorAction, registerSupervisorCommand } from '../supervisor.js'
+import type { SupervisorOptions, SupervisorDeps } from '../supervisor.js'
+import type { PipelineHealthOutput } from '../health.js'
 import { Command } from 'commander'
 
 // ---------------------------------------------------------------------------
@@ -97,7 +98,7 @@ function makeNoRun(): PipelineHealthOutput {
 // Default options
 // ---------------------------------------------------------------------------
 
-function makeOptions(overrides: Partial<AutoSupervisorOptions> = {}): AutoSupervisorOptions {
+function makeOptions(overrides: Partial<SupervisorOptions> = {}): SupervisorOptions {
   return {
     pollInterval: 1,       // 1 second (overridden by mock sleep anyway)
     stallThreshold: 600,
@@ -132,7 +133,7 @@ function captureStdout(): { getOutput: () => string; restore: () => void } {
 // Tests: AC2 — Health Polling Loop
 // ---------------------------------------------------------------------------
 
-describe('runAutoSupervisor — AC2: health polling loop', () => {
+describe('runSupervisorAction — AC2: health polling loop', () => {
   let stdoutCapture: ReturnType<typeof captureStdout>
 
   beforeEach(() => {
@@ -158,7 +159,7 @@ describe('runAutoSupervisor — AC2: health polling loop', () => {
       killPid: vi.fn(),
     }
 
-    const exitCode = await runAutoSupervisor(makeOptions(), deps)
+    const exitCode = await runSupervisorAction(makeOptions(), deps)
 
     expect(exitCode).toBe(0)
     // No sleep calls because we exited immediately
@@ -180,7 +181,7 @@ describe('runAutoSupervisor — AC2: health polling loop', () => {
       killPid: vi.fn(),
     }
 
-    const exitCode = await runAutoSupervisor(makeOptions({ pollInterval: 60 }), deps)
+    const exitCode = await runSupervisorAction(makeOptions({ pollInterval: 60 }), deps)
 
     expect(exitCode).toBe(0)
     // Two healthy polls → two sleep(60000) calls before terminal
@@ -200,7 +201,7 @@ describe('runAutoSupervisor — AC2: health polling loop', () => {
       killPid: vi.fn(),
     }
 
-    await runAutoSupervisor(makeOptions({ outputFormat: 'human' }), deps)
+    await runSupervisorAction(makeOptions({ outputFormat: 'human' }), deps)
 
     const output = stdoutCapture.getOutput()
     expect(output).toContain('Health: HEALTHY')
@@ -215,7 +216,7 @@ describe('runAutoSupervisor — AC2: health polling loop', () => {
       killPid: vi.fn(),
     }
 
-    await runAutoSupervisor(makeOptions({ outputFormat: 'json' }), deps)
+    await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
     const lines = output.trim().split('\n')
@@ -235,7 +236,7 @@ describe('runAutoSupervisor — AC2: health polling loop', () => {
 // Tests: AC5 — Terminal State Summary and Exit Codes
 // ---------------------------------------------------------------------------
 
-describe('runAutoSupervisor — AC5: terminal state summary and exit codes', () => {
+describe('runSupervisorAction — AC5: terminal state summary and exit codes', () => {
   let stdoutCapture: ReturnType<typeof captureStdout>
 
   beforeEach(() => {
@@ -254,7 +255,7 @@ describe('runAutoSupervisor — AC5: terminal state summary and exit codes', () 
       killPid: vi.fn(),
     }
 
-    const exitCode = await runAutoSupervisor(makeOptions(), deps)
+    const exitCode = await runSupervisorAction(makeOptions(), deps)
     expect(exitCode).toBe(0)
   })
 
@@ -266,7 +267,7 @@ describe('runAutoSupervisor — AC5: terminal state summary and exit codes', () 
       killPid: vi.fn(),
     }
 
-    const exitCode = await runAutoSupervisor(makeOptions(), deps)
+    const exitCode = await runSupervisorAction(makeOptions(), deps)
     expect(exitCode).toBe(1)
   })
 
@@ -278,7 +279,7 @@ describe('runAutoSupervisor — AC5: terminal state summary and exit codes', () 
       killPid: vi.fn(),
     }
 
-    const exitCode = await runAutoSupervisor(makeOptions(), deps)
+    const exitCode = await runSupervisorAction(makeOptions(), deps)
     expect(exitCode).toBe(1)
   })
 
@@ -290,7 +291,7 @@ describe('runAutoSupervisor — AC5: terminal state summary and exit codes', () 
       killPid: vi.fn(),
     }
 
-    await runAutoSupervisor(makeOptions({ outputFormat: 'json' }), deps)
+    await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
     const summaryLine = output.trim().split('\n').find((l) => l.includes('supervisor:summary'))
@@ -310,7 +311,7 @@ describe('runAutoSupervisor — AC5: terminal state summary and exit codes', () 
       killPid: vi.fn(),
     }
 
-    const exitCode = await runAutoSupervisor(makeOptions(), deps)
+    const exitCode = await runSupervisorAction(makeOptions(), deps)
     expect(exitCode).toBe(0)
   })
 
@@ -332,7 +333,7 @@ describe('runAutoSupervisor — AC5: terminal state summary and exit codes', () 
       killPid: vi.fn(),
     }
 
-    await runAutoSupervisor(makeOptions({ maxRestarts: 3, outputFormat: 'json' }), deps)
+    await runSupervisorAction(makeOptions({ maxRestarts: 3, outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
     const lines = output.trim().split('\n')
@@ -348,7 +349,7 @@ describe('runAutoSupervisor — AC5: terminal state summary and exit codes', () 
 // Tests: AC3 — Stall Detection and Kill
 // ---------------------------------------------------------------------------
 
-describe('runAutoSupervisor — AC3: stall detection and kill', () => {
+describe('runSupervisorAction — AC3: stall detection and kill', () => {
   let stdoutCapture: ReturnType<typeof captureStdout>
 
   beforeEach(() => {
@@ -372,7 +373,7 @@ describe('runAutoSupervisor — AC3: stall detection and kill', () => {
       killPid,
     }
 
-    await runAutoSupervisor(makeOptions({ stallThreshold: 600 }), deps)
+    await runSupervisorAction(makeOptions({ stallThreshold: 600 }), deps)
 
     // Should NOT have killed any process
     expect(killPid).not.toHaveBeenCalled()
@@ -392,7 +393,7 @@ describe('runAutoSupervisor — AC3: stall detection and kill', () => {
       }),
     }
 
-    await runAutoSupervisor(makeOptions({ stallThreshold: 600 }), deps)
+    await runSupervisorAction(makeOptions({ stallThreshold: 600 }), deps)
 
     // Should have sent SIGTERM to orchestrator + child
     const sigterms = killCalls.filter(([, s]) => s === 'SIGTERM')
@@ -420,7 +421,7 @@ describe('runAutoSupervisor — AC3: stall detection and kill', () => {
       killPid: vi.fn(),
     }
 
-    await runAutoSupervisor(makeOptions({ stallThreshold: 600 }), deps)
+    await runSupervisorAction(makeOptions({ stallThreshold: 600 }), deps)
 
     // 5000ms grace period sleep should be present
     expect(sleepCalls).toContain(5000)
@@ -437,7 +438,7 @@ describe('runAutoSupervisor — AC3: stall detection and kill', () => {
       killPid: vi.fn(),
     }
 
-    await runAutoSupervisor(makeOptions({ stallThreshold: 600, outputFormat: 'json' }), deps)
+    await runSupervisorAction(makeOptions({ stallThreshold: 600, outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
     const lines = output.trim().split('\n')
@@ -467,7 +468,7 @@ describe('runAutoSupervisor — AC3: stall detection and kill', () => {
     }
 
     // Should not throw even with no PIDs
-    const exitCode = await runAutoSupervisor(makeOptions({ stallThreshold: 600 }), deps)
+    const exitCode = await runSupervisorAction(makeOptions({ stallThreshold: 600 }), deps)
     expect(exitCode).toBe(0)
     expect(killPid).not.toHaveBeenCalled()
   })
@@ -477,7 +478,7 @@ describe('runAutoSupervisor — AC3: stall detection and kill', () => {
 // Tests: AC4 — Automatic Restart After Kill
 // ---------------------------------------------------------------------------
 
-describe('runAutoSupervisor — AC4: automatic restart after kill', () => {
+describe('runSupervisorAction — AC4: automatic restart after kill', () => {
   let stdoutCapture: ReturnType<typeof captureStdout>
 
   beforeEach(() => {
@@ -500,7 +501,7 @@ describe('runAutoSupervisor — AC4: automatic restart after kill', () => {
       killPid: vi.fn(),
     }
 
-    await runAutoSupervisor(makeOptions({ stallThreshold: 600 }), deps)
+    await runSupervisorAction(makeOptions({ stallThreshold: 600 }), deps)
 
     expect(resumePipeline).toHaveBeenCalledOnce()
     const callArgs = resumePipeline.mock.calls[0][0] as Record<string, unknown>
@@ -520,7 +521,7 @@ describe('runAutoSupervisor — AC4: automatic restart after kill', () => {
       killPid: vi.fn(),
     }
 
-    await runAutoSupervisor(makeOptions({ stallThreshold: 600, outputFormat: 'json' }), deps)
+    await runSupervisorAction(makeOptions({ stallThreshold: 600, outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
     const lines = output.trim().split('\n')
@@ -545,7 +546,7 @@ describe('runAutoSupervisor — AC4: automatic restart after kill', () => {
       killPid: vi.fn(),
     }
 
-    await runAutoSupervisor(makeOptions({ stallThreshold: 600, maxRestarts: 5, outputFormat: 'json' }), deps)
+    await runSupervisorAction(makeOptions({ stallThreshold: 600, maxRestarts: 5, outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
     const lines = output.trim().split('\n')
@@ -571,7 +572,7 @@ describe('runAutoSupervisor — AC4: automatic restart after kill', () => {
       killPid: vi.fn(),
     }
 
-    const exitCode = await runAutoSupervisor(makeOptions({ stallThreshold: 600, pollInterval: 60 }), deps)
+    const exitCode = await runSupervisorAction(makeOptions({ stallThreshold: 600, pollInterval: 60 }), deps)
 
     expect(exitCode).toBe(0)
     // Should have polled at least twice (after stall+restart, then after healthy)
@@ -583,7 +584,7 @@ describe('runAutoSupervisor — AC4: automatic restart after kill', () => {
 // Tests: AC6 — Max Restarts Safety Valve (within batch scope)
 // ---------------------------------------------------------------------------
 
-describe('runAutoSupervisor — AC6: max restarts safety valve', () => {
+describe('runSupervisorAction — AC6: max restarts safety valve', () => {
   let stdoutCapture: ReturnType<typeof captureStdout>
 
   beforeEach(() => {
@@ -610,7 +611,7 @@ describe('runAutoSupervisor — AC6: max restarts safety valve', () => {
       killPid: vi.fn(),
     }
 
-    const exitCode = await runAutoSupervisor(makeOptions({ maxRestarts: 2, stallThreshold: 600 }), deps)
+    const exitCode = await runSupervisorAction(makeOptions({ maxRestarts: 2, stallThreshold: 600 }), deps)
     expect(exitCode).toBe(2)
   })
 
@@ -625,7 +626,7 @@ describe('runAutoSupervisor — AC6: max restarts safety valve', () => {
       killPid: vi.fn(),
     }
 
-    await runAutoSupervisor(makeOptions({ maxRestarts: 1, stallThreshold: 600, outputFormat: 'json' }), deps)
+    await runSupervisorAction(makeOptions({ maxRestarts: 1, stallThreshold: 600, outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
     const lines = output.trim().split('\n')
@@ -650,7 +651,7 @@ describe('runAutoSupervisor — AC6: max restarts safety valve', () => {
       killPid: vi.fn(),
     }
 
-    await runAutoSupervisor(makeOptions({ maxRestarts: 1, stallThreshold: 600 }), deps)
+    await runSupervisorAction(makeOptions({ maxRestarts: 1, stallThreshold: 600 }), deps)
 
     // First stall: restart called (count becomes 1)
     // Second stall: restartCount (1) >= maxRestarts (1) → abort, no resume
@@ -662,24 +663,20 @@ describe('runAutoSupervisor — AC6: max restarts safety valve', () => {
 // Tests: AC1 — Command Registration
 // ---------------------------------------------------------------------------
 
-describe('registerAutoCommand — AC1: supervisor command registration', () => {
-  it('registers the supervisor subcommand on the auto command group', () => {
+describe('registerSupervisorCommand — AC1: supervisor command registration', () => {
+  it('registers the supervisor command on the program', () => {
     const program = new Command()
-    registerAutoCommand(program, '0.0.0', '/tmp/test')
+    registerSupervisorCommand(program, '0.0.0', '/tmp/test')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')
-    expect(autoCmd).toBeDefined()
-
-    const supervisorCmd = autoCmd!.commands.find((c) => c.name() === 'supervisor')
+    const supervisorCmd = program.commands.find((c) => c.name() === 'supervisor')
     expect(supervisorCmd).toBeDefined()
   })
 
   it('supervisor command has --poll-interval option with default 60', () => {
     const program = new Command()
-    registerAutoCommand(program, '0.0.0', '/tmp/test')
+    registerSupervisorCommand(program, '0.0.0', '/tmp/test')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')!
-    const supervisorCmd = autoCmd.commands.find((c) => c.name() === 'supervisor')!
+    const supervisorCmd = program.commands.find((c) => c.name() === 'supervisor')!
 
     const opts = supervisorCmd.opts()
     // Before parsing, check option definitions exist
@@ -691,10 +688,9 @@ describe('registerAutoCommand — AC1: supervisor command registration', () => {
 
   it('supervisor command has --stall-threshold option with default 600', () => {
     const program = new Command()
-    registerAutoCommand(program, '0.0.0', '/tmp/test')
+    registerSupervisorCommand(program, '0.0.0', '/tmp/test')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')!
-    const supervisorCmd = autoCmd.commands.find((c) => c.name() === 'supervisor')!
+    const supervisorCmd = program.commands.find((c) => c.name() === 'supervisor')!
 
     const optDefs = supervisorCmd.options
     const stallOpt = optDefs.find((o) => o.long === '--stall-threshold')
@@ -704,10 +700,9 @@ describe('registerAutoCommand — AC1: supervisor command registration', () => {
 
   it('supervisor command has --max-restarts option with default 3', () => {
     const program = new Command()
-    registerAutoCommand(program, '0.0.0', '/tmp/test')
+    registerSupervisorCommand(program, '0.0.0', '/tmp/test')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')!
-    const supervisorCmd = autoCmd.commands.find((c) => c.name() === 'supervisor')!
+    const supervisorCmd = program.commands.find((c) => c.name() === 'supervisor')!
 
     const optDefs = supervisorCmd.options
     const maxRestartsOpt = optDefs.find((o) => o.long === '--max-restarts')
@@ -717,10 +712,9 @@ describe('registerAutoCommand — AC1: supervisor command registration', () => {
 
   it('supervisor command has --output-format option', () => {
     const program = new Command()
-    registerAutoCommand(program, '0.0.0', '/tmp/test')
+    registerSupervisorCommand(program, '0.0.0', '/tmp/test')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')!
-    const supervisorCmd = autoCmd.commands.find((c) => c.name() === 'supervisor')!
+    const supervisorCmd = program.commands.find((c) => c.name() === 'supervisor')!
 
     const optDefs = supervisorCmd.options
     const fmtOpt = optDefs.find((o) => o.long === '--output-format')
@@ -730,10 +724,9 @@ describe('registerAutoCommand — AC1: supervisor command registration', () => {
 
   it('supervisor command has --project-root option', () => {
     const program = new Command()
-    registerAutoCommand(program, '0.0.0', '/tmp/test')
+    registerSupervisorCommand(program, '0.0.0', '/tmp/test')
 
-    const autoCmd = program.commands.find((c) => c.name() === 'auto')!
-    const supervisorCmd = autoCmd.commands.find((c) => c.name() === 'supervisor')!
+    const supervisorCmd = program.commands.find((c) => c.name() === 'supervisor')!
 
     const optDefs = supervisorCmd.options
     const rootOpt = optDefs.find((o) => o.long === '--project-root')

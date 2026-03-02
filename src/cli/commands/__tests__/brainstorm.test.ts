@@ -712,7 +712,7 @@ describe('AC4: REPL session command handling', () => {
 
     const stdoutContent = stdoutSpy.mock.calls.map((c) => c[0] as string).join('')
     expect(stdoutContent).toContain('brainstorm-session-')
-    expect(stdoutContent).toContain('substrate auto run --concept-file')
+    expect(stdoutContent).toContain('substrate run --concept-file')
   })
 
   it('stdin close without !wrap: exits without saving', async () => {

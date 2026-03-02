@@ -479,33 +479,23 @@ describe('GAP-E3-3: Merge followed by cleanup — worktree:merged then worktree:
 // ---------------------------------------------------------------------------
 
 describe('GAP-E3-4: DB worktree field consistency through full lifecycle', () => {
-  it('createWorktree updates worktree_path and worktree_branch, cleanupWorktree updates worktree_cleaned_at', async () => {
+  it('createWorktree and cleanupWorktree do not call DB (task-graph tracking removed)', async () => {
     const db = createMockDb()
     const eventBus = createRealEventBus()
     const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT, '.substrate-worktrees', db)
 
     const dbPrepareMock = db.db.prepare as ReturnType<typeof vi.fn>
 
-    // createWorktree should call updateTaskWorktree with worktree_path and worktree_branch
+    // createWorktree should NOT call DB (task record tracking removed)
     await manager.createWorktree('task-db-lifecycle')
+    expect(dbPrepareMock).not.toHaveBeenCalled()
 
-    // Should have called DB at least once for worktree creation
-    expect(dbPrepareMock).toHaveBeenCalled()
-    const createCallArgs = dbPrepareMock.mock.calls as string[][]
-    const createSql = createCallArgs.map((c) => c[0]).join('\n')
-    expect(createSql).toContain('worktree_path')
-
-    dbPrepareMock.mockClear()
-
-    // cleanupWorktree should call updateTaskWorktree with worktree_cleaned_at
+    // cleanupWorktree should NOT call DB (task record tracking removed)
     await manager.cleanupWorktree('task-db-lifecycle')
-    expect(dbPrepareMock).toHaveBeenCalled()
-    const cleanupCallArgs = dbPrepareMock.mock.calls as string[][]
-    const cleanupSql = cleanupCallArgs.map((c) => c[0]).join('\n')
-    expect(cleanupSql).toContain('worktree_cleaned_at')
+    expect(dbPrepareMock).not.toHaveBeenCalled()
   })
 
-  it('mergeWorktree with DB calls updateTaskWorktree with worktree_cleaned_at on success', async () => {
+  it('mergeWorktree with DB does not call DB (task-graph tracking removed)', async () => {
     const db = createMockDb()
     const eventBus = createRealEventBus()
     const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT, '.substrate-worktrees', db)
@@ -515,11 +505,8 @@ describe('GAP-E3-4: DB worktree field consistency through full lifecycle', () =>
     vi.mocked(gitUtils.getMergedFiles).mockResolvedValueOnce(['merged.ts'])
     await manager.mergeWorktree('task-db-merge', 'main')
 
-    // mergeWorktree calls updateTaskWorktree with worktree_cleaned_at after successful merge
-    expect(dbPrepareMock).toHaveBeenCalled()
-    const callArgs = dbPrepareMock.mock.calls as string[][]
-    const sql = callArgs.map((c) => c[0]).join('\n')
-    expect(sql).toContain('worktree_cleaned_at')
+    // Task record tracking was removed — DB should NOT be called
+    expect(dbPrepareMock).not.toHaveBeenCalled()
   })
 
   it('mergeWorktree without DB does not throw when DB is null', async () => {

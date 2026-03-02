@@ -40,7 +40,7 @@ import {
   validateDeltaDocument,
   formatDeltaDocument,
 } from '../../src/modules/delta-document/index.js'
-import { runPostPhaseSupersessionDetection } from '../../src/cli/commands/auto.js'
+import { runPostPhaseSupersessionDetection } from '../../src/cli/commands/amend.js'
 
 // ---------------------------------------------------------------------------
 // Helpers

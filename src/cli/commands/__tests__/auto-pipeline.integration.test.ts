@@ -27,7 +27,7 @@ import {
   buildPipelineStatusOutput,
   formatPipelineStatusHuman,
   formatPipelineSummary,
-} from '../auto.js'
+} from '../pipeline-shared.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
 
 // ---------------------------------------------------------------------------
@@ -727,7 +727,7 @@ describe('Analysis phase integration (AC1, AC7)', () => {
 
   it('missing concept when --from analysis produces error', async () => {
     // Test the CLI-level validation (concept required for analysis)
-    const { runAutoRun } = await import('../auto.js')
+    const { runRunAction } = await import('../run.js')
 
     // Mock fs
     vi.doMock('fs', () => ({
@@ -737,7 +737,7 @@ describe('Analysis phase integration (AC1, AC7)', () => {
 
     // Test that the validation logic correctly requires concept
     // We can test this via the exported function directly
-    // Since runAutoRun is complex to mock fully, we test the condition explicitly
+    // Since runRunAction is complex to mock fully, we test the condition explicitly
     const conceptArg = undefined
     const conceptFile = undefined
     const startPhase = 'analysis'

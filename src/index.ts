@@ -25,10 +25,6 @@ export * from './core/errors.js'
 export { createLogger, childLogger, logger } from './utils/logger.js'
 export * from './utils/helpers.js'
 
-// Orchestrator
-export { createOrchestrator } from './core/orchestrator-impl.js'
-export type { Orchestrator, OrchestratorConfig } from './core/orchestrator.js'
-
 // Event Bus
 export type { TypedEventBus } from './core/event-bus.js'
 export type { OrchestratorEvents } from './core/event-bus.types.js'

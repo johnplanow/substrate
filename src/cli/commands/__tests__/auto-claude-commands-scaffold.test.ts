@@ -2,7 +2,7 @@
  * Unit tests for .claude/commands/ scaffolding from bmad-method generators.
  *
  * Tests scaffoldClaudeCommands, scanBmadModules, and their integration
- * with runAutoInit.
+ * with runInitAction.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -69,10 +69,14 @@ vi.mock('fs', () => ({
 // Mock fs/promises
 const mockReadFile = vi.fn()
 const mockWriteFile = vi.fn()
+const mockMkdir = vi.fn().mockResolvedValue(undefined)
+const mockAccess = vi.fn().mockRejectedValue(new Error('ENOENT'))
 
 vi.mock('fs/promises', () => ({
   readFile: (...args: unknown[]) => mockReadFile(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
+  mkdir: (...args: unknown[]) => mockMkdir(...args),
+  access: (...args: unknown[]) => mockAccess(...args),
 }))
 
 // Mock bmad-method generator instances
@@ -145,7 +149,9 @@ vi.mock('../../../modules/agent-dispatch/index.js', () => ({
   })),
 }))
 vi.mock('../../../adapters/adapter-registry.js', () => ({
-  AdapterRegistry: vi.fn().mockImplementation(() => ({ discoverAndRegister: vi.fn() })),
+  AdapterRegistry: vi.fn().mockImplementation(() => ({
+    discoverAndRegister: vi.fn().mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] }),
+  })),
 }))
 vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
   createImplementationOrchestrator: vi.fn(() => ({
@@ -174,8 +180,8 @@ import {
   scaffoldClaudeCommands,
   scanBmadModules,
   resolveBmadMethodInstallerLibPath,
-  runAutoInit,
-} from '../auto.js'
+  runInitAction,
+} from '../init.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -514,10 +520,10 @@ describe('scaffoldClaudeCommands', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Tests: runAutoInit integration
+// Tests: runInitAction integration
 // ---------------------------------------------------------------------------
 
-describe('runAutoInit commands scaffold integration', () => {
+describe('runInitAction commands scaffold integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockExistsSync.mockReturnValue(true)
@@ -556,10 +562,11 @@ describe('runAutoInit commands scaffold integration', () => {
   it('auto init calls scaffoldClaudeCommands and succeeds', async () => {
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     expect(exitCode).toBe(0)
@@ -577,10 +584,11 @@ describe('runAutoInit commands scaffold integration', () => {
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
-    const exitCode = await runAutoInit({
+    const exitCode = await runInitAction({
       pack: 'bmad',
       projectRoot: '/test/project',
       outputFormat: 'human',
+      yes: true,
     })
 
     // Init should still succeed — commands failure is non-fatal

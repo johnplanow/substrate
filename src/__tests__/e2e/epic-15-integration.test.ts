@@ -59,7 +59,8 @@ import type {
 } from '../../modules/implementation-orchestrator/event-types.js'
 import { createTuiApp, isTuiCapable, printNonTtyWarning } from '../../tui/index.js'
 import { PIPELINE_EVENT_METADATA } from '../../cli/commands/help-agent.js'
-import { PACKAGE_ROOT, CLAUDE_MD_START_MARKER, CLAUDE_MD_END_MARKER } from '../../cli/commands/auto.js'
+import { PACKAGE_ROOT } from '../../cli/commands/pipeline-shared.js'
+import { CLAUDE_MD_START_MARKER, CLAUDE_MD_END_MARKER } from '../../cli/commands/init.js'
 
 // ---------------------------------------------------------------------------
 // Stream helpers
@@ -317,7 +318,7 @@ describe('EventEmitter → ProgressRenderer NDJSON round-trip (Gap 2)', () => {
     const rendererOutput = rendererCapture.output()
 
     // Validate cross-component integration
-    expect(rendererOutput).toContain('substrate auto run — 2 stories, concurrency 2')
+    expect(rendererOutput).toContain('substrate run — 2 stories, concurrency 2')
     expect(rendererOutput).toContain('10-1')
     expect(rendererOutput).toContain('SHIP_IT (1 cycle)')
     expect(rendererOutput).toContain('10-2')
@@ -694,14 +695,14 @@ describe('claude-md-substrate-section.md template file integrity (Gap 7)', () =>
     expect(endIdx).toBeGreaterThan(startIdx)
   })
 
-  it('template contains required substrate auto run --events command', () => {
+  it('template contains required substrate run --events command', () => {
     const content = readFileSync(templatePath, 'utf-8')
-    expect(content).toContain('substrate auto run --events')
+    expect(content).toContain('substrate run --events')
   })
 
-  it('template contains substrate auto --help-agent command', () => {
+  it('template contains substrate run --help-agent command', () => {
     const content = readFileSync(templatePath, 'utf-8')
-    expect(content).toContain('substrate auto --help-agent')
+    expect(content).toContain('substrate run --help-agent')
   })
 
   it('template contains agent behavioral directives', () => {

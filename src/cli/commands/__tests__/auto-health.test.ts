@@ -1,5 +1,5 @@
 /**
- * Unit tests for `substrate auto health` command (Story 16-7 AC3).
+ * Unit tests for `substrate health` command (Story 16-7 AC3).
  *
  * Tests:
  *   - JSON output format with all three verdicts
@@ -14,7 +14,8 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
-import { runAutoHealth, formatOutput, buildPipelineStatusOutput } from '../auto.js'
+import { runHealthAction } from '../health.js'
+import { buildPipelineStatusOutput } from '../pipeline-shared.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -88,7 +89,7 @@ vi.mock('node:fs', async (importOriginal) => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('runAutoHealth', () => {
+describe('runHealthAction', () => {
   let db: BetterSqlite3Database
   let stdoutChunks: string[]
   const origWrite = process.stdout.write
@@ -120,7 +121,7 @@ describe('runAutoHealth', () => {
   }
 
   it('returns NO_PIPELINE_RUNNING when no runs exist (JSON)', async () => {
-    const exitCode = await runAutoHealth({
+    const exitCode = await runHealthAction({
       outputFormat: 'json',
       projectRoot: '/tmp/test-project',
     })
@@ -132,7 +133,7 @@ describe('runAutoHealth', () => {
 
   it('returns NO_PIPELINE_RUNNING when latest run is completed (JSON)', async () => {
     createTestRun(db, { status: 'completed', current_phase: 'implementation' })
-    const exitCode = await runAutoHealth({
+    const exitCode = await runHealthAction({
       outputFormat: 'json',
       projectRoot: '/tmp/test-project',
     })
@@ -156,7 +157,7 @@ describe('runAutoHealth', () => {
       token_usage_json: storyState,
       updated_at: new Date().toISOString(),
     })
-    const exitCode = await runAutoHealth({
+    const exitCode = await runHealthAction({
       outputFormat: 'json',
       projectRoot: '/tmp/test-project',
     })
@@ -178,7 +179,7 @@ describe('runAutoHealth', () => {
       current_phase: 'implementation',
       updated_at: staleTime,
     })
-    const exitCode = await runAutoHealth({
+    const exitCode = await runHealthAction({
       outputFormat: 'json',
       projectRoot: '/tmp/test-project',
     })
@@ -204,7 +205,7 @@ describe('runAutoHealth', () => {
       token_usage_json: storyState,
       updated_at: new Date().toISOString(),
     })
-    const exitCode = await runAutoHealth({
+    const exitCode = await runHealthAction({
       outputFormat: 'json',
       projectRoot: '/tmp/test-project',
     })
@@ -228,7 +229,7 @@ describe('runAutoHealth', () => {
       status: 'completed',
       current_phase: 'implementation',
     })
-    const exitCode = await runAutoHealth({
+    const exitCode = await runHealthAction({
       outputFormat: 'human',
       projectRoot: '/tmp/test-project',
     })
@@ -245,7 +246,7 @@ describe('runAutoHealth', () => {
       current_phase: 'implementation',
       updated_at: fiveMinAgo,
     })
-    const exitCode = await runAutoHealth({
+    const exitCode = await runHealthAction({
       outputFormat: 'json',
       projectRoot: '/tmp/test-project',
     })

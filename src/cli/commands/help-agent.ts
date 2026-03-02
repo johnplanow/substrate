@@ -1,5 +1,5 @@
 /**
- * `substrate auto --help-agent` command handler
+ * `substrate run --help-agent` command handler
  *
  * Generates a machine-optimized prompt fragment describing the event protocol,
  * available commands, and interaction patterns for AI agents.
@@ -187,7 +187,7 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
   },
   {
     type: 'supervisor:restart',
-    description: 'Emitted by the supervisor when it restarts a killed pipeline via auto resume.',
+    description: 'Emitted by the supervisor when it restarts a killed pipeline via resume.',
     when: 'Immediately after killing a stalled pipeline, when the restart count is within the max limit.',
     fields: [
       { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
@@ -286,13 +286,13 @@ export function generateEventSchemaSection(events: EventMetadata[]): string {
 export function generateCommandReferenceSection(): string {
   return `## Commands
 
-All commands are run via the \`substrate auto\` subcommand group.
+All commands are top-level \`substrate\` subcommands.
 
-### substrate auto run
+### substrate run
 Run the autonomous implementation pipeline.
 
 \`\`\`
-substrate auto run [options]
+substrate run [options]
 \`\`\`
 
 Options:
@@ -309,41 +309,41 @@ Options:
 Examples:
 \`\`\`
 # Run pipeline with NDJSON event stream
-substrate auto run --events
+substrate run --events
 
 # Run specific stories with event stream
-substrate auto run --events --stories 7-1,7-2
+substrate run --events --stories 7-1,7-2
 
 # Run pipeline with human-readable output (default)
-substrate auto run
+substrate run
 \`\`\`
 
-### substrate auto status
+### substrate status
 Show status of the most recent pipeline run.
 
 \`\`\`
-substrate auto status [--run-id <id>] [--output-format json]
+substrate status [--run-id <id>] [--output-format json]
 \`\`\`
 
-### substrate auto resume
+### substrate resume
 Resume a previously interrupted pipeline run.
 
 \`\`\`
-substrate auto resume [--run-id <id>]
+substrate resume [--run-id <id>]
 \`\`\`
 
-### substrate auto init
+### substrate init
 Initialize a methodology pack and decision store.
 
 \`\`\`
-substrate auto init [--pack bmad] [--project-root .]
+substrate init [--pack bmad] [--project-root .]
 \`\`\`
 
-### substrate auto supervisor
+### substrate supervisor
 Long-running process that monitors pipeline health, kills stalled runs, and auto-restarts.
 
 \`\`\`
-substrate auto supervisor [options]
+substrate supervisor [options]
 \`\`\`
 
 Options:
@@ -354,11 +354,11 @@ Options:
 
 Exit codes: 0 = all succeeded, 1 = failures/escalations, 2 = max restarts exceeded.
 
-### substrate auto metrics
+### substrate metrics
 Show historical pipeline run metrics and cross-run comparison.
 
 \`\`\`
-substrate auto metrics [options]
+substrate metrics [options]
 \`\`\`
 
 Options:
@@ -367,11 +367,11 @@ Options:
 - \`--tag-baseline <run-id>\` — Mark a run as the performance baseline
 - \`--output-format <format>\` — Output format: human (default) or json
 
-### substrate auto health
+### substrate health
 Check pipeline health, stall detection, and process status.
 
 \`\`\`
-substrate auto health [--output-format json]
+substrate health [--output-format json]
 \`\`\`
 `
 }
@@ -382,7 +382,7 @@ substrate auto health [--output-format json]
 export function generateInteractionPatternsSection(): string {
   return `## Interaction Patterns
 
-Use this decision flowchart when handling events from \`substrate auto run --events\`:
+Use this decision flowchart when handling events from \`substrate run --events\`:
 
 ### On \`story:done\` with \`result: success\`
 - Report successful completion to the user.
@@ -390,7 +390,7 @@ Use this decision flowchart when handling events from \`substrate auto run --eve
 
 ### On \`story:done\` with \`result: failed\`
 - Report failure to the user with the story key.
-- Suggest checking logs or running \`substrate auto status\` for details.
+- Suggest checking logs or running \`substrate status\` for details.
 
 ### On \`story:escalation\`
 - Read the \`issues\` array. Each issue has \`severity\`, \`file\` (path:line), and \`desc\`.
@@ -425,7 +425,7 @@ Use this decision flowchart when handling events from \`substrate auto run --eve
 export function generateHelpAgentOutput(version: string, events: EventMetadata[] = PIPELINE_EVENT_METADATA): string {
   const lines: string[] = []
 
-  lines.push('# Substrate Auto Pipeline — Agent Instructions')
+  lines.push('# Substrate Pipeline — Agent Instructions')
   lines.push(`Version: ${version}`)
   lines.push('')
   lines.push(

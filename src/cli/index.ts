@@ -12,27 +12,24 @@ import { createLogger } from '../utils/logger.js'
 import { registerAdaptersCommand } from './commands/adapters.js'
 import { registerInitCommand } from './commands/init.js'
 import { registerConfigCommand } from './commands/config.js'
+import { registerRunCommand } from './commands/run.js'
+import { registerResumeCommand } from './commands/resume.js'
+import { registerStatusCommand } from './commands/status.js'
+import { registerAmendCommand } from './commands/amend.js'
+import { registerHealthCommand } from './commands/health.js'
+import { registerSupervisorCommand } from './commands/supervisor.js'
+import { registerMetricsCommand } from './commands/metrics.js'
+import { registerCostCommand } from './commands/cost.js'
+import { registerMonitorCommand } from './commands/monitor.js'
 import { registerMergeCommand } from './commands/merge.js'
 import { registerWorktreesCommand } from './commands/worktrees.js'
-import { registerCostCommand } from './commands/cost.js'
-import { registerStartCommand } from './commands/start.js'
-import { registerStatusCommand } from './commands/status.js'
-import { registerPauseCommand } from './commands/pause.js'
-import { registerResumeCommand } from './commands/resume.js'
-import { registerCancelCommand } from './commands/cancel.js'
-import { registerRetryCommand } from './commands/retry.js'
-import { registerGraphCommand } from './commands/graph.js'
-import { registerLogCommand } from './commands/log.js'
-import { registerPlanCommand } from './commands/plan.js'
-import { registerAutoCommand } from './commands/auto.js'
 import { registerBrainstormCommand } from './commands/brainstorm.js'
-import { registerMonitorCommand } from './commands/monitor.js'
 import { registerUpgradeCommand } from './commands/upgrade.js'
 
 // Increase max listeners before any commands or transports register their handlers.
-// With 16+ CLI commands registered, pino-pretty workers and Commander exit handlers
+// With CLI commands registered, pino-pretty workers and Commander exit handlers
 // can exceed the default limit of 10.
-process.setMaxListeners(30)
+process.setMaxListeners(20)
 
 // Handle EPIPE gracefully when piped to `head`, `grep -m`, `tail`, etc.
 // When the downstream reader closes the pipe, exit cleanly instead of stalling
@@ -83,64 +80,35 @@ export async function createProgram(): Promise<Command> {
 
   program
     .name('substrate')
-    .description('Substrate - Multi-agent orchestration for AI coding agents')
+    .description('Substrate - Autonomous implementation pipeline for AI coding agents')
     .version(version, '-v, --version', 'Output the current version')
 
-  // Register adapters command group (story 1.3)
+  // Project setup
   registerAdaptersCommand(program, version)
-
-  // Register init command (story 1.4)
   registerInitCommand(program, version)
-
-  // Register config command group (story 1.4)
   registerConfigCommand(program, version)
 
-  // Register merge command (story 3.2)
-  registerMergeCommand(program)
-
-  // Register worktrees command (story 3.3)
-  registerWorktreesCommand(program, version)
-
-  // Register cost command (story 4.4)
-  registerCostCommand(program, version)
-
-  // Register start command (story 5.1)
-  registerStartCommand(program, version)
-
-  // Register status command (story 5.2)
-  registerStatusCommand(program, version)
-
-  // Register pause command (story 5.3)
-  registerPauseCommand(program, version)
-
-  // Register resume command (story 5.3)
+  // Pipeline commands (formerly under `substrate auto`, now top-level)
+  registerRunCommand(program, version)
   registerResumeCommand(program, version)
+  registerStatusCommand(program, version)
+  registerAmendCommand(program, version)
+  registerHealthCommand(program, version)
+  registerSupervisorCommand(program, version)
+  registerMetricsCommand(program, version)
 
-  // Register cancel command (story 5.3)
-  registerCancelCommand(program, version)
-
-  // Register retry command (story 5.4)
-  registerRetryCommand(program, version)
-
-  // Register graph command (story 5.5)
-  registerGraphCommand(program, version)
-
-  // Register log command (story 6.3)
-  registerLogCommand(program, version)
-
-  // Register plan command (story 7.1)
-  registerPlanCommand(program, version)
-
-  // Register auto command (story 10.5)
-  registerAutoCommand(program, version)
-
-  // Register brainstorm command (story 12.4)
-  registerBrainstormCommand(program, version)
-
-  // Register monitor command (story 8.7)
+  // Observability
+  registerCostCommand(program, version)
   registerMonitorCommand(program, version)
 
-  // Register upgrade command (story 8.3)
+  // Git helpers
+  registerMergeCommand(program)
+  registerWorktreesCommand(program, version)
+
+  // Interactive tools
+  registerBrainstormCommand(program, version)
+
+  // Maintenance
   registerUpgradeCommand(program)
 
   return program

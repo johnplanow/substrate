@@ -391,7 +391,7 @@ describe('Integration: phase completion summary content (AC5 of Story 12-2)', ()
       runId: run.id,
     })
 
-    expect(summary).toContain(`substrate auto resume --run-id ${run.id}`)
+    expect(summary).toContain(`substrate resume --run-id ${run.id}`)
 
     db.close()
   })

@@ -51,12 +51,9 @@ vi.mock('../../../persistence/queries/cost.js', () => ({
   getPlanningCostTotal: (...args: unknown[]) => mockGetPlanningCostTotal(...args),
 }))
 
-// Mock session queries
+// Note: getLatestSessionId is now a local stub in cost.ts (always returns null)
+// since sessions table is no longer populated by the pipeline.
 const mockGetLatestSessionId = vi.fn()
-
-vi.mock('../../../persistence/queries/sessions.js', () => ({
-  getLatestSessionId: (...args: unknown[]) => mockGetLatestSessionId(...args),
-}))
 
 // Mock fs.existsSync
 const mockExistsSync = vi.fn()
@@ -213,6 +210,7 @@ function getStderr(): string {
 
 function defaultOptions(overrides: Partial<CostActionOptions> = {}): CostActionOptions {
   return {
+    sessionId: 'session-abc123',
     outputFormat: 'table',
     byTask: false,
     byAgent: false,
@@ -307,10 +305,13 @@ describe('AC1: substrate cost — default session cost summary', () => {
     expect(output).toContain('2024-01-15')
   })
 
-  it('uses latest session ID when none specified', async () => {
-    await runCostAction(defaultOptions())
+  it('uses explicit session ID when specified', async () => {
+    const exitCode = await runCostAction(defaultOptions({ sessionId: 'session-abc123' }))
 
-    expect(mockGetLatestSessionId).toHaveBeenCalledOnce()
+    // When sessionId is provided, it should be used directly
+    expect(exitCode).toBe(COST_EXIT_SUCCESS)
+    // getLatestSessionId is now a local stub (always returns null) since sessions table is dead
+    expect(mockGetLatestSessionId).not.toHaveBeenCalled()
   })
 })
 
@@ -319,12 +320,10 @@ describe('AC1: substrate cost — default session cost summary', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC2: substrate cost --session <id>', () => {
-  it('uses specified session ID instead of latest', async () => {
+  it('uses specified session ID instead of default', async () => {
     const exitCode = await runCostAction(defaultOptions({ sessionId: 'my-session-id' }))
 
     expect(exitCode).toBe(COST_EXIT_SUCCESS)
-    // Should NOT call getLatestSessionId when session is explicit
-    expect(mockGetLatestSessionId).not.toHaveBeenCalled()
     // Should query with the specified session
     expect(mockGetSessionCostSummaryFiltered).toHaveBeenCalledWith(
       expect.anything(),
@@ -638,20 +637,18 @@ describe('AC8: error handling', () => {
     expect(errOutput).toContain("Run 'substrate init' first")
   })
 
-  it('returns success with "No cost data found" when no sessions exist', async () => {
-    mockGetLatestSessionId.mockReturnValue(null)
-
-    const exitCode = await runCostAction(defaultOptions())
+  it('returns success with "No cost data found" when no session ID provided (local stub returns null)', async () => {
+    // getLatestSessionId is now a local stub that always returns null
+    // since sessions table is no longer populated by the pipeline
+    const exitCode = await runCostAction(defaultOptions({ sessionId: undefined }))
 
     expect(exitCode).toBe(COST_EXIT_SUCCESS)
     const output = getStdout()
     expect(output).toContain('No cost data found')
   })
 
-  it('returns success with "No cost data found" in JSON when no sessions exist', async () => {
-    mockGetLatestSessionId.mockReturnValue(null)
-
-    const exitCode = await runCostAction(defaultOptions({ outputFormat: 'json' }))
+  it('returns success with "No cost data found" in JSON when no session ID provided', async () => {
+    const exitCode = await runCostAction(defaultOptions({ sessionId: undefined, outputFormat: 'json' }))
 
     expect(exitCode).toBe(COST_EXIT_SUCCESS)
     const parsed = JSON.parse(getStdout()) as { data: { message: string } }
