@@ -26,6 +26,7 @@ import { join, resolve, dirname } from 'path'
 import yaml from 'js-yaml'
 import { createRequire } from 'node:module'
 import { AdapterRegistry } from '../../adapters/adapter-registry.js'
+import { buildAdapterHealthRows, formatAdapterHealthTable } from '../utils/formatting.js'
 import { DEFAULT_CONFIG, DEFAULT_ROUTING_POLICY } from '../../modules/config/defaults.js'
 import type {
   ProviderConfig,
@@ -766,18 +767,28 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       )
     } else {
       process.stdout.write(`\n  Substrate initialized successfully!\n\n`)
-      process.stdout.write(`  Created:\n`)
-      process.stdout.write(`    ${configPath}\n`)
-      process.stdout.write(`    ${routingPolicyPath}\n`)
-      process.stdout.write(`    ${dbPath}\n`)
-      process.stdout.write(`\n  ${successMsg}\n`)
 
-      const prefix = process.env['npm_command'] === 'exec' ? 'npx ' : ''
+      // Adapter health table (reuse discovery results already in scope)
+      const healthRows = buildAdapterHealthRows(discoveryReport.results)
+      if (healthRows.length > 0) {
+        process.stdout.write(`  Agents:\n`)
+        const table = formatAdapterHealthTable(healthRows)
+        for (const line of table.split('\n')) {
+          process.stdout.write(`  ${line}\n`)
+        }
+        process.stdout.write('\n')
+      }
+
+      process.stdout.write(`  Scaffolded:\n`)
+      process.stdout.write(`    CLAUDE.md             pipeline instructions for Claude Code\n`)
+      process.stdout.write(`    .claude/commands/     /substrate-run, /substrate-supervisor, /substrate-metrics\n`)
+      process.stdout.write(`    .substrate/           config, database, routing policy\n`)
+
       process.stdout.write(
         `\n  Next steps:\n` +
-          `    1. Run \`${prefix}substrate adapters check\` to verify your setup\n` +
-          `    2. Run \`${prefix}substrate config show\` to review your configuration\n` +
-          `    3. Run \`${prefix}substrate run --from analysis --concept "your idea"\` to start the pipeline\n`,
+          `    1. Start a Claude Code session in this project\n` +
+          `    2. Tell Claude: "Run the substrate pipeline"\n` +
+          `    3. Or use the /substrate-run slash command for a guided run\n`,
       )
     }
 
