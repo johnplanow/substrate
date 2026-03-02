@@ -28,6 +28,11 @@ const __dirname_ts = dirname(__filename)
 // Root of the project (4 levels up from src/cli/commands/__tests__)
 const PROJECT_ROOT = resolve(__dirname_ts, '../../../..')
 
+// Vitest sets NODE_ENV=test which makes the CLI enable pino-pretty transports.
+// Pino worker threads keep the event loop alive, preventing the child process
+// from exiting within the timeout. Strip NODE_ENV so the CLI runs normally.
+const cliEnv = { ...process.env, NODE_ENV: undefined } as NodeJS.ProcessEnv
+
 describe('Story 8.1: npm Package Distribution & Installation', () => {
   let packageJson: {
     name: string
@@ -153,6 +158,8 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
       const result = spawnSync('node', [distCli, '--version'], {
         encoding: 'utf-8',
         timeout: 15000,
+        stdio: 'pipe',
+        env: cliEnv,
       })
       if (result.error) {
         console.warn('CLI not runnable; skipping --version check:', result.error.message)
@@ -351,6 +358,8 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
       const result = spawnSync('node', [distCli, '--help'], {
         encoding: 'utf-8',
         timeout: 15000,
+        stdio: 'pipe',
+        env: cliEnv,
       })
       if (result.error) {
         console.warn('CLI not runnable; skipping help check:', result.error.message)
@@ -371,16 +380,18 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
       const result = spawnSync('node', [distCli, '--help'], {
         encoding: 'utf-8',
         timeout: 15000,
+        stdio: 'pipe',
+        env: cliEnv,
       })
       if (result.error) {
         console.warn('CLI not runnable; skipping subcommand check:', result.error.message)
         return
       }
       // Core commands that must be available
-      expect(result.stdout).toContain('start')
       expect(result.stdout).toContain('init')
       expect(result.stdout).toContain('config')
-      expect(result.stdout).toContain('plan')
+      expect(result.stdout).toContain('run')
+      expect(result.stdout).toContain('export')
     })
 
     it('CLI should report correct version from package.json', () => {
@@ -392,6 +403,8 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
       const result = spawnSync('node', [distCli, '--version'], {
         encoding: 'utf-8',
         timeout: 15000,
+        stdio: 'pipe',
+        env: cliEnv,
       })
       if (result.error) {
         console.warn('CLI not runnable; skipping version check:', result.error.message)

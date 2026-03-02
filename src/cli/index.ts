@@ -25,6 +25,7 @@ import { registerMergeCommand } from './commands/merge.js'
 import { registerWorktreesCommand } from './commands/worktrees.js'
 import { registerBrainstormCommand } from './commands/brainstorm.js'
 import { registerUpgradeCommand } from './commands/upgrade.js'
+import { registerExportCommand } from './commands/export.js'
 
 // Increase max listeners before any commands or transports register their handlers.
 // With CLI commands registered, pino-pretty workers and Commander exit handlers
@@ -107,6 +108,9 @@ export async function createProgram(): Promise<Command> {
 
   // Interactive tools
   registerBrainstormCommand(program, version)
+
+  // Export / artifact sharing
+  registerExportCommand(program, version)
 
   // Maintenance
   registerUpgradeCommand(program)
