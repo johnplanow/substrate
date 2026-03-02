@@ -229,6 +229,15 @@ These commands are invoked by AI agents (Claude Code, Codex, Gemini CLI) during 
 | `substrate monitor recommendations` | Display routing recommendations from performance data |
 | `substrate cost` | View cost and token usage summary |
 
+### Export & Sharing
+
+| Command | Description |
+|---------|-------------|
+| `substrate export` | Export planning artifacts (product brief, PRD, architecture, epics) as markdown |
+| `substrate export --run-id <id>` | Export artifacts from a specific pipeline run |
+| `substrate export --output-dir <dir>` | Write to a custom directory (default: `_bmad-output/planning-artifacts/`) |
+| `substrate export --output-format json` | Emit JSON result to stdout for agent consumption |
+
 ### Worktree Management
 
 | Command | Description |
