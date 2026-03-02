@@ -73,151 +73,221 @@ export interface EventMetadata {
 export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
   {
     type: 'pipeline:start',
-    description: 'Emitted as the first event when the pipeline begins.',
-    when: 'Once at pipeline start, before any stories are processed.',
+    description: 'Pipeline begins.',
+    when: 'First event emitted.',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'run_id', type: 'string', description: 'Unique identifier for this pipeline run.' },
-      { name: 'stories', type: 'string[]', description: 'Story keys being processed (e.g., ["10-1","10-2"]).' },
-      { name: 'concurrency', type: 'number', description: 'Maximum parallel conflict groups.' },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string', description: 'Run identifier.' },
+      { name: 'stories', type: 'string[]', description: 'Story keys (e.g., ["10-1","10-2"]).' },
+      { name: 'concurrency', type: 'number', description: 'Max parallel groups.' },
     ],
   },
   {
     type: 'pipeline:complete',
-    description: 'Emitted as the last event when the pipeline finishes.',
-    when: 'Once at pipeline end, after all stories reach a terminal state.',
+    description: 'Pipeline finishes.',
+    when: 'Last event emitted.',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'succeeded', type: 'string[]', description: 'Story keys that completed successfully.' },
-      { name: 'failed', type: 'string[]', description: 'Story keys that failed with an error.' },
-      { name: 'escalated', type: 'string[]', description: 'Story keys escalated after exhausting review cycles.' },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'succeeded', type: 'string[]', description: 'Successful story keys.' },
+      { name: 'failed', type: 'string[]', description: 'Failed story keys.' },
+      { name: 'escalated', type: 'string[]', description: 'Escalated story keys.' },
     ],
   },
   {
     type: 'story:phase',
-    description: 'Emitted when a story transitions into or out of a phase.',
-    when: 'Each time a story enters (status: in_progress) or exits (status: complete|failed) a phase.',
+    description: 'Story enters or exits a phase.',
+    when: 'Each phase transition per story.',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'key', type: 'string', description: 'Story key (e.g., "10-1").' },
-      { name: 'phase', type: 'create-story|dev-story|code-review|fix', description: 'The phase being transitioned.' },
-      { name: 'status', type: 'in_progress|complete|failed', description: 'Whether the phase is starting or completing.' },
-      { name: 'verdict', type: 'string', description: 'Code-review verdict (only present on code-review phase complete events).', optional: true },
-      { name: 'file', type: 'string', description: 'Path to generated story file (only present on create-story phase complete events).', optional: true },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'key', type: 'string', description: 'Story key.' },
+      { name: 'phase', type: 'create-story|dev-story|code-review|fix', description: 'Phase name.' },
+      { name: 'status', type: 'in_progress|complete|failed', description: 'Transition direction.' },
+      { name: 'verdict', type: 'string', description: 'Code-review verdict.', optional: true },
+      { name: 'file', type: 'string', description: 'Generated story file path.', optional: true },
     ],
   },
   {
     type: 'story:done',
-    description: 'Emitted when a story reaches a terminal success state.',
-    when: 'Once per story upon successful completion or unrecoverable failure.',
+    description: 'Story reaches terminal state.',
+    when: 'Once per story on completion.',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'key', type: 'string', description: 'Story key (e.g., "10-1").' },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'key', type: 'string', description: 'Story key.' },
       { name: 'result', type: 'success|failed', description: 'Terminal result.' },
-      { name: 'review_cycles', type: 'number', description: 'Number of review cycles completed.' },
+      { name: 'review_cycles', type: 'number', description: 'Review cycles completed.' },
     ],
   },
   {
     type: 'story:escalation',
-    description: 'Emitted when a story is escalated after exhausting the maximum review cycles.',
-    when: 'When a story exceeds the maximum number of code-review/fix cycles.',
+    description: 'Story escalated after exhausting review cycles.',
+    when: 'When max review cycles exceeded.',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'key', type: 'string', description: 'Story key (e.g., "10-1").' },
-      { name: 'reason', type: 'string', description: 'Human-readable escalation reason.' },
-      { name: 'cycles', type: 'number', description: 'Number of review cycles that occurred.' },
-      { name: 'issues', type: 'EscalationIssue[]', description: 'Issues from the final review. Each has: severity (string), file (path:line), desc (string).' },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'key', type: 'string', description: 'Story key.' },
+      { name: 'reason', type: 'string', description: 'Escalation reason.' },
+      { name: 'cycles', type: 'number', description: 'Cycles completed.' },
+      { name: 'issues', type: 'EscalationIssue[]', description: 'Final review issues; each has severity, file, desc.' },
     ],
   },
   {
     type: 'story:warn',
-    description: 'Emitted for non-fatal warnings during pipeline execution.',
-    when: 'For non-blocking issues such as token ceiling truncation or partial batch failures.',
+    description: 'Non-fatal warning during execution.',
+    when: 'Non-blocking issues (e.g., token truncation).',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'key', type: 'string', description: 'Story key (e.g., "10-1").' },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'key', type: 'string', description: 'Story key.' },
       { name: 'msg', type: 'string', description: 'Warning message.' },
     ],
   },
   {
     type: 'story:log',
-    description: 'Emitted for informational messages during pipeline execution.',
-    when: 'For progress and informational messages during story processing.',
+    description: 'Informational message.',
+    when: 'Progress messages during story processing.',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'key', type: 'string', description: 'Story key (e.g., "10-1").' },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'key', type: 'string', description: 'Story key.' },
       { name: 'msg', type: 'string', description: 'Log message.' },
     ],
   },
   {
     type: 'pipeline:heartbeat',
-    description: 'Periodic heartbeat emitted every 30s when no other progress events have fired.',
-    when: 'Every 30 seconds during pipeline execution. Allows detection of stalled pipelines.',
+    description: 'Periodic heartbeat (every 30s with no other events).',
+    when: 'Every 30s during execution.',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'run_id', type: 'string', description: 'Pipeline run ID.' },
-      { name: 'active_dispatches', type: 'number', description: 'Number of sub-agents currently running.' },
-      { name: 'completed_dispatches', type: 'number', description: 'Number of dispatches completed.' },
-      { name: 'queued_dispatches', type: 'number', description: 'Number of dispatches waiting to start.' },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string', description: 'Run ID.' },
+      { name: 'active_dispatches', type: 'number', description: 'Running sub-agents.' },
+      { name: 'completed_dispatches', type: 'number', description: 'Completed dispatches.' },
+      { name: 'queued_dispatches', type: 'number', description: 'Queued dispatches.' },
     ],
   },
   {
     type: 'story:stall',
-    description: 'Emitted when the watchdog detects no progress for an extended period (default: 10 minutes).',
-    when: 'When a story has shown no progress for longer than the watchdog timeout. Indicates likely stall.',
+    description: 'Watchdog detected no progress (default: 10 min).',
+    when: 'Story silent longer than watchdog timeout.',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'run_id', type: 'string', description: 'Pipeline run ID.' },
-      { name: 'story_key', type: 'string', description: 'Story key that appears stalled.' },
-      { name: 'phase', type: 'string', description: 'Phase the story was in when stall was detected.' },
-      { name: 'elapsed_ms', type: 'number', description: 'Milliseconds since last progress event.' },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string', description: 'Run ID.' },
+      { name: 'story_key', type: 'string', description: 'Stalled story key.' },
+      { name: 'phase', type: 'string', description: 'Phase at stall detection.' },
+      { name: 'elapsed_ms', type: 'number', description: 'Ms since last progress.' },
     ],
   },
   {
     type: 'supervisor:kill',
-    description: 'Emitted by the supervisor when it kills a stalled pipeline process tree.',
-    when: 'When the supervisor detects a STALLED verdict and staleness exceeds the stall threshold.',
+    description: 'Supervisor killed stalled pipeline process tree.',
+    when: 'Staleness exceeds stall threshold.',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'run_id', type: 'string|null', description: 'Pipeline run ID that was killed.' },
-      { name: 'reason', type: 'stall', description: 'Reason for the kill — always "stall" for threshold-triggered kills.' },
-      { name: 'staleness_seconds', type: 'number', description: 'Seconds the pipeline had been stalled.' },
-      { name: 'pids', type: 'number[]', description: 'PIDs that were killed (orchestrator + child processes).' },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string|null', description: 'Killed run ID.' },
+      { name: 'reason', type: 'stall', description: 'Always "stall".' },
+      { name: 'staleness_seconds', type: 'number', description: 'Stall duration (seconds).' },
+      { name: 'pids', type: 'number[]', description: 'Killed PIDs.' },
     ],
   },
   {
     type: 'supervisor:restart',
-    description: 'Emitted by the supervisor when it restarts a killed pipeline via auto resume.',
-    when: 'Immediately after killing a stalled pipeline, when the restart count is within the max limit.',
+    description: 'Supervisor restarted pipeline via auto resume.',
+    when: 'After kill, within max-restarts limit.',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'run_id', type: 'string|null', description: 'Pipeline run ID being resumed.' },
-      { name: 'attempt', type: 'number', description: 'Restart attempt number (1-based).' },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string|null', description: 'Resumed run ID.' },
+      { name: 'attempt', type: 'number', description: 'Attempt number (1-based).' },
     ],
   },
   {
     type: 'supervisor:abort',
-    description: 'Emitted by the supervisor when it exceeds the maximum restart limit and gives up.',
-    when: 'When the restart count reaches or exceeds --max-restarts and another stall is detected.',
+    description: 'Supervisor gave up after max restarts.',
+    when: 'Restart count reached --max-restarts.',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'run_id', type: 'string|null', description: 'Pipeline run ID that was abandoned.' },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string|null', description: 'Abandoned run ID.' },
       { name: 'reason', type: 'max_restarts_exceeded', description: 'Always "max_restarts_exceeded".' },
-      { name: 'attempts', type: 'number', description: 'Number of restart attempts that were made.' },
+      { name: 'attempts', type: 'number', description: 'Total attempts made.' },
     ],
   },
   {
     type: 'supervisor:summary',
-    description: 'Emitted by the supervisor when the pipeline reaches a terminal state.',
-    when: 'When the supervisor detects a NO_PIPELINE_RUNNING verdict (completed, failed, or stopped).',
+    description: 'Pipeline reached terminal state; supervisor exits.',
+    when: 'Pipeline no longer running.',
     fields: [
-      { name: 'ts', type: 'string', description: 'ISO-8601 timestamp generated at emit time.' },
-      { name: 'run_id', type: 'string|null', description: 'Pipeline run ID.' },
-      { name: 'elapsed_seconds', type: 'number', description: 'Total elapsed seconds from supervisor start to terminal state.' },
-      { name: 'succeeded', type: 'string[]', description: 'Story keys that completed successfully.' },
-      { name: 'failed', type: 'string[]', description: 'Story keys that failed (non-COMPLETE, non-PENDING phases).' },
-      { name: 'escalated', type: 'string[]', description: 'Story keys that were escalated.' },
-      { name: 'restarts', type: 'number', description: 'Number of restart cycles performed by the supervisor.' },
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string|null', description: 'Run ID.' },
+      { name: 'elapsed_seconds', type: 'number', description: 'Total elapsed seconds.' },
+      { name: 'succeeded', type: 'string[]', description: 'Succeeded keys.' },
+      { name: 'failed', type: 'string[]', description: 'Failed keys.' },
+      { name: 'escalated', type: 'string[]', description: 'Escalated keys.' },
+      { name: 'restarts', type: 'number', description: 'Supervisor restart count.' },
+    ],
+  },
+  {
+    type: 'supervisor:analysis:complete',
+    description: 'Post-run analysis succeeded.',
+    when: 'After analysis report is written.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string|null', description: 'Analyzed run ID.' },
+    ],
+  },
+  {
+    type: 'supervisor:analysis:error',
+    description: 'Post-run analysis failed (best-effort).',
+    when: 'Analysis step threw an error.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string|null', description: 'Run ID.' },
+      { name: 'error', type: 'string', description: 'Error message.' },
+    ],
+  },
+  {
+    type: 'supervisor:experiment:start',
+    description: 'Experiment cycle beginning.',
+    when: 'When --experiment enabled and recommendations found.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string|null', description: 'Run ID.' },
+    ],
+  },
+  {
+    type: 'supervisor:experiment:skip',
+    description: 'Experiment cycle skipped.',
+    when: 'No recommendations or missing analysis report.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string|null', description: 'Run ID.' },
+      { name: 'reason', type: 'string', description: '"no_recommendations" or "no_analysis_report".' },
+    ],
+  },
+  {
+    type: 'supervisor:experiment:recommendations',
+    description: 'Analysis report has recommendations to test.',
+    when: 'Just before experiments begin.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string|null', description: 'Run ID.' },
+      { name: 'count', type: 'number', description: 'Recommendation count.' },
+    ],
+  },
+  {
+    type: 'supervisor:experiment:complete',
+    description: 'All experiments finished.',
+    when: 'After all experiment verdicts assigned.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string|null', description: 'Run ID.' },
+      { name: 'improved', type: 'number', description: 'IMPROVED count.' },
+      { name: 'mixed', type: 'number', description: 'MIXED count.' },
+      { name: 'regressed', type: 'number', description: 'REGRESSED count.' },
+    ],
+  },
+  {
+    type: 'supervisor:experiment:error',
+    description: 'Experiment execution failed (best-effort).',
+    when: 'Experimenter module threw an error.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string|null', description: 'Run ID.' },
+      { name: 'error', type: 'string', description: 'Error message.' },
     ],
   },
 ]
@@ -350,6 +420,8 @@ Options:
 - \`--poll-interval <seconds>\` — Health check interval (default: 60)
 - \`--stall-threshold <seconds>\` — Staleness before killing (default: 600)
 - \`--max-restarts <n>\` — Maximum restart attempts (default: 3)
+- \`--experiment\` — After pipeline completes, run optimization experiments from analysis recommendations
+- \`--max-experiments <n>\` — Maximum number of experiments to run per cycle (default: 2)
 - \`--output-format <format>\` — Output format: human (default) or json
 
 Exit codes: 0 = all succeeded, 1 = failures/escalations, 2 = max restarts exceeded.
@@ -365,6 +437,7 @@ Options:
 - \`--limit <n>\` — Number of runs to show (default: 10)
 - \`--compare <run-id-a,run-id-b>\` — Compare two runs side-by-side (token, time, review cycle deltas)
 - \`--tag-baseline <run-id>\` — Mark a run as the performance baseline
+- \`--analysis <run-id>\` — Read and output the analysis report with optimization recommendations for a specific run
 - \`--output-format <format>\` — Output format: human (default) or json
 
 ### substrate auto health
@@ -416,6 +489,35 @@ Use this decision flowchart when handling events from \`substrate auto run --eve
 - Summarize results: report \`succeeded.length\` successes.
 - List any \`failed\` or \`escalated\` stories with reasons if available.
 - This is always the last event emitted.
+
+## Supervisor Interaction Patterns
+
+Patterns for \`substrate auto supervisor --output-format json\` events:
+
+### On \`supervisor:summary\`
+- Summarize \`succeeded\`, \`failed\`, \`escalated\` counts and \`restarts\`.
+- Offer analysis: \`substrate auto metrics --analysis <run_id> --output-format json\`.
+
+### On \`supervisor:kill\`
+- Inform user: stall detected, pipeline killed. Supervisor will auto-restart.
+- No action required unless \`--max-restarts\` is reached.
+
+### On \`supervisor:abort\`
+- Escalate: supervisor exhausted \`attempts\` restarts.
+- Suggest increasing \`--max-restarts\` or \`--stall-threshold\`.
+
+### On \`supervisor:analysis:complete\`
+- Report ready at \`_bmad-output/supervisor-reports/<run_id>-analysis.md\`.
+- Run experiments: \`substrate auto supervisor --experiment --output-format json\`.
+- Read report: \`substrate auto metrics --analysis <run_id> --output-format json\`.
+
+### On \`supervisor:experiment:complete\`
+- Summarize verdicts: \`improved\`, \`mixed\`, \`regressed\` counts.
+- Warn user if any \`regressed\` — suggest reverting those changes.
+- No PRs are created automatically; changes remain on experiment branches.
+
+### On \`supervisor:experiment:error\`
+- Report error. Suggest running without \`--experiment\` for a clean run.
 `
 }
 

@@ -25,4 +25,35 @@ This project uses Substrate for automated implementation pipelines.
 - On minor fix verdict: offer to fix automatically
 - Never re-run a failed story without explicit user confirmation
 - After pipeline completion: summarize results conversationally (X succeeded, Y failed, Z need attention)
+
+### Supervisor Workflow
+
+The supervisor is a long-running monitor that watches the pipeline, kills stalls, auto-restarts, and optionally runs optimization experiments. Always use `--output-format json` for agent consumption.
+
+**When to use `auto supervisor` vs `auto run`:**
+- Use `auto run --events` for a standard pipeline run with structured event output.
+- Use `auto supervisor` when you want automatic stall detection, restart, and post-run analysis.
+- Use `auto supervisor --experiment` for the full self-improvement loop (analysis + A/B experiments).
+
+**Recommended invocation pattern:**
+```
+# Start pipeline
+substrate auto run --events --stories X,Y
+
+# Monitor with supervisor (in a separate session/process)
+substrate auto supervisor --output-format json
+
+# Full self-improvement loop (supervisor + experiments after analysis)
+substrate auto supervisor --experiment --output-format json
+
+# Read analysis report for a specific run
+substrate auto metrics --analysis <run-id> --output-format json
+```
+
+**Key flags:**
+- `--output-format json` — Emit NDJSON events; required for agent consumption
+- `--experiment` — Run optimization experiments from analysis recommendations after pipeline completes
+- `--max-experiments <n>` — Cap the number of experiments per cycle (default: 2)
+- `--stall-threshold <seconds>` — Seconds of silence before declaring a stall (default: 600)
+- `--max-restarts <n>` — Maximum restart attempts before aborting (default: 3)
 <!-- substrate:end -->

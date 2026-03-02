@@ -78,6 +78,13 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'supervisor:restart',
       'supervisor:abort',
       'supervisor:summary',
+      'supervisor:analysis:complete',
+      'supervisor:analysis:error',
+      'supervisor:experiment:start',
+      'supervisor:experiment:skip',
+      'supervisor:experiment:recommendations',
+      'supervisor:experiment:complete',
+      'supervisor:experiment:error',
     ]
     const actualTypes = PIPELINE_EVENT_METADATA.map((e) => e.type)
     for (const t of expectedTypes) {
@@ -334,6 +341,42 @@ describe('generateInteractionPatternsSection', () => {
     const output = generateInteractionPatternsSection()
     expect(output).toContain('pipeline:complete')
     expect(output.toLowerCase()).toContain('summar')
+  })
+
+  it('documents supervisor:summary pattern', () => {
+    const output = generateInteractionPatternsSection()
+    expect(output).toContain('supervisor:summary')
+    expect(output.toLowerCase()).toContain('summar')
+  })
+
+  it('documents supervisor:kill pattern with restart context', () => {
+    const output = generateInteractionPatternsSection()
+    expect(output).toContain('supervisor:kill')
+    expect(output.toLowerCase()).toMatch(/stall|restart/)
+  })
+
+  it('documents supervisor:abort pattern with escalation suggestion', () => {
+    const output = generateInteractionPatternsSection()
+    expect(output).toContain('supervisor:abort')
+    expect(output).toMatch(/max-restarts|stall-threshold/i)
+  })
+
+  it('documents supervisor:analysis:complete pattern with report path', () => {
+    const output = generateInteractionPatternsSection()
+    expect(output).toContain('supervisor:analysis:complete')
+    expect(output).toContain('_bmad-output/supervisor-reports')
+  })
+
+  it('documents supervisor:experiment:complete pattern with verdicts', () => {
+    const output = generateInteractionPatternsSection()
+    expect(output).toContain('supervisor:experiment:complete')
+    expect(output).toMatch(/improved|regressed/i)
+  })
+
+  it('documents supervisor:experiment:error pattern with recovery suggestion', () => {
+    const output = generateInteractionPatternsSection()
+    expect(output).toContain('supervisor:experiment:error')
+    expect(output).toContain('--experiment')
   })
 })
 
