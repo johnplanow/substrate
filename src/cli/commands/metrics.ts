@@ -18,6 +18,7 @@
 import type { Command } from 'commander'
 import { join } from 'path'
 import { existsSync } from 'fs'
+import { readFile } from 'fs/promises'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
 import { runMigrations } from '../../persistence/migrations/index.js'
@@ -44,6 +45,8 @@ export interface MetricsOptions {
   limit?: number
   compare?: [string, string]
   tagBaseline?: string
+  /** When provided, read and output the analysis report for this run-id (AC5 of Story 17-3). */
+  analysis?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -51,7 +54,47 @@ export interface MetricsOptions {
 // ---------------------------------------------------------------------------
 
 export async function runMetricsAction(options: MetricsOptions): Promise<number> {
-  const { outputFormat, projectRoot, limit = 10, compare, tagBaseline } = options
+  const { outputFormat, projectRoot, limit = 10, compare, tagBaseline, analysis } = options
+
+  // Analysis mode (AC5 of Story 17-3): read and output the analysis report for a run-id
+  if (analysis !== undefined) {
+    const dbRoot = await resolveMainRepoRoot(projectRoot)
+    const reportBase = join(dbRoot, '_bmad-output', 'supervisor-reports', `${analysis}-analysis`)
+    const jsonPath = `${reportBase}.json`
+    const mdPath = `${reportBase}.md`
+
+    if (!existsSync(jsonPath)) {
+      const msg = `Analysis report not found for run '${analysis}'. Run the supervisor first to generate it.`
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput(null, 'json', false, msg) + '\n')
+      } else {
+        process.stderr.write(`Error: ${msg}\n`)
+      }
+      return 1
+    }
+
+    try {
+      if (outputFormat === 'json') {
+        const content = await readFile(jsonPath, 'utf-8')
+        const parsed = JSON.parse(content)
+        process.stdout.write(formatOutput(parsed, 'json', true) + '\n')
+      } else {
+        const content = await readFile(mdPath, 'utf-8').catch(() =>
+          readFile(jsonPath, 'utf-8'),
+        )
+        process.stdout.write(content + '\n')
+      }
+      return 0
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput(null, 'json', false, msg) + '\n')
+      } else {
+        process.stderr.write(`Error: ${msg}\n`)
+      }
+      return 1
+    }
+  }
 
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
@@ -186,6 +229,7 @@ export function registerMetricsCommand(
     .option('--limit <n>', 'Number of runs to show (default: 10)', (v: string) => parseInt(v, 10), 10)
     .option('--compare <run-id-a,run-id-b>', 'Compare two runs side-by-side (comma-separated IDs, e.g. abc123,def456)')
     .option('--tag-baseline <run-id>', 'Mark a run as the performance baseline')
+    .option('--analysis <run-id>', 'Read and output the analysis report for the specified run (AC5 of Story 17-3)')
     .action(
       async (opts: {
         projectRoot: string
@@ -193,6 +237,7 @@ export function registerMetricsCommand(
         limit: number
         compare?: string
         tagBaseline?: string
+        analysis?: string
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         let compareIds: [string, string] | undefined
@@ -208,6 +253,7 @@ export function registerMetricsCommand(
           limit: opts.limit,
           compare: compareIds,
           tagBaseline: opts.tagBaseline,
+          analysis: opts.analysis,
         })
         process.exitCode = exitCode
       },

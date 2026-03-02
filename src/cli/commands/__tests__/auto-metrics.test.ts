@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { mkdirSync, rmSync, existsSync } from 'fs'
+import { mkdirSync, rmSync, existsSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
@@ -348,5 +348,97 @@ describe('runMetricsAction — error handling', () => {
     } finally {
       rmSync(fakeRoot, { recursive: true, force: true })
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tests: --analysis flag (AC5 of Story 17-3)
+// ---------------------------------------------------------------------------
+
+describe('runMetricsAction — AC5: --analysis flag', () => {
+  let stdoutCapture: ReturnType<typeof captureStdout>
+  let stderrCapture: ReturnType<typeof captureStderr>
+  let projectRoot: string
+
+  beforeEach(() => {
+    stdoutCapture = captureStdout()
+    stderrCapture = captureStderr()
+    projectRoot = join(tmpdir(), `substrate-test-analysis-${randomUUID()}`)
+    mkdirSync(projectRoot, { recursive: true })
+  })
+
+  afterEach(() => {
+    stdoutCapture.restore()
+    stderrCapture.restore()
+    if (existsSync(projectRoot)) rmSync(projectRoot, { recursive: true, force: true })
+  })
+
+  function seedAnalysisReport(runId: string, data: Record<string, unknown> = {}): void {
+    const dir = join(projectRoot, '_bmad-output', 'supervisor-reports')
+    mkdirSync(dir, { recursive: true })
+    const reportData = { run_id: runId, generated_at: new Date().toISOString(), findings: {}, ...data }
+    writeFileSync(join(dir, `${runId}-analysis.json`), JSON.stringify(reportData, null, 2), 'utf-8')
+    writeFileSync(join(dir, `${runId}-analysis.md`), `# Analysis: ${runId}\n`, 'utf-8')
+  }
+
+  it('returns JSON analysis report when --analysis run-id and JSON format', async () => {
+    seedAnalysisReport('run-001', { findings: { token_efficiency: [] } })
+
+    const exitCode = await runMetricsAction({
+      outputFormat: 'json',
+      projectRoot,
+      analysis: 'run-001',
+    })
+    expect(exitCode).toBe(0)
+
+    const output = stdoutCapture.getOutput()
+    const parsed = JSON.parse(output)
+    expect(parsed.success).toBe(true)
+    expect(parsed.data.run_id).toBe('run-001')
+  })
+
+  it('returns markdown report when --analysis run-id and human format', async () => {
+    seedAnalysisReport('run-001')
+
+    const exitCode = await runMetricsAction({
+      outputFormat: 'human',
+      projectRoot,
+      analysis: 'run-001',
+    })
+    expect(exitCode).toBe(0)
+    expect(stdoutCapture.getOutput()).toContain('Analysis: run-001')
+  })
+
+  it('returns exit code 1 when analysis report not found (JSON format)', async () => {
+    const exitCode = await runMetricsAction({
+      outputFormat: 'json',
+      projectRoot,
+      analysis: 'run-missing',
+    })
+    expect(exitCode).toBe(1)
+    const parsed = JSON.parse(stdoutCapture.getOutput())
+    expect(parsed.success).toBe(false)
+  })
+
+  it('returns exit code 1 when analysis report not found (human format)', async () => {
+    const exitCode = await runMetricsAction({
+      outputFormat: 'human',
+      projectRoot,
+      analysis: 'run-missing',
+    })
+    expect(exitCode).toBe(1)
+    expect(stderrCapture.getOutput()).toContain('run-missing')
+  })
+
+  it('metrics command has --analysis option registered', async () => {
+    const { registerMetricsCommand } = await import('../metrics.js')
+    const { Command } = await import('commander')
+    const program = new Command()
+    registerMetricsCommand(program, '0.0.0', projectRoot)
+
+    const metricsCmd = program.commands.find((c) => c.name() === 'metrics')!
+    const optDefs = metricsCmd.options
+    const analysisOpt = optDefs.find((o) => o.long === '--analysis')
+    expect(analysisOpt).toBeDefined()
   })
 })

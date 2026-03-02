@@ -11,6 +11,7 @@ import type { Command } from 'commander'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import type { OutputFormat } from './pipeline-shared.js'
+import type { PipelineEvent } from '../../modules/implementation-orchestrator/event-types.js'
 import type { PipelineHealthOutput } from './health.js'
 import { getAutoHealthData } from './health.js'
 import type { ResumeOptions } from './resume.js'
@@ -46,6 +47,11 @@ export interface SupervisorOptions {
    * Without this flag, only reports are produced (Tier 2 behaviour).
    */
   experiment?: boolean
+  /**
+   * Maximum number of experiments to run per analysis cycle (Story 17-4 AC6).
+   * Default: 2
+   */
+  maxExperiments?: number
 }
 
 /** Injectable dependencies for testing the supervisor without real processes or timers */
@@ -141,13 +147,13 @@ export async function runSupervisorAction(
   options: SupervisorOptions,
   deps: Partial<SupervisorDeps> = {},
 ): Promise<number> {
-  const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack, experiment } = options
+  const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack, experiment, maxExperiments } = options
   const { getHealth, killPid, resumePipeline, sleep, incrementRestarts, runAnalysis } = { ...defaultSupervisorDeps(), ...deps }
 
   let restartCount = 0
   const startTime = Date.now()
 
-  function emitEvent(event: Record<string, unknown>): void {
+  function emitEvent(event: Omit<PipelineEvent, 'ts'> & Record<string, unknown>): void {
     if (outputFormat === 'json') {
       const stamped = { ...event, ts: new Date().toISOString() }
       process.stdout.write(JSON.stringify(stamped) + '\n')
@@ -202,9 +208,15 @@ export async function runSupervisorAction(
       // --- AC1 of Story 17-3: run post-run analysis when a run-id is known ---
       if (health.run_id !== null && runAnalysis !== undefined) {
         log(`[supervisor] Running post-run analysis for ${health.run_id}...`)
-        await runAnalysis(health.run_id, projectRoot)
-        log(`[supervisor] Analysis report written to _bmad-output/supervisor-reports/${health.run_id}-analysis.md`)
-        emitEvent({ type: 'supervisor:analysis:complete', run_id: health.run_id })
+        try {
+          await runAnalysis(health.run_id, projectRoot)
+          log(`[supervisor] Analysis report written to _bmad-output/supervisor-reports/${health.run_id}-analysis.md`)
+          emitEvent({ type: 'supervisor:analysis:complete', run_id: health.run_id })
+        } catch (analysisErr) {
+          const analysisErrMsg = analysisErr instanceof Error ? analysisErr.message : String(analysisErr)
+          log(`[supervisor] Analysis failed (best-effort) — continuing.`)
+          emitEvent({ type: 'supervisor:analysis:error', run_id: health.run_id, error: analysisErrMsg })
+        }
       }
 
       // --- Experiment mode (Story 17-4 AC1): enter after post-run analysis ---
@@ -239,8 +251,70 @@ export async function runSupervisorAction(
           } else {
             log(`[supervisor] Found ${recommendations.length} recommendation(s) to experiment with.`)
             emitEvent({ type: 'supervisor:experiment:recommendations', run_id: health.run_id, count: recommendations.length })
-            // Note: Full experiment execution (createExperimenter + runExperiments) is wired
-            // in the CLI action below so deps can be injected. This log confirms the mode is active.
+
+            // Wire and execute experiments via the Experimenter module (AC3/AC5/AC6/AC7).
+            // RunStoryFn adapter: runs a single story via runRunAction, then queries the DB for the new run ID.
+            try {
+              const { createExperimenter } = await import(/* @vite-ignore */ '../../modules/supervisor/experimenter.js')
+              const { getLatestRun: getLatest } = await import(/* @vite-ignore */ '../../persistence/queries/decisions.js')
+
+              const dbPath = join(projectRoot, '.substrate', 'substrate.db')
+              const expDbWrapper = new DatabaseWrapper(dbPath)
+              try {
+                expDbWrapper.open()
+                runMigrations(expDbWrapper.db)
+                const expDb = expDbWrapper.db
+
+                const { runRunAction: runPipeline } = await import(/* @vite-ignore */ './run.js')
+                const runStoryFn = async (opts: { stories: string; projectRoot: string; pack: string }) => {
+                  const exitCode = await runPipeline({
+                    pack: opts.pack,
+                    stories: opts.stories,
+                    concurrency: 1,
+                    outputFormat: 'json',
+                    projectRoot: opts.projectRoot,
+                  })
+                  // Retrieve the run ID of the just-completed experiment run from the DB
+                  const latestRun = getLatest(expDb)
+                  const newRunId = latestRun?.run_id ?? `experiment-${Date.now()}`
+                  return { runId: newRunId, exitCode }
+                }
+
+                const experimenter = createExperimenter(
+                  {
+                    projectRoot,
+                    pack,
+                    maxExperiments: maxExperiments ?? 2,
+                    tokenBudgetMultiplier: 2,
+                  },
+                  { runStory: runStoryFn, log: (msg: string) => log(msg) },
+                )
+
+                const results = await experimenter.runExperiments(
+                  expDb,
+                  recommendations as any[],
+                  health.run_id!,
+                )
+
+                const improved = results.filter((r: any) => r.verdict === 'IMPROVED').length
+                const mixed = results.filter((r: any) => r.verdict === 'MIXED').length
+                const regressed = results.filter((r: any) => r.verdict === 'REGRESSED').length
+                log(`[supervisor] Experiment cycle complete: ${improved} improved, ${mixed} mixed, ${regressed} regressed`)
+                emitEvent({
+                  type: 'supervisor:experiment:complete',
+                  run_id: health.run_id,
+                  improved,
+                  mixed,
+                  regressed,
+                })
+              } finally {
+                try { expDbWrapper.close() } catch { /* ignore */ }
+              }
+            } catch (expErr) {
+              const msg = expErr instanceof Error ? expErr.message : String(expErr)
+              log(`[supervisor] Experiment execution failed (best-effort): ${msg}`)
+              emitEvent({ type: 'supervisor:experiment:error', run_id: health.run_id, error: msg })
+            }
           }
         } catch {
           log(`[supervisor] Analysis report not found at ${analysisReportPath} — skipping experiments.`)
@@ -354,7 +428,7 @@ export async function runSupervisorAction(
         const message = err instanceof Error ? err.message : String(err)
         log(`Supervisor: Resume error: ${message}`)
         if (outputFormat === 'json') {
-          emitEvent({ type: 'supervisor:error' as any, reason: 'resume_failed', message })
+          emitEvent({ type: 'supervisor:error' as any, reason: 'resume_failed', message } as any)
         }
       }
     }
@@ -397,6 +471,12 @@ export function registerSupervisorCommand(
       'After post-run analysis, enter experiment mode: create branches, apply modifications, run single-story experiments, and report verdicts (Story 17-4)',
       false,
     )
+    .option(
+      '--max-experiments <n>',
+      'Maximum number of experiments to run per analysis cycle (default: 2, Story 17-4 AC6)',
+      (v: string) => parseInt(v, 10),
+      2,
+    )
     .action(
       async (opts: {
         pollInterval: number
@@ -407,6 +487,7 @@ export function registerSupervisorCommand(
         projectRoot: string
         outputFormat: string
         experiment: boolean
+        maxExperiments: number
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         const exitCode = await runSupervisorAction({
@@ -418,6 +499,7 @@ export function registerSupervisorCommand(
           outputFormat,
           projectRoot: opts.projectRoot,
           experiment: opts.experiment,
+          maxExperiments: opts.maxExperiments,
         })
         process.exitCode = exitCode
       },

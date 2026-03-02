@@ -733,3 +733,130 @@ describe('registerSupervisorCommand — AC1: supervisor command registration', (
     expect(rootOpt).toBeDefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Tests: AC1 (Story 17-3) — Post-Run Analysis Hook
+// ---------------------------------------------------------------------------
+
+describe('runSupervisorAction — AC1 (Story 17-3): post-run analysis hook', () => {
+  let stdoutCapture: ReturnType<typeof captureStdout>
+
+  beforeEach(() => {
+    stdoutCapture = captureStdout()
+  })
+
+  afterEach(() => {
+    stdoutCapture.restore()
+  })
+
+  it('calls runAnalysis when pipeline reaches terminal state with a run_id', async () => {
+    const runAnalysis = vi.fn().mockResolvedValue(undefined)
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeTerminal(['17-1'])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      runAnalysis,
+    }
+
+    await runSupervisorAction(makeOptions(), deps)
+
+    expect(runAnalysis).toHaveBeenCalledOnce()
+    expect(runAnalysis).toHaveBeenCalledWith('run-abc123', '/tmp/test')
+  })
+
+  it('does NOT call runAnalysis when no run_id is present', async () => {
+    const runAnalysis = vi.fn().mockResolvedValue(undefined)
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeNoRun()), // run_id is null
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      runAnalysis,
+    }
+
+    await runSupervisorAction(makeOptions(), deps)
+
+    expect(runAnalysis).not.toHaveBeenCalled()
+  })
+
+  it('does NOT call runAnalysis when dep is not provided (undefined)', async () => {
+    // Should not throw when runAnalysis is omitted
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeTerminal(['17-1'])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      // runAnalysis is intentionally omitted
+    }
+
+    const exitCode = await runSupervisorAction(makeOptions(), deps)
+    // Should still exit 0 without analysis dep
+    expect(exitCode).toBe(0)
+  })
+
+  it('emits supervisor:analysis:complete event after runAnalysis (json format)', async () => {
+    const runAnalysis = vi.fn().mockResolvedValue(undefined)
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeTerminal(['17-1'])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      runAnalysis,
+    }
+
+    await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
+
+    const output = stdoutCapture.getOutput()
+    const lines = output.trim().split('\n')
+    const analysisLine = lines.find((l) => l.includes('supervisor:analysis:complete'))
+    expect(analysisLine).toBeDefined()
+    const evt = JSON.parse(analysisLine!)
+    expect(evt.type).toBe('supervisor:analysis:complete')
+    expect(evt.run_id).toBe('run-abc123')
+  })
+
+  it('runAnalysis error does not crash supervisor', async () => {
+    const runAnalysis = vi.fn().mockRejectedValue(new Error('analysis failed'))
+
+    const deps: Partial<SupervisorDeps> = {
+      // Override getHealth to succeed, then terminal
+      getHealth: vi.fn().mockResolvedValue(makeTerminal(['17-1'])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      runAnalysis,
+    }
+
+    // Should not throw even if runAnalysis fails
+    const exitCode = await runSupervisorAction(makeOptions(), deps)
+    expect(exitCode).toBe(0)
+  })
+
+  it('emits supervisor:analysis:error event when runAnalysis throws (Story 17.5 T9)', async () => {
+    const runAnalysis = vi.fn().mockRejectedValue(new Error('disk full'))
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeTerminal(['17-1'])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      runAnalysis,
+    }
+
+    await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
+
+    const output = stdoutCapture.getOutput()
+    const lines = output.trim().split('\n')
+    const errLine = lines.find((l) => l.includes('supervisor:analysis:error'))
+    expect(errLine).toBeDefined()
+    const evt = JSON.parse(errLine!)
+    expect(evt.type).toBe('supervisor:analysis:error')
+    expect(evt.run_id).toBe('run-abc123')
+    expect(evt.error).toContain('disk full')
+    expect(evt.ts).toBeDefined()
+  })
+})

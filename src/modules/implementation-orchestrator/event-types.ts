@@ -275,6 +275,125 @@ export interface SupervisorSummaryEvent {
 }
 
 // ---------------------------------------------------------------------------
+// SupervisorAnalysisCompleteEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the supervisor's post-run analysis finishes successfully.
+ */
+export interface SupervisorAnalysisCompleteEvent {
+  type: 'supervisor:analysis:complete'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Pipeline run ID that was analyzed */
+  run_id: string | null
+}
+
+// ---------------------------------------------------------------------------
+// SupervisorAnalysisErrorEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the supervisor's post-run analysis fails.
+ */
+export interface SupervisorAnalysisErrorEvent {
+  type: 'supervisor:analysis:error'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Pipeline run ID for which analysis was attempted */
+  run_id: string | null
+  /** Error message describing why analysis failed */
+  error: string
+}
+
+// ---------------------------------------------------------------------------
+// SupervisorExperimentStartEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the supervisor begins an experiment cycle.
+ */
+export interface SupervisorExperimentStartEvent {
+  type: 'supervisor:experiment:start'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Pipeline run ID being experimented on */
+  run_id: string | null
+}
+
+// ---------------------------------------------------------------------------
+// SupervisorExperimentSkipEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the supervisor skips an experiment cycle (no recommendations or no analysis report).
+ */
+export interface SupervisorExperimentSkipEvent {
+  type: 'supervisor:experiment:skip'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Pipeline run ID */
+  run_id: string | null
+  /** Why the experiment was skipped */
+  reason: string
+}
+
+// ---------------------------------------------------------------------------
+// SupervisorExperimentRecommendationsEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the supervisor discovers recommendations to experiment with.
+ */
+export interface SupervisorExperimentRecommendationsEvent {
+  type: 'supervisor:experiment:recommendations'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Pipeline run ID */
+  run_id: string | null
+  /** Number of recommendations found */
+  count: number
+}
+
+// ---------------------------------------------------------------------------
+// SupervisorExperimentCompleteEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the supervisor's experiment cycle completes.
+ */
+export interface SupervisorExperimentCompleteEvent {
+  type: 'supervisor:experiment:complete'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Pipeline run ID */
+  run_id: string | null
+  /** Number of experiments that resulted in improvement */
+  improved: number
+  /** Number of experiments with mixed results */
+  mixed: number
+  /** Number of experiments that caused regression */
+  regressed: number
+}
+
+// ---------------------------------------------------------------------------
+// SupervisorExperimentErrorEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the supervisor's experiment cycle fails.
+ */
+export interface SupervisorExperimentErrorEvent {
+  type: 'supervisor:experiment:error'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Pipeline run ID */
+  run_id: string | null
+  /** Error message describing why the experiment failed */
+  error: string
+}
+
+// ---------------------------------------------------------------------------
 // PipelineEvent discriminated union
 // ---------------------------------------------------------------------------
 
@@ -304,6 +423,13 @@ export type PipelineEvent =
   | SupervisorRestartEvent
   | SupervisorAbortEvent
   | SupervisorSummaryEvent
+  | SupervisorAnalysisCompleteEvent
+  | SupervisorAnalysisErrorEvent
+  | SupervisorExperimentStartEvent
+  | SupervisorExperimentSkipEvent
+  | SupervisorExperimentRecommendationsEvent
+  | SupervisorExperimentCompleteEvent
+  | SupervisorExperimentErrorEvent
 
 // ---------------------------------------------------------------------------
 // Compile-time source of truth for all event type discriminants
@@ -336,6 +462,13 @@ export const EVENT_TYPE_NAMES = [
   'supervisor:restart',
   'supervisor:abort',
   'supervisor:summary',
+  'supervisor:analysis:complete',
+  'supervisor:analysis:error',
+  'supervisor:experiment:start',
+  'supervisor:experiment:skip',
+  'supervisor:experiment:recommendations',
+  'supervisor:experiment:complete',
+  'supervisor:experiment:error',
 ] as const
 
 /**
