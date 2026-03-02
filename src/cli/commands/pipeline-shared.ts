@@ -13,6 +13,28 @@ import type { PipelineRun, TokenUsageSummary } from '../../persistence/queries/d
 import { VALID_PHASES } from '../../modules/stop-after/index.js'
 
 // ---------------------------------------------------------------------------
+// Timestamp helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a DB timestamp string to a Date, correctly treating it as UTC.
+ *
+ * SQLite stores timestamps as "YYYY-MM-DD HH:MM:SS" without a timezone suffix.
+ * JavaScript's Date constructor parses strings without a timezone suffix as
+ * *local time*, which causes staleness/duration to be calculated incorrectly
+ * on machines not in UTC.
+ *
+ * Fix: append 'Z' if the string has no timezone marker so it is always
+ * parsed as UTC.
+ */
+export function parseDbTimestampAsUtc(ts: string): Date {
+  if (ts.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(ts)) {
+    return new Date(ts)
+  }
+  return new Date(ts.replace(' ', 'T') + 'Z')
+}
+
+// ---------------------------------------------------------------------------
 // Package root resolution (ESM-compatible)
 // ---------------------------------------------------------------------------
 
@@ -284,7 +306,7 @@ export function buildPipelineStatusOutput(
     decisions_count: decisionsCount,
     stories_count: storiesCount,
     last_activity: run.updated_at,
-    staleness_seconds: Math.round((Date.now() - new Date(run.updated_at).getTime()) / 1000),
+    staleness_seconds: Math.round((Date.now() - parseDbTimestampAsUtc(run.updated_at).getTime()) / 1000),
   }
 }
 

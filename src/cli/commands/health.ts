@@ -25,9 +25,16 @@ import {
 import type { PipelineRun } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 import type { OutputFormat } from './pipeline-shared.js'
-import { formatOutput } from './pipeline-shared.js'
+import { formatOutput, parseDbTimestampAsUtc } from './pipeline-shared.js'
 
 const logger = createLogger('health-cmd')
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Default stall threshold in seconds — also used by supervisor default */
+export const DEFAULT_STALL_THRESHOLD_SECONDS = 600
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,16 +74,55 @@ export interface PipelineHealthOutput {
 // Process inspection
 // ---------------------------------------------------------------------------
 
-function inspectProcessTree(): ProcessInfo {
+/**
+ * Determine whether a ps output line represents the substrate pipeline orchestrator.
+ * Handles invocation via:
+ *   - `substrate run` (globally installed)
+ *   - `substrate-ai run`
+ *   - `node dist/cli/index.js run` (npm run substrate:dev)
+ *   - `npx substrate run`
+ *   - any node process whose command contains `run` with `--events` or `--stories`
+ */
+function isOrchestratorProcessLine(line: string): boolean {
+  if (line.includes('grep')) return false
+  if (line.includes('substrate run')) return true
+  if (line.includes('substrate-ai run')) return true
+  if (line.includes('index.js run')) return true
+  // Match node processes where 'run' is a complete argument token (not a substring
+  // of another word like 'dry-run-tool'). Require whitespace before 'run' and
+  // whitespace or end-of-string after 'run'.
+  if (
+    line.includes('node') &&
+    /\srun(\s|$)/.test(line) &&
+    (line.includes('--events') || line.includes('--stories'))
+  ) {
+    return true
+  }
+  return false
+}
+
+/** Injectable execFileSync for testing */
+export type ExecFileSyncFn = (
+  file: string,
+  args: string[],
+  opts: { encoding: string; timeout: number },
+) => string
+
+export function inspectProcessTree(execFileSyncOverride?: ExecFileSyncFn): ProcessInfo {
   const result: ProcessInfo = { orchestrator_pid: null, child_pids: [], zombies: [] }
   try {
-    const { execFileSync } = require('node:child_process') as typeof import('node:child_process')
-    const psOutput = execFileSync('ps', ['-eo', 'pid,ppid,stat,command'], { encoding: 'utf-8', timeout: 5000 })
+    let psOutput: string
+    if (execFileSyncOverride !== undefined) {
+      psOutput = execFileSyncOverride('ps', ['-eo', 'pid,ppid,stat,command'], { encoding: 'utf-8', timeout: 5000 })
+    } else {
+      const { execFileSync } = require('node:child_process') as typeof import('node:child_process')
+      psOutput = execFileSync('ps', ['-eo', 'pid,ppid,stat,command'], { encoding: 'utf-8', timeout: 5000 }) as string
+    }
     const lines = psOutput.split('\n')
 
-    // Find substrate run process
+    // Find substrate run process — match multiple invocation patterns
     for (const line of lines) {
-      if (line.includes('substrate run') && !line.includes('grep')) {
+      if (isOrchestratorProcessLine(line)) {
         const match = line.trim().match(/^(\d+)/)
         if (match) {
           result.orchestrator_pid = parseInt(match[1], 10)
@@ -107,6 +153,8 @@ function inspectProcessTree(): ProcessInfo {
   }
   return result
 }
+
+// parseDbTimestampAsUtc is imported from pipeline-shared.ts
 
 // ---------------------------------------------------------------------------
 // Health data fetch (used by supervisor and tests)
@@ -159,8 +207,8 @@ export async function getAutoHealthData(options: {
       return NO_PIPELINE
     }
 
-    // Compute staleness
-    const updatedAt = new Date(run.updated_at)
+    // Compute staleness — parse timestamp as UTC to avoid timezone shift
+    const updatedAt = parseDbTimestampAsUtc(run.updated_at)
     const stalenessSeconds = Math.round((Date.now() - updatedAt.getTime()) / 1000)
 
     // Parse story state from token_usage_json
@@ -193,9 +241,13 @@ export async function getAutoHealthData(options: {
     // Derive verdict
     let verdict: HealthVerdict = 'NO_PIPELINE_RUNNING'
     if (run.status === 'running') {
-      if (processInfo.zombies.length > 0) {
+      if (processInfo.orchestrator_pid === null && active === 0 && completed > 0) {
+        // Orchestrator exited, no active stories, all completed — pipeline is done
+        // even though the DB row wasn't updated to "completed"
+        verdict = 'NO_PIPELINE_RUNNING'
+      } else if (processInfo.zombies.length > 0) {
         verdict = 'STALLED'
-      } else if (stalenessSeconds > 600) {
+      } else if (stalenessSeconds > DEFAULT_STALL_THRESHOLD_SECONDS) {
         verdict = 'STALLED'
       } else if (processInfo.orchestrator_pid !== null && processInfo.child_pids.length === 0 && active > 0) {
         verdict = 'STALLED'
@@ -230,150 +282,48 @@ export async function getAutoHealthData(options: {
 // ---------------------------------------------------------------------------
 
 export async function runHealthAction(options: HealthOptions): Promise<number> {
-  const { outputFormat, runId, projectRoot } = options
-
-  const dbRoot = await resolveMainRepoRoot(projectRoot)
-  const dbPath = join(dbRoot, '.substrate', 'substrate.db')
-
-  if (!existsSync(dbPath)) {
-    const output: PipelineHealthOutput = {
-      verdict: 'NO_PIPELINE_RUNNING',
-      run_id: null,
-      status: null,
-      current_phase: null,
-      staleness_seconds: 0,
-      last_activity: '',
-      process: { orchestrator_pid: null, child_pids: [], zombies: [] },
-      stories: { active: 0, completed: 0, escalated: 0, details: {} },
-    }
-    if (outputFormat === 'json') {
-      process.stdout.write(formatOutput(output, 'json', true) + '\n')
-    } else {
-      process.stdout.write('NO_PIPELINE_RUNNING — no substrate database found\n')
-    }
-    return 0
-  }
-
-  const dbWrapper = new DatabaseWrapper(dbPath)
+  const { outputFormat } = options
 
   try {
-    dbWrapper.open()
-    const db = dbWrapper.db
-
-    let run: PipelineRun | undefined
-    if (runId !== undefined) {
-      run = getPipelineRunById(db, runId)
-    } else {
-      run = getLatestRun(db)
-    }
-
-    if (run === undefined) {
-      const output: PipelineHealthOutput = {
-        verdict: 'NO_PIPELINE_RUNNING',
-        run_id: null,
-        status: null,
-        current_phase: null,
-        staleness_seconds: 0,
-        last_activity: '',
-        process: { orchestrator_pid: null, child_pids: [], zombies: [] },
-        stories: { active: 0, completed: 0, escalated: 0, details: {} },
-      }
-      if (outputFormat === 'json') {
-        process.stdout.write(formatOutput(output, 'json', true) + '\n')
-      } else {
-        process.stdout.write('NO_PIPELINE_RUNNING — no pipeline runs found\n')
-      }
-      return 0
-    }
-
-    // Compute staleness
-    const updatedAt = new Date(run.updated_at)
-    const stalenessSeconds = Math.round((Date.now() - updatedAt.getTime()) / 1000)
-
-    // Parse story state from token_usage_json
-    let storyDetails: Record<string, { phase: string; review_cycles: number }> = {}
-    let active = 0
-    let completed = 0
-    let escalated = 0
-
-    try {
-      if (run.token_usage_json) {
-        const state = JSON.parse(run.token_usage_json) as {
-          stories?: Record<string, { phase: string; reviewCycles: number }>
-        }
-        if (state.stories) {
-          for (const [key, s] of Object.entries(state.stories)) {
-            storyDetails[key] = { phase: s.phase, review_cycles: s.reviewCycles }
-            if (s.phase === 'COMPLETE') completed++
-            else if (s.phase === 'ESCALATED') escalated++
-            else if (s.phase !== 'PENDING') active++
-          }
-        }
-      }
-    } catch {
-      // ignore parse errors
-    }
-
-    // Inspect process tree
-    const processInfo = inspectProcessTree()
-
-    // Derive verdict
-    let verdict: HealthVerdict = 'NO_PIPELINE_RUNNING'
-    if (run.status === 'running') {
-      if (processInfo.zombies.length > 0) {
-        verdict = 'STALLED'
-      } else if (stalenessSeconds > 600) {
-        verdict = 'STALLED'
-      } else if (processInfo.orchestrator_pid !== null && processInfo.child_pids.length === 0 && active > 0) {
-        verdict = 'STALLED'
-      } else {
-        verdict = 'HEALTHY'
-      }
-    } else if (run.status === 'completed' || run.status === 'failed' || run.status === 'stopped') {
-      verdict = 'NO_PIPELINE_RUNNING'
-    }
-
-    const output: PipelineHealthOutput = {
-      verdict,
-      run_id: run.id,
-      status: run.status,
-      current_phase: run.current_phase,
-      staleness_seconds: stalenessSeconds,
-      last_activity: run.updated_at,
-      process: processInfo,
-      stories: { active, completed, escalated, details: storyDetails },
-    }
+    const health = await getAutoHealthData(options)
 
     if (outputFormat === 'json') {
-      process.stdout.write(formatOutput(output, 'json', true) + '\n')
+      process.stdout.write(formatOutput(health, 'json', true) + '\n')
     } else {
       // Human-readable output
-      const verdictLabel = verdict === 'HEALTHY' ? 'HEALTHY'
-        : verdict === 'STALLED' ? 'STALLED'
+      const verdictLabel = health.verdict === 'HEALTHY' ? 'HEALTHY'
+        : health.verdict === 'STALLED' ? 'STALLED'
         : 'NO PIPELINE RUNNING'
       process.stdout.write(`\nPipeline Health: ${verdictLabel}\n`)
-      process.stdout.write(`  Run:          ${run.id}\n`)
-      process.stdout.write(`  Status:       ${run.status}\n`)
-      process.stdout.write(`  Phase:        ${run.current_phase ?? 'N/A'}\n`)
-      process.stdout.write(`  Last Active:  ${run.updated_at} (${stalenessSeconds}s ago)\n`)
 
-      if (processInfo.orchestrator_pid !== null) {
-        process.stdout.write(`  Orchestrator: PID ${processInfo.orchestrator_pid}\n`)
-        process.stdout.write(`  Children:     ${processInfo.child_pids.length} active`)
-        if (processInfo.zombies.length > 0) {
-          process.stdout.write(` (${processInfo.zombies.length} ZOMBIE)`)
-        }
-        process.stdout.write('\n')
-      } else {
-        process.stdout.write('  Orchestrator: not running\n')
-      }
+      if (health.run_id !== null) {
+        process.stdout.write(`  Run:          ${health.run_id}\n`)
+        process.stdout.write(`  Status:       ${health.status}\n`)
+        process.stdout.write(`  Phase:        ${health.current_phase ?? 'N/A'}\n`)
+        process.stdout.write(`  Last Active:  ${health.last_activity} (${health.staleness_seconds}s ago)\n`)
 
-      if (Object.keys(storyDetails).length > 0) {
-        process.stdout.write('\n  Stories:\n')
-        for (const [key, s] of Object.entries(storyDetails)) {
-          process.stdout.write(`    ${key}: ${s.phase} (${s.review_cycles} review cycles)\n`)
+        const processInfo = health.process
+        if (processInfo.orchestrator_pid !== null) {
+          process.stdout.write(`  Orchestrator: PID ${processInfo.orchestrator_pid}\n`)
+          process.stdout.write(`  Children:     ${processInfo.child_pids.length} active`)
+          if (processInfo.zombies.length > 0) {
+            process.stdout.write(` (${processInfo.zombies.length} ZOMBIE)`)
+          }
+          process.stdout.write('\n')
+        } else {
+          process.stdout.write('  Orchestrator: not running\n')
         }
-        process.stdout.write(`\n  Summary: ${active} active, ${completed} completed, ${escalated} escalated\n`)
+
+        const storyDetails = health.stories.details
+        if (Object.keys(storyDetails).length > 0) {
+          process.stdout.write('\n  Stories:\n')
+          for (const [key, s] of Object.entries(storyDetails)) {
+            process.stdout.write(`    ${key}: ${s.phase} (${s.review_cycles} review cycles)\n`)
+          }
+          process.stdout.write(
+            `\n  Summary: ${health.stories.active} active, ${health.stories.completed} completed, ${health.stories.escalated} escalated\n`,
+          )
+        }
       }
     }
 
@@ -387,12 +337,6 @@ export async function runHealthAction(options: HealthOptions): Promise<number> {
     }
     logger.error({ err }, 'health action failed')
     return 1
-  } finally {
-    try {
-      dbWrapper.close()
-    } catch {
-      // ignore
-    }
   }
 }
 

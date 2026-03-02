@@ -23,6 +23,7 @@ import {
   getRunMetrics,
   getBaselineRunMetrics,
   getStoryMetricsForRun,
+  aggregateTokenUsageForRun,
 } from '../../persistence/queries/metrics.js'
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,12 @@ export interface SupervisorDeps {
    * Optional so tests can omit it without side-effects.
    */
   runAnalysis?: (runId: string, projectRoot: string) => Promise<void>
+  /**
+   * Fetch the cumulative token/cost snapshot for a run from the DB.
+   * Called on each poll cycle to populate the supervisor:poll event (Story 19-2 AC3).
+   * Returns zeros when the run ID is unknown or DB is unavailable.
+   */
+  getTokenSnapshot: (runId: string, projectRoot: string) => { input: number; output: number; cost_usd: number }
 }
 
 function defaultSupervisorDeps(): SupervisorDeps {
@@ -99,6 +106,22 @@ function defaultSupervisorDeps(): SupervisorDeps {
         }
       }
     })(),
+    getTokenSnapshot: (runId: string, projectRoot: string) => {
+      try {
+        const dbPath = join(projectRoot, '.substrate', 'substrate.db')
+        if (!existsSync(dbPath)) return { input: 0, output: 0, cost_usd: 0 }
+        const dbWrapper = new DatabaseWrapper(dbPath)
+        try {
+          dbWrapper.open()
+          const agg = aggregateTokenUsageForRun(dbWrapper.db, runId)
+          return { input: agg.input, output: agg.output, cost_usd: agg.cost }
+        } finally {
+          try { dbWrapper.close() } catch { /* ignore */ }
+        }
+      } catch {
+        return { input: 0, output: 0, cost_usd: 0 }
+      }
+    },
     runAnalysis: async (runId: string, projectRoot: string) => {
       // AC1 of Story 17-3: generate post-run analysis report after terminal state
       const dbPath = join(projectRoot, '.substrate', 'substrate.db')
@@ -148,7 +171,7 @@ export async function runSupervisorAction(
   deps: Partial<SupervisorDeps> = {},
 ): Promise<number> {
   const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack, experiment, maxExperiments } = options
-  const { getHealth, killPid, resumePipeline, sleep, incrementRestarts, runAnalysis } = { ...defaultSupervisorDeps(), ...deps }
+  const { getHealth, killPid, resumePipeline, sleep, incrementRestarts, runAnalysis, getTokenSnapshot } = { ...defaultSupervisorDeps(), ...deps }
 
   let restartCount = 0
   const startTime = Date.now()
@@ -170,6 +193,32 @@ export async function runSupervisorAction(
   while (true) {
     const health = await getHealth({ runId, projectRoot })
     const ts = new Date().toISOString()
+
+    // Emit supervisor:poll heartbeat event on each cycle in JSON mode (Story 19-2 AC1-AC4)
+    if (outputFormat === 'json') {
+      const tokenSnapshot = health.run_id !== null
+        ? getTokenSnapshot(health.run_id, projectRoot)
+        : { input: 0, output: 0, cost_usd: 0 }
+      const proc = health.process ?? { orchestrator_pid: null, child_pids: [], zombies: [] }
+      emitEvent({
+        type: 'supervisor:poll',
+        run_id: health.run_id,
+        verdict: health.verdict,
+        staleness_seconds: health.staleness_seconds,
+        stories: {
+          active: health.stories.active,
+          completed: health.stories.completed,
+          escalated: health.stories.escalated,
+        },
+        story_details: health.stories.details,
+        tokens: tokenSnapshot,
+        process: {
+          orchestrator_pid: proc.orchestrator_pid,
+          child_count: proc.child_pids.length,
+          zombie_count: proc.zombies.length,
+        },
+      })
+    }
 
     log(
       `[${ts}] Health: ${health.verdict} | staleness=${health.staleness_seconds}s | ` +

@@ -860,3 +860,241 @@ describe('runSupervisorAction — AC1 (Story 17-3): post-run analysis hook', () 
     expect(evt.ts).toBeDefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Tests: Story 19-2 — supervisor:poll heartbeat events
+// ---------------------------------------------------------------------------
+
+describe('runSupervisorAction — Story 19-2 AC1-AC4: supervisor:poll emitted in JSON mode', () => {
+  let stdoutCapture: ReturnType<typeof captureStdout>
+
+  beforeEach(() => {
+    stdoutCapture = captureStdout()
+  })
+
+  afterEach(() => {
+    stdoutCapture.restore()
+  })
+
+  it('emits supervisor:poll event on every poll cycle in JSON mode', async () => {
+    const healthSequence = [makeHealthy(), makeHealthy(), makeTerminal(['17-1'])]
+    let callIdx = 0
+    const tokenSnapshot = { input: 1000, output: 500, cost_usd: 0.01 }
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(() => Promise.resolve(healthSequence[callIdx++])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      getTokenSnapshot: vi.fn().mockReturnValue(tokenSnapshot),
+    }
+
+    await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
+
+    const output = stdoutCapture.getOutput()
+    const lines = output.trim().split('\n').filter((l) => l.includes('supervisor:poll'))
+    // Three poll cycles (two healthy + one terminal), each should emit supervisor:poll
+    expect(lines).toHaveLength(3)
+  })
+
+  it('supervisor:poll event has all required AC1 fields', async () => {
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeTerminal(['17-1'])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      getTokenSnapshot: vi.fn().mockReturnValue({ input: 100, output: 50, cost_usd: 0.005 }),
+    }
+
+    await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
+
+    const output = stdoutCapture.getOutput()
+    const pollLine = output.trim().split('\n').find((l) => l.includes('supervisor:poll'))
+    expect(pollLine).toBeDefined()
+    const evt = JSON.parse(pollLine!)
+    // AC1: required fields
+    expect(evt.type).toBe('supervisor:poll')
+    expect(typeof evt.ts).toBe('string')
+    expect(evt.run_id).toBe('run-abc123')
+    expect(evt.verdict).toBe('NO_PIPELINE_RUNNING')
+    expect(typeof evt.staleness_seconds).toBe('number')
+    // stories object with active/completed/escalated
+    expect(typeof evt.stories.active).toBe('number')
+    expect(typeof evt.stories.completed).toBe('number')
+    expect(typeof evt.stories.escalated).toBe('number')
+  })
+
+  it('supervisor:poll event has AC2 story_details', async () => {
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeHealthy()),
+      sleep: vi.fn().mockImplementation(() => {
+        // Replace getHealth after first call to return terminal so loop exits
+        ;(deps.getHealth as ReturnType<typeof vi.fn>).mockResolvedValue(makeTerminal(['17-1']))
+        return Promise.resolve()
+      }),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+    }
+
+    await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
+
+    const output = stdoutCapture.getOutput()
+    const pollLines = output.trim().split('\n').filter((l) => l.includes('supervisor:poll'))
+    expect(pollLines.length).toBeGreaterThan(0)
+    const evt = JSON.parse(pollLines[0])
+    // AC2: story_details
+    expect(evt.story_details).toBeDefined()
+    expect(typeof evt.story_details).toBe('object')
+    // First poll is from makeHealthy, which has '17-1' in details
+    expect(evt.story_details['17-1']).toBeDefined()
+    expect(typeof evt.story_details['17-1'].phase).toBe('string')
+    expect(typeof evt.story_details['17-1'].review_cycles).toBe('number')
+  })
+
+  it('supervisor:poll event has AC3 tokens snapshot', async () => {
+    const getTokenSnapshot = vi.fn().mockReturnValue({ input: 2500, output: 1200, cost_usd: 0.042 })
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeTerminal(['17-1'])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      getTokenSnapshot,
+    }
+
+    await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
+
+    const output = stdoutCapture.getOutput()
+    const pollLine = output.trim().split('\n').find((l) => l.includes('supervisor:poll'))
+    expect(pollLine).toBeDefined()
+    const evt = JSON.parse(pollLine!)
+    // AC3: tokens
+    expect(evt.tokens.input).toBe(2500)
+    expect(evt.tokens.output).toBe(1200)
+    expect(evt.tokens.cost_usd).toBe(0.042)
+  })
+
+  it('supervisor:poll event has AC4 process health fields', async () => {
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeHealthy()),
+      sleep: vi.fn().mockImplementation(() => {
+        ;(deps.getHealth as ReturnType<typeof vi.fn>).mockResolvedValue(makeTerminal(['17-1']))
+        return Promise.resolve()
+      }),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+    }
+
+    await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
+
+    const output = stdoutCapture.getOutput()
+    const pollLines = output.trim().split('\n').filter((l) => l.includes('supervisor:poll'))
+    const evt = JSON.parse(pollLines[0])
+    // AC4: process health
+    expect('orchestrator_pid' in evt.process).toBe(true)
+    expect(typeof evt.process.child_count).toBe('number')
+    expect(typeof evt.process.zombie_count).toBe('number')
+    // makeHealthy has orchestrator_pid: 12345, child_pids: [12346, 12347], zombies: []
+    expect(evt.process.orchestrator_pid).toBe(12345)
+    expect(evt.process.child_count).toBe(2)
+    expect(evt.process.zombie_count).toBe(0)
+  })
+
+  it('calls getTokenSnapshot with run_id and projectRoot on each poll cycle', async () => {
+    const getTokenSnapshot = vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 })
+    const healthSequence = [makeHealthy(), makeTerminal(['17-1'])]
+    let callIdx = 0
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(() => Promise.resolve(healthSequence[callIdx++])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      getTokenSnapshot,
+    }
+
+    await runSupervisorAction(makeOptions({ outputFormat: 'json', projectRoot: '/tmp/test' }), deps)
+
+    // Two poll cycles, each with a non-null run_id
+    expect(getTokenSnapshot).toHaveBeenCalledTimes(2)
+    expect(getTokenSnapshot).toHaveBeenCalledWith('run-abc123', '/tmp/test')
+  })
+
+  it('tokens default to zeros when run_id is null', async () => {
+    const getTokenSnapshot = vi.fn().mockReturnValue({ input: 999, output: 999, cost_usd: 99 })
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeNoRun()), // run_id is null
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      getTokenSnapshot,
+    }
+
+    await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
+
+    const output = stdoutCapture.getOutput()
+    const pollLine = output.trim().split('\n').find((l) => l.includes('supervisor:poll'))
+    expect(pollLine).toBeDefined()
+    const evt = JSON.parse(pollLine!)
+    // run_id is null so getTokenSnapshot should NOT be called; tokens default to 0
+    expect(getTokenSnapshot).not.toHaveBeenCalled()
+    expect(evt.tokens.input).toBe(0)
+    expect(evt.tokens.output).toBe(0)
+    expect(evt.tokens.cost_usd).toBe(0)
+  })
+})
+
+describe('runSupervisorAction — Story 19-2 AC5: supervisor:poll NOT emitted in human mode', () => {
+  let stdoutCapture: ReturnType<typeof captureStdout>
+
+  beforeEach(() => {
+    stdoutCapture = captureStdout()
+  })
+
+  afterEach(() => {
+    stdoutCapture.restore()
+  })
+
+  it('does NOT emit supervisor:poll in human output mode', async () => {
+    const getTokenSnapshot = vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 })
+    const healthSequence = [makeHealthy(), makeTerminal(['17-1'])]
+    let callIdx = 0
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(() => Promise.resolve(healthSequence[callIdx++])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      getTokenSnapshot,
+    }
+
+    await runSupervisorAction(makeOptions({ outputFormat: 'human' }), deps)
+
+    const output = stdoutCapture.getOutput()
+    expect(output).not.toContain('supervisor:poll')
+    // Also verify getTokenSnapshot was not called (no poll events = no token queries needed)
+    expect(getTokenSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('still emits human-readable log lines in human mode (AC5 unaffected)', async () => {
+    const healthSequence = [makeHealthy(), makeTerminal(['17-1'])]
+    let callIdx = 0
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(() => Promise.resolve(healthSequence[callIdx++])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+    }
+
+    await runSupervisorAction(makeOptions({ outputFormat: 'human' }), deps)
+
+    const output = stdoutCapture.getOutput()
+    expect(output).toContain('Health: HEALTHY')
+    expect(output).not.toContain('supervisor:poll')
+  })
+})

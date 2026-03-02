@@ -174,6 +174,21 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     ],
   },
   {
+    type: 'supervisor:poll',
+    description: 'Heartbeat each poll (JSON only).',
+    when: 'Per cycle.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'run_id', type: 'string|null', description: 'Run ID.' },
+      { name: 'verdict', type: 'HEALTHY|STALLED|NO_PIPELINE_RUNNING', description: 'Verdict.' },
+      { name: 'staleness_seconds', type: 'number', description: 'Seconds stale.' },
+      { name: 'stories', type: 'object', description: 'active/completed/escalated.' },
+      { name: 'story_details', type: 'object', description: 'phase+cycles per story.' },
+      { name: 'tokens', type: 'object', description: 'input/output/cost_usd.' },
+      { name: 'process', type: 'object', description: 'pid/child/zombie counts.' },
+    ],
+  },
+  {
     type: 'supervisor:kill',
     description: 'Supervisor killed stalled pipeline process tree.',
     when: 'Staleness exceeds stall threshold.',
@@ -458,41 +473,33 @@ export function generateInteractionPatternsSection(): string {
 Use this decision flowchart when handling events from \`substrate run --events\`:
 
 ### On \`story:done\` with \`result: success\`
-- Report successful completion to the user.
-- Note the story key and number of review_cycles for telemetry.
+- Report success to the user.
 
 ### On \`story:done\` with \`result: failed\`
-- Report failure to the user with the story key.
-- Suggest checking logs or running \`substrate status\` for details.
+- Report failure with the story key.
 
 ### On \`story:escalation\`
-- Read the \`issues\` array. Each issue has \`severity\`, \`file\` (path:line), and \`desc\`.
-- Present the issues to the user grouped by severity.
-- Offer to fix the issues or explain them.
-- Ask the user whether to retry or abandon the story.
+- Read \`issues\`: each has \`severity\`, \`file\`, \`desc\`.
+- Present grouped by severity; ask user to retry or abandon.
 
 ### On \`story:phase\` with \`verdict: NEEDS_MINOR_FIXES\`
-- The story passed code review but has minor suggestions.
-- Offer to apply the fixes or skip.
-- This is non-blocking — pipeline continues unless you intervene.
+- Non-blocking minor suggestions. Offer to apply or skip.
 
 ### On \`story:warn\`
-- Inform the user of the warning message but do NOT treat it as an error.
-- Common warnings: token ceiling truncation, partial batch failures.
-- Pipeline continues normally after a warn event.
+- Non-blocking warning; pipeline continues normally.
 
 ### On \`story:log\`
-- These are informational only.
-- Display if verbose mode is active; otherwise buffer or discard.
+- Informational only. Display in verbose mode.
 
 ### On \`pipeline:complete\`
-- Summarize results: report \`succeeded.length\` successes.
-- List any \`failed\` or \`escalated\` stories with reasons if available.
-- This is always the last event emitted.
+- Summarize \`succeeded\`, \`failed\`, \`escalated\` counts.
 
 ## Supervisor Interaction Patterns
 
 Patterns for \`substrate supervisor --output-format json\` events:
+
+### On \`supervisor:poll\`
+- Track \`verdict\` and \`tokens.cost_usd\` each cycle. JSON only.
 
 ### On \`supervisor:summary\`
 - Summarize \`succeeded\`, \`failed\`, \`escalated\` counts and \`restarts\`.

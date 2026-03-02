@@ -208,6 +208,35 @@ export interface StoryStallEvent {
 // Supervisor events (emitted by `substrate supervisor`)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// SupervisorPollEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted after each `getHealth()` call in the supervisor poll loop.
+ * Allows agents to observe health state, story progress, and token costs
+ * on every cycle without needing a separate health query.
+ */
+export interface SupervisorPollEvent {
+  type: 'supervisor:poll'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Current pipeline run ID, or null if no run is active */
+  run_id: string | null
+  /** Health verdict from the most recent getHealth() call */
+  verdict: 'HEALTHY' | 'STALLED' | 'NO_PIPELINE_RUNNING'
+  /** Seconds since the last pipeline activity */
+  staleness_seconds: number
+  /** Story counts from the health snapshot */
+  stories: { active: number; completed: number; escalated: number }
+  /** Per-story phase and review cycle details */
+  story_details: Record<string, { phase: string; review_cycles: number }>
+  /** Cumulative token/cost snapshot for the current run */
+  tokens: { input: number; output: number; cost_usd: number }
+  /** Process health from the health snapshot */
+  process: { orchestrator_pid: number | null; child_count: number; zombie_count: number }
+}
+
 /**
  * Emitted when the supervisor kills a stalled pipeline process tree.
  */
@@ -419,6 +448,7 @@ export type PipelineEvent =
   | StoryLogEvent
   | PipelineHeartbeatEvent
   | StoryStallEvent
+  | SupervisorPollEvent
   | SupervisorKillEvent
   | SupervisorRestartEvent
   | SupervisorAbortEvent
@@ -458,6 +488,7 @@ export const EVENT_TYPE_NAMES = [
   'story:log',
   'pipeline:heartbeat',
   'story:stall',
+  'supervisor:poll',
   'supervisor:kill',
   'supervisor:restart',
   'supervisor:abort',

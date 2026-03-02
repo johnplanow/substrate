@@ -74,6 +74,7 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'story:log',
       'pipeline:heartbeat',
       'story:stall',
+      'supervisor:poll',
       'supervisor:kill',
       'supervisor:restart',
       'supervisor:abort',

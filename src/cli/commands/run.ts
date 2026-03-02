@@ -70,6 +70,7 @@ import {
   BMAD_BASELINE_TOKENS_FULL,
   buildPipelineStatusOutput,
   formatPipelineSummary,
+  parseDbTimestampAsUtc,
 } from './pipeline-shared.js'
 
 const logger = createLogger('run-cmd')
@@ -759,7 +760,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // AC1 (Story 17-2): Write run-level metrics to DB on pipeline terminal state
     try {
       const runEndMs = Date.now()
-      const runStartMs = new Date(pipelineRun.created_at).getTime()
+      const runStartMs = parseDbTimestampAsUtc(pipelineRun.created_at).getTime()
       const tokenAgg = aggregateTokenUsageForRun(db, pipelineRun.id)
       const storyMetrics = getStoryMetricsForRun(db, pipelineRun.id)
       const totalReviewCycles = storyMetrics.reduce((sum, m) => sum + (m.review_cycles ?? 0), 0)
