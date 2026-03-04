@@ -44,6 +44,8 @@ phases:
         context:
           - placeholder: concept
             source: "param:concept"
+          - placeholder: research_findings
+            source: "decision:research.findings"
         elicitate: true
       - name: analysis-step-2-scope
         template: analysis-step-2-scope
