@@ -1419,7 +1419,7 @@ export function registerRunCommand(
     .option('--concept <text>', 'Inline concept text (required when --from analysis)')
     .option('--concept-file <path>', 'Path to a file containing the concept text')
     .option('--stories <keys>', 'Comma-separated story keys (e.g., 10-1,10-2)')
-    .option('--concurrency <n>', 'Maximum parallel conflict groups', (v) => parseInt(v, 10), 2)
+    .option('--concurrency <n>', 'Maximum parallel conflict groups', (v) => parseInt(v, 10), 3)
     .option('--project-root <path>', 'Project root directory', projectRoot)
     .option(
       '--output-format <format>',
