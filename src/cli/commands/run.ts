@@ -984,15 +984,10 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     let effectiveUxDesign = pack.manifest.uxDesign === true
     if (skipUx === true) effectiveUxDesign = false
 
-    const packForOrchestrator = {
-      ...pack,
-      manifest: {
-        ...pack.manifest,
-        research: effectiveResearch,
-        uxDesign: effectiveUxDesign,
-      },
-    }
-    const phaseOrchestrator = createPhaseOrchestrator({ db, pack: packForOrchestrator })
+    // Mutate manifest in place to preserve the Pack class prototype (getPhases, etc.)
+    pack.manifest.research = effectiveResearch
+    pack.manifest.uxDesign = effectiveUxDesign
+    const phaseOrchestrator = createPhaseOrchestrator({ db, pack })
 
     // Start the run
     const startedAt = Date.now()
