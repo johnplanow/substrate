@@ -484,6 +484,72 @@ describe('refine-artifact.md', () => {
 })
 
 // ---------------------------------------------------------------------------
+// critique-research.md
+// ---------------------------------------------------------------------------
+
+describe('critique-research.md', () => {
+  let content: string
+
+  beforeAll(() => {
+    content = readPrompt('critique-research.md')
+  })
+
+  it('exists and is non-empty', () => {
+    expect(content.length).toBeGreaterThan(100)
+  })
+
+  it('has required structural elements', () => {
+    assertCritiqueStructure(content, 'critique-research.md')
+  })
+
+  it('has actionable example issues', () => {
+    assertActionableExamples(content, 'critique-research.md')
+  })
+
+  // AC6: Research-specific quality criteria
+  it('checks source credibility (AC6)', () => {
+    const hasSourceCredibility =
+      content.toLowerCase().includes('source credibility') ||
+      content.toLowerCase().includes('credible source') ||
+      content.toLowerCase().includes('credibility')
+    expect(hasSourceCredibility, 'must check source credibility').toBe(true)
+  })
+
+  it('checks finding relevance (AC6)', () => {
+    const hasFindingRelevance =
+      content.toLowerCase().includes('finding relevance') ||
+      content.toLowerCase().includes('relevance') ||
+      content.toLowerCase().includes('relevant')
+    expect(hasFindingRelevance, 'must check finding relevance').toBe(true)
+  })
+
+  it('checks gap identification (AC6)', () => {
+    const hasGapIdentification =
+      content.toLowerCase().includes('gap identification') ||
+      content.toLowerCase().includes('gap') ||
+      content.toLowerCase().includes('missing')
+    expect(hasGapIdentification, 'must check gap identification').toBe(true)
+  })
+
+  it('checks synthesis coherence (AC6)', () => {
+    const hasSynthesisCoherence =
+      content.toLowerCase().includes('synthesis coherence') ||
+      content.toLowerCase().includes('synthesis') ||
+      content.toLowerCase().includes('coherence')
+    expect(hasSynthesisCoherence, 'must check synthesis coherence').toBe(true)
+  })
+
+  it('instructs agent to emit YAML only (no prose preamble)', () => {
+    const hasYamlOnlyInstruction =
+      content.includes('Emit ONLY') ||
+      content.includes('ONLY this YAML') ||
+      content.includes('no preamble') ||
+      content.includes('no explanation')
+    expect(hasYamlOnlyInstruction, 'must instruct agent to emit YAML only').toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Cross-prompt consistency
 // ---------------------------------------------------------------------------
 

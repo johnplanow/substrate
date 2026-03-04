@@ -71,6 +71,7 @@ function getCritiquePromptName(phase: string): string {
     solutioning: 'critique-architecture',
     architecture: 'critique-architecture',
     stories: 'critique-stories',
+    research: 'critique-research',
   }
   return mapping[phase] ?? `critique-${phase}`
 }

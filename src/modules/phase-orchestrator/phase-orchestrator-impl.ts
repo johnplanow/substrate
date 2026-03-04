@@ -152,9 +152,10 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
     this._db = deps.db
     this._pack = deps.pack
     this._qualityGates = deps.qualityGates
-    // Start with the built-in phases, conditionally including UX design based on pack manifest
+    // Start with the built-in phases, conditionally including research and UX design based on pack manifest
+    const researchEnabled = this._pack.manifest.research === true
     const uxDesignEnabled = this._pack.manifest.uxDesign === true
-    this._phases = createBuiltInPhases({ uxDesignEnabled })
+    this._phases = createBuiltInPhases({ researchEnabled, uxDesignEnabled })
 
     // Merge any additional phases defined in the methodology pack.
     // Pack phases use a lightweight definition (string gate names, no callbacks),

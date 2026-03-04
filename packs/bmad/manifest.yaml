@@ -2,12 +2,37 @@ name: bmad
 version: 1.0.0
 description: BMAD methodology for autonomous software development
 
+# Optional research phase (Story 20.1).
+# When true, a 'research' phase runs before analysis, conducting market/competitive research.
+# Set to false (or omit) to skip research and proceed directly to analysis.
+research: true
+
 # Optional UX design phase (Story 16.5).
 # When true, a 'ux-design' phase runs between planning and solutioning.
 # Set to false (or omit) to skip UX design and proceed directly to solutioning.
 uxDesign: true
 
 phases:
+  - name: research
+    description: Market research, competitive landscape analysis, and technical feasibility (runs before analysis when research is enabled)
+    entryGates: []
+    exitGates: [research-complete]
+    artifacts: [research-findings]
+    steps:
+      - name: research-step-1-discovery
+        template: research-step-1-discovery
+        context:
+          - placeholder: concept
+            source: "param:concept"
+        elicitate: true
+      - name: research-step-2-synthesis
+        template: research-step-2-synthesis
+        context:
+          - placeholder: concept
+            source: "param:concept"
+          - placeholder: raw_findings
+            source: "step:research-step-1-discovery"
+        critique: true
   - name: analysis
     description: Product discovery and brief creation
     entryGates: []
@@ -175,6 +200,10 @@ prompts:
   architecture-step-3-patterns: prompts/architecture-step-3-patterns.md
   stories-step-1-epics: prompts/stories-step-1-epics.md
   stories-step-2-stories: prompts/stories-step-2-stories.md
+  # Research phase prompts (Story 20-2)
+  research-step-1-discovery: prompts/research-step-1-discovery.md
+  research-step-2-synthesis: prompts/research-step-2-synthesis.md
+  critique-research: prompts/critique-research.md
   # UX design step prompts (Story 16-5)
   ux-step-1-discovery: prompts/ux-step-1-discovery.md
   ux-step-2-design-system: prompts/ux-step-2-design-system.md

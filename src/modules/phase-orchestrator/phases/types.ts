@@ -229,6 +229,39 @@ export interface UxDesignResult {
 }
 
 // ---------------------------------------------------------------------------
+// Research phase types
+// ---------------------------------------------------------------------------
+
+/**
+ * Parameters for the research phase.
+ */
+export interface ResearchPhaseParams {
+  /** The pipeline run ID for this execution */
+  runId: string
+  /** The user's initial concept or goal in natural language */
+  concept: string
+}
+
+/**
+ * Result of the research phase execution.
+ */
+export interface ResearchResult {
+  /** Whether the phase completed successfully or failed */
+  result: 'success' | 'failed'
+  /** The artifact ID registered in the decision store (only present on success) */
+  artifact_id?: string
+  /** Error description (only present on failure) */
+  error?: string
+  /** Additional error details such as schema validation messages */
+  details?: string
+  /** Token usage for all dispatched agents in this phase */
+  tokenUsage: {
+    input: number
+    output: number
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Solutioning phase types
 // ---------------------------------------------------------------------------
 

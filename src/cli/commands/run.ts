@@ -5,7 +5,7 @@
  * during CLI flattening so that `substrate run` works as a top-level command.
  *
  *   substrate run [--pack bmad] [--from <phase>] [--concept <text>] [--concept-file <path>]
- *                 [--stories 10-1,10-2] [--concurrency 3] [--output-format json] [--skip-ux]
+ *                 [--stories 10-1,10-2] [--concurrency 2] [--output-format json] [--skip-ux]
  *
  * Architecture (ADR-001: Modular Monolith):
  *   CLI is a thin wiring layer — all business logic lives in modules.
@@ -38,6 +38,7 @@ import { runAnalysisPhase } from '../../modules/phase-orchestrator/phases/analys
 import { runPlanningPhase } from '../../modules/phase-orchestrator/phases/planning.js'
 import { runSolutioningPhase } from '../../modules/phase-orchestrator/phases/solutioning.js'
 import { runUxDesignPhase } from '../../modules/phase-orchestrator/phases/ux-design.js'
+import { runResearchPhase } from '../../modules/phase-orchestrator/phases/research.js'
 import {
   createPipelineRun,
   addTokenUsage,
@@ -118,6 +119,10 @@ export interface RunOptions {
   tui?: boolean
   /** When true, skip the UX design phase even if enabled in the pack manifest (AC7) */
   skipUx?: boolean
+  /** When true, enable the research phase even if not set in the pack manifest */
+  research?: boolean
+  /** When true, skip the research phase even if enabled in the pack manifest */
+  skipResearch?: boolean
 }
 
 export async function runRunAction(options: RunOptions): Promise<number> {
@@ -135,6 +140,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     verbose: verboseFlag,
     tui: tuiFlag,
     skipUx,
+    research: researchFlag,
+    skipResearch: skipResearchFlag,
   } = options
 
   // Validate --from phase
@@ -222,6 +229,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       projectRoot,
       ...(eventsFlag === true ? { events: true } : {}),
       ...(skipUx === true ? { skipUx: true } : {}),
+      ...(researchFlag === true ? { research: true } : {}),
+      ...(skipResearchFlag === true ? { skipResearch: true } : {}),
     })
   }
 
@@ -904,10 +913,14 @@ export interface FullPipelineOptions {
   events?: boolean
   /** When true, skip UX design phase even if enabled in pack manifest (AC7) */
   skipUx?: boolean
+  /** When true, enable research phase even if not set in pack manifest */
+  research?: boolean
+  /** When true, skip research phase even if enabled in pack manifest */
+  skipResearch?: boolean
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag } =
     options
 
   // Ensure database directory
@@ -960,11 +973,25 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
     const phaseDeps = { db, pack, contextCompiler, dispatcher }
 
-    // Create PhaseOrchestrator — when --skip-ux is set, override uxDesign to false
-    const packForOrchestrator =
-      skipUx === true && pack.manifest.uxDesign === true
-        ? { ...pack, manifest: { ...pack.manifest, uxDesign: false as const } }
-        : pack
+    // Create PhaseOrchestrator — when --skip-ux is set, override uxDesign to false;
+    // when --research/--skip-research are set, override research accordingly.
+    // Resolve effective research setting: CLI --research wins over manifest false;
+    // CLI --skip-research wins over manifest true; otherwise use manifest value (default false).
+    let effectiveResearch = pack.manifest.research === true
+    if (researchFlag === true) effectiveResearch = true
+    if (skipResearchFlag === true) effectiveResearch = false
+
+    let effectiveUxDesign = pack.manifest.uxDesign === true
+    if (skipUx === true) effectiveUxDesign = false
+
+    const packForOrchestrator = {
+      ...pack,
+      manifest: {
+        ...pack.manifest,
+        research: effectiveResearch,
+        uxDesign: effectiveUxDesign,
+      },
+    }
     const phaseOrchestrator = createPhaseOrchestrator({ db, pack: packForOrchestrator })
 
     // Start the run
@@ -977,11 +1004,13 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     }
 
     // Execute phases in order starting from startPhase
+    // Include 'research' before analysis when research is enabled
     // Include 'ux-design' between planning and solutioning when the pack has it enabled
-    const uxEnabled = packForOrchestrator.manifest.uxDesign === true
-    const phaseOrder: Array<PhaseName | 'ux-design'> = uxEnabled
-      ? ['analysis', 'planning', 'ux-design', 'solutioning', 'implementation']
-      : ['analysis', 'planning', 'solutioning', 'implementation']
+    const phaseOrder: Array<PhaseName | 'ux-design' | 'research'> = []
+    if (effectiveResearch) phaseOrder.push('research')
+    phaseOrder.push('analysis', 'planning')
+    if (effectiveUxDesign) phaseOrder.push('ux-design')
+    phaseOrder.push('solutioning', 'implementation')
     const startIdx = phaseOrder.indexOf(startPhase)
 
     for (let i = startIdx; i < phaseOrder.length; i++) {
@@ -1057,6 +1086,41 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         if (outputFormat === 'human') {
           process.stdout.write(
             `[PLANNING] Complete — ${result.requirements_count ?? 0} requirements, ${result.user_stories_count ?? 0} user stories\n`,
+          )
+          process.stdout.write(
+            `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`,
+          )
+        }
+      } else if (currentPhase === 'research') {
+        const result = await runResearchPhase(phaseDeps, { runId, concept: concept ?? '' })
+
+        // Record token usage
+        if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
+          const costUsd =
+            (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          addTokenUsage(db, runId, {
+            phase: 'research',
+            agent: 'claude-code',
+            input_tokens: result.tokenUsage.input,
+            output_tokens: result.tokenUsage.output,
+            cost_usd: costUsd,
+          })
+        }
+
+        if (result.result === 'failed') {
+          updatePipelineRun(db, runId, { status: 'failed' })
+          const errorMsg = `Research phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}`
+          if (outputFormat === 'human') {
+            process.stderr.write(`Error: ${errorMsg}\n`)
+          } else {
+            process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+          }
+          return 1
+        }
+
+        if (outputFormat === 'human') {
+          process.stdout.write(
+            `[RESEARCH] Complete — research findings artifact registered (artifact: ${result.artifact_id ?? 'n/a'})\n`,
           )
           process.stdout.write(
             `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`,
@@ -1355,7 +1419,7 @@ export function registerRunCommand(
     .option('--concept <text>', 'Inline concept text (required when --from analysis)')
     .option('--concept-file <path>', 'Path to a file containing the concept text')
     .option('--stories <keys>', 'Comma-separated story keys (e.g., 10-1,10-2)')
-    .option('--concurrency <n>', 'Maximum parallel conflict groups', (v) => parseInt(v, 10), 3)
+    .option('--concurrency <n>', 'Maximum parallel conflict groups', (v) => parseInt(v, 10), 2)
     .option('--project-root <path>', 'Project root directory', projectRoot)
     .option(
       '--output-format <format>',
@@ -1367,6 +1431,8 @@ export function registerRunCommand(
     .option('--help-agent', 'Print a machine-optimized prompt fragment for AI agents and exit')
     .option('--tui', 'Show TUI dashboard')
     .option('--skip-ux', 'Skip the UX design phase even if enabled in the pack manifest')
+    .option('--research', 'Enable the research phase even if not set in the pack manifest')
+    .option('--skip-research', 'Skip the research phase even if enabled in the pack manifest')
     .action(
       async (opts: {
         pack: string
@@ -1383,6 +1449,8 @@ export function registerRunCommand(
         helpAgent?: boolean
         tui?: boolean
         skipUx?: boolean
+        research?: boolean
+        skipResearch?: boolean
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -1422,6 +1490,8 @@ export function registerRunCommand(
           verbose: opts.verbose,
           tui: opts.tui,
           skipUx: opts.skipUx,
+          research: opts.research,
+          skipResearch: opts.skipResearch,
         })
         process.exitCode = exitCode
       },

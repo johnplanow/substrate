@@ -14,6 +14,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { freemem } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type { ChildProcess } from 'node:child_process'
 import type { TypedEventBus } from '../../core/event-bus.js'
@@ -39,6 +40,14 @@ const SHUTDOWN_MAX_WAIT_MS = 30_000
 
 // Characters per token for estimation heuristic
 const CHARS_PER_TOKEN = 4
+
+// Minimum free system memory (bytes) required before spawning a new agent.
+// When free memory is below this threshold, dispatches are held in the queue
+// and retried periodically until memory recovers.
+const MIN_FREE_MEMORY_BYTES = 512 * 1024 * 1024 // 512 MB
+
+// How often (ms) to re-check memory when the queue is held due to pressure
+const MEMORY_PRESSURE_POLL_MS = 10_000
 
 // ---------------------------------------------------------------------------
 // Internal active dispatch entry
@@ -108,6 +117,7 @@ export class DispatcherImpl implements Dispatcher {
   private readonly _queue: QueuedDispatch[] = []
 
   private _shuttingDown: boolean = false
+  private _memoryPressureTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(
     eventBus: TypedEventBus,
@@ -137,7 +147,7 @@ export class DispatcherImpl implements Dispatcher {
     const resultPromise = new Promise<DispatchResult<T>>((resolve, reject) => {
       const typedResolve = resolve as (result: DispatchResult<unknown>) => void
 
-      if (this._running.size < this._config.maxConcurrency) {
+      if (this._running.size < this._config.maxConcurrency && !this._isMemoryPressured()) {
         // Reserve the running slot synchronously before async work begins
         // This ensures getRunning() returns the correct count immediately
         this._reserveSlot(id)
@@ -214,6 +224,7 @@ export class DispatcherImpl implements Dispatcher {
 
   async shutdown(): Promise<void> {
     this._shuttingDown = true
+    this._stopMemoryPressureTimer()
 
     logger.info({ running: this._running.size, queued: this._queue.length }, 'Dispatcher shutting down')
 
@@ -334,6 +345,14 @@ export class DispatcherImpl implements Dispatcher {
 
     // Spawn the process
     const env: Record<string, string> = { ...process.env as Record<string, string> }
+
+    // Cap Node.js heap per spawned agent to prevent memory exhaustion when
+    // multiple agents run vitest concurrently (each vitest fork inherits this).
+    const parentNodeOpts = env['NODE_OPTIONS'] ?? ''
+    if (!parentNodeOpts.includes('--max-old-space-size')) {
+      env['NODE_OPTIONS'] = `${parentNodeOpts} --max-old-space-size=512`.trim()
+    }
+
     if (cmd.env !== undefined) {
       Object.assign(env, cmd.env)
     }
@@ -573,12 +592,17 @@ export class DispatcherImpl implements Dispatcher {
 
   private _drainQueue(): void {
     if (this._queue.length === 0) {
+      this._stopMemoryPressureTimer()
       return
     }
     if (this._running.size >= this._config.maxConcurrency) {
       return
     }
     if (this._shuttingDown) {
+      return
+    }
+    if (this._isMemoryPressured()) {
+      this._startMemoryPressureTimer()
       return
     }
 
@@ -597,6 +621,37 @@ export class DispatcherImpl implements Dispatcher {
     const idx = this._queue.findIndex((q) => q.id === id)
     if (idx !== -1) {
       this._queue.splice(idx, 1)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Memory pressure management
+  // ---------------------------------------------------------------------------
+
+  private _isMemoryPressured(): boolean {
+    const free = freemem()
+    if (free < MIN_FREE_MEMORY_BYTES) {
+      logger.warn(
+        { freeMB: Math.round(free / 1024 / 1024), thresholdMB: Math.round(MIN_FREE_MEMORY_BYTES / 1024 / 1024) },
+        'Memory pressure detected — holding dispatch queue',
+      )
+      return true
+    }
+    return false
+  }
+
+  private _startMemoryPressureTimer(): void {
+    if (this._memoryPressureTimer !== null) return
+    this._memoryPressureTimer = setInterval(() => {
+      this._drainQueue()
+    }, MEMORY_PRESSURE_POLL_MS)
+    this._memoryPressureTimer.unref()
+  }
+
+  private _stopMemoryPressureTimer(): void {
+    if (this._memoryPressureTimer !== null) {
+      clearInterval(this._memoryPressureTimer)
+      this._memoryPressureTimer = null
     }
   }
 }

@@ -42,8 +42,11 @@ const DEFAULT_VITEST_PATTERNS = `## Test Patterns (defaults)
 - Mock approach: vi.mock() with hoisting for module-level mocks
 - Assertion style: expect().toBe(), expect().toEqual(), expect().toThrow()
 - Test structure: describe/it blocks with beforeEach/afterEach
-- Coverage: 80% enforced — run full suite, not filtered
-- Run tests: npm test 2>&1 | grep -E "Test Files|Tests " | tail -3`
+- Coverage: 80% enforced
+- IMPORTANT: During development, run ONLY your relevant tests to save memory:
+  npx vitest run --no-coverage -- "your-module-name"
+- Final validation ONLY: npm test 2>&1 | grep -E "Test Files|Tests " | tail -3
+- Do NOT run the full suite (npm test) repeatedly — it consumes excessive memory when multiple agents run in parallel`
 
 // ---------------------------------------------------------------------------
 // runDevStory

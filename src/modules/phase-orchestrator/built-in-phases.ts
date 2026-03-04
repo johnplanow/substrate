@@ -2,7 +2,8 @@
  * Built-in phase definitions for the Phase Orchestrator.
  *
  * Defines the standard phases of the BMAD pipeline:
- *   1. analysis      — no entry gates; exit gate: product-brief artifact exists
+ *   0. research      — optional; no entry gates (first phase when enabled); exit: research-findings artifact exists
+ *   1. analysis      — no entry gates (or research-findings when research enabled); exit gate: product-brief artifact exists
  *   2. planning      — entry: product-brief exists; exit: prd exists
  *   3. ux-design     — optional; entry: prd exists; exit: ux-design artifact exists
  *   4. solutioning   — entry: prd exists (+ ux-design when enabled); exit: architecture + stories exist
@@ -49,21 +50,63 @@ async function noOp(_db: BetterSqlite3Database, _runId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Research phase (optional)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create the Research phase definition.
+ *
+ * Entry gates: empty array (research is always the pipeline entrypoint when enabled)
+ * Exit gates: 'research-findings' artifact must exist for this run
+ *
+ * This phase is inserted before analysis when research is enabled in the pack
+ * manifest (`research: true`) or via the `--research` CLI flag.
+ */
+export function createResearchPhaseDefinition(): PhaseDefinition {
+  return {
+    name: 'research',
+    description:
+      'Conduct pre-analysis research: market landscape, competitive analysis, technical feasibility, and synthesized findings.',
+    entryGates: [],
+    exitGates: [createArtifactExistsGate('research', 'research-findings')],
+    onEnter: async (_db: BetterSqlite3Database, runId: string): Promise<void> => {
+      logPhase(`Research phase starting for run ${runId}`)
+    },
+    onExit: async (db: BetterSqlite3Database, runId: string): Promise<void> => {
+      const artifact = getArtifactByTypeForRun(db, runId, 'research', 'research-findings')
+      if (artifact === undefined) {
+        logPhase(
+          `Research phase exit WARNING: research-findings artifact not found for run ${runId}`,
+        )
+      } else {
+        logPhase(
+          `Research phase completed for run ${runId} — research-findings artifact registered: ${artifact.id}`,
+        )
+      }
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Analysis phase
 // ---------------------------------------------------------------------------
 
 /**
  * Create the Analysis phase definition.
  *
- * Entry gates: none (first phase — always can be entered)
+ * Entry gates: none by default (first phase — always can be entered);
+ *              when research is enabled, requires 'research-findings' artifact
  * Exit gates: 'product-brief' artifact must exist for this run
  */
-export function createAnalysisPhaseDefinition(): PhaseDefinition {
+export function createAnalysisPhaseDefinition(options?: { requiresResearch?: boolean }): PhaseDefinition {
+  const entryGates = options?.requiresResearch === true
+    ? [createArtifactExistsGate('research', 'research-findings')]
+    : []
   return {
     name: 'analysis',
     description:
       'Analyze the user concept and produce a product brief capturing requirements, constraints, and goals.',
-    entryGates: [],
+    entryGates,
     exitGates: [createArtifactExistsGate('analysis', 'product-brief')],
     onEnter: async (_db: BetterSqlite3Database, runId: string): Promise<void> => {
       logPhase(`Analysis phase starting for run ${runId}`)
@@ -237,10 +280,19 @@ export interface BuiltInPhasesConfig {
    * Defaults to false.
    */
   uxDesignEnabled?: boolean
+  /**
+   * When true, the optional research phase is inserted before analysis.
+   * Corresponds to `research: true` in the pack manifest.
+   * Defaults to false.
+   */
+  researchEnabled?: boolean
 }
 
 /**
  * Return the built-in phase definitions in execution order.
+ *
+ * When `researchEnabled` is true, the `research` phase is inserted at position 0
+ * (before analysis), and the analysis phase gains a `research-findings` entry gate.
  *
  * When `uxDesignEnabled` is true, the `ux-design` phase is inserted between
  * `planning` and `solutioning`, with its own entry/exit gates.
@@ -248,10 +300,14 @@ export interface BuiltInPhasesConfig {
  * @param config - Optional configuration for conditional phase inclusion
  */
 export function createBuiltInPhases(config?: BuiltInPhasesConfig): PhaseDefinition[] {
-  const phases: PhaseDefinition[] = [
-    createAnalysisPhaseDefinition(),
-    createPlanningPhaseDefinition(),
-  ]
+  const phases: PhaseDefinition[] = []
+
+  if (config?.researchEnabled === true) {
+    phases.push(createResearchPhaseDefinition())
+  }
+
+  phases.push(createAnalysisPhaseDefinition({ requiresResearch: config?.researchEnabled === true }))
+  phases.push(createPlanningPhaseDefinition())
 
   if (config?.uxDesignEnabled === true) {
     phases.push(createUxDesignPhaseDefinition())

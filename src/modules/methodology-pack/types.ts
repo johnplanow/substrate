@@ -98,6 +98,11 @@ export interface PackManifest {
    * (Story 16.5)
    */
   uxDesign?: boolean
+  /**
+   * When true, the optional research phase is inserted before analysis.
+   * Defaults to false. Can be overridden at runtime with --research/--skip-research.
+   */
+  research?: boolean
 }
 
 // ---------------------------------------------------------------------------

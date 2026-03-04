@@ -19,6 +19,7 @@ import {
   createSolutioningPhaseDefinition,
   createImplementationPhaseDefinition,
   createUxDesignPhaseDefinition,
+  createResearchPhaseDefinition,
   createBuiltInPhases,
 } from '../built-in-phases.js'
 import { runGates, createPhaseOrchestrator } from '../phase-orchestrator-impl.js'
@@ -569,5 +570,248 @@ describe('PhaseOrchestrator - conditional UX design registration (T8)', () => {
 
     expect(result.advanced).toBe(true)
     expect(result.phase).toBe('solutioning')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Research phase unit tests (Story 20.1)
+// ---------------------------------------------------------------------------
+
+describe('createResearchPhaseDefinition (Story 20.1)', () => {
+  let db: BetterSqlite3Database
+  let tmpDir: string
+  let runId: string
+
+  beforeEach(() => {
+    const result = createTestDb()
+    db = result.db
+    tmpDir = result.tmpDir
+    runId = createTestRun(db)
+  })
+
+  afterEach(() => {
+    db.close()
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('has name "research"', () => {
+    const phase = createResearchPhaseDefinition()
+    expect(phase.name).toBe('research')
+  })
+
+  it('has no entry gates (research is always the pipeline entrypoint when enabled)', () => {
+    const phase = createResearchPhaseDefinition()
+    expect(phase.entryGates).toHaveLength(0)
+  })
+
+  it('has one exit gate checking for research-findings artifact', () => {
+    const phase = createResearchPhaseDefinition()
+    expect(phase.exitGates).toHaveLength(1)
+    expect(phase.exitGates[0].name).toContain('research-findings')
+  })
+
+  it('exit gate fails when research-findings artifact is missing', async () => {
+    const phase = createResearchPhaseDefinition()
+    const result = await runGates(phase.exitGates, db, runId)
+    expect(result.passed).toBe(false)
+    expect(result.failures[0].gate).toContain('research-findings')
+  })
+
+  it('exit gate passes when research-findings artifact exists', async () => {
+    registerArtifactForRun(db, runId, 'research', 'research-findings')
+    const phase = createResearchPhaseDefinition()
+    const result = await runGates(phase.exitGates, db, runId)
+    expect(result.passed).toBe(true)
+  })
+
+  it('has onEnter and onExit callbacks', () => {
+    const phase = createResearchPhaseDefinition()
+    expect(typeof phase.onEnter).toBe('function')
+    expect(typeof phase.onExit).toBe('function')
+  })
+})
+
+describe('createBuiltInPhases - conditional research registration (Story 20.1)', () => {
+  it('returns 4 phases by default (no researchEnabled)', () => {
+    const phases = createBuiltInPhases()
+    expect(phases).toHaveLength(4)
+  })
+
+  it('returns 4 phases when researchEnabled is false', () => {
+    const phases = createBuiltInPhases({ researchEnabled: false })
+    expect(phases).toHaveLength(4)
+  })
+
+  it('returns 5 phases when researchEnabled is true', () => {
+    const phases = createBuiltInPhases({ researchEnabled: true })
+    expect(phases).toHaveLength(5)
+  })
+
+  it('does NOT include research phase by default', () => {
+    const phases = createBuiltInPhases()
+    const names = phases.map((p) => p.name)
+    expect(names).not.toContain('research')
+  })
+
+  it('includes research phase when researchEnabled is true', () => {
+    const phases = createBuiltInPhases({ researchEnabled: true })
+    const names = phases.map((p) => p.name)
+    expect(names).toContain('research')
+  })
+
+  it('research phase is at position 0 (before analysis) when enabled', () => {
+    const phases = createBuiltInPhases({ researchEnabled: true })
+    const names = phases.map((p) => p.name)
+    expect(names[0]).toBe('research')
+    expect(names[1]).toBe('analysis')
+  })
+
+  it('phase order with research enabled is research, analysis, planning, solutioning, implementation', () => {
+    const phases = createBuiltInPhases({ researchEnabled: true })
+    const names = phases.map((p) => p.name)
+    expect(names).toEqual(['research', 'analysis', 'planning', 'solutioning', 'implementation'])
+  })
+
+  it('phase order without research is analysis, planning, solutioning, implementation', () => {
+    const phases = createBuiltInPhases({ researchEnabled: false })
+    const names = phases.map((p) => p.name)
+    expect(names).toEqual(['analysis', 'planning', 'solutioning', 'implementation'])
+  })
+
+  it('analysis phase has no entry gates when research is disabled', () => {
+    const phases = createBuiltInPhases({ researchEnabled: false })
+    const analysis = phases.find((p) => p.name === 'analysis')
+    expect(analysis?.entryGates).toHaveLength(0)
+  })
+
+  it('analysis phase has research-findings entry gate when research is enabled', () => {
+    const phases = createBuiltInPhases({ researchEnabled: true })
+    const analysis = phases.find((p) => p.name === 'analysis')
+    expect(analysis?.entryGates).toHaveLength(1)
+    expect(analysis?.entryGates[0].name).toContain('research-findings')
+  })
+
+  it('returns 6 phases when both research and uxDesign are enabled', () => {
+    const phases = createBuiltInPhases({ researchEnabled: true, uxDesignEnabled: true })
+    expect(phases).toHaveLength(6)
+  })
+
+  it('phase order with research and ux-design enabled is research, analysis, planning, ux-design, solutioning, implementation', () => {
+    const phases = createBuiltInPhases({ researchEnabled: true, uxDesignEnabled: true })
+    const names = phases.map((p) => p.name)
+    expect(names).toEqual(['research', 'analysis', 'planning', 'ux-design', 'solutioning', 'implementation'])
+  })
+})
+
+describe('createAnalysisPhaseDefinition - conditional research entry gate (Story 20.1)', () => {
+  let db: BetterSqlite3Database
+  let tmpDir: string
+  let runId: string
+
+  beforeEach(() => {
+    const result = createTestDb()
+    db = result.db
+    tmpDir = result.tmpDir
+    runId = createTestRun(db)
+  })
+
+  afterEach(() => {
+    db.close()
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('has no entry gates when requiresResearch is not set', () => {
+    const phase = createAnalysisPhaseDefinition()
+    expect(phase.entryGates).toHaveLength(0)
+  })
+
+  it('has no entry gates when requiresResearch is false', () => {
+    const phase = createAnalysisPhaseDefinition({ requiresResearch: false })
+    expect(phase.entryGates).toHaveLength(0)
+  })
+
+  it('has one entry gate when requiresResearch is true', () => {
+    const phase = createAnalysisPhaseDefinition({ requiresResearch: true })
+    expect(phase.entryGates).toHaveLength(1)
+    expect(phase.entryGates[0].name).toContain('research-findings')
+  })
+
+  it('entry gate fails when research-findings artifact is missing (requiresResearch: true)', async () => {
+    const phase = createAnalysisPhaseDefinition({ requiresResearch: true })
+    const result = await runGates(phase.entryGates, db, runId)
+    expect(result.passed).toBe(false)
+    expect(result.failures[0].gate).toContain('research-findings')
+  })
+
+  it('entry gate passes when research-findings artifact exists (requiresResearch: true)', async () => {
+    registerArtifactForRun(db, runId, 'research', 'research-findings')
+    const phase = createAnalysisPhaseDefinition({ requiresResearch: true })
+    const result = await runGates(phase.entryGates, db, runId)
+    expect(result.passed).toBe(true)
+  })
+})
+
+describe('PhaseOrchestrator - conditional research registration (Story 20.1)', () => {
+  let db: BetterSqlite3Database
+  let tmpDir: string
+
+  beforeEach(() => {
+    const result = createTestDb()
+    db = result.db
+    tmpDir = result.tmpDir
+  })
+
+  afterEach(() => {
+    db.close()
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('registers 4 phases when pack manifest has research: false', () => {
+    const pack = makeMockPackWithUxDesign(false)
+    const orchestrator = createPhaseOrchestrator({
+      db,
+      pack: { ...pack, manifest: { ...pack.manifest, research: false } },
+    })
+    expect(orchestrator.getPhases()).toHaveLength(4)
+  })
+
+  it('registers 5 phases when pack manifest has research: true', () => {
+    const pack = makeMockPackWithUxDesign(false)
+    const orchestrator = createPhaseOrchestrator({
+      db,
+      pack: { ...pack, manifest: { ...pack.manifest, research: true } },
+    })
+    expect(orchestrator.getPhases()).toHaveLength(5)
+  })
+
+  it('does NOT include research when pack manifest has research: false', () => {
+    const pack = makeMockPackWithUxDesign(false)
+    const orchestrator = createPhaseOrchestrator({
+      db,
+      pack: { ...pack, manifest: { ...pack.manifest, research: false } },
+    })
+    const names = orchestrator.getPhases().map((p) => p.name)
+    expect(names).not.toContain('research')
+  })
+
+  it('includes research when pack manifest has research: true', () => {
+    const pack = makeMockPackWithUxDesign(false)
+    const orchestrator = createPhaseOrchestrator({
+      db,
+      pack: { ...pack, manifest: { ...pack.manifest, research: true } },
+    })
+    const names = orchestrator.getPhases().map((p) => p.name)
+    expect(names).toContain('research')
+  })
+
+  it('research is the first phase (before analysis) when research: true', () => {
+    const pack = makeMockPackWithUxDesign(false)
+    const orchestrator = createPhaseOrchestrator({
+      db,
+      pack: { ...pack, manifest: { ...pack.manifest, research: true } },
+    })
+    const names = orchestrator.getPhases().map((p) => p.name)
+    expect(names[0]).toBe('research')
+    expect(names[1]).toBe('analysis')
   })
 })

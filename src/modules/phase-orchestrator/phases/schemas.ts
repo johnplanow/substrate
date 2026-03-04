@@ -302,6 +302,41 @@ export const UxJourneysOutputSchema = z.object({
 export type UxJourneysOutputSchemaType = z.infer<typeof UxJourneysOutputSchema>
 
 // ---------------------------------------------------------------------------
+// Research phase schemas (Story 20-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Step 1 output: Research Discovery.
+ * Covers concept classification and raw findings across market, domain, and technical dimensions.
+ * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ */
+export const ResearchDiscoveryOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  concept_classification: z.string().optional(),
+  market_findings: z.string().optional(),
+  domain_findings: z.string().optional(),
+  technical_findings: z.string().optional(),
+})
+
+export type ResearchDiscoveryOutputSchemaType = z.infer<typeof ResearchDiscoveryOutputSchema>
+
+/**
+ * Step 2 output: Research Synthesis.
+ * Covers distilled research findings, risk flags, and opportunity signals.
+ * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ */
+export const ResearchSynthesisOutputSchema = z.object({
+  result: z.enum(['success', 'failed']),
+  market_context: z.string().optional(),
+  competitive_landscape: z.string().optional(),
+  technical_feasibility: z.string().optional(),
+  risk_flags: z.array(z.string()).default([]),
+  opportunity_signals: z.array(z.string()).default([]),
+})
+
+export type ResearchSynthesisOutputSchemaType = z.infer<typeof ResearchSynthesisOutputSchema>
+
+// ---------------------------------------------------------------------------
 // Elicitation output schema (Story 16.3)
 // ---------------------------------------------------------------------------
 
