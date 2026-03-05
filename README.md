@@ -4,7 +4,7 @@
 
 # Substrate
 
-Substrate is an autonomous software development pipeline you operate from Claude Code. Describe your project, and Substrate coordinates multiple AI coding agents (Claude Code, Codex, Gemini CLI) working in parallel across isolated branches — from concept through implementation and code review. A built-in supervisor watches for stalls, auto-recovers, and after each run analyzes what happened and experiments with improvements — closing the loop automatically.
+Most multi-agent coding tools help you run AI sessions in parallel — but leave planning, quality control, and learning up to you. Substrate is different: it packages structured planning methodology, multi-agent parallel execution, automated code review cycles, and self-improvement into a single pipeline. Describe your project concept, and Substrate takes it from analysis through implementation and review — coordinating multiple AI coding agents (Claude Code, Codex, Gemini CLI) across isolated worktree branches while a supervisor watches for stalls, auto-recovers, and after each run experiments with improvements to close the loop automatically.
 
 Unlike API-based orchestrators, Substrate routes work through the CLI tools you already have installed, maximizing your existing AI subscriptions before falling back to pay-per-token billing. Runs are persistent and resumable with full cost visibility across every provider.
 
