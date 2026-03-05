@@ -385,10 +385,14 @@ Options:
 - \`--stories <keys>\` — Comma-separated story keys to process (e.g., \`7-1,7-2\`)
 - \`--verbose\` — Enable verbose logging output
 - \`--pack <name>\` — Methodology pack name (default: bmad)
-- \`--from <phase>\` — Start from this phase: analysis, planning, solutioning, implementation
+- \`--from <phase>\` — Start from this phase: research, analysis, planning, solutioning, implementation
 - \`--stop-after <phase>\` — Stop pipeline after this phase completes
 - \`--concurrency <n>\` — Maximum parallel conflict groups (default: 3)
 - \`--output-format <format>\` — Output format: human (default) or json
+- \`--concept <text>\` — Inline concept text (required when --from analysis)
+- \`--research\` — Enable the research phase even if not set in the pack config
+- \`--skip-research\` — Skip the research phase even if enabled in the pack config
+- \`--skip-ux\` — Skip the UX design phase even if enabled in the pack config
 - \`--help-agent\` — Print this agent instruction fragment and exit
 
 Examples:
@@ -455,12 +459,51 @@ Options:
 - \`--analysis <run-id>\` — Read and output the analysis report with optimization recommendations for a specific run
 - \`--output-format <format>\` — Output format: human (default) or json
 
+### substrate export
+Export decision store contents as human-readable markdown files.
+
+\`\`\`
+substrate export [options]
+\`\`\`
+
+Options:
+- \`--run-id <id>\` — Pipeline run ID to export (defaults to latest run)
+- \`--output-dir <path>\` — Directory to write exported files to (default: _bmad-output/planning-artifacts/)
+- \`--output-format <format>\` — Output format: human (default) or json
+
 ### substrate health
 Check pipeline health, stall detection, and process status.
 
 \`\`\`
 substrate health [--output-format json]
 \`\`\`
+
+### substrate cost
+Show cost breakdown for the current session.
+
+\`\`\`
+substrate cost [--output-format json]
+\`\`\`
+
+### substrate amend
+Run an amendment pipeline against a completed run.
+
+\`\`\`
+substrate amend [options]
+\`\`\`
+
+### substrate brainstorm
+Interactive multi-persona brainstorm session with Pragmatic Engineer, Product Thinker, and Devil's Advocate.
+
+\`\`\`
+substrate brainstorm [options]
+\`\`\`
+
+Session commands: \`!wrap\` (save & exit), \`!quit\` (exit without saving), \`!help\`
+
+## Environment Variables
+
+- \`SUBSTRATE_MEMORY_THRESHOLD_MB\` — Override the free-memory threshold (in MB) for agent dispatch. Default: 512. On macOS, the conservative memory detection may report low availability even when ample RAM exists. Lower this (e.g., 256) if pipelines stall due to memory pressure false positives.
 `
 }
 

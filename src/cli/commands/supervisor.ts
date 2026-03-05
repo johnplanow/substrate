@@ -539,6 +539,12 @@ export function registerSupervisorCommand(
         maxExperiments: number
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
+        if (opts.stallThreshold < 120) {
+          console.warn(
+            `Warning: --stall-threshold ${opts.stallThreshold}s is below 120s. ` +
+            `Agent steps typically take 45-90s. This may cause false stall detections and wasted restarts.`,
+          )
+        }
         const exitCode = await runSupervisorAction({
           pollInterval: opts.pollInterval,
           stallThreshold: opts.stallThreshold,

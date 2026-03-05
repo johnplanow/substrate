@@ -44,7 +44,15 @@ const CHARS_PER_TOKEN = 4
 // Minimum free system memory (bytes) required before spawning a new agent.
 // When free memory is below this threshold, dispatches are held in the queue
 // and retried periodically until memory recovers.
-const MIN_FREE_MEMORY_BYTES = 512 * 1024 * 1024 // 512 MB
+// Override with SUBSTRATE_MEMORY_THRESHOLD_MB env var (e.g. "256" for 256 MB).
+const MIN_FREE_MEMORY_BYTES = (() => {
+  const envMB = process.env.SUBSTRATE_MEMORY_THRESHOLD_MB
+  if (envMB) {
+    const parsed = parseInt(envMB, 10)
+    if (!isNaN(parsed) && parsed >= 0) return parsed * 1024 * 1024
+  }
+  return 512 * 1024 * 1024 // 512 MB default
+})()
 
 // How often (ms) to re-check memory when the queue is held due to pressure
 const MEMORY_PRESSURE_POLL_MS = 10_000

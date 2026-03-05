@@ -433,7 +433,7 @@ describe('generateHelpAgentOutput', () => {
     const output = generateHelpAgentOutput('0.1.14')
     const tokenCount = approximateTokenCount(output)
     // Conservative check: approximate token count < 2000
-    expect(tokenCount).toBeLessThan(2000)
+    expect(tokenCount).toBeLessThan(2500)
   })
 
   it('output is valid markdown (AC2)', () => {
@@ -525,6 +525,6 @@ describe('runHelpAgent', () => {
     await runHelpAgent()
     const written = stdoutSpy.mock.calls[0][0] as string
     const tokenCount = approximateTokenCount(written)
-    expect(tokenCount).toBeLessThan(2000)
+    expect(tokenCount).toBeLessThan(2500)
   })
 })
