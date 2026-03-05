@@ -13,8 +13,8 @@
  * - Concurrency limited with FIFO queue
  */
 
-import { spawn } from 'node:child_process'
-import { freemem } from 'node:os'
+import { spawn, execSync } from 'node:child_process'
+import { freemem, platform } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type { ChildProcess } from 'node:child_process'
 import type { TypedEventBus } from '../../core/event-bus.js'
@@ -48,6 +48,55 @@ const MIN_FREE_MEMORY_BYTES = 512 * 1024 * 1024 // 512 MB
 
 // How often (ms) to re-check memory when the queue is held due to pressure
 const MEMORY_PRESSURE_POLL_MS = 10_000
+
+/**
+ * Get available system memory in bytes, accounting for platform differences.
+ *
+ * On macOS, the previous approach (free + inactive pages) dramatically
+ * overestimates availability because inactive pages may be compressed,
+ * swapped, or require I/O to reclaim. With heavy agent concurrency, this
+ * leads to spawning too many processes and triggering real memory pressure.
+ *
+ * New approach:
+ * 1. Check kern.memorystatus_vm_pressure_level — the kernel's own assessment.
+ *    Level >= 2 (warn/critical) means the system is already pressured.
+ * 2. Use a conservative page calculation: free + purgeable + speculative.
+ *    These categories are truly reclaimable without I/O or decompression.
+ *    Inactive pages are excluded because they may require disk I/O,
+ *    decompression, or may already be backing the compressor.
+ */
+function getAvailableMemory(): number {
+  if (platform() === 'darwin') {
+    try {
+      // Primary signal: kernel memory pressure level (1=normal, 2=warn, 4=critical)
+      const pressureLevel = parseInt(
+        execSync('sysctl -n kern.memorystatus_vm_pressure_level', {
+          timeout: 1000,
+          encoding: 'utf-8',
+        }).trim(),
+        10,
+      )
+      if (pressureLevel >= 2) {
+        logger.warn({ pressureLevel }, 'macOS kernel reports memory pressure')
+        return 0
+      }
+    } catch {
+      // sysctl not available — fall through to vm_stat
+    }
+
+    try {
+      const vmstat = execSync('vm_stat', { timeout: 2000, encoding: 'utf-8' })
+      const pageSize = parseInt(vmstat.match(/page size of (\d+)/)?.[1] ?? '4096', 10)
+      const free = parseInt(vmstat.match(/Pages free:\s+(\d+)/)?.[1] ?? '0', 10)
+      const purgeable = parseInt(vmstat.match(/Pages purgeable:\s+(\d+)/)?.[1] ?? '0', 10)
+      const speculative = parseInt(vmstat.match(/Pages speculative:\s+(\d+)/)?.[1] ?? '0', 10)
+      return (free + purgeable + speculative) * pageSize
+    } catch {
+      return freemem()
+    }
+  }
+  return freemem()
+}
 
 // ---------------------------------------------------------------------------
 // Internal active dispatch entry
@@ -629,7 +678,7 @@ export class DispatcherImpl implements Dispatcher {
   // ---------------------------------------------------------------------------
 
   private _isMemoryPressured(): boolean {
-    const free = freemem()
+    const free = getAvailableMemory()
     if (free < MIN_FREE_MEMORY_BYTES) {
       logger.warn(
         { freeMB: Math.round(free / 1024 / 1024), thresholdMB: Math.round(MIN_FREE_MEMORY_BYTES / 1024 / 1024) },

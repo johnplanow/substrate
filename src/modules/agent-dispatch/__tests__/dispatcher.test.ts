@@ -86,9 +86,11 @@ vi.mock('node:child_process', () => ({
 
 // Report abundant free memory so the memory-pressure circuit breaker never
 // holds the dispatch queue during tests (CI runners may have limited RAM).
+// Mock platform as 'linux' so getAvailableMemory() uses the freemem() path
+// (avoids execSync('vm_stat') in tests).
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof import('node:os')>('node:os')
-  return { ...actual, freemem: vi.fn(() => 4 * 1024 * 1024 * 1024) } // 4 GB
+  return { ...actual, freemem: vi.fn(() => 4 * 1024 * 1024 * 1024), platform: vi.fn(() => 'linux') } // 4 GB
 })
 
 // ---------------------------------------------------------------------------
