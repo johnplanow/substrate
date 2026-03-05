@@ -192,6 +192,101 @@ describe('T13: runExportAction --output-format json', () => {
     }
   })
 
+  it('T13c: exports operational-findings.md and experiments.md when decisions exist', async () => {
+    // Re-open DB to add operational-finding and experiment-result decisions
+    const substrateDir = join(tempProjectRoot, '.substrate')
+    const dbPathLocal = join(substrateDir, 'substrate.db')
+    const db = new BetterSqlite3(dbPathLocal)
+    db.pragma('foreign_keys = ON')
+
+    createDecision(db, {
+      pipeline_run_id: runId,
+      phase: 'supervisor',
+      category: 'operational-finding',
+      key: `stall:1-1:1700000000000`,
+      value: JSON.stringify({
+        phase: 'IN_DEV',
+        staleness_secs: 700,
+        attempt: 1,
+        outcome: 'recovered',
+      }),
+      rationale: 'Stall recovery test',
+    })
+    createDecision(db, {
+      pipeline_run_id: runId,
+      phase: 'supervisor',
+      category: 'operational-finding',
+      key: `run-summary:${runId}`,
+      value: JSON.stringify({
+        succeeded: ['1-1'],
+        failed: [],
+        escalated: [],
+        total_restarts: 1,
+        elapsed_seconds: 120,
+        total_input_tokens: 5000,
+        total_output_tokens: 1500,
+      }),
+      rationale: 'Run summary test',
+    })
+    createDecision(db, {
+      pipeline_run_id: runId,
+      phase: 'supervisor',
+      category: 'experiment-result',
+      key: `experiment:${runId}:1700000000000`,
+      value: JSON.stringify({
+        target_metric: 'token_regression',
+        before: 8200,
+        after: 6500,
+        verdict: 'IMPROVED',
+        branch_name: 'supervisor/experiment/test-branch',
+      }),
+      rationale: 'Experiment test',
+    })
+    db.close()
+
+    const outputDir = join(tempProjectRoot, 'artifacts-operational')
+
+    const exitCode = await runExportAction({
+      runId,
+      outputDir,
+      projectRoot: tempProjectRoot,
+      outputFormat: 'json',
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdoutOutput.length).toBe(1)
+
+    const parsed = JSON.parse(stdoutOutput[0]!) as {
+      files_written: string[]
+      run_id: string
+      phases_exported: string[]
+    }
+
+    // Verify operational files were written
+    const filenames = parsed.files_written.map((p) => p.split('/').pop())
+    expect(filenames).toContain('operational-findings.md')
+    expect(filenames).toContain('experiments.md')
+
+    // Verify 'operational' phase is reported
+    expect(parsed.phases_exported).toContain('operational')
+
+    // Verify files exist on disk and have content
+    const opFindingsPath = parsed.files_written.find((p) => p.endsWith('operational-findings.md'))!
+    const experimentsPath = parsed.files_written.find((p) => p.endsWith('experiments.md'))!
+    expect(existsSync(opFindingsPath)).toBe(true)
+    expect(existsSync(experimentsPath)).toBe(true)
+
+    // Verify rendered content
+    const { readFileSync } = await import('node:fs')
+    const opContent = readFileSync(opFindingsPath, 'utf-8')
+    expect(opContent).toContain('Operational Findings')
+    expect(opContent).toContain('stall:1-1:1700000000000')
+
+    const expContent = readFileSync(experimentsPath, 'utf-8')
+    expect(expContent).toContain('Experiments')
+    expect(expContent).toContain('IMPROVED')
+  })
+
   it('T13b: returns error JSON when DB does not exist', async () => {
     const missingRoot = join(tmpdir(), `substrate-missing-${randomUUID()}`)
     mkdirSync(missingRoot, { recursive: true })

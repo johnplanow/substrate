@@ -30,6 +30,7 @@ import { DatabaseWrapper } from '../../persistence/database.js'
 import {
   getLatestRun,
   getDecisionsByPhaseForRun,
+  getDecisionsByCategory,
   listRequirements,
 } from '../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../persistence/queries/decisions.js'
@@ -40,7 +41,10 @@ import {
   renderArchitecture,
   renderEpics,
   renderReadinessReport,
+  renderOperationalFindings,
+  renderExperiments,
 } from '../../modules/export/renderers.js'
+import { OPERATIONAL_FINDING, EXPERIMENT_RESULT } from '../../persistence/schemas/operational.js'
 
 const logger = createLogger('export-cmd')
 
@@ -222,6 +226,44 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
         filesWritten.push(filePath)
         if (!phasesExported.includes('solutioning')) {
           phasesExported.push('solutioning')
+        }
+        if (outputFormat === 'human') {
+          process.stdout.write(`  Written: ${filePath}\n`)
+        }
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Export operational-findings.md (Story 21-1 AC5)
+    // -------------------------------------------------------------------------
+    const operationalDecisions = getDecisionsByCategory(db, OPERATIONAL_FINDING)
+    if (operationalDecisions.length > 0) {
+      const operationalContent = renderOperationalFindings(operationalDecisions)
+      if (operationalContent !== '') {
+        const filePath = join(resolvedOutputDir, 'operational-findings.md')
+        writeFileSync(filePath, operationalContent, 'utf-8')
+        filesWritten.push(filePath)
+        if (!phasesExported.includes('operational')) {
+          phasesExported.push('operational')
+        }
+        if (outputFormat === 'human') {
+          process.stdout.write(`  Written: ${filePath}\n`)
+        }
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Export experiments.md (Story 21-1 AC5)
+    // -------------------------------------------------------------------------
+    const experimentDecisions = getDecisionsByCategory(db, EXPERIMENT_RESULT)
+    if (experimentDecisions.length > 0) {
+      const experimentsContent = renderExperiments(experimentDecisions)
+      if (experimentsContent !== '') {
+        const filePath = join(resolvedOutputDir, 'experiments.md')
+        writeFileSync(filePath, experimentsContent, 'utf-8')
+        filesWritten.push(filePath)
+        if (!phasesExported.includes('operational')) {
+          phasesExported.push('operational')
         }
         if (outputFormat === 'human') {
           process.stdout.write(`  Written: ${filePath}\n`)

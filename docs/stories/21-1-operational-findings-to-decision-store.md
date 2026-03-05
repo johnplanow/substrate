@@ -1,6 +1,6 @@
 # Story 21-1: Operational Findings Capture via Decision Store
 
-Status: draft
+Status: done
 
 ## Story
 
@@ -50,34 +50,34 @@ Additionally, the current pipeline cost metrics (`cost_usd`) only track child su
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Define decision store categories and schemas (AC: #1, #2, #3, #5)
-  - [ ] Add `operational-finding`, `experiment-result`, and `story-metrics` as recognized decision categories
-  - [ ] Document the key/value schema for each category in code comments
+- [x] Task 1: Define decision store categories and schemas (AC: #1, #2, #3, #5)
+  - [x] Add `operational-finding`, `experiment-result`, and `story-metrics` as recognized decision categories
+  - [x] Document the key/value schema for each category in code comments
 
-- [ ] Task 2: Wire supervisor stall events to decision store (AC: #1)
-  - [ ] On `supervisor:kill` + restart outcome, insert stall finding
-  - [ ] On `supervisor:stall:max-restarts`, insert escalation finding
-  - [ ] Requires supervisor to have access to the project's decision store (currently it may only read status)
+- [x] Task 2: Wire supervisor stall events to decision store (AC: #1)
+  - [x] On `supervisor:kill` + restart outcome, insert stall finding
+  - [x] On `supervisor:stall:max-restarts`, insert escalation finding
+  - [x] Requires supervisor to have access to the project's decision store (currently it may only read status)
 
-- [ ] Task 3: Wire supervisor summary to decision store (AC: #2)
-  - [ ] On `supervisor:summary`, insert run-level finding with succeeded/failed/escalated lists
+- [x] Task 3: Wire supervisor summary to decision store (AC: #2)
+  - [x] On `supervisor:summary`, insert run-level finding with succeeded/failed/escalated lists
 
-- [ ] Task 4: Wire experiment results to decision store (AC: #3)
-  - [ ] On `supervisor:experiment:result`, insert experiment decision with verdict and measurements
+- [x] Task 4: Wire experiment results to decision store (AC: #3)
+  - [x] On `supervisor:experiment:result`, insert experiment decision with verdict and measurements
 
-- [ ] Task 5: Record story-level wall-clock and efficiency metrics (AC: #5)
-  - [ ] In implementation orchestrator, capture start time on story dispatch
-  - [ ] On story completion, compute wall-clock, total tokens, review cycles, stall boolean
-  - [ ] Insert as `story-metrics` decision
+- [x] Task 5: Record story-level wall-clock and efficiency metrics (AC: #5)
+  - [x] In implementation orchestrator, capture start time on story dispatch
+  - [x] On story completion, compute wall-clock, total tokens, review cycles, stall boolean
+  - [x] Insert as `story-metrics` decision
 
-- [ ] Task 6: Update `substrate export` renderer for new categories (AC: #4)
-  - [ ] Add "Operational Findings" section renderer
-  - [ ] Add "Experiments" section renderer
-  - [ ] Add "Story Metrics" table renderer
+- [x] Task 6: Update `substrate export` renderer for new categories (AC: #4)
+  - [x] Add "Operational Findings" section renderer
+  - [x] Add "Experiments" section renderer
+  - [x] Add "Story Metrics" table renderer
 
-- [ ] Task 7: Update `substrate metrics` to use story-metrics decisions (AC: #6)
-  - [ ] Replace or supplement cost-centric view with wall-clock, throughput, review cycles, stall rate
-  - [ ] Keep cost_usd as optional/secondary metric for API-billed usage
+- [x] Task 7: Update `substrate metrics` to use story-metrics decisions (AC: #6)
+  - [x] Replace or supplement cost-centric view with wall-clock, throughput, review cycles, stall rate
+  - [x] Keep cost_usd as optional/secondary metric for API-billed usage
 
 ## Dev Notes
 

@@ -34,6 +34,11 @@ import type {
   ExperimentResult,
 } from '../experimenter.js'
 import type { RunMetricsRow, StoryMetricsRow } from '../../../persistence/queries/metrics.js'
+import BetterSqlite3 from 'better-sqlite3'
+import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import { runMigrations } from '../../../persistence/migrations/index.js'
+import { getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
+import { EXPERIMENT_RESULT } from '../../../persistence/schemas/operational.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1128,5 +1133,68 @@ describe('AutoSupervisorOptions includes experiment flag (AC1)', () => {
       writeSpy.mockRestore()
       try { rmSync(projectRoot, { recursive: true, force: true }) } catch { /* ignore */ }
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 21-1 AC3: Experiment results persisted as decisions (smoke test)
+// ---------------------------------------------------------------------------
+
+describe('Story 21-1 AC3: experiment result written to decision store', () => {
+  it('createDecision inserts experiment-result decision with real DB on IMPROVED verdict', async () => {
+    // Use a real in-memory DB instead of the mock object
+    const db: BetterSqlite3Database = new BetterSqlite3(':memory:')
+    db.pragma('foreign_keys = ON')
+    runMigrations(db)
+
+    const run = createPipelineRun(db, { methodology: 'bmad' })
+    const baselineRunId = run.id
+
+    const mockGit = vi.fn().mockImplementation((args: string[]) => {
+      if (args[0] === 'rev-parse') return Promise.resolve({ stdout: 'main\n', stderr: '', code: 0 })
+      return Promise.resolve({ stdout: '', stderr: '', code: 0 })
+    })
+
+    const experimentDeps: ExperimenterDeps = {
+      git: mockGit,
+      spawn: vi.fn().mockResolvedValue({ stdout: 'https://github.com/pull/1', stderr: '', code: 0 }),
+      runStory: vi.fn().mockResolvedValue({ runId: 'run-exp-01', exitCode: 0 }),
+      getRunMetrics: vi.fn().mockImplementation((_db: unknown, runId: string) => {
+        if (runId === baselineRunId) {
+          return makeRunMetrics({ run_id: baselineRunId, total_input_tokens: 10000, total_output_tokens: 5000, total_cost_usd: 1.5, total_review_cycles: 2 })
+        }
+        return makeRunMetrics({ run_id: 'run-exp-01', total_input_tokens: 7000, total_output_tokens: 3000, total_cost_usd: 1.0, total_review_cycles: 1 })
+      }),
+      getStoryMetrics: vi.fn().mockReturnValue([]),
+      readFile: vi.fn().mockResolvedValue('# Prompt content'),
+      writeFile: vi.fn().mockResolvedValue(undefined),
+      mkdir: vi.fn().mockResolvedValue(undefined),
+      log: vi.fn(),
+    }
+
+    const experimentConfig = makeConfig({ projectRoot: '/tmp/test-project' })
+    const experimenter = createExperimenter(experimentConfig, experimentDeps)
+    const rec = makeRecommendation({ tokens_actual: 8200, tokens_baseline: 5100, delta_pct: 61 })
+
+    await experimenter.runExperiments(db, [rec], baselineRunId)
+
+    // Verify the experiment-result decision was persisted
+    const decisions = getDecisionsByCategory(db, EXPERIMENT_RESULT)
+    expect(decisions).toHaveLength(1)
+
+    const d = decisions[0]!
+    expect(d.category).toBe('experiment-result')
+    expect(d.key).toMatch(new RegExp(`^experiment:${baselineRunId}:\\d+$`))
+    expect(d.phase).toBe('supervisor')
+    expect(d.pipeline_run_id).toBe(baselineRunId)
+
+    const val = JSON.parse(d.value)
+    expect(val.target_metric).toBe('token_regression')
+    expect(val.verdict).toBe('IMPROVED')
+    expect(typeof val.before).toBe('number')
+    expect(typeof val.after).toBe('number')
+    expect(val.branch_name).toMatch(/^supervisor\/experiment\//)
+
+    db.close()
   })
 })

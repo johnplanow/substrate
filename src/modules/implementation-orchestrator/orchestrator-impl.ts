@@ -14,9 +14,10 @@ import type { TypedEventBus } from '../../core/event-bus.js'
 import { readFile } from 'node:fs/promises'
 import { existsSync, readdirSync } from 'node:fs'
 import { join, basename } from 'node:path'
-import { updatePipelineRun, getDecisionsByPhase, registerArtifact } from '../../persistence/queries/decisions.js'
+import { updatePipelineRun, getDecisionsByPhase, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
 import { writeStoryMetrics, aggregateTokenUsageForStory } from '../../persistence/queries/metrics.js'
+import { STORY_METRICS } from '../../persistence/schemas/operational.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { runCreateStory } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
@@ -119,6 +120,8 @@ export function createImplementationOrchestrator(
   const WATCHDOG_TIMEOUT_MS = 600_000 // 10 minutes
   // Track which stories have already emitted a stall event to prevent duplicates
   const _stalledStories = new Set<string>()
+  // Track which stories ever stalled (persistent — never cleared) for story-metrics decision
+  const _storiesWithStall = new Set<string>()
 
   // -- per-story phase timing state (for AC2 of Story 17-2) --
   const _phaseStartMs = new Map<string, Map<string, number>>() // storyKey → phase → start ms
@@ -185,6 +188,26 @@ export function createImplementationOrchestrator(
         review_cycles: reviewCycles,
         dispatches: _storyDispatches.get(storyKey) ?? 0,
       })
+      // AC4 of Story 21-1: also write story-metrics decision for queryable insight
+      try {
+        const runId = config.pipelineRunId ?? 'unknown'
+        createDecision(db, {
+          pipeline_run_id: config.pipelineRunId,
+          phase: 'implementation',
+          category: STORY_METRICS,
+          key: `${storyKey}:${runId}`,
+          value: JSON.stringify({
+            wall_clock_seconds: wallClockSeconds,
+            input_tokens: tokenAgg.input,
+            output_tokens: tokenAgg.output,
+            review_cycles: reviewCycles,
+            stalled: _storiesWithStall.has(storyKey),
+          }),
+          rationale: `Story ${storyKey} completed with result=${result} in ${wallClockSeconds}s. Tokens: ${tokenAgg.input}+${tokenAgg.output}. Review cycles: ${reviewCycles}.`,
+        })
+      } catch (decisionErr) {
+        logger.warn({ err: decisionErr, storyKey }, 'Failed to write story-metrics decision (best-effort)')
+      }
     } catch (err) {
       logger.warn({ err, storyKey }, 'Failed to write story metrics (best-effort)')
     }
@@ -278,6 +301,7 @@ export function createImplementationOrchestrator(
             // Deduplication: skip if we already emitted a stall event for this story
             if (_stalledStories.has(key)) continue
             _stalledStories.add(key)
+            _storiesWithStall.add(key)  // persistent tracking (never cleared) for story-metrics
             logger.warn({ storyKey: key, phase: s.phase, elapsedMs: elapsed }, 'Watchdog: possible stall detected')
             eventBus.emit('orchestrator:stall', {
               runId: config.pipelineRunId ?? '',

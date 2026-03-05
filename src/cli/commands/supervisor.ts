@@ -26,6 +26,8 @@ import {
   getStoryMetricsForRun,
   aggregateTokenUsageForRun,
 } from '../../persistence/queries/metrics.js'
+import { createDecision } from '../../persistence/queries/decisions.js'
+import { OPERATIONAL_FINDING } from '../../persistence/schemas/operational.js'
 
 // ---------------------------------------------------------------------------
 // supervisor options & deps
@@ -82,6 +84,34 @@ export interface SupervisorDeps {
    * were spawned by direct children of the orchestrator (AC8: orphan cleanup).
    */
   getAllDescendants: (rootPids: number[]) => number[]
+  /**
+   * Write stall findings to the decision store (AC1 of Story 21-1).
+   * Called after stall recovery to persist per-story stall findings.
+   * Optional — if omitted no decisions are written (safe for tests that don't need DB).
+   */
+  writeStallFindings?: (opts: {
+    runId: string | null
+    storyDetails: Record<string, { phase: string; review_cycles: number }>
+    staleness_secs: number
+    attempt: number
+    outcome: 'recovered' | 'failed' | 'max-restarts-escalated'
+    projectRoot: string
+  }) => void | Promise<void>
+  /**
+   * Write a run-level summary finding to the decision store (AC2 of Story 21-1).
+   * Called when the pipeline reaches terminal state.
+   * Optional — if omitted no decisions are written.
+   * The implementation is responsible for querying token totals from the DB if needed.
+   */
+  writeRunSummary?: (opts: {
+    runId: string | null
+    succeeded: string[]
+    failed: string[]
+    escalated: string[]
+    total_restarts: number
+    elapsed_seconds: number
+    projectRoot: string
+  }) => void | Promise<void>
 }
 
 function defaultSupervisorDeps(): SupervisorDeps {
@@ -131,6 +161,79 @@ function defaultSupervisorDeps(): SupervisorDeps {
       }
     },
     getAllDescendants: (rootPids: number[]) => getAllDescendantPids(rootPids),
+    writeStallFindings: async (opts) => {
+      try {
+        const dbRoot = await resolveMainRepoRoot(opts.projectRoot)
+        const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+        if (!existsSync(dbPath)) return
+        const dbWrapper = new DatabaseWrapper(dbPath)
+        try {
+          dbWrapper.open()
+          const db = dbWrapper.db
+          const activeStories = Object.entries(opts.storyDetails).filter(
+            ([, s]) => s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED',
+          )
+          const now = Date.now()
+          for (const [storyKey, storyState] of activeStories) {
+            createDecision(db, {
+              pipeline_run_id: opts.runId ?? null,
+              phase: 'supervisor',
+              category: OPERATIONAL_FINDING,
+              key: `stall:${storyKey}:${now}`,
+              value: JSON.stringify({
+                phase: storyState.phase,
+                staleness_secs: opts.staleness_secs,
+                attempt: opts.attempt,
+                outcome: opts.outcome,
+              }),
+              rationale: `Supervisor stall recovery: story ${storyKey} was in phase ${storyState.phase} when pipeline stalled after ${opts.staleness_secs}s. Attempt ${opts.attempt}. Outcome: ${opts.outcome}.`,
+            })
+          }
+        } finally {
+          try { dbWrapper.close() } catch { /* ignore */ }
+        }
+      } catch {
+        // Best-effort — never block the supervisor
+      }
+    },
+    writeRunSummary: async (opts) => {
+      // Guard: only insert if summary contains at least one story entry
+      const totalStories = opts.succeeded.length + opts.failed.length + opts.escalated.length
+      if (totalStories === 0) return
+      if (opts.runId === null) return
+      try {
+        const dbRoot = await resolveMainRepoRoot(opts.projectRoot)
+        const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+        if (!existsSync(dbPath)) return
+        const dbWrapper = new DatabaseWrapper(dbPath)
+        try {
+          dbWrapper.open()
+          const db = dbWrapper.db
+          // Query token totals directly from DB
+          const tokenAgg = aggregateTokenUsageForRun(db, opts.runId)
+          createDecision(db, {
+            pipeline_run_id: opts.runId,
+            phase: 'supervisor',
+            category: OPERATIONAL_FINDING,
+            key: `run-summary:${opts.runId}`,
+            value: JSON.stringify({
+              succeeded: opts.succeeded,
+              failed: opts.failed,
+              escalated: opts.escalated,
+              total_restarts: opts.total_restarts,
+              elapsed_seconds: opts.elapsed_seconds,
+              total_input_tokens: tokenAgg.input,
+              total_output_tokens: tokenAgg.output,
+            }),
+            rationale: `Run summary: ${opts.succeeded.length} succeeded, ${opts.failed.length} failed, ${opts.escalated.length} escalated. ${opts.total_restarts} restarts. Elapsed: ${opts.elapsed_seconds}s.`,
+          })
+        } finally {
+          try { dbWrapper.close() } catch { /* ignore */ }
+        }
+      } catch {
+        // Best-effort — never block the supervisor
+      }
+    },
     runAnalysis: async (runId: string, projectRoot: string) => {
       // AC1 of Story 17-3: generate post-run analysis report after terminal state
       const dbPath = join(projectRoot, '.substrate', 'substrate.db')
@@ -225,14 +328,14 @@ export async function handleStallRecovery(
   health: PipelineHealthOutput,
   state: ProjectCycleState,
   config: { stallThreshold: number; maxRestarts: number; pack: string; outputFormat: OutputFormat },
-  deps: Pick<SupervisorDeps, 'killPid' | 'resumePipeline' | 'sleep' | 'incrementRestarts' | 'getAllDescendants'>,
+  deps: Pick<SupervisorDeps, 'killPid' | 'resumePipeline' | 'sleep' | 'incrementRestarts' | 'getAllDescendants' | 'writeStallFindings'>,
   io: {
     emitEvent: (event: Record<string, unknown>) => void
     log: (msg: string) => void
   },
 ): Promise<{ state: ProjectCycleState; maxRestartsExceeded: boolean } | null> {
   const { stallThreshold, maxRestarts, pack, outputFormat } = config
-  const { killPid, resumePipeline, sleep, incrementRestarts, getAllDescendants } = deps
+  const { killPid, resumePipeline, sleep, incrementRestarts, getAllDescendants, writeStallFindings } = deps
   const { emitEvent, log } = io
   const { projectRoot } = state
 
@@ -295,6 +398,16 @@ export async function handleStallRecovery(
       attempts: state.restartCount,
     })
     log(`Supervisor: Max restarts (${maxRestarts}) exceeded. Aborting.`)
+    if (writeStallFindings) {
+      await writeStallFindings({
+        runId: health.run_id,
+        storyDetails: health.stories.details,
+        staleness_secs: health.staleness_seconds,
+        attempt: state.restartCount,
+        outcome: 'max-restarts-escalated',
+        projectRoot,
+      })
+    }
     return { state, maxRestartsExceeded: true }
   }
 
@@ -321,10 +434,30 @@ export async function handleStallRecovery(
       concurrency: 3,
       pack,
     })
+    if (writeStallFindings) {
+      await writeStallFindings({
+        runId: health.run_id,
+        storyDetails: health.stories.details,
+        staleness_secs: health.staleness_seconds,
+        attempt: newRestartCount,
+        outcome: 'recovered',
+        projectRoot,
+      })
+    }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     log(`Supervisor: Resume error: ${message}`)
     emitEvent({ type: 'supervisor:error' as any, reason: 'resume_failed', message } as any)
+    if (writeStallFindings) {
+      await writeStallFindings({
+        runId: health.run_id,
+        storyDetails: health.stories.details,
+        staleness_secs: health.staleness_seconds,
+        attempt: newRestartCount,
+        outcome: 'failed',
+        projectRoot,
+      })
+    }
   }
 
   return { state: { ...state, restartCount: newRestartCount }, maxRestartsExceeded: false }
@@ -351,7 +484,7 @@ export async function runSupervisorAction(
 ): Promise<number> {
   const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack, experiment, maxExperiments } = options
   const resolvedDeps = { ...defaultSupervisorDeps(), ...deps }
-  const { getHealth, sleep, runAnalysis, getTokenSnapshot } = resolvedDeps
+  const { getHealth, sleep, runAnalysis, getTokenSnapshot, writeRunSummary } = resolvedDeps
 
   let state: ProjectCycleState = { projectRoot, runId, restartCount: 0 }
   const startTime = Date.now()
@@ -404,6 +537,19 @@ export async function runSupervisorAction(
         `\nPipeline reached terminal state. Elapsed: ${elapsedSeconds}s | ` +
           `succeeded: ${summary.succeeded.length} | failed: ${summary.failed.length} | restarts: ${state.restartCount}`,
       )
+
+      // --- AC2 of Story 21-1: persist run-level summary to decision store ---
+      if (writeRunSummary !== undefined) {
+        await writeRunSummary({
+          runId: health.run_id,
+          succeeded: summary.succeeded,
+          failed: summary.failed,
+          escalated: summary.escalated,
+          total_restarts: state.restartCount,
+          elapsed_seconds: elapsedSeconds,
+          projectRoot,
+        })
+      }
 
       // --- AC1 of Story 17-3: run post-run analysis when a run-id is known ---
       if (health.run_id !== null && runAnalysis !== undefined) {
@@ -525,7 +671,14 @@ export async function runSupervisorAction(
       health,
       state,
       { stallThreshold, maxRestarts, pack, outputFormat },
-      resolvedDeps,
+      {
+        killPid: resolvedDeps.killPid,
+        resumePipeline: resolvedDeps.resumePipeline,
+        sleep: resolvedDeps.sleep,
+        incrementRestarts: resolvedDeps.incrementRestarts,
+        getAllDescendants: resolvedDeps.getAllDescendants,
+        writeStallFindings: resolvedDeps.writeStallFindings,
+      },
       { emitEvent, log },
     )
     if (stallResult !== null) {

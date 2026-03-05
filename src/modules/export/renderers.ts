@@ -582,6 +582,151 @@ export function renderEpics(decisions: Decision[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Operational Findings Renderer (Story 21-1 AC5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Render `operational-finding` category decisions as an "Operational Findings" section.
+ *
+ * Groups findings by run key (for run-summary decisions) and stall key (for stall decisions).
+ * Returns '' if no matching decisions are found.
+ *
+ * @param decisions - Decisions of any category; filters for 'operational-finding'
+ * @returns Formatted markdown content, or '' if empty
+ */
+export function renderOperationalFindings(decisions: Decision[]): string {
+  const findings = decisions.filter((d) => d.category === 'operational-finding')
+  if (findings.length === 0) return ''
+
+  const parts: string[] = ['## Operational Findings', '']
+
+  // Separate run summaries from stall findings
+  const runSummaries = findings.filter((d) => d.key.startsWith('run-summary:'))
+  const stallFindings = findings.filter((d) => d.key.startsWith('stall:'))
+  const otherFindings = findings.filter(
+    (d) => !d.key.startsWith('run-summary:') && !d.key.startsWith('stall:'),
+  )
+
+  if (runSummaries.length > 0) {
+    parts.push('### Run Summaries')
+    parts.push('')
+    for (const d of runSummaries) {
+      const runId = d.key.replace('run-summary:', '')
+      const parsed = safeParseJson(d.value)
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        const s = parsed as {
+          succeeded?: string[]
+          failed?: string[]
+          escalated?: string[]
+          total_restarts?: number
+          elapsed_seconds?: number
+          total_input_tokens?: number
+          total_output_tokens?: number
+        }
+        parts.push(`**Run: ${runId}**`)
+        parts.push(`- Succeeded: ${(s.succeeded ?? []).join(', ') || 'none'}`)
+        parts.push(`- Failed: ${(s.failed ?? []).join(', ') || 'none'}`)
+        parts.push(`- Escalated: ${(s.escalated ?? []).join(', ') || 'none'}`)
+        parts.push(`- Total restarts: ${s.total_restarts ?? 0}`)
+        parts.push(`- Elapsed: ${s.elapsed_seconds ?? 0}s`)
+        parts.push(`- Tokens: ${s.total_input_tokens ?? 0} in / ${s.total_output_tokens ?? 0} out`)
+      } else {
+        parts.push(`**Run: ${runId}**: ${String(parsed)}`)
+      }
+      parts.push('')
+    }
+  }
+
+  if (stallFindings.length > 0) {
+    parts.push('### Stall Events')
+    parts.push('')
+    for (const d of stallFindings) {
+      const parsed = safeParseJson(d.value)
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        const s = parsed as {
+          phase?: string
+          staleness_secs?: number
+          attempt?: number
+          outcome?: string
+        }
+        const outcome = s.outcome ?? 'unknown'
+        parts.push(`- **${d.key}**: phase=${s.phase ?? '?'} staleness=${s.staleness_secs ?? 0}s attempt=${s.attempt ?? 0} outcome=${outcome}`)
+      } else {
+        parts.push(`- **${d.key}**: ${String(parsed)}`)
+      }
+    }
+    parts.push('')
+  }
+
+  if (otherFindings.length > 0) {
+    for (const d of otherFindings) {
+      parts.push(`- **${d.key}**: ${renderValue(d.value)}`)
+    }
+    parts.push('')
+  }
+
+  return parts.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Experiments Renderer (Story 21-1 AC5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Render `experiment-result` category decisions as an "Experiments" section.
+ *
+ * Lists each experiment with its verdict, metric delta, and branch name.
+ * Returns '' if no matching decisions are found.
+ *
+ * @param decisions - Decisions of any category; filters for 'experiment-result'
+ * @returns Formatted markdown content, or '' if empty
+ */
+export function renderExperiments(decisions: Decision[]): string {
+  const experiments = decisions.filter((d) => d.category === 'experiment-result')
+  if (experiments.length === 0) return ''
+
+  const parts: string[] = ['## Experiments', '']
+
+  const improved = experiments.filter((d) => {
+    const p = safeParseJson(d.value)
+    return typeof p === 'object' && p !== null && (p as Record<string, unknown>)['verdict'] === 'IMPROVED'
+  })
+  const mixed = experiments.filter((d) => {
+    const p = safeParseJson(d.value)
+    return typeof p === 'object' && p !== null && (p as Record<string, unknown>)['verdict'] === 'MIXED'
+  })
+  const regressed = experiments.filter((d) => {
+    const p = safeParseJson(d.value)
+    return typeof p === 'object' && p !== null && (p as Record<string, unknown>)['verdict'] === 'REGRESSED'
+  })
+
+  parts.push(`**Total**: ${experiments.length} | **Improved**: ${improved.length} | **Mixed**: ${mixed.length} | **Regressed**: ${regressed.length}`)
+  parts.push('')
+
+  for (const d of experiments) {
+    const parsed = safeParseJson(d.value)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      const e = parsed as {
+        target_metric?: string
+        before?: number
+        after?: number
+        verdict?: string
+        branch_name?: string | null
+      }
+      const verdict = e.verdict ?? 'UNKNOWN'
+      const metric = e.target_metric ?? 'unknown'
+      const branch = e.branch_name ? ` → \`${e.branch_name}\`` : ''
+      parts.push(`- **[${verdict}]** ${metric}: before=${e.before ?? '?'} after=${e.after ?? '?'}${branch}`)
+    } else {
+      parts.push(`- ${String(parsed)}`)
+    }
+  }
+  parts.push('')
+
+  return parts.join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // Readiness Report Renderer (AC6, T8)
 // ---------------------------------------------------------------------------
 

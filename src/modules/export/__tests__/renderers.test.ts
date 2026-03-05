@@ -9,6 +9,8 @@ import {
   renderArchitecture,
   renderEpics,
   renderReadinessReport,
+  renderOperationalFindings,
+  renderExperiments,
   fieldLabel,
   safeParseJson,
   renderValue,
@@ -933,5 +935,222 @@ describe('renderReadinessReport', () => {
     expect(result).toContain('**Blockers**: 1')
     expect(result).toContain('**Major**: 1')
     expect(result).toContain('**Minor**: 1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// renderOperationalFindings tests (Story 21-1 AC5)
+// ---------------------------------------------------------------------------
+
+describe('renderOperationalFindings', () => {
+  it('returns empty string when no decisions exist', () => {
+    expect(renderOperationalFindings([])).toBe('')
+  })
+
+  it('returns empty string when no decisions have category=operational-finding', () => {
+    const decisions: Decision[] = [
+      makeDecision({ phase: 'solutioning', category: 'architecture', key: 'lang', value: 'TypeScript' }),
+    ]
+    expect(renderOperationalFindings(decisions)).toBe('')
+  })
+
+  it('renders run summaries grouped under Run Summaries heading', () => {
+    const decisions: Decision[] = [
+      makeDecision({
+        phase: 'supervisor',
+        category: 'operational-finding',
+        key: 'run-summary:abc123',
+        value: JSON.stringify({
+          succeeded: ['1-1', '1-2'],
+          failed: ['1-3'],
+          escalated: [],
+          total_restarts: 1,
+          elapsed_seconds: 300,
+          total_input_tokens: 50000,
+          total_output_tokens: 10000,
+        }),
+      }),
+    ]
+
+    const result = renderOperationalFindings(decisions)
+
+    expect(result).toContain('## Operational Findings')
+    expect(result).toContain('### Run Summaries')
+    expect(result).toContain('**Run: abc123**')
+    expect(result).toContain('Succeeded: 1-1, 1-2')
+    expect(result).toContain('Failed: 1-3')
+    expect(result).toContain('Escalated: none')
+    expect(result).toContain('Total restarts: 1')
+    expect(result).toContain('Elapsed: 300s')
+    expect(result).toContain('Tokens: 50000 in / 10000 out')
+  })
+
+  it('renders stall findings grouped under Stall Events heading', () => {
+    const decisions: Decision[] = [
+      makeDecision({
+        phase: 'supervisor',
+        category: 'operational-finding',
+        key: 'stall:1-1:1700000000000',
+        value: JSON.stringify({
+          phase: 'code-review',
+          staleness_secs: 700,
+          attempt: 1,
+          outcome: 'recovered',
+        }),
+      }),
+    ]
+
+    const result = renderOperationalFindings(decisions)
+
+    expect(result).toContain('### Stall Events')
+    expect(result).toContain('stall:1-1:1700000000000')
+    expect(result).toContain('phase=code-review')
+    expect(result).toContain('staleness=700s')
+    expect(result).toContain('attempt=1')
+    expect(result).toContain('outcome=recovered')
+  })
+
+  it('renders both run summaries and stall findings together', () => {
+    const decisions: Decision[] = [
+      makeDecision({
+        phase: 'supervisor',
+        category: 'operational-finding',
+        key: 'run-summary:def456',
+        value: JSON.stringify({
+          succeeded: ['2-1'],
+          failed: [],
+          escalated: [],
+          total_restarts: 0,
+          elapsed_seconds: 120,
+          total_input_tokens: 25000,
+          total_output_tokens: 5000,
+        }),
+      }),
+      makeDecision({
+        phase: 'supervisor',
+        category: 'operational-finding',
+        key: 'stall:2-1:1700000000000',
+        value: JSON.stringify({
+          phase: 'dev-story',
+          staleness_secs: 800,
+          attempt: 2,
+          outcome: 'max-restarts-escalated',
+        }),
+      }),
+    ]
+
+    const result = renderOperationalFindings(decisions)
+
+    expect(result).toContain('### Run Summaries')
+    expect(result).toContain('### Stall Events')
+    expect(result).toContain('**Run: def456**')
+    expect(result).toContain('outcome=max-restarts-escalated')
+  })
+
+  it('handles non-JSON stall values gracefully', () => {
+    const decisions: Decision[] = [
+      makeDecision({
+        phase: 'supervisor',
+        category: 'operational-finding',
+        key: 'stall:1-1:1700000000000',
+        value: 'plain text value',
+      }),
+    ]
+
+    const result = renderOperationalFindings(decisions)
+    expect(result).toContain('plain text value')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// renderExperiments tests (Story 21-1 AC5)
+// ---------------------------------------------------------------------------
+
+describe('renderExperiments', () => {
+  it('returns empty string when no decisions exist', () => {
+    expect(renderExperiments([])).toBe('')
+  })
+
+  it('returns empty string when no decisions have category=experiment-result', () => {
+    const decisions: Decision[] = [
+      makeDecision({ phase: 'supervisor', category: 'operational-finding', key: 'run-summary:x', value: '{}' }),
+    ]
+    expect(renderExperiments(decisions)).toBe('')
+  })
+
+  it('renders experiment results with verdict summary', () => {
+    const decisions: Decision[] = [
+      makeDecision({
+        phase: 'supervisor',
+        category: 'experiment-result',
+        key: 'experiment:run1:1700000000000',
+        value: JSON.stringify({
+          target_metric: 'token_regression',
+          before: 12000,
+          after: 9500,
+          verdict: 'IMPROVED',
+          branch_name: 'supervisor/experiment/abc12345',
+        }),
+      }),
+      makeDecision({
+        phase: 'supervisor',
+        category: 'experiment-result',
+        key: 'experiment:run1:1700000000001',
+        value: JSON.stringify({
+          target_metric: 'review_cycles',
+          before: 3,
+          after: 4,
+          verdict: 'REGRESSED',
+          branch_name: null,
+        }),
+      }),
+    ]
+
+    const result = renderExperiments(decisions)
+
+    expect(result).toContain('## Experiments')
+    expect(result).toContain('**Total**: 2')
+    expect(result).toContain('**Improved**: 1')
+    expect(result).toContain('**Regressed**: 1')
+    expect(result).toContain('**[IMPROVED]** token_regression: before=12000 after=9500')
+    expect(result).toContain('`supervisor/experiment/abc12345`')
+    expect(result).toContain('**[REGRESSED]** review_cycles: before=3 after=4')
+  })
+
+  it('renders mixed verdict experiments', () => {
+    const decisions: Decision[] = [
+      makeDecision({
+        phase: 'supervisor',
+        category: 'experiment-result',
+        key: 'experiment:run2:1700000000002',
+        value: JSON.stringify({
+          target_metric: 'wall_clock',
+          before: 200,
+          after: 180,
+          verdict: 'MIXED',
+          branch_name: 'experiment/mixed-result',
+        }),
+      }),
+    ]
+
+    const result = renderExperiments(decisions)
+
+    expect(result).toContain('**Mixed**: 1')
+    expect(result).toContain('**[MIXED]** wall_clock: before=200 after=180')
+    expect(result).toContain('`experiment/mixed-result`')
+  })
+
+  it('handles non-JSON experiment values gracefully', () => {
+    const decisions: Decision[] = [
+      makeDecision({
+        phase: 'supervisor',
+        category: 'experiment-result',
+        key: 'experiment:run3:1700000000003',
+        value: 'plain text experiment result',
+      }),
+    ]
+
+    const result = renderExperiments(decisions)
+    expect(result).toContain('plain text experiment result')
   })
 })

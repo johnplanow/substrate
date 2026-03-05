@@ -23,6 +23,8 @@ import { spawnGit } from '../git-worktree/git-utils.js'
 import type { GitSpawnResult, SpawnOptions } from '../git-worktree/git-utils.js'
 import { getRunMetrics, getStoryMetricsForRun } from '../../persistence/queries/metrics.js'
 import type { RunMetricsRow, StoryMetricsRow } from '../../persistence/queries/metrics.js'
+import { createDecision } from '../../persistence/queries/decisions.js'
+import { EXPERIMENT_RESULT } from '../../persistence/schemas/operational.js'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 
 // ---------------------------------------------------------------------------
@@ -857,6 +859,39 @@ export function createExperimenter(
       prLink,
     }
     await appendExperimentLog(finalResult)
+
+    // AC3 of Story 21-1: persist experiment result to decision store
+    try {
+      const targetMetricValue =
+        rec.type === 'token_regression'
+          ? (rec.tokens_actual ?? 0)
+          : rec.type === 'review_cycles'
+            ? (rec.review_cycles ?? 0)
+            : (rec.timing_seconds ?? 0)
+      const afterValue =
+        rec.type === 'token_regression'
+          ? (deltas.tokens_pct !== null ? Math.round(targetMetricValue * (1 + deltas.tokens_pct / 100)) : targetMetricValue)
+          : rec.type === 'review_cycles'
+            ? (deltas.review_cycles_pct !== null ? Math.round(targetMetricValue * (1 + deltas.review_cycles_pct / 100)) : targetMetricValue)
+            : (deltas.wall_clock_pct !== null ? Math.round(targetMetricValue * (1 + deltas.wall_clock_pct / 100)) : targetMetricValue)
+
+      createDecision(db, {
+        pipeline_run_id: baselineRunId,
+        phase: 'supervisor',
+        category: EXPERIMENT_RESULT,
+        key: `experiment:${baselineRunId}:${Date.now()}`,
+        value: JSON.stringify({
+          target_metric: rec.type,
+          before: targetMetricValue,
+          after: afterValue,
+          verdict,
+          branch_name: (verdict === 'IMPROVED' || verdict === 'MIXED') ? branchName : null,
+        }),
+        rationale: `Experiment for ${rec.story_key}/${rec.phase}: ${rec.description}. Verdict: ${verdict}.`,
+      })
+    } catch {
+      // Best-effort — don't fail the experiment over decision store writes
+    }
 
     return finalResult
   }

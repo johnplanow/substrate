@@ -29,6 +29,8 @@ import {
   compareRunMetrics,
 } from '../../persistence/queries/metrics.js'
 import type { RunMetricsRow } from '../../persistence/queries/metrics.js'
+import { getDecisionsByCategory } from '../../persistence/queries/decisions.js'
+import { STORY_METRICS } from '../../persistence/schemas/operational.js'
 import { createLogger } from '../../utils/logger.js'
 import type { OutputFormat } from './pipeline-shared.js'
 import { formatOutput } from './pipeline-shared.js'
@@ -167,26 +169,90 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     // List mode
     const runs: RunMetricsRow[] = listRunMetrics(db, limit)
 
+    // AC6 of Story 21-1: query story-metrics decisions for per-story efficiency data
+    const storyMetricDecisions = getDecisionsByCategory(db, STORY_METRICS)
+    const storyMetrics: Array<{
+      story_key: string
+      run_id: string
+      wall_clock_seconds: number
+      input_tokens: number
+      output_tokens: number
+      review_cycles: number
+      stalled: boolean
+      cost_usd?: number
+    }> = storyMetricDecisions.map((d) => {
+      // Key format: "{storyKey}:{runId}"
+      const colonIdx = d.key.indexOf(':')
+      const storyKey = colonIdx !== -1 ? d.key.slice(0, colonIdx) : d.key
+      const runId = colonIdx !== -1 ? d.key.slice(colonIdx + 1) : (d.pipeline_run_id ?? '')
+      try {
+        const v = JSON.parse(d.value) as {
+          wall_clock_seconds?: number
+          input_tokens?: number
+          output_tokens?: number
+          review_cycles?: number
+          stalled?: boolean
+          cost_usd?: number
+        }
+        return {
+          story_key: storyKey,
+          run_id: runId,
+          wall_clock_seconds: v.wall_clock_seconds ?? 0,
+          input_tokens: v.input_tokens ?? 0,
+          output_tokens: v.output_tokens ?? 0,
+          review_cycles: v.review_cycles ?? 0,
+          stalled: v.stalled ?? false,
+          ...(v.cost_usd !== undefined && v.cost_usd > 0 ? { cost_usd: v.cost_usd } : {}),
+        }
+      } catch {
+        return {
+          story_key: storyKey,
+          run_id: runId,
+          wall_clock_seconds: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          review_cycles: 0,
+          stalled: false,
+        }
+      }
+    })
+
     if (outputFormat === 'json') {
-      process.stdout.write(formatOutput({ runs }, 'json', true) + '\n')
+      process.stdout.write(formatOutput({ runs, story_metrics: storyMetrics }, 'json', true) + '\n')
     } else {
-      if (runs.length === 0) {
+      if (runs.length === 0 && storyMetrics.length === 0) {
         process.stdout.write('No run metrics recorded yet. Run `substrate run` to generate metrics.\n')
         return 0
       }
-      process.stdout.write(`\nPipeline Run Metrics (last ${runs.length} runs)\n`)
-      process.stdout.write('─'.repeat(80) + '\n')
-      for (const run of runs) {
-        const isBaseline = run.is_baseline ? ' [BASELINE]' : ''
-        process.stdout.write(`\nRun: ${run.run_id}${isBaseline}\n`)
-        process.stdout.write(`  Status:    ${run.status}  |  Methodology: ${run.methodology}\n`)
-        process.stdout.write(`  Started:   ${run.started_at}\n`)
-        if (run.completed_at) {
-          process.stdout.write(`  Completed: ${run.completed_at}  (${run.wall_clock_seconds}s)\n`)
+      if (runs.length > 0) {
+        process.stdout.write(`\nPipeline Run Metrics (last ${runs.length} runs)\n`)
+        process.stdout.write('─'.repeat(80) + '\n')
+        for (const run of runs) {
+          const isBaseline = run.is_baseline ? ' [BASELINE]' : ''
+          process.stdout.write(`\nRun: ${run.run_id}${isBaseline}\n`)
+          process.stdout.write(`  Status:    ${run.status}  |  Methodology: ${run.methodology}\n`)
+          process.stdout.write(`  Started:   ${run.started_at}\n`)
+          if (run.completed_at) {
+            process.stdout.write(`  Completed: ${run.completed_at}  (${run.wall_clock_seconds}s)\n`)
+          }
+          process.stdout.write(`  Stories:   attempted=${run.stories_attempted} succeeded=${run.stories_succeeded} failed=${run.stories_failed} escalated=${run.stories_escalated}\n`)
+          process.stdout.write(`  Tokens:    ${(run.total_input_tokens ?? 0).toLocaleString()} in / ${(run.total_output_tokens ?? 0).toLocaleString()} out  $${(run.total_cost_usd ?? 0).toFixed(4)}\n`)
+          process.stdout.write(`  Cycles:    ${run.total_review_cycles}  |  Dispatches: ${run.total_dispatches}  |  Concurrency: ${run.concurrency_setting}\n`)
         }
-        process.stdout.write(`  Stories:   attempted=${run.stories_attempted} succeeded=${run.stories_succeeded} failed=${run.stories_failed} escalated=${run.stories_escalated}\n`)
-        process.stdout.write(`  Tokens:    ${(run.total_input_tokens ?? 0).toLocaleString()} in / ${(run.total_output_tokens ?? 0).toLocaleString()} out  $${(run.total_cost_usd ?? 0).toFixed(4)}\n`)
-        process.stdout.write(`  Cycles:    ${run.total_review_cycles}  |  Dispatches: ${run.total_dispatches}  |  Concurrency: ${run.concurrency_setting}\n`)
+      }
+      if (storyMetrics.length > 0) {
+        process.stdout.write(`\nPer-Story Efficiency Metrics (${storyMetrics.length} stories)\n`)
+        process.stdout.write('─'.repeat(80) + '\n')
+        process.stdout.write(`  ${'Story'.padEnd(16)} ${'Run'.padEnd(12)} ${'Wall(s)'.padStart(8)} ${'Tokens In'.padStart(10)} ${'Tokens Out'.padStart(11)} ${'Cycles'.padStart(7)} ${'Stalled'.padStart(8)}\n`)
+        process.stdout.write('  ' + '─'.repeat(76) + '\n')
+        for (const sm of storyMetrics) {
+          const runShort = sm.run_id.slice(0, 8)
+          const stalledStr = sm.stalled ? 'yes' : 'no'
+          const costStr = sm.cost_usd !== undefined && sm.cost_usd > 0 ? `  $${sm.cost_usd.toFixed(4)}` : ''
+          process.stdout.write(
+            `  ${sm.story_key.padEnd(16)} ${runShort.padEnd(12)} ${String(sm.wall_clock_seconds).padStart(8)} ${sm.input_tokens.toLocaleString().padStart(10)} ${sm.output_tokens.toLocaleString().padStart(11)} ${String(sm.review_cycles).padStart(7)} ${stalledStr.padStart(8)}${costStr}\n`,
+          )
+        }
       }
     }
     return 0

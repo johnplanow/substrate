@@ -128,6 +128,14 @@ export function getDecisionsByPhaseForRun(
 }
 
 /**
+ * Get all decisions for a given category, ordered by created_at ascending.
+ */
+export function getDecisionsByCategory(db: BetterSqlite3Database, category: string): Decision[] {
+  const stmt = db.prepare('SELECT * FROM decisions WHERE category = ? ORDER BY created_at ASC')
+  return stmt.all(category) as Decision[]
+}
+
+/**
  * Get a single decision by phase and key. Returns undefined if not found.
  */
 export function getDecisionByKey(

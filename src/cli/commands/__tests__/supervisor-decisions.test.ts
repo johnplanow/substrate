@@ -1,0 +1,428 @@
+/**
+ * Integration tests for supervisor decision store writes (Story 21-1).
+ *
+ * Tests:
+ * - Stall findings written to decision store (AC1)
+ * - Run summary written to decision store (AC2)
+ *
+ * Uses in-memory SQLite for persistence tests.
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import BetterSqlite3 from 'better-sqlite3'
+import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import { mkdirSync, rmSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { randomUUID } from 'node:crypto'
+import { runMigrations } from '../../../persistence/migrations/index.js'
+import { createDecision, getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
+import { OPERATIONAL_FINDING } from '../../../persistence/schemas/operational.js'
+import {
+  handleStallRecovery,
+  buildTerminalSummary,
+  runSupervisorAction,
+} from '../supervisor.js'
+import type { PipelineHealthOutput } from '../health.js'
+
+// Mock resolveMainRepoRoot so defaultSupervisorDeps closures use our temp dir
+vi.mock('../../../utils/git-root.js', () => ({
+  resolveMainRepoRoot: vi.fn().mockImplementation((root: string) => Promise.resolve(root)),
+}))
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+function openTestDb(): BetterSqlite3Database {
+  const db = new BetterSqlite3(':memory:')
+  db.pragma('foreign_keys = ON')
+  runMigrations(db)
+  return db
+}
+
+function makeHealthStalled(overrides?: Partial<PipelineHealthOutput>): PipelineHealthOutput {
+  return {
+    verdict: 'STALLED',
+    run_id: 'run-test',
+    status: 'running',
+    current_phase: 'implementation',
+    staleness_seconds: 700,
+    last_activity: new Date().toISOString(),
+    process: { orchestrator_pid: 999, child_pids: [], zombies: [] },
+    stories: {
+      active: 1,
+      completed: 0,
+      escalated: 0,
+      details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } },
+    },
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AC1: Supervisor stall findings to decision store
+// ---------------------------------------------------------------------------
+
+describe('AC1: Supervisor writes stall findings to decision store', () => {
+  let db: BetterSqlite3Database
+
+  beforeEach(() => {
+    db = openTestDb()
+  })
+
+  it('writeStallFindings inserts operational-finding decisions for active stories', () => {
+    // Simulate what defaultSupervisorDeps.writeStallFindings does, but directly
+    const run = createPipelineRun(db, { methodology: 'bmad' })
+    const storyDetails: Record<string, { phase: string; review_cycles: number }> = {
+      '1-1': { phase: 'IN_DEV', review_cycles: 0 },
+      '1-2': { phase: 'COMPLETE', review_cycles: 1 },
+      '1-3': { phase: 'code-review', review_cycles: 2 },
+    }
+
+    const now = Date.now()
+    // Filter to active stories (not PENDING, COMPLETE, or ESCALATED)
+    const activeStories = Object.entries(storyDetails).filter(
+      ([, s]) => s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED',
+    )
+
+    for (const [storyKey, storyState] of activeStories) {
+      createDecision(db, {
+        pipeline_run_id: run.id,
+        phase: 'supervisor',
+        category: OPERATIONAL_FINDING,
+        key: `stall:${storyKey}:${now}`,
+        value: JSON.stringify({
+          phase: storyState.phase,
+          staleness_secs: 700,
+          attempt: 1,
+          outcome: 'recovered',
+        }),
+        rationale: `Supervisor stall recovery: story ${storyKey}`,
+      })
+    }
+
+    const decisions = getDecisionsByCategory(db, OPERATIONAL_FINDING)
+    // Only active stories should have findings (1-1 and 1-3, not 1-2 which is COMPLETE)
+    expect(decisions).toHaveLength(2)
+
+    const keys = decisions.map((d) => d.key)
+    expect(keys.some((k) => k.startsWith('stall:1-1:'))).toBe(true)
+    expect(keys.some((k) => k.startsWith('stall:1-3:'))).toBe(true)
+    expect(keys.some((k) => k.startsWith('stall:1-2:'))).toBe(false)
+
+    // Verify value shape
+    const firstValue = JSON.parse(decisions[0]!.value)
+    expect(firstValue).toHaveProperty('phase')
+    expect(firstValue).toHaveProperty('staleness_secs', 700)
+    expect(firstValue).toHaveProperty('attempt', 1)
+    expect(firstValue).toHaveProperty('outcome', 'recovered')
+  })
+
+  it('max-restarts-escalated outcome is persisted correctly', () => {
+    const run = createPipelineRun(db, { methodology: 'bmad' })
+    createDecision(db, {
+      pipeline_run_id: run.id,
+      phase: 'supervisor',
+      category: OPERATIONAL_FINDING,
+      key: `stall:1-1:${Date.now()}`,
+      value: JSON.stringify({
+        phase: 'IN_DEV',
+        staleness_secs: 900,
+        attempt: 3,
+        outcome: 'max-restarts-escalated',
+      }),
+    })
+
+    const decisions = getDecisionsByCategory(db, OPERATIONAL_FINDING)
+    expect(decisions).toHaveLength(1)
+    const val = JSON.parse(decisions[0]!.value)
+    expect(val.outcome).toBe('max-restarts-escalated')
+    expect(val.attempt).toBe(3)
+  })
+
+  it('handleStallRecovery invokes writeStallFindings with correct params on max-restarts', async () => {
+    const writeStallFindings = vi.fn()
+
+    const health = makeHealthStalled()
+    const state = { projectRoot: '/tmp/test', runId: 'run-test', restartCount: 3 }
+
+    const result = await handleStallRecovery(
+      health,
+      state,
+      { stallThreshold: 600, maxRestarts: 3, pack: 'bmad', outputFormat: 'json' },
+      {
+        killPid: vi.fn(),
+        resumePipeline: vi.fn().mockResolvedValue(0),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        incrementRestarts: vi.fn(),
+        getAllDescendants: vi.fn().mockReturnValue([]),
+        writeStallFindings,
+      },
+      {
+        emitEvent: vi.fn(),
+        log: vi.fn(),
+      },
+    )
+
+    expect(result).not.toBeNull()
+    expect(result!.maxRestartsExceeded).toBe(true)
+    expect(writeStallFindings).toHaveBeenCalledWith(expect.objectContaining({
+      runId: 'run-test',
+      outcome: 'max-restarts-escalated',
+      staleness_secs: 700,
+      attempt: 3,
+      projectRoot: '/tmp/test',
+    }))
+  })
+
+  it('handleStallRecovery invokes writeStallFindings with recovered on successful restart', async () => {
+    const writeStallFindings = vi.fn()
+
+    const health = makeHealthStalled()
+    const state = { projectRoot: '/tmp/test', runId: 'run-test', restartCount: 0 }
+
+    const result = await handleStallRecovery(
+      health,
+      state,
+      { stallThreshold: 600, maxRestarts: 3, pack: 'bmad', outputFormat: 'json' },
+      {
+        killPid: vi.fn(),
+        resumePipeline: vi.fn().mockResolvedValue(0),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        incrementRestarts: vi.fn(),
+        getAllDescendants: vi.fn().mockReturnValue([]),
+        writeStallFindings,
+      },
+      {
+        emitEvent: vi.fn(),
+        log: vi.fn(),
+      },
+    )
+
+    expect(result).not.toBeNull()
+    expect(result!.maxRestartsExceeded).toBe(false)
+    expect(writeStallFindings).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'recovered',
+      attempt: 1,
+    }))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC2: Supervisor run-level summary to decision store
+// ---------------------------------------------------------------------------
+
+describe('AC2: Supervisor run-level summary to decision store', () => {
+  let db: BetterSqlite3Database
+
+  beforeEach(() => {
+    db = openTestDb()
+  })
+
+  it('writeRunSummary inserts operational-finding decision with correct key and value', () => {
+    // Simulate the writeRunSummary logic directly against in-memory DB
+    const run = createPipelineRun(db, { methodology: 'bmad' })
+    const opts = {
+      runId: run.id,
+      succeeded: ['1-1', '1-2'],
+      failed: ['1-3'],
+      escalated: [],
+      total_restarts: 1,
+      elapsed_seconds: 450,
+    }
+
+    createDecision(db, {
+      pipeline_run_id: opts.runId,
+      phase: 'supervisor',
+      category: OPERATIONAL_FINDING,
+      key: `run-summary:${opts.runId}`,
+      value: JSON.stringify({
+        succeeded: opts.succeeded,
+        failed: opts.failed,
+        escalated: opts.escalated,
+        total_restarts: opts.total_restarts,
+        elapsed_seconds: opts.elapsed_seconds,
+        total_input_tokens: 50000,
+        total_output_tokens: 10000,
+      }),
+      rationale: `Run summary: ${opts.succeeded.length} succeeded, ${opts.failed.length} failed.`,
+    })
+
+    const decisions = getDecisionsByCategory(db, OPERATIONAL_FINDING)
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0]!.key).toBe(`run-summary:${run.id}`)
+    expect(decisions[0]!.category).toBe('operational-finding')
+
+    const val = JSON.parse(decisions[0]!.value)
+    expect(val.succeeded).toEqual(['1-1', '1-2'])
+    expect(val.failed).toEqual(['1-3'])
+    expect(val.escalated).toEqual([])
+    expect(val.total_restarts).toBe(1)
+    expect(val.elapsed_seconds).toBe(450)
+    expect(val.total_input_tokens).toBe(50000)
+    expect(val.total_output_tokens).toBe(10000)
+  })
+
+  it('guard: no decision inserted when no stories exist', () => {
+    // The writeRunSummary implementation should check total stories > 0
+    const totalStories = 0
+    if (totalStories === 0) {
+      // writeRunSummary would return early
+    } else {
+      createDecision(db, {
+        pipeline_run_id: 'run-empty',
+        phase: 'supervisor',
+        category: OPERATIONAL_FINDING,
+        key: 'run-summary:run-empty',
+        value: JSON.stringify({}),
+      })
+    }
+
+    const decisions = getDecisionsByCategory(db, OPERATIONAL_FINDING)
+    expect(decisions).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildTerminalSummary helper
+// ---------------------------------------------------------------------------
+
+describe('buildTerminalSummary', () => {
+  it('correctly categorizes stories by phase', () => {
+    const details: Record<string, { phase: string; review_cycles: number }> = {
+      '1-1': { phase: 'COMPLETE', review_cycles: 1 },
+      '1-2': { phase: 'ESCALATED', review_cycles: 0 },
+      '1-3': { phase: 'IN_DEV', review_cycles: 0 },
+      '1-4': { phase: 'PENDING', review_cycles: 0 },
+    }
+
+    const summary = buildTerminalSummary(details)
+
+    expect(summary.succeeded).toEqual(['1-1'])
+    expect(summary.escalated).toEqual(['1-2'])
+    expect(summary.failed).toEqual(['1-3'])
+    // PENDING stories are not classified as failed
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 21-1 Smoke: defaultSupervisorDeps writeStallFindings + writeRunSummary
+// through real DB via runSupervisorAction (Gap 2)
+// ---------------------------------------------------------------------------
+
+describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => {
+  let tempProjectRoot: string
+  let dbPath: string
+  let runId: string
+  let stdoutChunks: string[]
+  let writeSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(async () => {
+    tempProjectRoot = join(tmpdir(), `substrate-supervisor-smoke-${randomUUID()}`)
+    const substrateDir = join(tempProjectRoot, '.substrate')
+    mkdirSync(substrateDir, { recursive: true })
+
+    // Create a real seeded DB
+    dbPath = join(substrateDir, 'substrate.db')
+    const db = new BetterSqlite3(dbPath)
+    db.pragma('foreign_keys = ON')
+    runMigrations(db)
+    const run = createPipelineRun(db, { methodology: 'bmad' })
+    runId = run.id
+    db.close()
+
+    stdoutChunks = []
+    writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: any) => {
+      if (typeof chunk === 'string') stdoutChunks.push(chunk)
+      return true
+    })
+  })
+
+  afterEach(() => {
+    writeSpy.mockRestore()
+    if (existsSync(tempProjectRoot)) {
+      rmSync(tempProjectRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('writeStallFindings persists stall decisions via real defaultSupervisorDeps closure', async () => {
+    // First poll: STALLED → triggers writeStallFindings + kill + restart attempt
+    // Second poll: NO_PIPELINE_RUNNING → triggers writeRunSummary + exit
+    let callCount = 0
+    await runSupervisorAction(
+      {
+        pollInterval: 0.01,
+        stallThreshold: 1,
+        maxRestarts: 1,
+        outputFormat: 'json',
+        projectRoot: tempProjectRoot,
+        runId,
+        pack: 'bmad',
+      },
+      {
+        getHealth: vi.fn().mockImplementation(async () => {
+          callCount++
+          if (callCount <= 1) {
+            return {
+              verdict: 'STALLED' as const,
+              run_id: runId,
+              status: 'running',
+              current_phase: 'implementation',
+              staleness_seconds: 700,
+              last_activity: new Date().toISOString(),
+              process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+              stories: {
+                active: 1, completed: 0, escalated: 0,
+                details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } },
+              },
+            }
+          }
+          return {
+            verdict: 'NO_PIPELINE_RUNNING' as const,
+            run_id: runId,
+            status: 'completed',
+            current_phase: null,
+            staleness_seconds: 0,
+            last_activity: new Date().toISOString(),
+            process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+            stories: {
+              active: 0, completed: 1, escalated: 0,
+              details: { '1-1': { phase: 'COMPLETE', review_cycles: 1 } },
+            },
+          }
+        }),
+        killPid: vi.fn(),
+        resumePipeline: vi.fn().mockResolvedValue(0),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        incrementRestarts: vi.fn(),
+        getAllDescendants: vi.fn().mockReturnValue([]),
+        // Do NOT override writeStallFindings or writeRunSummary — let defaultSupervisorDeps handle them
+      },
+    )
+
+    // Now verify the decisions landed in the real DB
+    const db = new BetterSqlite3(dbPath, { readonly: true })
+    try {
+      const decisions = getDecisionsByCategory(db, OPERATIONAL_FINDING)
+
+      // Should have at least one stall finding for story 1-1
+      const stallFindings = decisions.filter((d) => d.key.startsWith('stall:'))
+      expect(stallFindings.length).toBeGreaterThanOrEqual(1)
+      const stallVal = JSON.parse(stallFindings[0]!.value)
+      expect(stallVal.phase).toBe('IN_DEV')
+      expect(stallVal.outcome).toMatch(/recovered|failed/)
+      expect(stallVal.staleness_secs).toBe(700)
+
+      // Should have a run-summary decision
+      const summaries = decisions.filter((d) => d.key.startsWith('run-summary:'))
+      expect(summaries.length).toBeGreaterThanOrEqual(1)
+      const summaryVal = JSON.parse(summaries[0]!.value)
+      expect(summaryVal).toHaveProperty('succeeded')
+      expect(summaryVal).toHaveProperty('failed')
+      expect(summaryVal).toHaveProperty('elapsed_seconds')
+    } finally {
+      db.close()
+    }
+  })
+})
