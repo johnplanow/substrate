@@ -16,6 +16,7 @@ import type { PipelineHealthOutput } from './health.js'
 import { getAutoHealthData, getAllDescendantPids } from './health.js'
 import type { ResumeOptions } from './resume.js'
 import { runResumeAction } from './resume.js'
+import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
 import { runMigrations } from '../../persistence/migrations/index.js'
 import {
@@ -62,7 +63,7 @@ export interface SupervisorDeps {
   resumePipeline: (opts: ResumeOptions) => Promise<number>
   sleep: (ms: number) => Promise<void>
   /** Called after each successful restart to increment the restarts counter in run_metrics. */
-  incrementRestarts: (runId: string, projectRoot: string) => void
+  incrementRestarts: (runId: string, projectRoot: string) => Promise<void> | void
   /**
    * Called after detecting terminal state (AC1 of Story 17-3).
    * Generates the post-run analysis report and writes it to disk.
@@ -74,7 +75,7 @@ export interface SupervisorDeps {
    * Called on each poll cycle to populate the supervisor:poll event (Story 19-2 AC3).
    * Returns zeros when the run ID is unknown or DB is unavailable.
    */
-  getTokenSnapshot: (runId: string, projectRoot: string) => { input: number; output: number; cost_usd: number }
+  getTokenSnapshot: (runId: string, projectRoot: string) => Promise<{ input: number; output: number; cost_usd: number }> | { input: number; output: number; cost_usd: number }
   /**
    * Collect all descendant PIDs (grandchildren and deeper) of the given root PIDs.
    * Used during stall recovery to kill orphan `claude` and `node` processes that
@@ -97,11 +98,11 @@ function defaultSupervisorDeps(): SupervisorDeps {
       // would be wasteful given restarts are infrequent but the pattern should
       // not accumulate file descriptors over many restarts).
       let cachedDbWrapper: DatabaseWrapper | null = null
-      return (runId: string, projectRoot: string) => {
+      return async (runId: string, projectRoot: string) => {
         try {
           if (cachedDbWrapper === null) {
-            const dbDir = join(projectRoot, '.substrate')
-            const dbPath = join(dbDir, 'substrate.db')
+            const dbRoot = await resolveMainRepoRoot(projectRoot)
+            const dbPath = join(dbRoot, '.substrate', 'substrate.db')
             cachedDbWrapper = new DatabaseWrapper(dbPath)
           }
           incrementRunRestarts(cachedDbWrapper.getDb(), runId)
@@ -112,9 +113,10 @@ function defaultSupervisorDeps(): SupervisorDeps {
         }
       }
     })(),
-    getTokenSnapshot: (runId: string, projectRoot: string) => {
+    getTokenSnapshot: async (runId: string, projectRoot: string) => {
       try {
-        const dbPath = join(projectRoot, '.substrate', 'substrate.db')
+        const dbRoot = await resolveMainRepoRoot(projectRoot)
+        const dbPath = join(dbRoot, '.substrate', 'substrate.db')
         if (!existsSync(dbPath)) return { input: 0, output: 0, cost_usd: 0 }
         const dbWrapper = new DatabaseWrapper(dbPath)
         try {
@@ -300,7 +302,7 @@ export async function handleStallRecovery(
   const newRestartCount = state.restartCount + 1
 
   if (health.run_id !== null) {
-    incrementRestarts(health.run_id, projectRoot)
+    await incrementRestarts(health.run_id, projectRoot)
   }
 
   emitEvent({
@@ -375,7 +377,7 @@ export async function runSupervisorAction(
     // Emit supervisor:poll heartbeat event on each cycle in JSON mode
     if (outputFormat === 'json') {
       const tokenSnapshot = health.run_id !== null
-        ? getTokenSnapshot(health.run_id, projectRoot)
+        ? await getTokenSnapshot(health.run_id, projectRoot)
         : { input: 0, output: 0, cost_usd: 0 }
       emitEvent(buildPollEvent(health, projectRoot, tokenSnapshot))
     }
@@ -613,7 +615,7 @@ export async function runMultiProjectSupervisor(
       // Emit poll event with project tag
       if (outputFormat === 'json') {
         const tokenSnapshot = health.run_id !== null
-          ? getTokenSnapshot(health.run_id, projectRoot)
+          ? await getTokenSnapshot(health.run_id, projectRoot)
           : { input: 0, output: 0, cost_usd: 0 }
         emitEvent(buildPollEvent(health, projectRoot, tokenSnapshot, { project: projectRoot }))
       }
