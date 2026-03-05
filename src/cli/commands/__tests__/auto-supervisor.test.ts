@@ -13,8 +13,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { runSupervisorAction, registerSupervisorCommand } from '../supervisor.js'
-import type { SupervisorOptions, SupervisorDeps } from '../supervisor.js'
+import { runSupervisorAction, runMultiProjectSupervisor, registerSupervisorCommand, buildPollEvent, buildTerminalSummary, handleStallRecovery } from '../supervisor.js'
+import type { SupervisorOptions, SupervisorDeps, MultiProjectSupervisorOptions, ProjectCycleState } from '../supervisor.js'
 import type { PipelineHealthOutput } from '../health.js'
 import { Command } from 'commander'
 
@@ -1297,5 +1297,329 @@ describe('runSupervisorAction — AC8: recursive process tree kill / orphan clea
     expect(evt.pids).toContain(9001)
     expect(evt.pids).toContain(9002)
     expect(evt.pids).toContain(9003)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Extracted helpers: buildPollEvent, buildTerminalSummary, handleStallRecovery
+// ---------------------------------------------------------------------------
+
+describe('buildPollEvent — helper unit tests', () => {
+  it('builds correct event payload from health data', () => {
+    const health = makeHealthy()
+    const tokens = { input: 1000, output: 200, cost_usd: 0.05 }
+    const event = buildPollEvent(health, '/tmp/test', tokens)
+
+    expect(event.type).toBe('supervisor:poll')
+    expect(event.run_id).toBe('run-abc123')
+    expect(event.verdict).toBe('HEALTHY')
+    expect(event.tokens).toEqual(tokens)
+    expect((event.process as any).child_count).toBe(2)
+  })
+
+  it('includes extra fields when provided', () => {
+    const health = makeHealthy()
+    const tokens = { input: 0, output: 0, cost_usd: 0 }
+    const event = buildPollEvent(health, '/tmp/test', tokens, { project: '/tmp/test' })
+
+    expect(event.project).toBe('/tmp/test')
+    expect(event.type).toBe('supervisor:poll')
+  })
+})
+
+describe('buildTerminalSummary — helper unit tests', () => {
+  it('categorizes story phases correctly', () => {
+    const details = {
+      '1-1': { phase: 'COMPLETE', review_cycles: 0 },
+      '1-2': { phase: 'FAILED', review_cycles: 3 },
+      '1-3': { phase: 'ESCALATED', review_cycles: 2 },
+      '1-4': { phase: 'PENDING', review_cycles: 0 },
+      '1-5': { phase: 'IN_DEV', review_cycles: 1 },
+    }
+    const summary = buildTerminalSummary(details)
+
+    expect(summary.succeeded).toEqual(['1-1'])
+    expect(summary.failed).toEqual(['1-2', '1-5'])
+    expect(summary.escalated).toEqual(['1-3'])
+  })
+
+  it('returns empty arrays for empty details', () => {
+    const summary = buildTerminalSummary({})
+    expect(summary.succeeded).toEqual([])
+    expect(summary.failed).toEqual([])
+    expect(summary.escalated).toEqual([])
+  })
+})
+
+describe('handleStallRecovery — helper unit tests', () => {
+  it('returns null when staleness is below threshold', async () => {
+    const health = makeHealthy({ staleness_seconds: 100 })
+    const state: ProjectCycleState = { projectRoot: '/tmp/test', restartCount: 0 }
+    const result = await handleStallRecovery(
+      health,
+      state,
+      { stallThreshold: 600, maxRestarts: 3, pack: 'bmad', outputFormat: 'json' },
+      {
+        killPid: vi.fn(),
+        resumePipeline: vi.fn().mockResolvedValue(0),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        incrementRestarts: vi.fn(),
+        getAllDescendants: vi.fn().mockReturnValue([]),
+      },
+      { emitEvent: vi.fn(), log: vi.fn() },
+    )
+    expect(result).toBeNull()
+  })
+
+  it('kills and restarts when stalled, returns updated state', async () => {
+    const health = makeStalled(700)
+    const state: ProjectCycleState = { projectRoot: '/tmp/test', restartCount: 0 }
+    const killPid = vi.fn()
+    const result = await handleStallRecovery(
+      health,
+      state,
+      { stallThreshold: 600, maxRestarts: 3, pack: 'bmad', outputFormat: 'json' },
+      {
+        killPid,
+        resumePipeline: vi.fn().mockResolvedValue(0),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        incrementRestarts: vi.fn(),
+        getAllDescendants: vi.fn().mockReturnValue([]),
+      },
+      { emitEvent: vi.fn(), log: vi.fn() },
+    )
+
+    expect(result).not.toBeNull()
+    expect(result!.maxRestartsExceeded).toBe(false)
+    expect(result!.state.restartCount).toBe(1)
+    expect(killPid).toHaveBeenCalled()
+  })
+
+  it('returns maxRestartsExceeded when limit hit', async () => {
+    const health = makeStalled(700)
+    const state: ProjectCycleState = { projectRoot: '/tmp/test', restartCount: 3 }
+    const result = await handleStallRecovery(
+      health,
+      state,
+      { stallThreshold: 600, maxRestarts: 3, pack: 'bmad', outputFormat: 'json' },
+      {
+        killPid: vi.fn(),
+        resumePipeline: vi.fn().mockResolvedValue(0),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        incrementRestarts: vi.fn(),
+        getAllDescendants: vi.fn().mockReturnValue([]),
+      },
+      { emitEvent: vi.fn(), log: vi.fn() },
+    )
+
+    expect(result).not.toBeNull()
+    expect(result!.maxRestartsExceeded).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Multi-project supervisor
+// ---------------------------------------------------------------------------
+
+describe('runMultiProjectSupervisor — multi-project mode', () => {
+  let stdoutCapture: { getOutput: () => string; restore: () => void }
+
+  beforeEach(() => {
+    stdoutCapture = captureStdout()
+  })
+
+  afterEach(() => {
+    stdoutCapture.restore()
+  })
+
+  function makeMultiOptions(overrides: Partial<MultiProjectSupervisorOptions> = {}): MultiProjectSupervisorOptions {
+    return {
+      projects: ['/tmp/project-a', '/tmp/project-b'],
+      pollInterval: 1,
+      stallThreshold: 600,
+      maxRestarts: 3,
+      outputFormat: 'json',
+      pack: 'bmad',
+      ...overrides,
+    }
+  }
+
+  it('exits 0 when both projects reach terminal state successfully', async () => {
+    const healthMap: Record<string, PipelineHealthOutput[]> = {
+      '/tmp/project-a': [makeHealthy(), makeTerminal(['1-1'])],
+      '/tmp/project-b': [makeHealthy(), makeTerminal(['2-1'])],
+    }
+    const callCounts: Record<string, number> = { '/tmp/project-a': 0, '/tmp/project-b': 0 }
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(({ projectRoot }: { projectRoot: string }) => {
+        const seq = healthMap[projectRoot] ?? [makeNoRun()]
+        const idx = Math.min(callCounts[projectRoot] ?? 0, seq.length - 1)
+        callCounts[projectRoot] = (callCounts[projectRoot] ?? 0) + 1
+        return Promise.resolve(seq[idx])
+      }),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+    }
+
+    const exitCode = await runMultiProjectSupervisor(makeMultiOptions(), deps)
+    expect(exitCode).toBe(0)
+
+    // Verify events have project field
+    const output = stdoutCapture.getOutput()
+    const lines = output.trim().split('\n').filter(Boolean)
+    const pollEvents = lines.filter((l) => l.includes('"supervisor:poll"')).map((l) => JSON.parse(l))
+    expect(pollEvents.length).toBeGreaterThanOrEqual(2)
+    expect(pollEvents.some((e: any) => e.project === '/tmp/project-a')).toBe(true)
+    expect(pollEvents.some((e: any) => e.project === '/tmp/project-b')).toBe(true)
+  })
+
+  it('exits 1 when one project has failures', async () => {
+    const healthMap: Record<string, PipelineHealthOutput[]> = {
+      '/tmp/project-a': [makeTerminal(['1-1'])],          // success
+      '/tmp/project-b': [makeTerminal([], ['2-1'])],      // failure
+    }
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(({ projectRoot }: { projectRoot: string }) => {
+        return Promise.resolve((healthMap[projectRoot] ?? [makeNoRun()])[0])
+      }),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+    }
+
+    const exitCode = await runMultiProjectSupervisor(makeMultiOptions(), deps)
+    expect(exitCode).toBe(1)
+  })
+
+  it('exits 2 when one project hits max restarts', async () => {
+    // Project A: always stalled, hits max restarts
+    // Project B: terminal success
+    let aCallCount = 0
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(({ projectRoot }: { projectRoot: string }) => {
+        if (projectRoot === '/tmp/project-a') {
+          aCallCount++
+          return Promise.resolve(makeStalled(700))
+        }
+        return Promise.resolve(makeTerminal(['2-1']))
+      }),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      killPid: vi.fn(),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      incrementRestarts: vi.fn(),
+      getAllDescendants: vi.fn().mockReturnValue([]),
+      getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+    }
+
+    const exitCode = await runMultiProjectSupervisor(
+      makeMultiOptions({ maxRestarts: 1 }),
+      deps,
+    )
+    expect(exitCode).toBe(2)
+  })
+
+  it('one stalled project gets restarted while healthy project continues', async () => {
+    let aCallCount = 0
+    let bCallCount = 0
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(({ projectRoot }: { projectRoot: string }) => {
+        if (projectRoot === '/tmp/project-a') {
+          aCallCount++
+          // First call: stalled. After restart: terminal success.
+          return Promise.resolve(aCallCount === 1 ? makeStalled(700) : makeTerminal(['1-1']))
+        }
+        bCallCount++
+        return Promise.resolve(bCallCount === 1 ? makeHealthy() : makeTerminal(['2-1']))
+      }),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      killPid: vi.fn(),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      incrementRestarts: vi.fn(),
+      getAllDescendants: vi.fn().mockReturnValue([]),
+      getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+    }
+
+    const exitCode = await runMultiProjectSupervisor(makeMultiOptions(), deps)
+    expect(exitCode).toBe(0)
+    expect(deps.resumePipeline).toHaveBeenCalledOnce()
+  })
+
+  it('events interleave correctly (A-poll, B-poll per cycle)', async () => {
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(({ projectRoot }: { projectRoot: string }) => {
+        return Promise.resolve(makeTerminal(projectRoot === '/tmp/project-a' ? ['1-1'] : ['2-1']))
+      }),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+    }
+
+    await runMultiProjectSupervisor(makeMultiOptions(), deps)
+
+    const output = stdoutCapture.getOutput()
+    const lines = output.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    // First two events should be polls for A then B (interleaved)
+    const polls = lines.filter((e: any) => e.type === 'supervisor:poll')
+    expect(polls[0].project).toBe('/tmp/project-a')
+    expect(polls[1].project).toBe('/tmp/project-b')
+  })
+
+  it('errors on empty projects list', async () => {
+    const exitCode = await runMultiProjectSupervisor(makeMultiOptions({ projects: [] }))
+    expect(exitCode).toBe(1)
+  })
+
+  it('single project via --projects behaves like single-project mode', async () => {
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockResolvedValue(makeTerminal(['1-1'])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+    }
+
+    const exitCode = await runMultiProjectSupervisor(
+      makeMultiOptions({ projects: ['/tmp/project-a'] }),
+      deps,
+    )
+    expect(exitCode).toBe(0)
+  })
+
+  it('handles project disappearing mid-run gracefully', async () => {
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(({ projectRoot }: { projectRoot: string }) => {
+        if (projectRoot === '/tmp/project-a') {
+          return Promise.reject(new Error('ENOENT: DB not found'))
+        }
+        return Promise.resolve(makeTerminal(['2-1']))
+      }),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+    }
+
+    const exitCode = await runMultiProjectSupervisor(makeMultiOptions(), deps)
+    // Project A errored (exit 1), project B succeeded (exit 0) → worst = 1
+    expect(exitCode).toBe(1)
+  })
+
+  it('emits supervisor:done with project_results when all projects finish', async () => {
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(({ projectRoot }: { projectRoot: string }) => {
+        return Promise.resolve(
+          projectRoot === '/tmp/project-a'
+            ? makeTerminal(['1-1'])
+            : makeTerminal([], ['2-1']),
+        )
+      }),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+    }
+
+    await runMultiProjectSupervisor(makeMultiOptions(), deps)
+
+    const output = stdoutCapture.getOutput()
+    const lines = output.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    const doneEvent = lines.find((e: any) => e.type === 'supervisor:done')
+    expect(doneEvent).toBeDefined()
+    expect(doneEvent.project_results['/tmp/project-a']).toBe(0)
+    expect(doneEvent.project_results['/tmp/project-b']).toBe(1)
   })
 })

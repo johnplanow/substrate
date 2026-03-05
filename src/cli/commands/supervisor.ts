@@ -8,7 +8,7 @@
  */
 
 import type { Command } from 'commander'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { existsSync } from 'fs'
 import type { OutputFormat } from './pipeline-shared.js'
 import type { PipelineEvent } from '../../modules/implementation-orchestrator/event-types.js'
@@ -159,7 +159,177 @@ function defaultSupervisorDeps(): SupervisorDeps {
 }
 
 // ---------------------------------------------------------------------------
-// supervisor action
+// Extracted helpers (shared by single-project and multi-project supervisor)
+// ---------------------------------------------------------------------------
+
+/** Build the supervisor:poll event payload. */
+export function buildPollEvent(
+  health: PipelineHealthOutput,
+  projectRoot: string,
+  tokenSnapshot: { input: number; output: number; cost_usd: number },
+  extraFields?: Record<string, unknown>,
+): Record<string, unknown> {
+  const proc = health.process ?? { orchestrator_pid: null, child_pids: [], zombies: [] }
+  return {
+    type: 'supervisor:poll',
+    run_id: health.run_id,
+    verdict: health.verdict,
+    staleness_seconds: health.staleness_seconds,
+    stories: {
+      active: health.stories.active,
+      completed: health.stories.completed,
+      escalated: health.stories.escalated,
+    },
+    story_details: health.stories.details,
+    tokens: tokenSnapshot,
+    process: {
+      orchestrator_pid: proc.orchestrator_pid,
+      child_count: proc.child_pids.length,
+      zombie_count: proc.zombies.length,
+    },
+    ...extraFields,
+  }
+}
+
+/** Extract succeeded / failed / escalated story keys from health details. */
+export function buildTerminalSummary(
+  storyDetails: Record<string, { phase: string; review_cycles: number }>,
+): { succeeded: string[]; failed: string[]; escalated: string[] } {
+  const succeeded: string[] = []
+  const failed: string[] = []
+  const escalated: string[] = []
+  for (const [k, s] of Object.entries(storyDetails)) {
+    if (s.phase === 'COMPLETE') succeeded.push(k)
+    else if (s.phase === 'ESCALATED') escalated.push(k)
+    else if (s.phase !== 'PENDING') failed.push(k)
+  }
+  return { succeeded, failed, escalated }
+}
+
+/** Per-project mutable state tracked across poll cycles. */
+export interface ProjectCycleState {
+  projectRoot: string
+  runId?: string
+  restartCount: number
+}
+
+/**
+ * Handle stall recovery for a single project: kill stalled processes, restart pipeline.
+ *
+ * Returns null if no stall detected (staleness below threshold).
+ * Returns updated state + maxRestartsExceeded flag otherwise.
+ */
+export async function handleStallRecovery(
+  health: PipelineHealthOutput,
+  state: ProjectCycleState,
+  config: { stallThreshold: number; maxRestarts: number; pack: string; outputFormat: OutputFormat },
+  deps: Pick<SupervisorDeps, 'killPid' | 'resumePipeline' | 'sleep' | 'incrementRestarts' | 'getAllDescendants'>,
+  io: {
+    emitEvent: (event: Record<string, unknown>) => void
+    log: (msg: string) => void
+  },
+): Promise<{ state: ProjectCycleState; maxRestartsExceeded: boolean } | null> {
+  const { stallThreshold, maxRestarts, pack, outputFormat } = config
+  const { killPid, resumePipeline, sleep, incrementRestarts, getAllDescendants } = deps
+  const { emitEvent, log } = io
+  const { projectRoot } = state
+
+  if (health.staleness_seconds < stallThreshold) return null
+
+  const directPids = [
+    ...(health.process.orchestrator_pid !== null ? [health.process.orchestrator_pid] : []),
+    ...health.process.child_pids,
+  ]
+
+  // AC8: Collect all descendant PIDs recursively to kill orphan grandchildren
+  const descendantPids = getAllDescendants(directPids)
+  const directPidSet = new Set(directPids)
+  const pids = [...directPids, ...descendantPids.filter((p) => !directPidSet.has(p))]
+
+  emitEvent({
+    type: 'supervisor:kill',
+    run_id: health.run_id,
+    reason: 'stall',
+    staleness_seconds: health.staleness_seconds,
+    pids,
+  })
+
+  log(
+    `Supervisor: Stall confirmed (${health.staleness_seconds}s ≥ ${stallThreshold}s threshold). Killing PIDs: ${pids.join(', ') || 'none'}`,
+  )
+
+  // SIGTERM first — graceful shutdown
+  for (const pid of pids) {
+    try { killPid(pid, 'SIGTERM') } catch { /* Process may already be dead */ }
+  }
+
+  // 5-second grace period, then SIGKILL
+  await sleep(5000)
+  for (const pid of pids) {
+    try { killPid(pid, 'SIGKILL') } catch { /* Process may already be dead */ }
+  }
+
+  // AC4 liveness check: verify processes are dead before restarting
+  if (pids.length > 0) {
+    let allDead = false
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await sleep(1000)
+      allDead = pids.every((pid) => {
+        try { process.kill(pid, 0); return false } catch { return true }
+      })
+      if (allDead) break
+    }
+    if (!allDead) {
+      log(`Supervisor: Warning: Some PIDs may still be alive after SIGKILL`)
+    }
+  }
+
+  // Safety valve: check max restarts before attempting restart
+  if (state.restartCount >= maxRestarts) {
+    emitEvent({
+      type: 'supervisor:abort',
+      run_id: health.run_id,
+      reason: 'max_restarts_exceeded',
+      attempts: state.restartCount,
+    })
+    log(`Supervisor: Max restarts (${maxRestarts}) exceeded. Aborting.`)
+    return { state, maxRestartsExceeded: true }
+  }
+
+  // Restart the pipeline
+  const newRestartCount = state.restartCount + 1
+
+  if (health.run_id !== null) {
+    incrementRestarts(health.run_id, projectRoot)
+  }
+
+  emitEvent({
+    type: 'supervisor:restart',
+    run_id: health.run_id,
+    attempt: newRestartCount,
+  })
+
+  log(`Supervisor: Restarting pipeline (attempt ${newRestartCount}/${maxRestarts})`)
+
+  try {
+    await resumePipeline({
+      runId: health.run_id ?? undefined,
+      outputFormat,
+      projectRoot,
+      concurrency: 3,
+      pack,
+    })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    log(`Supervisor: Resume error: ${message}`)
+    emitEvent({ type: 'supervisor:error' as any, reason: 'resume_failed', message } as any)
+  }
+
+  return { state: { ...state, restartCount: newRestartCount }, maxRestartsExceeded: false }
+}
+
+// ---------------------------------------------------------------------------
+// supervisor action (single project)
 // ---------------------------------------------------------------------------
 
 /**
@@ -178,9 +348,10 @@ export async function runSupervisorAction(
   deps: Partial<SupervisorDeps> = {},
 ): Promise<number> {
   const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack, experiment, maxExperiments } = options
-  const { getHealth, killPid, resumePipeline, sleep, incrementRestarts, runAnalysis, getTokenSnapshot, getAllDescendants } = { ...defaultSupervisorDeps(), ...deps }
+  const resolvedDeps = { ...defaultSupervisorDeps(), ...deps }
+  const { getHealth, sleep, runAnalysis, getTokenSnapshot } = resolvedDeps
 
-  let restartCount = 0
+  let state: ProjectCycleState = { projectRoot, runId, restartCount: 0 }
   const startTime = Date.now()
 
   function emitEvent(event: Omit<PipelineEvent, 'ts'> & Record<string, unknown>): void {
@@ -201,30 +372,12 @@ export async function runSupervisorAction(
     const health = await getHealth({ runId, projectRoot })
     const ts = new Date().toISOString()
 
-    // Emit supervisor:poll heartbeat event on each cycle in JSON mode (Story 19-2 AC1-AC4)
+    // Emit supervisor:poll heartbeat event on each cycle in JSON mode
     if (outputFormat === 'json') {
       const tokenSnapshot = health.run_id !== null
         ? getTokenSnapshot(health.run_id, projectRoot)
         : { input: 0, output: 0, cost_usd: 0 }
-      const proc = health.process ?? { orchestrator_pid: null, child_pids: [], zombies: [] }
-      emitEvent({
-        type: 'supervisor:poll',
-        run_id: health.run_id,
-        verdict: health.verdict,
-        staleness_seconds: health.staleness_seconds,
-        stories: {
-          active: health.stories.active,
-          completed: health.stories.completed,
-          escalated: health.stories.escalated,
-        },
-        story_details: health.stories.details,
-        tokens: tokenSnapshot,
-        process: {
-          orchestrator_pid: proc.orchestrator_pid,
-          child_count: proc.child_pids.length,
-          zombie_count: proc.zombies.length,
-        },
-      })
+      emitEvent(buildPollEvent(health, projectRoot, tokenSnapshot))
     }
 
     log(
@@ -235,30 +388,19 @@ export async function runSupervisorAction(
     // --- Terminal state: pipeline has completed, failed, or stopped ---
     if (health.verdict === 'NO_PIPELINE_RUNNING') {
       const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
-
-      const succeeded = Object.entries(health.stories.details)
-        .filter(([, s]) => s.phase === 'COMPLETE')
-        .map(([k]) => k)
-      const failed = Object.entries(health.stories.details)
-        .filter(([, s]) => s.phase !== 'COMPLETE' && s.phase !== 'PENDING' && s.phase !== 'ESCALATED')
-        .map(([k]) => k)
-      const escalated = Object.entries(health.stories.details)
-        .filter(([, s]) => s.phase === 'ESCALATED')
-        .map(([k]) => k)
+      const summary = buildTerminalSummary(health.stories.details)
 
       emitEvent({
         type: 'supervisor:summary',
         run_id: health.run_id,
         elapsed_seconds: elapsedSeconds,
-        succeeded,
-        failed,
-        escalated,
-        restarts: restartCount,
+        ...summary,
+        restarts: state.restartCount,
       })
 
       log(
         `\nPipeline reached terminal state. Elapsed: ${elapsedSeconds}s | ` +
-          `succeeded: ${succeeded.length} | failed: ${failed.length} | restarts: ${restartCount}`,
+          `succeeded: ${summary.succeeded.length} | failed: ${summary.failed.length} | restarts: ${state.restartCount}`,
       )
 
       // --- AC1 of Story 17-3: run post-run analysis when a run-id is known ---
@@ -279,9 +421,6 @@ export async function runSupervisorAction(
       if (experiment && health.run_id !== null) {
         log(`\n[supervisor] Experiment mode enabled. Checking for optimization recommendations...`)
         emitEvent({ type: 'supervisor:experiment:start', run_id: health.run_id })
-        // Experiment execution is delegated to the Experimenter module (src/modules/supervisor/experimenter.ts).
-        // Recommendations come from Story 17-3 analysis engine. When no recommendations file
-        // exists (17-3 not yet run), we degrade gracefully and log a message.
         const analysisReportPath = join(
           projectRoot,
           '_bmad-output',
@@ -308,8 +447,6 @@ export async function runSupervisorAction(
             log(`[supervisor] Found ${recommendations.length} recommendation(s) to experiment with.`)
             emitEvent({ type: 'supervisor:experiment:recommendations', run_id: health.run_id, count: recommendations.length })
 
-            // Wire and execute experiments via the Experimenter module (AC3/AC5/AC6/AC7).
-            // RunStoryFn adapter: runs a single story via runRunAction, then queries the DB for the new run ID.
             try {
               const { createExperimenter } = await import(/* @vite-ignore */ '../../modules/supervisor/experimenter.js')
               const { getLatestRun: getLatest } = await import(/* @vite-ignore */ '../../persistence/queries/decisions.js')
@@ -330,7 +467,6 @@ export async function runSupervisorAction(
                     outputFormat: 'json',
                     projectRoot: opts.projectRoot,
                   })
-                  // Retrieve the run ID of the just-completed experiment run from the DB
                   const latestRun = getLatest(expDb)
                   const newRunId = latestRun?.run_id ?? `experiment-${Date.now()}`
                   return { runId: newRunId, exitCode }
@@ -379,123 +515,177 @@ export async function runSupervisorAction(
         }
       }
 
-      return (failed.length > 0 || escalated.length > 0) ? 1 : 0
+      return (summary.failed.length > 0 || summary.escalated.length > 0) ? 1 : 0
     }
 
-    // --- Stall detection: kill if staleness exceeds threshold ---
-    // Check staleness directly so that configurable --stall-threshold values below the
-    // hardcoded 600s in getAutoHealthData (which governs the STALLED verdict) take effect.
-    if (health.staleness_seconds >= stallThreshold) {
-      const directPids = [
-        ...(health.process.orchestrator_pid !== null ? [health.process.orchestrator_pid] : []),
-        ...health.process.child_pids,
-      ]
-
-      // AC8: Collect all descendant PIDs recursively to kill orphan grandchildren
-      // (e.g. node subprocesses spawned by `claude -p` sub-agents)
-      const descendantPids = getAllDescendants(directPids)
-      const directPidSet = new Set(directPids)
-      const pids = [...directPids, ...descendantPids.filter((p) => !directPidSet.has(p))]
-
-      emitEvent({
-        type: 'supervisor:kill',
-        run_id: health.run_id,
-        reason: 'stall',
-        staleness_seconds: health.staleness_seconds,
-        pids,
-      })
-
-      log(
-        `Supervisor: Stall confirmed (${health.staleness_seconds}s ≥ ${stallThreshold}s threshold). Killing PIDs: ${pids.join(', ') || 'none'}`,
-      )
-
-      // SIGTERM first — graceful shutdown
-      for (const pid of pids) {
-        try {
-          killPid(pid, 'SIGTERM')
-        } catch {
-          // Process may already be dead — ignore
-        }
-      }
-
-      // 5-second grace period, then SIGKILL
-      await sleep(5000)
-      for (const pid of pids) {
-        try {
-          killPid(pid, 'SIGKILL')
-        } catch {
-          // Process may already be dead — ignore
-        }
-      }
-
-      // AC4 liveness check: verify processes are dead before restarting
-      if (pids.length > 0) {
-        let allDead = false
-        for (let attempt = 0; attempt < 5; attempt++) {
-          await sleep(1000)
-          allDead = pids.every((pid) => {
-            try {
-              process.kill(pid, 0)
-              return false // still alive
-            } catch {
-              return true // ESRCH: process is dead
-            }
-          })
-          if (allDead) break
-        }
-        if (!allDead) {
-          log(`Supervisor: Warning: Some PIDs may still be alive after SIGKILL`)
-        }
-      }
-
-      // Safety valve: check max restarts before attempting restart
-      if (restartCount >= maxRestarts) {
-        emitEvent({
-          type: 'supervisor:abort',
-          run_id: health.run_id,
-          reason: 'max_restarts_exceeded',
-          attempts: restartCount,
-        })
-        log(`Supervisor: Max restarts (${maxRestarts}) exceeded. Aborting.`)
-        return 2
-      }
-
-      // Restart the pipeline
-      restartCount++
-
-      // Persist restart count to run_metrics so writeRunMetrics captures it (Issue 2 fix)
-      if (health.run_id !== null) {
-        incrementRestarts(health.run_id, projectRoot)
-      }
-
-      emitEvent({
-        type: 'supervisor:restart',
-        run_id: health.run_id,
-        attempt: restartCount,
-      })
-
-      log(`Supervisor: Restarting pipeline (attempt ${restartCount}/${maxRestarts})`)
-
-      // Await resume so the pipeline has started before we poll health again.
-      // Without this, the next poll could see NO_PIPELINE_RUNNING and exit prematurely.
-      try {
-        await resumePipeline({
-          runId: health.run_id ?? undefined,
-          outputFormat,
-          projectRoot,
-          concurrency: 3,
-          pack,
-        })
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err)
-        log(`Supervisor: Resume error: ${message}`)
-        if (outputFormat === 'json') {
-          emitEvent({ type: 'supervisor:error' as any, reason: 'resume_failed', message } as any)
-        }
-      }
+    // --- Stall detection and recovery ---
+    const stallResult = await handleStallRecovery(
+      health,
+      state,
+      { stallThreshold, maxRestarts, pack, outputFormat },
+      resolvedDeps,
+      { emitEvent, log },
+    )
+    if (stallResult !== null) {
+      if (stallResult.maxRestartsExceeded) return 2
+      state = stallResult.state
     }
 
     // Wait for next poll interval
+    await sleep(pollInterval * 1000)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Multi-project supervisor
+// ---------------------------------------------------------------------------
+
+export interface MultiProjectSupervisorOptions {
+  projects: string[]
+  pollInterval: number
+  stallThreshold: number
+  maxRestarts: number
+  outputFormat: OutputFormat
+  pack: string
+}
+
+/**
+ * Run the supervisor across multiple projects simultaneously.
+ * Polls each project sequentially within each cycle, tagging events with `project`.
+ *
+ * Exit codes:
+ *   0 — all projects completed without failures
+ *   1 — at least one project completed with failures or escalations
+ *   2 — at least one project hit max restarts
+ */
+export async function runMultiProjectSupervisor(
+  options: MultiProjectSupervisorOptions,
+  deps: Partial<SupervisorDeps> = {},
+): Promise<number> {
+  const { projects, pollInterval, stallThreshold, maxRestarts, outputFormat, pack } = options
+  const resolvedDeps = { ...defaultSupervisorDeps(), ...deps }
+  const { getHealth, sleep, getTokenSnapshot } = resolvedDeps
+
+  if (projects.length === 0) {
+    process.stderr.write('Error: --projects requires at least one project path\n')
+    return 1
+  }
+
+  const states = new Map<string, ProjectCycleState>(
+    projects.map((p) => [p, { projectRoot: p, restartCount: 0 }]),
+  )
+  const doneProjects = new Set<string>()
+  const projectExitCodes = new Map<string, number>()
+  const startTime = Date.now()
+
+  function emitEvent(event: Omit<PipelineEvent, 'ts'> & Record<string, unknown>): void {
+    if (outputFormat === 'json') {
+      const stamped = { ...event, ts: new Date().toISOString() }
+      process.stdout.write(JSON.stringify(stamped) + '\n')
+    }
+  }
+
+  function log(message: string): void {
+    if (outputFormat === 'human') {
+      process.stdout.write(message + '\n')
+    }
+  }
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    for (const projectRoot of projects) {
+      if (doneProjects.has(projectRoot)) continue
+
+      let health: PipelineHealthOutput
+      try {
+        health = await getHealth({ projectRoot })
+      } catch {
+        // Project may have disappeared (DB deleted, dir removed) — mark terminal
+        log(`[supervisor] ${projectRoot}: health check failed — marking as done`)
+        emitEvent({ type: 'supervisor:error', project: projectRoot, reason: 'health_check_failed' } as any)
+        doneProjects.add(projectRoot)
+        projectExitCodes.set(projectRoot, 1)
+        continue
+      }
+
+      const state = states.get(projectRoot)!
+
+      // Emit poll event with project tag
+      if (outputFormat === 'json') {
+        const tokenSnapshot = health.run_id !== null
+          ? getTokenSnapshot(health.run_id, projectRoot)
+          : { input: 0, output: 0, cost_usd: 0 }
+        emitEvent(buildPollEvent(health, projectRoot, tokenSnapshot, { project: projectRoot }))
+      }
+
+      log(
+        `[${projectRoot}] Health: ${health.verdict} | staleness=${health.staleness_seconds}s | ` +
+          `active=${health.stories.active} completed=${health.stories.completed} escalated=${health.stories.escalated}`,
+      )
+
+      // Terminal state
+      if (health.verdict === 'NO_PIPELINE_RUNNING') {
+        const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
+        const summary = buildTerminalSummary(health.stories.details)
+
+        emitEvent({
+          type: 'supervisor:summary',
+          project: projectRoot,
+          run_id: health.run_id,
+          elapsed_seconds: elapsedSeconds,
+          ...summary,
+          restarts: state.restartCount,
+        })
+
+        log(
+          `[${projectRoot}] Terminal. succeeded=${summary.succeeded.length} failed=${summary.failed.length} restarts=${state.restartCount}`,
+        )
+
+        doneProjects.add(projectRoot)
+        projectExitCodes.set(
+          projectRoot,
+          (summary.failed.length > 0 || summary.escalated.length > 0) ? 1 : 0,
+        )
+        continue
+      }
+
+      // Stall recovery
+      const stallResult = await handleStallRecovery(
+        health,
+        state,
+        { stallThreshold, maxRestarts, pack, outputFormat },
+        resolvedDeps,
+        {
+          emitEvent: (evt) => emitEvent({ ...evt, project: projectRoot }),
+          log: (msg) => log(`[${projectRoot}] ${msg}`),
+        },
+      )
+      if (stallResult !== null) {
+        if (stallResult.maxRestartsExceeded) {
+          doneProjects.add(projectRoot)
+          projectExitCodes.set(projectRoot, 2)
+        } else {
+          states.set(projectRoot, stallResult.state)
+        }
+      }
+    }
+
+    // Check if all projects are done
+    if (doneProjects.size >= projects.length) {
+      const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
+      emitEvent({
+        type: 'supervisor:done',
+        elapsed_seconds: elapsedSeconds,
+        project_results: Object.fromEntries(projectExitCodes),
+      })
+      log(`\nAll projects reached terminal state. Elapsed: ${elapsedSeconds}s`)
+
+      const exitCodes = [...projectExitCodes.values()]
+      if (exitCodes.includes(2)) return 2
+      if (exitCodes.includes(1)) return 1
+      return 0
+    }
+
     await sleep(pollInterval * 1000)
   }
 }
@@ -523,6 +713,7 @@ export function registerSupervisorCommand(
     .option('--run-id <id>', 'Pipeline run ID to monitor (defaults to latest)')
     .option('--pack <name>', 'Methodology pack name', 'bmad')
     .option('--project-root <path>', 'Project root directory', projectRoot)
+    .option('--projects <paths>', 'Comma-separated project root directories to monitor (multi-project mode)')
     .option(
       '--output-format <format>',
       'Output format: human (default) or json',
@@ -547,6 +738,7 @@ export function registerSupervisorCommand(
         runId?: string
         pack: string
         projectRoot: string
+        projects?: string
         outputFormat: string
         experiment: boolean
         maxExperiments: number
@@ -558,6 +750,31 @@ export function registerSupervisorCommand(
             `Agent steps typically take 45-90s. This may cause false stall detections and wasted restarts.`,
           )
         }
+
+        // Multi-project mode: --projects takes precedence
+        if (opts.projects) {
+          if (opts.runId) {
+            console.error('Error: --run-id cannot be used with --projects (ambiguous)')
+            process.exitCode = 1
+            return
+          }
+          if (opts.experiment) {
+            console.warn('Warning: --experiment is not supported in multi-project mode — ignored.')
+          }
+          const projects = opts.projects.split(',').map((p) => resolve(p.trim()))
+          const exitCode = await runMultiProjectSupervisor({
+            projects,
+            pollInterval: opts.pollInterval,
+            stallThreshold: opts.stallThreshold,
+            maxRestarts: opts.maxRestarts,
+            outputFormat,
+            pack: opts.pack,
+          })
+          process.exitCode = exitCode
+          return
+        }
+
+        // Single-project mode (backwards compatible)
         const exitCode = await runSupervisorAction({
           pollInterval: opts.pollInterval,
           stallThreshold: opts.stallThreshold,
