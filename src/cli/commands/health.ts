@@ -82,23 +82,36 @@ export interface PipelineHealthOutput {
  *   - `node dist/cli/index.js run` (npm run substrate:dev)
  *   - `npx substrate run`
  *   - any node process whose command contains `run` with `--events` or `--stories`
+ *
+ * When `projectRoot` is provided, additionally checks that the command line
+ * contains that path (via `--project-root` flag or as part of the binary/CWD path).
+ * This ensures multi-project environments match the correct orchestrator.
  */
-function isOrchestratorProcessLine(line: string): boolean {
+export function isOrchestratorProcessLine(line: string, projectRoot?: string): boolean {
   if (line.includes('grep')) return false
-  if (line.includes('substrate run')) return true
-  if (line.includes('substrate-ai run')) return true
-  if (line.includes('index.js run')) return true
+  let isOrchestrator = false
+  if (line.includes('substrate run')) isOrchestrator = true
+  else if (line.includes('substrate-ai run')) isOrchestrator = true
+  else if (line.includes('index.js run')) isOrchestrator = true
   // Match node processes where 'run' is a complete argument token (not a substring
   // of another word like 'dry-run-tool'). Require whitespace before 'run' and
   // whitespace or end-of-string after 'run'.
-  if (
+  else if (
     line.includes('node') &&
     /\srun(\s|$)/.test(line) &&
     (line.includes('--events') || line.includes('--stories'))
   ) {
-    return true
+    isOrchestrator = true
   }
-  return false
+
+  if (!isOrchestrator) return false
+
+  // When projectRoot is specified, scope to orchestrators for that project
+  if (projectRoot !== undefined) {
+    return line.includes(projectRoot)
+  }
+
+  return true
 }
 
 /** Injectable execFileSync for testing */
@@ -108,7 +121,13 @@ export type ExecFileSyncFn = (
   opts: { encoding: string; timeout: number },
 ) => string
 
-export function inspectProcessTree(execFileSyncOverride?: ExecFileSyncFn): ProcessInfo {
+export interface InspectProcessTreeOptions {
+  projectRoot?: string
+  execFileSync?: ExecFileSyncFn
+}
+
+export function inspectProcessTree(opts?: InspectProcessTreeOptions): ProcessInfo {
+  const { projectRoot, execFileSync: execFileSyncOverride } = opts ?? {}
   const result: ProcessInfo = { orchestrator_pid: null, child_pids: [], zombies: [] }
   try {
     let psOutput: string
@@ -121,8 +140,9 @@ export function inspectProcessTree(execFileSyncOverride?: ExecFileSyncFn): Proce
     const lines = psOutput.split('\n')
 
     // Find substrate run process — match multiple invocation patterns
+    // When projectRoot is provided, only match orchestrators for that project
     for (const line of lines) {
-      if (isOrchestratorProcessLine(line)) {
+      if (isOrchestratorProcessLine(line, projectRoot)) {
         const match = line.trim().match(/^(\d+)/)
         if (match) {
           result.orchestrator_pid = parseInt(match[1], 10)
@@ -297,8 +317,9 @@ export async function getAutoHealthData(options: {
       // ignore parse errors
     }
 
-    // Inspect process tree
-    const processInfo = inspectProcessTree()
+    // Inspect process tree — scope to this project so multi-project setups
+    // match the correct orchestrator process
+    const processInfo = inspectProcessTree({ projectRoot })
 
     // Derive verdict
     let verdict: HealthVerdict = 'NO_PIPELINE_RUNNING'
@@ -309,6 +330,10 @@ export async function getAutoHealthData(options: {
         verdict = 'NO_PIPELINE_RUNNING'
       } else if (processInfo.zombies.length > 0) {
         verdict = 'STALLED'
+      } else if (processInfo.orchestrator_pid !== null && processInfo.child_pids.length > 0 && stalenessSeconds > DEFAULT_STALL_THRESHOLD_SECONDS) {
+        // Children are alive and not zombies — pipeline is actively working even
+        // though DB hasn't been updated (agent mid-execution). Treat as HEALTHY.
+        verdict = 'HEALTHY'
       } else if (stalenessSeconds > DEFAULT_STALL_THRESHOLD_SECONDS) {
         verdict = 'STALLED'
       } else if (processInfo.orchestrator_pid !== null && processInfo.child_pids.length === 0 && active > 0) {
