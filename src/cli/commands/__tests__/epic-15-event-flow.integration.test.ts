@@ -1149,3 +1149,161 @@ describe('CLAUDE.md scaffold is called from runAutoInit (not runRunAction)', () 
     expect(claudeMdWriteCalls).toHaveLength(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 16-7 T2/T4: Heartbeat and stall NDJSON wiring
+// ---------------------------------------------------------------------------
+
+describe('Story 16-7: Heartbeat and stall NDJSON event wiring (--events mode)', () => {
+  let stdoutChunks: string[]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetEventBusListeners()
+
+    stdoutChunks = []
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      stdoutChunks.push(chunk.toString())
+      return true
+    })
+
+    mockExistsSync.mockReturnValue(true)
+    mockPackLoad.mockResolvedValue(mockPack())
+    mockDiscoverAndRegister.mockResolvedValue(undefined)
+    mockCreatePipelineRun.mockReturnValue(mockPipelineRun())
+    mockOrchestratorRun.mockResolvedValue(defaultStatus)
+    mockGetTokenUsageSummary.mockReturnValue([])
+    mockDiscoverPendingStoryKeys.mockReturnValue([])
+
+    const mockPrepare = vi.fn().mockReturnValue({
+      all: vi.fn().mockReturnValue([]),
+      get: vi.fn().mockReturnValue(undefined),
+    })
+    mockDb = { prepare: mockPrepare }
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('T2: pipeline:heartbeat NDJSON emitted when orchestrator:heartbeat fires', async () => {
+    mockOrchestratorRun.mockImplementation(async () => {
+      const listeners = eventBusListeners['orchestrator:heartbeat'] ?? []
+      for (const listener of listeners) {
+        listener({
+          runId: 'run-uuid-123',
+          activeDispatches: 2,
+          completedDispatches: 1,
+          queuedDispatches: 0,
+        })
+      }
+      return defaultStatus
+    })
+
+    await runRunAction({
+      pack: 'bmad',
+      stories: '10-1',
+      concurrency: 1,
+      outputFormat: 'human',
+      projectRoot: '/test/project',
+      events: true,
+    })
+
+    const allOutput = stdoutChunks.join('')
+    const lines = allOutput.split('\n').filter((l) => l.trim().startsWith('{'))
+    const heartbeatEvents = lines
+      .map((l) => JSON.parse(l) as {
+        type: string
+        run_id?: string
+        active_dispatches?: number
+        completed_dispatches?: number
+        queued_dispatches?: number
+      })
+      .filter((e) => e.type === 'pipeline:heartbeat')
+
+    expect(heartbeatEvents.length).toBeGreaterThanOrEqual(1)
+    const hb = heartbeatEvents[0]!
+    expect(hb.run_id).toBe('run-uuid-123')
+    expect(hb.active_dispatches).toBe(2)
+    expect(hb.completed_dispatches).toBe(1)
+    expect(hb.queued_dispatches).toBe(0)
+  })
+
+  it('T4: story:stall NDJSON emitted when orchestrator:stall fires', async () => {
+    mockOrchestratorRun.mockImplementation(async () => {
+      const listeners = eventBusListeners['orchestrator:stall'] ?? []
+      for (const listener of listeners) {
+        listener({
+          runId: 'run-uuid-123',
+          storyKey: '16-2',
+          phase: 'IN_DEV',
+          elapsedMs: 660_000,
+        })
+      }
+      return defaultStatus
+    })
+
+    await runRunAction({
+      pack: 'bmad',
+      stories: '10-1',
+      concurrency: 1,
+      outputFormat: 'human',
+      projectRoot: '/test/project',
+      events: true,
+    })
+
+    const allOutput = stdoutChunks.join('')
+    const lines = allOutput.split('\n').filter((l) => l.trim().startsWith('{'))
+    const stallEvents = lines
+      .map((l) => JSON.parse(l) as {
+        type: string
+        run_id?: string
+        story_key?: string
+        phase?: string
+        elapsed_ms?: number
+      })
+      .filter((e) => e.type === 'story:stall')
+
+    expect(stallEvents.length).toBeGreaterThanOrEqual(1)
+    const stall = stallEvents[0]!
+    expect(stall.run_id).toBe('run-uuid-123')
+    expect(stall.story_key).toBe('16-2')
+    expect(stall.phase).toBe('IN_DEV')
+    expect(stall.elapsed_ms).toBe(660_000)
+  })
+
+  it('T2/T4: heartbeat and stall events are NOT emitted when --events flag is false', async () => {
+    mockOrchestratorRun.mockImplementation(async () => {
+      // Fire both events
+      const heartbeatListeners = eventBusListeners['orchestrator:heartbeat'] ?? []
+      for (const listener of heartbeatListeners) {
+        listener({ runId: 'run-uuid-123', activeDispatches: 1, completedDispatches: 0, queuedDispatches: 0 })
+      }
+      const stallListeners = eventBusListeners['orchestrator:stall'] ?? []
+      for (const listener of stallListeners) {
+        listener({ runId: 'run-uuid-123', storyKey: '10-1', phase: 'IN_DEV', elapsedMs: 660_000 })
+      }
+      return defaultStatus
+    })
+
+    // Note: NOT passing events: true
+    await runRunAction({
+      pack: 'bmad',
+      stories: '10-1',
+      concurrency: 1,
+      outputFormat: 'human',
+      projectRoot: '/test/project',
+    })
+
+    const allOutput = stdoutChunks.join('')
+    const lines = allOutput.split('\n').filter((l) => l.trim().startsWith('{'))
+    const jsonEvents = lines.map((l) => {
+      try { return JSON.parse(l) as { type: string } } catch { return null }
+    }).filter(Boolean)
+
+    const heartbeatEvents = jsonEvents.filter((e) => e!.type === 'pipeline:heartbeat')
+    const stallEvents = jsonEvents.filter((e) => e!.type === 'story:stall')
+    expect(heartbeatEvents.length).toBe(0)
+    expect(stallEvents.length).toBe(0)
+  })
+})

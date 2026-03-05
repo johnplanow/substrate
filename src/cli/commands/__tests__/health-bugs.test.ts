@@ -14,7 +14,7 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
-import { getAutoHealthData, inspectProcessTree, DEFAULT_STALL_THRESHOLD_SECONDS } from '../health.js'
+import { getAutoHealthData, inspectProcessTree, getAllDescendantPids, DEFAULT_STALL_THRESHOLD_SECONDS } from '../health.js'
 import { runSupervisorAction } from '../supervisor.js'
 import type { SupervisorDeps, SupervisorOptions } from '../supervisor.js'
 import type { PipelineHealthOutput } from '../health.js'
@@ -422,5 +422,291 @@ describe('supervisor stall detection — AC3 end-to-end', () => {
 describe('DEFAULT_STALL_THRESHOLD_SECONDS constant (AC5)', () => {
   it('is exported and equals 600', () => {
     expect(DEFAULT_STALL_THRESHOLD_SECONDS).toBe(600)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC7: Supervisor health detection across all pipeline phases
+// ---------------------------------------------------------------------------
+
+describe('getAutoHealthData — AC7: health detection across all phases', () => {
+  let db: BetterSqlite3Database
+
+  beforeEach(async () => {
+    db = createTestDb()
+    const dbModule = await import('../../../persistence/database.js') as { __setMockDb: (db: BetterSqlite3Database) => void }
+    dbModule.__setMockDb(db)
+  })
+
+  afterEach(() => {
+    db.close()
+  })
+
+  const runningPhases = ['research', 'analysis', 'planning', 'solutioning', 'implementation']
+
+  for (const phase of runningPhases) {
+    it(`returns HEALTHY verdict for a running pipeline in ${phase} phase (recent activity)`, async () => {
+      createTestRun(db, {
+        status: 'running',
+        current_phase: phase,
+        updated_at: new Date().toISOString(), // fresh — not stale
+      })
+
+      const result = await getAutoHealthData({ projectRoot: '/tmp/test-project' })
+
+      // The verdict must not be NO_PIPELINE_RUNNING — the pipeline IS running
+      expect(result.verdict).not.toBe('NO_PIPELINE_RUNNING')
+      // Status must reflect the running state
+      expect(result.status).toBe('running')
+      expect(result.current_phase).toBe(phase)
+    })
+  }
+
+  it('verdict is derived from run.status, not current_phase', async () => {
+    // A completed run in any phase must be NO_PIPELINE_RUNNING
+    createTestRun(db, {
+      status: 'completed',
+      current_phase: 'implementation',
+    })
+
+    const result = await getAutoHealthData({ projectRoot: '/tmp/test-project' })
+    expect(result.verdict).toBe('NO_PIPELINE_RUNNING')
+    expect(result.status).toBe('completed')
+  })
+
+  it('a stale pipeline in analysis phase is detected as STALLED', async () => {
+    const elevenMinAgo = new Date(Date.now() - 700_000).toISOString()
+    createTestRun(db, {
+      status: 'running',
+      current_phase: 'analysis',
+      updated_at: elevenMinAgo,
+    })
+
+    const result = await getAutoHealthData({ projectRoot: '/tmp/test-project' })
+    expect(result.verdict).toBe('STALLED')
+    expect(result.staleness_seconds).toBeGreaterThan(DEFAULT_STALL_THRESHOLD_SECONDS)
+  })
+
+  it('a stale pipeline in planning phase is detected as STALLED', async () => {
+    const elevenMinAgo = new Date(Date.now() - 700_000).toISOString()
+    createTestRun(db, {
+      status: 'running',
+      current_phase: 'planning',
+      updated_at: elevenMinAgo,
+    })
+
+    const result = await getAutoHealthData({ projectRoot: '/tmp/test-project' })
+    expect(result.verdict).toBe('STALLED')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC7: isOrchestratorProcessLine matches --from <phase> invocations
+// ---------------------------------------------------------------------------
+
+describe('inspectProcessTree — AC7: process detection for all phases', () => {
+  it('detects orchestrator started with --from analysis', () => {
+    const psOutput = [
+      '  1     0 Ss   /sbin/init',
+      '12345 12344 S    substrate run --from analysis --events',
+      '12346 12345 S    node worker.js',
+    ].join('\n')
+
+    const mockExecFileSync = vi.fn().mockReturnValue(psOutput)
+    const result = inspectProcessTree(mockExecFileSync)
+
+    expect(result.orchestrator_pid).toBe(12345)
+    expect(result.child_pids).toContain(12346)
+  })
+
+  it('detects orchestrator started with --from planning', () => {
+    const psOutput = [
+      '  1     0 Ss   /sbin/init',
+      '22345 22344 S    substrate run --from planning --events',
+      '22346 22345 S    node worker.js',
+    ].join('\n')
+
+    const mockExecFileSync = vi.fn().mockReturnValue(psOutput)
+    const result = inspectProcessTree(mockExecFileSync)
+
+    expect(result.orchestrator_pid).toBe(22345)
+  })
+
+  it('detects orchestrator started with --from solutioning', () => {
+    const psOutput = [
+      '  1     0 Ss   /sbin/init',
+      '32345 32344 S    substrate run --from solutioning --events',
+      '32346 32345 S    node worker.js',
+    ].join('\n')
+
+    const mockExecFileSync = vi.fn().mockReturnValue(psOutput)
+    const result = inspectProcessTree(mockExecFileSync)
+
+    expect(result.orchestrator_pid).toBe(32345)
+  })
+
+  it('detects orchestrator started with --from research (future phase)', () => {
+    const psOutput = [
+      '  1     0 Ss   /sbin/init',
+      '42345 42344 S    substrate run --from research --events',
+      '42346 42345 S    node worker.js',
+    ].join('\n')
+
+    const mockExecFileSync = vi.fn().mockReturnValue(psOutput)
+    const result = inspectProcessTree(mockExecFileSync)
+
+    expect(result.orchestrator_pid).toBe(42345)
+  })
+
+  it('detects orchestrator started via node invocation for any phase', () => {
+    const psOutput = [
+      '  1     0 Ss   /sbin/init',
+      '52345 52344 S    node dist/cli/index.js run --from analysis --events --stories 16-7',
+      '52346 52345 S    node worker.js',
+    ].join('\n')
+
+    const mockExecFileSync = vi.fn().mockReturnValue(psOutput)
+    const result = inspectProcessTree(mockExecFileSync)
+
+    expect(result.orchestrator_pid).toBe(52345)
+    expect(result.child_pids).toContain(52346)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC8: getAllDescendantPids — recursive process tree walk (orphan cleanup)
+// ---------------------------------------------------------------------------
+
+describe('getAllDescendantPids — AC8: recursive orphan cleanup', () => {
+  /**
+   * Build a mock ps output string for pid,ppid columns only.
+   * Entries: [ [pid, ppid], ... ]
+   */
+  function buildPsOutput(entries: Array<[number, number]>): string {
+    const lines = ['  PID  PPID', ...entries.map(([pid, ppid]) => `  ${pid}  ${ppid}`)]
+    return lines.join('\n')
+  }
+
+  it('returns empty array when rootPids is empty', () => {
+    const result = getAllDescendantPids([])
+    expect(result).toEqual([])
+  })
+
+  it('returns empty array when roots have no children', () => {
+    // Process tree: root 100, no children
+    const psOutput = buildPsOutput([[1, 0], [100, 99]])
+    const mockExec = vi.fn().mockReturnValue(psOutput)
+    const result = getAllDescendantPids([100], mockExec)
+    expect(result).toEqual([])
+  })
+
+  it('collects direct children of root PIDs', () => {
+    // Process tree:
+    //   orchestrator (1000) → children [1001, 1002]
+    const psOutput = buildPsOutput([
+      [1, 0],
+      [1000, 999],
+      [1001, 1000],
+      [1002, 1000],
+    ])
+    const mockExec = vi.fn().mockReturnValue(psOutput)
+    const result = getAllDescendantPids([1000], mockExec)
+
+    expect(result).toContain(1001)
+    expect(result).toContain(1002)
+    expect(result).not.toContain(1000) // root not included
+  })
+
+  it('collects grandchildren in a 3-level process tree (AC8 core scenario)', () => {
+    // 3-level tree:
+    //   orchestrator (1000)
+    //     ├── child-1 (1001) — direct child of orchestrator
+    //     │     └── grandchild-1 (1003) — spawned by child-1 (claude -p)
+    //     └── child-2 (1002) — direct child of orchestrator
+    //           └── grandchild-2 (1004) — spawned by child-2 (claude -p)
+    const psOutput = buildPsOutput([
+      [1, 0],
+      [1000, 999],
+      [1001, 1000],
+      [1002, 1000],
+      [1003, 1001],
+      [1004, 1002],
+    ])
+    const mockExec = vi.fn().mockReturnValue(psOutput)
+    // Direct PIDs = [1000, 1001, 1002] (orchestrator + children)
+    const result = getAllDescendantPids([1000, 1001, 1002], mockExec)
+
+    // Grandchildren must be included
+    expect(result).toContain(1003)
+    expect(result).toContain(1004)
+    // Root PIDs themselves are NOT in the result
+    expect(result).not.toContain(1000)
+    expect(result).not.toContain(1001)
+    expect(result).not.toContain(1002)
+  })
+
+  it('collects great-grandchildren in a 4-level process tree', () => {
+    // 4 levels:
+    //   orchestrator (2000) → child (2001) → grandchild (2002) → great-grandchild (2003)
+    const psOutput = buildPsOutput([
+      [1, 0],
+      [2000, 1999],
+      [2001, 2000],
+      [2002, 2001],
+      [2003, 2002],
+    ])
+    const mockExec = vi.fn().mockReturnValue(psOutput)
+    const result = getAllDescendantPids([2000], mockExec)
+
+    expect(result).toContain(2001) // child
+    expect(result).toContain(2002) // grandchild
+    expect(result).toContain(2003) // great-grandchild
+    expect(result).not.toContain(2000)
+  })
+
+  it('does not include processes unrelated to roots', () => {
+    // Unrelated process 9999 has its own children 10000, 10001
+    const psOutput = buildPsOutput([
+      [1, 0],
+      [1000, 999],
+      [1001, 1000], // descendant of root
+      [9999, 1],
+      [10000, 9999], // unrelated
+      [10001, 9999], // unrelated
+    ])
+    const mockExec = vi.fn().mockReturnValue(psOutput)
+    const result = getAllDescendantPids([1000], mockExec)
+
+    expect(result).toContain(1001)
+    expect(result).not.toContain(9999)
+    expect(result).not.toContain(10000)
+    expect(result).not.toContain(10001)
+  })
+
+  it('does not include duplicates when rootPids overlap with ps output', () => {
+    // rootPids includes both orchestrator (3000) and a known child (3001)
+    const psOutput = buildPsOutput([
+      [1, 0],
+      [3000, 2999],
+      [3001, 3000],
+      [3002, 3001],
+    ])
+    const mockExec = vi.fn().mockReturnValue(psOutput)
+    // Pass both orchestrator and one of its children as rootPids
+    const result = getAllDescendantPids([3000, 3001], mockExec)
+
+    // 3002 is a grandchild of 3000 (child of 3001)
+    expect(result).toContain(3002)
+    // No duplicates — 3002 appears exactly once
+    expect(result.filter((p) => p === 3002)).toHaveLength(1)
+    // Root PIDs not in result
+    expect(result).not.toContain(3000)
+    expect(result).not.toContain(3001)
+  })
+
+  it('returns empty array gracefully when ps command fails', () => {
+    const mockExec = vi.fn().mockImplementation(() => { throw new Error('ps failed') })
+    const result = getAllDescendantPids([1000, 1001], mockExec)
+    expect(result).toEqual([])
   })
 })

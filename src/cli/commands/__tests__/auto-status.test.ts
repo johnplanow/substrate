@@ -285,6 +285,130 @@ describe('buildPipelineStatusOutput', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Tests: AC4 — last_event_ts and active_dispatches fields (Story 16-7)
+// ---------------------------------------------------------------------------
+
+describe('buildPipelineStatusOutput — AC4: last_event_ts and active_dispatches (Story 16-7)', () => {
+  it('includes last_event_ts field matching last_activity', () => {
+    const db = createTestDb()
+    const run = createTestRun(db)
+
+    const result = buildPipelineStatusOutput(run, [], 0, 0)
+
+    expect(result).toHaveProperty('last_event_ts')
+    expect(typeof result.last_event_ts).toBe('string')
+    expect(result.last_event_ts).toBe(result.last_activity)
+
+    db.close()
+  })
+
+  it('includes active_dispatches field defaulting to 0 when no token_usage_json', () => {
+    const db = createTestDb()
+    const run = createTestRun(db) // no token_usage_json
+
+    const result = buildPipelineStatusOutput(run, [], 0, 0)
+
+    expect(result).toHaveProperty('active_dispatches')
+    expect(result.active_dispatches).toBe(0)
+
+    db.close()
+  })
+
+  it('active_dispatches counts non-terminal stories from token_usage_json', () => {
+    const db = createTestDb()
+    const run = createTestRun(db)
+    // Inject story state: 2 active (IN_STORY_CREATION, IN_DEV), 1 complete, 1 pending, 1 escalated
+    const storyState = {
+      stories: {
+        '16-1': { phase: 'IN_STORY_CREATION', reviewCycles: 0 },
+        '16-2': { phase: 'IN_DEV', reviewCycles: 0 },
+        '16-3': { phase: 'COMPLETE', reviewCycles: 1 },
+        '16-4': { phase: 'PENDING', reviewCycles: 0 },
+        '16-5': { phase: 'ESCALATED', reviewCycles: 2 },
+      },
+    }
+    db.prepare(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`).run(
+      JSON.stringify(storyState),
+      run.id,
+    )
+    const updatedRun = db.prepare('SELECT * FROM pipeline_runs WHERE id = ?').get(run.id) as typeof run
+
+    const result = buildPipelineStatusOutput(updatedRun, [], 0, 0)
+
+    // Only IN_STORY_CREATION and IN_DEV are active (2 stories)
+    expect(result.active_dispatches).toBe(2)
+
+    db.close()
+  })
+
+  it('active_dispatches is 0 when all stories are complete or escalated', () => {
+    const db = createTestDb()
+    const run = createTestRun(db)
+    const storyState = {
+      stories: {
+        '16-1': { phase: 'COMPLETE', reviewCycles: 1 },
+        '16-2': { phase: 'ESCALATED', reviewCycles: 2 },
+        '16-3': { phase: 'PENDING', reviewCycles: 0 },
+      },
+    }
+    db.prepare(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`).run(
+      JSON.stringify(storyState),
+      run.id,
+    )
+    const updatedRun = db.prepare('SELECT * FROM pipeline_runs WHERE id = ?').get(run.id) as typeof run
+
+    const result = buildPipelineStatusOutput(updatedRun, [], 0, 0)
+
+    expect(result.active_dispatches).toBe(0)
+
+    db.close()
+  })
+
+  it('active_dispatches is 0 when token_usage_json has no stories key', () => {
+    const db = createTestDb()
+    const run = createTestRun(db)
+    db.prepare(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`).run(
+      JSON.stringify({ state: 'RUNNING', maxConcurrentActual: 2 }), // no stories key
+      run.id,
+    )
+    const updatedRun = db.prepare('SELECT * FROM pipeline_runs WHERE id = ?').get(run.id) as typeof run
+
+    const result = buildPipelineStatusOutput(updatedRun, [], 0, 0)
+
+    expect(result.active_dispatches).toBe(0)
+
+    db.close()
+  })
+
+  it('last_event_ts and active_dispatches appear in JSON output via formatOutput', () => {
+    const db = createTestDb()
+    const run = createTestRun(db)
+    const storyState = {
+      stories: {
+        '16-1': { phase: 'IN_DEV', reviewCycles: 0 },
+        '16-2': { phase: 'COMPLETE', reviewCycles: 1 },
+      },
+    }
+    db.prepare(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`).run(
+      JSON.stringify(storyState),
+      run.id,
+    )
+    const updatedRun = db.prepare('SELECT * FROM pipeline_runs WHERE id = ?').get(run.id) as typeof run
+
+    const statusOutput = buildPipelineStatusOutput(updatedRun, [], 0, 0)
+    const { formatOutput: fmt } = { formatOutput: (d: unknown) => JSON.stringify({ success: true, data: d }) }
+    const jsonStr = fmt(statusOutput)
+    const parsed = JSON.parse(jsonStr) as { success: boolean; data: typeof statusOutput }
+
+    expect(parsed.data.last_event_ts).toBeDefined()
+    expect(typeof parsed.data.last_event_ts).toBe('string')
+    expect(parsed.data.active_dispatches).toBe(1) // 1 story in IN_DEV
+
+    db.close()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Tests: formatPipelineStatusHuman
 // ---------------------------------------------------------------------------
 

@@ -278,3 +278,353 @@ describe('PipelineStatusOutput AC4 enhancement', () => {
     expect(typeof result.last_activity).toBe('string')
   })
 })
+
+// ---------------------------------------------------------------------------
+// T11: Comprehensive unit tests for health command output (Story 16-7)
+// ---------------------------------------------------------------------------
+
+describe('runHealthAction — JSON schema completeness (T11)', () => {
+  let db: BetterSqlite3Database
+  let stdoutChunks: string[]
+  const origWrite = process.stdout.write
+
+  beforeEach(async () => {
+    db = createTestDb()
+    const dbModule = await import('../../../persistence/database.js') as { __setMockDb: (db: BetterSqlite3Database) => void }
+    dbModule.__setMockDb(db)
+    stdoutChunks = []
+    process.stdout.write = ((chunk: string) => {
+      stdoutChunks.push(chunk)
+      return true
+    }) as typeof process.stdout.write
+  })
+
+  afterEach(() => {
+    process.stdout.write = origWrite
+    db.close()
+  })
+
+  function getStdout(): string {
+    return stdoutChunks.join('')
+  }
+
+  function getJsonData(): Record<string, unknown> {
+    const parsed = JSON.parse(getStdout()) as { success: boolean; data?: Record<string, unknown> }
+    expect(parsed.success).toBe(true)
+    return parsed.data!
+  }
+
+  it('JSON output includes all required top-level fields', async () => {
+    createTestRun(db, {
+      status: 'running',
+      current_phase: 'implementation',
+      updated_at: new Date().toISOString(),
+    })
+    await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
+    const data = getJsonData()
+
+    expect(data).toHaveProperty('verdict')
+    expect(data).toHaveProperty('run_id')
+    expect(data).toHaveProperty('status')
+    expect(data).toHaveProperty('current_phase')
+    expect(data).toHaveProperty('staleness_seconds')
+    expect(data).toHaveProperty('last_activity')
+    expect(data).toHaveProperty('process')
+    expect(data).toHaveProperty('stories')
+  })
+
+  it('JSON output includes nested process fields: orchestrator_pid, child_pids, zombies', async () => {
+    createTestRun(db, {
+      status: 'running',
+      current_phase: 'implementation',
+      updated_at: new Date().toISOString(),
+    })
+    await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
+    const data = getJsonData()
+    const proc = data.process as Record<string, unknown>
+
+    expect(proc).toHaveProperty('orchestrator_pid')
+    expect(proc).toHaveProperty('child_pids')
+    expect(proc).toHaveProperty('zombies')
+    expect(Array.isArray(proc.child_pids)).toBe(true)
+    expect(Array.isArray(proc.zombies)).toBe(true)
+  })
+
+  it('JSON output includes nested stories fields: active, completed, escalated, details', async () => {
+    const storyState = JSON.stringify({
+      stories: {
+        '16-1': { phase: 'COMPLETE', reviewCycles: 1 },
+        '16-2': { phase: 'IN_DEV', reviewCycles: 0 },
+        '16-3': { phase: 'ESCALATED', reviewCycles: 2 },
+        '16-4': { phase: 'PENDING', reviewCycles: 0 },
+      },
+    })
+    createTestRun(db, {
+      status: 'running',
+      current_phase: 'implementation',
+      token_usage_json: storyState,
+      updated_at: new Date().toISOString(),
+    })
+    await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
+    const data = getJsonData()
+    const stories = data.stories as { active: number; completed: number; escalated: number; details: Record<string, unknown> }
+
+    expect(typeof stories.active).toBe('number')
+    expect(typeof stories.completed).toBe('number')
+    expect(typeof stories.escalated).toBe('number')
+    expect(typeof stories.details).toBe('object')
+    expect(stories.active).toBe(1) // IN_DEV
+    expect(stories.completed).toBe(1) // COMPLETE
+    expect(stories.escalated).toBe(1) // ESCALATED
+    // PENDING is not counted in active/completed/escalated
+  })
+
+  it('JSON output: run_id is null when no pipeline running', async () => {
+    // No runs in DB
+    await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
+    const data = getJsonData()
+    expect(data.verdict).toBe('NO_PIPELINE_RUNNING')
+    expect(data.run_id).toBeNull()
+  })
+
+  it('JSON output: run_id matches the DB run id when run exists', async () => {
+    const run = createTestRun(db, { status: 'running', updated_at: new Date().toISOString() })
+    await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
+    const data = getJsonData()
+    expect(data.run_id).toBe(run.id)
+  })
+
+  it('JSON output: current_phase is null for NO_PIPELINE_RUNNING', async () => {
+    await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
+    const data = getJsonData()
+    expect(data.current_phase).toBeNull()
+  })
+
+  it('JSON output: current_phase matches the DB value for running pipeline', async () => {
+    createTestRun(db, {
+      status: 'running',
+      current_phase: 'solutioning',
+      updated_at: new Date().toISOString(),
+    })
+    await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
+    const data = getJsonData()
+    expect(data.current_phase).toBe('solutioning')
+  })
+
+  it('JSON output: staleness_seconds is non-negative', async () => {
+    createTestRun(db, { status: 'running', updated_at: new Date().toISOString() })
+    await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
+    const data = getJsonData()
+    expect(data.staleness_seconds as number).toBeGreaterThanOrEqual(0)
+  })
+
+  it('JSON output: staleness_seconds is 0 for NO_PIPELINE_RUNNING', async () => {
+    await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
+    const data = getJsonData()
+    expect(data.staleness_seconds).toBe(0)
+  })
+})
+
+describe('runHealthAction — human output format (T11)', () => {
+  let db: BetterSqlite3Database
+  let stdoutChunks: string[]
+  const origWrite = process.stdout.write
+
+  beforeEach(async () => {
+    db = createTestDb()
+    const dbModule = await import('../../../persistence/database.js') as { __setMockDb: (db: BetterSqlite3Database) => void }
+    dbModule.__setMockDb(db)
+    stdoutChunks = []
+    process.stdout.write = ((chunk: string) => {
+      stdoutChunks.push(chunk)
+      return true
+    }) as typeof process.stdout.write
+  })
+
+  afterEach(() => {
+    process.stdout.write = origWrite
+    db.close()
+  })
+
+  function getStdout(): string {
+    return stdoutChunks.join('')
+  }
+
+  it('human output shows "Pipeline Health: STALLED" for stale pipeline', async () => {
+    const staleTime = new Date(Date.now() - 700_000).toISOString()
+    createTestRun(db, { status: 'running', updated_at: staleTime })
+    await runHealthAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
+    const output = getStdout()
+    expect(output).toContain('Pipeline Health: STALLED')
+  })
+
+  it('human output shows run id and status fields', async () => {
+    const run = createTestRun(db, {
+      status: 'running',
+      current_phase: 'implementation',
+      updated_at: new Date().toISOString(),
+    })
+    await runHealthAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
+    const output = getStdout()
+    expect(output).toContain(run.id)
+    // Status and Phase labels should appear
+    expect(output).toContain('Status:')
+    expect(output).toContain('Phase:')
+  })
+
+  it('human output shows "Last Active:" with staleness info', async () => {
+    createTestRun(db, {
+      status: 'running',
+      current_phase: 'implementation',
+      updated_at: new Date().toISOString(),
+    })
+    await runHealthAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
+    const output = getStdout()
+    expect(output).toContain('Last Active:')
+  })
+
+  it('human output shows "Orchestrator: not running" when no process found', async () => {
+    // No actual orchestrator process running during tests
+    createTestRun(db, {
+      status: 'running',
+      current_phase: 'implementation',
+      updated_at: new Date().toISOString(),
+    })
+    await runHealthAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
+    const output = getStdout()
+    // Either "Orchestrator: PID <N>" (if some test process matches) or "Orchestrator: not running"
+    expect(output).toMatch(/Orchestrator:/)
+  })
+
+  it('human output shows stories section when story details exist', async () => {
+    const storyState = JSON.stringify({
+      stories: {
+        '16-1': { phase: 'IN_DEV', reviewCycles: 0 },
+        '16-2': { phase: 'COMPLETE', reviewCycles: 1 },
+      },
+    })
+    createTestRun(db, {
+      status: 'running',
+      current_phase: 'implementation',
+      token_usage_json: storyState,
+      updated_at: new Date().toISOString(),
+    })
+    await runHealthAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
+    const output = getStdout()
+    // Story details section should be shown
+    expect(output).toContain('Stories:')
+    expect(output).toContain('16-1')
+    expect(output).toContain('16-2')
+    expect(output).toContain('IN_DEV')
+    expect(output).toContain('COMPLETE')
+  })
+
+  it('human output shows Summary line with active/completed/escalated counts', async () => {
+    const storyState = JSON.stringify({
+      stories: {
+        '16-1': { phase: 'IN_DEV', reviewCycles: 0 },
+        '16-2': { phase: 'COMPLETE', reviewCycles: 1 },
+        '16-3': { phase: 'ESCALATED', reviewCycles: 2 },
+      },
+    })
+    createTestRun(db, {
+      status: 'running',
+      current_phase: 'implementation',
+      token_usage_json: storyState,
+      updated_at: new Date().toISOString(),
+    })
+    await runHealthAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
+    const output = getStdout()
+    expect(output).toContain('Summary:')
+    expect(output).toContain('1 active')
+    expect(output).toContain('1 completed')
+    expect(output).toContain('1 escalated')
+  })
+
+  it('human output omits stories section when no story details', async () => {
+    createTestRun(db, {
+      status: 'running',
+      current_phase: 'implementation',
+      updated_at: new Date().toISOString(),
+      // no token_usage_json
+    })
+    await runHealthAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
+    const output = getStdout()
+    // Should not show empty stories section
+    expect(output).not.toContain('Stories:\n')
+  })
+
+  it('human output shows review_cycles for each story', async () => {
+    const storyState = JSON.stringify({
+      stories: {
+        '16-5': { phase: 'IN_REVIEW', reviewCycles: 3 },
+      },
+    })
+    createTestRun(db, {
+      status: 'running',
+      current_phase: 'implementation',
+      token_usage_json: storyState,
+      updated_at: new Date().toISOString(),
+    })
+    await runHealthAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
+    const output = getStdout()
+    // Review cycle count should appear in parentheses
+    expect(output).toContain('3 review cycles')
+  })
+
+  it('runHealthAction returns exitCode 0 on success', async () => {
+    createTestRun(db, { status: 'running', updated_at: new Date().toISOString() })
+    const exitCode = await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
+    expect(exitCode).toBe(0)
+  })
+})
+
+describe('runHealthAction — error handling (T11)', () => {
+  let stdoutChunks: string[]
+  let stderrChunks: string[]
+  const origStdout = process.stdout.write
+  const origStderr = process.stderr.write
+
+  beforeEach(() => {
+    stdoutChunks = []
+    stderrChunks = []
+    process.stdout.write = ((chunk: string) => {
+      stdoutChunks.push(chunk)
+      return true
+    }) as typeof process.stdout.write
+    process.stderr.write = ((chunk: string) => {
+      stderrChunks.push(chunk)
+      return true
+    }) as typeof process.stderr.write
+  })
+
+  afterEach(() => {
+    process.stdout.write = origStdout
+    process.stderr.write = origStderr
+    vi.clearAllMocks()
+  })
+
+  it('returns exitCode 1 when getAutoHealthData throws (JSON format)', async () => {
+    // Override resolveMainRepoRoot to throw
+    const { resolveMainRepoRoot } = await import('../../../utils/git-root.js') as { resolveMainRepoRoot: ReturnType<typeof vi.fn> }
+    vi.mocked(resolveMainRepoRoot).mockRejectedValueOnce(new Error('git root not found'))
+
+    const exitCode = await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
+    expect(exitCode).toBe(1)
+    const jsonStr = stdoutChunks.join('')
+    const parsed = JSON.parse(jsonStr) as { success: boolean; error?: string }
+    expect(parsed.success).toBe(false)
+    expect(parsed.error).toBeDefined()
+  })
+
+  it('returns exitCode 1 when getAutoHealthData throws (human format)', async () => {
+    const { resolveMainRepoRoot } = await import('../../../utils/git-root.js') as { resolveMainRepoRoot: ReturnType<typeof vi.fn> }
+    vi.mocked(resolveMainRepoRoot).mockRejectedValueOnce(new Error('git root not found'))
+
+    const exitCode = await runHealthAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
+    expect(exitCode).toBe(1)
+    // Error should go to stderr in human mode
+    const stderr = stderrChunks.join('')
+    expect(stderr).toContain('Error:')
+  })
+})

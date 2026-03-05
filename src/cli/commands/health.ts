@@ -154,6 +154,68 @@ export function inspectProcessTree(execFileSyncOverride?: ExecFileSyncFn): Proce
   return result
 }
 
+// ---------------------------------------------------------------------------
+// Recursive descendant PID collection (AC8: orphan cleanup)
+// ---------------------------------------------------------------------------
+
+/**
+ * Collect all descendant PIDs of the given root PIDs by walking the process
+ * tree recursively. This ensures that grandchildren of the orchestrator
+ * (e.g. node subprocesses spawned by `claude -p`) are also killed during
+ * stall recovery, leaving no orphan processes.
+ *
+ * Returns only the descendants — the root PIDs themselves are NOT included.
+ */
+export function getAllDescendantPids(
+  rootPids: number[],
+  execFileSyncOverride?: ExecFileSyncFn,
+): number[] {
+  if (rootPids.length === 0) return []
+  try {
+    let psOutput: string
+    if (execFileSyncOverride !== undefined) {
+      psOutput = execFileSyncOverride('ps', ['-eo', 'pid,ppid'], { encoding: 'utf-8', timeout: 5000 })
+    } else {
+      const { execFileSync } = require('node:child_process') as typeof import('node:child_process')
+      psOutput = execFileSync('ps', ['-eo', 'pid,ppid'], { encoding: 'utf-8', timeout: 5000 }) as string
+    }
+
+    // Build parent → children map from ps output
+    const childrenOf = new Map<number, number[]>()
+    for (const line of psOutput.split('\n')) {
+      const parts = line.trim().split(/\s+/)
+      if (parts.length >= 2) {
+        const pid = parseInt(parts[0], 10)
+        const ppid = parseInt(parts[1], 10)
+        if (!isNaN(pid) && !isNaN(ppid) && pid > 0) {
+          if (!childrenOf.has(ppid)) childrenOf.set(ppid, [])
+          childrenOf.get(ppid)!.push(pid)
+        }
+      }
+    }
+
+    // BFS to collect all descendants (not including the root PIDs themselves)
+    const descendants: number[] = []
+    const seen = new Set<number>(rootPids)
+    const queue: number[] = [...rootPids]
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      const children = childrenOf.get(current) ?? []
+      for (const child of children) {
+        if (!seen.has(child)) {
+          seen.add(child)
+          descendants.push(child)
+          queue.push(child)
+        }
+      }
+    }
+    return descendants
+  } catch {
+    // Process inspection failed — return empty (degrade gracefully)
+    return []
+  }
+}
+
 // parseDbTimestampAsUtc is imported from pipeline-shared.ts
 
 // ---------------------------------------------------------------------------

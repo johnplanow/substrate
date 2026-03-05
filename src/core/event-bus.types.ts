@@ -353,6 +353,8 @@ export interface OrchestratorEvents {
     storyKey: string
     phase: string
     elapsedMs: number
+    /** PID of the stalled child process, or null if not tracked */
+    childPid: number | null
   }
 
   // -------------------------------------------------------------------------

@@ -66,6 +66,13 @@ export interface OrchestratorConfig {
   maxReviewCycles: number
   /** Optional pipeline run ID for state persistence */
   pipelineRunId?: string
+  /**
+   * Whether to enable the heartbeat/watchdog timer.
+   * Should only be true when --events mode is active; otherwise the timer
+   * fires and emits eventBus events with no listeners, wasting CPU.
+   * Defaults to false.
+   */
+  enableHeartbeat?: boolean
 }
 
 // ---------------------------------------------------------------------------

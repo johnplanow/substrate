@@ -219,6 +219,10 @@ export interface PipelineStatusOutput {
   last_activity: string
   /** Seconds since last pipeline activity (Story 16-7 AC4) */
   staleness_seconds: number
+  /** ISO-8601 timestamp of the most recent progress event — alias for last_activity (Story 16-7 AC4) */
+  last_event_ts: string
+  /** Count of currently active (non-PENDING, non-COMPLETE, non-ESCALATED) story dispatches (Story 16-7 AC4) */
+  active_dispatches: number
 }
 
 /**
@@ -294,6 +298,25 @@ export function buildPipelineStatusOutput(
     totalCost += row.total_cost_usd
   }
 
+  // Compute active_dispatches from token_usage_json story states
+  let activeDispatches = 0
+  try {
+    if (run.token_usage_json) {
+      const state = JSON.parse(run.token_usage_json) as {
+        stories?: Record<string, { phase: string }>
+      }
+      if (state.stories) {
+        for (const s of Object.values(state.stories)) {
+          if (s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED') {
+            activeDispatches++
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore parse errors — default to 0
+  }
+
   return {
     run_id: run.id,
     current_phase: currentPhase,
@@ -307,6 +330,8 @@ export function buildPipelineStatusOutput(
     stories_count: storiesCount,
     last_activity: run.updated_at,
     staleness_seconds: Math.round((Date.now() - parseDbTimestampAsUtc(run.updated_at).getTime()) / 1000),
+    last_event_ts: run.updated_at,
+    active_dispatches: activeDispatches,
   }
 }
 

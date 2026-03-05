@@ -13,7 +13,7 @@ import { existsSync } from 'fs'
 import type { OutputFormat } from './pipeline-shared.js'
 import type { PipelineEvent } from '../../modules/implementation-orchestrator/event-types.js'
 import type { PipelineHealthOutput } from './health.js'
-import { getAutoHealthData } from './health.js'
+import { getAutoHealthData, getAllDescendantPids } from './health.js'
 import type { ResumeOptions } from './resume.js'
 import { runResumeAction } from './resume.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
@@ -75,6 +75,12 @@ export interface SupervisorDeps {
    * Returns zeros when the run ID is unknown or DB is unavailable.
    */
   getTokenSnapshot: (runId: string, projectRoot: string) => { input: number; output: number; cost_usd: number }
+  /**
+   * Collect all descendant PIDs (grandchildren and deeper) of the given root PIDs.
+   * Used during stall recovery to kill orphan `claude` and `node` processes that
+   * were spawned by direct children of the orchestrator (AC8: orphan cleanup).
+   */
+  getAllDescendants: (rootPids: number[]) => number[]
 }
 
 function defaultSupervisorDeps(): SupervisorDeps {
@@ -122,6 +128,7 @@ function defaultSupervisorDeps(): SupervisorDeps {
         return { input: 0, output: 0, cost_usd: 0 }
       }
     },
+    getAllDescendants: (rootPids: number[]) => getAllDescendantPids(rootPids),
     runAnalysis: async (runId: string, projectRoot: string) => {
       // AC1 of Story 17-3: generate post-run analysis report after terminal state
       const dbPath = join(projectRoot, '.substrate', 'substrate.db')
@@ -171,7 +178,7 @@ export async function runSupervisorAction(
   deps: Partial<SupervisorDeps> = {},
 ): Promise<number> {
   const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack, experiment, maxExperiments } = options
-  const { getHealth, killPid, resumePipeline, sleep, incrementRestarts, runAnalysis, getTokenSnapshot } = { ...defaultSupervisorDeps(), ...deps }
+  const { getHealth, killPid, resumePipeline, sleep, incrementRestarts, runAnalysis, getTokenSnapshot, getAllDescendants } = { ...defaultSupervisorDeps(), ...deps }
 
   let restartCount = 0
   const startTime = Date.now()
@@ -379,10 +386,16 @@ export async function runSupervisorAction(
     // Check staleness directly so that configurable --stall-threshold values below the
     // hardcoded 600s in getAutoHealthData (which governs the STALLED verdict) take effect.
     if (health.staleness_seconds >= stallThreshold) {
-      const pids = [
+      const directPids = [
         ...(health.process.orchestrator_pid !== null ? [health.process.orchestrator_pid] : []),
         ...health.process.child_pids,
       ]
+
+      // AC8: Collect all descendant PIDs recursively to kill orphan grandchildren
+      // (e.g. node subprocesses spawned by `claude -p` sub-agents)
+      const descendantPids = getAllDescendants(directPids)
+      const directPidSet = new Set(directPids)
+      const pids = [...directPids, ...descendantPids.filter((p) => !directPidSet.has(p))]
 
       emitEvent({
         type: 'supervisor:kill',

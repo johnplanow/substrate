@@ -117,6 +117,8 @@ export function createImplementationOrchestrator(
   let _heartbeatTimer: ReturnType<typeof setInterval> | null = null
   const HEARTBEAT_INTERVAL_MS = 30_000
   const WATCHDOG_TIMEOUT_MS = 600_000 // 10 minutes
+  // Track which stories have already emitted a stall event to prevent duplicates
+  const _stalledStories = new Set<string>()
 
   // -- per-story phase timing state (for AC2 of Story 17-2) --
   const _phaseStartMs = new Map<string, Map<string, number>>() // storyKey → phase → start ms
@@ -239,6 +241,8 @@ export function createImplementationOrchestrator(
 
   function recordProgress(): void {
     _lastProgressTs = Date.now()
+    // Clear stall deduplication set so stories can re-emit stall events after recovering
+    _stalledStories.clear()
   }
 
   function startHeartbeat(): void {
@@ -254,25 +258,33 @@ export function createImplementationOrchestrator(
         else active++
       }
 
-      eventBus.emit('orchestrator:heartbeat', {
-        runId: config.pipelineRunId ?? '',
-        activeDispatches: active,
-        completedDispatches: completed,
-        queuedDispatches: queued,
-      })
+      // AC1: Only emit heartbeat when no progress has been made in the last interval
+      const timeSinceProgress = Date.now() - _lastProgressTs
+      if (timeSinceProgress >= HEARTBEAT_INTERVAL_MS) {
+        eventBus.emit('orchestrator:heartbeat', {
+          runId: config.pipelineRunId ?? '',
+          activeDispatches: active,
+          completedDispatches: completed,
+          queuedDispatches: queued,
+        })
+      }
 
       // Watchdog: check for stalls
       const elapsed = Date.now() - _lastProgressTs
       if (elapsed >= WATCHDOG_TIMEOUT_MS) {
-        // Find the story that's been in-progress the longest
+        // Find in-progress stories and emit stall events with deduplication
         for (const [key, s] of _stories) {
           if (s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED') {
+            // Deduplication: skip if we already emitted a stall event for this story
+            if (_stalledStories.has(key)) continue
+            _stalledStories.add(key)
             logger.warn({ storyKey: key, phase: s.phase, elapsedMs: elapsed }, 'Watchdog: possible stall detected')
             eventBus.emit('orchestrator:stall', {
               runId: config.pipelineRunId ?? '',
               storyKey: key,
               phase: s.phase,
               elapsedMs: elapsed,
+              childPid: null,
             })
           }
         }
@@ -1163,7 +1175,10 @@ export function createImplementationOrchestrator(
     })
     persistState()
     recordProgress()
-    startHeartbeat()
+    // Only start heartbeat/watchdog when --events mode is active (AC1, Issue 5)
+    if (config.enableHeartbeat) {
+      startHeartbeat()
+    }
 
     // Seed methodology context from planning artifacts (idempotent)
     if (projectRoot !== undefined) {

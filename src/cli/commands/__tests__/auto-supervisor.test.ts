@@ -1098,3 +1098,204 @@ describe('runSupervisorAction — Story 19-2 AC5: supervisor:poll NOT emitted in
     expect(output).not.toContain('supervisor:poll')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Tests: AC8 — Orphan Child Process Cleanup (recursive process tree kill)
+// ---------------------------------------------------------------------------
+
+describe('runSupervisorAction — AC8: recursive process tree kill / orphan cleanup', () => {
+  let stdoutCapture: ReturnType<typeof captureStdout>
+
+  beforeEach(() => {
+    stdoutCapture = captureStdout()
+  })
+
+  afterEach(() => {
+    stdoutCapture.restore()
+  })
+
+  it('kills all descendants in a 3-level process tree (orchestrator → children → grandchildren)', async () => {
+    // Process tree:
+    //   orchestrator (PID 1000)
+    //     ├── child-1 (PID 1001)  — direct child (in child_pids)
+    //     │     └── grandchild-1 (PID 1003)  — descendant via getAllDescendants
+    //     └── child-2 (PID 1002)  — direct child (in child_pids)
+    //           └── grandchild-2 (PID 1004)  — descendant via getAllDescendants
+    const stalledWithChildren = makeHealthy({
+      verdict: 'STALLED',
+      staleness_seconds: 700,
+      process: {
+        orchestrator_pid: 1000,
+        child_pids: [1001, 1002],
+        zombies: [],
+      },
+    })
+
+    const healthSequence = [stalledWithChildren, makeTerminal(['17-1'])]
+    let callIdx = 0
+    const killCalls: Array<[number, string]> = []
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(() => Promise.resolve(healthSequence[callIdx++])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn().mockImplementation((pid: number, signal: string) => {
+        killCalls.push([pid, signal])
+      }),
+      // getAllDescendants is called with directPids=[1000,1001,1002] and returns grandchildren
+      getAllDescendants: vi.fn().mockImplementation((_rootPids: number[]) => [1003, 1004]),
+    }
+
+    await runSupervisorAction(makeOptions({ stallThreshold: 600 }), deps)
+
+    // All 5 PIDs (orchestrator + 2 children + 2 grandchildren) should receive SIGTERM
+    const sigterms = killCalls.filter(([, s]) => s === 'SIGTERM').map(([p]) => p)
+    expect(sigterms).toContain(1000)  // orchestrator
+    expect(sigterms).toContain(1001)  // direct child
+    expect(sigterms).toContain(1002)  // direct child
+    expect(sigterms).toContain(1003)  // grandchild
+    expect(sigterms).toContain(1004)  // grandchild
+
+    // All 5 PIDs should also receive SIGKILL
+    const sigkills = killCalls.filter(([, s]) => s === 'SIGKILL').map(([p]) => p)
+    expect(sigkills).toContain(1000)
+    expect(sigkills).toContain(1001)
+    expect(sigkills).toContain(1002)
+    expect(sigkills).toContain(1003)
+    expect(sigkills).toContain(1004)
+  })
+
+  it('calls getAllDescendants with all direct PIDs (orchestrator + child_pids)', async () => {
+    const stalledWithChildren = makeHealthy({
+      verdict: 'STALLED',
+      staleness_seconds: 700,
+      process: {
+        orchestrator_pid: 5000,
+        child_pids: [5001, 5002, 5003],
+        zombies: [],
+      },
+    })
+
+    const healthSequence = [stalledWithChildren, makeTerminal(['17-1'])]
+    let callIdx = 0
+    const getAllDescendants = vi.fn().mockReturnValue([])
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(() => Promise.resolve(healthSequence[callIdx++])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      getAllDescendants,
+    }
+
+    await runSupervisorAction(makeOptions({ stallThreshold: 600 }), deps)
+
+    // getAllDescendants should be called with all direct PIDs
+    expect(getAllDescendants).toHaveBeenCalledOnce()
+    const callArg = getAllDescendants.mock.calls[0][0] as number[]
+    expect(callArg).toContain(5000)  // orchestrator
+    expect(callArg).toContain(5001)  // child
+    expect(callArg).toContain(5002)  // child
+    expect(callArg).toContain(5003)  // child
+  })
+
+  it('handles case where getAllDescendants returns empty (no grandchildren)', async () => {
+    const stalledSimple = makeStalled(700)  // orchestrator + 1 child
+    const healthSequence = [stalledSimple, makeTerminal(['17-1'])]
+    let callIdx = 0
+    const killCalls: Array<[number, string]> = []
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(() => Promise.resolve(healthSequence[callIdx++])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn().mockImplementation((pid: number, signal: string) => {
+        killCalls.push([pid, signal])
+      }),
+      getAllDescendants: vi.fn().mockReturnValue([]),  // no grandchildren
+    }
+
+    await runSupervisorAction(makeOptions({ stallThreshold: 600 }), deps)
+
+    // Should still kill the direct PIDs (orchestrator + child)
+    const sigterms = killCalls.filter(([, s]) => s === 'SIGTERM').map(([p]) => p)
+    expect(sigterms).toContain(12345)  // orchestrator
+    expect(sigterms).toContain(12346)  // direct child
+    // No grandchildren to kill
+    expect(sigterms).toHaveLength(2)
+  })
+
+  it('does not duplicate PIDs in kill list when descendants overlap with direct PIDs', async () => {
+    const stalledWithChildren = makeHealthy({
+      verdict: 'STALLED',
+      staleness_seconds: 700,
+      process: {
+        orchestrator_pid: 7000,
+        child_pids: [7001],
+        zombies: [],
+      },
+    })
+
+    const healthSequence = [stalledWithChildren, makeTerminal(['17-1'])]
+    let callIdx = 0
+    const killCalls: Array<[number, string]> = []
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(() => Promise.resolve(healthSequence[callIdx++])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn().mockImplementation((pid: number, signal: string) => {
+        killCalls.push([pid, signal])
+      }),
+      // Return a descendant that is already in the direct PIDs (edge case)
+      getAllDescendants: vi.fn().mockReturnValue([7001, 7002]),  // 7001 already in direct, 7002 is new
+    }
+
+    await runSupervisorAction(makeOptions({ stallThreshold: 600 }), deps)
+
+    // PID 7001 should appear exactly once (not duplicated)
+    const sigterms = killCalls.filter(([, s]) => s === 'SIGTERM').map(([p]) => p)
+    const pid7001Count = sigterms.filter((p) => p === 7001).length
+    expect(pid7001Count).toBe(1)
+    // PID 7002 should also be killed
+    expect(sigterms).toContain(7002)
+  })
+
+  it('supervisor:kill event still fires correctly when descendants are included', async () => {
+    const stalledWithChildren = makeHealthy({
+      verdict: 'STALLED',
+      staleness_seconds: 720,
+      process: {
+        orchestrator_pid: 9000,
+        child_pids: [9001],
+        zombies: [],
+      },
+    })
+
+    const healthSequence = [stalledWithChildren, makeTerminal(['17-1'])]
+    let callIdx = 0
+
+    const deps: Partial<SupervisorDeps> = {
+      getHealth: vi.fn().mockImplementation(() => Promise.resolve(healthSequence[callIdx++])),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      resumePipeline: vi.fn().mockResolvedValue(0),
+      killPid: vi.fn(),
+      getAllDescendants: vi.fn().mockReturnValue([9002, 9003]),  // grandchildren
+    }
+
+    await runSupervisorAction(makeOptions({ stallThreshold: 600, outputFormat: 'json' }), deps)
+
+    const output = stdoutCapture.getOutput()
+    const lines = output.trim().split('\n')
+    const killLine = lines.find((l) => l.includes('supervisor:kill'))
+    expect(killLine).toBeDefined()
+    const evt = JSON.parse(killLine!)
+    expect(evt.type).toBe('supervisor:kill')
+    expect(evt.staleness_seconds).toBe(720)
+    // The supervisor:kill event includes all PIDs (direct + descendants)
+    expect(evt.pids).toContain(9000)
+    expect(evt.pids).toContain(9001)
+    expect(evt.pids).toContain(9002)
+    expect(evt.pids).toContain(9003)
+  })
+})

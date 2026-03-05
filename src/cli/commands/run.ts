@@ -721,6 +721,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           story_key: payload.storyKey,
           phase: payload.phase,
           elapsed_ms: payload.elapsedMs,
+          child_pid: payload.childPid,
         })
       })
     }
@@ -736,6 +737,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         maxConcurrency: concurrency,
         maxReviewCycles: 2,
         pipelineRunId: pipelineRun.id,
+        // Only enable heartbeat/watchdog timer when --events mode is active (AC1/Issue 5)
+        enableHeartbeat: eventsFlag === true,
       },
       projectRoot,
     })
