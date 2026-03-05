@@ -114,6 +114,12 @@ vi.mock('../../../persistence/queries/decisions.js', () => ({
   getLatestRun: (...args: unknown[]) => mockGetLatestRun(...args),
   addTokenUsage: (...args: unknown[]) => mockAddTokenUsage(...args),
   getTokenUsageSummary: (...args: unknown[]) => mockGetTokenUsageSummary(...args),
+  getRunningPipelineRuns: vi.fn().mockReturnValue([]),
+  updatePipelineRun: vi.fn(),
+}))
+
+vi.mock('../health.js', () => ({
+  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 // Mock event bus

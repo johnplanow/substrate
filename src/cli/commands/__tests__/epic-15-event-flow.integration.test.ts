@@ -96,11 +96,19 @@ const mockCreatePipelineRun = vi.fn()
 const mockGetLatestRun = vi.fn()
 const mockAddTokenUsage = vi.fn()
 const mockGetTokenUsageSummary = vi.fn()
+const mockGetRunningPipelineRuns = vi.fn().mockReturnValue([])
+const mockUpdatePipelineRun = vi.fn()
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   createPipelineRun: (...args: unknown[]) => mockCreatePipelineRun(...args),
   getLatestRun: (...args: unknown[]) => mockGetLatestRun(...args),
   addTokenUsage: (...args: unknown[]) => mockAddTokenUsage(...args),
   getTokenUsageSummary: (...args: unknown[]) => mockGetTokenUsageSummary(...args),
+  getRunningPipelineRuns: (...args: unknown[]) => mockGetRunningPipelineRuns(...args),
+  updatePipelineRun: (...args: unknown[]) => mockUpdatePipelineRun(...args),
+}))
+
+vi.mock('../health.js', () => ({
+  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 // Event bus — capture all listeners so tests can fire events

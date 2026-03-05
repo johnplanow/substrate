@@ -44,8 +44,10 @@ import {
   addTokenUsage,
   getTokenUsageSummary,
   updatePipelineRun,
+  getRunningPipelineRuns,
 } from '../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../persistence/queries/decisions.js'
+import { inspectProcessTree } from './health.js'
 import {
   writeRunMetrics,
   getStoryMetricsForRun,
@@ -365,6 +367,28 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           )
         }
         return 0
+      }
+    }
+
+    // Sweep stale "running" pipeline rows whose orchestrator process is dead.
+    // Without this, zombie rows from crashed runs accumulate and confuse agents
+    // that inspect pipeline_runs to determine if a run is in progress.
+    const staleRuns = getRunningPipelineRuns(db) ?? []
+    if (staleRuns.length > 0) {
+      const processInfo = inspectProcessTree({ projectRoot })
+      let swept = 0
+      for (const stale of staleRuns) {
+        // If no orchestrator is running, all "running" rows are stale.
+        // If an orchestrator IS running, it belongs to someone else's active run —
+        // we still mark all existing rows as failed since we're about to start a new one.
+        // (The new run gets its own fresh row below.)
+        if (processInfo.orchestrator_pid === null) {
+          updatePipelineRun(db, stale.id, { status: 'failed' })
+          swept++
+        }
+      }
+      if (swept > 0) {
+        process.stderr.write(`Swept ${swept} stale pipeline run(s) (dead orchestrator)\n`)
       }
     }
 

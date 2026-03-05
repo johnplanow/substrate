@@ -466,6 +466,14 @@ export function updatePipelineRun(
 }
 
 /**
+ * Get all pipeline runs with status = 'running'.
+ */
+export function getRunningPipelineRuns(db: BetterSqlite3Database): PipelineRun[] {
+  const stmt = db.prepare("SELECT * FROM pipeline_runs WHERE status = 'running'")
+  return stmt.all() as PipelineRun[]
+}
+
+/**
  * Get the most recently created pipeline run. Returns undefined if none found.
  */
 export function getLatestRun(db: BetterSqlite3Database): PipelineRun | undefined {
