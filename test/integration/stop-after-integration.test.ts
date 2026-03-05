@@ -631,8 +631,8 @@ describe('Integration: gate statelessness with concurrent DB runs (AC7)', () => 
 // ---------------------------------------------------------------------------
 
 describe('Integration: VALID_PHASES type consistency (AC4 of Story 12-1)', () => {
-  it('VALID_PHASES exported from stop-after module matches the four canonical phases', () => {
-    expect(VALID_PHASES).toEqual(['analysis', 'planning', 'solutioning', 'implementation'])
+  it('VALID_PHASES exported from stop-after module matches the five canonical phases', () => {
+    expect(VALID_PHASES).toEqual(['research', 'analysis', 'planning', 'solutioning', 'implementation'])
   })
 
   it('auto.ts VALID_PHASES (re-imported from stop-after module) is used for gate construction', () => {
@@ -643,9 +643,9 @@ describe('Integration: VALID_PHASES type consistency (AC4 of Story 12-1)', () =>
   })
 
   it('phase names used in validateStopAfterFromConflict match VALID_PHASES order', () => {
-    // Phase order must be: analysis(0) < planning(1) < solutioning(2) < implementation(3)
+    // Phase order must be: research(0) < analysis(1) < planning(2) < solutioning(3) < implementation(4)
     // This is the order used by validateStopAfterFromConflict for index comparison
-    const phaseOrder = ['analysis', 'planning', 'solutioning', 'implementation']
+    const phaseOrder = ['research', 'analysis', 'planning', 'solutioning', 'implementation']
     expect(VALID_PHASES).toEqual(phaseOrder)
 
     // Verify the conflict validation respects this order

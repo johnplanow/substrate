@@ -7,6 +7,7 @@
 
 /** Canonical pipeline phase names. This is the single source of truth for all phase lists. */
 export const VALID_PHASES = [
+  'research',
   'analysis',
   'planning',
   'solutioning',

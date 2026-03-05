@@ -25,14 +25,15 @@ import type { PhaseName } from '../../../modules/stop-after/index.js'
 
 describe('VALID_PHASES', () => {
   it('contains expected pipeline phases', () => {
+    expect(VALID_PHASES).toContain('research')
     expect(VALID_PHASES).toContain('analysis')
     expect(VALID_PHASES).toContain('planning')
     expect(VALID_PHASES).toContain('solutioning')
     expect(VALID_PHASES).toContain('implementation')
   })
 
-  it('has exactly four phases', () => {
-    expect(VALID_PHASES).toHaveLength(4)
+  it('has exactly five phases', () => {
+    expect(VALID_PHASES).toHaveLength(5)
   })
 })
 

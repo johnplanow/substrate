@@ -181,7 +181,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
   // Resolve concept text when starting from analysis
   let concept: string | undefined
-  if (startPhase === 'analysis' || startPhase === undefined) {
+  if (startPhase === 'research' || startPhase === 'analysis' || startPhase === undefined) {
     if (conceptFile !== undefined && conceptFile !== '') {
       try {
         concept = await readFile(conceptFile, 'utf-8')
@@ -197,9 +197,9 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       }
     } else if (conceptArg !== undefined && conceptArg !== '') {
       concept = conceptArg
-    } else if (startPhase === 'analysis') {
+    } else if (startPhase === 'research' || startPhase === 'analysis') {
       // Analysis requires concept
-      const errorMsg = '--concept or --concept-file required when starting from analysis phase'
+      const errorMsg = '--concept or --concept-file required when starting from research or analysis phase'
       if (outputFormat === 'json') {
         process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
       } else {
@@ -1001,7 +1001,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     // Execute phases in order starting from startPhase
     // Include 'research' before analysis when research is enabled
     // Include 'ux-design' between planning and solutioning when the pack has it enabled
-    const phaseOrder: Array<PhaseName | 'ux-design' | 'research'> = []
+    const phaseOrder: Array<PhaseName | 'ux-design'> = []
     if (effectiveResearch) phaseOrder.push('research')
     phaseOrder.push('analysis', 'planning')
     if (effectiveUxDesign) phaseOrder.push('ux-design')
