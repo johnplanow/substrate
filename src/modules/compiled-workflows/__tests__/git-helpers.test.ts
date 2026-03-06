@@ -57,6 +57,13 @@ vi.mock('node:child_process', () => ({
   }),
 }))
 
+// Mock node:fs — existsSync defaults to true so stageIntentToAdd passes files through
+const mockExistsSync = vi.fn(() => true)
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
+  return { ...actual, existsSync: (...args: unknown[]) => mockExistsSync(...args) }
+})
+
 // Import after mocking
 import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitChangedFiles, stageIntentToAdd } from '../git-helpers.js'
 import { spawn } from 'node:child_process'
@@ -222,6 +229,7 @@ describe('getGitDiffStatSummary', () => {
 describe('getGitDiffForFiles', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockExistsSync.mockReturnValue(true)
   })
 
   it('stages intent-to-add then runs git diff HEAD -- file1 file2', async () => {
@@ -282,6 +290,7 @@ describe('getGitDiffForFiles', () => {
 describe('stageIntentToAdd', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockExistsSync.mockReturnValue(true)
   })
 
   it('runs git add -N with provided files', async () => {
@@ -305,11 +314,37 @@ describe('stageIntentToAdd', () => {
     await stageIntentToAdd([], '/repo')
     expect(mockSpawn).not.toHaveBeenCalled()
   })
+
+  it('skips nonexistent files and only stages existing ones', async () => {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    let capturedArgs: string[] | undefined
+
+    mockExistsSync.mockImplementation((f: unknown) => String(f) === 'src/exists.ts')
+
+    mockSpawn.mockImplementationOnce((_cmd: string, args: string[]) => {
+      capturedArgs = args
+      const fp = createFakeProcess()
+      setImmediate(() => fp.emitClose(0))
+      return fp.proc
+    })
+
+    await stageIntentToAdd(['src/exists.ts', 'src/gone.ts'], '/repo')
+    expect(capturedArgs).toEqual(['add', '-N', '--', 'src/exists.ts'])
+  })
+
+  it('does nothing when all files are nonexistent', async () => {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    mockExistsSync.mockReturnValue(false)
+
+    await stageIntentToAdd(['src/gone1.ts', 'src/gone2.ts'], '/repo')
+    expect(mockSpawn).not.toHaveBeenCalled()
+  })
 })
 
 describe('getGitChangedFiles', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockExistsSync.mockReturnValue(true)
   })
 
   it('parses mixed git status --porcelain output (M, A, ??, D)', async () => {

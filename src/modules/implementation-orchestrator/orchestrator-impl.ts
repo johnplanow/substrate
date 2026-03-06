@@ -20,7 +20,7 @@ import { writeStoryMetrics, aggregateTokenUsageForStory } from '../../persistenc
 import { STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME, TEST_EXPANSION_FINDING } from '../../persistence/schemas/operational.js'
 import { generateEscalationDiagnosis } from './escalation-diagnosis.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
-import { runCreateStory } from '../compiled-workflows/create-story.js'
+import { runCreateStory, isValidStoryFile } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
 import { runTestPlan } from '../compiled-workflows/test-plan.js'
@@ -463,15 +463,25 @@ export function createImplementationOrchestrator(
         const files = readdirSync(artifactsDir)
         const match = files.find((f) => f.startsWith(`${storyKey}-`) && f.endsWith('.md'))
         if (match) {
-          storyFilePath = join(artifactsDir, match)
-          logger.info({ storyKey, storyFilePath }, 'Found existing story file — skipping create-story')
-          endPhase(storyKey, 'create-story')
-          eventBus.emit('orchestrator:story-phase-complete', {
-            storyKey,
-            phase: 'IN_STORY_CREATION',
-            result: { result: 'success', story_file: storyFilePath, story_key: storyKey },
-          })
-          persistState()
+          const candidatePath = join(artifactsDir, match)
+          const validation = await isValidStoryFile(candidatePath)
+          if (!validation.valid) {
+            logger.warn(
+              { storyKey, storyFilePath: candidatePath, reason: validation.reason },
+              `Existing story file for ${storyKey} is invalid (${validation.reason}) — re-creating`,
+            )
+            // Fall through to create-story by leaving storyFilePath undefined
+          } else {
+            storyFilePath = candidatePath
+            logger.info({ storyKey, storyFilePath }, 'Found existing story file — skipping create-story')
+            endPhase(storyKey, 'create-story')
+            eventBus.emit('orchestrator:story-phase-complete', {
+              storyKey,
+              phase: 'IN_STORY_CREATION',
+              result: { result: 'success', story_file: storyFilePath, story_key: storyKey },
+            })
+            persistState()
+          }
         }
       } catch {
         // If directory read fails, fall through to create-story
@@ -891,14 +901,14 @@ export function createImplementationOrchestrator(
           )
         }
 
-        // Phantom review detection: if the verdict is NEEDS_MAJOR_REWORK but the
-        // issue list is empty, the reviewer failed to produce actionable output
-        // (schema validation failure, timeout, truncated response). Dispatching a
-        // fix agent with no specific issues to fix is pure waste (~$0.07/cycle).
-        // Retry the review once before treating it as a real verdict.
-        const isPhantomReview = reviewResult.verdict !== 'SHIP_IT'
-          && (reviewResult.issue_list === undefined || reviewResult.issue_list.length === 0)
-          && reviewResult.error !== undefined
+        // Phantom review detection: dispatch failures (crash, timeout, non-zero exit)
+        // are flagged with dispatchFailed=true. Also detect heuristically when verdict
+        // is non-SHIP_IT but issue list is empty + error (schema validation failure,
+        // truncated response). Either way, retry the review once before escalation.
+        const isPhantomReview = reviewResult.dispatchFailed === true
+          || (reviewResult.verdict !== 'SHIP_IT'
+            && (reviewResult.issue_list === undefined || reviewResult.issue_list.length === 0)
+            && reviewResult.error !== undefined)
         if (isPhantomReview && !timeoutRetried) {
           timeoutRetried = true
           logger.warn(

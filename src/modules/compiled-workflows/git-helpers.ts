@@ -6,6 +6,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('compiled-workflows:git-helpers')
@@ -131,8 +132,17 @@ export async function stageIntentToAdd(
   workingDirectory: string,
 ): Promise<void> {
   if (files.length === 0) return
+  // Filter out nonexistent files to avoid git errors (AC3 of story 23-2)
+  const existing = files.filter((f) => {
+    const exists = existsSync(f)
+    if (!exists) {
+      logger.debug({ file: f }, 'Skipping nonexistent file in stageIntentToAdd')
+    }
+    return exists
+  })
+  if (existing.length === 0) return
   // git add -N is safe on already-tracked files (no-op)
-  await runGitCommand(['add', '-N', '--', ...files], workingDirectory, 'git-add-intent')
+  await runGitCommand(['add', '-N', '--', ...existing], workingDirectory, 'git-add-intent')
 }
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
 import { getDecisionsByPhase } from '../../persistence/queries/decisions.js'
@@ -73,7 +74,8 @@ export async function runCreateStory(
   // Step 2: Query epic shard from decision store
   // Cache the implementation-phase decisions to avoid querying twice (issues #5)
   const implementationDecisions = getImplementationDecisions(deps)
-  const epicShardContent = getEpicShard(implementationDecisions, epicId, deps.projectRoot)
+  // Pass storyKey for per-story extraction (AC3)
+  const epicShardContent = getEpicShard(implementationDecisions, epicId, deps.projectRoot, storyKey)
 
   // Step 3: Query previous story dev notes (reuse cached decisions)
   const prevDevNotesContent = getPrevDevNotes(implementationDecisions, epicId)
@@ -233,22 +235,90 @@ function getImplementationDecisions(deps: WorkflowDeps): Decision[] {
 }
 
 /**
+ * Extract the section for a specific story key from a full epic shard.
+ *
+ * Matches patterns like:
+ *   - "Story 23-1:" / "### Story 23-1" / "#### Story 23-1"
+ *   - "23-1:" / "**23-1**"
+ *
+ * Returns the matched section content (from heading to next story heading or end),
+ * or null if no matching section is found (caller falls back to full shard).
+ */
+export function extractStorySection(shardContent: string, storyKey: string): string | null {
+  if (!shardContent || !storyKey) return null
+
+  // Escape special regex characters in storyKey (e.g. '23-1' contains a dash)
+  const escaped = storyKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+  // Story heading patterns (in order of preference):
+  // 1. Markdown headings: "### Story 23-1" or "#### Story 23-1"
+  // 2. Label with colon: "Story 23-1:"
+  // 3. Bold: "**23-1**"
+  // 4. Bare key with colon: "23-1:"
+  const headingPattern = new RegExp(
+    `(?:^#{2,4}\\s+Story\\s+${escaped}\\b|^Story\\s+${escaped}:|^\\*\\*${escaped}\\*\\*|^${escaped}:)`,
+    'mi',
+  )
+
+  const match = headingPattern.exec(shardContent)
+  if (!match) return null
+
+  const startIdx = match.index
+  // Find the next story heading after this match to determine the end boundary
+  const rest = shardContent.slice(startIdx + match[0].length)
+  // Next story heading: any of the same patterns
+  const nextStoryPattern = new RegExp(
+    `(?:^#{2,4}\\s+Story\\s+[\\d]|^Story\\s+[\\d][\\d-]*:|^\\*\\*[\\d][\\d-]*\\*\\*|^[\\d][\\d-]*:)`,
+    'mi',
+  )
+  const nextMatch = nextStoryPattern.exec(rest)
+  const endIdx = nextMatch !== null
+    ? startIdx + match[0].length + nextMatch.index
+    : shardContent.length
+
+  const section = shardContent.slice(startIdx, endIdx).trim()
+  return section.length > 0 ? section : null
+}
+
+/**
  * Retrieve the epic shard from the pre-fetched implementation decisions.
  * Looks for decisions with category='epic-shard', key=epicId.
  * Falls back to reading _bmad-output/epics.md on disk if decisions are empty.
+ *
+ * When storyKey is provided, extracts only the section for that story (AC3).
  */
-function getEpicShard(decisions: Decision[], epicId: string, projectRoot?: string): string {
+function getEpicShard(decisions: Decision[], epicId: string, projectRoot?: string, storyKey?: string): string {
   try {
     const epicShard = decisions.find(
       (d: Decision) => d.category === 'epic-shard' && d.key === epicId
     )
-    if (epicShard?.value) return epicShard.value
+    const shardContent = epicShard?.value
+
+    if (shardContent) {
+      // AC3: If storyKey is provided, extract only the story-specific section
+      if (storyKey) {
+        const storySection = extractStorySection(shardContent, storyKey)
+        if (storySection) {
+          logger.debug({ epicId, storyKey }, 'Extracted per-story section from epic shard')
+          return storySection
+        }
+        logger.debug({ epicId, storyKey }, 'No matching story section found — using full epic shard')
+      }
+      return shardContent
+    }
 
     // File-based fallback: extract epic section from epics.md
     if (projectRoot) {
       const fallback = readEpicShardFromFile(projectRoot, epicId)
       if (fallback) {
         logger.info({ epicId }, 'Using file-based fallback for epic shard (decisions table empty)')
+        if (storyKey) {
+          const storySection = extractStorySection(fallback, storyKey)
+          if (storySection) {
+            logger.debug({ epicId, storyKey }, 'Extracted per-story section from file-based epic shard')
+            return storySection
+          }
+        }
         return fallback
       }
     }
@@ -323,9 +393,9 @@ function readEpicShardFromFile(projectRoot: string, epicId: string): string {
     const content = readFileSync(epicsPath, 'utf-8')
     // Extract the numeric part of epicId (e.g., '7' from '7' or 'epic-7')
     const epicNum = epicId.replace(/^epic-/i, '')
-    // Match "## Epic N" or "## N." or "## N:" section until the next ## heading or EOF
+    // Match "#{2,4} Epic N" or "#{2,4} N." or "#{2,4} N:" section until the next #{2,4} heading or EOF
     const pattern = new RegExp(
-      `^## (?:Epic\\s+)?${epicNum}[.:\\s].*?(?=\\n## |$)`,
+      `^#{2,4}\\s+(?:Epic\\s+)?${epicNum}[.:\\s].*?(?=\\n#{2,4}\\s|$)`,
       'ms',
     )
     const match = pattern.exec(content)
@@ -371,5 +441,35 @@ async function getStoryTemplate(deps: WorkflowDeps): Promise<string> {
   } catch (err) {
     logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to retrieve story template from pack')
     return ''
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Story file validation (Story 23-3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate that an existing story file is non-empty and structurally valid.
+ *
+ * A valid story file must:
+ * 1. Be non-empty (> 0 bytes after trim)
+ * 2. Contain at least one heading (`#`) AND either "Acceptance Criteria" or "AC1"
+ *
+ * @returns `{ valid: true }` or `{ valid: false, reason: 'empty' | 'missing_structure' }`
+ */
+export async function isValidStoryFile(filePath: string): Promise<{ valid: boolean; reason?: string }> {
+  try {
+    const content = await readFile(filePath, 'utf-8')
+    if (content.trim().length === 0) {
+      return { valid: false, reason: 'empty' }
+    }
+    const hasHeading = content.includes('#')
+    const hasAC = /acceptance criteria|AC1/i.test(content)
+    if (!hasHeading || !hasAC) {
+      return { valid: false, reason: 'missing_structure' }
+    }
+    return { valid: true }
+  } catch {
+    return { valid: false, reason: 'empty' }
   }
 }

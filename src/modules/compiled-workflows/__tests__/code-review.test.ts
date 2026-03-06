@@ -374,23 +374,17 @@ describe('runCodeReview', () => {
     expect(result.error).toContain('Failed to read story file')
   })
 
-  it('proceeds with empty git diff if git command fails', async () => {
+  it('short-circuits with SHIP_IT when git diff is empty (no changes to review)', async () => {
     mockGetGitDiffSummary.mockResolvedValue('')
 
-    const dispatchFn = vi.fn().mockReturnValue({
-      id: 'test-id',
-      status: 'running',
-      cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
-    })
+    const dispatchFn = vi.fn()
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
     const result = await runCodeReview(deps, DEFAULT_PARAMS)
 
     expect(result.verdict).toBe('SHIP_IT')
-    expect(dispatchFn).toHaveBeenCalled()
+    expect(result.notes).toBe('no_changes_to_review')
+    expect(dispatchFn).not.toHaveBeenCalled()
   })
 
   // -------------------------------------------------------------------------
@@ -535,6 +529,7 @@ describe('runCodeReview', () => {
     expect(result.issues).toBe(0)
     expect(result.issue_list).toEqual([])
     expect(result.error).toContain('Dispatch status: failed')
+    expect(result.dispatchFailed).toBe(true)
   })
 
   it('returns default NEEDS_MINOR_FIXES on dispatch timeout', async () => {
@@ -556,6 +551,7 @@ describe('runCodeReview', () => {
 
     expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
     expect(result.error).toContain('timeout')
+    expect(result.dispatchFailed).toBe(true)
   })
 
   it('returns NEEDS_MINOR_FIXES when dispatch throws unexpectedly', async () => {
@@ -597,6 +593,7 @@ describe('runCodeReview', () => {
     expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
     expect(result.error).toBe('schema_validation_failed')
     expect(result.details).toBeDefined()
+    expect(result.dispatchFailed).toBeUndefined()
   })
 
   it('returns schema_validation_failed when no YAML block in output', async () => {

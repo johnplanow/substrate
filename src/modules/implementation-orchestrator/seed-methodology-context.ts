@@ -11,8 +11,9 @@
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { createDecision, getDecisionsByPhase } from '../../persistence/queries/decisions.js'
+import { createDecision, getDecisionsByPhase, upsertDecision } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('implementation-orchestrator:seed')
@@ -24,8 +25,8 @@ const logger = createLogger('implementation-orchestrator:seed')
 /** Max chars for the architecture summary seeded into decisions */
 const MAX_ARCH_CHARS = 6_000
 
-/** Max chars per epic shard */
-const MAX_EPIC_SHARD_CHARS = 4_000
+/** Max chars per epic shard (fallback when per-story extraction returns null) */
+const MAX_EPIC_SHARD_CHARS = 12_000
 
 /** Max chars for test patterns */
 const MAX_TEST_PATTERNS_CHARS = 2_000
@@ -159,16 +160,16 @@ function seedArchitecture(db: BetterSqlite3Database, projectRoot: string): numbe
 
 /**
  * Seed epic shards from epics.md.
- * Parses each "## Epic N" section and creates an implementation/epic-shard decision.
- * Returns number of decisions created, or -1 if skipped (already seeded).
+ * Parses each epic section and creates an implementation/epic-shard decision.
+ *
+ * Uses content-hash comparison (AC1, AC2, AC6):
+ * - Computes SHA-256 of the epics file and compares to the stored `epic-shard-hash` decision.
+ * - If hashes match: skip re-seeding (unchanged file).
+ * - If hash differs or no hash stored: delete existing epic-shard decisions and re-seed.
+ *
+ * Returns number of decisions created, or -1 if skipped (hash unchanged).
  */
 function seedEpicShards(db: BetterSqlite3Database, projectRoot: string): number {
-  // Check if epic-shard decisions already exist
-  const existing = getDecisionsByPhase(db, 'implementation')
-  if (existing.some((d) => d.category === 'epic-shard')) {
-    return -1
-  }
-
   const epicsPath = findArtifact(projectRoot, [
     '_bmad-output/planning-artifacts/epics.md',
     '_bmad-output/epics.md',
@@ -177,6 +178,28 @@ function seedEpicShards(db: BetterSqlite3Database, projectRoot: string): number 
 
   const content = readFileSync(epicsPath, 'utf-8')
   if (content.length === 0) return 0
+
+  // Compute SHA-256 hash of the epics file content
+  const currentHash = createHash('sha256').update(content).digest('hex')
+
+  // Retrieve stored hash from the decision store
+  const implementationDecisions = getDecisionsByPhase(db, 'implementation')
+  const storedHashDecision = implementationDecisions.find(
+    (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file',
+  )
+  const storedHash = storedHashDecision?.value
+
+  // AC2: If hash matches, skip re-seeding
+  if (storedHash === currentHash) {
+    logger.debug({ hash: currentHash }, 'Epic shards up-to-date (hash unchanged) — skipping re-seed')
+    return -1
+  }
+
+  // AC1/AC6: Hash differs or missing — delete existing epic-shard decisions and re-seed
+  if (implementationDecisions.some((d) => d.category === 'epic-shard')) {
+    logger.debug({ storedHash, currentHash }, 'Epics file changed — deleting stale epic-shard decisions')
+    db.prepare("DELETE FROM decisions WHERE phase = 'implementation' AND category = 'epic-shard'").run()
+  }
 
   const shards = parseEpicShards(content)
   let count = 0
@@ -193,7 +216,22 @@ function seedEpicShards(db: BetterSqlite3Database, projectRoot: string): number 
     count++
   }
 
-  logger.debug({ count }, 'Seeded epic shard decisions')
+  // Store/update the content hash so subsequent calls can skip re-seeding.
+  // Use delete + create (not upsertDecision) because upsertDecision's SQL
+  // `pipeline_run_id = ?` with null never matches existing NULL rows in SQLite.
+  db.prepare(
+    "DELETE FROM decisions WHERE phase = 'implementation' AND category = 'epic-shard-hash' AND key = 'epics-file'",
+  ).run()
+  createDecision(db, {
+    pipeline_run_id: null,
+    phase: 'implementation',
+    category: 'epic-shard-hash',
+    key: 'epics-file',
+    value: currentHash,
+    rationale: 'SHA-256 hash of epics file content for change detection',
+  })
+
+  logger.debug({ count, hash: currentHash }, 'Seeded epic shard decisions')
   return count
 }
 
@@ -294,12 +332,12 @@ interface EpicShard {
 
 /**
  * Parse epics.md into individual epic shards.
- * Matches "## Epic N" or "## N." or "## N:" section headings.
+ * Matches "## Epic N", "### Epic N", "#### Epic N", or depth-2 to depth-4 numeric headings.
  */
 function parseEpicShards(content: string): EpicShard[] {
   const shards: EpicShard[] = []
-  // Match ## Epic N, ## N., ## N:, or ## N  (where N is a number)
-  const epicPattern = /^## (?:Epic\s+)?(\d+)[.:\s]/gm
+  // Match #{2,4} Epic N, #{2,4} N., #{2,4} N:, or #{2,4} N  (where N is a number)
+  const epicPattern = /^#{2,4}\s+(?:Epic\s+)?(\d+)[.:\s]/gm
 
   let match: RegExpExecArray | null
   const matches: Array<{ epicNum: string; startIdx: number }> = []

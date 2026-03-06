@@ -178,6 +178,8 @@ export interface CodeReviewResult {
   error?: string
   /** Additional error details (schema validation failure) */
   details?: string
+  /** True when the dispatch itself failed (crash, timeout, non-zero exit) as opposed to schema validation failure */
+  dispatchFailed?: boolean
   /** Raw agent output for artifact persistence (diagnosis of schema failures) */
   rawOutput?: string
   /** Token usage from the dispatch */

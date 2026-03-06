@@ -49,6 +49,7 @@ function defaultFailResult(error: string, tokenUsage: { input: number; output: n
     issues: 0,
     issue_list: [],
     error,
+    dispatchFailed: true,
     tokenUsage,
   }
 }
@@ -147,6 +148,18 @@ export async function runCodeReview(
         'Full git diff would exceed token ceiling — using stat-only summary',
       )
       gitDiffContent = await getGitDiffStatSummary(cwd)
+    }
+  }
+
+  // AC4: Empty diff short-circuit — nothing to review
+  if (gitDiffContent.trim().length === 0) {
+    logger.info({ storyKey }, 'Empty git diff — skipping review with SHIP_IT')
+    return {
+      verdict: 'SHIP_IT',
+      issues: 0,
+      issue_list: [],
+      notes: 'no_changes_to_review',
+      tokenUsage: { input: 0, output: 0 },
     }
   }
 

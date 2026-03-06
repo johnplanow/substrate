@@ -13,7 +13,7 @@ import type { ContextCompiler } from '../../context-compiler/context-compiler.js
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
 import type { WorkflowDeps, CreateStoryParams } from '../types.js'
 import { CreateStoryResultSchema } from '../schemas.js'
-import { runCreateStory } from '../create-story.js'
+import { runCreateStory, extractStorySection } from '../create-story.js'
 
 // ---------------------------------------------------------------------------
 // Mock logger
@@ -949,5 +949,231 @@ Implement mode selection landing screen, variant configuration, and setup execut
     const fsCalls = mockExistsSync.mock.calls.map(c => String(c[0]))
     expect(fsCalls.filter(p => p.includes('epics.md'))).toHaveLength(0)
     expect(fsCalls.filter(p => p.includes('architecture.md'))).toHaveLength(0)
+  })
+
+  it('falls back to epics.md with h3 headings (readEpicShardFromFile h3 coverage)', async () => {
+    mockGetDecisionsByPhase.mockReturnValue([])
+
+    const epicsH3Content = `# Epics
+
+### Epic 7: Mode Selection & Game Setup
+
+Implement mode selection with h3 headings.
+
+### Stories
+- 7-1: Mode Selection Screen
+
+### Epic 8: Something Else
+Other epic content.
+`
+    mockExistsSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('epics.md')) return true
+      return false
+    })
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('epics.md')) return epicsH3Content
+      throw new Error('ENOENT')
+    })
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      { ...defaultParams, epicId: '7', storyKey: '7-1' },
+    )
+
+    expect(capturedPrompts[0]).toContain('Mode Selection & Game Setup')
+  })
+
+  it('falls back to epics.md with h4 headings (readEpicShardFromFile h4 coverage)', async () => {
+    mockGetDecisionsByPhase.mockReturnValue([])
+
+    const epicsH4Content = `# Epics
+
+#### Epic 7: Mode Selection & Game Setup
+
+Implement mode selection with h4 headings.
+
+#### Stories
+- 7-1: Mode Selection Screen
+
+#### Epic 8: Something Else
+Other epic content.
+`
+    mockExistsSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('epics.md')) return true
+      return false
+    })
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('epics.md')) return epicsH4Content
+      throw new Error('ENOENT')
+    })
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      { ...defaultParams, epicId: '7', storyKey: '7-1' },
+    )
+
+    expect(capturedPrompts[0]).toContain('Mode Selection & Game Setup')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC3: extractStorySection() — dedicated unit tests (Task 3)
+// ---------------------------------------------------------------------------
+
+describe('AC3: extractStorySection() unit tests', () => {
+  it('returns null for empty shardContent', () => {
+    expect(extractStorySection('', '23-1')).toBeNull()
+  })
+
+  it('returns null for empty storyKey', () => {
+    expect(extractStorySection('### Story 23-1: Epic Shard Overhaul\nContent here.', '')).toBeNull()
+  })
+
+  it('returns null when no matching story section exists', () => {
+    const shard = `## Epic 23: Cross-Project Pipeline Correctness
+
+### Story 23-2: Dispatch Error Separation
+This story handles dispatch errors.
+`
+    expect(extractStorySection(shard, '23-1')).toBeNull()
+  })
+
+  it('matches "### Story 23-1" heading pattern and returns the section', () => {
+    const shard = `## Epic 23: Cross-Project Pipeline Correctness
+
+### Story 23-1: Epic Shard Overhaul
+This story handles the epic shard logic.
+AC1: Content-Hash Re-Seed
+
+### Story 23-2: Dispatch Error Separation
+This story handles dispatch error separation.
+`
+    const result = extractStorySection(shard, '23-1')
+    expect(result).not.toBeNull()
+    expect(result).toContain('Epic Shard Overhaul')
+    expect(result).toContain('Content-Hash Re-Seed')
+    // Must NOT include the next story
+    expect(result).not.toContain('Dispatch Error Separation')
+  })
+
+  it('matches "#### Story 23-1" (h4) heading pattern', () => {
+    const shard = `## Epic 23: Cross-Project Pipeline Correctness
+
+#### Story 23-1: Epic Shard Overhaul
+h4 heading content here.
+
+#### Story 23-2: Next Story
+Other content.
+`
+    const result = extractStorySection(shard, '23-1')
+    expect(result).not.toBeNull()
+    expect(result).toContain('h4 heading content here')
+    expect(result).not.toContain('Next Story')
+  })
+
+  it('matches "Story 23-1:" label-with-colon pattern', () => {
+    const shard = `## Epic 23
+
+Story 23-1: Epic Shard Overhaul
+Description of the story.
+
+Story 23-2: Next Story
+Other content.
+`
+    const result = extractStorySection(shard, '23-1')
+    expect(result).not.toBeNull()
+    expect(result).toContain('Epic Shard Overhaul')
+    expect(result).not.toContain('Next Story')
+  })
+
+  it('matches "**23-1**" bold pattern', () => {
+    const shard = `## Epic 23
+
+**23-1** Epic Shard Overhaul
+Bold story section content.
+
+**23-2** Next Story
+Other content.
+`
+    const result = extractStorySection(shard, '23-1')
+    expect(result).not.toBeNull()
+    expect(result).toContain('Bold story section content')
+    expect(result).not.toContain('Next Story')
+  })
+
+  it('matches bare "23-1:" pattern', () => {
+    const shard = `## Epic 23
+
+23-1: Epic Shard Overhaul
+Bare key content.
+
+23-2: Next Story
+Other content.
+`
+    const result = extractStorySection(shard, '23-1')
+    expect(result).not.toBeNull()
+    expect(result).toContain('Bare key content')
+    expect(result).not.toContain('Next Story')
+  })
+
+  it('returns the last story section when it is at the end of the shard (no next heading)', () => {
+    const shard = `## Epic 23
+
+### Story 23-1: Epic Shard Overhaul
+This is the only story in the shard.
+`
+    const result = extractStorySection(shard, '23-1')
+    expect(result).not.toBeNull()
+    expect(result).toContain('This is the only story in the shard')
+  })
+
+  it('does not confuse 23-1 with 23-10 or 23-11 (key specificity)', () => {
+    const shard = `## Epic 23
+
+### Story 23-10: Some Other Story
+Not what we want.
+
+### Story 23-1: Epic Shard Overhaul
+This is 23-1 content.
+`
+    const result = extractStorySection(shard, '23-1')
+    // Should match 23-1, not 23-10
+    expect(result).not.toBeNull()
+    expect(result).toContain('Epic Shard Overhaul')
+    expect(result).not.toContain('Some Other Story')
   })
 })
