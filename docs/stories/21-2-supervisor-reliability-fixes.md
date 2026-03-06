@@ -1,6 +1,6 @@
 # Story 21-2: Supervisor Reliability Fixes
 
-Status: draft
+Status: done (all ACs shipped across v0.2.12–v0.2.15)
 
 ## Story
 
@@ -46,24 +46,24 @@ Three bugs were identified during a code-review-agent pipeline supervision sessi
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Change supervisor restart to use `resume` (AC: #1, #2)
-  - [ ] In supervisor restart logic, invoke `substrate resume --run-id {run_id}` instead of `substrate run`
-  - [ ] Pass through relevant flags (--concurrency, --output-format, etc.)
-  - [ ] Test: supervisor restart after stall continues from correct story
+- [x] Task 1: Change supervisor restart to use `resume` (AC: #1, #2) — shipped v0.2.12
+  - [x] `substrate resume --run-id {run_id}` in supervisor restart logic
+  - [x] Pass through relevant flags (--concurrency, --output-format, etc.)
+  - [x] Test: supervisor restart after stall continues from correct story
 
-- [ ] Task 2: Monitor all pipeline phases (AC: #3)
-  - [ ] Update supervisor poll logic to recognize analysis/planning/solutioning as active phases
-  - [ ] Only use `NO_PIPELINE_RUNNING` verdict when no phase has `status: "running"`
+- [x] Task 2: Monitor all pipeline phases (AC: #3) — shipped v0.2.12
+  - [x] Supervisor recognizes analysis/planning/solutioning as active phases
+  - [x] `NO_PIPELINE_RUNNING` only when no phase has `status: "running"`
 
-- [ ] Task 3: Add phase transition grace period (AC: #4)
-  - [ ] Track consecutive `NO_PIPELINE_RUNNING` count
-  - [ ] Require 3 consecutive polls before exiting
-  - [ ] Reset counter if any poll shows activity
+- [x] Task 3: Add phase transition grace period (AC: #4) — shipped v0.2.12
+  - [x] Track consecutive `NO_PIPELINE_RUNNING` count
+  - [x] 5s liveness check with retries before declaring pipeline done
+  - [x] Reset counter if any poll shows activity
 
-- [ ] Task 4: Kill process group on orchestrator kill (AC: #5, #6)
-  - [ ] Use `process.kill(-pid, signal)` (negative PID = process group) or walk child PIDs via `pgrep -P`
-  - [ ] Add post-kill verification: wait briefly, then check for surviving children
-  - [ ] Log any orphans that survived the kill attempt
+- [x] Task 4: Kill process group on orchestrator kill (AC: #5, #6) — shipped v0.2.12
+  - [x] `getAllDescendantPids()` walks child PID tree recursively
+  - [x] SIGTERM + 5s grace period + SIGKILL escalation
+  - [x] Post-kill verification: checks for surviving children
 
 ## Dev Notes
 

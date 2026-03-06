@@ -1,6 +1,6 @@
 # BMAD Workflow Gap Analysis
 
-> Last updated: 2026-03-05 (v0.2.15)
+> Last updated: 2026-03-06 (v0.2.19)
 
 Analysis of BMAD workflows not currently utilized by the substrate pipeline, with integration recommendations.
 
@@ -26,18 +26,16 @@ The substrate pipeline reimplements these BMAD workflows as decomposed compiled 
 
 ## Remaining Gaps
 
-### Priority 1: Closed Learning Loop
+### Priority 1: Closed Learning Loop (Partially Addressed)
 
-The pipeline generates rich signals — analysis reports, experiment verdicts, token usage, stall patterns — but none of it feeds back into future runs. This is the biggest architectural gap: **no closed learning loop**.
+The pipeline generates rich signals and **already persists them**: operational findings to the decision store (v0.2.16, Story 21-1), post-run analysis reports via the supervisor analysis engine (Story 17-3, `src/modules/supervisor/analysis.ts`), and experiment verdicts via the experimenter (Story 17-4, `src/modules/supervisor/experimenter.ts`). Reports are written to `_bmad-output/supervisor-reports/`.
 
-Two workflows address different facets of this:
+**What's missing**: the feedback loop. Findings are captured but **not consumed by future runs**. A retrospective phase after terminal state could read decision store findings and write a persistent context artifact that downstream runs inject into analysis/planning prompts.
 
 | Workflow | Gap |
 |---|---|
-| `bmad-bmm-retrospective` | No structured lesson extraction after pipeline completion |
+| `bmad-bmm-retrospective` | Findings captured but not fed back — no closed loop |
 | `bmad-bmm-generate-project-context` | No project-context artifact persisted for future runs |
-
-Pipeline ends at story completion (or supervisor summary). A retrospective phase after terminal state could extract lessons (what stalled, what was escalated, what patterns led to first-pass SHIP_IT) and write them to the decision store or a persistent context artifact that downstream runs can consume.
 
 ### Priority 2: Post-Implementation Traceability
 
@@ -67,17 +65,23 @@ Dev-story has a `red-green-refactor` constraint but no structured test planning.
 
 | Workflow | Gap | Notes |
 |---|---|---|
-| `bmad-bmm-quick-spec` + `bmad-bmm-quick-dev` | No lightweight fast lane for small changes | Full ceremony always required |
-| `bmad-bmm-validate-prd` | No dedicated PRD validation (only critique loop) | Partially covered by critique-planning |
 | `bmad-bmm-sprint-status` | No mid-run sprint summary | Partially covered by NDJSON events + supervisor:poll |
-| `bmad-bmm-document-project` | No brownfield codebase analysis | Onboarding for existing projects |
-| `bmad-bmm-edit-prd` | No targeted PRD edit (only full phase re-run) | Amendment mode partially covers |
-| `bmad-tea-testarch-framework` | No test framework scaffolding | Assumes framework exists |
-| `bmad-tea-testarch-ci` | No CI/CD pipeline generation | Out of scope for code pipeline |
 | `bmad-tea-testarch-nfr` | No NFR assessment against implementation | Post-release concern |
-| `bmad-tea-testarch-test-review` | No test quality gate between dev and review | Could slot between dev-story and code-review |
-| `bmad-tea-testarch-atdd` | No dedicated ATDD scaffolding | Partially covered by red-green-refactor constraint |
 | `bmad-tea-testarch-automate` | No post-implementation test expansion | E2E/UI coverage gap |
+
+### Won't Build
+
+Removed from active tracking — either covered by existing substrate patterns or out of scope:
+
+| Workflow | Reason |
+|---|---|
+| `bmad-bmm-quick-spec` + `bmad-bmm-quick-dev` | Substrate's compiled prompts ARE the fast lane |
+| `bmad-bmm-validate-prd` | Critique loop already covers PRD validation |
+| `bmad-bmm-document-project` | Niche; not blocking pipeline usage |
+| `bmad-bmm-edit-prd` | Amendment mode covers targeted edits |
+| `bmad-tea-testarch-framework` | Assumes framework exists (correct assumption) |
+| `bmad-tea-testarch-ci` | Out of scope for code pipeline |
+| `bmad-tea-testarch-atdd` | Red-green-refactor constraint covers this |
 
 ### Not Applicable
 
@@ -89,7 +93,6 @@ Small-scope items tracked in source rather than as stories:
 
 | Location | Item |
 |---|---|
-| `src/modules/compiled-workflows/code-review.ts:35` | Externalize pack config (max review cycles, severity thresholds) for multi-pack support |
 | `src/cli/commands/adapters.ts:80,152` | AdapterRegistry should be initialized at CLI startup and injected, not constructed per-call |
 
 ## Shipped (historical)
@@ -101,3 +104,14 @@ Previously tracked gaps that have been resolved:
 | Research validation (market, domain, technical) | Epic 20: optional research phase with 2-step compiled decomposition, `--research`/`--skip-research` CLI flags, `{{research_findings}}` context injection, web search graceful fallback | v0.2.7–v0.2.10 |
 | Supervisor token tracking reports 0 tokens from dev builds/worktrees | `getTokenSnapshot`/`incrementRestarts` now resolve DB path via `resolveMainRepoRoot` | v0.2.15 |
 | Constraint adherence (tech constraints dropped during analysis) | `technology_constraints` field threaded through planning, concept truncation removed | v0.1.24 |
+| Operational findings capture | Story 21-1: supervisor stall events + run summaries persisted to decision store (`schemas/operational.ts`) | v0.2.16 |
+| Post-run analysis reports | Story 17-3: supervisor analysis engine generates token efficiency, review cycle, and timing reports to `_bmad-output/supervisor-reports/` | v0.2.12 |
+| Experiment mode / A/B testing | Story 17-4: `--experiment` flag, experiment state machine, verdict engine (IMPROVED/MIXED/REGRESSED), recommendations written to decision store | v0.2.12 |
+| Resume command | `substrate resume --run-id` with checkpoint recovery, `--stop-after` phase support | v0.2.12 |
+| Process group kill / orphan cleanup | `getAllDescendantPids()` recursive PID collection, SIGTERM + 5s grace + SIGKILL cascade, post-kill verification | v0.2.12 |
+| Phase transition grace period | `NO_PIPELINE_RUNNING` requires consecutive polls, 5s liveness check with retries before declaring pipeline done | v0.2.12 |
+| All-phase supervisor monitoring | Supervisor monitors analysis/planning/solutioning phases, not just implementation | v0.2.12 |
+| macOS memory pressure false stalls | Pressure-level gate raised from `>= 2` (warn) to `>= 4` (critical); level 2 halves vm_stat estimate instead of hard-blocking | v0.2.18 |
+| YAML fence wrapping causes false rework | `stripTrailingFence()` in YAML parser; schema-failure fallback changed from NEEDS_MAJOR_REWORK to NEEDS_MINOR_FIXES | v0.2.19 |
+| Default memory threshold too aggressive | Lowered from 512MB to 256MB; macOS vm_stat reports conservatively | v0.2.19 |
+| Phase end-time warning on skipped phases | `endPhase()` called on create-story skip path when story file exists from prior run | v0.2.19 |
