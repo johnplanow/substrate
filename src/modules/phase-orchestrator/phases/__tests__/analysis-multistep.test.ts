@@ -23,6 +23,13 @@ import type { PhaseDeps, AnalysisPhaseParams } from '../types.js'
 import type { MethodologyPack } from '../../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchResult } from '../../../agent-dispatch/types.js'
+import { getProjectFindings } from '../../../implementation-orchestrator/project-findings.js'
+
+// Mock getProjectFindings so multi-step tests can control prior findings injection
+// Default: returns '' (no findings) — does not affect existing tests
+vi.mock('../../../implementation-orchestrator/project-findings.js', () => ({
+  getProjectFindings: vi.fn().mockReturnValue(''),
+}))
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -180,6 +187,96 @@ function makeDeps(
   pack: MethodologyPack,
 ): PhaseDeps {
   return { db, pack, contextCompiler: makeContextCompiler(), dispatcher }
+}
+
+/**
+ * Capture-dispatcher: captures the prompt string passed to dispatch() so tests
+ * can assert on what the step-runner assembled for each step.
+ */
+function makeCaptureDispatcher(results: DispatchResult<unknown>[]): {
+  dispatcher: Dispatcher
+  capturedPrompts: string[]
+} {
+  const capturedPrompts: string[] = []
+  let callIndex = 0
+  const dispatcher: Dispatcher = {
+    dispatch: vi.fn().mockImplementation((opts: { prompt: string }) => {
+      capturedPrompts.push(opts.prompt)
+      const result = results[callIndex] ?? results[results.length - 1]!
+      callIndex++
+      return {
+        id: result.id,
+        status: 'completed' as const,
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(result),
+      }
+    }),
+    getPending: vi.fn().mockReturnValue(0),
+    getRunning: vi.fn().mockReturnValue(0),
+    shutdown: vi.fn().mockResolvedValue(undefined),
+  }
+  return { dispatcher, capturedPrompts }
+}
+
+/**
+ * Pack with {{prior_findings}} placeholder in step-1-vision template.
+ */
+function makeMultiStepPackWithFindingsTemplate(): MethodologyPack {
+  return {
+    manifest: {
+      name: 'test-pack',
+      version: '1.0.0',
+      description: 'Test',
+      phases: [
+        {
+          name: 'analysis',
+          description: 'Analysis',
+          entryGates: [],
+          exitGates: ['product-brief-complete'],
+          artifacts: ['product-brief'],
+          steps: [
+            {
+              name: 'analysis-step-1-vision',
+              template: 'analysis-step-1-vision',
+              context: [
+                { placeholder: 'concept', source: 'param:concept' },
+                { placeholder: 'prior_findings', source: 'param:prior_findings' },
+              ],
+              outputCategory: 'product-brief',
+            },
+            {
+              name: 'analysis-step-2-scope',
+              template: 'analysis-step-2-scope',
+              context: [
+                { placeholder: 'concept', source: 'param:concept' },
+                { placeholder: 'vision_output', source: 'step:analysis-step-1-vision' },
+              ],
+              outputCategory: 'product-brief',
+            },
+          ],
+        },
+      ],
+      prompts: {
+        'analysis-step-1-vision': 'prompts/analysis-step-1-vision.md',
+        'analysis-step-2-scope': 'prompts/analysis-step-2-scope.md',
+      },
+      constraints: {},
+      templates: {},
+    },
+    getPhases: vi.fn().mockReturnValue([]),
+    getPrompt: vi.fn().mockImplementation((key: string) => {
+      if (key === 'analysis-step-1-vision') {
+        // Include {{prior_findings}} so we can verify replacement
+        return Promise.resolve('Analyze vision for: {{concept}} Findings: {{prior_findings}}')
+      }
+      if (key === 'analysis-step-2-scope') {
+        return Promise.resolve('Define scope for: {{concept}} given {{vision_output}}')
+      }
+      return Promise.resolve('{{concept}}')
+    }),
+    getConstraints: vi.fn().mockResolvedValue([]),
+    getTemplate: vi.fn().mockResolvedValue(''),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -362,5 +459,72 @@ describe('runAnalysisPhase() multi-step path', () => {
 
     expect(result.result).toBe('failed')
     expect(result.error).toBeDefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Multi-step: prior findings injection (AC1, AC2)
+// ---------------------------------------------------------------------------
+
+describe('runAnalysisPhase() multi-step path — prior findings injection', () => {
+  let db: BetterSqlite3Database
+  let tmpDir: string
+  let runId: string
+
+  beforeEach(() => {
+    const tmp = mkdtempSync(join(tmpdir(), 'analysis-multistep-findings-'))
+    const database = new Database(join(tmp, 'test.db'))
+    runMigrations(database)
+    db = database
+    tmpDir = tmp
+    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    runId = run.id
+    // Reset mock to default before each test
+    vi.mocked(getProjectFindings).mockReturnValue('')
+  })
+
+  afterEach(() => {
+    db.close()
+    rmSync(tmpDir, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  it('AC1: assembled step-1-vision prompt contains findings text when findings are present', async () => {
+    const findingsText = '**Recurring patterns:** missing error handling\n**Prior stalls:** 2 stall event(s) recorded'
+    vi.mocked(getProjectFindings).mockReturnValue(findingsText)
+
+    const pack = makeMultiStepPackWithFindingsTemplate()
+    const visionResult = makeDispatchResult(VISION_OUTPUT, 0)
+    const scopeResult = makeDispatchResult(SCOPE_OUTPUT, 1)
+    const { dispatcher, capturedPrompts } = makeCaptureDispatcher([visionResult, scopeResult])
+    const deps = makeDeps(db, dispatcher, pack)
+    const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
+
+    const result = await runAnalysisPhase(deps, params)
+
+    expect(result.result).toBe('success')
+    // step-1-vision prompt is capturedPrompts[0]
+    expect(capturedPrompts[0]).toContain(findingsText)
+    expect(capturedPrompts[0]).not.toContain('{{prior_findings}}')
+  })
+
+  it('AC2: assembled step-1-vision prompt has no orphaned {{prior_findings}} when store is empty', async () => {
+    vi.mocked(getProjectFindings).mockReturnValue('')
+
+    const pack = makeMultiStepPackWithFindingsTemplate()
+    const visionResult = makeDispatchResult(VISION_OUTPUT, 0)
+    const scopeResult = makeDispatchResult(SCOPE_OUTPUT, 1)
+    const { dispatcher, capturedPrompts } = makeCaptureDispatcher([visionResult, scopeResult])
+    const deps = makeDeps(db, dispatcher, pack)
+    const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
+
+    const result = await runAnalysisPhase(deps, params)
+
+    expect(result.result).toBe('success')
+    // {{prior_findings}} placeholder must be replaced (with empty string), not left as-is
+    expect(capturedPrompts[0]).not.toContain('{{prior_findings}}')
+    // No findings text in the prompt
+    expect(capturedPrompts[0]).not.toContain('**Recurring patterns:**')
+    expect(capturedPrompts[0]).not.toContain('**Prior stalls:**')
   })
 })

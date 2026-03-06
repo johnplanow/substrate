@@ -17,12 +17,14 @@ import { join, basename } from 'node:path'
 import { updatePipelineRun, getDecisionsByPhase, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
 import { writeStoryMetrics, aggregateTokenUsageForStory } from '../../persistence/queries/metrics.js'
-import { STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME } from '../../persistence/schemas/operational.js'
+import { STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME, TEST_EXPANSION_FINDING } from '../../persistence/schemas/operational.js'
 import { generateEscalationDiagnosis } from './escalation-diagnosis.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { runCreateStory } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
+import { runTestPlan } from '../compiled-workflows/test-plan.js'
+import { runTestExpansion } from '../compiled-workflows/test-expansion.js'
 import { analyzeStoryComplexity, planTaskBatches } from '../compiled-workflows/index.js'
 import { detectConflictGroups } from './conflict-detector.js'
 import type { ImplementationOrchestrator } from './orchestrator.js'
@@ -549,6 +551,39 @@ export function createImplementationOrchestrator(
     }
     } // end if (storyFilePath === undefined)
 
+    // -- test-plan phase --
+
+    await waitIfPaused()
+    if (_state !== 'RUNNING') return
+
+    startPhase(storyKey, 'test-plan')
+    updateStory(storyKey, { phase: 'IN_TEST_PLANNING' as StoryPhase })
+    persistState()
+
+    let testPlanPhaseResult: 'success' | 'failed' = 'failed'
+    try {
+      const testPlanResult = await runTestPlan(
+        { db, pack, contextCompiler, dispatcher, projectRoot },
+        { storyKey, storyFilePath: storyFilePath ?? '', pipelineRunId: config.pipelineRunId },
+      )
+      testPlanPhaseResult = testPlanResult.result
+      if (testPlanResult.result === 'success') {
+        logger.info({ storyKey }, 'Test plan generated successfully')
+      } else {
+        logger.warn({ storyKey }, 'Test planning returned failed result — proceeding to dev-story without test plan')
+      }
+    } catch (err) {
+      logger.warn({ storyKey, err }, 'Test planning failed — proceeding to dev-story without test plan')
+    }
+
+    endPhase(storyKey, 'test-plan')
+
+    eventBus.emit('orchestrator:story-phase-complete', {
+      storyKey,
+      phase: 'IN_TEST_PLANNING',
+      result: { result: testPlanPhaseResult },
+    })
+
     // -- dev-story phase --
 
     await waitIfPaused()
@@ -982,6 +1017,41 @@ export function createImplementationOrchestrator(
         writeStoryOutcomeBestEffort(storyKey, 'complete', reviewCycles + 1)
         eventBus.emit('orchestrator:story-complete', { storyKey, reviewCycles })
         persistState()
+
+        // Post-SHIP_IT: run test expansion analysis (non-blocking — never alters verdict/state)
+        try {
+          const expansionResult = await runTestExpansion(
+            { db, pack, contextCompiler, dispatcher, projectRoot },
+            {
+              storyKey,
+              storyFilePath: storyFilePath ?? '',
+              pipelineRunId: config.pipelineRunId,
+              filesModified: devFilesModified,
+              workingDirectory: projectRoot,
+            },
+          )
+          logger.debug(
+            {
+              storyKey,
+              expansion_priority: expansionResult.expansion_priority,
+              coverage_gaps: expansionResult.coverage_gaps.length,
+            },
+            'Test expansion analysis complete',
+          )
+          createDecision(db, {
+            pipeline_run_id: config.pipelineRunId ?? 'unknown',
+            phase: 'implementation',
+            category: TEST_EXPANSION_FINDING,
+            key: `${storyKey}:${config.pipelineRunId ?? 'unknown'}`,
+            value: JSON.stringify(expansionResult),
+          })
+        } catch (expansionErr) {
+          logger.warn(
+            { storyKey, error: expansionErr instanceof Error ? expansionErr.message : String(expansionErr) },
+            'Test expansion failed — story verdict unchanged',
+          )
+        }
+
         keepReviewing = false
         return
       }

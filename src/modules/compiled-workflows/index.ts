@@ -12,6 +12,8 @@
 export { runCreateStory } from './create-story.js'
 export { runDevStory } from './dev-story.js'
 export { runCodeReview } from './code-review.js'
+export { runTestPlan } from './test-plan.js'
+export { runTestExpansion } from './test-expansion.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,6 +28,12 @@ export type {
   CodeReviewParams,
   CodeReviewResult,
   CodeReviewIssue,
+  TestPlanParams,
+  TestPlanResult,
+  TestExpansionParams,
+  TestExpansionResult,
+  CoverageGap,
+  SuggestedTest,
 } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -37,6 +45,10 @@ export {
   DevStoryResultSchema,
   CodeReviewResultSchema,
   CodeReviewIssueSchema,
+  TestPlanResultSchema,
+  TestExpansionResultSchema,
+  CoverageGapSchema,
+  SuggestedTestSchema,
 } from './schemas.js'
 
 export type {
@@ -44,6 +56,8 @@ export type {
   DevStorySchemaOutput,
   CodeReviewSchemaOutput,
   CodeReviewIssueSchemaOutput,
+  TestPlanSchemaOutput,
+  TestExpansionSchemaOutput,
 } from './schemas.js'
 
 // ---------------------------------------------------------------------------

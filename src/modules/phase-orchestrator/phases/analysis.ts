@@ -17,6 +17,7 @@ import { runSteps } from '../step-runner.js'
 import type { StepDefinition } from '../step-runner.js'
 import { AnalysisOutputSchema, AnalysisVisionOutputSchema, AnalysisScopeOutputSchema } from './schemas.js'
 import type { AnalysisPhaseParams, AnalysisResult, PhaseDeps, ProductBrief } from './types.js'
+import { getProjectFindings } from '../../../modules/implementation-orchestrator/project-findings.js'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -37,6 +38,12 @@ const AMENDMENT_CONTEXT_FOOTER = '\n--- END AMENDMENT CONTEXT ---\n'
 
 /** Marker appended when amendment context is truncated to fit token budget */
 const TRUNCATED_MARKER = '\n[TRUNCATED]'
+
+/** Prior run findings framing block prefix */
+const PRIOR_FINDINGS_HEADER = '\n\n--- PRIOR RUN FINDINGS ---\n'
+
+/** Prior run findings framing block suffix */
+const PRIOR_FINDINGS_FOOTER = '\n--- END PRIOR RUN FINDINGS ---\n'
 
 /** Concept placeholder in the prompt template */
 const CONCEPT_PLACEHOLDER = '{{concept}}'
@@ -99,6 +106,7 @@ function buildAnalysisSteps(): StepDefinition[] {
       outputSchema: AnalysisVisionOutputSchema,
       context: [
         { placeholder: 'concept', source: 'param:concept' },
+        { placeholder: 'prior_findings', source: 'param:prior_findings' },
       ],
       persist: [
         { field: 'problem_statement', category: 'product-brief', key: 'problem_statement' },
@@ -146,8 +154,18 @@ async function runAnalysisMultiStep(
     // MAX_CONCEPT_CHARS drops technology constraints and other sections
     // that appear later in longer concept documents.
     const steps = buildAnalysisSteps()
+
+    // Query prior run findings for injection into step-1-vision (AC1, AC2, AC6)
+    let priorFindings = ''
+    try {
+      priorFindings = getProjectFindings(deps.db)
+    } catch {
+      // Graceful fallback — empty string (AC2)
+    }
+
     const result = await runSteps(steps, deps, params.runId, 'analysis', {
       concept: params.concept,
+      prior_findings: priorFindings,
     })
 
     if (!result.success) {
@@ -262,6 +280,25 @@ export async function runAnalysisPhase(
 
     // Step 3: Replace {{concept}} placeholder in template with user concept
     let prompt = template.replace(CONCEPT_PLACEHOLDER, effectiveConcept)
+
+    // Step 3.5: Inject prior run findings if available (AC3, AC4, AC5, AC6)
+    try {
+      const priorFindings = getProjectFindings(db)
+      if (priorFindings !== '') {
+        const maxPromptChars = MAX_PROMPT_TOKENS * 4
+        const framingLen = PRIOR_FINDINGS_HEADER.length + PRIOR_FINDINGS_FOOTER.length
+        const availableForFindings = maxPromptChars - prompt.length - framingLen - TRUNCATED_MARKER.length
+        if (availableForFindings > 0) {
+          const findingsToInject =
+            priorFindings.length > availableForFindings
+              ? priorFindings.slice(0, availableForFindings) + TRUNCATED_MARKER
+              : priorFindings
+          prompt += PRIOR_FINDINGS_HEADER + findingsToInject + PRIOR_FINDINGS_FOOTER
+        }
+      }
+    } catch {
+      // getProjectFindings failure is non-blocking — continue without findings (AC4)
+    }
 
     // Step 4: Inject amendment context if provided (AC2, AC3)
     if (amendmentContext !== undefined && amendmentContext !== '') {

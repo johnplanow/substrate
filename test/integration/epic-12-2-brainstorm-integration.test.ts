@@ -57,6 +57,17 @@ vi.mock('../../src/utils/logger.js', () => ({
   })),
 }))
 
+// Mock AdapterRegistry to prevent real CLI health checks during createProgram()
+vi.mock('../../src/adapters/adapter-registry.js', () => ({
+  AdapterRegistry: vi.fn().mockImplementation(() => ({
+    discoverAndRegister: vi.fn().mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] }),
+    register: vi.fn(),
+    get: vi.fn().mockReturnValue(undefined),
+    getAll: vi.fn().mockReturnValue([]),
+    getPlanningCapable: vi.fn().mockReturnValue([]),
+  })),
+}))
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------

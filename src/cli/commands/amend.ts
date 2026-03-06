@@ -119,10 +119,11 @@ export interface AmendOptions {
   from?: PhaseName
   projectRoot: string
   pack: string
+  registry?: AdapterRegistry
 }
 
 export async function runAmendAction(options: AmendOptions): Promise<number> {
-  const { concept: conceptArg, conceptFile, runId: specifiedRunId, stopAfter, from: startPhase, projectRoot, pack: packName } = options
+  const { concept: conceptArg, conceptFile, runId: specifiedRunId, stopAfter, from: startPhase, projectRoot, pack: packName, registry: injectedRegistry } = options
 
   // AC2: --concept or --concept-file is required (before any DB reads/writes)
   let concept: string
@@ -232,8 +233,10 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
 
     const eventBus = createEventBus()
     const contextCompiler = createContextCompiler({ db })
-    const adapterRegistry = new AdapterRegistry()
-    await adapterRegistry.discoverAndRegister()
+    const adapterRegistry = injectedRegistry ?? new AdapterRegistry()
+    if (injectedRegistry === undefined) {
+      await adapterRegistry.discoverAndRegister()
+    }
     const dispatcher = createDispatcher({ eventBus, adapterRegistry })
     const phaseDeps = { db, pack, contextCompiler, dispatcher }
 
@@ -425,6 +428,7 @@ export function registerAmendCommand(
   program: Command,
   _version = '0.0.0',
   projectRoot = process.cwd(),
+  registry?: AdapterRegistry,
 ): void {
   program
     .command('amend')
@@ -460,6 +464,7 @@ export function registerAmendCommand(
           from: opts.from as PhaseName | undefined,
           projectRoot: opts.projectRoot,
           pack: opts.pack,
+          registry,
         })
         process.exitCode = exitCode
       },

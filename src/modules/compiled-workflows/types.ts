@@ -186,3 +186,107 @@ export interface CodeReviewResult {
     output: number
   }
 }
+
+// ---------------------------------------------------------------------------
+// TestPlan types
+// ---------------------------------------------------------------------------
+
+/**
+ * Parameters for the test-plan compiled workflow.
+ */
+export interface TestPlanParams {
+  /** Story key (e.g., "22-7") for tracking */
+  storyKey: string
+  /** Absolute path to the story file on disk */
+  storyFilePath: string
+  /** Pipeline run ID for decision store persistence */
+  pipelineRunId: string
+}
+
+/**
+ * Result from the test-plan compiled workflow.
+ */
+export interface TestPlanResult {
+  /** Whether the workflow succeeded or failed */
+  result: 'success' | 'failed'
+  /** Planned test file paths */
+  test_files: string[]
+  /** Test categories (unit, integration, e2e) */
+  test_categories: string[]
+  /** Coverage notes mapping ACs to test files */
+  coverage_notes: string
+  /** Error description (failure only) */
+  error?: string
+  /** Token usage from the dispatch */
+  tokenUsage: {
+    input: number
+    output: number
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TestExpansion types
+// ---------------------------------------------------------------------------
+
+/**
+ * A single coverage gap identified during post-implementation test expansion.
+ */
+export interface CoverageGap {
+  /** Acceptance criterion reference (e.g., "AC1") */
+  ac_ref: string
+  /** Human-readable description of the gap */
+  description: string
+  /** Type of gap — missing E2E, missing integration, or unit-only coverage */
+  gap_type: 'missing-e2e' | 'missing-integration' | 'unit-only'
+}
+
+/**
+ * A single suggested test generated during test expansion analysis.
+ */
+export interface SuggestedTest {
+  /** Name of the suggested test */
+  test_name: string
+  /** Type of test to write */
+  test_type: 'e2e' | 'integration' | 'unit'
+  /** Human-readable description of what the test should verify */
+  description: string
+  /** Optional acceptance criterion reference this test targets */
+  target_ac?: string
+}
+
+/**
+ * Parameters for the test-expansion compiled workflow.
+ */
+export interface TestExpansionParams {
+  /** Story key (e.g., "22-9") for tracking */
+  storyKey: string
+  /** Absolute path to the story file on disk */
+  storyFilePath: string
+  /** Optional pipeline run ID for decision store context */
+  pipelineRunId?: string
+  /** Optional list of files modified by dev-story, used to scope the git diff */
+  filesModified?: string[]
+  /** Optional working directory for git diff capture (defaults to process.cwd()) */
+  workingDirectory?: string
+}
+
+/**
+ * Result from the test-expansion compiled workflow.
+ */
+export interface TestExpansionResult {
+  /** Priority of the identified expansion work */
+  expansion_priority: 'low' | 'medium' | 'high'
+  /** List of identified coverage gaps */
+  coverage_gaps: CoverageGap[]
+  /** List of suggested tests to close the gaps */
+  suggested_tests: SuggestedTest[]
+  /** Optional notes from the analysis agent */
+  notes?: string
+  /** Error description (graceful fallback only) */
+  error?: string
+  /** Token usage from the dispatch */
+  tokenUsage: {
+    input: number
+    output: number
+  }
+}

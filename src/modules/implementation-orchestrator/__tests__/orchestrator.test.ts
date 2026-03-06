@@ -27,6 +27,9 @@ vi.mock('../../compiled-workflows/dev-story.js', () => ({
 vi.mock('../../compiled-workflows/code-review.js', () => ({
   runCodeReview: vi.fn(),
 }))
+vi.mock('../../compiled-workflows/test-plan.js', () => ({
+  runTestPlan: vi.fn(),
+}))
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   updatePipelineRun: vi.fn(),
   addTokenUsage: vi.fn(),
@@ -54,12 +57,16 @@ vi.mock('../../../utils/logger.js', () => ({
 import { runCreateStory } from '../../compiled-workflows/create-story.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../compiled-workflows/code-review.js'
+import { runTestPlan } from '../../compiled-workflows/test-plan.js'
 import { updatePipelineRun } from '../../../persistence/queries/decisions.js'
+import { createLogger } from '../../../utils/logger.js'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockRunDevStory = vi.mocked(runDevStory)
 const mockRunCodeReview = vi.mocked(runCodeReview)
+const mockRunTestPlan = vi.mocked(runTestPlan)
 const mockUpdatePipelineRun = vi.mocked(updatePipelineRun)
+const mockCreateLogger = vi.mocked(createLogger)
 
 // ---------------------------------------------------------------------------
 // Mock factories
@@ -209,6 +216,27 @@ function makeCodeReviewMajorRework() {
   }
 }
 
+function makeTestPlanSuccess() {
+  return {
+    result: 'success' as const,
+    test_files: ['src/modules/foo/__tests__/foo.test.ts'],
+    test_categories: ['unit'],
+    coverage_notes: 'AC1 covered by foo.test.ts',
+    tokenUsage: { input: 50, output: 20 },
+  }
+}
+
+function makeTestPlanFailure() {
+  return {
+    result: 'failed' as const,
+    test_files: [],
+    test_categories: [],
+    coverage_notes: '',
+    error: 'dispatch failed',
+    tokenUsage: { input: 50, output: 0 },
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
@@ -229,6 +257,8 @@ describe('createImplementationOrchestrator', () => {
     dispatcher = createMockDispatcher()
     eventBus = createMockEventBus()
     config = defaultConfig()
+    // Default: test-plan succeeds (non-blocking — won't affect other tests)
+    mockRunTestPlan.mockResolvedValue(makeTestPlanSuccess())
   })
 
   // -------------------------------------------------------------------------
@@ -1034,6 +1064,184 @@ describe('createImplementationOrchestrator', () => {
       expect(mockRunCodeReview).toHaveBeenCalled()
       // Will escalate after review cycles exhausted, not from dev failure
       expect(status.stories['5-1']?.phase).toBe('ESCALATED')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // AC5 (story 22-7): Orchestrator calls runTestPlan() between create-story
+  // and dev-story, and sets IN_TEST_PLANNING phase during test planning.
+  // -------------------------------------------------------------------------
+
+  describe('AC5: test-plan phase wiring', () => {
+    it('calls runTestPlan() after create-story succeeds and before runDevStory()', async () => {
+      const callOrder: string[] = []
+
+      mockRunCreateStory.mockImplementation(async () => {
+        callOrder.push('create-story')
+        return makeCreateStorySuccess('5-1')
+      })
+      mockRunTestPlan.mockImplementation(async () => {
+        callOrder.push('test-plan')
+        return makeTestPlanSuccess()
+      })
+      mockRunDevStory.mockImplementation(async () => {
+        callOrder.push('dev-story')
+        return makeDevStorySuccess()
+      })
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(callOrder).toEqual(['create-story', 'test-plan', 'dev-story'])
+    })
+
+    it('sets story phase to IN_TEST_PLANNING during test planning', async () => {
+      let capturedPhase: string | undefined
+
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunTestPlan.mockImplementation(async () => {
+        // Capture phase while test-plan is running
+        capturedPhase = orchestrator.getStatus().stories['5-1']?.phase
+        return makeTestPlanSuccess()
+      })
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(capturedPhase).toBe('IN_TEST_PLANNING')
+    })
+
+    it('still calls runDevStory() when runTestPlan() returns a failure result (non-blocking)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunTestPlan.mockResolvedValue(makeTestPlanFailure())
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      expect(mockRunDevStory).toHaveBeenCalledOnce()
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+    })
+
+    it('still calls runDevStory() when runTestPlan() throws an exception (non-blocking)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunTestPlan.mockRejectedValue(new Error('Dispatch timeout'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      expect(mockRunDevStory).toHaveBeenCalledOnce()
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+    })
+
+    it('emits orchestrator:story-phase-complete with actual test-plan result', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunTestPlan.mockResolvedValue(makeTestPlanSuccess())
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const emittedArgs: Array<{ phase: string; result: { result: string } }> = []
+      const mockEmit = vi.fn((_event: string, payload: unknown) => {
+        const p = payload as { phase?: string; result?: { result: string } }
+        if (p.phase === 'IN_TEST_PLANNING') {
+          emittedArgs.push(p as { phase: string; result: { result: string } })
+        }
+      })
+      const bus = { ...createMockEventBus(), emit: mockEmit }
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus: bus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(emittedArgs).toHaveLength(1)
+      expect(emittedArgs[0]?.result.result).toBe('success')
+    })
+
+    it('emits orchestrator:story-phase-complete with failed result when test-plan fails', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunTestPlan.mockResolvedValue(makeTestPlanFailure())
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const emittedArgs: Array<{ phase: string; result: { result: string } }> = []
+      const mockEmit = vi.fn((_event: string, payload: unknown) => {
+        const p = payload as { phase?: string; result?: { result: string } }
+        if (p.phase === 'IN_TEST_PLANNING') {
+          emittedArgs.push(p as { phase: string; result: { result: string } })
+        }
+      })
+      const bus = { ...createMockEventBus(), emit: mockEmit }
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus: bus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(emittedArgs).toHaveLength(1)
+      expect(emittedArgs[0]?.result.result).toBe('failed')
+    })
+
+    it('logs info (not warn) when runTestPlan() returns success', async () => {
+      const mockLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      mockCreateLogger.mockReturnValue(mockLogger as ReturnType<typeof createLogger>)
+
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunTestPlan.mockResolvedValue(makeTestPlanSuccess())
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      const infoMessages = mockLogger.info.mock.calls.map((c) => c[1])
+      const warnMessages = mockLogger.warn.mock.calls.map((c) => c[1])
+      expect(infoMessages).toContain('Test plan generated successfully')
+      expect(warnMessages).not.toContain('Test planning returned failed result — proceeding to dev-story without test plan')
+    })
+
+    it('logs warn (not info) when runTestPlan() returns result=failed', async () => {
+      const mockLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      mockCreateLogger.mockReturnValue(mockLogger as ReturnType<typeof createLogger>)
+
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunTestPlan.mockResolvedValue(makeTestPlanFailure())
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      const infoMessages = mockLogger.info.mock.calls.map((c) => c[1])
+      const warnMessages = mockLogger.warn.mock.calls.map((c) => c[1])
+      expect(warnMessages).toContain('Test planning returned failed result — proceeding to dev-story without test plan')
+      expect(infoMessages).not.toContain('Test plan generated successfully')
     })
   })
 })

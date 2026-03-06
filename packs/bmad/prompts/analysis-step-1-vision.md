@@ -8,13 +8,16 @@
 ### Research Context
 {{research_findings}}
 
+### Prior Run Findings
+{{prior_findings}}
+
 ---
 
 ## Mission
 
 Analyze the project concept above and produce a focused **vision analysis**: a clear problem statement and identification of target users. Do NOT define features or metrics yet — those come in a subsequent step.
 
-When Research Context is provided above, ground your vision analysis in that evidence: reference specific market signals, competitive gaps, or feasibility findings to justify your problem statement and user segmentation. When Research Context is empty, proceed using the concept alone — output quality must be identical.
+When Research Context is provided above, ground your vision analysis in that evidence: reference specific market signals, competitive gaps, or feasibility findings to justify your problem statement and user segmentation. When Research Context is empty, proceed using the concept alone — output quality must be identical. When Prior Run Findings are provided, use them as grounding context — recurring implementation patterns indicate where the concept underestimated complexity.
 
 ## Instructions
 

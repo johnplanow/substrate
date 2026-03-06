@@ -24,6 +24,7 @@ export type OrchestratorState = 'IDLE' | 'RUNNING' | 'PAUSED' | 'COMPLETE' | 'FA
 export type StoryPhase =
   | 'PENDING'
   | 'IN_STORY_CREATION'
+  | 'IN_TEST_PLANNING'
   | 'IN_DEV'
   | 'IN_REVIEW'
   | 'NEEDS_FIXES'

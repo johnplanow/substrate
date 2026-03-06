@@ -25,6 +25,13 @@ import type { PhaseDeps, AnalysisPhaseParams, ProductBrief } from '../types.js'
 import type { MethodologyPack } from '../../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../../agent-dispatch/types.js'
+import { getProjectFindings } from '../../../implementation-orchestrator/project-findings.js'
+
+// Mock getProjectFindings so tests can control what findings are returned
+// Default: returns '' (no findings) — does not affect existing tests
+vi.mock('../../../implementation-orchestrator/project-findings.js', () => ({
+  getProjectFindings: vi.fn().mockReturnValue(''),
+}))
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -617,5 +624,103 @@ describe('runAnalysisPhase()', () => {
       expect(result.tokenUsage.input).toBe(0)
       expect(result.tokenUsage.output).toBe(0)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Single-dispatch: prior findings injection (AC3, AC4, AC5)
+// ---------------------------------------------------------------------------
+
+describe('runAnalysisPhase() — single-dispatch: prior findings injection', () => {
+  let db: BetterSqlite3Database
+  let tmpDir: string
+  let runId: string
+
+  beforeEach(() => {
+    const setup = (() => {
+      const tmp = mkdtempSync(join(tmpdir(), 'analysis-findings-test-'))
+      const database = new Database(join(tmp, 'test.db'))
+      runMigrations(database)
+      return { db: database, tmpDir: tmp }
+    })()
+    db = setup.db
+    tmpDir = setup.tmpDir
+    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    runId = run.id
+    // Reset mock to default (no findings) before each test
+    vi.mocked(getProjectFindings).mockReturnValue('')
+  })
+
+  afterEach(() => {
+    db.close()
+    rmSync(tmpDir, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  it('AC3: prompt includes findings framing block when findings are available', async () => {
+    vi.mocked(getProjectFindings).mockReturnValue('**Recurring patterns:** missing error handling')
+
+    const pack = makePack('Analyze: {{concept}}')
+    const dispatcher = makeDispatcher(makeDispatchResult())
+    const deps = makeDeps(db, dispatcher, pack)
+    const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
+
+    await runAnalysisPhase(deps, params)
+
+    const dispatchCall = vi.mocked(dispatcher.dispatch).mock.calls[0]![0]!
+    expect(dispatchCall.prompt).toContain('--- PRIOR RUN FINDINGS ---')
+    expect(dispatchCall.prompt).toContain('**Recurring patterns:** missing error handling')
+  })
+
+  it('AC4: prompt does NOT include findings block when findings are empty', async () => {
+    vi.mocked(getProjectFindings).mockReturnValue('')
+
+    const pack = makePack('Analyze: {{concept}}')
+    const dispatcher = makeDispatcher(makeDispatchResult())
+    const deps = makeDeps(db, dispatcher, pack)
+    const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
+
+    await runAnalysisPhase(deps, params)
+
+    const dispatchCall = vi.mocked(dispatcher.dispatch).mock.calls[0]![0]!
+    expect(dispatchCall.prompt).not.toContain('--- PRIOR RUN FINDINGS ---')
+  })
+
+  it('AC5: oversized findings are truncated — prompt contains [TRUNCATED] and does not fail', async () => {
+    // Template fills ~9800 chars; concept is 1 char → prompt ≈ 9801 chars after replacement.
+    // Available for findings ≈ 10000 - 9801 - framingLen - TRUNCATED_MARKER.length ≈ 126 chars.
+    // Findings are 300 chars → truncated + [TRUNCATED] marker appended.
+    const bigTemplate = 'T'.repeat(9800) + ' {{concept}}'
+    vi.mocked(getProjectFindings).mockReturnValue('F'.repeat(300))
+
+    const pack = makePack(bigTemplate)
+    const dispatcher = makeDispatcher(makeDispatchResult())
+    const deps = makeDeps(db, dispatcher, pack)
+    const params: AnalysisPhaseParams = { runId, concept: 'x' }
+
+    const result = await runAnalysisPhase(deps, params)
+
+    expect(result.result).toBe('success')
+    const dispatchCall = vi.mocked(dispatcher.dispatch).mock.calls[0]![0]!
+    expect(dispatchCall.prompt).toContain('[TRUNCATED]')
+    // Prompt must not have been rejected as too long
+    expect(result.error).not.toBe('prompt_too_long')
+  })
+
+  it('AC4: phase returns success when getProjectFindings throws (graceful fallback)', async () => {
+    vi.mocked(getProjectFindings).mockImplementation(() => {
+      throw new Error('DB connection error')
+    })
+
+    const pack = makePack('Analyze: {{concept}}')
+    const dispatcher = makeDispatcher(makeDispatchResult())
+    const deps = makeDeps(db, dispatcher, pack)
+    const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
+
+    const result = await runAnalysisPhase(deps, params)
+
+    expect(result.result).toBe('success')
+    const dispatchCall = vi.mocked(dispatcher.dispatch).mock.calls[0]![0]!
+    expect(dispatchCall.prompt).not.toContain('--- PRIOR RUN FINDINGS ---')
   })
 })

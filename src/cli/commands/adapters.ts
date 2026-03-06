@@ -77,8 +77,6 @@ export function registerAdaptersCommand(
     .option('--verbose', 'Show additional detail in output', false)
     .action(async (opts: { outputFormat: string; verbose: boolean }) => {
       const outputFormat = opts.outputFormat as OutputFormat
-      // TODO: AdapterRegistry should be initialized at CLI startup and injected
-      // (dependency injection) rather than constructed fresh per command invocation.
       const reg = registry ?? new AdapterRegistry()
 
       // Run discovery to get health results for all adapters
@@ -149,8 +147,6 @@ export function registerAdaptersCommand(
     .option('--verbose', 'Show additional detail including error messages', false)
     .action(async (opts: { outputFormat: string; verbose: boolean }) => {
       const outputFormat = opts.outputFormat as OutputFormat
-      // TODO: AdapterRegistry should be initialized at CLI startup and injected
-      // (dependency injection) rather than constructed fresh per command invocation.
       const reg = registry ?? new AdapterRegistry()
 
       // Run discovery (performs health checks on all built-in adapters)

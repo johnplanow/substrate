@@ -125,6 +125,8 @@ export interface RunOptions {
   research?: boolean
   /** When true, skip the research phase even if enabled in the pack manifest */
   skipResearch?: boolean
+  /** Optional pre-initialized registry; if omitted, a new registry is created and discovered */
+  registry?: AdapterRegistry
 }
 
 export async function runRunAction(options: RunOptions): Promise<number> {
@@ -144,6 +146,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     skipUx,
     research: researchFlag,
     skipResearch: skipResearchFlag,
+    registry: injectedRegistry,
   } = options
 
   // Validate --from phase
@@ -233,6 +236,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(skipUx === true ? { skipUx: true } : {}),
       ...(researchFlag === true ? { research: true } : {}),
       ...(skipResearchFlag === true ? { skipResearch: true } : {}),
+      ...(injectedRegistry !== undefined ? { registry: injectedRegistry } : {}),
     })
   }
 
@@ -402,8 +406,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // Create dependencies
     const eventBus = createEventBus()
     const contextCompiler = createContextCompiler({ db })
-    const adapterRegistry = new AdapterRegistry()
-    await adapterRegistry.discoverAndRegister()
+    const adapterRegistry = injectedRegistry ?? new AdapterRegistry()
+    if (injectedRegistry === undefined) {
+      await adapterRegistry.discoverAndRegister()
+    }
 
     const dispatcher = createDispatcher({
       eventBus,
@@ -932,6 +938,8 @@ export interface FullPipelineOptions {
   dbDir: string
   dbPath: string
   startPhase: PhaseName
+  /** Optional pre-initialized registry; if omitted, a new registry is created and discovered */
+  registry?: AdapterRegistry
   stopAfter?: PhaseName
   concept?: string
   concurrency: number
@@ -948,7 +956,7 @@ export interface FullPipelineOptions {
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, registry: injectedRegistry } =
     options
 
   // Ensure database directory
@@ -994,8 +1002,10 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     // Create shared dependencies
     const eventBus = createEventBus()
     const contextCompiler = createContextCompiler({ db })
-    const adapterRegistry = new AdapterRegistry()
-    await adapterRegistry.discoverAndRegister()
+    const adapterRegistry = injectedRegistry ?? new AdapterRegistry()
+    if (injectedRegistry === undefined) {
+      await adapterRegistry.discoverAndRegister()
+    }
 
     const dispatcher = createDispatcher({ eventBus, adapterRegistry })
 
@@ -1429,6 +1439,7 @@ export function registerRunCommand(
   program: Command,
   _version = '0.0.0',
   projectRoot = process.cwd(),
+  registry?: AdapterRegistry,
 ): void {
   program
     .command('run')
@@ -1515,6 +1526,7 @@ export function registerRunCommand(
           skipUx: opts.skipUx,
           research: opts.research,
           skipResearch: opts.skipResearch,
+          registry,
         })
         process.exitCode = exitCode
       },

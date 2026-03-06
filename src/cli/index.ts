@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url'
 import { dirname, resolve } from 'path'
 import { readFile } from 'fs/promises'
 import { createLogger } from '../utils/logger.js'
+import { AdapterRegistry } from '../adapters/adapter-registry.js'
 import { registerAdaptersCommand } from './commands/adapters.js'
 import { registerInitCommand } from './commands/init.js'
 import { registerConfigCommand } from './commands/config.js'
@@ -26,6 +27,7 @@ import { registerWorktreesCommand } from './commands/worktrees.js'
 import { registerBrainstormCommand } from './commands/brainstorm.js'
 import { registerUpgradeCommand } from './commands/upgrade.js'
 import { registerExportCommand } from './commands/export.js'
+import { registerRetryEscalatedCommand } from './commands/retry-escalated.js'
 
 // Increase max listeners before any commands or transports register their handlers.
 // With CLI commands registered, pino-pretty workers and Commander exit handlers
@@ -84,19 +86,26 @@ export async function createProgram(): Promise<Command> {
     .description('Substrate - Autonomous implementation pipeline for AI coding agents')
     .version(version, '-v, --version', 'Output the current version')
 
+  // Initialize a single AdapterRegistry at CLI startup so adapter health checks
+  // run exactly once per invocation and are shared across all commands.
+  const registry = new AdapterRegistry()
+  await registry.discoverAndRegister()
+
   // Project setup
-  registerAdaptersCommand(program, version)
+  registerAdaptersCommand(program, version, registry)
   registerInitCommand(program, version)
   registerConfigCommand(program, version)
 
   // Pipeline commands (formerly under `substrate auto`, now top-level)
-  registerRunCommand(program, version)
-  registerResumeCommand(program, version)
+  registerRunCommand(program, version, process.cwd(), registry)
+  registerResumeCommand(program, version, process.cwd(), registry)
   registerStatusCommand(program, version)
-  registerAmendCommand(program, version)
+  registerAmendCommand(program, version, process.cwd(), registry)
   registerHealthCommand(program, version)
   registerSupervisorCommand(program, version)
   registerMetricsCommand(program, version)
+
+  registerRetryEscalatedCommand(program, version, process.cwd(), registry)
 
   // Observability
   registerCostCommand(program, version)

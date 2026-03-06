@@ -208,6 +208,34 @@ export interface PhaseStatusInfo {
   token_usage?: { input: number; output: number }
 }
 
+// ---------------------------------------------------------------------------
+// Story-level status types (Story 22-8)
+// ---------------------------------------------------------------------------
+
+/** Per-story detail in the mid-run sprint summary */
+export interface StoryDetail {
+  /** Current lifecycle phase of this story */
+  phase: string
+  /** Number of code review cycles completed */
+  review_cycles: number
+  /** Wall-clock seconds since this story's first phase began */
+  elapsed_seconds: number
+}
+
+/** Aggregated sprint summary for all stories in a pipeline run */
+export interface StoriesSummary {
+  /** Number of stories in COMPLETE phase */
+  completed: number
+  /** Number of stories actively being processed (IN_* phases or NEEDS_FIXES) */
+  in_progress: number
+  /** Number of stories in ESCALATED phase */
+  escalated: number
+  /** Number of stories in PENDING phase (not yet started) */
+  pending: number
+  /** Per-story details keyed by story key (e.g., "22-1") */
+  details: Record<string, StoryDetail>
+}
+
 export interface PipelineStatusOutput {
   run_id: string
   current_phase: string | null
@@ -223,6 +251,8 @@ export interface PipelineStatusOutput {
   last_event_ts: string
   /** Count of currently active (non-PENDING, non-COMPLETE, non-ESCALATED) story dispatches (Story 16-7 AC4) */
   active_dispatches: number
+  /** Per-story sprint progress summary (Story 22-8 AC1-AC3); omitted when no story state is available */
+  stories?: StoriesSummary
 }
 
 /**
@@ -298,23 +328,63 @@ export function buildPipelineStatusOutput(
     totalCost += row.total_cost_usd
   }
 
-  // Compute active_dispatches from token_usage_json story states
+  // Parse orchestrator state from token_usage_json for story status and active_dispatches
   let activeDispatches = 0
+  let storiesSummary: StoriesSummary | undefined
   try {
     if (run.token_usage_json) {
       const state = JSON.parse(run.token_usage_json) as {
-        stories?: Record<string, { phase: string }>
+        stories?: Record<
+          string,
+          { phase: string; reviewCycles: number; startedAt?: string; completedAt?: string }
+        >
       }
-      if (state.stories) {
-        for (const s of Object.values(state.stories)) {
-          if (s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED') {
+      if (state.stories && Object.keys(state.stories).length > 0) {
+        const now = Date.now()
+        let completed = 0
+        let inProgress = 0
+        let escalated = 0
+        let pending = 0
+        const details: Record<string, StoryDetail> = {}
+
+        for (const [key, s] of Object.entries(state.stories)) {
+          const phase = s.phase ?? 'PENDING'
+
+          // active_dispatches: non-terminal, non-pending stories
+          if (phase !== 'PENDING' && phase !== 'COMPLETE' && phase !== 'ESCALATED') {
             activeDispatches++
           }
+
+          // Categorize by phase
+          if (phase === 'COMPLETE') completed++
+          else if (phase === 'ESCALATED') escalated++
+          else if (phase === 'PENDING') pending++
+          else inProgress++
+
+          // elapsed_seconds: wall-clock time since story started
+          const elapsed =
+            s.startedAt != null
+              ? Math.max(0, Math.round((now - new Date(s.startedAt).getTime()) / 1000))
+              : 0
+
+          details[key] = {
+            phase,
+            review_cycles: s.reviewCycles ?? 0,
+            elapsed_seconds: elapsed,
+          }
+        }
+
+        storiesSummary = {
+          completed,
+          in_progress: inProgress,
+          escalated,
+          pending,
+          details,
         }
       }
     }
   } catch {
-    // ignore parse errors — default to 0
+    // ignore parse errors — default to 0 / undefined
   }
 
   return {
@@ -332,6 +402,7 @@ export function buildPipelineStatusOutput(
     staleness_seconds: Math.round((Date.now() - parseDbTimestampAsUtc(run.updated_at).getTime()) / 1000),
     last_event_ts: run.updated_at,
     active_dispatches: activeDispatches,
+    ...(storiesSummary !== undefined ? { stories: storiesSummary } : {}),
   }
 }
 
@@ -368,6 +439,27 @@ export function formatPipelineStatusHuman(status: PipelineStatusOutput): string 
   lines.push(`  Total Cost: $${status.total_tokens.cost_usd.toFixed(4)}`)
   lines.push(`  Decisions: ${status.decisions_count}`)
   lines.push(`  Stories: ${status.stories_count}`)
+
+  // Sprint progress table — shown when story-level state is available (Story 22-8 AC4)
+  if (status.stories !== undefined && Object.keys(status.stories.details).length > 0) {
+    lines.push('')
+    lines.push('  Sprint Progress:')
+    lines.push('  ' + '─'.repeat(68))
+    lines.push(
+      `  ${'STORY'.padEnd(10)} ${'PHASE'.padEnd(24)} ${'CYCLES'.padEnd(8)} ELAPSED`,
+    )
+    lines.push('  ' + '─'.repeat(68))
+    for (const [key, detail] of Object.entries(status.stories.details)) {
+      const elapsed = detail.elapsed_seconds > 0 ? `${detail.elapsed_seconds}s` : '-'
+      lines.push(
+        `  ${key.padEnd(10)} ${detail.phase.padEnd(24)} ${String(detail.review_cycles).padEnd(8)} ${elapsed}`,
+      )
+    }
+    lines.push('  ' + '─'.repeat(68))
+    lines.push(
+      `  Completed: ${status.stories.completed}  In Progress: ${status.stories.in_progress}  Escalated: ${status.stories.escalated}  Pending: ${status.stories.pending}`,
+    )
+  }
 
   return lines.join('\n')
 }

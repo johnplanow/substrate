@@ -164,3 +164,88 @@ export const CodeReviewResultSchema = z
   }))
 
 export type CodeReviewSchemaOutput = z.infer<typeof CodeReviewResultSchema>
+
+// ---------------------------------------------------------------------------
+// TestPlanResultSchema
+// ---------------------------------------------------------------------------
+
+/**
+ * Schema for the YAML output contract of the test-plan sub-agent.
+ *
+ * The agent must emit YAML with result, test_files, test_categories, and coverage_notes.
+ * Example:
+ *   result: success
+ *   test_files:
+ *     - src/modules/foo/__tests__/foo.test.ts
+ *   test_categories:
+ *     - unit
+ *     - integration
+ *   coverage_notes: "AC1 covered by foo.test.ts"
+ */
+export const TestPlanResultSchema = z.object({
+  result: z.preprocess(
+    (val) => (val === 'failure' ? 'failed' : val),
+    z.enum(['success', 'failed']),
+  ),
+  test_files: z.array(z.string()).default([]),
+  test_categories: z.array(z.string()).default([]),
+  coverage_notes: z.string().default(''),
+})
+
+export type TestPlanSchemaOutput = z.infer<typeof TestPlanResultSchema>
+
+// ---------------------------------------------------------------------------
+// TestExpansionResultSchema
+// ---------------------------------------------------------------------------
+
+/**
+ * Schema for a single coverage gap identified during test expansion analysis.
+ */
+export const CoverageGapSchema = z.object({
+  ac_ref: z.string(),
+  description: z.string(),
+  gap_type: z.enum(['missing-e2e', 'missing-integration', 'unit-only']),
+})
+
+export type CoverageGapSchemaOutput = z.infer<typeof CoverageGapSchema>
+
+/**
+ * Schema for a single suggested test generated during test expansion analysis.
+ */
+export const SuggestedTestSchema = z.object({
+  test_name: z.string(),
+  test_type: z.enum(['e2e', 'integration', 'unit']),
+  description: z.string(),
+  target_ac: z.string().optional(),
+})
+
+export type SuggestedTestSchemaOutput = z.infer<typeof SuggestedTestSchema>
+
+/**
+ * Schema for the YAML output contract of the test-expansion sub-agent.
+ *
+ * The agent must emit YAML with expansion_priority, coverage_gaps, and suggested_tests.
+ * Example:
+ *   expansion_priority: medium
+ *   coverage_gaps:
+ *     - ac_ref: AC1
+ *       description: "Happy path not exercised at module boundary"
+ *       gap_type: missing-integration
+ *   suggested_tests:
+ *     - test_name: "runFoo integration happy path"
+ *       test_type: integration
+ *       description: "Test runFoo with real DB to verify AC1 end-to-end"
+ *       target_ac: AC1
+ *   notes: "Unit coverage is solid but integration layer is untested."
+ */
+export const TestExpansionResultSchema = z.object({
+  expansion_priority: z.preprocess(
+    (val) => (['low', 'medium', 'high'].includes(val as string) ? val : 'low'),
+    z.enum(['low', 'medium', 'high']),
+  ),
+  coverage_gaps: z.array(CoverageGapSchema).default([]),
+  suggested_tests: z.array(SuggestedTestSchema).default([]),
+  notes: z.string().optional(),
+})
+
+export type TestExpansionSchemaOutput = z.infer<typeof TestExpansionResultSchema>

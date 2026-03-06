@@ -120,3 +120,50 @@ export const ESCALATION_DIAGNOSIS = 'escalation-diagnosis' as const
  * ```
  */
 export const STORY_OUTCOME = 'story-outcome' as const
+
+/**
+ * Category for post-implementation test expansion findings generated per-story.
+ *
+ * Key schema: "{storyKey}:{runId}"
+ *
+ * Value shape:
+ * ```json
+ * {
+ *   "expansion_priority": "medium",        // "low" | "medium" | "high"
+ *   "coverage_gaps": [
+ *     {
+ *       "ac_ref": "AC1",
+ *       "description": "Happy path not exercised at module boundary",
+ *       "gap_type": "missing-integration"  // "missing-e2e" | "missing-integration" | "unit-only"
+ *     }
+ *   ],
+ *   "suggested_tests": [
+ *     {
+ *       "test_name": "runFoo integration happy path",
+ *       "test_type": "integration",        // "e2e" | "integration" | "unit"
+ *       "description": "Test runFoo with real DB instance",
+ *       "target_ac": "AC1"                 // optional
+ *     }
+ *   ],
+ *   "notes": "Optional free-text notes",  // optional
+ *   "error": "Error message if fallback"  // optional — present only on graceful fallback
+ * }
+ * ```
+ */
+export const TEST_EXPANSION_FINDING = 'test-expansion-finding' as const
+
+/**
+ * Category for pre-implementation test plans generated per-story.
+ *
+ * Key schema: "{storyKey}"
+ *
+ * Value shape:
+ * ```json
+ * {
+ *   "test_files": ["src/modules/foo/__tests__/foo.test.ts"],
+ *   "test_categories": ["unit", "integration"],
+ *   "coverage_notes": "AC1 covered by foo.test.ts"
+ * }
+ * ```
+ */
+export const TEST_PLAN = 'test-plan' as const

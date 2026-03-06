@@ -64,10 +64,11 @@ export interface ResumeOptions {
   projectRoot: string
   concurrency: number
   pack: string
+  registry?: AdapterRegistry
 }
 
 export async function runResumeAction(options: ResumeOptions): Promise<number> {
-  const { runId: specifiedRunId, stopAfter, outputFormat, projectRoot, concurrency, pack: packName } = options
+  const { runId: specifiedRunId, stopAfter, outputFormat, projectRoot, concurrency, pack: packName, registry } = options
 
   // Validate --stop-after phase (before any DB writes) (AC7)
   if (stopAfter !== undefined && !VALID_PHASES.includes(stopAfter)) {
@@ -189,6 +190,7 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
       outputFormat,
       existingRunId: runId,
       projectRoot,
+      registry,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -224,6 +226,7 @@ export interface FullPipelineFromPhaseOptions {
   outputFormat: OutputFormat
   existingRunId?: string
   projectRoot: string
+  registry?: AdapterRegistry
 }
 
 export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): Promise<number> {
@@ -239,6 +242,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     outputFormat,
     existingRunId,
     projectRoot,
+    registry: injectedRegistry,
   } = options
 
   if (!existsSync(dbDir)) {
@@ -269,8 +273,10 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
 
     const eventBus = createEventBus()
     const contextCompiler = createContextCompiler({ db })
-    const adapterRegistry = new AdapterRegistry()
-    await adapterRegistry.discoverAndRegister()
+    const adapterRegistry = injectedRegistry ?? new AdapterRegistry()
+    if (injectedRegistry === undefined) {
+      await adapterRegistry.discoverAndRegister()
+    }
     const dispatcher = createDispatcher({ eventBus, adapterRegistry })
     const phaseDeps = { db, pack, contextCompiler, dispatcher }
 
@@ -545,6 +551,7 @@ export function registerResumeCommand(
   program: Command,
   _version = '0.0.0',
   projectRoot = process.cwd(),
+  registry?: AdapterRegistry,
 ): void {
   program
     .command('resume')
@@ -576,6 +583,7 @@ export function registerResumeCommand(
           projectRoot: opts.projectRoot,
           concurrency: opts.concurrency,
           pack: opts.pack,
+          registry,
         })
         process.exitCode = exitCode
       },

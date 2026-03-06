@@ -190,6 +190,7 @@ import {
 } from '../init.js'
 import { runRunAction, registerRunCommand } from '../run.js'
 import { runStatusAction, registerStatusCommand } from '../status.js'
+import { createStubRegistry } from './registry-test-helpers.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1151,7 +1152,7 @@ describe('command registration', () => {
   it('AC6: registers init, run, status as top-level commands', () => {
     const program = new Command()
     registerInitCommand(program, '1.0.0', '/test/project')
-    registerRunCommand(program, '1.0.0', '/test/project')
+    registerRunCommand(program, '1.0.0', '/test/project', createStubRegistry())
     registerStatusCommand(program, '1.0.0', '/test/project')
 
     const cmdNames = program.commands.map((c) => c.name())

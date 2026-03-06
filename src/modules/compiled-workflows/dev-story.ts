@@ -19,7 +19,7 @@ import type { WorkflowDeps, DevStoryParams, DevStoryResult } from './types.js'
 import { DevStoryResultSchema } from './schemas.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import type { PromptSection } from './prompt-assembler.js'
-import { getDecisionsByPhase } from '../../persistence/queries/decisions.js'
+import { getDecisionsByPhase, getDecisionsByCategory } from '../../persistence/queries/decisions.js'
 import { getGitChangedFiles } from './git-helpers.js'
 import { createLogger } from '../../utils/logger.js'
 import type { ContextTemplate } from '../context-compiler/types.js'
@@ -213,6 +213,35 @@ export async function runDevStory(
     // AC5: graceful fallback — empty string on error
   }
 
+  // Query test plan from decision store for injection (Story 22-7, AC3)
+  let testPlanContent = ''
+  try {
+    const testPlanDecisions = getDecisionsByCategory(deps.db, 'test-plan')
+    const matchingPlan = testPlanDecisions.find((d) => d.key === storyKey)
+    if (matchingPlan) {
+      const plan = JSON.parse(matchingPlan.value) as {
+        test_files?: string[]
+        test_categories?: string[]
+        coverage_notes?: string
+      }
+      const parts: string[] = ['## Test Plan']
+      if (plan.test_files && plan.test_files.length > 0) {
+        parts.push('\n### Test Files')
+        for (const f of plan.test_files) parts.push(`- ${f}`)
+      }
+      if (plan.test_categories && plan.test_categories.length > 0) {
+        parts.push(`\n### Categories: ${plan.test_categories.join(', ')}`)
+      }
+      if (plan.coverage_notes) {
+        parts.push(`\n### Coverage Notes\n${plan.coverage_notes}`)
+      }
+      testPlanContent = parts.join('\n')
+      logger.debug({ storyKey }, 'Injecting test plan into dev-story prompt')
+    }
+  } catch {
+    // Graceful fallback — no test plan injection on error
+  }
+
   const sections: PromptSection[] = [
     { name: 'story_content', content: storyContent, priority: 'required' },
     { name: 'task_scope', content: taskScopeContent, priority: 'optional' },
@@ -220,6 +249,7 @@ export async function runDevStory(
     { name: 'files_in_scope', content: filesInScopeContent, priority: 'optional' },
     { name: 'project_context', content: projectContextContent, priority: 'important' },
     { name: 'test_patterns', content: testPatternsContent, priority: 'optional' },
+    { name: 'test_plan', content: testPlanContent, priority: 'optional' },
     { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' },
   ]
 
