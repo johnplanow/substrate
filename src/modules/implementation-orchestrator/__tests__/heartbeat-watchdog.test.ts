@@ -70,6 +70,7 @@ vi.mock('../../../utils/helpers.js', () => ({
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
+  checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
 }))
 vi.mock('node:child_process', () => ({
   execSync: vi.fn().mockReturnValue('src/some-modified-file.ts\n'),
