@@ -191,6 +191,7 @@ prompts:
   dev-story: prompts/dev-story.md
   code-review: prompts/code-review.md
   fix-story: prompts/fix-story.md
+  rework-story: prompts/rework-story.md
   # Multi-step phase decomposition prompts
   analysis-step-1-vision: prompts/analysis-step-1-vision.md
   analysis-step-2-scope: prompts/analysis-step-2-scope.md
@@ -228,3 +229,25 @@ constraints:
 
 templates:
   story: templates/story.md
+
+# Conflict group mappings for the implementation orchestrator.
+# Stories whose prefixes map to the same module name are serialized within
+# a conflict group. This map covers substrate's own epic numbering so that
+# self-pipeline runs preserve correct serialization (e.g., epics 1-5 share
+# 'core', stories 10-1/10-2/10-3 share 'compiled-workflows').
+conflictGroups:
+  '1-': core
+  '2-': core
+  '3-': core
+  '4-': core
+  '5-': core
+  '6-': task-graph
+  '7-': worker-pool
+  '8-': monitor
+  '9-': bmad-context-engine
+  '10-1': compiled-workflows
+  '10-2': compiled-workflows
+  '10-3': compiled-workflows
+  '10-4': implementation-orchestrator
+  '10-5': cli
+  '11-': pipeline-phases

@@ -49,6 +49,13 @@ vi.mock('../../../utils/logger.js', () => ({
     error: vi.fn(),
   })),
 }))
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn().mockRejectedValue(new Error('mock readFile: file not found')),
+}))
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn().mockReturnValue(false),
+  readdirSync: vi.fn().mockReturnValue([]),
+}))
 
 // ---------------------------------------------------------------------------
 // Import mocked modules after vi.mock() calls
@@ -60,6 +67,7 @@ import { runCodeReview } from '../../compiled-workflows/code-review.js'
 import { runTestPlan } from '../../compiled-workflows/test-plan.js'
 import { updatePipelineRun } from '../../../persistence/queries/decisions.js'
 import { createLogger } from '../../../utils/logger.js'
+import { readFile } from 'node:fs/promises'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockRunDevStory = vi.mocked(runDevStory)
@@ -707,8 +715,9 @@ describe('createImplementationOrchestrator', () => {
       expect(status.maxConcurrentActual).toBe(3)
     })
 
-    it('serializes conflicting stories within the same group', async () => {
-      // 10-1 and 10-2 both map to compiled-workflows → serialized
+    it('serializes conflicting stories within the same group (AC4: pack-configured conflictGroups)', async () => {
+      // 10-1 and 10-2 both map to compiled-workflows → serialized when
+      // the pack has the substrate module map in conflictGroups.
       const callOrder: string[] = []
 
       mockRunCreateStory.mockImplementation(async (_deps, params) => {
@@ -724,8 +733,21 @@ describe('createImplementationOrchestrator', () => {
         return makeCodeReviewShipIt()
       })
 
+      // Pack with substrate-specific conflictGroups to ensure 10-1 and 10-2 serialize
+      const packWithConflicts: MethodologyPack = {
+        ...createMockPack(),
+        manifest: {
+          ...createMockPack().manifest,
+          conflictGroups: {
+            '10-1': 'compiled-workflows',
+            '10-2': 'compiled-workflows',
+            '10-3': 'compiled-workflows',
+          },
+        },
+      }
+
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db, pack: packWithConflicts, contextCompiler, dispatcher, eventBus,
         config: defaultConfig({ maxConcurrency: 3 }),
       })
 
@@ -737,6 +759,39 @@ describe('createImplementationOrchestrator', () => {
       const create10_2_idx = callOrder.indexOf('create:10-2')
       expect(create10_1_idx).toBeLessThan(create10_2_idx)
       expect(review10_1_idx).toBeLessThan(create10_2_idx)
+    })
+
+    it('AC5: cross-project stories run in parallel when pack has no conflictGroups', async () => {
+      // 6 independent stories, no conflictGroups in pack → all isolated → max parallelism
+      const callOrder: string[] = []
+
+      mockRunCreateStory.mockImplementation(async (_deps, params) => {
+        callOrder.push(`create:${params.storyKey}`)
+        return makeCreateStorySuccess(params.storyKey)
+      })
+      mockRunDevStory.mockImplementation(async (_deps, params) => {
+        callOrder.push(`dev:${params.storyKey}`)
+        return makeDevStorySuccess()
+      })
+      mockRunCodeReview.mockImplementation(async (_deps, params) => {
+        callOrder.push(`review:${params.storyKey}`)
+        return makeCodeReviewShipIt()
+      })
+
+      // No conflictGroups in pack → cross-project: every story is its own group
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxConcurrency: 3 }),
+      })
+
+      const status = await orchestrator.run(['4-1', '4-2', '4-3', '4-4', '4-5', '4-6'])
+
+      // All stories complete
+      for (const key of ['4-1', '4-2', '4-3', '4-4', '4-5', '4-6']) {
+        expect(status.stories[key]?.phase).toBe('COMPLETE')
+      }
+      // maxConcurrentActual > 1 (stories ran in parallel)
+      expect(status.maxConcurrentActual).toBeGreaterThan(1)
     })
   })
 
@@ -1242,6 +1297,189 @@ describe('createImplementationOrchestrator', () => {
       const warnMessages = mockLogger.warn.mock.calls.map((c) => c[1])
       expect(warnMessages).toContain('Test planning returned failed result — proceeding to dev-story without test plan')
       expect(infoMessages).not.toContain('Test plan generated successfully')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 23-5: Major-Rework Re-Dev Routing
+  // -------------------------------------------------------------------------
+
+  describe('Story 23-5: Major-Rework Re-Dev Routing', () => {
+    it('AC1: uses rework-story template for NEEDS_MAJOR_REWORK verdict', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMajorRework())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      // Verify pack.getPrompt was called with 'rework-story' (not 'fix-story')
+      const getPromptCalls = (pack.getPrompt as ReturnType<typeof vi.fn>).mock.calls
+      const promptNames = getPromptCalls.map((call: unknown[]) => call[0])
+      expect(promptNames).toContain('rework-story')
+    })
+
+    it('AC4: uses fix-story template for NEEDS_MINOR_FIXES verdict', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMinorFixes())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      // Verify pack.getPrompt was called with 'fix-story' for minor fixes
+      const getPromptCalls = (pack.getPrompt as ReturnType<typeof vi.fn>).mock.calls
+      const promptNames = getPromptCalls.map((call: unknown[]) => call[0])
+      expect(promptNames).toContain('fix-story')
+      // rework-story should NOT be used for minor fixes
+      expect(promptNames).not.toContain('rework-story')
+    })
+
+    it('AC2: rework prompt includes review findings with severity and file locations', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce({
+          verdict: 'NEEDS_MAJOR_REWORK' as const,
+          issues: 2,
+          issue_list: [
+            { severity: 'blocker' as const, description: 'Wrong story implemented', file: 'src/foo.ts', line: 42 },
+            { severity: 'major' as const, description: 'Missing tests', file: 'src/bar.ts' },
+          ],
+          tokenUsage: { input: 150, output: 80 },
+        })
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      // Mock readFile to return story content so prompt assembly succeeds
+      const mockReadFile = vi.mocked(readFile)
+      mockReadFile.mockResolvedValue('# Story 5-1\nTest story content' as never)
+
+      // Mock getPrompt to return a template with the review_findings placeholder
+      ;(pack.getPrompt as ReturnType<typeof vi.fn>).mockImplementation(async (name: string) => {
+        if (name === 'rework-story') {
+          return '{{story_content}}\n\n{{review_findings}}\n\n{{arch_constraints}}\n\n{{git_diff}}'
+        }
+        return ''
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      // The dispatch call should contain the review findings with severity
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const reworkCall = dispatchCalls.find((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'major-rework'
+      )
+      expect(reworkCall).toBeDefined()
+      const capturedPrompt = (reworkCall![0] as { prompt: string }).prompt
+      expect(capturedPrompt).toContain('Issues from previous review that MUST be addressed')
+      expect(capturedPrompt).toContain('[blocker]')
+      expect(capturedPrompt).toContain('[major]')
+      expect(capturedPrompt).toContain('Wrong story implemented')
+      expect(capturedPrompt).toContain('src/foo.ts:42')
+      expect(capturedPrompt).toContain('src/bar.ts')
+
+      // Reset readFile mock to default
+      mockReadFile.mockRejectedValue(new Error('mock readFile: file not found'))
+    })
+
+    it('AC3: uses Opus model (claude-opus-4-6) for major-rework dispatch', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMajorRework())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const reworkCall = dispatchCalls.find((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'major-rework'
+      )
+      expect(reworkCall).toBeDefined()
+      expect((reworkCall![0] as { model?: string }).model).toBe('claude-opus-4-6')
+    })
+
+    it('AC4: minor-fixes uses default model (no Opus)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMinorFixes())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const fixCall = dispatchCalls.find((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      )
+      expect(fixCall).toBeDefined()
+      expect((fixCall![0] as { model?: string }).model).toBeUndefined()
+    })
+
+    it('AC6: major-rework dispatch uses DevStoryResultSchema', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMajorRework())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const reworkCall = dispatchCalls.find((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'major-rework'
+      )
+      expect(reworkCall).toBeDefined()
+      // Verify outputSchema is passed for major-rework
+      expect((reworkCall![0] as { outputSchema?: unknown }).outputSchema).toBeDefined()
+    })
+
+    it('AC6: minor-fixes dispatch does NOT use DevStoryResultSchema', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMinorFixes())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const fixCall = dispatchCalls.find((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      )
+      expect(fixCall).toBeDefined()
+      // Minor-fixes should NOT have outputSchema
+      expect((fixCall![0] as { outputSchema?: unknown }).outputSchema).toBeUndefined()
     })
   })
 })

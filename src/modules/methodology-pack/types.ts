@@ -103,6 +103,17 @@ export interface PackManifest {
    * Defaults to false. Can be overridden at runtime with --research/--skip-research.
    */
   research?: boolean
+  /**
+   * Conflict group mappings for the implementation orchestrator.
+   *
+   * Maps story key prefixes (e.g. "10-1", "5-") to module names (e.g.
+   * "compiled-workflows"). Stories sharing the same module name are serialized
+   * within a conflict group. When absent, all stories run in parallel.
+   *
+   * Only define this when the pack is used to run substrate against itself
+   * (or another project with known file-conflict relationships).
+   */
+  conflictGroups?: Record<string, string>
 }
 
 // ---------------------------------------------------------------------------

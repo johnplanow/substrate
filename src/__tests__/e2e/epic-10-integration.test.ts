@@ -797,24 +797,43 @@ describe('Gap 8: formatOutput + formatTokenTelemetry integration', () => {
 // Gap 9: Code-review git diff stat fallback — orchestrator-level wiring
 // ---------------------------------------------------------------------------
 
+// Substrate's own module map (moved from conflict-detector.ts to BMAD pack config in story 23-4)
+const SUBSTRATE_MODULE_MAP: Record<string, string> = {
+  '1-': 'core',
+  '2-': 'core',
+  '3-': 'core',
+  '4-': 'core',
+  '5-': 'core',
+  '6-': 'task-graph',
+  '7-': 'worker-pool',
+  '8-': 'monitor',
+  '9-': 'bmad-context-engine',
+  '10-1': 'compiled-workflows',
+  '10-2': 'compiled-workflows',
+  '10-3': 'compiled-workflows',
+  '10-4': 'implementation-orchestrator',
+  '10-5': 'cli',
+  '11-': 'pipeline-phases',
+}
+
 describe('Gap 9: Conflict detector wiring with orchestrator', () => {
-  it('conflict detector groups 10-1 and 10-2 together (same compiled-workflows module)', () => {
-    const groups = detectConflictGroups(['10-1', '10-2'])
-    // Both should be in a single group
+  it('conflict detector groups 10-1 and 10-2 together when moduleMap is provided (AC4)', () => {
+    const groups = detectConflictGroups(['10-1', '10-2'], { moduleMap: SUBSTRATE_MODULE_MAP })
+    // Both map to 'compiled-workflows' → single group
     expect(groups).toHaveLength(1)
     const group = groups[0]!
     expect(group).toContain('10-1')
     expect(group).toContain('10-2')
   })
 
-  it('conflict detector puts 10-4 and 10-5 in separate groups', () => {
-    const groups = detectConflictGroups(['10-4', '10-5'])
+  it('conflict detector puts 10-4 and 10-5 in separate groups when moduleMap is provided (AC4)', () => {
+    const groups = detectConflictGroups(['10-4', '10-5'], { moduleMap: SUBSTRATE_MODULE_MAP })
     // 10-4 → implementation-orchestrator, 10-5 → cli — different modules
     expect(groups).toHaveLength(2)
   })
 
-  it('conflict detector puts 10-1 through 10-3 together and 10-4, 10-5 separately', () => {
-    const groups = detectConflictGroups(['10-1', '10-2', '10-3', '10-4', '10-5'])
+  it('conflict detector puts 10-1 through 10-3 together and 10-4, 10-5 separately (AC4)', () => {
+    const groups = detectConflictGroups(['10-1', '10-2', '10-3', '10-4', '10-5'], { moduleMap: SUBSTRATE_MODULE_MAP })
     expect(groups).toHaveLength(3)
     const moduleGroups = groups.map((g) => g.sort())
     // Find the compiled-workflows group
@@ -824,7 +843,16 @@ describe('Gap 9: Conflict detector wiring with orchestrator', () => {
     expect(compiledGroup).toContain('10-3')
   })
 
-  it('orchestrator serializes conflicting stories 10-1 and 10-2', async () => {
+  it('conflict detector isolates every story when no moduleMap is provided (AC1)', () => {
+    // Without a moduleMap, all stories are independent — maximum parallelism
+    const groups = detectConflictGroups(['4-1', '4-2', '4-3', '4-4', '4-5', '4-6'])
+    expect(groups).toHaveLength(6)
+    for (const group of groups) {
+      expect(group).toHaveLength(1)
+    }
+  })
+
+  it('orchestrator serializes conflicting stories 10-1 and 10-2 when pack has conflictGroups (AC4)', async () => {
     const callOrder: string[] = []
 
     mockRunCreateStory.mockImplementation(async (_deps, params) => {
@@ -840,9 +868,18 @@ describe('Gap 9: Conflict detector wiring with orchestrator', () => {
       return makeCodeReviewShipIt()
     })
 
+    // Pack with the substrate conflictGroups configured (AC4)
+    const packWithConflicts: MethodologyPack = {
+      ...makePack(),
+      manifest: {
+        ...makePack().manifest,
+        conflictGroups: SUBSTRATE_MODULE_MAP,
+      },
+    }
+
     const orchestrator = createImplementationOrchestrator({
       db: makeDb(),
-      pack: makePack(),
+      pack: packWithConflicts,
       contextCompiler: makeContextCompiler(),
       dispatcher: makeDispatcher(),
       eventBus: makeEventBus(),
@@ -857,6 +894,33 @@ describe('Gap 9: Conflict detector wiring with orchestrator', () => {
     expect(review10_1_idx).toBeGreaterThan(-1)
     expect(create10_2_idx).toBeGreaterThan(-1)
     expect(review10_1_idx).toBeLessThan(create10_2_idx)
+  })
+
+  it('orchestrator uses maxConcurrentActual > 1 for cross-project run with no conflictGroups (AC5)', async () => {
+    // Pack with NO conflictGroups — simulates a cross-project run
+    mockRunCreateStory.mockImplementation(async (_deps, params) =>
+      makeCreateStorySuccess(params.storyKey, `/stories/${params.storyKey}.md`),
+    )
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+    const orchestrator = createImplementationOrchestrator({
+      db: makeDb(),
+      pack: makePack(), // no conflictGroups → every story isolated
+      contextCompiler: makeContextCompiler(),
+      dispatcher: makeDispatcher(),
+      eventBus: makeEventBus(),
+      config: defaultConfig({ maxConcurrency: 3 }),
+    })
+
+    const status = await orchestrator.run(['4-1', '4-2', '4-3', '4-4', '4-5', '4-6'])
+
+    // All stories complete
+    for (const key of ['4-1', '4-2', '4-3', '4-4', '4-5', '4-6']) {
+      expect(status.stories[key]?.phase).toBe('COMPLETE')
+    }
+    // Stories ran in parallel (maxConcurrentActual > 1)
+    expect(status.maxConcurrentActual).toBeGreaterThan(1)
   })
 })
 

@@ -20,6 +20,7 @@ import { writeStoryMetrics, aggregateTokenUsageForStory } from '../../persistenc
 import { STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME, TEST_EXPANSION_FINDING } from '../../persistence/schemas/operational.js'
 import { generateEscalationDiagnosis } from './escalation-diagnosis.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
+import { DevStoryResultSchema } from '../compiled-workflows/schemas.js'
 import { runCreateStory, isValidStoryFile } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
@@ -1191,26 +1192,37 @@ export function createImplementationOrchestrator(
       const fixModel = taskType === 'major-rework' ? 'claude-opus-4-6' : undefined
 
       try {
-        // Assemble a context-aware fix prompt from the pack template
+        // Assemble a context-aware fix/rework prompt from the pack template
         let fixPrompt: string
+        const isMajorRework = taskType === 'major-rework'
+        const templateName = isMajorRework ? 'rework-story' : 'fix-story'
         try {
-          const fixTemplate = await pack.getPrompt('fix-story')
+          const fixTemplate = await pack.getPrompt(templateName)
           const storyContent = await readFile(storyFilePath ?? '', 'utf-8')
 
           // Format review feedback: verdict + serialized issue list
           // Guard against empty issue lists — provide fallback guidance
           let reviewFeedback: string
           if (issueList.length === 0) {
-            reviewFeedback = [
-              `Verdict: ${verdict}`,
-              'Issues: The reviewer flagged this as needing work but did not provide specific issues.',
-              'Instructions: Re-read the story file carefully, compare each acceptance criterion against the current implementation, and fix any gaps you find.',
-              'Focus on: unimplemented ACs, missing tests, incorrect behavior, and incomplete task checkboxes.',
-            ].join('\n')
+            reviewFeedback = isMajorRework
+              ? [
+                  `Verdict: ${verdict}`,
+                  'Issues: The reviewer flagged fundamental issues but did not provide specifics.',
+                  'Instructions: Re-read the story file carefully, re-implement from scratch addressing all acceptance criteria.',
+                ].join('\n')
+              : [
+                  `Verdict: ${verdict}`,
+                  'Issues: The reviewer flagged this as needing work but did not provide specific issues.',
+                  'Instructions: Re-read the story file carefully, compare each acceptance criterion against the current implementation, and fix any gaps you find.',
+                  'Focus on: unimplemented ACs, missing tests, incorrect behavior, and incomplete task checkboxes.',
+                ].join('\n')
           } else {
+            const issueHeader = isMajorRework
+              ? 'Issues from previous review that MUST be addressed'
+              : 'Issues'
             reviewFeedback = [
               `Verdict: ${verdict}`,
-              `Issues (${issueList.length}):`,
+              `${issueHeader} (${issueList.length}):`,
               ...issueList.map((issue, i) => {
                 const iss = issue as { severity?: string; description?: string; file?: string; line?: number }
                 return `  ${i + 1}. [${iss.severity ?? 'unknown'}] ${iss.description ?? 'no description'}${iss.file ? ` (${iss.file}${iss.line ? `:${iss.line}` : ''})` : ''}`
@@ -1226,11 +1238,19 @@ export function createImplementationOrchestrator(
             archConstraints = constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
           } catch { /* arch constraints are optional */ }
 
-          const sections = [
-            { name: 'story_content', content: storyContent, priority: 'required' as const },
-            { name: 'review_feedback', content: reviewFeedback, priority: 'required' as const },
-            { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
-          ]
+          // Build sections based on template type
+          const sections = isMajorRework
+            ? [
+                { name: 'story_content', content: storyContent, priority: 'required' as const },
+                { name: 'review_findings', content: reviewFeedback, priority: 'required' as const },
+                { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
+                { name: 'git_diff', content: '', priority: 'optional' as const },
+              ]
+            : [
+                { name: 'story_content', content: storyContent, priority: 'required' as const },
+                { name: 'review_feedback', content: reviewFeedback, priority: 'required' as const },
+                { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
+              ]
           const assembled = assemblePrompt(fixTemplate, sections, 24000)
           fixPrompt = assembled.prompt
         } catch {
@@ -1239,13 +1259,23 @@ export function createImplementationOrchestrator(
         }
 
         incrementDispatches(storyKey)
-        const handle = dispatcher.dispatch<unknown>({
-          prompt: fixPrompt,
-          agent: 'claude-code',
-          taskType,
-          ...(fixModel !== undefined ? { model: fixModel } : {}),
-          workingDirectory: projectRoot,
-        })
+        // Major rework uses DevStoryResultSchema (full re-implementation output contract)
+        const handle = isMajorRework
+          ? dispatcher.dispatch({
+              prompt: fixPrompt,
+              agent: 'claude-code',
+              taskType,
+              ...(fixModel !== undefined ? { model: fixModel } : {}),
+              outputSchema: DevStoryResultSchema,
+              ...(projectRoot !== undefined ? { workingDirectory: projectRoot } : {}),
+            })
+          : dispatcher.dispatch<unknown>({
+              prompt: fixPrompt,
+              agent: 'claude-code',
+              taskType,
+              ...(fixModel !== undefined ? { model: fixModel } : {}),
+              ...(projectRoot !== undefined ? { workingDirectory: projectRoot } : {}),
+            })
         const fixResult = await handle.result
 
         // Record fix dispatch telemetry
@@ -1279,6 +1309,25 @@ export function createImplementationOrchestrator(
         }
 
         if (fixResult.status === 'failed') {
+          // Major rework failure is a strong escalation signal
+          if (isMajorRework) {
+            logger.warn('Major rework dispatch failed — escalating story', { storyKey, exitCode: fixResult.exitCode })
+            endPhase(storyKey, 'code-review')
+            updateStory(storyKey, {
+              phase: 'ESCALATED' as StoryPhase,
+              error: 'major-rework-dispatch-failed',
+              completedAt: new Date().toISOString(),
+            })
+            writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
+            emitEscalation({
+              storyKey,
+              lastVerdict: verdict,
+              reviewCycles: reviewCycles + 1,
+              issues: issueList,
+            })
+            persistState()
+            return
+          }
           logger.warn('Fix dispatch failed', { storyKey, taskType, exitCode: fixResult.exitCode })
         }
       } catch (err) {
@@ -1391,8 +1440,12 @@ export function createImplementationOrchestrator(
       }
     }
 
-    // Detect conflict groups
-    const groups = detectConflictGroups(storyKeys)
+    // Detect conflict groups — use the pack's configured moduleMap (if any).
+    // Cross-project runs (where the pack has no conflictGroups) get maximum
+    // parallelism: each story is its own group.
+    const groups = detectConflictGroups(storyKeys, {
+      moduleMap: pack.manifest.conflictGroups,
+    })
 
     logger.info('Orchestrator starting', {
       storyCount: storyKeys.length,

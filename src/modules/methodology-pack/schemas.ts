@@ -61,6 +61,11 @@ export const PackManifestSchema = z.object({
   prompts: z.record(z.string(), z.string()),
   constraints: z.record(z.string(), z.string()),
   templates: z.record(z.string(), z.string()),
+  /**
+   * Optional conflict group mappings for the implementation orchestrator.
+   * Maps story key prefixes to module names for serialization control.
+   */
+  conflictGroups: z.record(z.string(), z.string()).optional(),
 })
 
 // ---------------------------------------------------------------------------

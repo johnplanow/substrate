@@ -14,44 +14,17 @@
  */
 export interface ConflictDetectorConfig {
   /**
-   * Additional prefix → module mappings that extend (or override) the
-   * built-in STORY_PREFIX_TO_MODULE map.
+   * Prefix → module mappings that control conflict grouping.
+   *
+   * When provided, stories whose keys start with the same prefix (and map to
+   * the same module name) are placed in the same conflict group and serialized.
+   *
+   * When omitted (or empty), every story key is treated as its own group,
+   * maximizing parallelism for cross-project runs.
    *
    * Format: prefix (e.g. "12-") → module name (e.g. "my-module")
    */
   moduleMap?: Record<string, string>
-}
-
-// ---------------------------------------------------------------------------
-// Module prefix map
-// ---------------------------------------------------------------------------
-
-/**
- * Maps story key prefix patterns to module directory names.
- *
- * The heuristic: stories whose numeric prefix belongs to the same epic
- * (same first digit) and whose known mapping points to the same module are
- * considered conflicting. Unknown prefixes default to the story key itself
- * (each unknown story is in its own group).
- *
- * Format: prefix (e.g. "10-") → module name
- */
-const STORY_PREFIX_TO_MODULE: Record<string, string> = {
-  '1-': 'core',
-  '2-': 'core',
-  '3-': 'core',
-  '4-': 'core',
-  '5-': 'core',
-  '6-': 'task-graph',
-  '7-': 'worker-pool',
-  '8-': 'monitor',
-  '9-': 'bmad-context-engine',
-  '10-1': 'compiled-workflows',
-  '10-2': 'compiled-workflows',
-  '10-3': 'compiled-workflows',
-  '10-4': 'implementation-orchestrator',
-  '10-5': 'cli',
-  '11-': 'pipeline-phases',
 }
 
 // ---------------------------------------------------------------------------
@@ -66,10 +39,14 @@ const STORY_PREFIX_TO_MODULE: Record<string, string> = {
  * itself for unknown stories so each gets its own group.
  *
  * @param storyKey - e.g. "10-1", "10-2-dev-story", "5-3-something"
- * @param effectiveMap - The resolved prefix-to-module map (built-in + any extras)
+ * @param effectiveMap - The resolved prefix-to-module map
  * @returns module name string used for conflict grouping
  */
 function resolveModulePrefix(storyKey: string, effectiveMap: Record<string, string>): string {
+  // If no map provided, every story is isolated
+  if (Object.keys(effectiveMap).length === 0) {
+    return storyKey
+  }
   // Try longest matches first (e.g., "10-1" before "10-")
   const sortedKeys = Object.keys(effectiveMap).sort((a, b) => b.length - a.length)
   for (const prefix of sortedKeys) {
@@ -88,16 +65,26 @@ function resolveModulePrefix(storyKey: string, effectiveMap: Record<string, stri
  * group and will be serialized. Stories with different prefixes can run in
  * parallel.
  *
+ * When no `moduleMap` is configured, every story key is placed in its own
+ * conflict group (maximum parallelism). This is the default for cross-project
+ * runs where the story key prefixes are not known in advance.
+ *
  * @param storyKeys - Array of story key strings
- * @param config - Optional configuration; supply `moduleMap` to extend the
- *                 built-in prefix-to-module mappings (additional entries are
- *                 merged on top of the defaults, allowing overrides).
+ * @param config - Optional configuration; supply `moduleMap` to define
+ *                 prefix-to-module mappings. Without this config, each story
+ *                 gets its own group (maximum parallelism).
  * @returns Array of conflict groups; each inner array is a list of story keys
  *          that must be processed sequentially
  *
  * @example
- * detectConflictGroups(['10-1', '10-2', '10-4', '10-5'])
- * // => [['10-1', '10-2'], ['10-4'], ['10-5']]
+ * // Without a moduleMap, all stories run in parallel
+ * detectConflictGroups(['4-1', '4-2', '4-3'])
+ * // => [['4-1'], ['4-2'], ['4-3']]
+ *
+ * @example
+ * // With a moduleMap, matching stories are serialized
+ * detectConflictGroups(['10-1', '10-2', '10-4'], { moduleMap: { '10-1': 'compiled-workflows', '10-2': 'compiled-workflows', '10-4': 'implementation-orchestrator' } })
+ * // => [['10-1', '10-2'], ['10-4']]
  *
  * @example
  * detectConflictGroups(['12-1', '12-2'], { moduleMap: { '12-': 'my-module' } })
@@ -105,7 +92,6 @@ function resolveModulePrefix(storyKey: string, effectiveMap: Record<string, stri
  */
 export function detectConflictGroups(storyKeys: string[], config?: ConflictDetectorConfig): string[][] {
   const effectiveMap: Record<string, string> = {
-    ...STORY_PREFIX_TO_MODULE,
     ...(config?.moduleMap ?? {}),
   }
 
