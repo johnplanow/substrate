@@ -1279,6 +1279,8 @@ describe('Story 16-7: Heartbeat and stall NDJSON event wiring (--events mode)', 
           storyKey: '16-2',
           phase: 'IN_DEV',
           elapsedMs: 660_000,
+          childPids: [],
+          childActive: false,
         })
       }
       return defaultStatus
@@ -1323,7 +1325,7 @@ describe('Story 16-7: Heartbeat and stall NDJSON event wiring (--events mode)', 
       }
       const stallListeners = eventBusListeners['orchestrator:stall'] ?? []
       for (const listener of stallListeners) {
-        listener({ runId: 'run-uuid-123', storyKey: '10-1', phase: 'IN_DEV', elapsedMs: 660_000 })
+        listener({ runId: 'run-uuid-123', storyKey: '10-1', phase: 'IN_DEV', elapsedMs: 660_000, childPids: [], childActive: false })
       }
       return defaultStatus
     })

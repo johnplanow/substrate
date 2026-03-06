@@ -15,6 +15,7 @@
 
 import { spawn, execSync } from 'node:child_process'
 import { freemem, platform } from 'node:os'
+import type { DispatcherMemoryState } from './types.js'
 import { randomUUID } from 'node:crypto'
 import type { ChildProcess } from 'node:child_process'
 import type { TypedEventBus } from '../../core/event-bus.js'
@@ -57,6 +58,11 @@ const MIN_FREE_MEMORY_BYTES = (() => {
 // How often (ms) to re-check memory when the queue is held due to pressure
 const MEMORY_PRESSURE_POLL_MS = 10_000
 
+// Tracks the most recently observed macOS kernel pressure level (1=normal,
+// 2=warn, 4=critical). Updated inside getAvailableMemory() on darwin.
+// Read by _isMemoryPressured() to include in the warn log (Story 23-8, AC3).
+let _lastKnownPressureLevel = 0
+
 /**
  * Get available system memory in bytes, accounting for platform differences.
  *
@@ -90,6 +96,7 @@ function getAvailableMemory(): number {
         }).trim(),
         10,
       )
+      _lastKnownPressureLevel = pressureLevel
       if (pressureLevel >= 4) {
         logger.warn({ pressureLevel }, 'macOS kernel reports critical memory pressure')
         return 0
@@ -115,6 +122,8 @@ function getAvailableMemory(): number {
       return freemem()
     }
   }
+  // Non-darwin: pressure level is always 0
+  _lastKnownPressureLevel = 0
   return freemem()
 }
 
@@ -700,13 +709,34 @@ export class DispatcherImpl implements Dispatcher {
   private _isMemoryPressured(): boolean {
     const free = getAvailableMemory()
     if (free < MIN_FREE_MEMORY_BYTES) {
+      // AC3 (Story 23-8): log freeMB, thresholdMB, and pressureLevel at warn
       logger.warn(
-        { freeMB: Math.round(free / 1024 / 1024), thresholdMB: Math.round(MIN_FREE_MEMORY_BYTES / 1024 / 1024) },
+        {
+          freeMB: Math.round(free / 1024 / 1024),
+          thresholdMB: Math.round(MIN_FREE_MEMORY_BYTES / 1024 / 1024),
+          pressureLevel: _lastKnownPressureLevel,
+        },
         'Memory pressure detected — holding dispatch queue',
       )
       return true
     }
     return false
+  }
+
+  /**
+   * Return current memory pressure state (Story 23-8, AC1).
+   *
+   * Used by the orchestrator before dispatching a story phase so it can
+   * implement backoff-retry without waiting on the dispatcher's internal queue.
+   */
+  getMemoryState(): DispatcherMemoryState {
+    const free = getAvailableMemory()
+    return {
+      freeMB: Math.round(free / 1024 / 1024),
+      thresholdMB: Math.round(MIN_FREE_MEMORY_BYTES / 1024 / 1024),
+      pressureLevel: _lastKnownPressureLevel,
+      isPressured: free < MIN_FREE_MEMORY_BYTES,
+    }
   }
 
   private _startMemoryPressureTimer(): void {

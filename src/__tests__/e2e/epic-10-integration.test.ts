@@ -56,6 +56,9 @@ vi.mock('../../modules/compiled-workflows/dev-story.js', () => ({
 vi.mock('../../modules/compiled-workflows/code-review.js', () => ({
   runCodeReview: vi.fn(),
 }))
+vi.mock('../../cli/commands/health.js', () => ({
+  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+}))
 
 // ---------------------------------------------------------------------------
 // Imports after mocks
@@ -144,6 +147,7 @@ function makeDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(handle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
+    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }

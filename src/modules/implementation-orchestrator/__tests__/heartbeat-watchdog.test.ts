@@ -62,6 +62,12 @@ vi.mock('../../../modules/compiled-workflows/index.js', () => ({
   }),
   planTaskBatches: vi.fn().mockReturnValue([]),
 }))
+vi.mock('../../../cli/commands/health.js', () => ({
+  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+}))
+vi.mock('../../../utils/helpers.js', () => ({
+  sleep: vi.fn().mockResolvedValue(undefined),
+}))
 
 // ---------------------------------------------------------------------------
 // Import mocked modules
@@ -70,10 +76,12 @@ vi.mock('../../../modules/compiled-workflows/index.js', () => ({
 import { runCreateStory } from '../../compiled-workflows/create-story.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../compiled-workflows/code-review.js'
+import { inspectProcessTree } from '../../../cli/commands/health.js'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockRunDevStory = vi.mocked(runDevStory)
 const mockRunCodeReview = vi.mocked(runCodeReview)
+const mockInspectProcessTree = vi.mocked(inspectProcessTree)
 
 // ---------------------------------------------------------------------------
 // Helper factories
@@ -130,6 +138,7 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
+    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -170,6 +179,7 @@ function defaultConfig(overrides?: Partial<OrchestratorConfig>): OrchestratorCon
     maxReviewCycles: 2,
     pipelineRunId: 'test-run-16-7',
     enableHeartbeat: true,
+    gcPauseMs: 0,
     ...overrides,
   }
 }
@@ -240,6 +250,7 @@ describe('AC1: Heartbeat timer', () => {
 
     // Complete the run
     resolveCreate(makeCreateStorySuccess('16-1'))
+    await vi.advanceTimersByTimeAsync(100)
     await runPromise
   })
 
@@ -338,6 +349,7 @@ describe('AC1: Heartbeat timer', () => {
     resolveCreate(makeCreateStorySuccess('16-1'))
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+    await vi.advanceTimersByTimeAsync(100)
     await runPromise
   })
 })
@@ -401,6 +413,7 @@ describe('AC2: Watchdog stall detection', () => {
 
     // Clean up — complete the run
     resolveCreate(makeCreateStorySuccess('16-3'))
+    await vi.advanceTimersByTimeAsync(100) // flush GC pause timer
     await runPromise
   })
 
@@ -437,6 +450,7 @@ describe('AC2: Watchdog stall detection', () => {
 
     // Complete the run without stall
     resolveCreate(makeCreateStorySuccess('16-4'))
+    await vi.advanceTimersByTimeAsync(100)
     await runPromise
   })
 
@@ -474,6 +488,7 @@ describe('AC2: Watchdog stall detection', () => {
     expect(stallPayloads[0]!.elapsedMs).toBeGreaterThanOrEqual(600_000)
 
     resolveCreate(makeCreateStorySuccess('16-5'))
+    await vi.advanceTimersByTimeAsync(100)
     await runPromise
   })
 })
@@ -500,7 +515,7 @@ describe('T2/T4: Heartbeat and stall event schemas', () => {
     expect(typeof event.queued_dispatches).toBe('number')
   })
 
-  it('StoryStallEvent has correct fields per story schema', () => {
+  it('StoryStallEvent has correct fields per story schema (including child liveness)', () => {
     const event = {
       type: 'story:stall' as const,
       ts: new Date().toISOString(),
@@ -508,11 +523,274 @@ describe('T2/T4: Heartbeat and stall event schemas', () => {
       story_key: '16-2',
       phase: 'dev-story',
       elapsed_ms: 600_000,
+      child_pids: [1234],
+      child_active: false,
     }
     expect(event.type).toBe('story:stall')
     expect(typeof event.run_id).toBe('string')
     expect(typeof event.story_key).toBe('string')
     expect(typeof event.phase).toBe('string')
     expect(typeof event.elapsed_ms).toBe('number')
+    expect(Array.isArray(event.child_pids)).toBe(true)
+    expect(typeof event.child_active).toBe('boolean')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 23-7: Activity heartbeat stall detection
+// ---------------------------------------------------------------------------
+
+describe('Story 23-7: Activity heartbeat stall detection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Default: no child processes (stalls will fire)
+    mockInspectProcessTree.mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('AC1+AC2: stale + active child → stall suppressed and timer reset', async () => {
+    vi.useFakeTimers()
+
+    const eventBus = new TypedEventBusImpl()
+    const stallPayloads: unknown[] = []
+    eventBus.on('orchestrator:stall', (p) => stallPayloads.push(p))
+
+    // Story hangs in create-story
+    let resolveCreate!: (v: ReturnType<typeof makeCreateStorySuccess>) => void
+    const createPromise = new Promise<ReturnType<typeof makeCreateStorySuccess>>((res) => {
+      resolveCreate = res
+    })
+    mockRunCreateStory.mockReturnValue(createPromise as never)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+    // Child process is alive and active
+    mockInspectProcessTree.mockReturnValue({
+      orchestrator_pid: 1000,
+      child_pids: [1001],
+      zombies: [],
+    })
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus,
+      config: defaultConfig(),
+    })
+
+    const runPromise = orchestrator.run(['23-7-1'])
+
+    // Advance past default stall threshold (10 min + buffer)
+    await vi.advanceTimersByTimeAsync(660_000)
+
+    // Stall should be suppressed because child is active
+    expect(stallPayloads.length).toBe(0)
+
+    resolveCreate(makeCreateStorySuccess('23-7-1'))
+    await vi.advanceTimersByTimeAsync(100)
+    await runPromise
+  })
+
+  it('AC2: stale + no active child → stall emitted with child_pids and child_active', async () => {
+    vi.useFakeTimers()
+
+    const eventBus = new TypedEventBusImpl()
+    const stallPayloads: Array<{
+      runId: string
+      storyKey: string
+      phase: string
+      elapsedMs: number
+      childPids: number[]
+      childActive: boolean
+    }> = []
+    eventBus.on('orchestrator:stall', (p) => stallPayloads.push(p))
+
+    let resolveCreate!: (v: ReturnType<typeof makeCreateStorySuccess>) => void
+    const createPromise = new Promise<ReturnType<typeof makeCreateStorySuccess>>((res) => {
+      resolveCreate = res
+    })
+    mockRunCreateStory.mockReturnValue(createPromise as never)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+    // No child processes
+    mockInspectProcessTree.mockReturnValue({
+      orchestrator_pid: 1000,
+      child_pids: [],
+      zombies: [],
+    })
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus,
+      config: defaultConfig(),
+    })
+
+    const runPromise = orchestrator.run(['23-7-2'])
+    await vi.advanceTimersByTimeAsync(660_000)
+
+    expect(stallPayloads.length).toBeGreaterThanOrEqual(1)
+    const stall = stallPayloads[0]!
+    expect(stall.childPids).toEqual([])
+    expect(stall.childActive).toBe(false)
+
+    resolveCreate(makeCreateStorySuccess('23-7-2'))
+    await vi.advanceTimersByTimeAsync(100)
+    await runPromise
+  })
+
+  it('AC2: stale + all children are zombies → stall emitted', async () => {
+    vi.useFakeTimers()
+
+    const eventBus = new TypedEventBusImpl()
+    const stallPayloads: unknown[] = []
+    eventBus.on('orchestrator:stall', (p) => stallPayloads.push(p))
+
+    let resolveCreate!: (v: ReturnType<typeof makeCreateStorySuccess>) => void
+    const createPromise = new Promise<ReturnType<typeof makeCreateStorySuccess>>((res) => {
+      resolveCreate = res
+    })
+    mockRunCreateStory.mockReturnValue(createPromise as never)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+    // Children exist but are all zombies
+    mockInspectProcessTree.mockReturnValue({
+      orchestrator_pid: 1000,
+      child_pids: [1001, 1002],
+      zombies: [1001, 1002],
+    })
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus,
+      config: defaultConfig(),
+    })
+
+    const runPromise = orchestrator.run(['23-7-3'])
+    await vi.advanceTimersByTimeAsync(660_000)
+
+    // All children are zombies → stall should fire
+    expect(stallPayloads.length).toBeGreaterThanOrEqual(1)
+
+    resolveCreate(makeCreateStorySuccess('23-7-3'))
+    await vi.advanceTimersByTimeAsync(100)
+    await runPromise
+  })
+
+  it('AC3: dev-story phase uses 900s (15 min) threshold', async () => {
+    vi.useFakeTimers()
+
+    const eventBus = new TypedEventBusImpl()
+    const stallPayloads: unknown[] = []
+    eventBus.on('orchestrator:stall', (p) => stallPayloads.push(p))
+
+    // Story completes create-story quickly, then hangs in dev-story
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('23-7-4'))
+    let resolveDevStory!: (v: ReturnType<typeof makeDevStorySuccess>) => void
+    const devPromise = new Promise<ReturnType<typeof makeDevStorySuccess>>((res) => {
+      resolveDevStory = res
+    })
+    mockRunDevStory.mockReturnValue(devPromise as never)
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+    // No child processes (so stalls won't be suppressed)
+    mockInspectProcessTree.mockReturnValue({
+      orchestrator_pid: 1000,
+      child_pids: [],
+      zombies: [],
+    })
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus,
+      config: defaultConfig(),
+    })
+
+    const runPromise = orchestrator.run(['23-7-4'])
+
+    // Allow create-story to complete (it resolves immediately)
+    await vi.advanceTimersByTimeAsync(100)
+
+    // Advance to 11 minutes (past default 600s but below dev-story 900s)
+    // Reset the progress timer by clearing stall state
+    await vi.advanceTimersByTimeAsync(660_000)
+
+    // At 11 min: story should be in IN_DEV phase, and 900s threshold
+    // means no stall yet (only 660s elapsed since create-story completed)
+    // But we need to account for the progress reset during create-story phase transitions.
+    // The recordProgress() call when entering IN_DEV resets the timer.
+    // So from IN_DEV entry, 660s < 900s → no stall.
+    expect(stallPayloads.length).toBe(0)
+
+    // Advance to 15.5 min total from IN_DEV entry
+    await vi.advanceTimersByTimeAsync(270_000) // +4.5 min = ~15.5 min from IN_DEV
+
+    // Now staleness from IN_DEV entry is ~930s > 900s → stall emitted
+    expect(stallPayloads.length).toBeGreaterThanOrEqual(1)
+
+    resolveDevStory(makeDevStorySuccess())
+    await vi.advanceTimersByTimeAsync(100)
+    await runPromise
+  })
+
+  it('AC4: create-story phase uses default 600s threshold', async () => {
+    vi.useFakeTimers()
+
+    const eventBus = new TypedEventBusImpl()
+    const stallPayloads: unknown[] = []
+    eventBus.on('orchestrator:stall', (p) => stallPayloads.push(p))
+
+    // Story hangs in create-story
+    let resolveCreate!: (v: ReturnType<typeof makeCreateStorySuccess>) => void
+    const createPromise = new Promise<ReturnType<typeof makeCreateStorySuccess>>((res) => {
+      resolveCreate = res
+    })
+    mockRunCreateStory.mockReturnValue(createPromise as never)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+    mockInspectProcessTree.mockReturnValue({
+      orchestrator_pid: 1000,
+      child_pids: [],
+      zombies: [],
+    })
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus,
+      config: defaultConfig(),
+    })
+
+    const runPromise = orchestrator.run(['23-7-5'])
+
+    // Advance 9 min — below 600s threshold
+    await vi.advanceTimersByTimeAsync(540_000)
+    expect(stallPayloads.length).toBe(0)
+
+    // Advance past 10 min → stall should fire (create-story uses default 600s)
+    await vi.advanceTimersByTimeAsync(120_000) // total ~11 min
+    expect(stallPayloads.length).toBeGreaterThanOrEqual(1)
+
+    resolveCreate(makeCreateStorySuccess('23-7-5'))
+    await vi.advanceTimersByTimeAsync(100)
+    await runPromise
   })
 })

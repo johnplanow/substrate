@@ -15,7 +15,7 @@
 
 import type { Command } from 'commander'
 import { join } from 'path'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
 import {
@@ -66,6 +66,9 @@ export interface PipelineHealthOutput {
     active: number
     completed: number
     escalated: number
+    /** PENDING stories (not yet dispatched). Included so consumers can reconcile
+     *  total story count: active + completed + escalated + pending = total stories. */
+    pending?: number
     details: Record<string, { phase: string; review_cycles: number }>
   }
 }
@@ -123,11 +126,22 @@ export type ExecFileSyncFn = (
 
 export interface InspectProcessTreeOptions {
   projectRoot?: string
+  /**
+   * Path to the `.substrate` directory for the target project.
+   * When provided, `inspectProcessTree` first checks for `orchestrator.pid`
+   * inside this directory (written by `substrate run` at startup). This
+   * enables cross-project process detection where the project root path may
+   * not appear in the process command line (e.g. when substrate is invoked
+   * from the target project's directory via CWD rather than `--project-root`).
+   */
+  substrateDirPath?: string
   execFileSync?: ExecFileSyncFn
+  /** Injectable readFileSync for testing the PID-file path */
+  readFileSync?: (path: string, encoding: string) => string
 }
 
 export function inspectProcessTree(opts?: InspectProcessTreeOptions): ProcessInfo {
-  const { projectRoot, execFileSync: execFileSyncOverride } = opts ?? {}
+  const { projectRoot, substrateDirPath, execFileSync: execFileSyncOverride, readFileSync: readFileSyncOverride } = opts ?? {}
   const result: ProcessInfo = { orchestrator_pid: null, child_pids: [], zombies: [] }
   try {
     let psOutput: string
@@ -139,14 +153,54 @@ export function inspectProcessTree(opts?: InspectProcessTreeOptions): ProcessInf
     }
     const lines = psOutput.split('\n')
 
-    // Find substrate run process — match multiple invocation patterns
-    // When projectRoot is provided, only match orchestrators for that project
-    for (const line of lines) {
-      if (isOrchestratorProcessLine(line, projectRoot)) {
-        const match = line.trim().match(/^(\d+)/)
-        if (match) {
-          result.orchestrator_pid = parseInt(match[1], 10)
-          break
+    // -----------------------------------------------------------------------
+    // Primary: PID-file based detection (AC1, AC3 — cross-project fix)
+    //
+    // `substrate run` writes its PID to `.substrate/orchestrator.pid` at
+    // startup. When `substrateDirPath` is provided, we read that file directly
+    // and verify the PID is still alive in the ps output. This works even when
+    // `--project-root` does not appear in the process command line (i.e. when
+    // the orchestrator was started from the target project's CWD).
+    // -----------------------------------------------------------------------
+    if (substrateDirPath !== undefined) {
+      try {
+        const readFileSyncFn = readFileSyncOverride ??
+          ((path: string, encoding: string) => readFileSync(path, encoding as BufferEncoding))
+        const pidContent = readFileSyncFn(join(substrateDirPath, 'orchestrator.pid'), 'utf-8')
+        const pid = parseInt(pidContent.trim(), 10)
+        if (!isNaN(pid) && pid > 0) {
+          // Verify the PID is still alive and not a zombie by checking the ps output
+          const isAlive = lines.some((line) => {
+            const parts = line.trim().split(/\s+/)
+            if (parts.length < 3) return false
+            return parseInt(parts[0], 10) === pid && !parts[2].includes('Z')
+          })
+          if (isAlive) {
+            result.orchestrator_pid = pid
+          }
+          // If PID file exists but process is dead, orchestrator_pid stays null
+          // (process crashed without cleanup) — stale detection handles this
+        }
+      } catch {
+        // PID file doesn't exist or can't be read — fall through to command-line matching
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Fallback: command-line pattern matching
+    //
+    // Used when no PID file is available (older substrate versions, or the
+    // PID file was cleaned up before health was polled).
+    // When projectRoot is provided, only match orchestrators for that project.
+    // -----------------------------------------------------------------------
+    if (result.orchestrator_pid === null) {
+      for (const line of lines) {
+        if (isOrchestratorProcessLine(line, projectRoot)) {
+          const match = line.trim().match(/^(\d+)/)
+          if (match) {
+            result.orchestrator_pid = parseInt(match[1], 10)
+            break
+          }
         }
       }
     }
@@ -298,6 +352,7 @@ export async function getAutoHealthData(options: {
     let active = 0
     let completed = 0
     let escalated = 0
+    let pending = 0
 
     try {
       if (run.token_usage_json) {
@@ -309,7 +364,8 @@ export async function getAutoHealthData(options: {
             storyDetails[key] = { phase: s.phase, review_cycles: s.reviewCycles }
             if (s.phase === 'COMPLETE') completed++
             else if (s.phase === 'ESCALATED') escalated++
-            else if (s.phase !== 'PENDING') active++
+            else if (s.phase === 'PENDING') pending++
+            else active++
           }
         }
       }
@@ -318,17 +374,22 @@ export async function getAutoHealthData(options: {
     }
 
     // Inspect process tree — scope to this project so multi-project setups
-    // match the correct orchestrator process
-    const processInfo = inspectProcessTree({ projectRoot })
+    // match the correct orchestrator process.
+    // Pass substrateDirPath so inspectProcessTree can use the PID file written
+    // by `substrate run` — this is the primary fix for cross-project detection
+    // where --project-root may not appear in the process command line (AC1, AC3).
+    const substrateDirPath = join(dbRoot, '.substrate')
+    const processInfo = inspectProcessTree({ projectRoot, substrateDirPath })
 
     // Derive verdict
+    // AC4: NO_PIPELINE_RUNNING is only reported when the DB status is terminal
+    // (completed/failed/stopped) or when there is no pipeline run at all.
+    // It must NOT be reported solely based on failing to detect the process
+    // when run.status === 'running' — that was incorrectly returned when
+    // process detection was broken.
     let verdict: HealthVerdict = 'NO_PIPELINE_RUNNING'
     if (run.status === 'running') {
-      if (processInfo.orchestrator_pid === null && active === 0 && completed > 0) {
-        // Orchestrator exited, no active stories, all completed — pipeline is done
-        // even though the DB row wasn't updated to "completed"
-        verdict = 'NO_PIPELINE_RUNNING'
-      } else if (processInfo.zombies.length > 0) {
+      if (processInfo.zombies.length > 0) {
         verdict = 'STALLED'
       } else if (processInfo.orchestrator_pid !== null && processInfo.child_pids.length > 0 && stalenessSeconds > DEFAULT_STALL_THRESHOLD_SECONDS) {
         // Children are alive and not zombies — pipeline is actively working even
@@ -353,7 +414,7 @@ export async function getAutoHealthData(options: {
       staleness_seconds: stalenessSeconds,
       last_activity: run.updated_at,
       process: processInfo,
-      stories: { active, completed, escalated, details: storyDetails },
+      stories: { active, completed, escalated, pending, details: storyDetails },
     }
   } finally {
     try {

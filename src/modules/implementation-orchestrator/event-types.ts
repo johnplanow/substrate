@@ -202,6 +202,10 @@ export interface StoryStallEvent {
   phase: string
   /** Milliseconds since the last progress event */
   elapsed_ms: number
+  /** PIDs of child processes at time of stall detection */
+  child_pids: number[]
+  /** Whether any child process was actively running (not zombie) */
+  child_active: boolean
 }
 
 // ---------------------------------------------------------------------------

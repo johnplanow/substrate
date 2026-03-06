@@ -243,6 +243,8 @@ export interface PipelineStatusOutput {
   total_tokens: { input: number; output: number; cost_usd: number }
   decisions_count: number
   stories_count: number
+  /** Number of stories in COMPLETE phase; matches health.stories.completed (Story 23-9 AC1, AC2) */
+  stories_completed: number
   /** ISO-8601 timestamp of the most recent pipeline activity (Story 16-7 AC4) */
   last_activity: string
   /** Seconds since last pipeline activity (Story 16-7 AC4) */
@@ -387,6 +389,16 @@ export function buildPipelineStatusOutput(
     // ignore parse errors — default to 0 / undefined
   }
 
+  // Derive stories_count and stories_completed from token_usage_json when available
+  // (same source as health command).  When no story state is available, fall back to
+  // the storiesCount parameter (populated from the requirements table for full-pipeline
+  // runs that include a solutioning phase).
+  const derivedStoriesCount =
+    storiesSummary !== undefined
+      ? storiesSummary.completed + storiesSummary.in_progress + storiesSummary.escalated + storiesSummary.pending
+      : storiesCount
+  const derivedStoriesCompleted = storiesSummary !== undefined ? storiesSummary.completed : 0
+
   return {
     run_id: run.id,
     current_phase: currentPhase,
@@ -397,7 +409,8 @@ export function buildPipelineStatusOutput(
       cost_usd: totalCost,
     },
     decisions_count: decisionsCount,
-    stories_count: storiesCount,
+    stories_count: derivedStoriesCount,
+    stories_completed: derivedStoriesCompleted,
     last_activity: run.updated_at,
     staleness_seconds: Math.round((Date.now() - parseDbTimestampAsUtc(run.updated_at).getTime()) / 1000),
     last_event_ts: run.updated_at,

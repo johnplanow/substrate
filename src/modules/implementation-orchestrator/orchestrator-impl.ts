@@ -28,6 +28,7 @@ import { runTestPlan } from '../compiled-workflows/test-plan.js'
 import { runTestExpansion } from '../compiled-workflows/test-expansion.js'
 import { analyzeStoryComplexity, planTaskBatches } from '../compiled-workflows/index.js'
 import { detectConflictGroups } from './conflict-detector.js'
+import { inspectProcessTree } from '../../cli/commands/health.js'
 import type { ImplementationOrchestrator } from './orchestrator.js'
 import type {
   OrchestratorConfig,
@@ -41,6 +42,7 @@ import type {
 import { addTokenUsage } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 import { seedMethodologyContext } from './seed-methodology-context.js'
+import { sleep } from '../../utils/helpers.js'
 
 // ---------------------------------------------------------------------------
 // OrchestratorDeps
@@ -121,7 +123,8 @@ export function createImplementationOrchestrator(
   let _lastProgressTs = Date.now()
   let _heartbeatTimer: ReturnType<typeof setInterval> | null = null
   const HEARTBEAT_INTERVAL_MS = 30_000
-  const WATCHDOG_TIMEOUT_MS = 600_000 // 10 minutes
+  const DEFAULT_STALL_THRESHOLD_MS = 600_000 // 10 minutes
+  const DEV_STORY_STALL_THRESHOLD_MS = 900_000 // 15 minutes — dev-story commonly runs 10-15 min
   // Track which stories have already emitted a stall event to prevent duplicates
   const _stalledStories = new Set<string>()
   // Track which stories ever stalled (persistent — never cleared) for story-metrics decision
@@ -134,6 +137,12 @@ export function createImplementationOrchestrator(
 
   // -- actual peak concurrency observed during runWithConcurrency --
   let _maxConcurrentActual = 0
+
+  // -- memory pressure backoff (Story 23-8, AC1) --
+  // Exponential backoff intervals (ms) before retrying a story dispatch
+  // when memory pressure is detected.  After all intervals are exhausted
+  // the story is escalated with reason 'memory_pressure_exhausted'.
+  const MEMORY_PRESSURE_BACKOFF_MS = [30_000, 60_000, 120_000]
 
   function startPhase(storyKey: string, phase: string): void {
     if (!_phaseStartMs.has(storyKey)) _phaseStartMs.set(storyKey, new Map())
@@ -364,6 +373,10 @@ export function createImplementationOrchestrator(
     _stalledStories.clear()
   }
 
+  function getStallThresholdMs(phase: string): number {
+    return phase === 'IN_DEV' ? DEV_STORY_STALL_THRESHOLD_MS : DEFAULT_STALL_THRESHOLD_MS
+  }
+
   function startHeartbeat(): void {
     if (_heartbeatTimer !== null) return
     _heartbeatTimer = setInterval(() => {
@@ -377,7 +390,7 @@ export function createImplementationOrchestrator(
         else active++
       }
 
-      // AC1: Only emit heartbeat when no progress has been made in the last interval
+      // Emit heartbeat when no progress has been made in the last interval
       const timeSinceProgress = Date.now() - _lastProgressTs
       if (timeSinceProgress >= HEARTBEAT_INTERVAL_MS) {
         eventBus.emit('orchestrator:heartbeat', {
@@ -388,26 +401,60 @@ export function createImplementationOrchestrator(
         })
       }
 
-      // Watchdog: check for stalls
+      // Watchdog: check for stalls with phase-aware thresholds (AC3, AC4)
       const elapsed = Date.now() - _lastProgressTs
-      if (elapsed >= WATCHDOG_TIMEOUT_MS) {
-        // Find in-progress stories and emit stall events with deduplication
-        for (const [key, s] of _stories) {
-          if (s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED') {
-            // Deduplication: skip if we already emitted a stall event for this story
-            if (_stalledStories.has(key)) continue
-            _stalledStories.add(key)
-            _storiesWithStall.add(key)  // persistent tracking (never cleared) for story-metrics
-            logger.warn({ storyKey: key, phase: s.phase, elapsedMs: elapsed }, 'Watchdog: possible stall detected')
-            eventBus.emit('orchestrator:stall', {
-              runId: config.pipelineRunId ?? '',
-              storyKey: key,
-              phase: s.phase,
-              elapsedMs: elapsed,
-              childPid: null,
-            })
+
+      // Only run process inspection once per tick (shared across all stories)
+      let childPids: number[] = []
+      let childActive = false
+      let processInspected = false
+
+      for (const [key, s] of _stories) {
+        if (s.phase === 'PENDING' || s.phase === 'COMPLETE' || s.phase === 'ESCALATED') continue
+        const threshold = getStallThresholdMs(s.phase)
+        if (elapsed < threshold) continue
+
+        // Deduplication: skip if we already emitted a stall event for this story
+        if (_stalledStories.has(key)) continue
+
+        // AC2 (Story 23-7): Check child process liveness before emitting stall.
+        // Inspect once per tick and cache the result.
+        if (!processInspected) {
+          processInspected = true
+          try {
+            const processInfo = inspectProcessTree()
+            childPids = processInfo.child_pids
+            const nonZombieChildren = processInfo.child_pids.filter(
+              (pid) => !processInfo.zombies.includes(pid)
+            )
+            childActive = nonZombieChildren.length > 0
+          } catch {
+            // Process inspection failed — proceed with stall detection
           }
         }
+
+        // AC1 + AC2 (Story 23-7): If any child is alive and not a zombie,
+        // reset the staleness timer and suppress the stall event.
+        if (childActive) {
+          _lastProgressTs = Date.now()
+          logger.debug(
+            { storyKey: key, phase: s.phase, childPids },
+            'Staleness exceeded but child processes are active — suppressing stall'
+          )
+          break // timer reset — no need to check remaining stories this tick
+        }
+
+        _stalledStories.add(key)
+        _storiesWithStall.add(key)
+        logger.warn({ storyKey: key, phase: s.phase, elapsedMs: elapsed, childPids, childActive }, 'Watchdog: possible stall detected')
+        eventBus.emit('orchestrator:stall', {
+          runId: config.pipelineRunId ?? '',
+          storyKey: key,
+          phase: s.phase,
+          elapsedMs: elapsed,
+          childPids,
+          childActive,
+        })
       }
     }, HEARTBEAT_INTERVAL_MS)
     // Ensure the timer doesn't prevent process exit
@@ -433,6 +480,40 @@ export function createImplementationOrchestrator(
   }
 
   /**
+   * Check memory pressure before dispatching a story phase (Story 23-8, AC1).
+   *
+   * When the dispatcher reports memory pressure, this helper waits using
+   * exponential backoff (30 s, 60 s, 120 s) and re-checks after each interval.
+   * If memory is still pressured after all intervals, returns false so the
+   * caller can escalate the story with reason 'memory_pressure_exhausted'.
+   *
+   * If memory is OK (or clears during a wait), returns true immediately.
+   */
+  async function checkMemoryPressure(storyKey: string): Promise<boolean> {
+    for (let attempt = 0; attempt < MEMORY_PRESSURE_BACKOFF_MS.length; attempt++) {
+      const memState = dispatcher.getMemoryState()
+      if (!memState.isPressured) {
+        return true
+      }
+      // Log memory state at each hold entry [AC3]
+      logger.warn(
+        {
+          storyKey,
+          freeMB: memState.freeMB,
+          thresholdMB: memState.thresholdMB,
+          pressureLevel: memState.pressureLevel,
+          attempt: attempt + 1,
+          maxAttempts: MEMORY_PRESSURE_BACKOFF_MS.length,
+        },
+        'Memory pressure before story dispatch — backing off',
+      )
+      await sleep(MEMORY_PRESSURE_BACKOFF_MS[attempt] ?? 0)
+    }
+    // Final check after last sleep
+    return !dispatcher.getMemoryState().isPressured
+  }
+
+  /**
    * Run the full pipeline for a single story key.
    *
    * Sequence: create-story → dev-story → code-review (with retry/rework up
@@ -441,6 +522,35 @@ export function createImplementationOrchestrator(
    */
   async function processStory(storyKey: string): Promise<void> {
     logger.info('Processing story', { storyKey })
+
+    // -- memory pressure pre-check (Story 23-8, AC1) --
+    // Before starting any dispatch, verify memory is available. If pressured,
+    // back off and retry. If memory pressure persists after all retries,
+    // escalate this story so the pipeline can continue to the next one.
+    {
+      const memoryOk = await checkMemoryPressure(storyKey)
+      if (!memoryOk) {
+        logger.warn({ storyKey }, 'Memory pressure exhausted — escalating story without dispatch')
+        _stories.set(storyKey, {
+          phase: 'ESCALATED' as import('./types.js').StoryPhase,
+          reviewCycles: 0,
+          error: 'memory_pressure_exhausted',
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+        })
+        writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+        emitEscalation({
+          storyKey,
+          lastVerdict: 'memory_pressure_exhausted',
+          reviewCycles: 0,
+          issues: [
+            `Memory pressure exhausted after ${MEMORY_PRESSURE_BACKOFF_MS.length} backoff attempts`,
+          ],
+        })
+        persistState()
+        return
+      }
+    }
 
     // -- create-story phase --
 
@@ -1346,10 +1456,18 @@ export function createImplementationOrchestrator(
 
   /**
    * Process a conflict group: run stories sequentially within the group.
+   *
+   * After each story completes (any outcome), a GC hint is issued and a short
+   * pause inserted so the Node.js process can reclaim memory before the next
+   * story dispatch (Story 23-8, AC2).
    */
   async function processConflictGroup(group: string[]): Promise<void> {
     for (const storyKey of group) {
       await processStory(storyKey)
+      // GC hint between stories — best-effort, no error handling needed [AC2]
+      ;(globalThis as { gc?: () => void }).gc?.()
+      const gcPauseMs = config.gcPauseMs ?? 2_000
+      await sleep(gcPauseMs)
     }
   }
 

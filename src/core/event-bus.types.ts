@@ -366,8 +366,10 @@ export interface OrchestratorEvents {
     storyKey: string
     phase: string
     elapsedMs: number
-    /** PID of the stalled child process, or null if not tracked */
-    childPid: number | null
+    /** PIDs of child processes at time of stall detection */
+    childPids: number[]
+    /** Whether any child process was actively running (not zombie) */
+    childActive: boolean
   }
 
   // -------------------------------------------------------------------------

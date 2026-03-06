@@ -74,6 +74,12 @@ export interface OrchestratorConfig {
    * Defaults to false.
    */
   enableHeartbeat?: boolean
+  /**
+   * Duration (ms) of the pause inserted after each story for GC hint.
+   * Default: 2000 ms (Story 23-8, AC2).
+   * Set to 0 in tests to avoid 2-second delays per story.
+   */
+  gcPauseMs?: number
 }
 
 // ---------------------------------------------------------------------------

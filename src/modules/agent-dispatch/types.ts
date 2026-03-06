@@ -162,6 +162,28 @@ export const DEFAULT_MAX_TURNS: Record<string, number> = {
 }
 
 // ---------------------------------------------------------------------------
+// DispatcherMemoryState
+// ---------------------------------------------------------------------------
+
+/**
+ * Current memory pressure state as seen by the dispatcher.
+ * Used by the orchestrator for pre-dispatch backoff-retry logic.
+ */
+export interface DispatcherMemoryState {
+  /** Available free memory in megabytes */
+  freeMB: number
+  /** Minimum free memory threshold in megabytes */
+  thresholdMB: number
+  /**
+   * Platform memory pressure level (macOS only).
+   * 1 = normal, 2 = warn, 4 = critical. 0 on non-macOS platforms.
+   */
+  pressureLevel: number
+  /** True when available memory is below the threshold */
+  isPressured: boolean
+}
+
+// ---------------------------------------------------------------------------
 // Dispatcher interface
 // ---------------------------------------------------------------------------
 
@@ -192,6 +214,14 @@ export interface Dispatcher {
    * Return the number of currently running dispatches.
    */
   getRunning(): number
+
+  /**
+   * Return current memory pressure state.
+   *
+   * Used by the orchestrator for pre-dispatch backoff-retry logic (Story 23-8).
+   * Callers can check isPressured before dispatching and back off if true.
+   */
+  getMemoryState(): DispatcherMemoryState
 
   /**
    * Gracefully shut down the dispatcher.

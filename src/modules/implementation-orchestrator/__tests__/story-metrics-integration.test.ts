@@ -41,6 +41,9 @@ vi.mock('../../compiled-workflows/index.js', () => ({
   analyzeStoryComplexity: vi.fn().mockReturnValue({ complexity: 'simple', reason: 'test' }),
   planTaskBatches: vi.fn().mockReturnValue([]),
 }))
+vi.mock('../../../cli/commands/health.js', () => ({
+  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+}))
 
 import { runCreateStory } from '../../compiled-workflows/create-story.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
@@ -90,6 +93,7 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockResult),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
+    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   } as unknown as Dispatcher
 }

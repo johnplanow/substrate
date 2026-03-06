@@ -16,7 +16,7 @@
 
 import type { Command } from 'commander'
 import { join } from 'path'
-import { mkdirSync, existsSync } from 'fs'
+import { mkdirSync, existsSync, writeFileSync, unlinkSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { createEventEmitter } from '../../modules/implementation-orchestrator/event-emitter.js'
 import { createProgressRenderer } from '../../modules/implementation-orchestrator/progress-renderer.js'
@@ -218,6 +218,29 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbDir = join(dbRoot, '.substrate')
   const dbPath = join(dbDir, 'substrate.db')
+
+  // Write orchestrator PID file for cross-project process detection (Story 23-6).
+  // `substrate health` reads this file to locate the orchestrator process even when
+  // `--project-root` is not in the process command line (i.e. when substrate is
+  // invoked from the target project's CWD). The file is removed on process exit.
+  mkdirSync(dbDir, { recursive: true })
+  const pidFilePath = join(dbDir, 'orchestrator.pid')
+  try {
+    writeFileSync(pidFilePath, String(process.pid), 'utf-8')
+    const cleanupPidFile = () => {
+      try { unlinkSync(pidFilePath) } catch { /* ignore */ }
+    }
+    // Clean up on normal exit (covers most graceful shutdowns).
+    process.on('exit', cleanupPidFile)
+    // Also clean up on SIGTERM and SIGINT so stale PID files don't persist
+    // after signal-based termination. SIGKILL cannot be caught — the alive-check
+    // in inspectProcessTree handles that residual case by verifying the PID is
+    // still present in ps output before treating it as a live orchestrator.
+    process.once('SIGTERM', () => { cleanupPidFile(); process.exit(0) })
+    process.once('SIGINT', () => { cleanupPidFile(); process.exit(130) })
+  } catch {
+    // Non-fatal: process detection falls back to command-line matching
+  }
 
   // If --from is provided, we're running the full phase pipeline
   if (startPhase !== undefined) {
@@ -742,7 +765,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         })
       })
 
-      // Stall detection events (Story 16-7 AC2)
+      // Stall detection events (Story 16-7 AC2, Story 23-7 AC5)
       eventBus.on('orchestrator:stall', (payload) => {
         ndjsonEmitter!.emit({
           type: 'story:stall',
@@ -751,7 +774,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           story_key: payload.storyKey,
           phase: payload.phase,
           elapsed_ms: payload.elapsedMs,
-          child_pid: payload.childPid,
+          child_pids: payload.childPids,
+          child_active: payload.childActive,
         })
       })
     }
