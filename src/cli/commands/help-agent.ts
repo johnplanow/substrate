@@ -335,6 +335,17 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'storyKey', type: 'string', description: 'Story key.' },
     ],
   },
+  {
+    type: 'story:interface-change-warning',
+    description: 'Non-blocking warning: modified files export shared TypeScript interfaces that may be referenced by test files outside the same module (potential stale mock risk). Story proceeds to code-review.',
+    when: 'After build verification passes, before code-review, when exported interfaces in modified .ts files are referenced by cross-module test files.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'storyKey', type: 'string', description: 'Story key.' },
+      { name: 'modifiedInterfaces', type: 'string[]', description: 'Exported interface/type names found in modified files.' },
+      { name: 'potentiallyAffectedTests', type: 'string[]', description: 'Test file paths (relative to project root) that reference the modified interface names.' },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

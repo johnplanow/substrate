@@ -44,6 +44,7 @@ import { createLogger } from '../../utils/logger.js'
 import { seedMethodologyContext } from './seed-methodology-context.js'
 import { sleep } from '../../utils/helpers.js'
 import { runBuildVerification, checkGitDiffFiles } from '../agent-dispatch/dispatcher-impl.js'
+import { detectInterfaceChanges } from '../agent-dispatch/interface-change-detector.js'
 
 // ---------------------------------------------------------------------------
 // OrchestratorDeps
@@ -921,9 +922,12 @@ export function createImplementationOrchestrator(
     // Only applies when dev-story reported COMPLETE (result === 'success').
     // Non-success results proceed to code-review as before so the reviewer
     // can assess partial work (AC5).
+    // gitDiffFiles is hoisted so the interface change detector (24-3) can
+    // use ground-truth file paths instead of the agent's self-reported list.
+    let gitDiffFiles: string[] | undefined
     if (devStoryWasSuccess) {
-      const changedFiles = checkGitDiffFiles(projectRoot ?? process.cwd())
-      if (changedFiles.length === 0) {
+      gitDiffFiles = checkGitDiffFiles(projectRoot ?? process.cwd())
+      if (gitDiffFiles.length === 0) {
         logger.warn(
           { storyKey },
           'Zero-diff detected after COMPLETE dev-story — no file changes in git working tree',
@@ -998,6 +1002,42 @@ export function createImplementationOrchestrator(
         return
       }
       // status === 'skipped': gate disabled — proceed directly to code-review
+    }
+
+    // -- interface change detection (Story 24-3) --
+    // Non-blocking warning: detects exported interfaces/types in modified .ts
+    // files and checks if cross-module test files may have stale mocks.
+    // Failure never blocks the pipeline (AC5: graceful degradation).
+    // Prefer gitDiffFiles (ground truth from git) over devFilesModified
+    // (agent self-report) when available.
+    {
+      try {
+        const filesModified = gitDiffFiles ?? devFilesModified
+        if (filesModified.length > 0) {
+          const icResult = detectInterfaceChanges({
+            filesModified,
+            projectRoot: projectRoot ?? process.cwd(),
+            storyKey,
+          })
+          if (icResult.potentiallyAffectedTests.length > 0) {
+            logger.warn(
+              {
+                storyKey,
+                modifiedInterfaces: icResult.modifiedInterfaces,
+                potentiallyAffectedTests: icResult.potentiallyAffectedTests,
+              },
+              'Interface change warning: modified exports may affect cross-module test mocks',
+            )
+            eventBus.emit('story:interface-change-warning', {
+              storyKey,
+              modifiedInterfaces: icResult.modifiedInterfaces,
+              potentiallyAffectedTests: icResult.potentiallyAffectedTests,
+            })
+          }
+        }
+      } catch {
+        // AC5: outer catch — never block pipeline for detection errors
+      }
     }
 
     let reviewCycles = 0

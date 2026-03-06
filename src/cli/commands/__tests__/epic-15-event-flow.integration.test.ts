@@ -1352,3 +1352,123 @@ describe('Story 16-7: Heartbeat and stall NDJSON event wiring (--events mode)', 
     expect(stallEvents.length).toBe(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 24-3: interface-change-warning NDJSON wire format
+// ---------------------------------------------------------------------------
+
+describe('Story 24-3: interface-change-warning NDJSON event', () => {
+  let stdoutChunks: string[]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetEventBusListeners()
+
+    stdoutChunks = []
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      stdoutChunks.push(chunk.toString())
+      return true
+    })
+
+    mockExistsSync.mockReturnValue(true)
+    mockPackLoad.mockResolvedValue(mockPack())
+    mockDiscoverAndRegister.mockResolvedValue(undefined)
+    mockCreatePipelineRun.mockReturnValue(mockPipelineRun())
+    mockOrchestratorRun.mockResolvedValue(defaultStatus)
+    mockGetTokenUsageSummary.mockReturnValue([])
+    mockDiscoverPendingStoryKeys.mockReturnValue([])
+
+    const mockPrepare = vi.fn().mockReturnValue({
+      all: vi.fn().mockReturnValue([]),
+      get: vi.fn().mockReturnValue(undefined),
+    })
+    mockDb = { prepare: mockPrepare }
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('emits story:interface-change-warning with correct NDJSON wire format', async () => {
+    mockOrchestratorRun.mockImplementation(async () => {
+      const listeners = eventBusListeners['story:interface-change-warning'] ?? []
+      for (const listener of listeners) {
+        listener({
+          storyKey: '24-3',
+          modifiedInterfaces: ['Dispatcher', 'DispatchConfig'],
+          potentiallyAffectedTests: [
+            'src/other/__tests__/other.test.ts',
+            'src/cli/__tests__/run.test.ts',
+          ],
+        })
+      }
+      return defaultStatus
+    })
+
+    await runRunAction({
+      pack: 'bmad',
+      stories: '24-3',
+      concurrency: 1,
+      outputFormat: 'human',
+      projectRoot: '/test/project',
+      events: true,
+      registry: mockRegistry,
+    })
+
+    const allOutput = stdoutChunks.join('')
+    const lines = allOutput.split('\n').filter((l) => l.trim().startsWith('{'))
+    const warningEvents = lines
+      .map((l) => JSON.parse(l) as {
+        type: string
+        ts?: string
+        storyKey?: string
+        modifiedInterfaces?: string[]
+        potentiallyAffectedTests?: string[]
+      })
+      .filter((e) => e.type === 'story:interface-change-warning')
+
+    expect(warningEvents).toHaveLength(1)
+    const evt = warningEvents[0]!
+    expect(evt.type).toBe('story:interface-change-warning')
+    expect(evt.ts).toBeDefined()
+    expect(new Date(evt.ts!).toISOString()).toBe(evt.ts) // valid ISO-8601
+    expect(evt.storyKey).toBe('24-3')
+    expect(evt.modifiedInterfaces).toEqual(['Dispatcher', 'DispatchConfig'])
+    expect(evt.potentiallyAffectedTests).toEqual([
+      'src/other/__tests__/other.test.ts',
+      'src/cli/__tests__/run.test.ts',
+    ])
+  })
+
+  it('does NOT emit story:interface-change-warning when --events flag is false', async () => {
+    mockOrchestratorRun.mockImplementation(async () => {
+      const listeners = eventBusListeners['story:interface-change-warning'] ?? []
+      for (const listener of listeners) {
+        listener({
+          storyKey: '24-3',
+          modifiedInterfaces: ['Foo'],
+          potentiallyAffectedTests: ['src/bar.test.ts'],
+        })
+      }
+      return defaultStatus
+    })
+
+    await runRunAction({
+      pack: 'bmad',
+      stories: '24-3',
+      concurrency: 1,
+      outputFormat: 'human',
+      projectRoot: '/test/project',
+      registry: mockRegistry,
+    })
+
+    const allOutput = stdoutChunks.join('')
+    const lines = allOutput.split('\n').filter((l) => l.trim().startsWith('{'))
+    const jsonEvents = lines.map((l) => {
+      try { return JSON.parse(l) as { type: string } } catch { return null }
+    }).filter(Boolean)
+
+    const warningEvents = jsonEvents.filter((e) => e!.type === 'story:interface-change-warning')
+    expect(warningEvents).toHaveLength(0)
+  })
+})

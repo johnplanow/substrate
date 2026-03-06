@@ -420,4 +420,15 @@ export interface OrchestratorEvents {
   'story:build-verification-passed': {
     storyKey: string
   }
+
+  // -------------------------------------------------------------------------
+  // Interface change detection events (Story 24-3)
+  // -------------------------------------------------------------------------
+
+  /** Non-blocking warning: modified .ts files export shared interfaces referenced by cross-module tests */
+  'story:interface-change-warning': {
+    storyKey: string
+    modifiedInterfaces: string[]
+    potentiallyAffectedTests: string[]
+  }
 }

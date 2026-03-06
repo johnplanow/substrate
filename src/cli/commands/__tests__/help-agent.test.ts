@@ -91,6 +91,8 @@ describe('PIPELINE_EVENT_METADATA', () => {
       // Story 24-2: build verification gate
       'story:build-verification-failed',
       'story:build-verification-passed',
+      // Story 24-3: interface change detection warning
+      'story:interface-change-warning',
     ]
     const actualTypes = PIPELINE_EVENT_METADATA.map((e) => e.type)
     for (const t of expectedTypes) {

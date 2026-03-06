@@ -810,6 +810,18 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           output: payload.output,
         })
       })
+
+      // Interface change detection warning (Story 24-3)
+      // Non-blocking: emitted after build verification, before code-review.
+      eventBus.on('story:interface-change-warning', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'story:interface-change-warning',
+          ts: new Date().toISOString(),
+          storyKey: payload.storyKey,
+          modifiedInterfaces: payload.modifiedInterfaces,
+          potentiallyAffectedTests: payload.potentiallyAffectedTests,
+        })
+      })
     }
 
     // Create orchestrator

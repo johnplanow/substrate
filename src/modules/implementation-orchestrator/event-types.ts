@@ -179,6 +179,30 @@ export interface StoryBuildVerificationPassedEvent {
 }
 
 // ---------------------------------------------------------------------------
+// StoryInterfaceChangeWarningEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted (non-blocking) when a dev-story modifies .ts files that export
+ * shared TypeScript interfaces or types, and those names are referenced by
+ * test files outside the same module.
+ *
+ * Signals potential stale-mock risk. The story still proceeds to code-review.
+ * (Story 24-3)
+ */
+export interface StoryInterfaceChangeWarningEvent {
+  type: 'story:interface-change-warning'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key (e.g., "24-3") */
+  storyKey: string
+  /** Exported interface/type names found in modified files */
+  modifiedInterfaces: string[]
+  /** Test file paths (relative to project root) that reference the modified interface names */
+  potentiallyAffectedTests: string[]
+}
+
+// ---------------------------------------------------------------------------
 // StoryWarnEvent
 // ---------------------------------------------------------------------------
 
@@ -508,6 +532,7 @@ export type PipelineEvent =
   | StoryZeroDiffEscalationEvent
   | StoryBuildVerificationFailedEvent
   | StoryBuildVerificationPassedEvent
+  | StoryInterfaceChangeWarningEvent
   | SupervisorPollEvent
   | SupervisorKillEvent
   | SupervisorRestartEvent
@@ -552,6 +577,8 @@ export const EVENT_TYPE_NAMES = [
   // Story 24-2: build verification gate events
   'story:build-verification-failed',
   'story:build-verification-passed',
+  // Story 24-3: interface change warning (non-blocking)
+  'story:interface-change-warning',
   'supervisor:poll',
   'supervisor:kill',
   'supervisor:restart',

@@ -63,6 +63,9 @@ vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
 }))
+vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
+  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+}))
 
 // ---------------------------------------------------------------------------
 // Import mocked modules after vi.mock() calls
@@ -75,7 +78,8 @@ import { runTestPlan } from '../../compiled-workflows/test-plan.js'
 import { updatePipelineRun } from '../../../persistence/queries/decisions.js'
 import { createLogger } from '../../../utils/logger.js'
 import { readFile } from 'node:fs/promises'
-import { runBuildVerification } from '../../agent-dispatch/dispatcher-impl.js'
+import { runBuildVerification, checkGitDiffFiles } from '../../agent-dispatch/dispatcher-impl.js'
+import { detectInterfaceChanges } from '../../agent-dispatch/interface-change-detector.js'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockRunDevStory = vi.mocked(runDevStory)
@@ -84,6 +88,8 @@ const mockRunTestPlan = vi.mocked(runTestPlan)
 const mockUpdatePipelineRun = vi.mocked(updatePipelineRun)
 const mockCreateLogger = vi.mocked(createLogger)
 const mockRunBuildVerification = vi.mocked(runBuildVerification)
+const mockCheckGitDiffFiles = vi.mocked(checkGitDiffFiles)
+const mockDetectInterfaceChanges = vi.mocked(detectInterfaceChanges)
 
 // ---------------------------------------------------------------------------
 // Mock factories
@@ -1671,6 +1677,122 @@ describe('createImplementationOrchestrator', () => {
       )
       // Should proceed to code-review normally
       expect(mockRunCodeReview).toHaveBeenCalled()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 24-3: Interface Change Detection Warning — orchestrator-level
+  // -------------------------------------------------------------------------
+
+  describe('Story 24-3: Interface change detection warning', () => {
+    it('emits story:interface-change-warning when detectInterfaceChanges returns affected tests (AC3)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      // Make detectInterfaceChanges return cross-module affected test files
+      mockDetectInterfaceChanges.mockReturnValueOnce({
+        modifiedInterfaces: ['MyInterface'],
+        potentiallyAffectedTests: ['src/other/__tests__/other.test.ts'],
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        'story:interface-change-warning',
+        expect.objectContaining({
+          storyKey: '5-1',
+          modifiedInterfaces: ['MyInterface'],
+          potentiallyAffectedTests: ['src/other/__tests__/other.test.ts'],
+        }),
+      )
+      // Warning is non-blocking — code-review must still run
+      expect(mockRunCodeReview).toHaveBeenCalled()
+    })
+
+    it('uses git diff files (ground truth) instead of agent self-reported files_modified', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      // Dev agent claims it modified src/foo.ts (from makeDevStorySuccess)
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      // Git diff reports different files than the agent claimed
+      mockCheckGitDiffFiles.mockReturnValueOnce(['src/real-change.ts', 'src/other-change.ts'])
+
+      mockDetectInterfaceChanges.mockReturnValueOnce({
+        modifiedInterfaces: [],
+        potentiallyAffectedTests: [],
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      // detectInterfaceChanges should receive git diff files, not agent's files_modified
+      expect(mockDetectInterfaceChanges).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filesModified: ['src/real-change.ts', 'src/other-change.ts'],
+        }),
+      )
+    })
+
+    it('falls back to agent files_modified when dev-story fails (no git diff run)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      // Dev agent fails but reports partial files
+      mockRunDevStory.mockResolvedValue({
+        ...makeDevStorySuccess(),
+        result: 'failed' as const,
+        files_modified: ['src/partial-work.ts'],
+      })
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      mockDetectInterfaceChanges.mockReturnValueOnce({
+        modifiedInterfaces: [],
+        potentiallyAffectedTests: [],
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      // When dev fails, zero-diff gate doesn't run, so gitDiffFiles is undefined.
+      // Falls back to agent's self-reported files_modified.
+      expect(mockDetectInterfaceChanges).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filesModified: ['src/partial-work.ts'],
+        }),
+      )
+    })
+
+    it('does not emit story:interface-change-warning when no affected tests found (AC4)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      // Default mock already returns empty results, but be explicit
+      mockDetectInterfaceChanges.mockReturnValueOnce({
+        modifiedInterfaces: [],
+        potentiallyAffectedTests: [],
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(eventBus.emit).not.toHaveBeenCalledWith(
+        'story:interface-change-warning',
+        expect.anything(),
+      )
     })
   })
 })
