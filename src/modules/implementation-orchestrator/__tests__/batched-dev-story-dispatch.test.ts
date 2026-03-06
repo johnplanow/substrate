@@ -60,6 +60,16 @@ vi.mock('node:fs/promises', () => ({
 vi.mock('../../../cli/commands/health.js', () => ({
   inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
+vi.mock('../../agent-dispatch/dispatcher-impl.js', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>
+  return {
+    ...actual,
+    runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
+  }
+})
+vi.mock('node:child_process', () => ({
+  execSync: vi.fn().mockReturnValue('src/some-modified-file.ts\n'),
+}))
 
 // ---------------------------------------------------------------------------
 // Import mocked modules after vi.mock() calls

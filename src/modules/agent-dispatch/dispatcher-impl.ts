@@ -756,6 +756,185 @@ export class DispatcherImpl implements Dispatcher {
 }
 
 // ---------------------------------------------------------------------------
+// Build Verification Gate (Story 24-2)
+// ---------------------------------------------------------------------------
+
+/** Default command for the build verification gate */
+export const DEFAULT_VERIFY_COMMAND = 'npm run build'
+
+/** Default timeout in milliseconds for the build verification gate */
+export const DEFAULT_VERIFY_TIMEOUT_MS = 60_000
+
+/** Result returned by runBuildVerification */
+export interface BuildVerificationResult {
+  /** 'passed' = exit 0; 'failed' = non-zero exit; 'timeout' = exceeded timeout; 'skipped' = gate disabled */
+  status: 'passed' | 'failed' | 'skipped' | 'timeout'
+  /** Exit code from the process. -1 for timeout, undefined for skipped. */
+  exitCode?: number
+  /** Combined stdout+stderr output. Empty/undefined for skipped or no output. */
+  output?: string
+  /** Machine-readable reason for failure/timeout escalation. */
+  reason?: 'build-verification-failed' | 'build-verification-timeout'
+}
+
+/**
+ * Run the build verification gate synchronously.
+ *
+ * Executes the configured verifyCommand (default: "npm run build") in the
+ * project root directory, capturing stdout and stderr. On success (exit 0)
+ * returns { status: 'passed' }. On failure or timeout, returns a structured
+ * result with status, exitCode, output, and reason.
+ *
+ * AC4/5: reads verifyCommand from options (or defaults to 'npm run build').
+ * AC6: if verifyCommand is empty string or false, returns { status: 'skipped' }.
+ * AC8: timeout is configurable via verifyTimeoutMs (default 60 s).
+ */
+export function runBuildVerification(options: {
+  verifyCommand?: string | false
+  verifyTimeoutMs?: number
+  projectRoot: string
+}): BuildVerificationResult {
+  const { verifyCommand, verifyTimeoutMs, projectRoot } = options
+
+  // AC6: skip if explicitly disabled (false or empty string)
+  const cmd: string | false =
+    verifyCommand === undefined ? DEFAULT_VERIFY_COMMAND : verifyCommand
+  if (!cmd) {
+    return { status: 'skipped' }
+  }
+
+  const timeoutMs = verifyTimeoutMs ?? DEFAULT_VERIFY_TIMEOUT_MS
+
+  try {
+    const stdout = execSync(cmd, {
+      cwd: projectRoot,
+      timeout: timeoutMs,
+      encoding: 'utf-8',
+    })
+
+    return {
+      status: 'passed',
+      exitCode: 0,
+      output: typeof stdout === 'string' ? stdout : '',
+    }
+  } catch (err: unknown) {
+    if (err != null && typeof err === 'object') {
+      const e = err as {
+        killed?: boolean
+        signal?: string | null
+        status?: number | null
+        stdout?: unknown
+        stderr?: unknown
+      }
+
+      const isTimeout = e.killed === true
+      const exitCode = typeof e.status === 'number' ? e.status : 1
+
+      const rawStdout = e.stdout
+      const rawStderr = e.stderr
+      const stdoutStr =
+        typeof rawStdout === 'string'
+          ? rawStdout
+          : Buffer.isBuffer(rawStdout)
+            ? rawStdout.toString('utf-8')
+            : ''
+      const stderrStr =
+        typeof rawStderr === 'string'
+          ? rawStderr
+          : Buffer.isBuffer(rawStderr)
+            ? rawStderr.toString('utf-8')
+            : ''
+      const combinedOutput = [stdoutStr, stderrStr]
+        .filter((s) => s.length > 0)
+        .join('\n')
+
+      if (isTimeout) {
+        return {
+          status: 'timeout',
+          exitCode: -1,
+          output: combinedOutput,
+          reason: 'build-verification-timeout',
+        }
+      }
+
+      return {
+        status: 'failed',
+        exitCode,
+        output: combinedOutput,
+        reason: 'build-verification-failed',
+      }
+    }
+
+    return {
+      status: 'failed',
+      exitCode: 1,
+      output: String(err),
+      reason: 'build-verification-failed',
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Zero-Diff Detection Helper (Story 24-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Check git working tree for modified files using `git diff --name-only HEAD`
+ * (unstaged + staged changes to tracked files) and `git diff --cached --name-only`
+ * (staged new files not yet in HEAD). Returns a deduplicated array of file paths.
+ *
+ * Returns an empty array when:
+ * - No files have been modified or staged
+ * - Git commands fail (e.g., not in a git repo, git not installed)
+ *
+ * Used by the zero-diff detection gate (Story 24-1) to catch phantom completions
+ * where a dev-story agent reported COMPLETE but made no actual file changes.
+ *
+ * @param workingDir - Directory to run git commands in (defaults to process.cwd())
+ * @returns Array of changed file paths; empty when nothing changed
+ */
+export function checkGitDiffFiles(workingDir: string = process.cwd()): string[] {
+  const results = new Set<string>()
+
+  try {
+    const unstaged = execSync('git diff --name-only HEAD', {
+      cwd: workingDir,
+      encoding: 'utf-8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    unstaged
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .forEach((f) => results.add(f))
+  } catch {
+    // git not available, not a repo, or diff failed — treat as no changes detected.
+    // When both git commands fail, results stays empty → changedFiles.length === 0
+    // → the orchestrator will escalate the story via the zero-diff gate (not proceed
+    // to code-review).
+  }
+
+  try {
+    const staged = execSync('git diff --cached --name-only', {
+      cwd: workingDir,
+      encoding: 'utf-8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    staged
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .forEach((f) => results.add(f))
+  } catch {
+    // staged diff failed — continue with whatever we have
+  }
+
+  return Array.from(results)
+}
+
+// ---------------------------------------------------------------------------
 // Factory function
 // ---------------------------------------------------------------------------
 

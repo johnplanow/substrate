@@ -126,6 +126,59 @@ export interface StoryEscalationEvent {
 }
 
 // ---------------------------------------------------------------------------
+// StoryZeroDiffEscalationEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when a dev-story agent reported COMPLETE but git diff shows no
+ * file changes in the working tree (phantom completion — Story 24-1).
+ */
+export interface StoryZeroDiffEscalationEvent {
+  type: 'story:zero-diff-escalation'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key (e.g., "10-1") */
+  storyKey: string
+  /** Always "zero-diff-on-complete" */
+  reason: string
+}
+
+// ---------------------------------------------------------------------------
+// StoryBuildVerificationFailedEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the build verification command exits with a non-zero code
+ * or times out, before code-review is dispatched (Story 24-2).
+ */
+export interface StoryBuildVerificationFailedEvent {
+  type: 'story:build-verification-failed'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key (e.g., "24-2") */
+  storyKey: string
+  /** Exit code from the build command (-1 for timeout) */
+  exitCode: number
+  /** Combined stdout+stderr output, truncated to 2000 chars */
+  output: string
+}
+
+// ---------------------------------------------------------------------------
+// StoryBuildVerificationPassedEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the build verification command exits with code 0 (Story 24-2).
+ */
+export interface StoryBuildVerificationPassedEvent {
+  type: 'story:build-verification-passed'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key (e.g., "24-2") */
+  storyKey: string
+}
+
+// ---------------------------------------------------------------------------
 // StoryWarnEvent
 // ---------------------------------------------------------------------------
 
@@ -452,6 +505,9 @@ export type PipelineEvent =
   | StoryLogEvent
   | PipelineHeartbeatEvent
   | StoryStallEvent
+  | StoryZeroDiffEscalationEvent
+  | StoryBuildVerificationFailedEvent
+  | StoryBuildVerificationPassedEvent
   | SupervisorPollEvent
   | SupervisorKillEvent
   | SupervisorRestartEvent
@@ -492,6 +548,10 @@ export const EVENT_TYPE_NAMES = [
   'story:log',
   'pipeline:heartbeat',
   'story:stall',
+  'story:zero-diff-escalation',
+  // Story 24-2: build verification gate events
+  'story:build-verification-failed',
+  'story:build-verification-passed',
   'supervisor:poll',
   'supervisor:kill',
   'supervisor:restart',

@@ -334,6 +334,12 @@ export interface OrchestratorEvents {
     msg: string
   }
 
+  /** Zero-diff detection gate: dev-story reported COMPLETE but git diff is empty (Story 24-1) */
+  'orchestrator:zero-diff-escalation': {
+    storyKey: string
+    reason: string
+  }
+
   /** Implementation orchestrator has finished all stories */
   'orchestrator:complete': {
     totalStories: number
@@ -396,5 +402,22 @@ export interface OrchestratorEvents {
       description: string
       affected_items: string[]
     }>
+  }
+
+  // -------------------------------------------------------------------------
+  // Build verification gate events (Story 24-2)
+  // -------------------------------------------------------------------------
+
+  /** Build verification command failed with non-zero exit or timeout */
+  'story:build-verification-failed': {
+    storyKey: string
+    exitCode: number
+    /** Build output (stdout+stderr), truncated to 2000 chars */
+    output: string
+  }
+
+  /** Build verification command exited with code 0 */
+  'story:build-verification-passed': {
+    storyKey: string
   }
 }

@@ -59,6 +59,10 @@ vi.mock('node:fs', () => ({
 vi.mock('../../../cli/commands/health.js', () => ({
   inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
+vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
+  runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
+  checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
+}))
 
 // ---------------------------------------------------------------------------
 // Import mocked modules after vi.mock() calls
@@ -71,6 +75,7 @@ import { runTestPlan } from '../../compiled-workflows/test-plan.js'
 import { updatePipelineRun } from '../../../persistence/queries/decisions.js'
 import { createLogger } from '../../../utils/logger.js'
 import { readFile } from 'node:fs/promises'
+import { runBuildVerification } from '../../agent-dispatch/dispatcher-impl.js'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockRunDevStory = vi.mocked(runDevStory)
@@ -78,6 +83,7 @@ const mockRunCodeReview = vi.mocked(runCodeReview)
 const mockRunTestPlan = vi.mocked(runTestPlan)
 const mockUpdatePipelineRun = vi.mocked(updatePipelineRun)
 const mockCreateLogger = vi.mocked(createLogger)
+const mockRunBuildVerification = vi.mocked(runBuildVerification)
 
 // ---------------------------------------------------------------------------
 // Mock factories
@@ -1484,6 +1490,187 @@ describe('createImplementationOrchestrator', () => {
       expect(fixCall).toBeDefined()
       // Minor-fixes should NOT have outputSchema
       expect((fixCall![0] as { outputSchema?: unknown }).outputSchema).toBeUndefined()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 24-2: Build Verification Gate — failure/escalation paths
+  // -------------------------------------------------------------------------
+
+  describe('Story 24-2: Build verification gate failure paths', () => {
+    it('escalates story when build verification returns failed status (AC3)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+
+      // Override the default "passed" mock to simulate build failure
+      mockRunBuildVerification.mockReturnValueOnce({
+        status: 'failed',
+        exitCode: 1,
+        reason: 'build-verification-failed',
+        output: 'error TS2305: Module has no exported member "MissingSchema"',
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      // Story should be escalated
+      expect(status.stories['5-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['5-1']?.error).toBe('build-verification-failed')
+      // Code-review should NOT have been called
+      expect(mockRunCodeReview).not.toHaveBeenCalled()
+    })
+
+    it('emits story:build-verification-failed event on build failure (AC7)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+
+      mockRunBuildVerification.mockReturnValueOnce({
+        status: 'failed',
+        exitCode: 1,
+        reason: 'build-verification-failed',
+        output: 'Cannot find module "missing-dep"',
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        'story:build-verification-failed',
+        expect.objectContaining({
+          storyKey: '5-1',
+          exitCode: 1,
+          output: expect.stringContaining('Cannot find module'),
+        }),
+      )
+    })
+
+    it('escalates story when build verification returns timeout status (AC8)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+
+      mockRunBuildVerification.mockReturnValueOnce({
+        status: 'timeout',
+        exitCode: -1,
+        reason: 'build-verification-timeout',
+        output: '',
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['5-1']?.error).toBe('build-verification-timeout')
+      expect(mockRunCodeReview).not.toHaveBeenCalled()
+    })
+
+    it('emits story:build-verification-failed event on build timeout (AC7+AC8)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+
+      mockRunBuildVerification.mockReturnValueOnce({
+        status: 'timeout',
+        exitCode: -1,
+        reason: 'build-verification-timeout',
+        output: 'Process timed out',
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        'story:build-verification-failed',
+        expect.objectContaining({
+          storyKey: '5-1',
+          exitCode: -1,
+          output: 'Process timed out',
+        }),
+      )
+    })
+
+    it('truncates build output to 2000 chars in failure event (AC7)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+
+      const longOutput = 'x'.repeat(3000)
+      mockRunBuildVerification.mockReturnValueOnce({
+        status: 'failed',
+        exitCode: 1,
+        reason: 'build-verification-failed',
+        output: longOutput,
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      const failedCall = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call: unknown[]) => call[0] === 'story:build-verification-failed',
+      )
+      expect(failedCall).toBeDefined()
+      const eventPayload = failedCall![1] as { output: string }
+      expect(eventPayload.output.length).toBeLessThanOrEqual(2000)
+    })
+
+    it('emits story:build-verification-passed on successful build (AC2)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      // Default mock already returns { status: 'passed' }, but be explicit
+      mockRunBuildVerification.mockReturnValueOnce({
+        status: 'passed',
+        exitCode: 0,
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        'story:build-verification-passed',
+        expect.objectContaining({ storyKey: '5-1' }),
+      )
+      // Code review should proceed
+      expect(mockRunCodeReview).toHaveBeenCalled()
+    })
+
+    it('does not emit escalation event when build is skipped (AC6)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      mockRunBuildVerification.mockReturnValueOnce({
+        status: 'skipped',
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(eventBus.emit).not.toHaveBeenCalledWith(
+        'story:build-verification-failed',
+        expect.anything(),
+      )
+      // Should proceed to code-review normally
+      expect(mockRunCodeReview).toHaveBeenCalled()
     })
   })
 })

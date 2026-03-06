@@ -114,6 +114,19 @@ export interface PackManifest {
    * (or another project with known file-conflict relationships).
    */
   conflictGroups?: Record<string, string>
+  /**
+   * Build verification command to run after dev-story and before code-review.
+   * Set to empty string or false to skip the build gate.
+   * Defaults to "npm run build" when absent.
+   * (Story 24-2)
+   */
+  verifyCommand?: string | false
+  /**
+   * Timeout in milliseconds for the build verification command.
+   * Defaults to 60000 (60 seconds) when absent.
+   * (Story 24-2)
+   */
+  verifyTimeoutMs?: number
 }
 
 // ---------------------------------------------------------------------------

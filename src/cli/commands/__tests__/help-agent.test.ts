@@ -86,6 +86,11 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'supervisor:experiment:recommendations',
       'supervisor:experiment:complete',
       'supervisor:experiment:error',
+      // Story 24-1: zero-diff detection gate
+      'story:zero-diff-escalation',
+      // Story 24-2: build verification gate
+      'story:build-verification-failed',
+      'story:build-verification-passed',
     ]
     const actualTypes = PIPELINE_EVENT_METADATA.map((e) => e.type)
     for (const t of expectedTypes) {

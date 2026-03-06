@@ -59,6 +59,17 @@ vi.mock('../../modules/compiled-workflows/code-review.js', () => ({
 vi.mock('../../cli/commands/health.js', () => ({
   inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
+vi.mock('../../modules/agent-dispatch/dispatcher-impl.js', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>
+  return {
+    ...actual,
+    runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
+  }
+})
+// Mock execSync so the zero-diff gate (Story 24-1) always sees non-empty diff.
+vi.mock('node:child_process', () => ({
+  execSync: vi.fn().mockReturnValue('src/some-modified-file.ts\n'),
+}))
 
 // ---------------------------------------------------------------------------
 // Imports after mocks

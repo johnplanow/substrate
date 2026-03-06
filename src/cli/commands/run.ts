@@ -778,6 +778,38 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           child_active: payload.childActive,
         })
       })
+
+      // Zero-diff detection gate (Story 24-1)
+      eventBus.on('orchestrator:zero-diff-escalation', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'story:zero-diff-escalation',
+          ts: new Date().toISOString(),
+          storyKey: payload.storyKey,
+          reason: payload.reason,
+        })
+      })
+
+      // Build verification gate (Story 24-2)
+      // These events are emitted as 'story:*' directly by the orchestrator (no
+      // 'orchestrator:' prefix), so they need explicit handlers here — there is
+      // no catch-all routing.
+      eventBus.on('story:build-verification-passed', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'story:build-verification-passed',
+          ts: new Date().toISOString(),
+          storyKey: payload.storyKey,
+        })
+      })
+
+      eventBus.on('story:build-verification-failed', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'story:build-verification-failed',
+          ts: new Date().toISOString(),
+          storyKey: payload.storyKey,
+          exitCode: payload.exitCode,
+          output: payload.output,
+        })
+      })
     }
 
     // Create orchestrator

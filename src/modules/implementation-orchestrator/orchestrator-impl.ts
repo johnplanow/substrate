@@ -43,6 +43,7 @@ import { addTokenUsage } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 import { seedMethodologyContext } from './seed-methodology-context.js'
 import { sleep } from '../../utils/helpers.js'
+import { runBuildVerification, checkGitDiffFiles } from '../agent-dispatch/dispatcher-impl.js'
 
 // ---------------------------------------------------------------------------
 // OrchestratorDeps
@@ -717,6 +718,9 @@ export function createImplementationOrchestrator(
     let devFilesModified: string[] = []
     // Per-batch file tracking for batched review (empty when single dispatch)
     const batchFileGroups: Array<{ batchIndex: number; files: string[] }> = []
+    // Track whether dev-story reported a COMPLETE (success) result — used by
+    // the zero-diff detection gate (Story 24-1) below.
+    let devStoryWasSuccess = false
 
     try {
       // Analyze story complexity to determine whether batching is needed (AC1, AC7)
@@ -846,6 +850,9 @@ export function createImplementationOrchestrator(
               { storyKey, batchIndex: batch.batchIndex, error: batchResult.error },
               'Batch dev-story reported failure — continuing with partial files',
             )
+          } else {
+            // At least one batch reported success — track for zero-diff gate (Story 24-1)
+            devStoryWasSuccess = true
           }
 
           eventBus.emit('orchestrator:story-phase-complete', {
@@ -878,7 +885,9 @@ export function createImplementationOrchestrator(
         })
         persistState()
 
-        if (devResult.result === 'failed') {
+        if (devResult.result === 'success') {
+          devStoryWasSuccess = true
+        } else {
           // Dev agent failed but may have produced code (common when agent
           // exhausts turns or exits non-zero after partial work). Proceed to
           // code review — the reviewer will assess actual code state.
@@ -908,8 +917,88 @@ export function createImplementationOrchestrator(
       return
     }
 
+    // -- zero-diff detection gate (Story 24-1) --
+    // Only applies when dev-story reported COMPLETE (result === 'success').
+    // Non-success results proceed to code-review as before so the reviewer
+    // can assess partial work (AC5).
+    if (devStoryWasSuccess) {
+      const changedFiles = checkGitDiffFiles(projectRoot ?? process.cwd())
+      if (changedFiles.length === 0) {
+        logger.warn(
+          { storyKey },
+          'Zero-diff detected after COMPLETE dev-story — no file changes in git working tree',
+        )
+        eventBus.emit('orchestrator:zero-diff-escalation', {
+          storyKey,
+          reason: 'zero-diff-on-complete',
+        })
+        endPhase(storyKey, 'dev-story')
+        updateStory(storyKey, {
+          phase: 'ESCALATED' as StoryPhase,
+          error: 'zero-diff-on-complete',
+          completedAt: new Date().toISOString(),
+        })
+        writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+        emitEscalation({
+          storyKey,
+          lastVerdict: 'zero-diff-on-complete',
+          reviewCycles: 0,
+          issues: ['dev-story completed with COMPLETE verdict but no file changes detected in git diff'],
+        })
+        persistState()
+        return
+      }
+    }
+
     // -- code-review phase (with retry/rework) --
     endPhase(storyKey, 'dev-story')
+
+    // -- build verification gate (Story 24-2) --
+    // Runs synchronously after dev-story, before dispatching code-review.
+    // Catches compile-time errors (missing exports, type mismatches) before
+    // wasting a review cycle.
+    {
+      const buildVerifyResult = runBuildVerification({
+        verifyCommand: pack.manifest.verifyCommand,
+        verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
+        projectRoot: projectRoot ?? process.cwd(),
+      })
+
+      if (buildVerifyResult.status === 'passed') {
+        eventBus.emit('story:build-verification-passed', { storyKey })
+        logger.info({ storyKey }, 'Build verification passed')
+      } else if (buildVerifyResult.status === 'failed' || buildVerifyResult.status === 'timeout') {
+        const truncatedOutput = (buildVerifyResult.output ?? '').slice(0, 2000)
+        const reason = buildVerifyResult.reason ?? 'build-verification-failed'
+
+        eventBus.emit('story:build-verification-failed', {
+          storyKey,
+          exitCode: buildVerifyResult.exitCode ?? 1,
+          output: truncatedOutput,
+        })
+
+        logger.warn(
+          { storyKey, reason, exitCode: buildVerifyResult.exitCode },
+          'Build verification failed — escalating story',
+        )
+
+        updateStory(storyKey, {
+          phase: 'ESCALATED' as StoryPhase,
+          error: reason,
+          completedAt: new Date().toISOString(),
+        })
+        writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+        emitEscalation({
+          storyKey,
+          lastVerdict: reason,
+          reviewCycles: 0,
+          issues: [truncatedOutput],
+        })
+        persistState()
+        return
+      }
+      // status === 'skipped': gate disabled — proceed directly to code-review
+    }
 
     let reviewCycles = 0
     let keepReviewing = true

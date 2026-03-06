@@ -305,6 +305,36 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'error', type: 'string', description: 'Error message.' },
     ],
   },
+  {
+    type: 'story:zero-diff-escalation',
+    description: 'Dev-story reported COMPLETE but git diff shows no file changes (phantom completion).',
+    when: 'After dev-story succeeds with zero file changes in working tree.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'storyKey', type: 'string', description: 'Story key.' },
+      { name: 'reason', type: 'string', description: 'Always "zero-diff-on-complete".' },
+    ],
+  },
+  {
+    type: 'story:build-verification-failed',
+    description: 'Build verification command (default: npm run build) exited with non-zero code or timed out.',
+    when: 'After dev-story and zero-diff check pass, but before code-review is dispatched.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'storyKey', type: 'string', description: 'Story key.' },
+      { name: 'exitCode', type: 'number', description: 'Exit code from the build command (-1 for timeout).' },
+      { name: 'output', type: 'string', description: 'Combined stdout+stderr from the build command (truncated to 2000 chars).' },
+    ],
+  },
+  {
+    type: 'story:build-verification-passed',
+    description: 'Build verification command exited with code 0 — compilation clean.',
+    when: 'After dev-story completes and build verification command succeeds.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'storyKey', type: 'string', description: 'Story key.' },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

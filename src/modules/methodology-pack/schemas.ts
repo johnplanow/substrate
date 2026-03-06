@@ -66,6 +66,17 @@ export const PackManifestSchema = z.object({
    * Maps story key prefixes to module names for serialization control.
    */
   conflictGroups: z.record(z.string(), z.string()).optional(),
+  /**
+   * Build verification command to run after dev-story and before code-review.
+   * Set to empty string or false to skip the build gate.
+   * Defaults to "npm run build" when absent. (Story 24-2)
+   */
+  verifyCommand: z.union([z.string(), z.literal(false)]).optional(),
+  /**
+   * Timeout in milliseconds for the build verification command.
+   * Defaults to 60000 when absent. (Story 24-2)
+   */
+  verifyTimeoutMs: z.number().optional(),
 })
 
 // ---------------------------------------------------------------------------
