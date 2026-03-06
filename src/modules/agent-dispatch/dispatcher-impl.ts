@@ -67,7 +67,12 @@ const MEMORY_PRESSURE_POLL_MS = 10_000
  *
  * New approach:
  * 1. Check kern.memorystatus_vm_pressure_level — the kernel's own assessment.
- *    Level >= 2 (warn/critical) means the system is already pressured.
+ *    Level 4 (critical) = hard gate, return 0.
+ *    Level 2 (warn) = halve the vm_stat estimate as a conservative signal.
+ *    Level 1 (normal) = trust vm_stat as-is.
+ *    Note: level 2 fires frequently on macOS when the compressor is active,
+ *    even with gigabytes of reclaimable memory. Hard-gating at 2 caused
+ *    false stalls on 24GB+ machines with >50% free RAM.
  * 2. Use a conservative page calculation: free + purgeable + speculative.
  *    These categories are truly reclaimable without I/O or decompression.
  *    Inactive pages are excluded because they may require disk I/O,
@@ -75,17 +80,18 @@ const MEMORY_PRESSURE_POLL_MS = 10_000
  */
 function getAvailableMemory(): number {
   if (platform() === 'darwin') {
+    let pressureLevel = 0
     try {
-      // Primary signal: kernel memory pressure level (1=normal, 2=warn, 4=critical)
-      const pressureLevel = parseInt(
+      // Kernel memory pressure level (1=normal, 2=warn, 4=critical)
+      pressureLevel = parseInt(
         execSync('sysctl -n kern.memorystatus_vm_pressure_level', {
           timeout: 1000,
           encoding: 'utf-8',
         }).trim(),
         10,
       )
-      if (pressureLevel >= 2) {
-        logger.warn({ pressureLevel }, 'macOS kernel reports memory pressure')
+      if (pressureLevel >= 4) {
+        logger.warn({ pressureLevel }, 'macOS kernel reports critical memory pressure')
         return 0
       }
     } catch {
@@ -98,7 +104,13 @@ function getAvailableMemory(): number {
       const free = parseInt(vmstat.match(/Pages free:\s+(\d+)/)?.[1] ?? '0', 10)
       const purgeable = parseInt(vmstat.match(/Pages purgeable:\s+(\d+)/)?.[1] ?? '0', 10)
       const speculative = parseInt(vmstat.match(/Pages speculative:\s+(\d+)/)?.[1] ?? '0', 10)
-      return (free + purgeable + speculative) * pageSize
+      const available = (free + purgeable + speculative) * pageSize
+      // At warn level, halve the estimate to be conservative without hard-blocking
+      if (pressureLevel >= 2) {
+        logger.warn({ pressureLevel, availableBeforeDiscount: available }, 'macOS kernel reports memory pressure — discounting estimate')
+        return Math.floor(available / 2)
+      }
+      return available
     } catch {
       return freemem()
     }
