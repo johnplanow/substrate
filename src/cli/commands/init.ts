@@ -25,7 +25,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync, cpSync, chmodSync, 
 import { join, resolve, dirname } from 'path'
 import yaml from 'js-yaml'
 import { createRequire } from 'node:module'
-import { AdapterRegistry } from '../../adapters/adapter-registry.js'
+import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { buildAdapterHealthRows, formatAdapterHealthTable } from '../utils/formatting.js'
 import { DEFAULT_CONFIG, DEFAULT_ROUTING_POLICY } from '../../modules/config/defaults.js'
 import type {
@@ -602,7 +602,10 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     if (outputFormat !== 'json') {
       process.stdout.write('\n  Discovering installed AI agents...\n')
     }
-    const registry = options.registry ?? new AdapterRegistry()
+    const registry = options.registry
+    if (!registry) {
+      throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
+    }
 
     let discoveryReport
     try {

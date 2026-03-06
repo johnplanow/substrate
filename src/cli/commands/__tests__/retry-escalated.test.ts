@@ -126,6 +126,12 @@ vi.mock('../../../core/event-bus.js', () => ({
 }))
 
 // ---------------------------------------------------------------------------
+// Registry mock instance — required by runRetryEscalatedAction
+// ---------------------------------------------------------------------------
+
+const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+
+// ---------------------------------------------------------------------------
 // Import module under test AFTER mocks
 // ---------------------------------------------------------------------------
 
@@ -186,6 +192,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -207,6 +214,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -237,6 +245,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -261,6 +270,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -295,6 +305,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -318,6 +329,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -342,6 +354,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(mockGetRetryableEscalations).toHaveBeenCalledWith(mockDb, 'my-run-123')
@@ -358,6 +371,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(mockGetRetryableEscalations).toHaveBeenCalledWith(mockDb, undefined)
@@ -381,6 +395,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -409,6 +424,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -439,6 +455,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(1)
@@ -456,6 +473,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(1)
@@ -479,6 +497,7 @@ describe('runRetryEscalatedAction', () => {
       projectRoot: '/test',
       concurrency: 3,
       pack: 'bmad',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(1)

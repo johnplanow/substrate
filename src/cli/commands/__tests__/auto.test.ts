@@ -193,6 +193,12 @@ import { runStatusAction, registerStatusCommand } from '../status.js'
 import { createStubRegistry } from './registry-test-helpers.js'
 
 // ---------------------------------------------------------------------------
+// Shared mock registry — required by action functions that throw if missing
+// ---------------------------------------------------------------------------
+
+const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -317,6 +323,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -343,6 +350,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -359,6 +367,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'json',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -380,6 +389,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(1)
@@ -398,6 +408,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'json',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(1)
@@ -429,6 +440,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -456,6 +468,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -476,6 +489,7 @@ describe('runInitAction', () => {
       outputFormat: 'human',
       force: true,
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -500,6 +514,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(1)
@@ -523,6 +538,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'json',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(1)
@@ -545,6 +561,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stderrWrite.mock.calls.map((c) => String(c[0])).join('')
@@ -566,6 +583,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'json',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -588,6 +606,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'json',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -613,6 +632,7 @@ describe('runInitAction', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
@@ -668,6 +688,7 @@ describe('runRunAction', () => {
       concurrency: 2,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -696,6 +717,7 @@ describe('runRunAction', () => {
       concurrency: 2,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -712,6 +734,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'json',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -734,6 +757,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(1)
@@ -752,6 +776,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'json',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(1)
@@ -774,6 +799,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(1)
@@ -800,6 +826,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -821,6 +848,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -847,6 +875,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -872,6 +901,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -900,6 +930,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -950,6 +981,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)

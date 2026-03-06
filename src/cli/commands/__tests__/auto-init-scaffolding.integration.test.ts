@@ -63,6 +63,12 @@ import { runInitAction } from '../init.js'
 import { PACKAGE_ROOT } from '../pipeline-shared.js'
 
 // ---------------------------------------------------------------------------
+// Mock AdapterRegistry
+// ---------------------------------------------------------------------------
+
+const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -119,6 +125,7 @@ describe('auto init pack scaffolding integration', () => {
       projectRoot: tmpDir,
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -143,6 +150,7 @@ describe('auto init pack scaffolding integration', () => {
       projectRoot: tmpDir,
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -163,6 +171,7 @@ describe('auto init pack scaffolding integration', () => {
       projectRoot: tmpDir,
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -194,6 +203,7 @@ describe('auto init pack scaffolding integration', () => {
       outputFormat: 'human',
       force: true,
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -219,6 +229,7 @@ describe('auto init pack scaffolding integration', () => {
       projectRoot: tmpDir,
       outputFormat: 'json',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -245,6 +256,7 @@ describe('auto init pack scaffolding integration', () => {
       projectRoot: tmpDir,
       outputFormat: 'json',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)

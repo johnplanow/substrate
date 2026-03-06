@@ -89,11 +89,7 @@ BMB module workflows (agent/workflow/module CRUD) and editorial workflows (prose
 
 ## Source Code TODOs
 
-Small-scope items tracked in source rather than as stories:
-
-| Location | Item |
-|---|---|
-| `src/cli/commands/adapters.ts:80,152` | AdapterRegistry should be initialized at CLI startup and injected, not constructed per-call |
+No outstanding items.
 
 ## Shipped (historical)
 

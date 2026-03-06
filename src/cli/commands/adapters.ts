@@ -7,7 +7,7 @@
  */
 
 import type { Command } from 'commander'
-import { AdapterRegistry } from '../../adapters/adapter-registry.js'
+import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import {
   buildAdapterListRows,
   buildAdapterHealthRows,
@@ -57,7 +57,7 @@ function isNotInstalled(healthResult: {
 export function registerAdaptersCommand(
   program: Command,
   version: string,
-  registry?: AdapterRegistry
+  registry: AdapterRegistry
 ): void {
   const adaptersCmd = program
     .command('adapters')
@@ -77,10 +77,8 @@ export function registerAdaptersCommand(
     .option('--verbose', 'Show additional detail in output', false)
     .action(async (opts: { outputFormat: string; verbose: boolean }) => {
       const outputFormat = opts.outputFormat as OutputFormat
-      const reg = registry ?? new AdapterRegistry()
-
-      // Run discovery to get health results for all adapters
-      const report = await reg.discoverAndRegister()
+      // Use the pre-initialized registry passed from CLI startup
+      const report = await registry.discoverAndRegister()
 
       if (outputFormat === 'json') {
         const jsonData = report.results.map((r) =>
@@ -147,10 +145,8 @@ export function registerAdaptersCommand(
     .option('--verbose', 'Show additional detail including error messages', false)
     .action(async (opts: { outputFormat: string; verbose: boolean }) => {
       const outputFormat = opts.outputFormat as OutputFormat
-      const reg = registry ?? new AdapterRegistry()
-
       // Run discovery (performs health checks on all built-in adapters)
-      const report = await reg.discoverAndRegister()
+      const report = await registry.discoverAndRegister()
 
       // Use the single unified isNotInstalled() check so that both subcommands
       // always agree on whether an adapter is considered absent from the system.

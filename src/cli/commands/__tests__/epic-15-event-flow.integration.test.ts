@@ -177,6 +177,12 @@ vi.mock('../../../modules/stop-after/index.js', () => ({
 import { runRunAction, registerRunCommand } from '../run.js'
 
 // ---------------------------------------------------------------------------
+// Shared mock registry instance — required by runRunAction (throws if missing)
+// ---------------------------------------------------------------------------
+
+const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -279,6 +285,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -298,6 +305,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -323,6 +331,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -356,6 +365,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -385,6 +395,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -423,6 +434,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -445,6 +457,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -500,6 +513,7 @@ describe('GAP-2: Flag mutual exclusion — --events blocks progressRenderer', ()
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -516,6 +530,7 @@ describe('GAP-2: Flag mutual exclusion — --events blocks progressRenderer', ()
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -536,6 +551,7 @@ describe('GAP-2: Flag mutual exclusion — --events blocks progressRenderer', ()
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: false,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -552,6 +568,7 @@ describe('GAP-2: Flag mutual exclusion — --events blocks progressRenderer', ()
       concurrency: 1,
       outputFormat: 'json',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutSpy.mock.calls.map((c) => String(c[0])).join('')
@@ -568,6 +585,7 @@ describe('GAP-2: Flag mutual exclusion — --events blocks progressRenderer', ()
       concurrency: 1,
       outputFormat: 'json',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutSpy.mock.calls.map((c) => String(c[0])).join('')
@@ -692,6 +710,7 @@ describe('GAP-4: Internal phase name -> event protocol phase mapping', () => {
         outputFormat: 'human',
         projectRoot: '/test/project',
         events: true,
+        registry: mockRegistry,
       })
 
       const allOutput = stdoutChunks.join('')
@@ -726,6 +745,7 @@ describe('GAP-4: Internal phase name -> event protocol phase mapping', () => {
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -792,6 +812,7 @@ describe('GAP-5: --verbose flag sets LOG_LEVEL', () => {
       projectRoot: '/test/project',
       verbose: false,
       events: false,
+      registry: mockRegistry,
     })
 
     expect(process.env.LOG_LEVEL).toBe('silent')
@@ -806,6 +827,7 @@ describe('GAP-5: --verbose flag sets LOG_LEVEL', () => {
       projectRoot: '/test/project',
       verbose: true,
       events: false,
+      registry: mockRegistry,
     })
 
     // LOG_LEVEL should not be overwritten to 'silent' when --verbose is active
@@ -821,6 +843,7 @@ describe('GAP-5: --verbose flag sets LOG_LEVEL', () => {
       projectRoot: '/test/project',
       events: true,
       verbose: false,
+      registry: mockRegistry,
     })
 
     // LOG_LEVEL should not be overwritten when --events is active
@@ -879,6 +902,7 @@ describe('GAP-6: pipeline:complete NDJSON carries correct story outcome arrays',
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const lines = stdoutChunks.join('').split('\n').filter((l) => l.trim().startsWith('{'))
@@ -909,6 +933,7 @@ describe('GAP-6: pipeline:complete NDJSON carries correct story outcome arrays',
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const lines = stdoutChunks.join('').split('\n').filter((l) => l.trim().startsWith('{'))
@@ -937,6 +962,7 @@ describe('GAP-6: pipeline:complete NDJSON carries correct story outcome arrays',
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const lines = stdoutChunks.join('').split('\n').filter((l) => l.trim().startsWith('{'))
@@ -995,6 +1021,7 @@ describe('GAP-7: progressRenderer only active in default human mode', () => {
       concurrency: 2,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -1011,6 +1038,7 @@ describe('GAP-7: progressRenderer only active in default human mode', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -1024,6 +1052,7 @@ describe('GAP-7: progressRenderer only active in default human mode', () => {
       concurrency: 1,
       outputFormat: 'json',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -1076,6 +1105,7 @@ describe('GAP-8: TUI not started when --events is active', () => {
       projectRoot: '/test/project',
       events: true,
       tui: true, // Even if --tui is set, --events takes priority
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -1091,6 +1121,7 @@ describe('GAP-8: TUI not started when --events is active', () => {
       outputFormat: 'json',
       projectRoot: '/test/project',
       tui: true, // Even if --tui is set, json format takes priority
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -1148,6 +1179,7 @@ describe('CLAUDE.md scaffold is called from runAutoInit (not runRunAction)', () 
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     // writeFile should NOT be called for CLAUDE.md in a run scenario
@@ -1215,6 +1247,7 @@ describe('Story 16-7: Heartbeat and stall NDJSON event wiring (--events mode)', 
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -1258,6 +1291,7 @@ describe('Story 16-7: Heartbeat and stall NDJSON event wiring (--events mode)', 
       outputFormat: 'human',
       projectRoot: '/test/project',
       events: true,
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')
@@ -1301,6 +1335,7 @@ describe('Story 16-7: Heartbeat and stall NDJSON event wiring (--events mode)', 
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      registry: mockRegistry,
     })
 
     const allOutput = stdoutChunks.join('')

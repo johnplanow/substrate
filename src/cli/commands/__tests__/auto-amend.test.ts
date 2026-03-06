@@ -202,10 +202,13 @@ function makeHandler() {
   }
 }
 
+const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+
 const baseOptions = {
   concept: 'Add dark mode support',
   projectRoot: '/test/project',
   pack: 'bmad',
+  registry: mockRegistry,
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +334,7 @@ describe('AC2: flag validation — --concept or --concept-file required', () => 
       conceptFile: '/path/to/concept.txt',
       projectRoot: '/test/project',
       pack: 'bmad',
+      registry: mockRegistry,
     })
     expect(result).toBe(0)
   })
@@ -341,6 +345,7 @@ describe('AC2: flag validation — --concept or --concept-file required', () => 
       conceptFile: '/path/to/concept.txt',
       projectRoot: '/test/project',
       pack: 'bmad',
+      registry: mockRegistry,
     })
     // concept-file is loaded via readFile
     const { readFile: mockReadFile } = await import('fs/promises')

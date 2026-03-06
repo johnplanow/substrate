@@ -140,6 +140,8 @@ import {
 } from '../init.js'
 import { PACKAGE_ROOT } from '../pipeline-shared.js'
 
+const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -376,6 +378,7 @@ describe('runInitAction CLAUDE.md scaffold integration', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)

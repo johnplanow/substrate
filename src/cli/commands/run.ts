@@ -31,7 +31,7 @@ import { runMigrations } from '../../persistence/migrations/index.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
-import { AdapterRegistry } from '../../adapters/adapter-registry.js'
+import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { createImplementationOrchestrator, discoverPendingStoryKeys } from '../../modules/implementation-orchestrator/index.js'
 import { createPhaseOrchestrator } from '../../modules/phase-orchestrator/index.js'
 import { runAnalysisPhase } from '../../modules/phase-orchestrator/phases/analysis.js'
@@ -406,14 +406,13 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // Create dependencies
     const eventBus = createEventBus()
     const contextCompiler = createContextCompiler({ db })
-    const adapterRegistry = injectedRegistry ?? new AdapterRegistry()
-    if (injectedRegistry === undefined) {
-      await adapterRegistry.discoverAndRegister()
+    if (!injectedRegistry) {
+      throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
 
     const dispatcher = createDispatcher({
       eventBus,
-      adapterRegistry,
+      adapterRegistry: injectedRegistry,
     })
 
     // AC5: Subscribe to phase-complete events to record token usage
@@ -1002,12 +1001,11 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     // Create shared dependencies
     const eventBus = createEventBus()
     const contextCompiler = createContextCompiler({ db })
-    const adapterRegistry = injectedRegistry ?? new AdapterRegistry()
-    if (injectedRegistry === undefined) {
-      await adapterRegistry.discoverAndRegister()
+    if (!injectedRegistry) {
+      throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
 
-    const dispatcher = createDispatcher({ eventBus, adapterRegistry })
+    const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
 
     const phaseDeps = { db, pack, contextCompiler, dispatcher }
 

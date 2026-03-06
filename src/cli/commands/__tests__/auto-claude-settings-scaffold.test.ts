@@ -136,6 +136,8 @@ import {
 } from '../init.js'
 import { SUBSTRATE_OWNED_SETTINGS_KEYS } from '../pipeline-shared.js'
 
+const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -448,6 +450,7 @@ describe('runInitAction settings scaffold integration', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -469,6 +472,7 @@ describe('runInitAction settings scaffold integration', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -511,6 +515,7 @@ describe('runInitAction settings scaffold integration', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)

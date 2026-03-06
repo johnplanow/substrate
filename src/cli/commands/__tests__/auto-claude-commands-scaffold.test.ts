@@ -173,6 +173,12 @@ vi.mock('../../../core/event-bus.js', () => ({
 }))
 
 // ---------------------------------------------------------------------------
+// Shared mock registry instance (runInitAction requires registry in options)
+// ---------------------------------------------------------------------------
+
+const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+
+// ---------------------------------------------------------------------------
 // Import module under test AFTER mocks
 // ---------------------------------------------------------------------------
 
@@ -567,6 +573,7 @@ describe('runInitAction commands scaffold integration', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     expect(exitCode).toBe(0)
@@ -589,6 +596,7 @@ describe('runInitAction commands scaffold integration', () => {
       projectRoot: '/test/project',
       outputFormat: 'human',
       yes: true,
+      registry: mockRegistry,
     })
 
     // Init should still succeed — commands failure is non-fatal

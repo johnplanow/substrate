@@ -93,7 +93,7 @@ export async function createProgram(): Promise<Command> {
 
   // Project setup
   registerAdaptersCommand(program, version, registry)
-  registerInitCommand(program, version)
+  registerInitCommand(program, version, registry)
   registerConfigCommand(program, version)
 
   // Pipeline commands (formerly under `substrate auto`, now top-level)

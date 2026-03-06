@@ -24,7 +24,7 @@ import { runMigrations } from '../../persistence/migrations/index.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
-import { AdapterRegistry } from '../../adapters/adapter-registry.js'
+import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { createImplementationOrchestrator } from '../../modules/implementation-orchestrator/index.js'
 import { createPipelineRun, addTokenUsage } from '../../persistence/queries/decisions.js'
 import { getRetryableEscalations } from '../../persistence/queries/retry-escalated.js'
@@ -144,11 +144,10 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
 
     const eventBus = createEventBus()
     const contextCompiler = createContextCompiler({ db })
-    const adapterRegistry = injectedRegistry ?? new AdapterRegistry()
-    if (injectedRegistry === undefined) {
-      await adapterRegistry.discoverAndRegister()
+    if (!injectedRegistry) {
+      throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
-    const dispatcher = createDispatcher({ eventBus, adapterRegistry })
+    const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
 
     const orchestrator = createImplementationOrchestrator({
       db,
