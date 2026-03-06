@@ -1,6 +1,6 @@
 # Story 22-2: AC-to-Test Traceability via Code-Review Enhancement
 
-Status: ready
+Status: done
 
 ## User Story
 

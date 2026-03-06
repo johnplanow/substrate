@@ -1,6 +1,6 @@
 # Story 22-3: Structured Escalation Diagnosis
 
-Status: ready
+Status: done
 
 ## User Story
 

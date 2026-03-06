@@ -14,6 +14,9 @@
 ### Architecture Constraints
 {{arch_constraints}}
 
+### Prior Run Findings
+{{prior_findings}}
+
 ---
 
 ## Mission
@@ -32,8 +35,9 @@ Adversarial code review. Find what's wrong. Validate story claims against actual
    - Whether each AC is actually implemented
    - Whether each `[x]` task is actually done
 
-3. **Execute adversarial review** across 4 dimensions:
+3. **Execute adversarial review** across 5 dimensions:
    - **AC Validation** — Is each acceptance criterion implemented?
+   - **AC-to-Test Traceability** — For each AC, identify the specific test file and test function that validates it. If an AC has no corresponding test evidence, flag it as a major issue: "AC{N} has no test evidence". A test "covers" an AC if it directly exercises the behavior described in the criterion — tangential tests do not count.
    - **Task Audit** — Tasks marked `[x]` that aren't done are BLOCKER issues
    - **Code Quality** — Security, error handling, edge cases, maintainability
    - **Test Quality** — Real assertions, not placeholders or skipped tests

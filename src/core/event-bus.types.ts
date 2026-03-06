@@ -313,6 +313,19 @@ export interface OrchestratorEvents {
     lastVerdict: string
     reviewCycles: number
     issues: unknown[]
+    /** Structured diagnosis with classification and recommended action (Story 22-3) */
+    diagnosis?: {
+      issueDistribution: 'concentrated' | 'widespread'
+      severityProfile: 'blocker-present' | 'major-only' | 'minor-only' | 'no-structured-issues'
+      totalIssues: number
+      blockerCount: number
+      majorCount: number
+      minorCount: number
+      affectedFiles: string[]
+      reviewCycles: number
+      recommendedAction: 'retry-targeted' | 'split-story' | 'human-intervention'
+      rationale: string
+    }
   }
 
   /** A non-fatal warning occurred during story processing */

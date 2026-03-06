@@ -17,7 +17,8 @@ import { join, basename } from 'node:path'
 import { updatePipelineRun, getDecisionsByPhase, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
 import { writeStoryMetrics, aggregateTokenUsageForStory } from '../../persistence/queries/metrics.js'
-import { STORY_METRICS } from '../../persistence/schemas/operational.js'
+import { STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME } from '../../persistence/schemas/operational.js'
+import { generateEscalationDiagnosis } from './escalation-diagnosis.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { runCreateStory } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
@@ -211,6 +212,98 @@ export function createImplementationOrchestrator(
     } catch (err) {
       logger.warn({ err, storyKey }, 'Failed to write story metrics (best-effort)')
     }
+  }
+
+  /**
+   * Persist a story outcome finding to the decision store (Story 22-1, AC4).
+   *
+   * Records outcome, review cycles, and any recurring issue patterns for
+   * future prompt injection via the learning loop.
+   */
+  function writeStoryOutcomeBestEffort(
+    storyKey: string,
+    outcome: 'complete' | 'escalated',
+    reviewCycles: number,
+    issuePatterns?: string[],
+  ): void {
+    if (config.pipelineRunId === undefined) return
+    try {
+      createDecision(db, {
+        pipeline_run_id: config.pipelineRunId,
+        phase: 'implementation',
+        category: STORY_OUTCOME,
+        key: `${storyKey}:${config.pipelineRunId}`,
+        value: JSON.stringify({
+          storyKey,
+          outcome,
+          reviewCycles,
+          recurringPatterns: issuePatterns ?? [],
+        }),
+        rationale: `Story ${storyKey} ${outcome} after ${reviewCycles} review cycle(s).`,
+      })
+    } catch (err) {
+      logger.warn({ err, storyKey }, 'Failed to write story-outcome decision (best-effort)')
+    }
+  }
+
+  /**
+   * Emit an escalation event with structured diagnosis and persist the
+   * diagnosis to the decision store (Story 22-3).
+   */
+  function emitEscalation(payload: {
+    storyKey: string
+    lastVerdict: string
+    reviewCycles: number
+    issues: unknown[]
+  }): void {
+    const diagnosis = generateEscalationDiagnosis(
+      payload.issues,
+      payload.reviewCycles,
+      payload.lastVerdict,
+    )
+
+    eventBus.emit('orchestrator:story-escalated', {
+      ...payload,
+      diagnosis,
+    })
+
+    // Persist diagnosis to decision store (Story 22-3, AC3)
+    if (config.pipelineRunId !== undefined) {
+      try {
+        createDecision(db, {
+          pipeline_run_id: config.pipelineRunId,
+          phase: 'implementation',
+          category: ESCALATION_DIAGNOSIS,
+          key: `${payload.storyKey}:${config.pipelineRunId}`,
+          value: JSON.stringify(diagnosis),
+          rationale: `Escalation diagnosis for ${payload.storyKey}: ${diagnosis.recommendedAction} — ${diagnosis.rationale}`,
+        })
+      } catch (err) {
+        logger.warn({ err, storyKey: payload.storyKey }, 'Failed to persist escalation diagnosis (best-effort)')
+      }
+    }
+
+    // Persist story outcome for learning loop (Story 22-1, AC4)
+    const issuePatterns = extractIssuePatterns(payload.issues)
+    writeStoryOutcomeBestEffort(payload.storyKey, 'escalated', payload.reviewCycles, issuePatterns)
+  }
+
+  /**
+   * Extract short pattern descriptions from an issue list for recurring pattern tracking.
+   */
+  function extractIssuePatterns(issues: unknown[]): string[] {
+    const patterns: string[] = []
+    for (const issue of issues) {
+      if (typeof issue === 'string') {
+        patterns.push(issue.slice(0, 100))
+      } else {
+        const iss = issue as { description?: string; severity?: string }
+        if (iss.description && (iss.severity === 'blocker' || iss.severity === 'major')) {
+          patterns.push(iss.description.slice(0, 100))
+        }
+      }
+    }
+    return patterns.slice(0, 10)
   }
 
   // -- helpers --
@@ -407,7 +500,7 @@ export function createImplementationOrchestrator(
           completedAt: new Date().toISOString(),
         })
         writeStoryMetricsBestEffort(storyKey, 'failed', 0)
-        eventBus.emit('orchestrator:story-escalated', {
+        emitEscalation({
           storyKey,
           lastVerdict: 'create-story-failed',
           reviewCycles: 0,
@@ -425,7 +518,7 @@ export function createImplementationOrchestrator(
           completedAt: new Date().toISOString(),
         })
         writeStoryMetricsBestEffort(storyKey, 'failed', 0)
-        eventBus.emit('orchestrator:story-escalated', {
+        emitEscalation({
           storyKey,
           lastVerdict: 'create-story-no-file',
           reviewCycles: 0,
@@ -445,7 +538,7 @@ export function createImplementationOrchestrator(
         completedAt: new Date().toISOString(),
       })
       writeStoryMetricsBestEffort(storyKey, 'failed', 0)
-      eventBus.emit('orchestrator:story-escalated', {
+      emitEscalation({
         storyKey,
         lastVerdict: 'create-story-exception',
         reviewCycles: 0,
@@ -649,7 +742,7 @@ export function createImplementationOrchestrator(
         completedAt: new Date().toISOString(),
       })
       writeStoryMetricsBestEffort(storyKey, 'failed', 0)
-      eventBus.emit('orchestrator:story-escalated', {
+      emitEscalation({
         storyKey,
         lastVerdict: 'dev-story-exception',
         reviewCycles: 0,
@@ -869,7 +962,7 @@ export function createImplementationOrchestrator(
           completedAt: new Date().toISOString(),
         })
         writeStoryMetricsBestEffort(storyKey, 'failed', reviewCycles)
-        eventBus.emit('orchestrator:story-escalated', {
+        emitEscalation({
           storyKey,
           lastVerdict: 'code-review-exception',
           reviewCycles,
@@ -886,6 +979,7 @@ export function createImplementationOrchestrator(
           completedAt: new Date().toISOString(),
         })
         writeStoryMetricsBestEffort(storyKey, 'success', reviewCycles + 1)
+        writeStoryOutcomeBestEffort(storyKey, 'complete', reviewCycles + 1)
         eventBus.emit('orchestrator:story-complete', { storyKey, reviewCycles })
         persistState()
         keepReviewing = false
@@ -905,7 +999,7 @@ export function createImplementationOrchestrator(
             completedAt: new Date().toISOString(),
           })
           writeStoryMetricsBestEffort(storyKey, 'escalated', finalReviewCycles)
-          eventBus.emit('orchestrator:story-escalated', {
+          emitEscalation({
             storyKey,
             lastVerdict: verdict,
             reviewCycles: finalReviewCycles,
@@ -994,6 +1088,7 @@ export function createImplementationOrchestrator(
           completedAt: new Date().toISOString(),
         })
         writeStoryMetricsBestEffort(storyKey, 'success', finalReviewCycles)
+        writeStoryOutcomeBestEffort(storyKey, 'complete', finalReviewCycles)
         eventBus.emit('orchestrator:story-complete', {
           storyKey,
           reviewCycles: finalReviewCycles,
@@ -1093,7 +1188,7 @@ export function createImplementationOrchestrator(
             completedAt: new Date().toISOString(),
           })
           writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
-          eventBus.emit('orchestrator:story-escalated', {
+          emitEscalation({
             storyKey,
             lastVerdict: verdict,
             reviewCycles: reviewCycles + 1,

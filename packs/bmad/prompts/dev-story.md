@@ -16,6 +16,9 @@
 ### Test Patterns
 {{test_patterns}}
 
+### Prior Run Findings
+{{prior_findings}}
+
 ---
 
 ## Mission

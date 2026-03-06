@@ -693,7 +693,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         })
       })
 
-      // AC5: story:escalation events on escalation
+      // AC5: story:escalation events on escalation (+ Story 22-3: include diagnosis)
       eventBus.on('orchestrator:story-escalated', (payload) => {
         const rawIssues = Array.isArray(payload.issues) ? payload.issues : []
         const issues = rawIssues.map((issue) => {
@@ -711,6 +711,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           reason: payload.lastVerdict ?? 'escalated',
           cycles: payload.reviewCycles ?? 0,
           issues,
+          ...(payload.diagnosis !== undefined ? { diagnosis: payload.diagnosis } : {}),
         })
       })
 

@@ -1,6 +1,6 @@
 # Story 22-1: Learning Loop — Implementation-Phase Injection
 
-Status: ready
+Status: done
 
 ## User Story
 

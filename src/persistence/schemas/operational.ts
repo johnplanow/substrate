@@ -79,3 +79,44 @@ export const EXPERIMENT_RESULT = 'experiment-result' as const
  * ```
  */
 export const STORY_METRICS = 'story-metrics' as const
+
+/**
+ * Category for structured escalation diagnoses.
+ *
+ * Key schema: "{storyKey}:{runId}"
+ *
+ * Value shape:
+ * ```json
+ * {
+ *   "issueDistribution": "concentrated",
+ *   "severityProfile": "major-only",
+ *   "totalIssues": 3,
+ *   "blockerCount": 0,
+ *   "majorCount": 3,
+ *   "minorCount": 0,
+ *   "affectedFiles": ["src/foo.ts"],
+ *   "reviewCycles": 3,
+ *   "recommendedAction": "retry-targeted",
+ *   "rationale": "3 major issues concentrated in few files."
+ * }
+ * ```
+ */
+export const ESCALATION_DIAGNOSIS = 'escalation-diagnosis' as const
+
+/**
+ * Category for per-story outcome findings (learning loop).
+ *
+ * Key schema: "{storyKey}:{runId}"
+ *
+ * Value shape:
+ * ```json
+ * {
+ *   "storyKey": "22-1",
+ *   "outcome": "complete",
+ *   "reviewCycles": 2,
+ *   "verdictHistory": ["NEEDS_MINOR_FIXES", "SHIP_IT"],
+ *   "recurringPatterns": ["missing error handling"]
+ * }
+ * ```
+ */
+export const STORY_OUTCOME = 'story-outcome' as const

@@ -17,6 +17,7 @@ import { readFile } from 'node:fs/promises'
 import { createLogger } from '../../utils/logger.js'
 import { getDecisionsByPhase } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
+import { getProjectFindings } from '../implementation-orchestrator/project-findings.js'
 import { countTokens } from '../context-compiler/token-counter.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import { CodeReviewResultSchema } from './schemas.js'
@@ -163,11 +164,24 @@ export async function runCodeReview(
     ].join('\n')
   }
 
+  // Query prior findings for learning loop injection (Story 22-1, AC3)
+  let priorFindingsContent = ''
+  try {
+    const findings = getProjectFindings(deps.db)
+    if (findings.length > 0) {
+      priorFindingsContent = 'Previous reviews found these recurring patterns — pay special attention:\n\n' + findings
+      logger.debug({ storyKey, findingsLen: findings.length }, 'Injecting prior findings into code-review prompt')
+    }
+  } catch {
+    // AC5: graceful fallback — empty string on error
+  }
+
   const sections = [
     { name: 'story_content', content: storyContent, priority: 'required' as const },
     { name: 'git_diff', content: gitDiffContent, priority: 'important' as const },
     { name: 'previous_findings', content: previousFindingsContent, priority: 'optional' as const },
     { name: 'arch_constraints', content: archConstraintsContent, priority: 'optional' as const },
+    { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' as const },
   ]
 
   const assembleResult = assemblePrompt(template, sections, TOKEN_CEILING)

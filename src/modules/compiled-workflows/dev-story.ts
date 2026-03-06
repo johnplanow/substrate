@@ -23,6 +23,7 @@ import { getDecisionsByPhase } from '../../persistence/queries/decisions.js'
 import { getGitChangedFiles } from './git-helpers.js'
 import { createLogger } from '../../utils/logger.js'
 import type { ContextTemplate } from '../context-compiler/types.js'
+import { getProjectFindings } from '../implementation-orchestrator/project-findings.js'
 
 const logger = createLogger('compiled-workflows:dev-story')
 
@@ -200,6 +201,18 @@ export async function runDevStory(
     ? await buildProjectContext(storyContent, deps.projectRoot)
     : ''
 
+  // Query prior findings for learning loop injection (Story 22-1, AC2)
+  let priorFindingsContent = ''
+  try {
+    const findings = getProjectFindings(deps.db)
+    if (findings.length > 0) {
+      priorFindingsContent = 'Previous pipeline runs encountered these issues — avoid repeating them:\n\n' + findings
+      logger.debug({ storyKey, findingsLen: findings.length }, 'Injecting prior findings into dev-story prompt')
+    }
+  } catch {
+    // AC5: graceful fallback — empty string on error
+  }
+
   const sections: PromptSection[] = [
     { name: 'story_content', content: storyContent, priority: 'required' },
     { name: 'task_scope', content: taskScopeContent, priority: 'optional' },
@@ -207,6 +220,7 @@ export async function runDevStory(
     { name: 'files_in_scope', content: filesInScopeContent, priority: 'optional' },
     { name: 'project_context', content: projectContextContent, priority: 'important' },
     { name: 'test_patterns', content: testPatternsContent, priority: 'optional' },
+    { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' },
   ]
 
   const { prompt, tokenCount, truncated } = assemblePrompt(template, sections, TOKEN_CEILING)
