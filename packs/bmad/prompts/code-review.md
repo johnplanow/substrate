@@ -45,7 +45,7 @@ Adversarial code review. Find what's wrong. Validate story claims against actual
 
 ## Output Contract
 
-After completing the review, emit ONLY this YAML block — no other text:
+After completing the review, emit ONLY raw YAML — no markdown fences, no ``` wrappers, no other text:
 
 ```yaml
 verdict: SHIP_IT

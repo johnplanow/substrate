@@ -38,10 +38,13 @@ const TOKEN_CEILING = 100000
 
 /**
  * Default fallback result when dispatch fails or times out.
+ * Uses NEEDS_MINOR_FIXES (not NEEDS_MAJOR_REWORK) so a parse/schema failure
+ * doesn't trigger a full rework cycle. The orchestrator's phantom-review
+ * detection handles retries, and escalation kicks in at max review cycles.
  */
 function defaultFailResult(error: string, tokenUsage: { input: number; output: number }): CodeReviewResult {
   return {
-    verdict: 'NEEDS_MAJOR_REWORK',
+    verdict: 'NEEDS_MINOR_FIXES',
     issues: 0,
     issue_list: [],
     error,
@@ -232,11 +235,14 @@ export async function runCodeReview(
   }
 
   // Step 8: Schema validation
+  // Fallback to NEEDS_MINOR_FIXES on parse failures — NEEDS_MAJOR_REWORK
+  // triggers a full rework cycle which is wasteful when the issue is just
+  // malformed output (e.g. LLM wrapping YAML in markdown fences).
   if (dispatchResult.parsed === null) {
     const details = dispatchResult.parseError ?? 'No YAML block found in output'
     logger.warn({ storyKey, details }, 'Code-review output schema validation failed')
     return {
-      verdict: 'NEEDS_MAJOR_REWORK',
+      verdict: 'NEEDS_MINOR_FIXES',
       issues: 0,
       issue_list: [],
       error: 'schema_validation_failed',
@@ -251,7 +257,7 @@ export async function runCodeReview(
     const details = parseResult.error.message
     logger.warn({ storyKey, details }, 'Code-review output failed schema validation')
     return {
-      verdict: 'NEEDS_MAJOR_REWORK',
+      verdict: 'NEEDS_MINOR_FIXES',
       issues: 0,
       issue_list: [],
       error: 'schema_validation_failed',

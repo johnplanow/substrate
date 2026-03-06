@@ -370,6 +370,7 @@ export function createImplementationOrchestrator(
         if (match) {
           storyFilePath = join(artifactsDir, match)
           logger.info({ storyKey, storyFilePath }, 'Found existing story file — skipping create-story')
+          endPhase(storyKey, 'create-story')
           eventBus.emit('orchestrator:story-phase-complete', {
             storyKey,
             phase: 'IN_STORY_CREATION',

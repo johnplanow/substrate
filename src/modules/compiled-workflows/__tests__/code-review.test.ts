@@ -274,12 +274,12 @@ describe('runCodeReview', () => {
     expect(getPromptFn).toHaveBeenCalledWith('code-review')
   })
 
-  it('returns NEEDS_MAJOR_REWORK if pack.getPrompt throws', async () => {
+  it('returns NEEDS_MINOR_FIXES if pack.getPrompt throws', async () => {
     const getPromptFn = vi.fn().mockRejectedValue(new Error('Template not found'))
     const deps = makeMockDeps({ getPrompt: getPromptFn })
 
     const result = await runCodeReview(deps, DEFAULT_PARAMS)
-    expect(result.verdict).toBe('NEEDS_MAJOR_REWORK')
+    expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
     expect(result.error).toContain('Failed to retrieve prompt template')
     expect(result.tokenUsage).toEqual({ input: 0, output: 0 })
   })
@@ -365,12 +365,12 @@ describe('runCodeReview', () => {
     expect(callArgs.prompt).toContain('db_engine: SQLite via better-sqlite3')
   })
 
-  it('returns NEEDS_MAJOR_REWORK if story file cannot be read', async () => {
+  it('returns NEEDS_MINOR_FIXES if story file cannot be read', async () => {
     mockReadFile.mockRejectedValue(new Error('ENOENT: no such file'))
     const deps = makeMockDeps()
 
     const result = await runCodeReview(deps, DEFAULT_PARAMS)
-    expect(result.verdict).toBe('NEEDS_MAJOR_REWORK')
+    expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
     expect(result.error).toContain('Failed to read story file')
   })
 
@@ -514,7 +514,7 @@ describe('runCodeReview', () => {
   // AC7: Failure and Timeout Handling
   // -------------------------------------------------------------------------
 
-  it('returns default NEEDS_MAJOR_REWORK on dispatch failure', async () => {
+  it('returns default NEEDS_MINOR_FIXES on dispatch failure', async () => {
     const dispatchFn = vi.fn().mockReturnValue({
       id: 'test-id',
       status: 'running',
@@ -531,13 +531,13 @@ describe('runCodeReview', () => {
     const deps = makeMockDeps({ dispatch: dispatchFn })
     const result = await runCodeReview(deps, DEFAULT_PARAMS)
 
-    expect(result.verdict).toBe('NEEDS_MAJOR_REWORK')
+    expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
     expect(result.issues).toBe(0)
     expect(result.issue_list).toEqual([])
     expect(result.error).toContain('Dispatch status: failed')
   })
 
-  it('returns default NEEDS_MAJOR_REWORK on dispatch timeout', async () => {
+  it('returns default NEEDS_MINOR_FIXES on dispatch timeout', async () => {
     const dispatchFn = vi.fn().mockReturnValue({
       id: 'test-id',
       status: 'running',
@@ -554,11 +554,11 @@ describe('runCodeReview', () => {
     const deps = makeMockDeps({ dispatch: dispatchFn })
     const result = await runCodeReview(deps, DEFAULT_PARAMS)
 
-    expect(result.verdict).toBe('NEEDS_MAJOR_REWORK')
+    expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
     expect(result.error).toContain('timeout')
   })
 
-  it('returns NEEDS_MAJOR_REWORK when dispatch throws unexpectedly', async () => {
+  it('returns NEEDS_MINOR_FIXES when dispatch throws unexpectedly', async () => {
     const dispatchFn = vi.fn().mockReturnValue({
       id: 'test-id',
       status: 'running',
@@ -569,7 +569,7 @@ describe('runCodeReview', () => {
     const deps = makeMockDeps({ dispatch: dispatchFn })
     const result = await runCodeReview(deps, DEFAULT_PARAMS)
 
-    expect(result.verdict).toBe('NEEDS_MAJOR_REWORK')
+    expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
     expect(result.error).toContain('Dispatch error')
   })
 
@@ -594,7 +594,7 @@ describe('runCodeReview', () => {
     const deps = makeMockDeps({ dispatch: dispatchFn })
     const result = await runCodeReview(deps, DEFAULT_PARAMS)
 
-    expect(result.verdict).toBe('NEEDS_MAJOR_REWORK')
+    expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
     expect(result.error).toBe('schema_validation_failed')
     expect(result.details).toBeDefined()
   })
@@ -615,7 +615,7 @@ describe('runCodeReview', () => {
     const deps = makeMockDeps({ dispatch: dispatchFn })
     const result = await runCodeReview(deps, DEFAULT_PARAMS)
 
-    expect(result.verdict).toBe('NEEDS_MAJOR_REWORK')
+    expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
     expect(result.error).toBe('schema_validation_failed')
   })
 

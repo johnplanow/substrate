@@ -51,7 +51,7 @@ const MIN_FREE_MEMORY_BYTES = (() => {
     const parsed = parseInt(envMB, 10)
     if (!isNaN(parsed) && parsed >= 0) return parsed * 1024 * 1024
   }
-  return 512 * 1024 * 1024 // 512 MB default
+  return 256 * 1024 * 1024 // 256 MB default
 })()
 
 // How often (ms) to re-check memory when the queue is held due to pressure

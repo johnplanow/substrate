@@ -49,13 +49,37 @@ export function extractYamlBlock(output: string): string | null {
     return fencedResult
   }
 
-  // Fall back to unfenced YAML starting with a known anchor key
-  return extractUnfencedYaml(output)
+  // Fall back to unfenced YAML starting with a known anchor key.
+  // First, strip any trailing markdown fence that may be wrapping the YAML
+  // (LLMs frequently emit ```yaml\n...\n``` even when told not to).
+  const stripped = stripTrailingFence(output)
+  return extractUnfencedYaml(stripped)
 }
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Strip a trailing markdown fence that wraps the entire remaining output.
+ * Handles: "```yaml\nverdict: ...\n```" → "verdict: ..."
+ */
+function stripTrailingFence(output: string): string {
+  const trimmed = output.trimEnd()
+  if (!trimmed.endsWith('```')) return output
+  // Walk backwards past the closing fence
+  const body = trimmed.slice(0, -3).trimEnd()
+  // Find the opening fence — it must be the last ``` or ```yaml line before the body
+  const lastOpen = body.lastIndexOf('```')
+  if (lastOpen === -1) return output
+  // Verify the opening fence is on its own line (possibly with "yaml" suffix)
+  const beforeFence = body.slice(0, lastOpen)
+  const fenceLine = body.slice(lastOpen)
+  if (beforeFence.length > 0 && !beforeFence.endsWith('\n')) return output
+  // Strip the opening fence line
+  const afterOpen = fenceLine.replace(/^```(?:yaml)?\s*\n?/, '')
+  return beforeFence + afterOpen
+}
 
 /**
  * Find all fenced YAML blocks (```yaml...``` or ```...```) and return the last one.
