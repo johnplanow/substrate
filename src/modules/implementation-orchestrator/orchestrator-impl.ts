@@ -15,7 +15,7 @@ import type { TokenCeilings } from '../config/config-schema.js'
 import { readFile } from 'node:fs/promises'
 import { existsSync, readdirSync } from 'node:fs'
 import { join, basename } from 'node:path'
-import { updatePipelineRun, getDecisionsByPhase, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
+import { updatePipelineRun, getDecisionsByPhase, getDecisionsByCategory, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
 import { writeStoryMetrics, aggregateTokenUsageForStory } from '../../persistence/queries/metrics.js'
 import { STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME, TEST_EXPANSION_FINDING, ADVISORY_NOTES } from '../../persistence/schemas/operational.js'
@@ -28,7 +28,8 @@ import { runCodeReview } from '../compiled-workflows/code-review.js'
 import { runTestPlan } from '../compiled-workflows/test-plan.js'
 import { runTestExpansion } from '../compiled-workflows/test-expansion.js'
 import { analyzeStoryComplexity, planTaskBatches } from '../compiled-workflows/index.js'
-import { detectConflictGroups } from './conflict-detector.js'
+import { detectConflictGroupsWithContracts } from './conflict-detector.js'
+import type { ContractDeclaration } from './conflict-detector.js'
 import { inspectProcessTree } from '../../cli/commands/health.js'
 import type { ImplementationOrchestrator } from './orchestrator.js'
 import type {
@@ -1834,16 +1835,54 @@ export function createImplementationOrchestrator(
       }
     }
 
-    // Detect conflict groups — use the pack's configured moduleMap (if any).
-    // Cross-project runs (where the pack has no conflictGroups) get maximum
-    // parallelism: each story is its own group.
-    const groups = detectConflictGroups(storyKeys, {
-      moduleMap: pack.manifest.conflictGroups,
-    })
+    // Story 25-5: Query interface-contract declarations stored by Story 25-4.
+    // These are populated during create-story for prior runs. On a fresh run
+    // there may be no declarations yet — the function gracefully falls back to
+    // a single batch (original behavior).
+    const interfaceContractDecisions = getDecisionsByCategory(db, 'interface-contract')
+    const contractDeclarations: ContractDeclaration[] = interfaceContractDecisions
+      .map((d) => {
+        try {
+          const parsed = JSON.parse(d.value) as Record<string, unknown>
+          const storyKey = typeof parsed.storyKey === 'string' ? parsed.storyKey : ''
+          // Story 25-4 stores the name as 'schemaName' in the DB value
+          const contractName = typeof parsed.schemaName === 'string' ? parsed.schemaName : ''
+          const direction = parsed.direction === 'export' ? 'export' : 'import'
+          const filePath = typeof parsed.filePath === 'string' ? parsed.filePath : ''
+          if (!storyKey || !contractName) return null
+          return {
+            storyKey,
+            contractName,
+            direction,
+            filePath,
+            ...(typeof parsed.transport === 'string' ? { transport: parsed.transport } : {}),
+          } satisfies ContractDeclaration
+        } catch {
+          return null
+        }
+      })
+      .filter((d): d is ContractDeclaration => d !== null)
+
+    // Detect conflict groups with contract-aware dispatch ordering (Story 25-5).
+    // Cross-project runs (no conflictGroups in pack) get maximum parallelism within each batch.
+    const { batches, edges: contractEdges } = detectConflictGroupsWithContracts(
+      storyKeys,
+      { moduleMap: pack.manifest.conflictGroups },
+      contractDeclarations,
+    )
+
+    // AC5: Log contract dependency edges as structured events for observability
+    if (contractEdges.length > 0) {
+      logger.info(
+        { contractEdges, edgeCount: contractEdges.length },
+        'Contract dependency edges detected — applying contract-aware dispatch ordering',
+      )
+    }
 
     logger.info('Orchestrator starting', {
       storyCount: storyKeys.length,
-      groupCount: groups.length,
+      groupCount: batches.reduce((sum, b) => sum + b.length, 0),
+      batchCount: batches.length,
       maxConcurrency: config.maxConcurrency,
     })
 
@@ -1884,7 +1923,11 @@ export function createImplementationOrchestrator(
     }
 
     try {
-      await runWithConcurrency(groups, config.maxConcurrency)
+      // Story 25-5: Run batches sequentially (contract ordering), groups within each batch in parallel.
+      // When no contract dependencies exist, batches has a single element (original behavior).
+      for (const batchGroups of batches) {
+        await runWithConcurrency(batchGroups, config.maxConcurrency)
+      }
     } catch (err) {
       stopHeartbeat()
       _state = 'FAILED'

@@ -39,6 +39,7 @@ vi.mock('../../../persistence/queries/decisions.js', () => ({
   updatePipelineRun: vi.fn(),
   addTokenUsage: vi.fn(),
   getDecisionsByPhase: vi.fn().mockReturnValue([]),
+  getDecisionsByCategory: vi.fn().mockReturnValue([]),
   registerArtifact: vi.fn(),
 }))
 vi.mock('../../../persistence/queries/metrics.js', () => ({

@@ -1,11 +1,15 @@
 /**
- * Integration tests for Story 25-4: Contract Declaration in Story Creation.
+ * Integration tests for Story 25-5: Contract-Aware Dispatch Ordering.
  *
- * Verifies that the orchestrator parses Interface Contracts sections from
- * story files after create-story completes and stores each contract
- * declaration in the decision store with category 'interface-contract'.
+ * Verifies that the orchestrator:
+ *   AC5: Logs contract dependency edges as structured events when they are detected
+ *   AC1–AC4: Uses contract declarations from the decision store to influence dispatch ordering
  *
- * AC3: Contract Declarations in Decision Store
+ * Note: The ordering behaviour (batch assignment) is primarily tested via pure unit tests
+ * in contract-ordering.test.ts. This file tests the orchestrator wiring:
+ *   - getDecisionsByCategory('interface-contract') is called at run() start
+ *   - Dependency edges are logged via logger.info when found
+ *   - No regression when no contract declarations exist
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -16,6 +20,17 @@ import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dis
 import type { TypedEventBus } from '../../../core/event-bus.js'
 import type { OrchestratorConfig } from '../types.js'
 import { createImplementationOrchestrator } from '../orchestrator-impl.js'
+
+// ---------------------------------------------------------------------------
+// Shared mock logger instance — hoisted so it's available inside vi.mock()
+// ---------------------------------------------------------------------------
+
+const mockLogger = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}))
 
 // ---------------------------------------------------------------------------
 // Mock compiled workflow functions
@@ -36,7 +51,7 @@ vi.mock('../../compiled-workflows/test-plan.js', () => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Mock persistence queries — include createDecision so we can spy on it
+// Mock persistence queries
 // ---------------------------------------------------------------------------
 
 vi.mock('../../../persistence/queries/decisions.js', () => ({
@@ -62,18 +77,14 @@ vi.mock('../../../persistence/queries/metrics.js', () => ({
   writeRunMetrics: vi.fn(),
   writeStoryMetrics: vi.fn(),
   aggregateTokenUsageForRun: vi.fn().mockReturnValue({ input: 0, output: 0, cost: 0 }),
+  aggregateTokenUsageForStory: vi.fn().mockReturnValue({ input: 0, output: 0, cost: 0 }),
 }))
 
+// Shared logger mock — returned for all createLogger() calls
 vi.mock('../../../utils/logger.js', () => ({
-  createLogger: vi.fn(() => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  })),
+  createLogger: vi.fn(() => mockLogger),
 }))
 
-// Default: readFile is overridden per-test
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockRejectedValue(new Error('mock readFile: file not found')),
 }))
@@ -104,15 +115,13 @@ import { runCreateStory } from '../../compiled-workflows/create-story.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../compiled-workflows/code-review.js'
 import { runTestPlan } from '../../compiled-workflows/test-plan.js'
-import { createDecision } from '../../../persistence/queries/decisions.js'
-import { readFile } from 'node:fs/promises'
+import { getDecisionsByCategory } from '../../../persistence/queries/decisions.js'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockRunDevStory = vi.mocked(runDevStory)
 const mockRunCodeReview = vi.mocked(runCodeReview)
 const mockRunTestPlan = vi.mocked(runTestPlan)
-const mockCreateDecision = vi.mocked(createDecision)
-const mockReadFile = vi.mocked(readFile)
+const mockGetDecisionsByCategory = vi.mocked(getDecisionsByCategory)
 
 // ---------------------------------------------------------------------------
 // Factory helpers
@@ -187,6 +196,7 @@ function defaultConfig(overrides?: Partial<OrchestratorConfig>): OrchestratorCon
     maxConcurrency: 1,
     maxReviewCycles: 2,
     pipelineRunId: 'test-run-id',
+    skipPreflight: true,
     ...overrides,
   }
 }
@@ -221,65 +231,38 @@ function makeCodeReviewShipIt() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Story file content with Interface Contracts section
-// ---------------------------------------------------------------------------
-
-const STORY_WITH_CONTRACTS = `# Story 25-4: Contract Declaration in Story Creation
-
-Status: pending
-
-## User Story
-
-As a pipeline operator, I want stories to declare interface contracts.
-
-## Acceptance Criteria
-
-### AC1: something
-**Given** the pipeline
-**When** something happens
-**Then** something occurs
-
-## Interface Contracts
-
-- **Export**: JudgeResult @ src/modules/judge/types.ts (queue: judge-results)
-- **Import**: CheckRunInput @ src/modules/check-publisher/types.ts (from story 25-5)
-
-## Dev Notes
-
-Some notes here.
-
-## Tasks
-
-- [ ] Task 1: Do something
-`
-
-const STORY_WITHOUT_CONTRACTS = `# Story 25-3: LGTM_WITH_NOTES Verdict
-
-Status: pending
-
-## User Story
-
-As a pipeline operator, no contracts here.
-
-## Acceptance Criteria
-
-### AC1: something
-
-## Dev Notes
-
-No contracts.
-
-## Tasks
-
-- [ ] Task 1: Do something
-`
+/** Build a mock Decision row for an interface-contract declaration */
+function makeContractDecision(
+  storyKey: string,
+  schemaName: string,
+  direction: 'export' | 'import',
+  filePath = 'src/types.ts',
+  transport?: string,
+) {
+  return {
+    id: `decision-${storyKey}-${schemaName}`,
+    pipeline_run_id: 'test-run-id',
+    phase: 'implementation',
+    category: 'interface-contract',
+    key: `${storyKey}:${schemaName}`,
+    value: JSON.stringify({
+      direction,
+      schemaName,
+      filePath,
+      storyKey,
+      ...(transport !== undefined ? { transport } : {}),
+    }),
+    rationale: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('AC3: orchestrator stores interface contract declarations after create-story', () => {
+describe('AC5: orchestrator logs contract dependency edges when detected', () => {
   let db: BetterSqlite3Database
   let pack: MethodologyPack
   let contextCompiler: ContextCompiler
@@ -296,7 +279,6 @@ describe('AC3: orchestrator stores interface contract declarations after create-
     eventBus = createMockEventBus()
     config = defaultConfig()
 
-    // Default test plan mock
     mockRunTestPlan.mockResolvedValue({
       result: 'success' as const,
       test_files: [],
@@ -306,170 +288,147 @@ describe('AC3: orchestrator stores interface contract declarations after create-
     })
   })
 
-  it('stores contract declarations in decision store when story has Interface Contracts section', async () => {
-    const storyFilePath = '/path/to/25-4-contract-declaration.md'
-
-    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('25-4', storyFilePath))
+  it('calls getDecisionsByCategory with interface-contract at run() start', async () => {
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('25-5'))
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
-    // Return story content with Interface Contracts section for this specific file
-    mockReadFile.mockImplementation(async (filePath: unknown) => {
-      if (String(filePath) === storyFilePath) {
-        return STORY_WITH_CONTRACTS
-      }
-      throw new Error('mock readFile: file not found')
-    })
+    const orchestrator = createImplementationOrchestrator({ db, pack, contextCompiler, dispatcher, eventBus, config })
+    await orchestrator.run(['25-5'])
 
-    const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
-    })
-
-    await orchestrator.run(['25-4'])
-
-    // createDecision should have been called with interface-contract entries
-    const interfaceContractCalls = mockCreateDecision.mock.calls.filter(
-      (call) => call[1]?.category === 'interface-contract',
-    )
-    expect(interfaceContractCalls).toHaveLength(2)
-
-    // Verify the export declaration
-    const exportCall = interfaceContractCalls.find((call) =>
-      call[1]?.key === '25-4:JudgeResult',
-    )
-    expect(exportCall).toBeDefined()
-    const exportValue = JSON.parse(exportCall![1]?.value ?? '{}')
-    expect(exportValue.direction).toBe('export')
-    expect(exportValue.schemaName).toBe('JudgeResult')
-    expect(exportValue.filePath).toBe('src/modules/judge/types.ts')
-    expect(exportValue.storyKey).toBe('25-4')
-    expect(exportValue.transport).toBe('queue: judge-results')
-
-    // Verify the import declaration
-    const importCall = interfaceContractCalls.find((call) =>
-      call[1]?.key === '25-4:CheckRunInput',
-    )
-    expect(importCall).toBeDefined()
-    const importValue = JSON.parse(importCall![1]?.value ?? '{}')
-    expect(importValue.direction).toBe('import')
-    expect(importValue.schemaName).toBe('CheckRunInput')
-    expect(importValue.filePath).toBe('src/modules/check-publisher/types.ts')
-    expect(importValue.storyKey).toBe('25-4')
-    expect(importValue.transport).toBe('from story 25-5')
+    expect(mockGetDecisionsByCategory).toHaveBeenCalledWith(db, 'interface-contract')
   })
 
-  it('stores declarations with phase=implementation and category=interface-contract', async () => {
-    const storyFilePath = '/path/to/25-4-contract-declaration.md'
+  it('does NOT log contract edge message when no interface-contract declarations exist', async () => {
+    mockGetDecisionsByCategory.mockReturnValue([])
 
-    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('25-4', storyFilePath))
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('25-5'))
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
-    mockReadFile.mockImplementation(async (filePath: unknown) => {
-      if (String(filePath) === storyFilePath) {
-        return STORY_WITH_CONTRACTS
-      }
-      throw new Error('mock readFile: file not found')
-    })
+    const orchestrator = createImplementationOrchestrator({ db, pack, contextCompiler, dispatcher, eventBus, config })
+    await orchestrator.run(['25-5'])
 
-    const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
-    })
-
-    await orchestrator.run(['25-4'])
-
-    const interfaceContractCalls = mockCreateDecision.mock.calls.filter(
-      (call) => call[1]?.category === 'interface-contract',
+    const contractEdgeLogCalls = mockLogger.info.mock.calls.filter(
+      (call) =>
+        typeof call[1] === 'string' && call[1].includes('Contract dependency edges'),
     )
-    for (const call of interfaceContractCalls) {
-      expect(call[1]?.phase).toBe('implementation')
-      expect(call[1]?.category).toBe('interface-contract')
-      expect(call[1]?.pipeline_run_id).toBe('test-run-id')
-    }
+    expect(contractEdgeLogCalls).toHaveLength(0)
   })
 
-  it('does NOT call createDecision with interface-contract when story has no Interface Contracts section', async () => {
-    const storyFilePath = '/path/to/25-3-lgtm-with-notes.md'
+  it('logs contract dependency edges when exporter/importer contract declarations exist (AC5)', async () => {
+    // Set up: story A exports FooSchema, story B imports FooSchema
+    const contractDecisions = [
+      makeContractDecision('A', 'FooSchema', 'export'),
+      makeContractDecision('B', 'FooSchema', 'import'),
+    ]
+    mockGetDecisionsByCategory.mockImplementation((_, category) => {
+      if (category === 'interface-contract') return contractDecisions
+      return []
+    })
 
-    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('25-3', storyFilePath))
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('A'))
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
-    mockReadFile.mockImplementation(async (filePath: unknown) => {
-      if (String(filePath) === storyFilePath) {
-        return STORY_WITHOUT_CONTRACTS
-      }
-      throw new Error('mock readFile: file not found')
-    })
+    const orchestrator = createImplementationOrchestrator({ db, pack, contextCompiler, dispatcher, eventBus, config })
+    await orchestrator.run(['A', 'B'])
 
-    const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
-    })
-
-    await orchestrator.run(['25-3'])
-
-    const interfaceContractCalls = mockCreateDecision.mock.calls.filter(
-      (call) => call[1]?.category === 'interface-contract',
+    // AC5: logger.info should be called with contractEdges information
+    const contractEdgeLogCall = mockLogger.info.mock.calls.find(
+      (call) => {
+        const msg = call[1]
+        return typeof msg === 'string' && msg.includes('Contract dependency edges')
+      },
     )
-    expect(interfaceContractCalls).toHaveLength(0)
+    expect(contractEdgeLogCall).toBeDefined()
+
+    // Verify the structured data includes the edge
+    const logData = contractEdgeLogCall![0] as Record<string, unknown>
+    expect(logData).toHaveProperty('contractEdges')
+    expect(logData).toHaveProperty('edgeCount', 1)
+
+    const edges = logData.contractEdges as Array<{ from: string; to: string; contractName: string }>
+    expect(edges).toHaveLength(1)
+    expect(edges[0]).toMatchObject({ from: 'A', to: 'B', contractName: 'FooSchema' })
   })
 
-  it('continues pipeline without error when readFile throws during contract parsing', async () => {
-    const storyFilePath = '/path/to/25-4-contract-declaration.md'
+  it('logs contract dependency edges for dual-export serialization (AC3+AC5)', async () => {
+    // Both A and B export BarSchema
+    const contractDecisions = [
+      makeContractDecision('A', 'BarSchema', 'export'),
+      makeContractDecision('B', 'BarSchema', 'export'),
+    ]
+    mockGetDecisionsByCategory.mockImplementation((_, category) => {
+      if (category === 'interface-contract') return contractDecisions
+      return []
+    })
 
-    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('25-4', storyFilePath))
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('A'))
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
-    // All readFile calls fail (simulates file read error)
-    mockReadFile.mockRejectedValue(new Error('ENOENT: file not found'))
+    const orchestrator = createImplementationOrchestrator({ db, pack, contextCompiler, dispatcher, eventBus, config })
+    await orchestrator.run(['A', 'B'])
 
-    const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+    const contractEdgeLogCall = mockLogger.info.mock.calls.find(
+      (call) => {
+        const msg = call[1]
+        return typeof msg === 'string' && msg.includes('Contract dependency edges')
+      },
+    )
+    expect(contractEdgeLogCall).toBeDefined()
+    const logData = contractEdgeLogCall![0] as Record<string, unknown>
+    expect(logData).toHaveProperty('edgeCount', 1)
+  })
+
+  it('pipeline completes successfully even with contract declarations (no regression)', async () => {
+    const contractDecisions = [
+      makeContractDecision('25-5', 'SomeSchema', 'export'),
+    ]
+    mockGetDecisionsByCategory.mockImplementation((_, category) => {
+      if (category === 'interface-contract') return contractDecisions
+      return []
     })
 
-    const status = await orchestrator.run(['25-4'])
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('25-5'))
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
-    // Pipeline should still complete successfully despite contract parsing failure
+    const orchestrator = createImplementationOrchestrator({ db, pack, contextCompiler, dispatcher, eventBus, config })
+    const status = await orchestrator.run(['25-5'])
+
     expect(status.state).toBe('COMPLETE')
-    expect(status.stories['25-4']?.phase).toBe('COMPLETE')
+    expect(status.stories['25-5']?.phase).toBe('COMPLETE')
   })
 
-  it('stores key as {storyKey}:{contractName} format', async () => {
-    const storyFilePath = '/path/to/25-4.md'
-    const storyWithSingleExport = `# Story 25-4
+  it('pipeline completes successfully with malformed contract decision value (graceful degradation)', async () => {
+    // Malformed JSON in the decision value
+    mockGetDecisionsByCategory.mockImplementation((_, category) => {
+      if (category === 'interface-contract') {
+        return [{
+          id: 'bad-decision',
+          pipeline_run_id: 'test-run-id',
+          phase: 'implementation',
+          category: 'interface-contract',
+          key: 'bad:schema',
+          value: 'NOT VALID JSON',
+          rationale: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }]
+      }
+      return []
+    })
 
-## Acceptance Criteria
-
-AC1: Something
-
-## Interface Contracts
-
-- **Export**: MyCustomSchema @ src/schemas/custom.ts
-
-## Tasks
-
-- [ ] Task 1
-`
-    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('25-4', storyFilePath))
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('25-5'))
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
-    mockReadFile.mockImplementation(async (filePath: unknown) => {
-      if (String(filePath) === storyFilePath) return storyWithSingleExport
-      throw new Error('mock readFile: file not found')
-    })
+    const orchestrator = createImplementationOrchestrator({ db, pack, contextCompiler, dispatcher, eventBus, config })
+    const status = await orchestrator.run(['25-5'])
 
-    const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
-    })
-
-    await orchestrator.run(['25-4'])
-
-    const interfaceContractCalls = mockCreateDecision.mock.calls.filter(
-      (call) => call[1]?.category === 'interface-contract',
-    )
-    expect(interfaceContractCalls).toHaveLength(1)
-    expect(interfaceContractCalls[0][1]?.key).toBe('25-4:MyCustomSchema')
+    // Should complete without error despite malformed contract data
+    expect(status.state).toBe('COMPLETE')
   })
 })

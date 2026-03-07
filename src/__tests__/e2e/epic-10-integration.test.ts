@@ -42,6 +42,7 @@ vi.mock('../../utils/logger.js', () => ({
 
 vi.mock('../../persistence/queries/decisions.js', () => ({
   getDecisionsByPhase: vi.fn().mockReturnValue([]),
+  getDecisionsByCategory: vi.fn().mockReturnValue([]),
   updatePipelineRun: vi.fn(),
 }))
 
