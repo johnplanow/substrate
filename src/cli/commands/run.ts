@@ -53,6 +53,8 @@ import {
   getStoryMetricsForRun,
   aggregateTokenUsageForRun,
 } from '../../persistence/queries/metrics.js'
+import { createConfigSystem } from '../../modules/config/config-system-impl.js'
+import type { TokenCeilings } from '../../modules/config/config-schema.js'
 import { createLogger } from '../../utils/logger.js'
 import {
   VALID_PHASES,
@@ -242,6 +244,17 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // Non-fatal: process detection falls back to command-line matching
   }
 
+  // Load token_ceilings from project config (completing Story 24-7 CLI wiring).
+  // Non-fatal: if config loading fails, orchestrator uses hardcoded defaults.
+  let tokenCeilings: TokenCeilings | undefined
+  try {
+    const configSystem = createConfigSystem({ projectConfigDir: dbDir })
+    await configSystem.load()
+    tokenCeilings = configSystem.getConfig().token_ceilings
+  } catch {
+    logger.debug('Config loading skipped — using default token ceilings')
+  }
+
   // If --from is provided, we're running the full phase pipeline
   if (startPhase !== undefined) {
     return runFullPipeline({
@@ -255,6 +268,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       concurrency,
       outputFormat,
       projectRoot,
+      tokenCeilings,
       ...(eventsFlag === true ? { events: true } : {}),
       ...(skipUx === true ? { skipUx: true } : {}),
       ...(researchFlag === true ? { research: true } : {}),
@@ -853,6 +867,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         enableHeartbeat: eventsFlag === true,
       },
       projectRoot,
+      tokenCeilings,
     })
 
     // Display startup header (only in legacy human mode without progress renderer or NDJSON emitter)
@@ -1034,10 +1049,12 @@ export interface FullPipelineOptions {
   research?: boolean
   /** When true, skip research phase even if enabled in pack manifest */
   skipResearch?: boolean
+  /** Optional per-workflow token ceiling overrides from config (Story 25-1) */
+  tokenCeilings?: TokenCeilings
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, registry: injectedRegistry } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, registry: injectedRegistry, tokenCeilings } =
     options
 
   // Ensure database directory
@@ -1334,6 +1351,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             pipelineRunId: runId,
           },
           projectRoot,
+          tokenCeilings,
         })
 
         // Subscribe to events for progress reporting
