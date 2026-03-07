@@ -35,6 +35,26 @@ Using the context above, write a complete, implementation-ready story file for s
    - Status must be: `ready-for-dev`
    - Dev Agent Record section must be present but left blank (to be filled by dev agent)
 
+## Interface Contracts Guidance
+
+**Identify cross-story dependencies** when the story creates or consumes shared schemas, interfaces, or message contracts.
+
+If the story exports (creates) or imports (consumes from another story) any TypeScript interfaces, Zod schemas, message queue contracts, or API types that are shared across module boundaries, add an `## Interface Contracts` section to the story file.
+
+Use this exact format for each item:
+
+```markdown
+## Interface Contracts
+
+- **Export**: SchemaName @ src/path/to/file.ts (queue: some-queue-name)
+- **Import**: SchemaName @ src/path/to/file.ts (from story 25-X)
+```
+
+- `Export` = this story creates/defines the schema that other stories will consume
+- `Import` = this story consumes a schema defined by another story
+- The transport annotation `(queue: ...)` or `(api: ...)` or `(from story X-Y)` is optional but recommended when applicable
+- **The `## Interface Contracts` section is optional** — omit it entirely if the story has no cross-story schema dependencies
+
 ## Scope Cap Guidance
 
 **Aim for 6-7 acceptance criteria and 7-8 tasks per story.**

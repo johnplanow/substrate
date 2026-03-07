@@ -47,6 +47,7 @@ import { sleep } from '../../utils/helpers.js'
 import { runBuildVerification, checkGitDiffFiles } from '../agent-dispatch/dispatcher-impl.js'
 import { detectInterfaceChanges } from '../agent-dispatch/interface-change-detector.js'
 import { computeStoryComplexity, resolveFixStoryMaxTurns, logComplexityResult } from '../compiled-workflows/story-complexity.js'
+import { parseInterfaceContracts } from '../compiled-workflows/interface-contracts.js'
 
 // ---------------------------------------------------------------------------
 // OrchestratorDeps
@@ -733,6 +734,43 @@ export function createImplementationOrchestrator(
       return
     }
     } // end if (storyFilePath === undefined)
+
+    // -- interface contract parsing (Story 25-4: AC3) --
+    // Parse the newly created (or pre-existing) story file for interface contract
+    // declarations and persist them to the decision store so Story 25-5 dispatch
+    // ordering and Story 25-6 verification can build a cross-story dependency graph.
+    if (storyFilePath) {
+      try {
+        const storyContent = await readFile(storyFilePath, 'utf-8')
+        const contracts = parseInterfaceContracts(storyContent, storyKey)
+        if (contracts.length > 0) {
+          for (const contract of contracts) {
+            createDecision(db, {
+              pipeline_run_id: config.pipelineRunId ?? null,
+              phase: 'implementation',
+              category: 'interface-contract',
+              key: `${storyKey}:${contract.contractName}`,
+              value: JSON.stringify({
+                direction: contract.direction,
+                schemaName: contract.contractName,
+                filePath: contract.filePath,
+                storyKey: contract.storyKey,
+                ...(contract.transport !== undefined ? { transport: contract.transport } : {}),
+              }),
+            })
+          }
+          logger.info(
+            { storyKey, contractCount: contracts.length, contracts },
+            'Stored interface contract declarations in decision store',
+          )
+        }
+      } catch (err) {
+        logger.warn(
+          { storyKey, error: err instanceof Error ? err.message : String(err) },
+          'Failed to parse interface contracts — continuing without contract declarations',
+        )
+      }
+    }
 
     // -- test-plan phase --
 
