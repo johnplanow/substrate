@@ -95,6 +95,32 @@ function createPauseGate(): PauseGate {
   return { promise, resolve }
 }
 
+/**
+ * Build the targeted_files content string from a code-review issue list.
+ * Deduplicates file paths and includes line numbers where available.
+ * Returns empty string when no issues have file references.
+ */
+function buildTargetedFilesContent(issueList: unknown[]): string {
+  const seen = new Map<string, Set<number>>()
+  for (const issue of issueList) {
+    const iss = issue as { file?: string; line?: number }
+    if (!iss.file) continue
+    if (!seen.has(iss.file)) seen.set(iss.file, new Set())
+    if (iss.line !== undefined) seen.get(iss.file)!.add(iss.line)
+  }
+  if (seen.size === 0) return ''
+  const lines: string[] = []
+  for (const [file, lineNums] of seen) {
+    if (lineNums.size > 0) {
+      const sorted = [...lineNums].sort((a, b) => a - b)
+      lines.push(`- ${file} (lines: ${sorted.join(', ')})`)
+    } else {
+      lines.push(`- ${file}`)
+    }
+  }
+  return lines.join('\n')
+}
+
 // ---------------------------------------------------------------------------
 // createImplementationOrchestrator
 // ---------------------------------------------------------------------------
@@ -1375,9 +1401,16 @@ export function createImplementationOrchestrator(
         updateStory(storyKey, { phase: 'NEEDS_FIXES' as StoryPhase })
         try {
           let fixPrompt: string
+          let autoApproveMaxTurns: number | undefined
           try {
             const fixTemplate = await pack.getPrompt('fix-story')
             const storyContent = await readFile(storyFilePath ?? '', 'utf-8')
+
+            // Compute maxTurns from story complexity
+            const complexity = computeStoryComplexity(storyContent)
+            autoApproveMaxTurns = resolveFixStoryMaxTurns(complexity.complexityScore)
+            logComplexityResult(storyKey, complexity, autoApproveMaxTurns)
+
             let reviewFeedback: string
             if (issueList.length === 0) {
               reviewFeedback = `Verdict: ${verdict}\nIssues: Minor issues flagged but no specifics provided. Review the story ACs and fix any remaining gaps.`
@@ -1397,10 +1430,12 @@ export function createImplementationOrchestrator(
               const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
               archConstraints = constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
             } catch { /* arch constraints are optional */ }
+            const targetedFilesContent = buildTargetedFilesContent(issueList)
             const sections = [
               { name: 'story_content', content: storyContent, priority: 'required' as const },
               { name: 'review_feedback', content: reviewFeedback, priority: 'required' as const },
               { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
+              ...(targetedFilesContent ? [{ name: 'targeted_files', content: targetedFilesContent, priority: 'important' as const }] : []),
             ]
             const assembled = assemblePrompt(fixTemplate, sections, 24000)
             fixPrompt = assembled.prompt
@@ -1414,6 +1449,7 @@ export function createImplementationOrchestrator(
             agent: 'claude-code',
             taskType: 'minor-fixes',
             workingDirectory: projectRoot,
+            ...(autoApproveMaxTurns !== undefined ? { maxTurns: autoApproveMaxTurns } : {}),
           })
           const fixResult = await handle.result
 
@@ -1478,8 +1514,8 @@ export function createImplementationOrchestrator(
           const fixTemplate = await pack.getPrompt(templateName)
           const storyContent = await readFile(storyFilePath ?? '', 'utf-8')
 
-          // Compute complexity for major-rework turn limit scaling (Story 24-6)
-          if (isMajorRework) {
+          // Compute complexity for turn limit scaling (major-rework: Story 24-6, minor-fix: fix-story enrichment)
+          {
             const complexity = computeStoryComplexity(storyContent)
             fixMaxTurns = resolveFixStoryMaxTurns(complexity.complexityScore)
             logComplexityResult(storyKey, complexity, fixMaxTurns)
@@ -1531,11 +1567,15 @@ export function createImplementationOrchestrator(
                 { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
                 { name: 'git_diff', content: '', priority: 'optional' as const },
               ]
-            : [
-                { name: 'story_content', content: storyContent, priority: 'required' as const },
-                { name: 'review_feedback', content: reviewFeedback, priority: 'required' as const },
-                { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
-              ]
+            : (() => {
+                const targetedFilesContent = buildTargetedFilesContent(issueList)
+                return [
+                  { name: 'story_content', content: storyContent, priority: 'required' as const },
+                  { name: 'review_feedback', content: reviewFeedback, priority: 'required' as const },
+                  { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
+                  ...(targetedFilesContent ? [{ name: 'targeted_files', content: targetedFilesContent, priority: 'important' as const }] : []),
+                ]
+              })()
           const assembled = assemblePrompt(fixTemplate, sections, 24000)
           fixPrompt = assembled.prompt
         } catch {
@@ -1560,6 +1600,7 @@ export function createImplementationOrchestrator(
               agent: 'claude-code',
               taskType,
               ...(fixModel !== undefined ? { model: fixModel } : {}),
+              ...(fixMaxTurns !== undefined ? { maxTurns: fixMaxTurns } : {}),
               ...(projectRoot !== undefined ? { workingDirectory: projectRoot } : {}),
             })
         const fixResult = await handle.result

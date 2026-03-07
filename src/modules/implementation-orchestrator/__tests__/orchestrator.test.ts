@@ -1795,4 +1795,179 @@ describe('createImplementationOrchestrator', () => {
       )
     })
   })
+
+  // -------------------------------------------------------------------------
+  // Fix-story prompt enrichment: targeted_files + maxTurns for minor fixes
+  // -------------------------------------------------------------------------
+
+  describe('Fix-story prompt enrichment', () => {
+    it('includes targeted_files section with file paths and line numbers from issue_list', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce({
+          verdict: 'NEEDS_MINOR_FIXES' as const,
+          issues: 2,
+          issue_list: [
+            { severity: 'minor' as const, description: 'Missing type annotation', file: 'src/foo.ts', line: 42 },
+            { severity: 'minor' as const, description: 'Unused import', file: 'src/bar.ts', line: 7 },
+          ],
+          tokenUsage: { input: 150, output: 50 },
+        })
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const mockReadFile = vi.mocked(readFile)
+      mockReadFile.mockResolvedValue('# Story 5-1\n- [ ] Task 1: Do something\n- [ ] Task 2: Do more' as never)
+
+      ;(pack.getPrompt as ReturnType<typeof vi.fn>).mockImplementation(async (name: string) => {
+        if (name === 'fix-story') {
+          return '{{story_content}}\n\n{{review_feedback}}\n\n{{arch_constraints}}\n\n{{targeted_files}}'
+        }
+        return ''
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const fixCall = dispatchCalls.find((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      )
+      expect(fixCall).toBeDefined()
+      const capturedPrompt = (fixCall![0] as { prompt: string }).prompt
+      expect(capturedPrompt).toContain('src/foo.ts')
+      expect(capturedPrompt).toContain('src/bar.ts')
+      expect(capturedPrompt).toContain('42')
+
+      mockReadFile.mockRejectedValue(new Error('mock readFile: file not found'))
+    })
+
+    it('omits targeted_files section when issues have no file references', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce({
+          verdict: 'NEEDS_MINOR_FIXES' as const,
+          issues: 1,
+          issue_list: [
+            { severity: 'minor' as const, description: 'Generic issue without file' },
+          ],
+          tokenUsage: { input: 150, output: 50 },
+        })
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const mockReadFile = vi.mocked(readFile)
+      mockReadFile.mockResolvedValue('# Story 5-1\n- [ ] Task 1: Do something' as never)
+
+      ;(pack.getPrompt as ReturnType<typeof vi.fn>).mockImplementation(async (name: string) => {
+        if (name === 'fix-story') {
+          return '{{story_content}}\n\n{{review_feedback}}\n\n{{arch_constraints}}\n\n{{targeted_files}}'
+        }
+        return ''
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      // targeted_files placeholder should be replaced with empty string (no file references)
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const fixCall = dispatchCalls.find((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      )
+      expect(fixCall).toBeDefined()
+      // The prompt should NOT contain file bullet points
+      const capturedPrompt = (fixCall![0] as { prompt: string }).prompt
+      expect(capturedPrompt).not.toMatch(/^- src\//m)
+
+      mockReadFile.mockRejectedValue(new Error('mock readFile: file not found'))
+    })
+
+    it('passes maxTurns to minor-fix dispatch on the general fix path', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMinorFixes())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const mockReadFile = vi.mocked(readFile)
+      mockReadFile.mockResolvedValue('# Story 5-1\n- [ ] Task 1: Do something' as never)
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const fixCall = dispatchCalls.find((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      )
+      expect(fixCall).toBeDefined()
+      // maxTurns should be set (resolveFixStoryMaxTurns(1) = 50 base for low complexity)
+      expect((fixCall![0] as { maxTurns?: number }).maxTurns).toBe(50)
+
+      mockReadFile.mockRejectedValue(new Error('mock readFile: file not found'))
+    })
+
+    it('passes maxTurns to minor-fix dispatch on the auto-approve path', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      // Always return minor fixes — triggers auto-approve at review cycle limit
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewMinorFixes())
+
+      const mockReadFile = vi.mocked(readFile)
+      mockReadFile.mockResolvedValue('# Story 5-1\n- [ ] Task 1: Do something' as never)
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxReviewCycles: 2 }),
+      })
+
+      await orchestrator.run(['5-1'])
+
+      // Find the auto-approve fix dispatch (last minor-fixes dispatch)
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const fixCalls = dispatchCalls.filter((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      )
+      expect(fixCalls.length).toBeGreaterThan(0)
+      const lastFixCall = fixCalls[fixCalls.length - 1]
+      expect((lastFixCall[0] as { maxTurns?: number }).maxTurns).toBe(50)
+
+      mockReadFile.mockRejectedValue(new Error('mock readFile: file not found'))
+    })
+
+    it('does not change maxTurns behavior for major-rework dispatches', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMajorRework())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const mockReadFile = vi.mocked(readFile)
+      mockReadFile.mockResolvedValue('# Story 5-1\n- [ ] Task 1: Do something' as never)
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const reworkCall = dispatchCalls.find((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'major-rework'
+      )
+      expect(reworkCall).toBeDefined()
+      // Major rework should still have maxTurns set (from existing Story 24-6 behavior)
+      expect((reworkCall![0] as { maxTurns?: number }).maxTurns).toBe(50)
+
+      mockReadFile.mockRejectedValue(new Error('mock readFile: file not found'))
+    })
+  })
 })

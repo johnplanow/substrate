@@ -11,9 +11,14 @@
 ### Architecture Constraints
 {{arch_constraints}}
 
+### Targeted Files
+{{targeted_files}}
+
 ---
 
 ## Mission
+
+**Start by reading ONLY the files listed in the Targeted Files section above.** Do not scan the codebase or re-read story context until you have read and understood those specific files. If no targeted files are listed, proceed with the review feedback to locate the files yourself.
 
 Fix the issues identified in the code review above. Address every issue listed in the review feedback.
 
