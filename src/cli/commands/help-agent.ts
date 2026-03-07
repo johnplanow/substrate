@@ -370,6 +370,18 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'dispatches', type: 'number', description: 'Dispatch count.' },
     ],
   },
+  {
+    type: 'pipeline:contract-mismatch',
+    description: 'Post-sprint contract mismatch found. Non-blocking — stories done. Manual fix required.',
+    when: 'After all stories complete, before pipeline:complete. When contract declarations exist and mismatch found.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'exporter', type: 'string', description: 'Exporting story key.' },
+      { name: 'importer', type: 'string|null', description: 'Importing story key (null if none).' },
+      { name: 'contractName', type: 'string', description: 'Contract name (e.g., "JudgeResult").' },
+      { name: 'mismatchDescription', type: 'string', description: 'Mismatch details (missing file, type error).' },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

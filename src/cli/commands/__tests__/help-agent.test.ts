@@ -97,6 +97,8 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'story:interface-change-warning',
       // Story 24-4: per-story metrics snapshot
       'story:metrics',
+      // Story 25-6: post-sprint contract verification mismatch
+      'pipeline:contract-mismatch',
     ]
     const actualTypes = PIPELINE_EVENT_METADATA.map((e) => e.type)
     for (const t of expectedTypes) {

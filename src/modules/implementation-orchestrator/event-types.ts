@@ -548,6 +548,31 @@ export interface SupervisorExperimentErrorEvent {
 }
 
 // ---------------------------------------------------------------------------
+// PipelineContractMismatchEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when post-sprint contract verification finds a mismatch between
+ * declared export/import contracts (Story 25-6).
+ *
+ * Failures are warnings only — stories already completed. The user should
+ * inspect the mismatch and fix manually.
+ */
+export interface PipelineContractMismatchEvent {
+  type: 'pipeline:contract-mismatch'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key that declared the export for this contract */
+  exporter: string
+  /** Story key that declared the import for this contract (null if no importer found) */
+  importer: string | null
+  /** TypeScript interface or Zod schema name (e.g., "JudgeResult") */
+  contractName: string
+  /** Human-readable description of the mismatch (e.g., missing file, type error) */
+  mismatchDescription: string
+}
+
+// ---------------------------------------------------------------------------
 // PipelineEvent discriminated union
 // ---------------------------------------------------------------------------
 
@@ -567,6 +592,7 @@ export type PipelineEvent =
   | PipelineStartEvent
   | PipelineCompleteEvent
   | PipelinePreFlightFailureEvent
+  | PipelineContractMismatchEvent
   | StoryPhaseEvent
   | StoryDoneEvent
   | StoryEscalationEvent
@@ -614,6 +640,8 @@ export const EVENT_TYPE_NAMES = [
   'pipeline:complete',
   // Story 25-2: pre-flight build gate failure (pipeline-level abort)
   'pipeline:pre-flight-failure',
+  // Story 25-6: post-sprint contract verification mismatch (non-blocking warning)
+  'pipeline:contract-mismatch',
   'story:phase',
   'story:done',
   'story:escalation',

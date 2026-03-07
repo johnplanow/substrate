@@ -16,7 +16,8 @@ import { readFile } from 'node:fs/promises'
 import type { WorkflowDeps, TestPlanParams, TestPlanResult } from './types.js'
 import { TestPlanResultSchema } from './schemas.js'
 import { assemblePrompt } from './prompt-assembler.js'
-import { createDecision } from '../../persistence/queries/decisions.js'
+import { createDecision, getDecisionsByPhase } from '../../persistence/queries/decisions.js'
+import type { Decision } from '../../persistence/queries/decisions.js'
 import { TEST_PLAN } from '../../persistence/schemas/operational.js'
 import { createLogger } from '../../utils/logger.js'
 import { getTokenCeiling } from './token-ceiling.js'
@@ -90,12 +91,21 @@ export async function runTestPlan(
   }
 
   // ---------------------------------------------------------------------------
-  // Step 3: Assemble prompt with token budget enforcement
+  // Step 3: Query architecture constraints from decision store (optional context)
+  // ---------------------------------------------------------------------------
+
+  const archConstraintsContent = getArchConstraints(deps)
+
+  // ---------------------------------------------------------------------------
+  // Step 4: Assemble prompt with token budget enforcement
   // ---------------------------------------------------------------------------
 
   const { prompt, tokenCount, truncated } = assemblePrompt(
     template,
-    [{ name: 'story_content', content: storyContent, priority: 'required' }],
+    [
+      { name: 'story_content', content: storyContent, priority: 'required' },
+      { name: 'architecture_constraints', content: archConstraintsContent, priority: 'optional' },
+    ],
     TOKEN_CEILING,
   )
 
@@ -105,7 +115,7 @@ export async function runTestPlan(
   )
 
   // ---------------------------------------------------------------------------
-  // Step 4: Dispatch to agent
+  // Step 5: Dispatch to agent
   // ---------------------------------------------------------------------------
 
   let dispatchResult
@@ -218,5 +228,25 @@ function makeTestPlanFailureResult(error: string): TestPlanResult {
     coverage_notes: '',
     error,
     tokenUsage: { input: 0, output: 0 },
+  }
+}
+
+/**
+ * Retrieve architecture constraints from the decision store.
+ * Looks for decisions with phase='solutioning', category='architecture'.
+ * Returns empty string if none found or on error (graceful degradation).
+ */
+function getArchConstraints(deps: WorkflowDeps): string {
+  try {
+    const decisions = getDecisionsByPhase(deps.db, 'solutioning')
+    const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
+    if (constraints.length === 0) return ''
+    return constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
+  } catch (err) {
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      'Failed to retrieve architecture constraints for test-plan — proceeding without them',
+    )
+    return ''
   }
 }

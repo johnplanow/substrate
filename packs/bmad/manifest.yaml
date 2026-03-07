@@ -221,6 +221,8 @@ prompts:
   refine-artifact: prompts/refine-artifact.md
   # Readiness check prompt (Story 16-6)
   readiness-check: prompts/readiness-check.md
+  # Test plan prompt (Story 25-7)
+  test-plan: prompts/test-plan.md
 
 constraints:
   create-story: constraints/create-story.yaml

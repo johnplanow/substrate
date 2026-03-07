@@ -156,4 +156,28 @@ export interface OrchestratorStatus {
    * Always <= maxConcurrency and <= total group count.
    */
   maxConcurrentActual?: number
+  /**
+   * Contract verification warnings from the post-sprint gate (Story 25-6).
+   * Present when one or more declared export/import contracts failed verification.
+   * Failures are non-blocking — stories already completed.
+   */
+  contractMismatches?: ContractMismatch[]
+}
+
+// ---------------------------------------------------------------------------
+// ContractMismatch
+// ---------------------------------------------------------------------------
+
+/**
+ * A single contract verification failure from the post-sprint gate (Story 25-6).
+ */
+export interface ContractMismatch {
+  /** Story key that declared the export */
+  exporter: string
+  /** Story key that declared the import (null if no importer found) */
+  importer: string | null
+  /** Contract name (TypeScript interface or Zod schema name) */
+  contractName: string
+  /** Human-readable description of the mismatch */
+  mismatchDescription: string
 }

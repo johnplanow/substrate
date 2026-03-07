@@ -416,6 +416,22 @@ export interface OrchestratorEvents {
   }
 
   // -------------------------------------------------------------------------
+  // Post-sprint contract verification events (Story 25-6)
+  // -------------------------------------------------------------------------
+
+  /** Contract verification found a mismatch between declared export/import contracts */
+  'pipeline:contract-mismatch': {
+    /** Story key that declared the export for this contract */
+    exporter: string
+    /** Story key that declared the import for this contract (null if no importer found) */
+    importer: string | null
+    /** TypeScript interface or Zod schema name (e.g., "JudgeResult") */
+    contractName: string
+    /** Human-readable description of the mismatch */
+    mismatchDescription: string
+  }
+
+  // -------------------------------------------------------------------------
   // Build verification gate events (Story 24-2)
   // -------------------------------------------------------------------------
 

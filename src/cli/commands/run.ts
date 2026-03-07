@@ -864,6 +864,18 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           output: payload.output,
         })
       })
+
+      // Post-sprint contract verification mismatch (Story 25-6): non-blocking warning
+      eventBus.on('pipeline:contract-mismatch', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'pipeline:contract-mismatch',
+          ts: new Date().toISOString(),
+          exporter: payload.exporter,
+          importer: payload.importer,
+          contractName: payload.contractName,
+          mismatchDescription: payload.mismatchDescription,
+        })
+      })
     }
 
     // Create orchestrator

@@ -49,6 +49,8 @@ import { runBuildVerification, checkGitDiffFiles } from '../agent-dispatch/dispa
 import { detectInterfaceChanges } from '../agent-dispatch/interface-change-detector.js'
 import { computeStoryComplexity, resolveFixStoryMaxTurns, logComplexityResult } from '../compiled-workflows/story-complexity.js'
 import { parseInterfaceContracts } from '../compiled-workflows/interface-contracts.js'
+import { verifyContracts } from './contract-verifier.js'
+import type { ContractMismatch } from './types.js'
 
 // ---------------------------------------------------------------------------
 // OrchestratorDeps
@@ -171,6 +173,9 @@ export function createImplementationOrchestrator(
 
   // -- actual peak concurrency observed during runWithConcurrency --
   let _maxConcurrentActual = 0
+
+  // -- post-sprint contract verification mismatches (Story 25-6) --
+  let _contractMismatches: ContractMismatch[] | undefined
 
   // -- memory pressure backoff (Story 23-8, AC1) --
   // Exponential backoff intervals (ms) before retrying a story dispatch
@@ -406,6 +411,9 @@ export function createImplementationOrchestrator(
     }
     if (_maxConcurrentActual > 0) {
       status.maxConcurrentActual = _maxConcurrentActual
+    }
+    if (_contractMismatches !== undefined && _contractMismatches.length > 0) {
+      status.contractMismatches = [..._contractMismatches]
     }
     return status
   }
@@ -1940,6 +1948,34 @@ export function createImplementationOrchestrator(
     stopHeartbeat()
     _state = 'COMPLETE'
     _completedAt = new Date().toISOString()
+
+    // Story 25-6: Post-sprint contract verification pass.
+    // Runs after all stories reach terminal state, before emitting orchestrator:complete.
+    // Query all interface-contract decisions and verify export/import pairs.
+    if (projectRoot !== undefined && contractDeclarations.length > 0) {
+      try {
+        const mismatches = verifyContracts(contractDeclarations, projectRoot)
+        if (mismatches.length > 0) {
+          _contractMismatches = mismatches
+          for (const mismatch of mismatches) {
+            eventBus.emit('pipeline:contract-mismatch', {
+              exporter: mismatch.exporter,
+              importer: mismatch.importer,
+              contractName: mismatch.contractName,
+              mismatchDescription: mismatch.mismatchDescription,
+            })
+          }
+          logger.warn(
+            { mismatchCount: mismatches.length, mismatches },
+            'Post-sprint contract verification found mismatches — manual review required',
+          )
+        } else {
+          logger.info('Post-sprint contract verification passed — all declared contracts satisfied')
+        }
+      } catch (err) {
+        logger.error({ err }, 'Post-sprint contract verification threw an error — skipping')
+      }
+    }
 
     // Tally results
     let completed = 0
