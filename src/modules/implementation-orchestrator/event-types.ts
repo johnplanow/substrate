@@ -203,6 +203,32 @@ export interface StoryInterfaceChangeWarningEvent {
 }
 
 // ---------------------------------------------------------------------------
+// StoryMetricsEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when a story reaches a terminal state (COMPLETE, ESCALATED, or
+ * max retries), providing a metrics snapshot for observability (Story 24-4).
+ */
+export interface StoryMetricsEvent {
+  type: 'story:metrics'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key (e.g., "24-4") */
+  storyKey: string
+  /** Total wall-clock duration in milliseconds */
+  wallClockMs: number
+  /** Per-phase duration in milliseconds: phase name → ms */
+  phaseBreakdown: Record<string, number>
+  /** Token counts from the adapter (accumulated across all dispatches) */
+  tokens: { input: number; output: number }
+  /** Number of code-review cycles completed */
+  reviewCycles: number
+  /** Total number of agent dispatches for this story */
+  dispatches: number
+}
+
+// ---------------------------------------------------------------------------
 // StoryWarnEvent
 // ---------------------------------------------------------------------------
 
@@ -533,6 +559,7 @@ export type PipelineEvent =
   | StoryBuildVerificationFailedEvent
   | StoryBuildVerificationPassedEvent
   | StoryInterfaceChangeWarningEvent
+  | StoryMetricsEvent
   | SupervisorPollEvent
   | SupervisorKillEvent
   | SupervisorRestartEvent
@@ -579,6 +606,8 @@ export const EVENT_TYPE_NAMES = [
   'story:build-verification-passed',
   // Story 24-3: interface change warning (non-blocking)
   'story:interface-change-warning',
+  // Story 24-4: per-story metrics snapshot on terminal state
+  'story:metrics',
   'supervisor:poll',
   'supervisor:kill',
   'supervisor:restart',

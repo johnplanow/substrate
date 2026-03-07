@@ -23,6 +23,7 @@ import {
   getTokenUsageSummary,
 } from '../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../persistence/queries/decisions.js'
+import { getStoryMetricsForRun } from '../../persistence/queries/metrics.js'
 import { createLogger } from '../../utils/logger.js'
 import type { OutputFormat } from './pipeline-shared.js'
 import {
@@ -30,6 +31,7 @@ import {
   formatTokenTelemetry,
   buildPipelineStatusOutput,
   formatPipelineStatusHuman,
+  parseDbTimestampAsUtc,
 } from './pipeline-shared.js'
 
 const logger = createLogger('status-cmd')
@@ -116,8 +118,72 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
     if (outputFormat === 'json') {
       // AC5: output the exact schema defined in the story
       const statusOutput = buildPipelineStatusOutput(run, tokenSummary, decisionsCount, storiesCount)
+
+      // Story 24-4 (AC5, AC6): augment with per-story metrics and pipeline summary
+      const storyMetricsRows = getStoryMetricsForRun(db, run.id)
+
+      // Per-story v2 metrics (wall_clock_ms, phase_breakdown, tokens, review_cycles, dispatches)
+      const storyMetricsV2 = storyMetricsRows.map((row) => {
+        const phaseBreakdown: Record<string, number> = {}
+        try {
+          if (row.phase_durations_json) {
+            const parsed = JSON.parse(row.phase_durations_json) as Record<string, number>
+            for (const [phase, secs] of Object.entries(parsed)) {
+              phaseBreakdown[phase] = Math.round(secs * 1000)
+            }
+          }
+        } catch {
+          // ignore malformed JSON
+        }
+        return {
+          story_key: row.story_key,
+          result: row.result,
+          wall_clock_ms: Math.round((row.wall_clock_seconds ?? 0) * 1000),
+          phase_breakdown: phaseBreakdown,
+          tokens: { input: row.input_tokens ?? 0, output: row.output_tokens ?? 0 },
+          review_cycles: row.review_cycles ?? 0,
+          dispatches: row.dispatches ?? 0,
+        }
+      })
+
+      // Pipeline-level wall-clock derived from run timestamps
+      let pipelineWallClockMs = 0
+      try {
+        const createdAt = parseDbTimestampAsUtc(run.created_at)
+        const endTimestamp =
+          run.status === 'running' ? new Date() : parseDbTimestampAsUtc(run.updated_at)
+        pipelineWallClockMs = Math.max(0, endTimestamp.getTime() - createdAt.getTime())
+      } catch {
+        // ignore invalid timestamps
+      }
+
+      const totalReviewCycles = storyMetricsRows.reduce((sum, r) => sum + (r.review_cycles ?? 0), 0)
+      const totalInputTokens = storyMetricsRows.reduce((sum, r) => sum + (r.input_tokens ?? 0), 0)
+      const totalOutputTokens = storyMetricsRows.reduce((sum, r) => sum + (r.output_tokens ?? 0), 0)
+      const completedCount = storyMetricsRows.filter((r) => r.result === 'success').length
+      const storiesPerHour =
+        pipelineWallClockMs > 0
+          ? Math.round((completedCount / (pipelineWallClockMs / 3_600_000)) * 100) / 100
+          : 0
+      const totalCostUsd = storyMetricsRows.reduce((sum, r) => sum + (r.cost_usd ?? 0), 0)
+
+      // Build enhanced output: existing fields first, new metrics appended,
+      // cost_usd deprioritized (moved to end of pipeline_metrics per AC6)
+      const enhancedOutput = {
+        ...statusOutput,
+        story_metrics: storyMetricsV2,
+        pipeline_metrics: {
+          total_wall_clock_ms: pipelineWallClockMs,
+          total_review_cycles: totalReviewCycles,
+          total_input_tokens: totalInputTokens,
+          total_output_tokens: totalOutputTokens,
+          stories_per_hour: storiesPerHour,
+          cost_usd: totalCostUsd, // deprioritized per AC6
+        },
+      }
+
       process.stdout.write(
-        formatOutput(statusOutput, 'json', true) + '\n',
+        formatOutput(enhancedOutput, 'json', true) + '\n',
       )
     } else {
       // Check if this is a phase-level run (has phaseHistory) or legacy implementation-only run

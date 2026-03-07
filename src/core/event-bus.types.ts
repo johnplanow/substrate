@@ -431,4 +431,14 @@ export interface OrchestratorEvents {
     modifiedInterfaces: string[]
     potentiallyAffectedTests: string[]
   }
+
+  /** Per-story metrics snapshot emitted when a story reaches a terminal state (Story 24-4) */
+  'story:metrics': {
+    storyKey: string
+    wallClockMs: number
+    phaseBreakdown: Record<string, number>
+    tokens: { input: number; output: number }
+    reviewCycles: number
+    dispatches: number
+  }
 }

@@ -822,6 +822,20 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           potentiallyAffectedTests: payload.potentiallyAffectedTests,
         })
       })
+
+      // Story metrics snapshot on terminal state (Story 24-4)
+      eventBus.on('story:metrics', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'story:metrics',
+          ts: new Date().toISOString(),
+          storyKey: payload.storyKey,
+          wallClockMs: payload.wallClockMs,
+          phaseBreakdown: payload.phaseBreakdown,
+          tokens: payload.tokens,
+          reviewCycles: payload.reviewCycles,
+          dispatches: payload.dispatches,
+        })
+      })
     }
 
     // Create orchestrator

@@ -188,12 +188,18 @@ export function createImplementationOrchestrator(
       const wallClockSeconds = startedAt
         ? Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000)
         : 0
+      // Compute wall-clock ms (higher precision than seconds) for event payload
+      const wallClockMs = startedAt
+        ? new Date(completedAt).getTime() - new Date(startedAt).getTime()
+        : 0
       const tokenAgg = aggregateTokenUsageForStory(db, config.pipelineRunId, storyKey)
+      // Capture phase durations JSON once so it can be reused for the event payload
+      const phaseDurationsJson = buildPhaseDurationsJson(storyKey)
       writeStoryMetrics(db, {
         run_id: config.pipelineRunId,
         story_key: storyKey,
         result,
-        phase_durations_json: buildPhaseDurationsJson(storyKey),
+        phase_durations_json: phaseDurationsJson,
         started_at: startedAt,
         completed_at: completedAt,
         wall_clock_seconds: wallClockSeconds,
@@ -222,6 +228,30 @@ export function createImplementationOrchestrator(
         })
       } catch (decisionErr) {
         logger.warn({ err: decisionErr, storyKey }, 'Failed to write story-metrics decision (best-effort)')
+      }
+      // Story 24-4 (AC8): emit story:metrics event for NDJSON consumers
+      try {
+        // Build per-phase breakdown in ms from raw timestamps (higher precision)
+        const phaseBreakdown: Record<string, number> = {}
+        const starts = _phaseStartMs.get(storyKey)
+        const ends = _phaseEndMs.get(storyKey)
+        if (starts) {
+          const nowMs = Date.now()
+          for (const [phase, startMs] of starts) {
+            const endMs = ends?.get(phase)
+            phaseBreakdown[phase] = endMs !== undefined ? endMs - startMs : nowMs - startMs
+          }
+        }
+        eventBus.emit('story:metrics', {
+          storyKey,
+          wallClockMs,
+          phaseBreakdown,
+          tokens: { input: tokenAgg.input, output: tokenAgg.output },
+          reviewCycles,
+          dispatches: _storyDispatches.get(storyKey) ?? 0,
+        })
+      } catch (emitErr) {
+        logger.warn({ err: emitErr, storyKey }, 'Failed to emit story:metrics event (best-effort)')
       }
     } catch (err) {
       logger.warn({ err, storyKey }, 'Failed to write story metrics (best-effort)')

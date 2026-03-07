@@ -346,6 +346,20 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'potentiallyAffectedTests', type: 'string[]', description: 'Test file paths (relative to project root) that reference the modified interface names.' },
     ],
   },
+  {
+    type: 'story:metrics',
+    description: 'Per-story metrics on terminal state.',
+    when: 'After terminal state (success/escalation/failure).',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'storyKey', type: 'string', description: 'Story key.' },
+      { name: 'wallClockMs', type: 'number', description: 'Wall-clock ms.' },
+      { name: 'phaseBreakdown', type: 'Record<string,number>', description: 'Phase→ms durations.' },
+      { name: 'tokens', type: '{input:number;output:number}', description: 'Token counts.' },
+      { name: 'reviewCycles', type: 'number', description: 'Review cycle count.' },
+      { name: 'dispatches', type: 'number', description: 'Dispatch count.' },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

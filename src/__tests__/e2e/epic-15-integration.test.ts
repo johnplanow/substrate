@@ -56,6 +56,7 @@ import type {
   StoryEscalationEvent,
   StoryWarnEvent,
   StoryLogEvent,
+  StoryMetricsEvent,
 } from '../../modules/implementation-orchestrator/event-types.js'
 import { createTuiApp, isTuiCapable, printNonTtyWarning } from '../../tui/index.js'
 import { PIPELINE_EVENT_METADATA } from '../../cli/commands/help-agent.js'
@@ -132,6 +133,19 @@ function makeLogEvent(key: string, msg: string): StoryLogEvent {
   return { type: 'story:log', ts: '', key, msg }
 }
 
+function makeMetricsEvent(key: string): StoryMetricsEvent {
+  return {
+    type: 'story:metrics',
+    ts: '',
+    storyKey: key,
+    wallClockMs: 42000,
+    phaseBreakdown: { dev: 30000, review: 12000 },
+    tokens: { input: 5000, output: 2000 },
+    reviewCycles: 1,
+    dispatches: 2,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Gap 1: createEventEmitter unit tests
 // ---------------------------------------------------------------------------
@@ -188,6 +202,7 @@ describe('createEventEmitter — unit (Gap 1)', () => {
       makeEscalationEvent('10-2', 'Too many issues', 3),
       makeWarnEvent('10-1', 'token limit warning'),
       makeLogEvent('10-1', 'progress message'),
+      makeMetricsEvent('10-1'),
       makeCompleteEvent(['10-1'], [], ['10-2']),
     ]
 
@@ -208,6 +223,28 @@ describe('createEventEmitter — unit (Gap 1)', () => {
 
     const lines = output().split('\n').filter((l) => l.trim() !== '')
     expect(lines).toHaveLength(3)
+  })
+
+  it('story:metrics event round-trips through NDJSON with all fields preserved', () => {
+    const { stream, output } = makeCapture()
+    const emitter = createEventEmitter(stream)
+
+    emitter.emit(makeMetricsEvent('24-4'))
+
+    const lines = output().split('\n').filter((l) => l.trim() !== '')
+    expect(lines).toHaveLength(1)
+
+    const parsed = JSON.parse(lines[0]!) as StoryMetricsEvent
+    expect(parsed.type).toBe('story:metrics')
+    expect(parsed.storyKey).toBe('24-4')
+    expect(parsed.wallClockMs).toBe(42000)
+    expect(parsed.phaseBreakdown).toEqual({ dev: 30000, review: 12000 })
+    expect(parsed.tokens).toEqual({ input: 5000, output: 2000 })
+    expect(parsed.reviewCycles).toBe(1)
+    expect(parsed.dispatches).toBe(2)
+    // ts is overwritten at emit time
+    expect(parsed.ts).not.toBe('')
+    expect(() => new Date(parsed.ts).toISOString()).not.toThrow()
   })
 
   it('swallows write errors — does not throw when stream.write throws synchronously', () => {
