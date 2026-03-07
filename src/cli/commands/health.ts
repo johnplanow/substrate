@@ -344,7 +344,7 @@ export async function getAutoHealthData(options: {
     }
 
     // Compute staleness — parse timestamp as UTC to avoid timezone shift
-    const updatedAt = parseDbTimestampAsUtc(run.updated_at)
+    const updatedAt = parseDbTimestampAsUtc(run.updated_at ?? '')
     const stalenessSeconds = Math.round((Date.now() - updatedAt.getTime()) / 1000)
 
     // Parse story state from token_usage_json
@@ -410,9 +410,9 @@ export async function getAutoHealthData(options: {
       verdict,
       run_id: run.id,
       status: run.status,
-      current_phase: run.current_phase,
+      current_phase: run.current_phase ?? null,
       staleness_seconds: stalenessSeconds,
-      last_activity: run.updated_at,
+      last_activity: run.updated_at ?? '',
       process: processInfo,
       stories: { active, completed, escalated, pending, details: storyDetails },
     }

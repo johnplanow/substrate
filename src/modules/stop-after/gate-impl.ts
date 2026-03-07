@@ -31,6 +31,7 @@ function countWords(text: string): number {
 
 /** Default descriptions of what each phase produces for the next phase */
 const NEXT_PHASE_DESCRIPTIONS: Record<PhaseName, string> = {
+  research: 'Analysis will consume the research findings to evaluate the product concept.',
   analysis: 'Planning will consume the product brief to define requirements and user stories.',
   planning:
     'Solutioning will consume the requirements and user stories to design the technical architecture.',

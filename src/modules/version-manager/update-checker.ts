@@ -6,6 +6,7 @@
  */
 
 import https from 'https'
+import type { IncomingMessage } from 'http'
 import * as semver from 'semver'
 
 // ---------------------------------------------------------------------------
@@ -16,7 +17,7 @@ import * as semver from 'semver'
  * Thrown when an update check fails due to network error, timeout, or bad response.
  */
 export class UpdateCheckError extends Error {
-  readonly name = 'UpdateCheckError'
+  override readonly name = 'UpdateCheckError'
 
   constructor(message: string) {
     super(message)
@@ -179,8 +180,6 @@ export class UpdateChecker {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-type IncomingMessage = Parameters<Parameters<typeof https.get>[1]>[0]
 
 function collectBody(
   res: IncomingMessage,

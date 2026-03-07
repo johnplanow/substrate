@@ -127,9 +127,9 @@ function collectExistingStoryKeys(projectRoot: string): Set<string> {
 
   if (!existsSync(artifactsDir)) return existing
 
-  let entries: ReturnType<typeof readdirSync>
+  let entries: string[]
   try {
-    entries = readdirSync(artifactsDir)
+    entries = readdirSync(artifactsDir, { encoding: 'utf-8' })
   } catch {
     return existing
   }
@@ -138,9 +138,8 @@ function collectExistingStoryKeys(projectRoot: string): Set<string> {
   const filePattern = /^(\d+-\d+)-/
 
   for (const entry of entries) {
-    const name = typeof entry === 'string' ? entry : entry.name
-    if (!name.endsWith('.md')) continue
-    const m = filePattern.exec(name)
+    if (!entry.endsWith('.md')) continue
+    const m = filePattern.exec(entry)
     if (m !== null && m[1] !== undefined) {
       existing.add(m[1])
     }

@@ -149,9 +149,9 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
       // Pipeline-level wall-clock derived from run timestamps
       let pipelineWallClockMs = 0
       try {
-        const createdAt = parseDbTimestampAsUtc(run.created_at)
+        const createdAt = parseDbTimestampAsUtc(run.created_at ?? '')
         const endTimestamp =
-          run.status === 'running' ? new Date() : parseDbTimestampAsUtc(run.updated_at)
+          run.status === 'running' ? new Date() : parseDbTimestampAsUtc(run.updated_at ?? '')
         pipelineWallClockMs = Math.max(0, endTimestamp.getTime() - createdAt.getTime())
       } catch {
         // ignore invalid timestamps

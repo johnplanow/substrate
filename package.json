@@ -54,6 +54,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "typecheck": "tsc --noEmit",
+    "typecheck:gate": "tsc --noEmit -p tsconfig.typecheck.json",
     "clean": "rm -rf dist",
     "substrate:dev": "node dist/cli/index.js"
   },

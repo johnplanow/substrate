@@ -435,7 +435,7 @@ export function createImplementationOrchestrator(
         token_usage_json: serialized,
       })
     } catch (err) {
-      logger.warn('Failed to persist orchestrator state', { err })
+      logger.warn({ err }, 'Failed to persist orchestrator state')
     }
   }
 
@@ -593,7 +593,7 @@ export function createImplementationOrchestrator(
    * exhausted retries the story is ESCALATED.
    */
   async function processStory(storyKey: string): Promise<void> {
-    logger.info('Processing story', { storyKey })
+    logger.info({ storyKey }, 'Processing story')
 
     // -- memory pressure pre-check (Story 23-8, AC1) --
     // Before starting any dispatch, verify memory is available. If pressured,
@@ -794,7 +794,7 @@ export function createImplementationOrchestrator(
     try {
       const testPlanResult = await runTestPlan(
         { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
-        { storyKey, storyFilePath: storyFilePath ?? '', pipelineRunId: config.pipelineRunId },
+        { storyKey, storyFilePath: storyFilePath ?? '', pipelineRunId: config.pipelineRunId ?? '' },
       )
       testPlanPhaseResult = testPlanResult.result
       if (testPlanResult.result === 'success') {
@@ -999,11 +999,11 @@ export function createImplementationOrchestrator(
           // Dev agent failed but may have produced code (common when agent
           // exhausts turns or exits non-zero after partial work). Proceed to
           // code review — the reviewer will assess actual code state.
-          logger.warn('Dev-story reported failure, proceeding to code review', {
+          logger.warn({
             storyKey,
             error: devResult.error,
             filesModified: devFilesModified.length,
-          })
+          }, 'Dev-story reported failure, proceeding to code review')
         }
       }
     } catch (err) {
@@ -1508,7 +1508,7 @@ export function createImplementationOrchestrator(
             fixPrompt = assembled.prompt
           } catch {
             fixPrompt = `Fix story ${storyKey}: verdict=${verdict}, minor fixes needed`
-            logger.warn('Failed to assemble auto-approve fix prompt, using fallback', { storyKey })
+            logger.warn({ storyKey }, 'Failed to assemble auto-approve fix prompt, using fallback')
           }
 
           const handle = dispatcher.dispatch<unknown>({
@@ -1531,10 +1531,10 @@ export function createImplementationOrchestrator(
           })
 
           if (fixResult.status === 'timeout') {
-            logger.warn('Auto-approve fix timed out — approving anyway (issues were minor)', { storyKey })
+            logger.warn({ storyKey }, 'Auto-approve fix timed out — approving anyway (issues were minor)')
           }
         } catch (err) {
-          logger.warn('Auto-approve fix dispatch failed — approving anyway (issues were minor)', { storyKey, err })
+          logger.warn({ storyKey, err }, 'Auto-approve fix dispatch failed — approving anyway (issues were minor)')
         }
 
         // Auto-approve: mark COMPLETE regardless of fix outcome (issues were minor)
@@ -1647,7 +1647,7 @@ export function createImplementationOrchestrator(
           fixPrompt = assembled.prompt
         } catch {
           fixPrompt = `Fix story ${storyKey}: verdict=${verdict}, taskType=${taskType}`
-          logger.warn('Failed to assemble fix prompt, using fallback', { storyKey, taskType })
+          logger.warn({ storyKey, taskType }, 'Failed to assemble fix prompt, using fallback')
         }
 
         incrementDispatches(storyKey)
@@ -1684,7 +1684,7 @@ export function createImplementationOrchestrator(
         })
 
         if (fixResult.status === 'timeout') {
-          logger.warn('Fix dispatch timed out — escalating story', { storyKey, taskType })
+          logger.warn({ storyKey, taskType }, 'Fix dispatch timed out — escalating story')
           endPhase(storyKey, 'code-review')
           updateStory(storyKey, {
             phase: 'ESCALATED' as StoryPhase,
@@ -1705,7 +1705,7 @@ export function createImplementationOrchestrator(
         if (fixResult.status === 'failed') {
           // Major rework failure is a strong escalation signal
           if (isMajorRework) {
-            logger.warn('Major rework dispatch failed — escalating story', { storyKey, exitCode: fixResult.exitCode })
+            logger.warn({ storyKey, exitCode: fixResult.exitCode }, 'Major rework dispatch failed — escalating story')
             endPhase(storyKey, 'code-review')
             updateStory(storyKey, {
               phase: 'ESCALATED' as StoryPhase,
@@ -1722,10 +1722,10 @@ export function createImplementationOrchestrator(
             persistState()
             return
           }
-          logger.warn('Fix dispatch failed', { storyKey, taskType, exitCode: fixResult.exitCode })
+          logger.warn({ storyKey, taskType, exitCode: fixResult.exitCode }, 'Fix dispatch failed')
         }
       } catch (err) {
-        logger.warn('Fix dispatch failed, continuing to next review', { storyKey, taskType, err })
+        logger.warn({ storyKey, taskType, err }, 'Fix dispatch failed, continuing to next review')
       }
 
       // Save current issues for scoped re-review in next cycle
@@ -1801,11 +1801,11 @@ export function createImplementationOrchestrator(
 
   async function run(storyKeys: string[]): Promise<OrchestratorStatus> {
     if (_state === 'RUNNING' || _state === 'PAUSED') {
-      logger.warn('run() called while orchestrator is already running or paused — ignoring', { state: _state })
+      logger.warn({ state: _state }, 'run() called while orchestrator is already running or paused — ignoring')
       return getStatus()
     }
     if (_state === 'COMPLETE') {
-      logger.warn('run() called on a COMPLETE orchestrator — ignoring', { state: _state })
+      logger.warn({ state: _state }, 'run() called on a COMPLETE orchestrator — ignoring')
       return getStatus()
     }
 
@@ -1886,12 +1886,12 @@ export function createImplementationOrchestrator(
       )
     }
 
-    logger.info('Orchestrator starting', {
+    logger.info({
       storyCount: storyKeys.length,
       groupCount: batches.reduce((sum, b) => sum + b.length, 0),
       batchCount: batches.length,
       maxConcurrency: config.maxConcurrency,
-    })
+    }, 'Orchestrator starting')
 
     // Pre-flight build gate (Story 25-2): verify project builds before dispatching any story.
     // Reuses runBuildVerification() from Story 24-2. Respects verifyCommand config (AC3) and
@@ -1940,7 +1940,7 @@ export function createImplementationOrchestrator(
       _state = 'FAILED'
       _completedAt = new Date().toISOString()
       persistState()
-      logger.error('Orchestrator failed with unhandled error', { err })
+      logger.error({ err }, 'Orchestrator failed with unhandled error')
       return getStatus()
     }
 

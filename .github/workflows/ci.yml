@@ -31,7 +31,10 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Type check
+      - name: Type check (gate)
+        run: npm run typecheck:gate
+
+      - name: Type check (strict)
         run: npm run typecheck
         continue-on-error: true
 
@@ -40,8 +43,7 @@ jobs:
         continue-on-error: true
 
       - name: Run tests
-        run: npx vitest run
-        continue-on-error: true
+        run: npm test
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

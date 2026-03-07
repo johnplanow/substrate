@@ -927,7 +927,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // AC1 (Story 17-2): Write run-level metrics to DB on pipeline terminal state
     try {
       const runEndMs = Date.now()
-      const runStartMs = parseDbTimestampAsUtc(pipelineRun.created_at).getTime()
+      const runStartMs = parseDbTimestampAsUtc(pipelineRun.created_at ?? '').getTime()
       const tokenAgg = aggregateTokenUsageForRun(db, pipelineRun.id)
       const storyMetrics = getStoryMetricsForRun(db, pipelineRun.id)
       const totalReviewCycles = storyMetrics.reduce((sum, m) => sum + (m.review_cycles ?? 0), 0)
@@ -938,7 +938,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         run_id: pipelineRun.id,
         methodology: pack.manifest.name,
         status: (failedKeys.length > 0 || escalatedKeys.length > 0) ? 'failed' : 'completed',
-        started_at: pipelineRun.created_at,
+        started_at: pipelineRun.created_at ?? '',
         completed_at: new Date().toISOString(),
         wall_clock_seconds: Math.round((runEndMs - runStartMs) / 1000),
         total_input_tokens: tokenAgg.input,

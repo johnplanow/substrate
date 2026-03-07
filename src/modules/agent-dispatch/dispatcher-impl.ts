@@ -215,7 +215,7 @@ export class DispatcherImpl implements Dispatcher {
 
   dispatch<T>(request: DispatchRequest<T>): DispatchHandle & { result: Promise<DispatchResult<T>> } {
     if (this._shuttingDown) {
-      const handle = new MutableDispatchHandle(randomUUID(), 'failed', async () => {})
+      const handle = new MutableDispatchHandle(randomUUID(), 'queued', async () => {})
       handle.status = 'failed'
       return Object.assign(handle, {
         result: Promise.reject(new DispatcherShuttingDownError()) as Promise<DispatchResult<T>>,

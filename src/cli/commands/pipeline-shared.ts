@@ -411,9 +411,9 @@ export function buildPipelineStatusOutput(
     decisions_count: decisionsCount,
     stories_count: derivedStoriesCount,
     stories_completed: derivedStoriesCompleted,
-    last_activity: run.updated_at,
-    staleness_seconds: Math.round((Date.now() - parseDbTimestampAsUtc(run.updated_at).getTime()) / 1000),
-    last_event_ts: run.updated_at,
+    last_activity: run.updated_at ?? '',
+    staleness_seconds: Math.round((Date.now() - parseDbTimestampAsUtc(run.updated_at ?? '').getTime()) / 1000),
+    last_event_ts: run.updated_at ?? '',
     active_dispatches: activeDispatches,
     ...(storiesSummary !== undefined ? { stories: storiesSummary } : {}),
   }

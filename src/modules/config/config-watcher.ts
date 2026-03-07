@@ -119,7 +119,7 @@ export function createConfigWatcher(options: ConfigWatcherOptions): ConfigWatche
           const parsed = yaml.load(raw)
           const result = SubstrateConfigSchema.safeParse(parsed)
           if (!result.success) {
-            const message = result.error.errors
+            const message = result.error.issues
               .map((e) => `${e.path.join('.')}: ${e.message}`)
               .join('; ')
             const err = new Error(`Config validation failed: ${message}. Continuing with previous config.`)

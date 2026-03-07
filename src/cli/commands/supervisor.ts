@@ -11,7 +11,6 @@ import type { Command } from 'commander'
 import { join, resolve } from 'path'
 import { existsSync } from 'fs'
 import type { OutputFormat } from './pipeline-shared.js'
-import type { PipelineEvent } from '../../modules/implementation-orchestrator/event-types.js'
 import type { PipelineHealthOutput } from './health.js'
 import { getAutoHealthData, getAllDescendantPids } from './health.js'
 import type { ResumeOptions } from './resume.js'
@@ -135,7 +134,7 @@ function defaultSupervisorDeps(): SupervisorDeps {
             const dbPath = join(dbRoot, '.substrate', 'substrate.db')
             cachedDbWrapper = new DatabaseWrapper(dbPath)
           }
-          incrementRunRestarts(cachedDbWrapper.getDb(), runId)
+          incrementRunRestarts(cachedDbWrapper.db, runId)
         } catch {
           // Best-effort — never block the supervisor
           try { cachedDbWrapper?.close() } catch { /* ignore close errors */ }
@@ -489,7 +488,7 @@ export async function runSupervisorAction(
   let state: ProjectCycleState = { projectRoot, runId, restartCount: 0 }
   const startTime = Date.now()
 
-  function emitEvent(event: Omit<PipelineEvent, 'ts'> & Record<string, unknown>): void {
+  function emitEvent(event: Record<string, unknown>): void {
     if (outputFormat === 'json') {
       const stamped = { ...event, ts: new Date().toISOString() }
       process.stdout.write(JSON.stringify(stamped) + '\n')
@@ -616,7 +615,7 @@ export async function runSupervisorAction(
                     projectRoot: opts.projectRoot,
                   })
                   const latestRun = getLatest(expDb)
-                  const newRunId = latestRun?.run_id ?? `experiment-${Date.now()}`
+                  const newRunId = latestRun?.id ?? `experiment-${Date.now()}`
                   return { runId: newRunId, exitCode }
                 }
 
@@ -733,7 +732,7 @@ export async function runMultiProjectSupervisor(
   const projectExitCodes = new Map<string, number>()
   const startTime = Date.now()
 
-  function emitEvent(event: Omit<PipelineEvent, 'ts'> & Record<string, unknown>): void {
+  function emitEvent(event: Record<string, unknown>): void {
     if (outputFormat === 'json') {
       const stamped = { ...event, ts: new Date().toISOString() }
       process.stdout.write(JSON.stringify(stamped) + '\n')
