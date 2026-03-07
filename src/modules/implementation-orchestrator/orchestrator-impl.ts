@@ -1164,6 +1164,7 @@ export function createImplementationOrchestrator(
 
       let verdict: string
       let issueList: unknown[] = []
+      let reviewResult: Awaited<ReturnType<typeof runCodeReview>> | undefined
 
       try {
         // Batched review: when decomposition produced multiple batches and this is
@@ -1171,8 +1172,6 @@ export function createImplementationOrchestrator(
         // sizes manageable for the headless reviewer. Re-reviews after fixes always
         // review all files since fixes may cross batch boundaries.
         const useBatchedReview = batchFileGroups.length > 1 && previousIssueList.length === 0
-
-        let reviewResult: Awaited<ReturnType<typeof runCodeReview>>
 
         if (useBatchedReview) {
           // Per-batch reviews — aggregate worst verdict + union issues
