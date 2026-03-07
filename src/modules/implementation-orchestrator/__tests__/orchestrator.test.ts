@@ -1508,13 +1508,15 @@ describe('createImplementationOrchestrator', () => {
       mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
       mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
 
-      // Override the default "passed" mock to simulate build failure
-      mockRunBuildVerification.mockReturnValueOnce({
-        status: 'failed',
-        exitCode: 1,
-        reason: 'build-verification-failed',
-        output: 'error TS2305: Module has no exported member "MissingSchema"',
-      })
+      // Pre-flight passes, then post-dev gate returns failure
+      mockRunBuildVerification
+        .mockReturnValueOnce({ status: 'passed', exitCode: 0 })
+        .mockReturnValueOnce({
+          status: 'failed',
+          exitCode: 1,
+          reason: 'build-verification-failed',
+          output: 'error TS2305: Module has no exported member "MissingSchema"',
+        })
 
       const orchestrator = createImplementationOrchestrator({
         db, pack, contextCompiler, dispatcher, eventBus, config,
@@ -1533,12 +1535,15 @@ describe('createImplementationOrchestrator', () => {
       mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
       mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
 
-      mockRunBuildVerification.mockReturnValueOnce({
-        status: 'failed',
-        exitCode: 1,
-        reason: 'build-verification-failed',
-        output: 'Cannot find module "missing-dep"',
-      })
+      // Pre-flight passes, then post-dev gate returns failure
+      mockRunBuildVerification
+        .mockReturnValueOnce({ status: 'passed', exitCode: 0 })
+        .mockReturnValueOnce({
+          status: 'failed',
+          exitCode: 1,
+          reason: 'build-verification-failed',
+          output: 'Cannot find module "missing-dep"',
+        })
 
       const orchestrator = createImplementationOrchestrator({
         db, pack, contextCompiler, dispatcher, eventBus, config,
@@ -1560,12 +1565,15 @@ describe('createImplementationOrchestrator', () => {
       mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
       mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
 
-      mockRunBuildVerification.mockReturnValueOnce({
-        status: 'timeout',
-        exitCode: -1,
-        reason: 'build-verification-timeout',
-        output: '',
-      })
+      // Pre-flight passes, then post-dev gate returns timeout
+      mockRunBuildVerification
+        .mockReturnValueOnce({ status: 'passed', exitCode: 0 })
+        .mockReturnValueOnce({
+          status: 'timeout',
+          exitCode: -1,
+          reason: 'build-verification-timeout',
+          output: '',
+        })
 
       const orchestrator = createImplementationOrchestrator({
         db, pack, contextCompiler, dispatcher, eventBus, config,
@@ -1582,12 +1590,15 @@ describe('createImplementationOrchestrator', () => {
       mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
       mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
 
-      mockRunBuildVerification.mockReturnValueOnce({
-        status: 'timeout',
-        exitCode: -1,
-        reason: 'build-verification-timeout',
-        output: 'Process timed out',
-      })
+      // Pre-flight passes, then post-dev gate returns timeout
+      mockRunBuildVerification
+        .mockReturnValueOnce({ status: 'passed', exitCode: 0 })
+        .mockReturnValueOnce({
+          status: 'timeout',
+          exitCode: -1,
+          reason: 'build-verification-timeout',
+          output: 'Process timed out',
+        })
 
       const orchestrator = createImplementationOrchestrator({
         db, pack, contextCompiler, dispatcher, eventBus, config,
@@ -1610,12 +1621,15 @@ describe('createImplementationOrchestrator', () => {
       mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
 
       const longOutput = 'x'.repeat(3000)
-      mockRunBuildVerification.mockReturnValueOnce({
-        status: 'failed',
-        exitCode: 1,
-        reason: 'build-verification-failed',
-        output: longOutput,
-      })
+      // Pre-flight passes, then post-dev gate returns failure with long output
+      mockRunBuildVerification
+        .mockReturnValueOnce({ status: 'passed', exitCode: 0 })
+        .mockReturnValueOnce({
+          status: 'failed',
+          exitCode: 1,
+          reason: 'build-verification-failed',
+          output: longOutput,
+        })
 
       const orchestrator = createImplementationOrchestrator({
         db, pack, contextCompiler, dispatcher, eventBus, config,

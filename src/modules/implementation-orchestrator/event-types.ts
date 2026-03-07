@@ -144,6 +144,24 @@ export interface StoryZeroDiffEscalationEvent {
 }
 
 // ---------------------------------------------------------------------------
+// PipelinePreFlightFailureEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the pre-flight build check fails before any story is dispatched (Story 25-2).
+ * Pipeline aborts immediately — no stories are processed.
+ */
+export interface PipelinePreFlightFailureEvent {
+  type: 'pipeline:pre-flight-failure'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Exit code from the build command (-1 for timeout) */
+  exitCode: number
+  /** Combined stdout+stderr output, truncated to 2000 chars */
+  output: string
+}
+
+// ---------------------------------------------------------------------------
 // StoryBuildVerificationFailedEvent
 // ---------------------------------------------------------------------------
 
@@ -548,6 +566,7 @@ export interface SupervisorExperimentErrorEvent {
 export type PipelineEvent =
   | PipelineStartEvent
   | PipelineCompleteEvent
+  | PipelinePreFlightFailureEvent
   | StoryPhaseEvent
   | StoryDoneEvent
   | StoryEscalationEvent
@@ -593,6 +612,8 @@ export type PipelineEvent =
 export const EVENT_TYPE_NAMES = [
   'pipeline:start',
   'pipeline:complete',
+  // Story 25-2: pre-flight build gate failure (pipeline-level abort)
+  'pipeline:pre-flight-failure',
   'story:phase',
   'story:done',
   'story:escalation',

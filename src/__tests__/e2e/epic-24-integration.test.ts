@@ -415,7 +415,7 @@ describe('Gap 3: Package manager detection through build verification', () => {
       contextCompiler: makeContextCompiler(),
       dispatcher: makeDispatcher(),
       eventBus,
-      config: defaultConfig(),
+      config: defaultConfig({ skipPreflight: true }),
     })
 
     const status = await orchestrator.run(['24-55'])

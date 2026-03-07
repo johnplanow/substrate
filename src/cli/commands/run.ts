@@ -127,6 +127,8 @@ export interface RunOptions {
   research?: boolean
   /** When true, skip the research phase even if enabled in the pack manifest */
   skipResearch?: boolean
+  /** When true, skip the pre-flight build check (Story 25-2) */
+  skipPreflight?: boolean
   /** Optional pre-initialized registry; if omitted, a new registry is created and discovered */
   registry?: AdapterRegistry
 }
@@ -148,6 +150,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     skipUx,
     research: researchFlag,
     skipResearch: skipResearchFlag,
+    skipPreflight,
     registry: injectedRegistry,
   } = options
 
@@ -273,6 +276,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(skipUx === true ? { skipUx: true } : {}),
       ...(researchFlag === true ? { research: true } : {}),
       ...(skipResearchFlag === true ? { skipResearch: true } : {}),
+      ...(skipPreflight === true ? { skipPreflight: true } : {}),
       ...(injectedRegistry !== undefined ? { registry: injectedRegistry } : {}),
     })
   }
@@ -850,6 +854,16 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           dispatches: payload.dispatches,
         })
       })
+
+      // Pre-flight build failure (Story 25-2): pipeline-level abort before any story dispatch
+      eventBus.on('pipeline:pre-flight-failure', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'pipeline:pre-flight-failure',
+          ts: new Date().toISOString(),
+          exitCode: payload.exitCode,
+          output: payload.output,
+        })
+      })
     }
 
     // Create orchestrator
@@ -865,6 +879,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         pipelineRunId: pipelineRun.id,
         // Only enable heartbeat/watchdog timer when --events mode is active (AC1/Issue 5)
         enableHeartbeat: eventsFlag === true,
+        // Skip pre-flight build check when --skip-preflight is set (Story 25-2)
+        skipPreflight: skipPreflight === true,
       },
       projectRoot,
       tokenCeilings,
@@ -1049,12 +1065,14 @@ export interface FullPipelineOptions {
   research?: boolean
   /** When true, skip research phase even if enabled in pack manifest */
   skipResearch?: boolean
+  /** When true, skip the pre-flight build check (Story 25-2) */
+  skipPreflight?: boolean
   /** Optional per-workflow token ceiling overrides from config (Story 25-1) */
   tokenCeilings?: TokenCeilings
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, registry: injectedRegistry, tokenCeilings } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, registry: injectedRegistry, tokenCeilings } =
     options
 
   // Ensure database directory
@@ -1349,6 +1367,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             maxConcurrency: concurrency,
             maxReviewCycles: 2,
             pipelineRunId: runId,
+            // Skip pre-flight build check when --skip-preflight is set (Story 25-2)
+            skipPreflight: skipPreflight === true,
           },
           projectRoot,
           tokenCeilings,
@@ -1565,6 +1585,7 @@ export function registerRunCommand(
     .option('--skip-ux', 'Skip the UX design phase even if enabled in the pack manifest')
     .option('--research', 'Enable the research phase even if not set in the pack manifest')
     .option('--skip-research', 'Skip the research phase even if enabled in the pack manifest')
+    .option('--skip-preflight', 'Skip the pre-flight build check (escape hatch for known-broken projects)')
     .action(
       async (opts: {
         pack: string
@@ -1583,6 +1604,7 @@ export function registerRunCommand(
         skipUx?: boolean
         research?: boolean
         skipResearch?: boolean
+        skipPreflight?: boolean
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -1624,6 +1646,7 @@ export function registerRunCommand(
           skipUx: opts.skipUx,
           research: opts.research,
           skipResearch: opts.skipResearch,
+          skipPreflight: opts.skipPreflight,
           registry,
         })
         process.exitCode = exitCode

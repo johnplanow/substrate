@@ -141,6 +141,9 @@ export type AcChecklistEntrySchemaOutput = z.infer<typeof AcChecklistEntrySchema
  *  - Any blocker → NEEDS_MAJOR_REWORK (security, data loss, architectural breakage)
  *  - Any major or minor issues → NEEDS_MINOR_FIXES (fixable by sonnet with guidance)
  *  - No issues → SHIP_IT
+ *
+ * Note: LGTM_WITH_NOTES is handled in the transform (not here) because it
+ * requires knowledge of the agent's original verdict.
  */
 function computeVerdict(
   issueList: Array<{ severity: 'blocker' | 'major' | 'minor' }>,
@@ -181,7 +184,7 @@ function computeVerdict(
  */
 export const CodeReviewResultSchema = z
   .object({
-    verdict: z.enum(['SHIP_IT', 'NEEDS_MINOR_FIXES', 'NEEDS_MAJOR_REWORK']),
+    verdict: z.enum(['SHIP_IT', 'NEEDS_MINOR_FIXES', 'NEEDS_MAJOR_REWORK', 'LGTM_WITH_NOTES']),
     issues: coerceNumber,
     issue_list: z.array(CodeReviewIssueSchema),
     ac_checklist: z.array(AcChecklistEntrySchema).default([]),
@@ -211,12 +214,22 @@ export const CodeReviewResultSchema = z
       }
     }
 
+    const computedVerdict = computeVerdict(augmentedIssueList)
+
+    // LGTM_WITH_NOTES: agent-advisory verdict — preserve it when there are no
+    // issues (otherwise the pipeline overrides to SHIP_IT). If the agent says
+    // LGTM_WITH_NOTES but issues exist, the issue-derived verdict takes over.
+    const finalVerdict: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK' | 'LGTM_WITH_NOTES' =
+      data.verdict === 'LGTM_WITH_NOTES' && computedVerdict === 'SHIP_IT'
+        ? 'LGTM_WITH_NOTES'
+        : computedVerdict
+
     return {
       ...data,
       issue_list: augmentedIssueList,
       issues: augmentedIssueList.length,
       agentVerdict: data.verdict,
-      verdict: computeVerdict(augmentedIssueList),
+      verdict: finalVerdict,
     }
   })
 

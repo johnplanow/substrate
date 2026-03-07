@@ -18,7 +18,7 @@ import { join, basename } from 'node:path'
 import { updatePipelineRun, getDecisionsByPhase, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
 import { writeStoryMetrics, aggregateTokenUsageForStory } from '../../persistence/queries/metrics.js'
-import { STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME, TEST_EXPANSION_FINDING } from '../../persistence/schemas/operational.js'
+import { STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME, TEST_EXPANSION_FINDING, ADVISORY_NOTES } from '../../persistence/schemas/operational.js'
 import { generateEscalationDiagnosis } from './escalation-diagnosis.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { DevStoryResultSchema } from '../compiled-workflows/schemas.js'
@@ -1130,12 +1130,12 @@ export function createImplementationOrchestrator(
         if (useBatchedReview) {
           // Per-batch reviews — aggregate worst verdict + union issues
           const allIssues: Array<{ severity: 'blocker' | 'major' | 'minor'; description: string; file?: string; line?: number }> = []
-          let worstVerdict: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK' = 'SHIP_IT'
+          let worstVerdict: 'SHIP_IT' | 'LGTM_WITH_NOTES' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK' = 'SHIP_IT'
           let aggregateTokens = { input: 0, output: 0 }
           let lastError: string | undefined
           let lastRawOutput: string | undefined
 
-          const verdictRank = { 'SHIP_IT': 0, 'NEEDS_MINOR_FIXES': 1, 'NEEDS_MAJOR_REWORK': 2 } as const
+          const verdictRank = { 'SHIP_IT': 0, 'LGTM_WITH_NOTES': 0.5, 'NEEDS_MINOR_FIXES': 1, 'NEEDS_MAJOR_REWORK': 2 } as const
 
           for (const group of batchFileGroups) {
             logger.info(
@@ -1207,6 +1207,7 @@ export function createImplementationOrchestrator(
         // truncated response). Either way, retry the review once before escalation.
         const isPhantomReview = reviewResult.dispatchFailed === true
           || (reviewResult.verdict !== 'SHIP_IT'
+            && reviewResult.verdict !== 'LGTM_WITH_NOTES'
             && (reviewResult.issue_list === undefined || reviewResult.issue_list.length === 0)
             && reviewResult.error !== undefined)
         if (isPhantomReview && !timeoutRetried) {
@@ -1317,18 +1318,38 @@ export function createImplementationOrchestrator(
         return
       }
 
-      if (verdict === 'SHIP_IT') {
+      if (verdict === 'SHIP_IT' || verdict === 'LGTM_WITH_NOTES') {
         endPhase(storyKey, 'code-review')
         updateStory(storyKey, {
           phase: 'COMPLETE' as StoryPhase,
           completedAt: new Date().toISOString(),
         })
-        writeStoryMetricsBestEffort(storyKey, 'success', reviewCycles + 1)
+        writeStoryMetricsBestEffort(storyKey, verdict, reviewCycles + 1)
         writeStoryOutcomeBestEffort(storyKey, 'complete', reviewCycles + 1)
         eventBus.emit('orchestrator:story-complete', { storyKey, reviewCycles })
         persistState()
 
-        // Post-SHIP_IT: run test expansion analysis (non-blocking — never alters verdict/state)
+        // LGTM_WITH_NOTES: persist advisory notes to decision store for learning loop
+        if (verdict === 'LGTM_WITH_NOTES' && reviewResult.notes && config.pipelineRunId) {
+          try {
+            createDecision(db, {
+              pipeline_run_id: config.pipelineRunId,
+              phase: 'implementation',
+              category: ADVISORY_NOTES,
+              key: `${storyKey}:${config.pipelineRunId}`,
+              value: JSON.stringify({ storyKey, notes: reviewResult.notes }),
+              rationale: `Advisory notes from LGTM_WITH_NOTES review of ${storyKey}`,
+            })
+            logger.info({ storyKey }, 'Advisory notes persisted to decision store')
+          } catch (advisoryErr) {
+            logger.warn(
+              { storyKey, error: advisoryErr instanceof Error ? advisoryErr.message : String(advisoryErr) },
+              'Failed to persist advisory notes (best-effort)',
+            )
+          }
+        }
+
+        // Post-SHIP_IT/LGTM_WITH_NOTES: run test expansion analysis (non-blocking — never alters verdict/state)
         try {
           const expansionResult = await runTestExpansion(
             { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
@@ -1477,7 +1498,7 @@ export function createImplementationOrchestrator(
           reviewCycles: finalReviewCycles,
           completedAt: new Date().toISOString(),
         })
-        writeStoryMetricsBestEffort(storyKey, 'success', finalReviewCycles)
+        writeStoryMetricsBestEffort(storyKey, verdict, finalReviewCycles)
         writeStoryOutcomeBestEffort(storyKey, 'complete', finalReviewCycles)
         eventBus.emit('orchestrator:story-complete', {
           storyKey,
@@ -1787,6 +1808,42 @@ export function createImplementationOrchestrator(
       groupCount: groups.length,
       maxConcurrency: config.maxConcurrency,
     })
+
+    // Pre-flight build gate (Story 25-2): verify project builds before dispatching any story.
+    // Reuses runBuildVerification() from Story 24-2. Respects verifyCommand config (AC3) and
+    // auto-detects the package manager (AC4). Skip when skipPreflight=true (AC5).
+    if (config.skipPreflight !== true) {
+      const preFlightResult = runBuildVerification({
+        verifyCommand: pack.manifest.verifyCommand,
+        verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
+        projectRoot: projectRoot ?? process.cwd(),
+      })
+
+      if (preFlightResult.status === 'failed' || preFlightResult.status === 'timeout') {
+        stopHeartbeat()
+        const truncatedOutput = (preFlightResult.output ?? '').slice(0, 2000)
+        const exitCode = preFlightResult.exitCode ?? 1
+
+        eventBus.emit('pipeline:pre-flight-failure', {
+          exitCode,
+          output: truncatedOutput,
+        })
+
+        logger.error(
+          { exitCode, reason: preFlightResult.reason },
+          'Pre-flight build check failed — aborting pipeline before any story dispatch',
+        )
+
+        _state = 'FAILED'
+        _completedAt = new Date().toISOString()
+        persistState()
+        return getStatus()
+      }
+
+      if (preFlightResult.status !== 'skipped') {
+        logger.info('Pre-flight build check passed')
+      }
+    }
 
     try {
       await runWithConcurrency(groups, config.maxConcurrency)

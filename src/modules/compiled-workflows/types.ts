@@ -168,9 +168,9 @@ export interface CodeReviewIssue {
  */
 export interface CodeReviewResult {
   /** Pipeline-computed verdict (derived from issue_list severities) */
-  verdict: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK'
+  verdict: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK' | 'LGTM_WITH_NOTES'
   /** Agent's original verdict before pipeline override (for logging) */
-  agentVerdict?: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK'
+  agentVerdict?: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK' | 'LGTM_WITH_NOTES'
   /** Total number of issues found */
   issues: number
   /** Detailed list of issues */

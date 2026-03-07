@@ -264,6 +264,69 @@ describe('CodeReviewResultSchema', () => {
       expect(result.data.agentVerdict).toBe('NEEDS_MAJOR_REWORK')
     }
   })
+
+  // ---------------------------------------------------------------------------
+  // LGTM_WITH_NOTES verdict (AC1)
+  // ---------------------------------------------------------------------------
+
+  it('accepts LGTM_WITH_NOTES as a valid verdict (AC1)', () => {
+    const result = CodeReviewResultSchema.safeParse({
+      verdict: 'LGTM_WITH_NOTES',
+      issues: 0,
+      issue_list: [],
+      notes: 'Consider extracting helper to a shared module — no action required.',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.verdict).toBe('LGTM_WITH_NOTES')
+      expect(result.data.agentVerdict).toBe('LGTM_WITH_NOTES')
+      expect(result.data.issues).toBe(0)
+      expect(result.data.notes).toBe('Consider extracting helper to a shared module — no action required.')
+    }
+  })
+
+  it('preserves LGTM_WITH_NOTES when issue_list is empty (AC1)', () => {
+    const result = CodeReviewResultSchema.safeParse({
+      verdict: 'LGTM_WITH_NOTES',
+      issues: 0,
+      issue_list: [],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.verdict).toBe('LGTM_WITH_NOTES')
+    }
+  })
+
+  it('overrides LGTM_WITH_NOTES to NEEDS_MINOR_FIXES when issues exist (AC1)', () => {
+    // If agent says LGTM_WITH_NOTES but has issues, pipeline overrides
+    const result = CodeReviewResultSchema.safeParse({
+      verdict: 'LGTM_WITH_NOTES',
+      issues: 1,
+      issue_list: [
+        { severity: 'minor', description: 'Missing JSDoc', file: 'src/a.ts' },
+      ],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.verdict).toBe('NEEDS_MINOR_FIXES')
+      expect(result.data.agentVerdict).toBe('LGTM_WITH_NOTES')
+    }
+  })
+
+  it('overrides LGTM_WITH_NOTES to NEEDS_MAJOR_REWORK when blocker exists (AC1)', () => {
+    const result = CodeReviewResultSchema.safeParse({
+      verdict: 'LGTM_WITH_NOTES',
+      issues: 1,
+      issue_list: [
+        { severity: 'blocker', description: 'Security hole', file: 'src/auth.ts' },
+      ],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.verdict).toBe('NEEDS_MAJOR_REWORK')
+      expect(result.data.agentVerdict).toBe('LGTM_WITH_NOTES')
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------

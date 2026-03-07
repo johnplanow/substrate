@@ -100,6 +100,11 @@ ac_checklist:
 **IMPORTANT**: `ac_checklist` must contain one entry for every AC found in the story. If the story has no parseable ACs (e.g. a refactoring story), `ac_checklist` may be an empty array.
 
 **Verdict rules:**
-- `SHIP_IT` — zero blocker/major issues (minor issues acceptable)
-- `NEEDS_MINOR_FIXES` — minor issues only, or 1-2 major with no blockers
+- `SHIP_IT` — zero issues of any kind
+- `LGTM_WITH_NOTES` — zero correctness/logic/security issues; only advisory or style observations that do not need to be fixed before shipping. Use this when you have optional suggestions but the code is production-ready as-is. Include your suggestions in the `notes` field.
+- `NEEDS_MINOR_FIXES` — one or more minor issues that should be fixed, or 1-2 major issues with no blockers
 - `NEEDS_MAJOR_REWORK` — any blocker issue, or 3+ major issues
+
+**LGTM_WITH_NOTES vs NEEDS_MINOR_FIXES:**
+- Use `LGTM_WITH_NOTES` when: all findings are purely advisory (naming preferences, optional refactors, docs suggestions) and the code ships safely without any changes
+- Use `NEEDS_MINOR_FIXES` when: any finding represents a real gap that should be corrected before the story is considered done (missing error handling, incomplete AC coverage, confusing logic)

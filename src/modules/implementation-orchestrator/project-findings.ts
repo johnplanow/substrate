@@ -8,7 +8,7 @@
 
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { getDecisionsByCategory } from '../../persistence/queries/decisions.js'
-import { OPERATIONAL_FINDING, STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME } from '../../persistence/schemas/operational.js'
+import { OPERATIONAL_FINDING, STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME, ADVISORY_NOTES } from '../../persistence/schemas/operational.js'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('project-findings')
@@ -28,9 +28,10 @@ export function getProjectFindings(db: BetterSqlite3Database): string {
     const operational = getDecisionsByCategory(db, OPERATIONAL_FINDING)
     const metrics = getDecisionsByCategory(db, STORY_METRICS)
     const diagnoses = getDecisionsByCategory(db, ESCALATION_DIAGNOSIS)
+    const advisoryNotes = getDecisionsByCategory(db, ADVISORY_NOTES)
 
     // No findings at all — return empty (AC5)
-    if (outcomes.length === 0 && operational.length === 0 && metrics.length === 0 && diagnoses.length === 0) {
+    if (outcomes.length === 0 && operational.length === 0 && metrics.length === 0 && diagnoses.length === 0 && advisoryNotes.length === 0) {
       return ''
     }
 
@@ -86,6 +87,22 @@ export function getProjectFindings(db: BetterSqlite3Database): string {
     const stalls = operational.filter((o) => o.key.startsWith('stall:'))
     if (stalls.length > 0) {
       sections.push(`**Prior stalls:** ${stalls.length} stall event(s) recorded`)
+    }
+
+    // Summarize advisory notes from LGTM_WITH_NOTES reviews
+    if (advisoryNotes.length > 0) {
+      sections.push('**Advisory notes from prior reviews (LGTM_WITH_NOTES):**')
+      for (const n of advisoryNotes.slice(-3)) {
+        try {
+          const val = JSON.parse(n.value)
+          const storyId = n.key.split(':')[0]
+          if (typeof val.notes === 'string' && val.notes.length > 0) {
+            sections.push(`- ${storyId}: ${val.notes}`)
+          }
+        } catch {
+          sections.push(`- ${n.key}: advisory notes available`)
+        }
+      }
     }
 
     if (sections.length === 0) {

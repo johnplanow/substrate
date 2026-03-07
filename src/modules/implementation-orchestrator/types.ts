@@ -80,6 +80,11 @@ export interface OrchestratorConfig {
    * Set to 0 in tests to avoid 2-second delays per story.
    */
   gcPauseMs?: number
+  /**
+   * When true, skip the pre-flight build check (Story 25-2).
+   * Escape hatch for known-broken projects. Pass `--skip-preflight` from CLI.
+   */
+  skipPreflight?: boolean
 }
 
 // ---------------------------------------------------------------------------

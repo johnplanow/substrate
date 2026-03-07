@@ -405,6 +405,17 @@ export interface OrchestratorEvents {
   }
 
   // -------------------------------------------------------------------------
+  // Pre-flight build gate events (Story 25-2)
+  // -------------------------------------------------------------------------
+
+  /** Pre-flight build check failed before any stories were dispatched */
+  'pipeline:pre-flight-failure': {
+    exitCode: number
+    /** Build output (stdout+stderr), truncated to 2000 chars */
+    output: string
+  }
+
+  // -------------------------------------------------------------------------
   // Build verification gate events (Story 24-2)
   // -------------------------------------------------------------------------
 

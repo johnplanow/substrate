@@ -306,6 +306,16 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     ],
   },
   {
+    type: 'pipeline:pre-flight-failure',
+    description: 'Pre-flight build check failed before any story was dispatched. Pipeline aborts immediately.',
+    when: 'When the build command exits with a non-zero code before the first story dispatch.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'exitCode', type: 'number', description: 'Exit code from the build command (-1 for timeout).' },
+      { name: 'output', type: 'string', description: 'Combined stdout+stderr from the build command (truncated to 2000 chars).' },
+    ],
+  },
+  {
     type: 'story:zero-diff-escalation',
     description: 'Dev-story reported COMPLETE but git diff shows no file changes (phantom completion).',
     when: 'After dev-story succeeds with zero file changes in working tree.',

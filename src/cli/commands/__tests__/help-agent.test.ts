@@ -67,6 +67,8 @@ describe('PIPELINE_EVENT_METADATA', () => {
     const expectedTypes = [
       'pipeline:start',
       'pipeline:complete',
+      // Story 25-2: pre-flight build gate failure
+      'pipeline:pre-flight-failure',
       'story:phase',
       'story:done',
       'story:escalation',

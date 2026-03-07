@@ -167,3 +167,18 @@ export const TEST_EXPANSION_FINDING = 'test-expansion-finding' as const
  * ```
  */
 export const TEST_PLAN = 'test-plan' as const
+
+/**
+ * Category for advisory notes persisted when a code review returns LGTM_WITH_NOTES.
+ *
+ * Key schema: "{storyKey}:{runId}"
+ *
+ * Value shape:
+ * ```json
+ * {
+ *   "storyKey": "25-3",
+ *   "notes": "Consider extracting the helper into a shared module for reuse."
+ * }
+ * ```
+ */
+export const ADVISORY_NOTES = 'advisory-notes' as const

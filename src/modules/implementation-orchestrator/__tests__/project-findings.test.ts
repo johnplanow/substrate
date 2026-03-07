@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
 import { getProjectFindings } from '../project-findings.js'
 import { createDecision } from '../../../persistence/queries/decisions.js'
-import { STORY_OUTCOME, ESCALATION_DIAGNOSIS, STORY_METRICS, OPERATIONAL_FINDING } from '../../../persistence/schemas/operational.js'
+import { STORY_OUTCOME, ESCALATION_DIAGNOSIS, STORY_METRICS, OPERATIONAL_FINDING, ADVISORY_NOTES } from '../../../persistence/schemas/operational.js'
 
 describe('getProjectFindings', () => {
   let db: Database.Database
@@ -108,5 +108,63 @@ describe('getProjectFindings', () => {
 
     const result = getProjectFindings(db)
     expect(result.length).toBeLessThanOrEqual(2000)
+  })
+
+  // ---------------------------------------------------------------------------
+  // Advisory notes (AC4)
+  // ---------------------------------------------------------------------------
+
+  it('includes advisory notes from LGTM_WITH_NOTES reviews in prior findings (AC4)', () => {
+    createDecision(db, {
+      pipeline_run_id: 'run-1',
+      phase: 'implementation',
+      category: ADVISORY_NOTES,
+      key: '25-3:run-1',
+      value: JSON.stringify({ storyKey: '25-3', notes: 'Consider extracting helper to shared module.' }),
+    })
+
+    const result = getProjectFindings(db)
+    expect(result).toContain('Advisory notes from prior reviews')
+    expect(result).toContain('25-3')
+    expect(result).toContain('Consider extracting helper to shared module.')
+  })
+
+  it('includes multiple advisory notes (limited to last 3) (AC4)', () => {
+    for (let i = 1; i <= 5; i++) {
+      createDecision(db, {
+        pipeline_run_id: 'run-1',
+        phase: 'implementation',
+        category: ADVISORY_NOTES,
+        key: `25-${i}:run-1`,
+        value: JSON.stringify({ storyKey: `25-${i}`, notes: `Advisory note for story 25-${i}` }),
+      })
+    }
+
+    const result = getProjectFindings(db)
+    expect(result).toContain('Advisory notes from prior reviews')
+    // Should include the last 3 (25-3, 25-4, 25-5) not the first 2
+    expect(result).toContain('25-3')
+    expect(result).toContain('25-4')
+    expect(result).toContain('25-5')
+  })
+
+  it('returns empty string when only advisory notes exist (graceful fallback)', () => {
+    // No data at all — should still return empty
+    const result = getProjectFindings(db)
+    expect(result).toBe('')
+  })
+
+  it('handles malformed advisory notes JSON gracefully (AC4)', () => {
+    createDecision(db, {
+      pipeline_run_id: 'run-1',
+      phase: 'implementation',
+      category: ADVISORY_NOTES,
+      key: '25-bad:run-1',
+      value: 'not-valid-json',
+    })
+
+    // Should not throw, returns a fallback string
+    const result = getProjectFindings(db)
+    expect(result).toContain('advisory notes available')
   })
 })
