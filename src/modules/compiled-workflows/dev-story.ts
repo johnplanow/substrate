@@ -24,6 +24,8 @@ import { getGitChangedFiles } from './git-helpers.js'
 import { createLogger } from '../../utils/logger.js'
 import type { ContextTemplate } from '../context-compiler/types.js'
 import { getProjectFindings } from '../implementation-orchestrator/project-findings.js'
+import { getTokenCeiling } from './token-ceiling.js'
+import { computeStoryComplexity, resolveDevStoryMaxTurns, logComplexityResult } from './story-complexity.js'
 
 const logger = createLogger('compiled-workflows:dev-story')
 
@@ -31,8 +33,7 @@ const logger = createLogger('compiled-workflows:dev-story')
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Hard token ceiling for the assembled dev-story prompt */
-const TOKEN_CEILING = 24_000
+// Token ceiling resolved at runtime via getTokenCeiling (see token-ceiling.ts)
 
 /** Default timeout for dev-story dispatches in milliseconds (30 min) */
 const DEFAULT_TIMEOUT_MS = 1_800_000
@@ -67,6 +68,13 @@ export async function runDevStory(
   const { storyKey, storyFilePath, taskScope, priorFiles } = params
 
   logger.info({ storyKey, storyFilePath }, 'Starting compiled dev-story workflow')
+
+  // Resolve token ceiling: config override takes priority over hardcoded default
+  const { ceiling: TOKEN_CEILING, source: tokenCeilingSource } = getTokenCeiling(
+    'dev-story',
+    deps.tokenCeilings,
+  )
+  logger.info({ workflow: 'dev-story', ceiling: TOKEN_CEILING, source: tokenCeilingSource }, 'Token ceiling resolved')
 
   // ---------------------------------------------------------------------------
   // Task 5: Register context template for dev-story with context compiler
@@ -138,6 +146,14 @@ export async function runDevStory(
     logger.error({ storyKey, storyFilePath }, 'Story file is empty')
     return makeFailureResult('story_file_empty')
   }
+
+  // ---------------------------------------------------------------------------
+  // Step 2b: Compute story complexity for dynamic turn limit scaling (Story 24-6)
+  // ---------------------------------------------------------------------------
+
+  const complexity = computeStoryComplexity(storyContent)
+  const resolvedMaxTurns = resolveDevStoryMaxTurns(complexity.complexityScore)
+  logComplexityResult(storyKey, complexity, resolvedMaxTurns)
 
   // ---------------------------------------------------------------------------
   // Step 3: Query decision store for test patterns (or use defaults)
@@ -272,6 +288,7 @@ export async function runDevStory(
       taskType: 'dev-story',
       timeout: DEFAULT_TIMEOUT_MS,
       outputSchema: DevStoryResultSchema,
+      maxTurns: resolvedMaxTurns,
       ...(deps.projectRoot !== undefined ? { workingDirectory: deps.projectRoot } : {}),
     })
 

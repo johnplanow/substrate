@@ -35,14 +35,16 @@ Adversarial code review. Find what's wrong. Validate story claims against actual
    - Whether each AC is actually implemented
    - Whether each `[x]` task is actually done
 
-3. **Execute adversarial review** across 5 dimensions:
+3. **Build AC Checklist** — For each acceptance criterion (AC1, AC2, ...) in the story, determine: `met` (code implements it), `not_met` (code does not implement it), or `partial` (partially implemented). Cite the specific file and function as evidence.
+
+4. **Execute adversarial review** across 5 dimensions:
    - **AC Validation** — Is each acceptance criterion implemented?
    - **AC-to-Test Traceability** — For each AC, identify the specific test file and test function that validates it. If an AC has no corresponding test evidence, flag it as a major issue: "AC{N} has no test evidence". A test "covers" an AC if it directly exercises the behavior described in the criterion — tangential tests do not count.
    - **Task Audit** — Tasks marked `[x]` that aren't done are BLOCKER issues
    - **Code Quality** — Security, error handling, edge cases, maintainability
    - **Test Quality** — Real assertions, not placeholders or skipped tests
 
-4. **Severity classification:**
+5. **Severity classification:**
    - **blocker** — Task `[x]` but not implemented; security vulnerability; data loss risk
    - **major** — AC not implemented; false claims; missing error handling on boundaries
    - **minor** — Style; documentation gap; naming; low-risk edge case
@@ -55,6 +57,13 @@ After completing the review, emit ONLY raw YAML — no markdown fences, no ``` w
 verdict: SHIP_IT
 issues: 0
 issue_list: []
+ac_checklist:
+  - ac_id: AC1
+    status: met
+    evidence: "Implemented in src/modules/foo/foo.ts:createFoo()"
+  - ac_id: AC2
+    status: met
+    evidence: "Covered by src/modules/foo/__tests__/foo.test.ts:it('AC2 ...')"
 ```
 
 Or if issues were found:
@@ -74,9 +83,21 @@ issue_list:
     description: "Variable name `d` should be more descriptive"
     file: "src/modules/foo/foo.ts"
     line: 15
+ac_checklist:
+  - ac_id: AC1
+    status: met
+    evidence: "Implemented in src/modules/foo/foo.ts:createFoo()"
+  - ac_id: AC2
+    status: not_met
+    evidence: "getConstraints() always returns [] — no implementation found"
+  - ac_id: AC3
+    status: partial
+    evidence: "Happy path implemented but error case missing in src/modules/foo/foo.ts:handleFoo()"
 ```
 
 **IMPORTANT**: `issues` must equal the number of items in `issue_list`.
+
+**IMPORTANT**: `ac_checklist` must contain one entry for every AC found in the story. If the story has no parseable ACs (e.g. a refactoring story), `ac_checklist` may be an empty array.
 
 **Verdict rules:**
 - `SHIP_IT` — zero blocker/major issues (minor issues acceptable)

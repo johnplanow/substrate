@@ -18,6 +18,7 @@ import {
   GlobalSettingsSchema,
   SubscriptionRoutingSchema,
   RateLimitSchema,
+  TokenCeilingsSchema,
 } from '../config-schema.js'
 import type { SubstrateConfig } from '../config-schema.js'
 import { DEFAULT_CONFIG } from '../defaults.js'
@@ -351,6 +352,91 @@ describe('PartialSubstrateConfigSchema', () => {
     const result = PartialSubstrateConfigSchema.safeParse({
       unknownField: 'nope',
     })
+    expect(result.success).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// TokenCeilingsSchema (Story 24-7)
+// ---------------------------------------------------------------------------
+
+describe('TokenCeilingsSchema', () => {
+  it('accepts empty object — all keys are optional', () => {
+    const result = TokenCeilingsSchema.safeParse({})
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a create-story override', () => {
+    const result = TokenCeilingsSchema.safeParse({ 'create-story': 15000 })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data['create-story']).toBe(15000)
+  })
+
+  it('accepts overrides for all workflow types', () => {
+    const result = TokenCeilingsSchema.safeParse({
+      'create-story': 10000,
+      'dev-story': 50000,
+      'code-review': 200000,
+      'test-plan': 16000,
+      'test-expansion': 40000,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a negative value (AC5)', () => {
+    const result = TokenCeilingsSchema.safeParse({ 'create-story': -500 })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects zero (AC5)', () => {
+    const result = TokenCeilingsSchema.safeParse({ 'dev-story': 0 })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a non-integer float (AC5)', () => {
+    const result = TokenCeilingsSchema.safeParse({ 'test-plan': 8000.5 })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a string value (AC5)', () => {
+    const result = TokenCeilingsSchema.safeParse({ 'create-story': 'abc' })
+    expect(result.success).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SubstrateConfigSchema — token_ceilings integration (Story 24-7)
+// ---------------------------------------------------------------------------
+
+describe('SubstrateConfigSchema — token_ceilings', () => {
+  it('accepts a config without token_ceilings (AC4: fallback to defaults)', () => {
+    const cfg = makeValidConfig()
+    const result = SubstrateConfigSchema.safeParse(cfg)
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a config with token_ceilings.create-story set to 15000 (AC1, AC2)', () => {
+    const cfg = makeValidConfig({ token_ceilings: { 'create-story': 15000 } })
+    const result = SubstrateConfigSchema.safeParse(cfg)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.token_ceilings?.['create-story']).toBe(15000)
+    }
+  })
+
+  it('accepts partial token_ceilings (AC3)', () => {
+    const cfg = makeValidConfig({ token_ceilings: { 'dev-story': 50000 } })
+    const result = SubstrateConfigSchema.safeParse(cfg)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.token_ceilings?.['dev-story']).toBe(50000)
+      expect(result.data.token_ceilings?.['create-story']).toBeUndefined()
+    }
+  })
+
+  it('rejects invalid token_ceilings value (AC5)', () => {
+    const cfg = makeValidConfig({ token_ceilings: { 'create-story': -500 } as never })
+    const result = SubstrateConfigSchema.safeParse(cfg)
     expect(result.success).toBe(false)
   })
 })

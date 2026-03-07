@@ -9,6 +9,7 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { MethodologyPack } from '../methodology-pack/types.js'
 import type { ContextCompiler } from '../context-compiler/context-compiler.js'
 import type { Dispatcher } from '../agent-dispatch/types.js'
+import type { TokenCeilings } from '../config/config-schema.js'
 
 // ---------------------------------------------------------------------------
 // WorkflowDeps — dependency injection container
@@ -29,6 +30,8 @@ export interface WorkflowDeps {
   dispatcher: Dispatcher
   /** Optional project root for file-based context fallback when decision store is empty */
   projectRoot?: string
+  /** Optional per-workflow token ceiling overrides from parsed config (Story 24-7) */
+  tokenCeilings?: TokenCeilings
 }
 
 // ---------------------------------------------------------------------------

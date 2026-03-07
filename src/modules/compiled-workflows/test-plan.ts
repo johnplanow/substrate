@@ -19,6 +19,7 @@ import { assemblePrompt } from './prompt-assembler.js'
 import { createDecision } from '../../persistence/queries/decisions.js'
 import { TEST_PLAN } from '../../persistence/schemas/operational.js'
 import { createLogger } from '../../utils/logger.js'
+import { getTokenCeiling } from './token-ceiling.js'
 
 const logger = createLogger('compiled-workflows:test-plan')
 
@@ -26,8 +27,7 @@ const logger = createLogger('compiled-workflows:test-plan')
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Hard token ceiling for the assembled test-plan prompt */
-const TOKEN_CEILING = 8_000
+// Token ceiling resolved at runtime via getTokenCeiling (see token-ceiling.ts)
 
 /** Default timeout for test-plan dispatches in milliseconds (5 min — lightweight call) */
 const DEFAULT_TIMEOUT_MS = 300_000
@@ -50,6 +50,13 @@ export async function runTestPlan(
   const { storyKey, storyFilePath, pipelineRunId } = params
 
   logger.info({ storyKey, storyFilePath }, 'Starting compiled test-plan workflow')
+
+  // Resolve token ceiling: config override takes priority over hardcoded default
+  const { ceiling: TOKEN_CEILING, source: tokenCeilingSource } = getTokenCeiling(
+    'test-plan',
+    deps.tokenCeilings,
+  )
+  logger.info({ workflow: 'test-plan', ceiling: TOKEN_CEILING, source: tokenCeilingSource }, 'Token ceiling resolved')
 
   // ---------------------------------------------------------------------------
   // Step 1: Retrieve compiled prompt template from methodology pack

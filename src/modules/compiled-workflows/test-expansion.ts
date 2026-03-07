@@ -21,17 +21,11 @@ import { assemblePrompt } from './prompt-assembler.js'
 import { TestExpansionResultSchema } from './schemas.js'
 import type { WorkflowDeps, TestExpansionParams, TestExpansionResult } from './types.js'
 import { getGitDiffForFiles, getGitDiffStatSummary } from './git-helpers.js'
+import { getTokenCeiling } from './token-ceiling.js'
 
 const logger = createLogger('compiled-workflows:test-expansion')
 
-// ---------------------------------------------------------------------------
-// Token budget
-// ---------------------------------------------------------------------------
-
-/**
- * Hard token ceiling for the assembled test-expansion prompt (20,000 tokens).
- */
-const TOKEN_CEILING = 20_000
+// Token ceiling resolved at runtime via getTokenCeiling (see token-ceiling.ts)
 
 // ---------------------------------------------------------------------------
 // Graceful fallback
@@ -76,6 +70,13 @@ export async function runTestExpansion(
   const cwd = workingDirectory ?? process.cwd()
 
   logger.debug({ storyKey, storyFilePath, cwd, pipelineRunId }, 'Starting test-expansion workflow')
+
+  // Resolve token ceiling: config override takes priority over hardcoded default
+  const { ceiling: TOKEN_CEILING, source: tokenCeilingSource } = getTokenCeiling(
+    'test-expansion',
+    deps.tokenCeilings,
+  )
+  logger.info({ workflow: 'test-expansion', ceiling: TOKEN_CEILING, source: tokenCeilingSource }, 'Token ceiling resolved')
 
   // Step 1: Get compiled prompt template
   let template: string

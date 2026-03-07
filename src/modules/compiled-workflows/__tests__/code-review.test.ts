@@ -50,6 +50,7 @@ vi.mock('../../../utils/logger.js', () => ({
 // ---------------------------------------------------------------------------
 
 import { runCodeReview } from '../code-review.js'
+import { CodeReviewResultSchema } from '../schemas.js'
 import type { WorkflowDeps, CodeReviewParams } from '../types.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
@@ -728,5 +729,298 @@ describe('runCodeReview', () => {
     })
 
     expect(mockGetGitDiffSummary).toHaveBeenCalledWith(process.cwd())
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC Checklist — schema-level tests (Story 24-5)
+// ---------------------------------------------------------------------------
+
+describe('CodeReviewResultSchema — ac_checklist', () => {
+  // -------------------------------------------------------------------------
+  // AC1, AC5, AC6: Schema field shape and defaults
+  // -------------------------------------------------------------------------
+
+  it('parses output with ac_checklist containing met/not_met/partial entries', () => {
+    const input = {
+      verdict: 'SHIP_IT',
+      issues: 0,
+      issue_list: [],
+      ac_checklist: [
+        { ac_id: 'AC1', status: 'met', evidence: 'Implemented in src/foo.ts:createFoo()' },
+        { ac_id: 'AC2', status: 'not_met', evidence: 'No implementation found' },
+        { ac_id: 'AC3', status: 'partial', evidence: 'Happy path only — error case missing' },
+      ],
+    }
+
+    const result = CodeReviewResultSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (!result.success) return
+
+    // The not_met AC2 entry causes a major issue injection, so SHIP_IT becomes NEEDS_MINOR_FIXES
+    expect(result.data.ac_checklist).toHaveLength(3)
+    expect(result.data.ac_checklist[0].ac_id).toBe('AC1')
+    expect(result.data.ac_checklist[0].status).toBe('met')
+    expect(result.data.ac_checklist[1].ac_id).toBe('AC2')
+    expect(result.data.ac_checklist[1].status).toBe('not_met')
+    expect(result.data.ac_checklist[2].ac_id).toBe('AC3')
+    expect(result.data.ac_checklist[2].status).toBe('partial')
+  })
+
+  it('parses output without ac_checklist field and defaults to empty array', () => {
+    const input = {
+      verdict: 'SHIP_IT',
+      issues: 0,
+      issue_list: [],
+    }
+
+    const result = CodeReviewResultSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (!result.success) return
+
+    expect(result.data.ac_checklist).toEqual([])
+    expect(result.data.verdict).toBe('SHIP_IT')
+  })
+
+  it('empty ac_checklist does not affect verdict — SHIP_IT remains SHIP_IT', () => {
+    const input = {
+      verdict: 'SHIP_IT',
+      issues: 0,
+      issue_list: [],
+      ac_checklist: [],
+    }
+
+    const result = CodeReviewResultSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (!result.success) return
+
+    expect(result.data.verdict).toBe('SHIP_IT')
+    expect(result.data.issue_list).toHaveLength(0)
+  })
+
+  // -------------------------------------------------------------------------
+  // AC3: Auto-injection of major issue for not_met ACs
+  // -------------------------------------------------------------------------
+
+  it('not_met entry auto-injects a major issue when not already present', () => {
+    const input = {
+      verdict: 'SHIP_IT',
+      issues: 0,
+      issue_list: [],
+      ac_checklist: [
+        { ac_id: 'AC2', status: 'not_met', evidence: 'getConstraints() always returns []' },
+      ],
+    }
+
+    const result = CodeReviewResultSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (!result.success) return
+
+    expect(result.data.issue_list).toHaveLength(1)
+    expect(result.data.issue_list[0].severity).toBe('major')
+    expect(result.data.issue_list[0].description).toBe(
+      'AC2 not implemented: getConstraints() always returns []',
+    )
+    expect(result.data.issues).toBe(1)
+  })
+
+  it('not_met entry does NOT duplicate if agent already flagged the AC as major', () => {
+    const input = {
+      verdict: 'NEEDS_MINOR_FIXES',
+      issues: 1,
+      issue_list: [
+        {
+          severity: 'major',
+          description: 'AC2 not implemented — getConstraints() always returns []',
+          file: 'src/foo.ts',
+        },
+      ],
+      ac_checklist: [
+        { ac_id: 'AC2', status: 'not_met', evidence: 'getConstraints() always returns []' },
+      ],
+    }
+
+    const result = CodeReviewResultSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (!result.success) return
+
+    // Should NOT inject a second major issue — AC2 is already flagged
+    expect(result.data.issue_list).toHaveLength(1)
+    expect(result.data.issues).toBe(1)
+  })
+
+  it('not_met entry does NOT duplicate if agent already flagged the AC as blocker', () => {
+    const input = {
+      verdict: 'NEEDS_MAJOR_REWORK',
+      issues: 1,
+      issue_list: [
+        {
+          severity: 'blocker',
+          description: 'AC1: critical auth bypass — not implemented',
+          file: 'src/auth.ts',
+        },
+      ],
+      ac_checklist: [
+        { ac_id: 'AC1', status: 'not_met', evidence: 'No auth check implemented' },
+      ],
+    }
+
+    const result = CodeReviewResultSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (!result.success) return
+
+    // Blocker already flags AC1 — do not inject a second issue
+    expect(result.data.issue_list).toHaveLength(1)
+    expect(result.data.issue_list[0].severity).toBe('blocker')
+  })
+
+  // -------------------------------------------------------------------------
+  // AC4: Verdict reflects AC compliance
+  // -------------------------------------------------------------------------
+
+  it('verdict cannot be SHIP_IT when ac_checklist has not_met entries', () => {
+    const input = {
+      verdict: 'SHIP_IT',
+      issues: 0,
+      issue_list: [],
+      ac_checklist: [
+        { ac_id: 'AC1', status: 'met', evidence: 'Implemented in src/foo.ts' },
+        { ac_id: 'AC2', status: 'not_met', evidence: 'Missing implementation' },
+      ],
+    }
+
+    const result = CodeReviewResultSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (!result.success) return
+
+    // Agent said SHIP_IT but a not_met AC forces at least NEEDS_MINOR_FIXES
+    expect(result.data.verdict).not.toBe('SHIP_IT')
+    expect(result.data.verdict).toBe('NEEDS_MINOR_FIXES')
+  })
+
+  it('verdict stays SHIP_IT when all ACs are met', () => {
+    const input = {
+      verdict: 'SHIP_IT',
+      issues: 0,
+      issue_list: [],
+      ac_checklist: [
+        { ac_id: 'AC1', status: 'met', evidence: 'Implemented in src/foo.ts' },
+        { ac_id: 'AC2', status: 'met', evidence: 'Verified in src/bar.ts' },
+      ],
+    }
+
+    const result = CodeReviewResultSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (!result.success) return
+
+    expect(result.data.verdict).toBe('SHIP_IT')
+    expect(result.data.issue_list).toHaveLength(0)
+  })
+
+  it('not_met AC1 injects issue even when issue_list only mentions AC10', () => {
+    // Regression: bare includes('AC1') would falsely match 'AC10', suppressing injection
+    const input = {
+      verdict: 'NEEDS_MINOR_FIXES',
+      issues: 1,
+      issue_list: [
+        {
+          severity: 'major',
+          description: 'AC10 not implemented: missing feature',
+          file: 'src/foo.ts',
+        },
+      ],
+      ac_checklist: [
+        { ac_id: 'AC1', status: 'not_met', evidence: 'AC1 core logic missing' },
+      ],
+    }
+
+    const result = CodeReviewResultSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (!result.success) return
+
+    // AC1 must get its own injected issue — AC10 is not the same as AC1
+    expect(result.data.issue_list).toHaveLength(2)
+    const descriptions = result.data.issue_list.map((i) => i.description)
+    expect(descriptions).toContain('AC1 not implemented: AC1 core logic missing')
+  })
+
+  it('multiple not_met ACs each inject their own major issue', () => {
+    const input = {
+      verdict: 'SHIP_IT',
+      issues: 0,
+      issue_list: [],
+      ac_checklist: [
+        { ac_id: 'AC1', status: 'not_met', evidence: 'AC1 missing' },
+        { ac_id: 'AC2', status: 'not_met', evidence: 'AC2 missing' },
+        { ac_id: 'AC3', status: 'met', evidence: 'AC3 implemented' },
+      ],
+    }
+
+    const result = CodeReviewResultSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (!result.success) return
+
+    expect(result.data.issue_list).toHaveLength(2)
+    expect(result.data.issues).toBe(2)
+    const descriptions = result.data.issue_list.map((i) => i.description)
+    expect(descriptions).toContain('AC1 not implemented: AC1 missing')
+    expect(descriptions).toContain('AC2 not implemented: AC2 missing')
+  })
+
+  // -------------------------------------------------------------------------
+  // Integration: ac_checklist through runCodeReview dispatch
+  // -------------------------------------------------------------------------
+
+  it('runCodeReview: not_met AC in checklist forces verdict away from SHIP_IT', async () => {
+    const dispatchFn = vi.fn().mockReturnValue({
+      id: 'test-id',
+      status: 'running',
+      cancel: vi.fn(),
+      result: Promise.resolve(makeMockDispatchResult({
+        parsed: {
+          verdict: 'SHIP_IT',
+          issues: 0,
+          issue_list: [],
+          ac_checklist: [
+            { ac_id: 'AC1', status: 'met', evidence: 'Implemented' },
+            { ac_id: 'AC2', status: 'not_met', evidence: 'No implementation found' },
+          ],
+        },
+      })),
+    })
+
+    const deps = makeMockDeps({ dispatch: dispatchFn })
+    const result = await runCodeReview(deps, DEFAULT_PARAMS)
+
+    expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
+    expect(result.issues).toBe(1)
+    expect(result.issue_list[0].severity).toBe('major')
+    expect(result.issue_list[0].description).toContain('AC2 not implemented')
+  })
+
+  it('runCodeReview: all ACs met — verdict stays SHIP_IT', async () => {
+    const dispatchFn = vi.fn().mockReturnValue({
+      id: 'test-id',
+      status: 'running',
+      cancel: vi.fn(),
+      result: Promise.resolve(makeMockDispatchResult({
+        parsed: {
+          verdict: 'SHIP_IT',
+          issues: 0,
+          issue_list: [],
+          ac_checklist: [
+            { ac_id: 'AC1', status: 'met', evidence: 'src/foo.ts:createFoo()' },
+            { ac_id: 'AC2', status: 'met', evidence: 'src/foo.ts:getFoo()' },
+          ],
+        },
+      })),
+    })
+
+    const deps = makeMockDeps({ dispatch: dispatchFn })
+    const result = await runCodeReview(deps, DEFAULT_PARAMS)
+
+    expect(result.verdict).toBe('SHIP_IT')
+    expect(result.issues).toBe(0)
+    expect(result.issue_list).toHaveLength(0)
   })
 })

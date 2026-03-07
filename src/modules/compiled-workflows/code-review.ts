@@ -23,6 +23,7 @@ import { assemblePrompt } from './prompt-assembler.js'
 import { CodeReviewResultSchema } from './schemas.js'
 import type { WorkflowDeps, CodeReviewParams, CodeReviewResult } from './types.js'
 import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, stageIntentToAdd, getGitChangedFiles } from './git-helpers.js'
+import { getTokenCeiling } from './token-ceiling.js'
 
 const logger = createLogger('compiled-workflows:code-review')
 
@@ -30,12 +31,7 @@ const logger = createLogger('compiled-workflows:code-review')
 // Token budget
 // ---------------------------------------------------------------------------
 
-/**
- * Hard token ceiling for the assembled code-review prompt (50,000 tokens).
- * Quality reviews require seeing actual code diffs, not just file names.
- * // TODO: consider externalizing to pack config when multiple packs exist
- */
-const TOKEN_CEILING = 100000
+// Token ceiling resolved at runtime via getTokenCeiling (see token-ceiling.ts)
 
 /**
  * Default fallback result when dispatch fails or times out.
@@ -84,6 +80,13 @@ export async function runCodeReview(
   const cwd = workingDirectory ?? process.cwd()
 
   logger.debug({ storyKey, storyFilePath, cwd, pipelineRunId }, 'Starting code-review workflow')
+
+  // Resolve token ceiling: config override takes priority over hardcoded default
+  const { ceiling: TOKEN_CEILING, source: tokenCeilingSource } = getTokenCeiling(
+    'code-review',
+    deps.tokenCeilings,
+  )
+  logger.info({ workflow: 'code-review', ceiling: TOKEN_CEILING, source: tokenCeilingSource }, 'Token ceiling resolved')
 
   // Step 1: Get compiled prompt template
   let template: string

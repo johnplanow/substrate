@@ -109,6 +109,26 @@ export const CodeReviewIssueSchema = z.object({
 
 export type CodeReviewIssueSchemaOutput = z.infer<typeof CodeReviewIssueSchema>
 
+// ---------------------------------------------------------------------------
+// AcChecklistEntrySchema
+// ---------------------------------------------------------------------------
+
+/**
+ * Schema for a single entry in the AC verification checklist emitted by
+ * the code-review sub-agent. Each entry maps an acceptance criterion to a
+ * status determination backed by concrete evidence from the diff.
+ */
+export const AcChecklistEntrySchema = z.object({
+  /** Acceptance criterion identifier, e.g. "AC1" */
+  ac_id: z.string(),
+  /** Implementation status of the AC */
+  status: z.enum(['met', 'not_met', 'partial']),
+  /** Specific file/function reference or reason supporting the status */
+  evidence: z.string(),
+})
+
+export type AcChecklistEntrySchemaOutput = z.infer<typeof AcChecklistEntrySchema>
+
 /**
  * Compute the verdict from the issue list using deterministic rules.
  *
@@ -134,7 +154,8 @@ function computeVerdict(
 /**
  * Schema for the YAML output contract of the code-review sub-agent.
  *
- * The agent must emit YAML with verdict, issues count, and issue_list.
+ * The agent must emit YAML with verdict, issues count, issue_list, and
+ * optionally an ac_checklist mapping each AC to its implementation status.
  * Example:
  *   verdict: NEEDS_MINOR_FIXES
  *   issues: 3
@@ -143,25 +164,61 @@ function computeVerdict(
  *       description: "Missing error handling in createFoo()"
  *       file: "src/modules/foo/foo.ts"
  *       line: 42
+ *   ac_checklist:
+ *     - ac_id: AC1
+ *       status: met
+ *       evidence: "Implemented in src/modules/foo/foo.ts:createFoo()"
+ *     - ac_id: AC2
+ *       status: not_met
+ *       evidence: "No implementation found for getConstraints()"
  *   notes: "Generally clean implementation."
  *
- * The transform auto-corrects the issues count and recomputes the verdict
- * from the issue list. The agent's original verdict is preserved as
- * `agentVerdict` for logging and debugging.
+ * The transform:
+ * 1. Auto-corrects the issues count from issue_list length.
+ * 2. Auto-injects a major issue for each not_met AC not already flagged.
+ * 3. Recomputes the verdict from the (possibly augmented) issue list.
+ * The agent's original verdict is preserved as `agentVerdict` for logging.
  */
 export const CodeReviewResultSchema = z
   .object({
     verdict: z.enum(['SHIP_IT', 'NEEDS_MINOR_FIXES', 'NEEDS_MAJOR_REWORK']),
     issues: coerceNumber,
     issue_list: z.array(CodeReviewIssueSchema),
+    ac_checklist: z.array(AcChecklistEntrySchema).default([]),
     notes: z.string().optional(),
   })
-  .transform((data) => ({
-    ...data,
-    issues: data.issue_list.length,
-    agentVerdict: data.verdict,
-    verdict: computeVerdict(data.issue_list),
-  }))
+  .transform((data) => {
+    // Auto-inject major issues for not_met ACs that the agent did not already flag.
+    // This ensures unmet ACs always surface as reviewable issues regardless of
+    // whether the agent explicitly called them out in the issue_list.
+    const augmentedIssueList = [...data.issue_list]
+    for (const entry of data.ac_checklist) {
+      if (entry.status === 'not_met') {
+        // Check if issue_list already contains a major or blocker for this AC
+        const acIdPattern = new RegExp(`\\b${entry.ac_id}\\b`)
+        const alreadyFlagged = augmentedIssueList.some(
+          (issue) =>
+            (issue.severity === 'major' || issue.severity === 'blocker') &&
+            acIdPattern.test(issue.description),
+        )
+        if (!alreadyFlagged) {
+          augmentedIssueList.push({
+            severity: 'major',
+            description: `${entry.ac_id} not implemented: ${entry.evidence}`,
+            file: '',
+          })
+        }
+      }
+    }
+
+    return {
+      ...data,
+      issue_list: augmentedIssueList,
+      issues: augmentedIssueList.length,
+      agentVerdict: data.verdict,
+      verdict: computeVerdict(augmentedIssueList),
+    }
+  })
 
 export type CodeReviewSchemaOutput = z.infer<typeof CodeReviewResultSchema>
 

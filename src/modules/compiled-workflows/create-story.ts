@@ -16,17 +16,13 @@ import type { Decision } from '../../persistence/queries/decisions.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import { CreateStoryResultSchema } from './schemas.js'
 import type { WorkflowDeps, CreateStoryParams, CreateStoryResult } from './types.js'
+import { getTokenCeiling } from './token-ceiling.js'
 
 const logger = createLogger('compiled-workflows:create-story')
 
 // ---------------------------------------------------------------------------
-// Token budget
+// Token budget (resolved at runtime via getTokenCeiling — see token-ceiling.ts)
 // ---------------------------------------------------------------------------
-
-/**
- * Hard ceiling for the assembled create-story prompt.
- */
-const TOKEN_CEILING = 3000
 
 // ---------------------------------------------------------------------------
 // runCreateStory
@@ -56,6 +52,13 @@ export async function runCreateStory(
   const { epicId, storyKey, pipelineRunId } = params
 
   logger.debug({ epicId, storyKey, pipelineRunId }, 'Starting create-story workflow')
+
+  // Resolve token ceiling: config override takes priority over hardcoded default
+  const { ceiling: TOKEN_CEILING, source: tokenCeilingSource } = getTokenCeiling(
+    'create-story',
+    deps.tokenCeilings,
+  )
+  logger.info({ workflow: 'create-story', ceiling: TOKEN_CEILING, source: tokenCeilingSource }, 'Token ceiling resolved')
 
   // Step 1: Get compiled prompt template
   let template: string

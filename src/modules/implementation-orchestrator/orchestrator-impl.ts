@@ -11,6 +11,7 @@ import type { MethodologyPack } from '../methodology-pack/types.js'
 import type { ContextCompiler } from '../context-compiler/context-compiler.js'
 import type { Dispatcher } from '../agent-dispatch/types.js'
 import type { TypedEventBus } from '../../core/event-bus.js'
+import type { TokenCeilings } from '../config/config-schema.js'
 import { readFile } from 'node:fs/promises'
 import { existsSync, readdirSync } from 'node:fs'
 import { join, basename } from 'node:path'
@@ -45,6 +46,7 @@ import { seedMethodologyContext } from './seed-methodology-context.js'
 import { sleep } from '../../utils/helpers.js'
 import { runBuildVerification, checkGitDiffFiles } from '../agent-dispatch/dispatcher-impl.js'
 import { detectInterfaceChanges } from '../agent-dispatch/interface-change-detector.js'
+import { computeStoryComplexity, resolveFixStoryMaxTurns, logComplexityResult } from '../compiled-workflows/story-complexity.js'
 
 // ---------------------------------------------------------------------------
 // OrchestratorDeps
@@ -68,6 +70,8 @@ export interface OrchestratorDeps {
   config: OrchestratorConfig
   /** Optional project root for file-based context fallback */
   projectRoot?: string
+  /** Optional per-workflow token ceiling overrides from parsed config (Story 24-7) */
+  tokenCeilings?: TokenCeilings
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +109,7 @@ function createPauseGate(): PauseGate {
 export function createImplementationOrchestrator(
   deps: OrchestratorDeps,
 ): ImplementationOrchestrator {
-  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot } = deps
+  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings } = deps
 
   const logger = createLogger('implementation-orchestrator')
 
@@ -635,7 +639,7 @@ export function createImplementationOrchestrator(
     try {
       incrementDispatches(storyKey)
       const createResult = await runCreateStory(
-        { db, pack, contextCompiler, dispatcher, projectRoot },
+        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
         { epicId: storyKey.split('-')[0] ?? storyKey, storyKey, pipelineRunId: config.pipelineRunId },
       )
 
@@ -716,7 +720,7 @@ export function createImplementationOrchestrator(
     let testPlanPhaseResult: 'success' | 'failed' = 'failed'
     try {
       const testPlanResult = await runTestPlan(
-        { db, pack, contextCompiler, dispatcher, projectRoot },
+        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
         { storyKey, storyFilePath: storyFilePath ?? '', pipelineRunId: config.pipelineRunId },
       )
       testPlanPhaseResult = testPlanResult.result
@@ -807,7 +811,7 @@ export function createImplementationOrchestrator(
           let batchResult
           try {
             batchResult = await runDevStory(
-              { db, pack, contextCompiler, dispatcher, projectRoot },
+              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
               {
                 storyKey,
                 storyFilePath: storyFilePath ?? '',
@@ -899,7 +903,7 @@ export function createImplementationOrchestrator(
         // AC7: Small/medium story — single dispatch (existing behavior)
         incrementDispatches(storyKey)
         const devResult = await runDevStory(
-          { db, pack, contextCompiler, dispatcher, projectRoot },
+          { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
           {
             storyKey,
             storyFilePath: storyFilePath ?? '',
@@ -1114,7 +1118,7 @@ export function createImplementationOrchestrator(
             )
             incrementDispatches(storyKey)
             const batchReview = await runCodeReview(
-              { db, pack, contextCompiler, dispatcher, projectRoot },
+              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
               {
                 storyKey,
                 storyFilePath: storyFilePath ?? '',
@@ -1158,7 +1162,7 @@ export function createImplementationOrchestrator(
           // Single review (small story or re-review after fix)
           incrementDispatches(storyKey)
           reviewResult = await runCodeReview(
-            { db, pack, contextCompiler, dispatcher, projectRoot },
+            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
             {
               storyKey,
               storyFilePath: storyFilePath ?? '',
@@ -1301,7 +1305,7 @@ export function createImplementationOrchestrator(
         // Post-SHIP_IT: run test expansion analysis (non-blocking — never alters verdict/state)
         try {
           const expansionResult = await runTestExpansion(
-            { db, pack, contextCompiler, dispatcher, projectRoot },
+            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
             {
               storyKey,
               storyFilePath: storyFilePath ?? '',
@@ -1465,9 +1469,21 @@ export function createImplementationOrchestrator(
         let fixPrompt: string
         const isMajorRework = taskType === 'major-rework'
         const templateName = isMajorRework ? 'rework-story' : 'fix-story'
+
+        // Pre-compute fix-story maxTurns for major rework (Story 24-6, AC5)
+        // Declared here so it's accessible at the dispatch call site below.
+        let fixMaxTurns: number | undefined
+
         try {
           const fixTemplate = await pack.getPrompt(templateName)
           const storyContent = await readFile(storyFilePath ?? '', 'utf-8')
+
+          // Compute complexity for major-rework turn limit scaling (Story 24-6)
+          if (isMajorRework) {
+            const complexity = computeStoryComplexity(storyContent)
+            fixMaxTurns = resolveFixStoryMaxTurns(complexity.complexityScore)
+            logComplexityResult(storyKey, complexity, fixMaxTurns)
+          }
 
           // Format review feedback: verdict + serialized issue list
           // Guard against empty issue lists — provide fallback guidance
@@ -1536,6 +1552,7 @@ export function createImplementationOrchestrator(
               taskType,
               ...(fixModel !== undefined ? { model: fixModel } : {}),
               outputSchema: DevStoryResultSchema,
+              ...(fixMaxTurns !== undefined ? { maxTurns: fixMaxTurns } : {}),
               ...(projectRoot !== undefined ? { workingDirectory: projectRoot } : {}),
             })
           : dispatcher.dispatch<unknown>({

@@ -8,17 +8,46 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { runBuildVerification, DEFAULT_VERIFY_COMMAND, DEFAULT_VERIFY_TIMEOUT_MS } from '../dispatcher-impl.js'
+import {
+  runBuildVerification,
+  detectPackageManager,
+  DEFAULT_VERIFY_COMMAND,
+  DEFAULT_VERIFY_TIMEOUT_MS,
+} from '../dispatcher-impl.js'
+
+// ---------------------------------------------------------------------------
+// Hoisted spies (must be defined before vi.mock calls are hoisted)
+// ---------------------------------------------------------------------------
+
+const mockLoggerInfo = vi.hoisted(() => vi.fn())
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
+
+// Mock the logger so we can assert on logger.info calls (AC4).
+vi.mock('../../../utils/logger.js', () => ({
+  createLogger: () => ({
+    info: mockLoggerInfo,
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    trace: vi.fn(),
+    fatal: vi.fn(),
+    child: vi.fn(),
+  }),
+}))
 
 // Mock node:child_process so execSync never runs a real process.
 // Also provides spawn (used by DispatcherImpl) to avoid module errors.
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
   execSync: vi.fn(),
+}))
+
+// Mock node:fs so existsSync never touches the real filesystem.
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn(),
 }))
 
 // Mock node:os so platform() returns 'linux' (avoids vm_stat calls in
@@ -32,11 +61,13 @@ vi.mock('node:os', async () => {
   }
 })
 
-// Import the mocked execSync AFTER vi.mock() declarations (hoisting ensures
+// Import the mocked helpers AFTER vi.mock() declarations (hoisting ensures
 // the mock is applied before module code runs).
 import { execSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 
 const mockExecSync = vi.mocked(execSync)
+const mockExistsSync = vi.mocked(existsSync)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -74,6 +105,10 @@ describe('runBuildVerification', () => {
 
   beforeEach(() => {
     mockExecSync.mockReset()
+    mockLoggerInfo.mockReset()
+    // Default: no lockfiles present (existsSync returns false)
+    mockExistsSync.mockReset()
+    mockExistsSync.mockReturnValue(false)
   })
 
   // -------------------------------------------------------------------------
@@ -256,5 +291,142 @@ describe('runBuildVerification', () => {
 
     expect(result.output).toContain('stdout bytes')
     expect(result.output).toContain('stderr bytes')
+  })
+
+  // -------------------------------------------------------------------------
+  // AC1 + AC4 integration: auto-detection through runBuildVerification
+  // -------------------------------------------------------------------------
+
+  it('uses pnpm run build when pnpm-lock.yaml detected (AC1, AC4)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('pnpm-lock.yaml'))
+    mockExecSync.mockReturnValue('')
+
+    runBuildVerification({ projectRoot })
+
+    expect(mockExecSync).toHaveBeenCalledWith(
+      'pnpm run build',
+      expect.objectContaining({ cwd: projectRoot }),
+    )
+
+    // AC4: logger.info must be called with the detection fields
+    expect(mockLoggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        packageManager: 'pnpm',
+        lockfile: 'pnpm-lock.yaml',
+        resolvedCommand: 'pnpm run build',
+      }),
+      expect.any(String),
+    )
+  })
+
+  it('uses explicit verifyCommand even when pnpm-lock.yaml exists (AC2)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('pnpm-lock.yaml'))
+    mockExecSync.mockReturnValue('')
+
+    runBuildVerification({ verifyCommand: 'make build', projectRoot })
+
+    expect(mockExecSync).toHaveBeenCalledWith(
+      'make build',
+      expect.objectContaining({ cwd: projectRoot }),
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// detectPackageManager (Story 24-8)
+// ---------------------------------------------------------------------------
+
+describe('detectPackageManager', () => {
+  const projectRoot = '/fake/project'
+
+  beforeEach(() => {
+    mockExistsSync.mockReset()
+    mockExistsSync.mockReturnValue(false)
+  })
+
+  it('returns pnpm run build when pnpm-lock.yaml exists (AC1)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('pnpm-lock.yaml'))
+
+    const result = detectPackageManager(projectRoot)
+
+    expect(result.packageManager).toBe('pnpm')
+    expect(result.lockfile).toBe('pnpm-lock.yaml')
+    expect(result.command).toBe('pnpm run build')
+  })
+
+  it('returns yarn run build when yarn.lock exists (AC1)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('yarn.lock'))
+
+    const result = detectPackageManager(projectRoot)
+
+    expect(result.packageManager).toBe('yarn')
+    expect(result.lockfile).toBe('yarn.lock')
+    expect(result.command).toBe('yarn run build')
+  })
+
+  it('returns bun run build when bun.lockb exists (AC1)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('bun.lockb'))
+
+    const result = detectPackageManager(projectRoot)
+
+    expect(result.packageManager).toBe('bun')
+    expect(result.lockfile).toBe('bun.lockb')
+    expect(result.command).toBe('bun run build')
+  })
+
+  it('returns npm run build when package-lock.json exists (AC1)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
+
+    const result = detectPackageManager(projectRoot)
+
+    expect(result.packageManager).toBe('npm')
+    expect(result.lockfile).toBe('package-lock.json')
+    expect(result.command).toBe('npm run build')
+  })
+
+  it('falls back to npm run build when no lockfile is found (AC5)', () => {
+    mockExistsSync.mockReturnValue(false)
+
+    const result = detectPackageManager(projectRoot)
+
+    expect(result.packageManager).toBe('npm')
+    expect(result.lockfile).toBeNull()
+    expect(result.command).toBe('npm run build')
+  })
+
+  it('pnpm wins priority when both pnpm-lock.yaml and package-lock.json exist (AC1)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => {
+      const path = String(p)
+      return path.endsWith('pnpm-lock.yaml') || path.endsWith('package-lock.json')
+    })
+
+    const result = detectPackageManager(projectRoot)
+
+    expect(result.packageManager).toBe('pnpm')
+    expect(result.command).toBe('pnpm run build')
+  })
+
+  it('yarn wins over bun and npm in priority order (AC1)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => {
+      const path = String(p)
+      return path.endsWith('yarn.lock') || path.endsWith('bun.lockb') || path.endsWith('package-lock.json')
+    })
+
+    const result = detectPackageManager(projectRoot)
+
+    expect(result.packageManager).toBe('yarn')
+    expect(result.command).toBe('yarn run build')
+  })
+
+  it('checks lockfiles in the project root directory', () => {
+    const calls: string[] = []
+    mockExistsSync.mockImplementation((p: unknown) => {
+      calls.push(String(p))
+      return false
+    })
+
+    detectPackageManager('/my/project')
+
+    expect(calls.some((p) => p.startsWith('/my/project'))).toBe(true)
   })
 })

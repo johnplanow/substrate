@@ -14,6 +14,8 @@
  */
 
 import { spawn, execSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { freemem, platform } from 'node:os'
 import type { DispatcherMemoryState } from './types.js'
 import { randomUUID } from 'node:crypto'
@@ -762,6 +764,60 @@ export class DispatcherImpl implements Dispatcher {
 /** Default command for the build verification gate */
 export const DEFAULT_VERIFY_COMMAND = 'npm run build'
 
+// ---------------------------------------------------------------------------
+// Package Manager Detection (Story 24-8)
+// ---------------------------------------------------------------------------
+
+/** Result returned by detectPackageManager */
+export interface PackageManagerDetectionResult {
+  /** The detected package manager */
+  packageManager: 'pnpm' | 'yarn' | 'bun' | 'npm'
+  /** The lockfile that was found, or null when falling back to npm */
+  lockfile: string | null
+  /** The resolved build command */
+  command: string
+}
+
+/**
+ * Detect the package manager used in a project by checking for lockfiles.
+ *
+ * Priority order (checked in sequence):
+ *   pnpm-lock.yaml → pnpm run build
+ *   yarn.lock      → yarn run build
+ *   bun.lockb      → bun run build
+ *   package-lock.json → npm run build
+ *   (none found)   → npm run build  (fallback, matches DEFAULT_VERIFY_COMMAND)
+ *
+ * Lockfile presence is used rather than the `packageManager` field in
+ * package.json because lockfiles are more reliable and always present in
+ * real projects.
+ */
+export function detectPackageManager(projectRoot: string): PackageManagerDetectionResult {
+  const candidates: Array<{
+    file: string
+    packageManager: 'pnpm' | 'yarn' | 'bun' | 'npm'
+    command: string
+  }> = [
+    { file: 'pnpm-lock.yaml', packageManager: 'pnpm', command: 'pnpm run build' },
+    { file: 'yarn.lock', packageManager: 'yarn', command: 'yarn run build' },
+    { file: 'bun.lockb', packageManager: 'bun', command: 'bun run build' },
+    { file: 'package-lock.json', packageManager: 'npm', command: 'npm run build' },
+  ]
+
+  for (const candidate of candidates) {
+    if (existsSync(join(projectRoot, candidate.file))) {
+      return {
+        packageManager: candidate.packageManager,
+        lockfile: candidate.file,
+        command: candidate.command,
+      }
+    }
+  }
+
+  // Fallback: no lockfile found — default to npm
+  return { packageManager: 'npm', lockfile: null, command: DEFAULT_VERIFY_COMMAND }
+}
+
 /** Default timeout in milliseconds for the build verification gate */
 export const DEFAULT_VERIFY_TIMEOUT_MS = 60_000
 
@@ -796,9 +852,27 @@ export function runBuildVerification(options: {
 }): BuildVerificationResult {
   const { verifyCommand, verifyTimeoutMs, projectRoot } = options
 
+  // Resolve the build command:
+  // - undefined → auto-detect from lockfile (AC1, AC4, AC5)
+  // - string    → use as-is, even if empty (AC2)
+  // - false     → skip (AC3)
+  let cmd: string | false
+  if (verifyCommand === undefined) {
+    const detection = detectPackageManager(projectRoot)
+    logger.info(
+      {
+        packageManager: detection.packageManager,
+        lockfile: detection.lockfile,
+        resolvedCommand: detection.command,
+      },
+      'Build verification: resolved command via package manager detection',
+    )
+    cmd = detection.command
+  } else {
+    cmd = verifyCommand
+  }
+
   // AC6: skip if explicitly disabled (false or empty string)
-  const cmd: string | false =
-    verifyCommand === undefined ? DEFAULT_VERIFY_COMMAND : verifyCommand
   if (!cmd) {
     return { status: 'skipped' }
   }
