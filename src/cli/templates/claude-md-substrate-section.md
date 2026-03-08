@@ -8,12 +8,12 @@ This project uses Substrate for automated implementation pipelines. **When the u
 **Just run it.** Substrate auto-detects which pipeline phase to start from (analysis → planning → solutioning → implementation) and auto-discovers pending stories. You do not need to determine the phase or find story keys manually.
 
 ```
-substrate supervisor --output-format json
+substrate run --events
 ```
 
 To target specific stories (if the user names them):
 ```
-substrate supervisor --output-format json --stories 1-1,1-2,1-3
+substrate run --events --stories 1-1,1-2,1-3
 ```
 
 If substrate needs input it can't auto-detect (e.g., a project concept for analysis), it will exit with a clear error message telling you what to provide.
@@ -36,13 +36,18 @@ Check process health if pipeline seems quiet:
 substrate health --output-format json
 ```
 
+For long-running pipelines, attach the **supervisor** for automatic stall detection, kill-and-restart recovery, and post-run analysis. The supervisor monitors an active run — it does not start one. Start it alongside `substrate run`:
+```
+substrate supervisor --output-format json
+```
+
 **Interpreting silence:** No output for 5 minutes = normal (agent is working). No output for 15+ minutes = likely stalled. Use `substrate health` to confirm, then consider killing and resuming.
 
 ### After Pipeline Completes
 
 1. **Summarize results** conversationally: X succeeded, Y failed, Z escalated
 2. **Check metrics**: `substrate metrics --output-format json`
-3. **Read analysis** (if supervisor mode): `substrate metrics --analysis <run_id> --output-format json`
+3. **Read analysis** (if supervisor was attached): `substrate metrics --analysis <run_id> --output-format json`
 
 ### Handling Escalations and Failures
 
@@ -57,7 +62,7 @@ substrate health --output-format json
 | Command | Purpose |
 |---|---|
 | `substrate run --events` | Run pipeline with NDJSON event stream |
-| `substrate supervisor --output-format json` | Run with auto-recovery and analysis |
+| `substrate supervisor --output-format json` | Monitor active run with auto-recovery and post-run analysis |
 | `substrate status --output-format json` | Poll current pipeline state |
 | `substrate health --output-format json` | Check process health and stall detection |
 | `substrate metrics --output-format json` | View historical run metrics |
