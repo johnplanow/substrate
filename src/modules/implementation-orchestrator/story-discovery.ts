@@ -1,20 +1,114 @@
 /**
- * story-discovery — Auto-discover pending story keys from epics.md.
+ * story-discovery — Unified story key resolution for all pipeline entry points.
  *
- * Provides two exported functions:
+ * Provides:
+ *   - resolveStoryKeys: Single entry point for all story enumeration with fallback chain
  *   - parseStoryKeysFromEpics: Extract N-M story keys from epics.md content
  *   - discoverPendingStoryKeys: Diff epics.md against existing story files
  *
- * Used as a fallback in `substrate run` when the requirements table is empty
- * (e.g. projects that ran BMAD manually and skipped the full Substrate pipeline).
+ * resolveStoryKeys implements a 4-level fallback chain:
+ *   1. Explicit --stories flag (if provided)
+ *   2. Decisions table: category='stories', phase='solutioning'
+ *   3. Epic shard decisions: parse story keys from epic-shard decision values
+ *   4. epics.md file on disk (via discoverPendingStoryKeys)
+ *
+ * Used by `substrate run`, `substrate run --from`, and `substrate resume`.
  */
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+export interface ResolveStoryKeysOptions {
+  /** Explicit story keys from --stories flag. Bypasses all DB/file discovery. */
+  explicit?: string[]
+  /** Scope DB queries to a specific pipeline run (used by resume). */
+  pipelineRunId?: string
+  /** Filter out stories already completed in previous pipeline runs. */
+  filterCompleted?: boolean
+}
+
+/**
+ * Unified story key resolution with a 4-level fallback chain.
+ *
+ * 1. Explicit keys (from --stories flag) — returned as-is
+ * 2. Decisions table (category='stories', phase='solutioning')
+ * 3. Epic shard decisions (category='epic-shard') — parsed with parseStoryKeysFromEpics
+ * 4. epics.md file on disk (via discoverPendingStoryKeys)
+ *
+ * Optionally filters out completed stories when filterCompleted is set.
+ *
+ * @returns Sorted, deduplicated array of story keys in "N-M" format
+ */
+export function resolveStoryKeys(
+  db: BetterSqlite3Database,
+  projectRoot: string,
+  opts?: ResolveStoryKeysOptions,
+): string[] {
+  // Level 1: Explicit --stories flag
+  if (opts?.explicit !== undefined && opts.explicit.length > 0) {
+    return opts.explicit
+  }
+
+  let keys: string[] = []
+
+  // Level 2: Decisions table — category='stories', phase='solutioning'
+  // This is where solutioning.ts stores each story with its key directly.
+  try {
+    const query = opts?.pipelineRunId !== undefined
+      ? `SELECT key FROM decisions WHERE phase = 'solutioning' AND category = 'stories' AND pipeline_run_id = ? ORDER BY created_at ASC`
+      : `SELECT key FROM decisions WHERE phase = 'solutioning' AND category = 'stories' ORDER BY created_at ASC`
+
+    const params = opts?.pipelineRunId !== undefined ? [opts.pipelineRunId] : []
+    const rows = db.prepare(query).all(...params) as Array<{ key: string }>
+
+    for (const row of rows) {
+      if (/^\d+-\d+/.test(row.key)) {
+        // Extract just the N-M prefix from keys like "1-1-capture-baselines"
+        const match = /^(\d+-\d+)/.exec(row.key)
+        if (match !== null) keys.push(match[1])
+      }
+    }
+  } catch {
+    // DB query failed — fall through to next level
+  }
+
+  // Level 3: Epic shard decisions — parse story keys from the shard markdown content
+  if (keys.length === 0) {
+    try {
+      const query = opts?.pipelineRunId !== undefined
+        ? `SELECT value FROM decisions WHERE category = 'epic-shard' AND pipeline_run_id = ? ORDER BY created_at ASC`
+        : `SELECT value FROM decisions WHERE category = 'epic-shard' ORDER BY created_at ASC`
+
+      const params = opts?.pipelineRunId !== undefined ? [opts.pipelineRunId] : []
+      const shardRows = db.prepare(query).all(...params) as Array<{ value: string }>
+
+      const allContent = shardRows.map((r) => r.value).join('\n')
+      if (allContent.length > 0) {
+        keys = parseStoryKeysFromEpics(allContent)
+      }
+    } catch {
+      // DB query failed — fall through to next level
+    }
+  }
+
+  // Level 4: epics.md file on disk
+  if (keys.length === 0) {
+    keys = discoverPendingStoryKeys(projectRoot)
+  }
+
+  // Optional: filter out completed stories
+  if (opts?.filterCompleted === true && keys.length > 0) {
+    const completedKeys = getCompletedStoryKeys(db)
+    keys = keys.filter((k) => !completedKeys.has(k))
+  }
+
+  return sortStoryKeys([...new Set(keys)])
+}
 
 /**
  * Extract all story keys (N-M format) from epics.md content.
@@ -146,6 +240,42 @@ function collectExistingStoryKeys(projectRoot: string): Set<string> {
   }
 
   return existing
+}
+
+/**
+ * Collect story keys already completed in previous pipeline runs.
+ * Scans pipeline_runs with status='completed' and extracts story keys
+ * with phase='COMPLETE' from their token_usage_json state.
+ */
+function getCompletedStoryKeys(db: BetterSqlite3Database): Set<string> {
+  const completed = new Set<string>()
+  try {
+    const rows = db
+      .prepare(
+        `SELECT token_usage_json FROM pipeline_runs WHERE status = 'completed' AND token_usage_json IS NOT NULL`,
+      )
+      .all() as Array<{ token_usage_json: string }>
+
+    for (const row of rows) {
+      try {
+        const state = JSON.parse(row.token_usage_json) as {
+          stories?: Record<string, { phase: string }>
+        }
+        if (state.stories !== undefined) {
+          for (const [key, s] of Object.entries(state.stories)) {
+            if (s.phase === 'COMPLETE') {
+              completed.add(key)
+            }
+          }
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+  } catch {
+    // ignore query errors
+  }
+  return completed
 }
 
 /**

@@ -32,7 +32,7 @@ import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
-import { createImplementationOrchestrator, discoverPendingStoryKeys } from '../../modules/implementation-orchestrator/index.js'
+import { createImplementationOrchestrator, discoverPendingStoryKeys, resolveStoryKeys } from '../../modules/implementation-orchestrator/index.js'
 import { createPhaseOrchestrator } from '../../modules/phase-orchestrator/index.js'
 import { runAnalysisPhase } from '../../modules/phase-orchestrator/phases/analysis.js'
 import { runPlanningPhase } from '../../modules/phase-orchestrator/phases/planning.js'
@@ -258,6 +258,27 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     logger.debug('Config loading skipped — using default token ceilings')
   }
 
+  // Parse --stories early so both --from and legacy paths can use them
+  let parsedStoryKeys: string[] = []
+  if (storiesArg !== undefined && storiesArg !== '') {
+    parsedStoryKeys = storiesArg
+      .split(',')
+      .map((k) => k.trim())
+      .filter((k) => k.length > 0)
+
+    for (const key of parsedStoryKeys) {
+      if (!validateStoryKey(key)) {
+        const errorMsg = `Story key '${key}' is not a valid format. Expected: <epic>-<story> (e.g., 10-1)`
+        if (outputFormat === 'json') {
+          process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+        } else {
+          process.stderr.write(`Error: ${errorMsg}\n`)
+        }
+        return 1
+      }
+    }
+  }
+
   // If --from is provided, we're running the full phase pipeline
   if (startPhase !== undefined) {
     return runFullPipeline({
@@ -272,6 +293,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       outputFormat,
       projectRoot,
       tokenCeilings,
+      ...(parsedStoryKeys.length > 0 ? { stories: parsedStoryKeys } : {}),
       ...(eventsFlag === true ? { events: true } : {}),
       ...(skipUx === true ? { skipUx: true } : {}),
       ...(researchFlag === true ? { research: true } : {}),
@@ -282,27 +304,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   }
 
   // Legacy behavior: run implementation-only (existing auto run without --from)
-  // Parse story keys
-  let storyKeys: string[] = []
-  if (storiesArg !== undefined && storiesArg !== '') {
-    storyKeys = storiesArg
-      .split(',')
-      .map((k) => k.trim())
-      .filter((k) => k.length > 0)
-
-    // Validate story key format
-    for (const key of storyKeys) {
-      if (!validateStoryKey(key)) {
-        const errorMsg = `Story key '${key}' is not a valid format. Expected: <epic>-<story> (e.g., 10-1)`
-        if (outputFormat === 'json') {
-          process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
-        } else {
-          process.stderr.write(`Error: ${errorMsg}\n`)
-        }
-        return 1
-      }
-    }
-  }
+  // Use already-parsed story keys from --stories flag
+  let storyKeys: string[] = [...parsedStoryKeys]
 
   // Ensure database directory
   if (!existsSync(dbDir)) {
@@ -1081,10 +1084,12 @@ export interface FullPipelineOptions {
   skipPreflight?: boolean
   /** Optional per-workflow token ceiling overrides from config (Story 25-1) */
   tokenCeilings?: TokenCeilings
+  /** Explicit story keys from --stories flag (passed through to implementation phase) */
+  stories?: string[]
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, registry: injectedRegistry, tokenCeilings } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, registry: injectedRegistry, tokenCeilings, stories: explicitStories } =
     options
 
   // Ensure database directory
@@ -1423,20 +1428,16 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           })
         }
 
-        // Discover story keys from DB
-        const storyDecisions = db
-          .prepare(
-            `SELECT description FROM requirements WHERE status = 'active' AND source = 'solutioning-phase'`,
-          )
-          .all() as Array<{ description: string }>
+        // Resolve story keys via unified fallback chain:
+        // explicit --stories → decisions table → epic shards → epics.md
+        const storyKeys = resolveStoryKeys(db, projectRoot, {
+          explicit: explicitStories,
+        })
 
-        const storyKeys: string[] = []
-        for (const req of storyDecisions) {
-          // Keys embedded in solutioning decisions
-          const keyMatch = /^(\d+-\d+):/.exec(req.description)
-          if (keyMatch) {
-            storyKeys.push(keyMatch[1])
-          }
+        if (storyKeys.length === 0 && outputFormat === 'human') {
+          process.stdout.write(
+            '[IMPLEMENTATION] No stories found. Run solutioning first or pass --stories.\n',
+          )
         }
 
         if (outputFormat === 'human') {

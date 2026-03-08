@@ -42,4 +42,5 @@ export type { SeedResult } from './seed-methodology-context.js'
 // Story discovery (fallback for projects without full pipeline)
 // ---------------------------------------------------------------------------
 
-export { parseStoryKeysFromEpics, discoverPendingStoryKeys } from './story-discovery.js'
+export { parseStoryKeysFromEpics, discoverPendingStoryKeys, resolveStoryKeys } from './story-discovery.js'
+export type { ResolveStoryKeysOptions } from './story-discovery.js'

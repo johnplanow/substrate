@@ -24,7 +24,7 @@ import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
-import { createImplementationOrchestrator } from '../../modules/implementation-orchestrator/index.js'
+import { createImplementationOrchestrator, resolveStoryKeys } from '../../modules/implementation-orchestrator/index.js'
 import { createPhaseOrchestrator } from '../../modules/phase-orchestrator/index.js'
 import { runAnalysisPhase } from '../../modules/phase-orchestrator/phases/analysis.js'
 import { runPlanningPhase } from '../../modules/phase-orchestrator/phases/planning.js'
@@ -409,18 +409,15 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           }
         })
 
-        const storyDecisions = db
-          .prepare(
-            `SELECT description FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
-          )
-          .all(runId) as Array<{ description: string }>
+        // Resolve story keys via unified fallback chain (scoped to this run)
+        const storyKeys = resolveStoryKeys(db, projectRoot, {
+          pipelineRunId: runId,
+        })
 
-        const storyKeys: string[] = []
-        for (const req of storyDecisions) {
-          const keyMatch = /^(\d+-\d+):/.exec(req.description)
-          if (keyMatch) {
-            storyKeys.push(keyMatch[1])
-          }
+        if (storyKeys.length === 0 && outputFormat === 'human') {
+          process.stdout.write(
+            '[IMPLEMENTATION] No stories found for this run. Check solutioning phase output.\n',
+          )
         }
 
         await orchestrator.run(storyKeys)

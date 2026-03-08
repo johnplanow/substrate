@@ -508,7 +508,7 @@ async function runStoryGeneration(
         pipeline_run_id: runId,
         source: 'solutioning-phase',
         type: 'functional',
-        description: `${story.title}: ${story.description}`,
+        description: `${story.key}: ${story.title}: ${story.description}`,
         priority: story.priority,
       })
     }
@@ -965,7 +965,7 @@ async function runStoryGenerationMultiStep(
         pipeline_run_id: params.runId,
         source: 'solutioning-phase',
         type: 'functional',
-        description: `${story.title}: ${story.description}`,
+        description: `${story.key}: ${story.title}: ${story.description}`,
         priority: story.priority,
       })
     }
