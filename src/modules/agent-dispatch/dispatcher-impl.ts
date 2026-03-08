@@ -770,30 +770,30 @@ export const DEFAULT_VERIFY_COMMAND = 'npm run build'
 
 /** Result returned by detectPackageManager */
 export interface PackageManagerDetectionResult {
-  /** The detected package manager */
-  packageManager: 'pnpm' | 'yarn' | 'bun' | 'npm'
-  /** The lockfile that was found, or null when falling back to npm */
+  /** The detected package manager (or 'none' when no build system is recognized) */
+  packageManager: 'pnpm' | 'yarn' | 'bun' | 'npm' | 'none'
+  /** The lockfile/marker that was found, or null when falling back */
   lockfile: string | null
-  /** The resolved build command */
+  /** The resolved build command, or empty string to skip verification */
   command: string
 }
 
 /**
- * Detect the package manager used in a project by checking for lockfiles.
+ * Detect the package manager / build system used in a project.
  *
- * Priority order (checked in sequence):
- *   pnpm-lock.yaml → pnpm run build
- *   yarn.lock      → yarn run build
- *   bun.lockb      → bun run build
- *   package-lock.json → npm run build
- *   (none found)   → npm run build  (fallback, matches DEFAULT_VERIFY_COMMAND)
+ * Checks for language-specific markers in priority order:
+ *   1. Node.js lockfiles → corresponding `<pm> run build`
+ *   2. Python markers (pyproject.toml, poetry.lock, setup.py) → skip (no universal build step)
+ *   3. Rust (Cargo.toml) → cargo build
+ *   4. Go (go.mod) → go build ./...
+ *   5. No markers found → skip (empty command)
  *
- * Lockfile presence is used rather than the `packageManager` field in
- * package.json because lockfiles are more reliable and always present in
- * real projects.
+ * When a non-Node.js project is detected (or nothing is recognized), the
+ * returned command is '' which causes runBuildVerification() to skip.
  */
 export function detectPackageManager(projectRoot: string): PackageManagerDetectionResult {
-  const candidates: Array<{
+  // Node.js lockfiles — checked first, return a build command
+  const nodeCandidates: Array<{
     file: string
     packageManager: 'pnpm' | 'yarn' | 'bun' | 'npm'
     command: string
@@ -804,7 +804,24 @@ export function detectPackageManager(projectRoot: string): PackageManagerDetecti
     { file: 'package-lock.json', packageManager: 'npm', command: 'npm run build' },
   ]
 
-  for (const candidate of candidates) {
+  // Non-Node markers — skip build verification (no universal "build" step)
+  const nonNodeMarkers = [
+    'pyproject.toml',
+    'poetry.lock',
+    'setup.py',
+    'Cargo.toml',
+    'go.mod',
+  ]
+
+  // Check if a non-Node marker exists. If so, skip even if a package-lock.json
+  // also exists (common in projects that use npm for ancillary tooling like bmad).
+  for (const marker of nonNodeMarkers) {
+    if (existsSync(join(projectRoot, marker))) {
+      return { packageManager: 'none', lockfile: marker, command: '' }
+    }
+  }
+
+  for (const candidate of nodeCandidates) {
     if (existsSync(join(projectRoot, candidate.file))) {
       return {
         packageManager: candidate.packageManager,
@@ -814,8 +831,8 @@ export function detectPackageManager(projectRoot: string): PackageManagerDetecti
     }
   }
 
-  // Fallback: no lockfile found — default to npm
-  return { packageManager: 'npm', lockfile: null, command: DEFAULT_VERIFY_COMMAND }
+  // Fallback: no recognized build system — skip verification
+  return { packageManager: 'none', lockfile: null, command: '' }
 }
 
 /** Default timeout in milliseconds for the build verification gate */

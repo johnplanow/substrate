@@ -448,11 +448,9 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
   })
 
   it('AC5: skipPreflight=true allows pipeline to run even when build would fail', async () => {
-    // Make pre-flight return failure — but since skipPreflight=true, it should not be called
-    mockRunBuildVerification
-      .mockReturnValueOnce({ status: 'failed', exitCode: 1, output: 'build error', reason: 'build-verification-failed' })
-      // Second call (post-dev gate, Story 24-2) passes
-      .mockReturnValueOnce({ status: 'passed', exitCode: 0 })
+    // With skipPreflight=true, both the pre-flight AND per-story post-dev
+    // build gates are skipped — so runBuildVerification should never be called.
+    mockRunBuildVerification.mockReturnValue({ status: 'failed', exitCode: 1, output: 'build error', reason: 'build-verification-failed' as const })
 
     const skipConfig = defaultConfig({ skipPreflight: true })
     const orchestrator = createImplementationOrchestrator({
@@ -462,16 +460,15 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
     const status = await orchestrator.run(['25-2'])
 
     // Pipeline should not abort (pre-flight was skipped)
-    // The post-dev gate (Story 24-2) triggers the failure — story is escalated
-    // But no pipeline:pre-flight-failure event should be emitted
+    // No pipeline:pre-flight-failure event should be emitted
     const mockEmit = vi.mocked(eventBus.emit)
     const preFlightEvent = mockEmit.mock.calls.find(
       ([eventName]) => eventName === 'pipeline:pre-flight-failure',
     )
     expect(preFlightEvent).toBeUndefined()
-    // Pipeline should NOT have entered FAILED state from pre-flight
-    // (it may be COMPLETE or stories may be escalated due to build failures in post-dev gate,
-    // but the pipeline itself ran — stories were dispatched)
+    // runBuildVerification should not have been called at all (both gates skipped)
+    expect(mockRunBuildVerification).not.toHaveBeenCalled()
+    // Pipeline ran — stories were dispatched
     expect(mockRunCreateStory).toHaveBeenCalledOnce()
     expect(status.state).toBe('COMPLETE')
   })

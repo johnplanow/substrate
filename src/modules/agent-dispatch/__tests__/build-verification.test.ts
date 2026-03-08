@@ -116,6 +116,8 @@ describe('runBuildVerification', () => {
   // -------------------------------------------------------------------------
 
   it('returns status: passed when command exits with code 0', () => {
+    // Simulate a Node.js project so detection finds a lockfile
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     mockExecSync.mockReturnValue('Build succeeded\n')
 
     const result = runBuildVerification({ projectRoot })
@@ -124,7 +126,8 @@ describe('runBuildVerification', () => {
     expect(result.exitCode).toBe(0)
   })
 
-  it('uses default command "npm run build" when verifyCommand is not specified (AC5)', () => {
+  it('uses default command "npm run build" when verifyCommand is not specified and package-lock.json present (AC5)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     mockExecSync.mockReturnValue('')
 
     runBuildVerification({ projectRoot })
@@ -133,6 +136,15 @@ describe('runBuildVerification', () => {
       DEFAULT_VERIFY_COMMAND,
       expect.objectContaining({ cwd: projectRoot }),
     )
+  })
+
+  it('returns status: skipped when no build system is detected (no lockfiles, no markers)', () => {
+    mockExistsSync.mockReturnValue(false)
+
+    const result = runBuildVerification({ projectRoot })
+
+    expect(result.status).toBe('skipped')
+    expect(mockExecSync).not.toHaveBeenCalled()
   })
 
   it('uses verifyCommand from pack manifest when present (AC4)', () => {
@@ -147,6 +159,7 @@ describe('runBuildVerification', () => {
   })
 
   it('uses default timeout of 60s when verifyTimeoutMs is not specified', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     mockExecSync.mockReturnValue('')
 
     runBuildVerification({ projectRoot })
@@ -158,6 +171,7 @@ describe('runBuildVerification', () => {
   })
 
   it('uses custom verifyTimeoutMs when specified', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     mockExecSync.mockReturnValue('')
 
     runBuildVerification({ projectRoot, verifyTimeoutMs: 30_000 })
@@ -173,6 +187,7 @@ describe('runBuildVerification', () => {
   // -------------------------------------------------------------------------
 
   it('returns status: failed when command exits with non-zero code (AC3)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ status: 1, stderr: 'Type error in foo.ts\n' })
     mockExecSync.mockImplementation(() => { throw err })
 
@@ -184,6 +199,7 @@ describe('runBuildVerification', () => {
   })
 
   it('captures stderr output in the result on build failure (AC3)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ status: 1, stderr: 'Cannot find module "missing-module"', stdout: '' })
     mockExecSync.mockImplementation(() => { throw err })
 
@@ -193,6 +209,7 @@ describe('runBuildVerification', () => {
   })
 
   it('combines stdout and stderr output on build failure', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ status: 1, stdout: 'partial output', stderr: 'error details' })
     mockExecSync.mockImplementation(() => { throw err })
 
@@ -203,6 +220,7 @@ describe('runBuildVerification', () => {
   })
 
   it('returns exitCode from error.status on failure', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ status: 2 })
     mockExecSync.mockImplementation(() => { throw err })
 
@@ -216,6 +234,7 @@ describe('runBuildVerification', () => {
   // -------------------------------------------------------------------------
 
   it('returns status: timeout when process is killed due to timeout (AC8)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ killed: true, signal: 'SIGTERM', status: null })
     mockExecSync.mockImplementation(() => { throw err })
 
@@ -227,6 +246,7 @@ describe('runBuildVerification', () => {
   })
 
   it('returns timeout reason when killed is true regardless of signal value', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ killed: true, signal: null, status: null })
     mockExecSync.mockImplementation(() => { throw err })
 
@@ -271,6 +291,7 @@ describe('runBuildVerification', () => {
   // -------------------------------------------------------------------------
 
   it('handles non-Error throw from execSync gracefully', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     mockExecSync.mockImplementation(() => { throw 'string error' })
 
     const result = runBuildVerification({ projectRoot })
@@ -281,6 +302,7 @@ describe('runBuildVerification', () => {
   })
 
   it('handles Buffer stdout/stderr in error object', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ status: 1 })
     // Simulate Buffer values (as execSync may return without encoding option)
     ;(err as Record<string, unknown>).stdout = Buffer.from('stdout bytes')
@@ -384,14 +406,57 @@ describe('detectPackageManager', () => {
     expect(result.command).toBe('npm run build')
   })
 
-  it('falls back to npm run build when no lockfile is found (AC5)', () => {
+  it('falls back to skip (none) when no lockfile or marker is found', () => {
     mockExistsSync.mockReturnValue(false)
 
     const result = detectPackageManager(projectRoot)
 
-    expect(result.packageManager).toBe('npm')
+    expect(result.packageManager).toBe('none')
     expect(result.lockfile).toBeNull()
-    expect(result.command).toBe('npm run build')
+    expect(result.command).toBe('')
+  })
+
+  it('returns none with empty command when pyproject.toml exists (Python project)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('pyproject.toml'))
+
+    const result = detectPackageManager(projectRoot)
+
+    expect(result.packageManager).toBe('none')
+    expect(result.lockfile).toBe('pyproject.toml')
+    expect(result.command).toBe('')
+  })
+
+  it('Python marker wins over package-lock.json (mixed project with bmad tooling)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => {
+      const path = String(p)
+      return path.endsWith('pyproject.toml') || path.endsWith('package-lock.json')
+    })
+
+    const result = detectPackageManager(projectRoot)
+
+    expect(result.packageManager).toBe('none')
+    expect(result.lockfile).toBe('pyproject.toml')
+    expect(result.command).toBe('')
+  })
+
+  it('returns none with empty command when Cargo.toml exists (Rust project)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('Cargo.toml'))
+
+    const result = detectPackageManager(projectRoot)
+
+    expect(result.packageManager).toBe('none')
+    expect(result.lockfile).toBe('Cargo.toml')
+    expect(result.command).toBe('')
+  })
+
+  it('returns none with empty command when go.mod exists (Go project)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('go.mod'))
+
+    const result = detectPackageManager(projectRoot)
+
+    expect(result.packageManager).toBe('none')
+    expect(result.lockfile).toBe('go.mod')
+    expect(result.command).toBe('')
   })
 
   it('pnpm wins priority when both pnpm-lock.yaml and package-lock.json exist (AC1)', () => {
