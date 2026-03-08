@@ -30,6 +30,9 @@ vi.mock('../../compiled-workflows/dev-story.js', () => ({
 vi.mock('../../compiled-workflows/code-review.js', () => ({
   runCodeReview: vi.fn(),
 }))
+vi.mock('../../compiled-workflows/test-plan.js', () => ({
+  runTestPlan: vi.fn().mockResolvedValue({ result: 'failed', test_files: [], test_categories: [], coverage_notes: '', tokenUsage: { input: 0, output: 0 } }),
+}))
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   updatePipelineRun: vi.fn(),
   addTokenUsage: vi.fn(),
@@ -68,6 +71,9 @@ vi.mock('../../../cli/commands/health.js', () => ({
 }))
 vi.mock('../../../utils/helpers.js', () => ({
   sleep: vi.fn().mockResolvedValue(undefined),
+}))
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),

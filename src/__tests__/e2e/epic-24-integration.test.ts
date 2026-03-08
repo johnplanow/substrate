@@ -378,8 +378,13 @@ describe('Gap 3: Package manager detection through build verification', () => {
     expect(result).toHaveProperty('packageManager')
     expect(result).toHaveProperty('command')
     expect(result).toHaveProperty('lockfile')
-    expect(['pnpm', 'yarn', 'bun', 'npm']).toContain(result.packageManager)
-    expect(result.command).toContain('run build')
+    expect(['pnpm', 'yarn', 'bun', 'npm', 'none']).toContain(result.packageManager)
+    // 'none' returns empty command (skip verification); Node.js PMs return '<pm> run build'
+    if (result.packageManager !== 'none') {
+      expect(result.command).toContain('run build')
+    } else {
+      expect(result.command).toBe('')
+    }
   })
 
   it('orchestrator calls runBuildVerification after dev-story completes', async () => {

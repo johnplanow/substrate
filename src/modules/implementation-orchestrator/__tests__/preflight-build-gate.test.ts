@@ -448,9 +448,10 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
   })
 
   it('AC5: skipPreflight=true allows pipeline to run even when build would fail', async () => {
-    // With skipPreflight=true, both the pre-flight AND per-story post-dev
-    // build gates are skipped — so runBuildVerification should never be called.
-    mockRunBuildVerification.mockReturnValue({ status: 'failed', exitCode: 1, output: 'build error', reason: 'build-verification-failed' as const })
+    // With skipPreflight=true, the pre-flight gate is skipped. Per-story
+    // build verification (Story 24-2) is independent — controlled by
+    // skipBuildVerify. Here we verify pre-flight skip only.
+    mockRunBuildVerification.mockReturnValue({ status: 'passed', exitCode: 0 })
 
     const skipConfig = defaultConfig({ skipPreflight: true })
     const orchestrator = createImplementationOrchestrator({
@@ -466,8 +467,8 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
       ([eventName]) => eventName === 'pipeline:pre-flight-failure',
     )
     expect(preFlightEvent).toBeUndefined()
-    // runBuildVerification should not have been called at all (both gates skipped)
-    expect(mockRunBuildVerification).not.toHaveBeenCalled()
+    // runBuildVerification called only for per-story gate (not pre-flight)
+    expect(mockRunBuildVerification).toHaveBeenCalledOnce()
     // Pipeline ran — stories were dispatched
     expect(mockRunCreateStory).toHaveBeenCalledOnce()
     expect(status.state).toBe('COMPLETE')

@@ -212,7 +212,7 @@ describe('runTestExpansion', () => {
   // AC2: Prompt assembly — story_content never truncated
   // -------------------------------------------------------------------------
 
-  it('story_content never truncated even when git diff pushes near 20,000-token ceiling', async () => {
+  it('story_content never truncated even when git diff pushes near 40,000-token ceiling', async () => {
     // Large story content that uses most of the budget
     const largeStory = 'Story AC detail: '.repeat(500) // ~2000 chars
     mockReadFile.mockResolvedValue(largeStory)
@@ -238,9 +238,9 @@ describe('runTestExpansion', () => {
   // AC2: Scoped diff fallback to stat-only when over budget
   // -------------------------------------------------------------------------
 
-  it('uses stat-only summary when scoped diff exceeds 20,000-token ceiling', async () => {
-    // Scoped diff that exceeds 20000 token ceiling (~80000 chars)
-    mockGetGitDiffForFiles.mockResolvedValue('x'.repeat(85000))
+  it('uses stat-only summary when scoped diff exceeds 40,000-token ceiling', async () => {
+    // Scoped diff that exceeds 40000 token ceiling (~160000 chars)
+    mockGetGitDiffForFiles.mockResolvedValue('x'.repeat(165000))
     mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
 
     const dispatchFn = vi.fn().mockReturnValue({

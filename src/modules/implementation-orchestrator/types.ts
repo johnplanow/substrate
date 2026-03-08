@@ -85,6 +85,12 @@ export interface OrchestratorConfig {
    * Escape hatch for known-broken projects. Pass `--skip-preflight` from CLI.
    */
   skipPreflight?: boolean
+  /**
+   * When true, skip per-story post-dev build verification (Story 24-2).
+   * Independent from skipPreflight — pre-flight checks "can this project build
+   * at all?" while per-story checks "did this story break the build?".
+   */
+  skipBuildVerify?: boolean
 }
 
 // ---------------------------------------------------------------------------

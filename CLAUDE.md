@@ -10,6 +10,14 @@ Example: `npm run substrate:dev -- run --events --stories 10-1`
 
 **Never run bare `substrate` to test local changes.** It will silently use the published version, not your code.
 
+## Testing
+
+- **During development iteration:** `npm run test:fast` — unit tests only, excludes e2e/integration, no coverage (~30s)
+- **For targeted validation:** `npm run test:changed` — only tests affected by your changed files (fastest)
+- **Full validation / pre-merge:** `npm test` — full suite with coverage (~140s, flock-guarded)
+- **NEVER run `npm test` concurrently** — it uses `flock` and will reject if another run is active
+- Prefer `test:fast` or `test:changed` during iteration to avoid slow feedback loops and memory pressure
+
 <!-- substrate:start -->
 ## Substrate Pipeline
 

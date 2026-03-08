@@ -1067,10 +1067,10 @@ export function createImplementationOrchestrator(
     // -- build verification gate (Story 24-2) --
     // Runs synchronously after dev-story, before dispatching code-review.
     // Catches compile-time errors (missing exports, type mismatches) before
-    // wasting a review cycle. Respects skipPreflight — when the user opts out
-    // of build checks, both pre-flight and per-story gates are skipped.
+    // wasting a review cycle. Respects skipBuildVerify — independent from
+    // skipPreflight so pre-flight and per-story gates can be toggled separately.
     {
-      const buildVerifyResult = config.skipPreflight === true
+      const buildVerifyResult = config.skipBuildVerify === true
         ? { status: 'skipped' as const }
         : runBuildVerification({
             verifyCommand: pack.manifest.verifyCommand,
