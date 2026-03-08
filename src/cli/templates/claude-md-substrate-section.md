@@ -1,19 +1,22 @@
 <!-- substrate:start -->
 ## Substrate Pipeline
 
-This project uses Substrate for automated implementation pipelines. Substrate runs are long-running (5–40 minutes). Plan accordingly.
+This project uses Substrate for automated implementation pipelines. **When the user asks you to implement, build, or run the pipeline — go straight to running substrate. Do NOT explore the codebase, read source files, or plan the implementation yourself.** Substrate orchestrates sub-agents that handle all of that.
 
 ### Running the Pipeline
 
-**Preferred — Supervisor mode** (handles stalls, auto-restarts, post-run analysis):
+**Just run it.** Substrate auto-discovers pending stories from the DB and `_bmad-output/planning-artifacts/epics.md`. You do not need to find story keys manually unless the user specifies particular stories.
+
 ```
-substrate supervisor --output-format json --stories 7-1,7-2
+substrate supervisor --output-format json
 ```
 
-**Direct mode** (simpler, no auto-recovery):
+To target specific stories (if the user names them):
 ```
-substrate run --events --stories 7-1,7-2
+substrate supervisor --output-format json --stories 1-1,1-2,1-3
 ```
+
+If you need to know which stories/sprints exist, read `_bmad-output/planning-artifacts/epics.md` — but do this only to answer the user's question, not as a prerequisite to running the pipeline.
 
 **CRITICAL execution rules:**
 - Pipeline runs take **5–40 minutes**. You MUST use `run_in_background: true` or `timeout: 600000` (10 min) when invoking via Bash tool. Default 2-minute timeout WILL kill the pipeline.
