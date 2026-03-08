@@ -137,9 +137,17 @@ export function parseStoryKeysFromEpics(content: string): string[] {
     }
   }
 
-  // Pattern 2: ### Story N.M: title  or  ### Story N.M title
-  const headingPattern = /^###\s+Story\s+(\d+)\.(\d+)/gm
+  // Pattern 2: ### Story N.M: title  or  ### Story N-M: title  (dot or dash separator)
+  const headingPattern = /^###\s+Story\s+(\d+)[.\-](\d+)/gm
   while ((match = headingPattern.exec(content)) !== null) {
+    if (match[1] !== undefined && match[2] !== undefined) {
+      keys.add(`${match[1]}-${match[2]}`)
+    }
+  }
+
+  // Pattern 4: Inline story references like "Story 26-1: title" (in story maps, sprint plans)
+  const inlineStoryPattern = /Story\s+(\d+)-(\d+)[:\s]/g
+  while ((match = inlineStoryPattern.exec(content)) !== null) {
     if (match[1] !== undefined && match[2] !== undefined) {
       keys.add(`${match[1]}-${match[2]}`)
     }
@@ -171,18 +179,34 @@ export function parseStoryKeysFromEpics(content: string): string[] {
  * @returns Sorted array of pending story keys in "N-M" format
  */
 export function discoverPendingStoryKeys(projectRoot: string): string[] {
-  // Locate epics.md
-  const epicsPath = findEpicsFile(projectRoot)
-  if (epicsPath === undefined) return []
+  let allKeys: string[] = []
 
-  let content: string
-  try {
-    content = readFileSync(epicsPath, 'utf-8')
-  } catch {
-    return []
+  // Try consolidated epics.md first
+  const epicsPath = findEpicsFile(projectRoot)
+  if (epicsPath !== undefined) {
+    try {
+      const content = readFileSync(epicsPath, 'utf-8')
+      allKeys = parseStoryKeysFromEpics(content)
+    } catch {
+      // fall through to individual epic files
+    }
   }
 
-  const allKeys = parseStoryKeysFromEpics(content)
+  // If no keys from epics.md, scan individual epic-*.md files
+  if (allKeys.length === 0) {
+    const epicFiles = findEpicFiles(projectRoot)
+    for (const epicFile of epicFiles) {
+      try {
+        const content = readFileSync(epicFile, 'utf-8')
+        const keys = parseStoryKeysFromEpics(content)
+        allKeys.push(...keys)
+      } catch {
+        // skip unreadable files
+      }
+    }
+    allKeys = sortStoryKeys([...new Set(allKeys)])
+  }
+
   if (allKeys.length === 0) return []
 
   // Collect existing story file keys
@@ -197,7 +221,14 @@ export function discoverPendingStoryKeys(projectRoot: string): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Find epics.md from known candidate paths relative to projectRoot.
+ * Find epic files from known candidate paths relative to projectRoot.
+ *
+ * Checks for:
+ *   1. epics.md (consolidated epic file)
+ *   2. Individual epic-*.md files in planning-artifacts/
+ *
+ * Returns a single path for epics.md, or undefined if not found.
+ * For individual epic files, use findEpicFiles() instead.
  */
 function findEpicsFile(projectRoot: string): string | undefined {
   const candidates = [
@@ -209,6 +240,25 @@ function findEpicsFile(projectRoot: string): string | undefined {
     if (existsSync(fullPath)) return fullPath
   }
   return undefined
+}
+
+/**
+ * Find individual epic-*.md files in the planning artifacts directory.
+ * Returns paths sorted alphabetically.
+ */
+function findEpicFiles(projectRoot: string): string[] {
+  const planningDir = join(projectRoot, '_bmad-output', 'planning-artifacts')
+  if (!existsSync(planningDir)) return []
+
+  try {
+    const entries = readdirSync(planningDir, { encoding: 'utf-8' })
+    return entries
+      .filter((e) => /^epic-\d+.*\.md$/.test(e))
+      .sort()
+      .map((e) => join(planningDir, e))
+  } catch {
+    return []
+  }
 }
 
 /**
