@@ -33,6 +33,7 @@ import { createContextCompiler } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { createImplementationOrchestrator, discoverPendingStoryKeys, resolveStoryKeys } from '../../modules/implementation-orchestrator/index.js'
+import { detectStartPhase } from '../../modules/phase-orchestrator/phase-detection.js'
 import { createPhaseOrchestrator } from '../../modules/phase-orchestrator/index.js'
 import { runAnalysisPhase } from '../../modules/phase-orchestrator/phases/analysis.js'
 import { runPlanningPhase } from '../../modules/phase-orchestrator/phases/planning.js'
@@ -279,14 +280,59 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
   }
 
-  // If --from is provided, we're running the full phase pipeline
-  if (startPhase !== undefined) {
+  // Determine which phase to start from.
+  // If --from is explicit, use it. Otherwise, auto-detect from DB state.
+  let effectiveStartPhase: PhaseName | undefined = startPhase
+
+  if (effectiveStartPhase === undefined) {
+    // Auto-detect: open DB temporarily to inspect pipeline state
+    mkdirSync(dbDir, { recursive: true })
+    try {
+      const detectDb = new DatabaseWrapper(dbPath)
+      try {
+        detectDb.open()
+        runMigrations(detectDb.db)
+        const detection = detectStartPhase(detectDb.db, projectRoot)
+
+        if (detection.phase !== 'implementation') {
+          // Pipeline needs earlier phases — route through full pipeline
+          effectiveStartPhase = detection.phase as PhaseName
+
+          if (outputFormat === 'human') {
+            process.stdout.write(`[AUTO-DETECT] ${detection.reason}\n`)
+          }
+
+          // If concept is needed and not provided, give an actionable error
+          if (detection.needsConcept && concept === undefined) {
+            const errorMsg = `Pipeline needs to start from ${detection.phase} phase, which requires a concept.\nProvide --concept "your idea" or --concept-file path/to/brief.md`
+            if (outputFormat === 'json') {
+              process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+            } else {
+              process.stderr.write(`Error: ${errorMsg}\n`)
+            }
+            detectDb.close()
+            return 1
+          }
+        } else if (outputFormat === 'human') {
+          process.stdout.write(`[AUTO-DETECT] ${detection.reason}\n`)
+        }
+      } finally {
+        detectDb.close()
+      }
+    } catch {
+      // DB not initialized — fall through to legacy path
+      // (which will also fail with "run substrate init" message)
+    }
+  }
+
+  // Route through full pipeline if an earlier phase is needed
+  if (effectiveStartPhase !== undefined) {
     return runFullPipeline({
       packName,
       packPath,
       dbDir,
       dbPath,
-      startPhase,
+      startPhase: effectiveStartPhase,
       stopAfter,
       concept,
       concurrency,
@@ -303,8 +349,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     })
   }
 
-  // Legacy behavior: run implementation-only (existing auto run without --from)
-  // Use already-parsed story keys from --stories flag
+  // Implementation path: stories exist, run them directly
   let storyKeys: string[] = [...parsedStoryKeys]
 
   // Ensure database directory

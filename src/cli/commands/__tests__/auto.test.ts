@@ -122,6 +122,17 @@ vi.mock('../health.js', () => ({
   inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
+// Mock phase detection — default to implementation (legacy behavior)
+const mockDetectStartPhase = vi.fn().mockReturnValue({
+  phase: 'implementation',
+  reason: 'stories ready for implementation',
+  needsConcept: false,
+})
+
+vi.mock('../../../modules/phase-orchestrator/phase-detection.js', () => ({
+  detectStartPhase: (...args: unknown[]) => mockDetectStartPhase(...args),
+}))
+
 // Mock event bus
 const mockEventBus = {
   on: vi.fn(),
