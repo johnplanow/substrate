@@ -46,6 +46,17 @@ vi.mock('../../../persistence/migrations/index.js', () => ({
   runMigrations: vi.fn(),
 }))
 
+// Mock phase detection — default to implementation (legacy behavior)
+const mockDetectStartPhase = vi.fn().mockReturnValue({
+  phase: 'implementation',
+  reason: 'stories ready for implementation',
+  needsConcept: false,
+})
+
+vi.mock('../../../modules/phase-orchestrator/phase-detection.js', () => ({
+  detectStartPhase: (...args: unknown[]) => mockDetectStartPhase(...args),
+}))
+
 const mockPackLoad = vi.fn()
 vi.mock('../../../modules/methodology-pack/pack-loader.js', () => ({
   createPackLoader: vi.fn(() => ({
