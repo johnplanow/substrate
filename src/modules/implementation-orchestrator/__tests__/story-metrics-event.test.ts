@@ -169,7 +169,7 @@ describe('AC8: story:metrics event emitted on terminal state', () => {
       contextCompiler: createMockContextCompiler(),
       dispatcher: createMockDispatcher(),
       eventBus,
-      config: { maxConcurrency: 1, maxReviewCycles: 2, pipelineRunId: runId },
+      config: { maxConcurrency: 1, maxReviewCycles: 2, pipelineRunId: runId, gcPauseMs: 0 },
     })
 
     await orchestrator.run(['1-1'])
@@ -207,7 +207,7 @@ describe('AC8: story:metrics event emitted on terminal state', () => {
       contextCompiler: createMockContextCompiler(),
       dispatcher: createMockDispatcher(),
       eventBus,
-      config: { maxConcurrency: 1, maxReviewCycles: 2, pipelineRunId: runId },
+      config: { maxConcurrency: 1, maxReviewCycles: 2, pipelineRunId: runId, gcPauseMs: 0 },
     })
 
     await orchestrator.run(['1-1'])
@@ -247,7 +247,7 @@ describe('AC8: story:metrics event emitted on terminal state', () => {
       contextCompiler: createMockContextCompiler(),
       dispatcher: createMockDispatcher(),
       eventBus,
-      config: { maxConcurrency: 1, maxReviewCycles: 2, pipelineRunId: runId },
+      config: { maxConcurrency: 1, maxReviewCycles: 2, pipelineRunId: runId, gcPauseMs: 0 },
     })
 
     await orchestrator.run(['3-1'])
@@ -297,7 +297,7 @@ describe('AC8: story:metrics event emitted on terminal state', () => {
       contextCompiler: createMockContextCompiler(),
       dispatcher: createMockDispatcher(),
       eventBus,
-      config: { maxConcurrency: 1, maxReviewCycles: 2, pipelineRunId: runId },
+      config: { maxConcurrency: 1, maxReviewCycles: 2, pipelineRunId: runId, gcPauseMs: 0 },
     })
 
     await orchestrator.run(['2-1'])

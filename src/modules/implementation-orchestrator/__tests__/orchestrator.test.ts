@@ -165,6 +165,7 @@ function defaultConfig(overrides?: Partial<OrchestratorConfig>): OrchestratorCon
     maxConcurrency: 3,
     maxReviewCycles: 2,
     pipelineRunId: 'test-run-id',
+    gcPauseMs: 0,
     ...overrides,
   }
 }
