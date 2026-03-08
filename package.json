@@ -46,7 +46,7 @@
     "build": "tsdown",
     "postbuild": "cp -r src/cli/templates dist/cli/templates",
     "dev": "tsx watch src/cli/index.ts",
-    "test": "flock -n -E 75 /tmp/substrate-test.lock vitest run --coverage || { ec=$?; if [ $ec -eq 75 ]; then echo '⚠ Test suite already running — wait or kill the other process'; fi; exit $ec; }",
+    "test": "vitest run --coverage",
     "test:fast": "vitest run --exclude 'src/__tests__/e2e/**' --exclude '**/*integration*' --exclude '**/*e2e*'",
     "test:changed": "vitest run --changed",
     "test:watch": "vitest",
