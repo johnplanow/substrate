@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { DoltStateStore } from '../dolt-store.js'
+import { DoltMergeConflictError } from '../errors.js'
 import type { DoltClient } from '../dolt-client.js'
 import type { StoryRecord, MetricRecord, ContractRecord, ContractVerificationRecord } from '../types.js'
 
@@ -32,7 +33,7 @@ vi.mock('../../../utils/logger.js', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeClient(queryResults: Map<string, unknown[]> = new Map()): DoltClient {
+function makeClient(queryResults: Map<string, unknown[]> = new Map(), execResults: Map<string, string> = new Map()): DoltClient {
   return {
     repoPath: '/tmp/testrepo',
     socketPath: '/tmp/testrepo/.dolt/dolt.sock',
@@ -44,6 +45,13 @@ function makeClient(queryResults: Map<string, unknown[]> = new Map()): DoltClien
         if (sql.includes(key)) return value
       }
       return []
+    }),
+    exec: vi.fn().mockImplementation(async (command: string) => {
+      // Find a matching result key by checking if command contains keywords
+      for (const [key, value] of execResults) {
+        if (command.includes(key)) return value
+      }
+      return ''
     }),
   } as unknown as DoltClient
 }
@@ -399,145 +407,205 @@ describe('DoltStateStore', () => {
   // -- Branch operations -----------------------------------------------------
 
   describe('branchForStory', () => {
-    it('calls dolt checkout -b story-<storyKey>', async () => {
-      const { execFile } = await import('node:child_process')
-      vi.mocked(execFile).mockImplementation(
-        (_cmd: string, _args: readonly string[], _opts: unknown, callback?: unknown) => {
-          if (typeof callback === 'function') callback(null, '', '')
-          return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
-        },
-      )
-      const store = makeStore()
-      await store.branchForStory('26-1')
-      expect(execFile).toHaveBeenCalledWith(
-        'dolt',
-        ['checkout', '-b', 'story-26-1'],
-        expect.objectContaining({ cwd: '/tmp/testrepo' }),
-        expect.any(Function),
-      )
+    it('calls DOLT_BRANCH SQL and sets _storyBranches', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      await store.branchForStory('26-7')
+      const calls = vi.mocked(client.query).mock.calls
+      const branchCall = calls.find(([sql]) => String(sql).includes('DOLT_BRANCH'))
+      expect(branchCall).toBeDefined()
+      expect(String(branchCall![0])).toContain('story/26-7')
     })
 
-    it('falls back to checkout without -b when branch exists', async () => {
-      const { execFile } = await import('node:child_process')
-      let callCount = 0
-      vi.mocked(execFile).mockImplementation(
-        (_cmd: string, args: readonly string[], _opts: unknown, callback?: unknown) => {
-          callCount++
-          if (typeof callback === 'function') {
-            if (callCount === 1 && args.includes('-b')) {
-              // First call fails (branch exists)
-              callback(new Error('branch already exists'), '', '')
-            } else {
-              callback(null, '', '')
-            }
-          }
-          return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
-        },
-      )
-      const store = makeStore()
-      await expect(store.branchForStory('26-1')).resolves.toBeUndefined()
+    it('throws DoltQueryError when DOLT_BRANCH fails', async () => {
+      const client = makeClient()
+      vi.mocked(client.query).mockRejectedValueOnce(new Error('branch error'))
+      const store = makeStore(client)
+      await expect(store.branchForStory('26-7')).rejects.toThrow()
     })
   })
 
   describe('mergeStory', () => {
-    it('checks out main then merges the story branch', async () => {
-      const { execFile } = await import('node:child_process')
-      const calls: string[][] = []
-      vi.mocked(execFile).mockImplementation(
-        (_cmd: string, args: readonly string[], _opts: unknown, callback?: unknown) => {
-          calls.push([...args])
-          if (typeof callback === 'function') callback(null, '', '')
-          return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
-        },
-      )
-      const store = makeStore()
-      await store.mergeStory('26-1')
-      expect(calls[0]).toEqual(['checkout', 'main'])
-      expect(calls[1]).toContain('merge')
-      expect(calls[1]).toContain('story-26-1')
+    it('is a no-op when no branch is registered', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      // Don't call branchForStory first — no branch registered
+      await expect(store.mergeStory('26-7')).resolves.toBeUndefined()
+      // Should not have called DOLT_MERGE
+      const calls = vi.mocked(client.query).mock.calls
+      const mergeCall = calls.find(([sql]) => String(sql).includes('DOLT_MERGE'))
+      expect(mergeCall).toBeUndefined()
+    })
+
+    it('calls DOLT_MERGE and DOLT_COMMIT after branchForStory', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      // Register a branch manually
+      await store.branchForStory('26-7')
+      vi.mocked(client.query).mockClear()
+      // Mock merge returning no conflicts
+      vi.mocked(client.query).mockResolvedValue([{ hash: 'abc123', fast_forward: 1, conflicts: 0, message: '' }])
+      await store.mergeStory('26-7')
+      const calls = vi.mocked(client.query).mock.calls
+      const mergeCall = calls.find(([sql]) => String(sql).includes('DOLT_MERGE'))
+      expect(mergeCall).toBeDefined()
+      const commitCall = calls.find(([sql]) => String(sql).includes('DOLT_COMMIT'))
+      expect(commitCall).toBeDefined()
+      expect(String(commitCall![0])).toContain('26-7')
     })
   })
 
   describe('rollbackStory', () => {
-    it('checks out main then deletes the story branch', async () => {
-      const { execFile } = await import('node:child_process')
-      const calls: string[][] = []
-      vi.mocked(execFile).mockImplementation(
-        (_cmd: string, args: readonly string[], _opts: unknown, callback?: unknown) => {
-          calls.push([...args])
-          if (typeof callback === 'function') callback(null, '', '')
-          return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
-        },
-      )
-      const store = makeStore()
-      await store.rollbackStory('26-1')
-      expect(calls[0]).toEqual(['checkout', 'main'])
-      expect(calls[1]).toEqual(['branch', '-D', 'story-26-1'])
+    it('is a no-op when no branch is registered', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      await expect(store.rollbackStory('26-7')).resolves.toBeUndefined()
+      const calls = vi.mocked(client.query).mock.calls
+      const dropCall = calls.find(([sql]) => String(sql).includes('DOLT_BRANCH') && String(sql).includes('-D'))
+      expect(dropCall).toBeUndefined()
     })
 
-    it('does not throw when dolt commands fail (non-fatal)', async () => {
-      const { execFile } = await import('node:child_process')
-      vi.mocked(execFile).mockImplementation(
-        (_cmd: string, _args: readonly string[], _opts: unknown, callback?: unknown) => {
-          if (typeof callback === 'function') callback(new Error('branch not found'), '', '')
-          return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
-        },
-      )
-      const store = makeStore()
-      await expect(store.rollbackStory('26-1')).resolves.toBeUndefined()
+    it('calls DOLT_BRANCH -D after branchForStory', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      await store.branchForStory('26-7')
+      vi.mocked(client.query).mockClear()
+      vi.mocked(client.query).mockResolvedValue([])
+      await store.rollbackStory('26-7')
+      const calls = vi.mocked(client.query).mock.calls
+      const dropCall = calls.find(([sql]) => String(sql).includes('DOLT_BRANCH') && String(sql).includes('-D'))
+      expect(dropCall).toBeDefined()
+    })
+
+    it('does not throw when DOLT_BRANCH -D fails', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      await store.branchForStory('26-7')
+      vi.mocked(client.query).mockClear()
+      vi.mocked(client.query).mockRejectedValue(new Error('branch not found'))
+      await expect(store.rollbackStory('26-7')).resolves.toBeUndefined()
     })
   })
 
   describe('diffStory', () => {
-    it('returns StateDiff with storyKey and changes array', async () => {
+    it('returns empty tables when no branchForStory has been called', async () => {
+      // _storyBranches has no entry → returns empty immediately, no queries issued
       const client = makeClient()
       const store = makeStore(client)
-      const diff = await store.diffStory('26-1')
-      expect(diff.storyKey).toBe('26-1')
-      expect(Array.isArray(diff.changes)).toBe(true)
+      const diff = await store.diffStory('26-7')
+      expect(diff.storyKey).toBe('26-7')
+      expect(diff.tables).toEqual([])
     })
 
-    it('handles query errors gracefully (best-effort)', async () => {
+    it('returns row-level DiffRow arrays via DOLT_DIFF SQL when branch is registered', async () => {
+      const queryResults = new Map<string, unknown[]>([
+        ["'stories'", [
+          { diff_type: 'added', after_story_key: '26-7', after_phase: 'COMPLETE', before_story_key: null },
+          { diff_type: 'modified', after_story_key: '26-7', after_phase: 'IN_REVIEW', before_story_key: '26-7', before_phase: 'IN_DEV' },
+        ]],
+        ["'contracts'", [
+          { diff_type: 'removed', before_story_key: '26-7', before_contract_name: 'old', after_story_key: null },
+        ]],
+      ])
+      const client = makeClient(queryResults)
+      const store = makeStore(client)
+      await store.branchForStory('26-7')
+      const diff = await store.diffStory('26-7')
+      expect(diff.storyKey).toBe('26-7')
+      const storiesTable = diff.tables.find((t) => t.table === 'stories')
+      expect(storiesTable).toBeDefined()
+      expect(storiesTable!.added).toHaveLength(1)
+      expect(storiesTable!.added[0]!.rowKey).toBe('26-7')
+      expect(storiesTable!.modified).toHaveLength(1)
+      expect(storiesTable!.deleted).toHaveLength(0)
+      const contractsTable = diff.tables.find((t) => t.table === 'contracts')
+      expect(contractsTable).toBeDefined()
+      expect(contractsTable!.deleted).toHaveLength(1)
+      expect(contractsTable!.added).toHaveLength(0)
+    })
+
+    it('returns empty tables when no branch is registered (merged or never started)', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      const diff = await store.diffStory('26-7')
+      expect(diff.storyKey).toBe('26-7')
+      expect(diff.tables).toEqual([])
+    })
+  })
+
+  // -- getHistory ------------------------------------------------------------
+
+  describe('getHistory', () => {
+    it('returns parsed HistoryEntry array from dolt log output', async () => {
+      const logOutput = [
+        'a1b2c3d 2026-03-08T14:23:01+00:00 Merge story/26-7: branch-per-story complete',
+        'b2c3d4e 2026-03-07T10:00:00+00:00 substrate: auto-commit',
+        'c3d4e5f 2026-03-06T09:00:00+00:00 Merge story/26-1: done',
+      ].join('\n')
+      const execResults = new Map([['dolt log', logOutput]])
+      const client = makeClient(new Map(), execResults)
+      const store = makeStore(client)
+      const entries = await store.getHistory(10)
+      expect(entries).toHaveLength(3)
+      expect(entries[0].hash).toBe('a1b2c3d')
+      expect(entries[0].timestamp).toBe('2026-03-08T14:23:01+00:00')
+      expect(entries[0].storyKey).toBe('26-7')
+      expect(entries[0].message).toBe('Merge story/26-7: branch-per-story complete')
+      expect(entries[1].storyKey).toBeNull()
+      expect(entries[2].storyKey).toBe('26-1')
+    })
+
+    it('uses default limit of 20 when no options provided', async () => {
+      const execResults = new Map([['dolt log', '']])
+      const client = makeClient(new Map(), execResults)
+      const store = makeStore(client)
+      await store.getHistory()
+      const calls = vi.mocked(client.exec).mock.calls
+      expect(calls.length).toBeGreaterThan(0)
+      const command = String(calls[0][0])
+      expect(command).toContain('--limit 20')
+    })
+
+    it('returns empty array for empty log output', async () => {
+      const execResults = new Map([['dolt log', '']])
+      const client = makeClient(new Map(), execResults)
+      const store = makeStore(client)
+      const entries = await store.getHistory()
+      expect(entries).toEqual([])
+    })
+
+    it('throws DoltQueryError when exec fails', async () => {
       const client = {
         ...makeClient(),
-        query: vi.fn().mockRejectedValue(new Error('table not found')),
+        exec: vi.fn().mockRejectedValue(new Error('dolt not found')),
       } as unknown as DoltClient
       const store = makeStore(client)
-      const diff = await store.diffStory('26-1')
-      expect(diff.storyKey).toBe('26-1')
-      expect(diff.changes).toEqual([])
+      await expect(store.getHistory()).rejects.toThrow()
     })
   })
 
   // -- flush -----------------------------------------------------------------
 
   describe('flush', () => {
-    it('calls dolt add and dolt commit', async () => {
-      const { execFile } = await import('node:child_process')
-      const calls: string[][] = []
-      vi.mocked(execFile).mockImplementation(
-        (_cmd: string, args: readonly string[], _opts: unknown, callback?: unknown) => {
-          calls.push([...args])
-          if (typeof callback === 'function') callback(null, '', '')
-          return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
-        },
-      )
-      const store = makeStore()
+    it('calls dolt add and dolt commit via client.exec', async () => {
+      const execCalls: string[] = []
+      const client = makeClient()
+      vi.mocked(client.exec).mockImplementation(async (cmd: string) => {
+        execCalls.push(cmd)
+        return ''
+      })
+      const store = makeStore(client)
       await store.flush('my commit')
-      expect(calls[0]).toEqual(['add', '.'])
-      expect(calls[1]).toContain('commit')
-      expect(calls[1]).toContain('my commit')
+      expect(execCalls.length).toBeGreaterThanOrEqual(2)
+      expect(execCalls[0]).toContain('add')
+      expect(execCalls[1]).toContain('commit')
+      expect(execCalls[1]).toContain('my commit')
     })
 
     it('does not throw when dolt commit fails', async () => {
-      const { execFile } = await import('node:child_process')
-      vi.mocked(execFile).mockImplementation(
-        (_cmd: string, _args: readonly string[], _opts: unknown, callback?: unknown) => {
-          if (typeof callback === 'function') callback(new Error('nothing to commit'), '', '')
-          return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
-        },
-      )
-      const store = makeStore()
+      const client = makeClient()
+      vi.mocked(client.exec).mockRejectedValue(new Error('nothing to commit'))
+      const store = makeStore(client)
       await expect(store.flush()).resolves.toBeUndefined()
     })
   })

@@ -80,7 +80,8 @@ const mockStateStore = {
   branchForStory: vi.fn().mockResolvedValue(undefined),
   mergeStory: vi.fn().mockResolvedValue(undefined),
   rollbackStory: vi.fn().mockResolvedValue(undefined),
-  diffStory: vi.fn().mockResolvedValue({ storyKey: '', changes: [] }),
+  diffStory: vi.fn().mockResolvedValue({ storyKey: '', tables: [] }),
+  getHistory: vi.fn().mockResolvedValue([]),
 }
 
 vi.mock('../../../modules/state/index.js', () => ({

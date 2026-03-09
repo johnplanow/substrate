@@ -37,11 +37,22 @@ export class DoltQueryError extends StateStoreError {
 export class DoltMergeConflictError extends StateStoreError {
   table: string
   conflictingKeys: string[]
+  rowKey?: string
+  ourValue?: string
+  theirValue?: string
 
-  constructor(table: string, conflictingKeys: string[]) {
+  constructor(table: string, conflictingKeys: string[], options?: { rowKey?: string; ourValue?: string; theirValue?: string }) {
     super('DOLT_MERGE_CONFLICT', `Merge conflict in table '${table}' on keys: ${conflictingKeys.join(', ')}`)
     this.name = 'DoltMergeConflictError'
     this.table = table
     this.conflictingKeys = conflictingKeys
+    if (options) {
+      this.rowKey = options.rowKey
+      this.ourValue = options.ourValue
+      this.theirValue = options.theirValue
+    }
   }
 }
+
+/** Alias for DoltMergeConflictError — used by orchestrator branch lifecycle. */
+export const DoltMergeConflict = DoltMergeConflictError

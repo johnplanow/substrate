@@ -9,8 +9,6 @@
  * idempotent CREATE TABLE IF NOT EXISTS migrations so it can function
  * independently of whether `initializeDolt()` was called first.
  */
-import { execFile as execFileCb } from 'node:child_process'
-import { promisify } from 'node:util'
 import { createLogger } from '../../utils/logger.js'
 import type { DoltClient } from './dolt-client.js'
 import type {
@@ -23,12 +21,13 @@ import type {
   ContractRecord,
   ContractFilter,
   ContractVerificationRecord,
-  StateDiff,
+  StoryDiff,
+  TableDiff,
+  DiffRow,
+  HistoryEntry,
 } from './types.js'
 import type { StoryPhase } from '../implementation-orchestrator/types.js'
-import { DoltQueryError } from './errors.js'
-
-const execFile = promisify(execFileCb)
+import { DoltQueryError, DoltMergeConflictError } from './errors.js'
 const log = createLogger('modules:state:dolt')
 
 // ---------------------------------------------------------------------------
@@ -79,14 +78,6 @@ interface ContractRow {
   transport: string | null
 }
 
-interface DiffRow {
-  table_name: string
-  pk: string
-  diff_type: string
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any
-}
-
 interface ReviewVerdictRow {
   story_key: string
   task_type: string
@@ -94,6 +85,17 @@ interface ReviewVerdictRow {
   issues_count: number | null
   notes: string | null
   timestamp: string | null
+}
+
+interface MergeResultRow {
+  hash: string
+  fast_forward: number
+  conflicts: number
+  message: string
+}
+
+interface ConflictRow {
+  [key: string]: unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -118,10 +120,19 @@ export interface DoltStateStoreOptions {
 export class DoltStateStore implements StateStore {
   private readonly _repoPath: string
   private readonly _client: DoltClient
+  private readonly _storyBranches: Map<string, string> = new Map()
 
   constructor(options: DoltStateStoreOptions) {
     this._repoPath = options.repoPath
     this._client = options.client
+  }
+
+  /**
+   * Return the branch name for a story if one has been created via branchForStory(),
+   * or undefined to use the default (main) branch.
+   */
+  private _branchFor(storyKey: string): string | undefined {
+    return this._storyBranches.get(storyKey)
   }
 
   // ---------------------------------------------------------------------------
@@ -213,8 +224,8 @@ export class DoltStateStore implements StateStore {
    */
   async flush(message = 'substrate: auto-commit'): Promise<void> {
     try {
-      await execFile('dolt', ['add', '.'], { cwd: this._repoPath })
-      await execFile('dolt', ['commit', '--allow-empty', '-m', message], { cwd: this._repoPath })
+      await this._client.exec('dolt add .')
+      await this._client.exec(`dolt commit --allow-empty -m '${message.replace(/'/g, "'\\''")}'`)
       log.debug('Dolt flush committed: %s', message)
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
@@ -236,7 +247,7 @@ export class DoltStateStore implements StateStore {
   }
 
   async setStoryState(storyKey: string, state: StoryRecord): Promise<void> {
-    // REPLACE INTO handles both insert and update atomically.
+    const branch = this._branchFor(storyKey)
     const sql = `REPLACE INTO stories
       (story_key, phase, review_cycles, last_verdict, error, started_at, completed_at, sprint)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -249,7 +260,7 @@ export class DoltStateStore implements StateStore {
       state.startedAt ?? null,
       state.completedAt ?? null,
       state.sprint ?? null,
-    ])
+    ], branch)
   }
 
   async queryStories<T extends StoryFilter>(filter: T): Promise<StoryRecord[]> {
@@ -297,6 +308,7 @@ export class DoltStateStore implements StateStore {
   // ---------------------------------------------------------------------------
 
   async recordMetric(metric: MetricRecord): Promise<void> {
+    const branch = this._branchFor(metric.storyKey)
     const recordedAt = metric.recordedAt ?? metric.timestamp ?? new Date().toISOString()
     const sql = `INSERT INTO metrics
       (story_key, task_type, model, tokens_in, tokens_out, cache_read_tokens,
@@ -316,7 +328,7 @@ export class DoltStateStore implements StateStore {
       metric.result ?? null,
       recordedAt,
       metric.sprint ?? null,
-    ])
+    ], branch)
   }
 
   async queryMetrics(filter: MetricFilter): Promise<MetricRecord[]> {
@@ -414,13 +426,14 @@ export class DoltStateStore implements StateStore {
   }
 
   async setContracts(storyKey: string, contracts: ContractRecord[]): Promise<void> {
-    // Delete existing contracts for the story, then insert the new set.
-    await this._client.query('DELETE FROM contracts WHERE story_key = ?', [storyKey])
+    const branch = this._branchFor(storyKey)
+    await this._client.query('DELETE FROM contracts WHERE story_key = ?', [storyKey], branch)
     for (const c of contracts) {
       await this._client.query(
         `INSERT INTO contracts (story_key, contract_name, direction, schema_path, transport)
          VALUES (?, ?, ?, ?, ?)`,
         [c.storyKey, c.contractName, c.direction, c.schemaPath, c.transport ?? null],
+        branch,
       )
     }
   }
@@ -455,10 +468,11 @@ export class DoltStateStore implements StateStore {
   }
 
   async setContractVerification(storyKey: string, results: ContractVerificationRecord[]): Promise<void> {
-    // Delete existing verification records for this story+task_type, then insert new ones.
+    const branch = this._branchFor(storyKey)
     await this._client.query(
       `DELETE FROM review_verdicts WHERE story_key = ? AND task_type = 'contract-verification'`,
       [storyKey],
+      branch,
     )
 
     const failCount = results.filter((r) => r.verdict === 'fail').length
@@ -474,11 +488,11 @@ export class DoltStateStore implements StateStore {
           JSON.stringify({ contractName: r.contractName, mismatchDescription: r.mismatchDescription }),
           r.verifiedAt,
         ],
+        branch,
       )
     }
 
-    // Flush changes to Dolt commit.
-    await this.flush(`substrate: contract-verification for ${storyKey}`)
+    // Note: Dolt commit on merge via mergeStory() — no explicit flush needed for branch-isolated writes
   }
 
   async getContractVerification(storyKey: string): Promise<ContractVerificationRecord[]> {
@@ -515,76 +529,227 @@ export class DoltStateStore implements StateStore {
   // Branching
   // ---------------------------------------------------------------------------
 
-  private _branchName(storyKey: string): string {
-    return `story-${storyKey}`
-  }
-
   async branchForStory(storyKey: string): Promise<void> {
-    const branch = this._branchName(storyKey)
+    const branchName = `story/${storyKey}`
     try {
-      await execFile('dolt', ['checkout', '-b', branch], { cwd: this._repoPath })
-      log.debug('Created branch %s', branch)
-    } catch {
-      // If branch already exists, checkout without -b
-      try {
-        await execFile('dolt', ['checkout', branch], { cwd: this._repoPath })
-        log.debug('Checked out existing branch %s', branch)
-      } catch (err2: unknown) {
-        const detail = err2 instanceof Error ? err2.message : String(err2)
-        throw new DoltQueryError(`dolt checkout -b ${branch}`, detail)
-      }
+      // Execute CALL DOLT_BRANCH on main to create the branch
+      await this._client.query(`CALL DOLT_BRANCH('${branchName}')`, [], 'main')
+      this._storyBranches.set(storyKey, branchName)
+      log.debug('Created Dolt branch %s for story %s', branchName, storyKey)
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new DoltQueryError(`CALL DOLT_BRANCH('${branchName}')`, detail)
     }
   }
 
   async mergeStory(storyKey: string): Promise<void> {
-    const branch = this._branchName(storyKey)
+    const branchName = this._storyBranches.get(storyKey)
+    if (branchName === undefined) {
+      log.warn({ storyKey }, 'mergeStory called but no branch registered — no-op')
+      return
+    }
     try {
-      await execFile('dolt', ['checkout', 'main'], { cwd: this._repoPath })
-      await execFile('dolt', ['merge', branch, '--no-ff', '-m', `Merge ${branch}`], { cwd: this._repoPath })
-      log.debug('Merged branch %s into main', branch)
+      // Merge the story branch into main
+      const mergeRows = await this._client.query<MergeResultRow>(
+        `CALL DOLT_MERGE('${branchName}')`,
+        [],
+        'main',
+      )
+      // Check for conflicts
+      const mergeResult = mergeRows[0]
+      if (mergeResult && (mergeResult.conflicts ?? 0) > 0) {
+        // Query conflict details from the stories conflict table (best-effort)
+        let table = 'stories'
+        let rowKey = 'unknown'
+        let ourValue: string | undefined
+        let theirValue: string | undefined
+        try {
+          const conflictRows = await this._client.query<ConflictRow>(
+            `SELECT * FROM dolt_conflicts_stories LIMIT 1`,
+            [],
+            'main',
+          )
+          if (conflictRows.length > 0) {
+            const row = conflictRows[0]
+            rowKey = String(row['base_story_key'] ?? row['our_story_key'] ?? 'unknown')
+            ourValue = JSON.stringify(row['our_status'] ?? row)
+            theirValue = JSON.stringify(row['their_status'] ?? row)
+          }
+        } catch {
+          // best-effort — ignore errors querying conflict table
+        }
+        this._storyBranches.delete(storyKey)
+        throw new DoltMergeConflictError(table, [rowKey], { rowKey, ourValue, theirValue })
+      }
+      // Commit the merge on main
+      await this._client.query(
+        `CALL DOLT_COMMIT('-m', 'Merge story ${storyKey}: COMPLETE')`,
+        [],
+        'main',
+      )
+      this._storyBranches.delete(storyKey)
+      log.debug('Merged branch %s into main for story %s', branchName, storyKey)
     } catch (err: unknown) {
+      if (err instanceof DoltMergeConflictError) throw err
       const detail = err instanceof Error ? err.message : String(err)
-      throw new DoltQueryError(`dolt merge ${branch}`, detail)
+      throw new DoltQueryError(`CALL DOLT_MERGE('${branchName}')`, detail)
     }
   }
 
   async rollbackStory(storyKey: string): Promise<void> {
-    const branch = this._branchName(storyKey)
+    const branchName = this._storyBranches.get(storyKey)
+    if (branchName === undefined) {
+      log.warn({ storyKey }, 'rollbackStory called but no branch registered — no-op')
+      return
+    }
     try {
-      await execFile('dolt', ['checkout', 'main'], { cwd: this._repoPath })
-      await execFile('dolt', ['branch', '-D', branch], { cwd: this._repoPath })
-      log.debug('Rolled back (deleted) branch %s', branch)
+      await this._client.query(`CALL DOLT_BRANCH('-D', '${branchName}')`, [], 'main')
+      this._storyBranches.delete(storyKey)
+      log.debug('Rolled back (deleted) branch %s for story %s', branchName, storyKey)
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
-      log.warn({ detail }, 'rollbackStory failed for %s (non-fatal)', branch)
+      log.warn({ detail, storyKey, branchName }, 'rollbackStory failed (non-fatal)')
+      this._storyBranches.delete(storyKey)
     }
   }
 
-  async diffStory(storyKey: string): Promise<StateDiff> {
-    const branch = this._branchName(storyKey)
-    const tables = ['stories', 'metrics', 'contracts']
-    const changes: StateDiff['changes'] = []
+  // ---------------------------------------------------------------------------
+  // Diff (row-level via DOLT_DIFF SQL, Story 26-7)
+  // ---------------------------------------------------------------------------
 
-    for (const table of tables) {
+  /**
+   * Tables queried by diffStory(). Each table is checked for row-level changes
+   * via SELECT * FROM DOLT_DIFF('main', branchName, tableName).
+   */
+  private static readonly DIFF_TABLES = [
+    'stories',
+    'contracts',
+    'metrics',
+    'dispatch_log',
+    'build_results',
+    'review_verdicts',
+  ] as const
+
+  async diffStory(storyKey: string): Promise<StoryDiff> {
+    const branchName = this._storyBranches.get(storyKey)
+    if (branchName === undefined) {
+      return { storyKey, tables: [] }
+    }
+
+    const tableDiffs: TableDiff[] = []
+
+    for (const table of DoltStateStore.DIFF_TABLES) {
       try {
-        const rows = await this._client.query<DiffRow>(
-          `SELECT * FROM dolt_diff_${table} WHERE from_commit = 'main' AND to_commit = ?`,
-          [branch],
+        const rows = await this._client.query<Record<string, unknown>>(
+          `SELECT * FROM DOLT_DIFF('main', '${branchName}', '${table}')`,
+          [],
+          'main',
         )
+
+        if (rows.length === 0) continue
+
+        const added: DiffRow[] = []
+        const modified: DiffRow[] = []
+        const deleted: DiffRow[] = []
+
         for (const row of rows) {
-          changes.push({
-            table,
-            rowKey: String(row.to_story_key ?? row.from_story_key ?? row.to_id ?? row.from_id ?? ''),
-            before: row.diff_type === 'added' ? undefined : row,
-            after: row.diff_type === 'removed' ? undefined : row,
-          })
+          const diffType = row['diff_type'] as string
+          const rowKey = this._extractRowKey(row)
+          const before = this._extractPrefixedFields(row, 'before_')
+          const after = this._extractPrefixedFields(row, 'after_')
+          const diffRow: DiffRow = { rowKey, ...(before !== undefined && { before }), ...(after !== undefined && { after }) }
+          if (diffType === 'added') added.push(diffRow)
+          else if (diffType === 'modified') modified.push(diffRow)
+          else if (diffType === 'removed') deleted.push(diffRow)
+        }
+
+        if (added.length > 0 || modified.length > 0 || deleted.length > 0) {
+          tableDiffs.push({ table, added, modified, deleted })
         }
       } catch {
-        // diffStory is best-effort; log and continue
-        log.debug('diffStory: could not diff table %s for branch %s', table, branch)
+        // Skip tables that do not exist or have no diff data
       }
     }
 
-    return { storyKey, changes }
+    return { storyKey, tables: tableDiffs }
+  }
+
+  /**
+   * Extract a human-readable row key from a DOLT_DIFF result row.
+   * Tries after_ fields first (for added/modified rows), then before_ fields
+   * (for removed rows). Skips commit_hash pseudo-columns.
+   */
+  private _extractRowKey(row: Record<string, unknown>): string {
+    for (const prefix of ['after_', 'before_']) {
+      for (const [key, val] of Object.entries(row)) {
+        if (key.startsWith(prefix) && !key.endsWith('_commit_hash') && val !== null && val !== undefined) {
+          return String(val)
+        }
+      }
+    }
+    return 'unknown'
+  }
+
+  /**
+   * Extract all fields with a given prefix from a DOLT_DIFF result row,
+   * stripping the prefix from the key names. Returns undefined if no matching
+   * fields are found.
+   */
+  private _extractPrefixedFields(
+    row: Record<string, unknown>,
+    prefix: string,
+  ): Record<string, unknown> | undefined {
+    const result: Record<string, unknown> = {}
+    for (const [key, val] of Object.entries(row)) {
+      if (key.startsWith(prefix)) {
+        result[key.slice(prefix.length)] = val
+      }
+    }
+    return Object.keys(result).length > 0 ? result : undefined
+  }
+
+  // ---------------------------------------------------------------------------
+  // History (Story 26-9)
+  // ---------------------------------------------------------------------------
+
+  async getHistory(limit?: number): Promise<HistoryEntry[]> {
+    const effectiveLimit = limit ?? 20
+    const command = `dolt log --format="%h %aI %s" --limit ${effectiveLimit}`
+    try {
+      const stdout = await this._client.exec(command)
+      const entries: HistoryEntry[] = []
+      for (const line of stdout.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        // Format: "<hash> <isoTimestamp> <message subject>"
+        // Split into at most 3 parts: hash, timestamp, rest as message
+        const spaceIdx1 = trimmed.indexOf(' ')
+        if (spaceIdx1 === -1) continue
+        const hash = trimmed.slice(0, spaceIdx1)
+        const rest = trimmed.slice(spaceIdx1 + 1)
+        const spaceIdx2 = rest.indexOf(' ')
+        let timestamp: string
+        let message: string
+        if (spaceIdx2 === -1) {
+          timestamp = rest
+          message = ''
+        } else {
+          timestamp = rest.slice(0, spaceIdx2)
+          message = rest.slice(spaceIdx2 + 1)
+        }
+        // Extract story key from message
+        const storyKeyMatch = /story\/([0-9]+-[0-9]+)/i.exec(message)
+        entries.push({
+          hash,
+          timestamp,
+          storyKey: storyKeyMatch ? storyKeyMatch[1]! : null,
+          message,
+        })
+      }
+      return entries
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new DoltQueryError('getHistory', detail)
+    }
   }
 }

@@ -125,12 +125,14 @@ import { runCreateStory, isValidStoryFile } from '../../compiled-workflows/creat
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../compiled-workflows/code-review.js'
 import { runTestPlan } from '../../compiled-workflows/test-plan.js'
+import { detectConflictGroupsWithContracts } from '../conflict-detector.js'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockRunDevStory = vi.mocked(runDevStory)
 const mockRunCodeReview = vi.mocked(runCodeReview)
 const mockRunTestPlan = vi.mocked(runTestPlan)
 const mockIsValidStoryFile = vi.mocked(isValidStoryFile)
+const mockDetectConflictGroups = vi.mocked(detectConflictGroupsWithContracts)
 
 // ---------------------------------------------------------------------------
 // Mock factories
@@ -682,5 +684,197 @@ describe('AC1 (26-5): stateStore.recordMetric called on story completion', () =>
 
     const status = await orchestrator.run([storyKey])
     expect(status.state).toBe('COMPLETE')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC7: Branch lifecycle — branchForStory, mergeStory, rollbackStory wired
+// ---------------------------------------------------------------------------
+
+describe('AC7: Branch lifecycle wired to story lifecycle', () => {
+  it('calls branchForStory before story dispatch', async () => {
+    const storyKey = '26-4'
+    const store = new FileStateStore()
+    const branchSpy = vi.spyOn(store, 'branchForStory').mockResolvedValue(undefined)
+
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess(storyKey) as any)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt() as any)
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus: createMockEventBus(),
+      config: defaultConfig(),
+      stateStore: store,
+    })
+
+    await orchestrator.run([storyKey])
+
+    expect(branchSpy).toHaveBeenCalledWith(storyKey)
+  })
+
+  it('calls mergeStory when story reaches COMPLETE', async () => {
+    const storyKey = '26-4'
+    const store = new FileStateStore()
+    const mergeSpy = vi.spyOn(store, 'mergeStory').mockResolvedValue(undefined)
+    vi.spyOn(store, 'branchForStory').mockResolvedValue(undefined)
+
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess(storyKey) as any)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt() as any)
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus: createMockEventBus(),
+      config: defaultConfig(),
+      stateStore: store,
+    })
+
+    await orchestrator.run([storyKey])
+
+    expect(mergeSpy).toHaveBeenCalledWith(storyKey)
+  })
+
+  it('calls rollbackStory when story reaches ESCALATED', async () => {
+    const storyKey = '26-4'
+    const store = new FileStateStore()
+    const rollbackSpy = vi.spyOn(store, 'rollbackStory').mockResolvedValue(undefined)
+    vi.spyOn(store, 'branchForStory').mockResolvedValue(undefined)
+    vi.spyOn(store, 'mergeStory').mockResolvedValue(undefined)
+
+    // Make create-story fail → ESCALATED
+    mockRunCreateStory.mockRejectedValue(new Error('fail'))
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus: createMockEventBus(),
+      config: defaultConfig(),
+      stateStore: store,
+    })
+
+    await orchestrator.run([storyKey])
+
+    expect(rollbackSpy).toHaveBeenCalledWith(storyKey)
+  })
+
+  it('does not throw when branchForStory fails (best-effort)', async () => {
+    const storyKey = '26-4'
+    const store = new FileStateStore()
+    vi.spyOn(store, 'branchForStory').mockRejectedValue(new Error('branch create failed'))
+
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess(storyKey) as any)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt() as any)
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus: createMockEventBus(),
+      config: defaultConfig(),
+      stateStore: store,
+    })
+
+    // Should not throw even if branchForStory fails
+    await expect(orchestrator.run([storyKey])).resolves.toBeDefined()
+  })
+
+  it('branch calls are no-ops with FileStateStore (existing behavior unchanged)', async () => {
+    const storyKey = '26-4'
+    const store = new FileStateStore()
+
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess(storyKey) as any)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt() as any)
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus: createMockEventBus(),
+      config: defaultConfig(),
+      stateStore: store,
+    })
+
+    const status = await orchestrator.run([storyKey])
+    expect(status.state).toBe('COMPLETE')
+    expect(status.stories[storyKey]?.phase).toBe('COMPLETE')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC7 Integration: 3 concurrent stories, all complete with branch lifecycle
+// ---------------------------------------------------------------------------
+
+describe('AC7 Integration: 3 concurrent stories with distinct branch lifecycle', () => {
+  it('dispatches 3 concurrent stories and calls branchForStory/mergeStory for each without cross-contamination', async () => {
+    const storyKeys = ['26-7', '26-8', '26-9']
+    const store = new FileStateStore()
+
+    const branchSpy = vi.spyOn(store, 'branchForStory')
+    const mergeSpy = vi.spyOn(store, 'mergeStory')
+
+    // Override conflict-detector to put all 3 stories in separate groups within
+    // the same batch so they are dispatched concurrently (parallel within batch).
+    mockDetectConflictGroups.mockReturnValueOnce({
+      batches: [[['26-7'], ['26-8'], ['26-9']]],
+      edges: [],
+    })
+
+    mockRunCreateStory.mockResolvedValue({
+      result: 'success' as const,
+      story_file: '/path/to/story.md',
+      story_key: 'test',
+      story_title: 'Test Story',
+      tokenUsage: { input: 100, output: 50 },
+    } as any)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt() as any)
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus: createMockEventBus(),
+      config: defaultConfig({ maxConcurrency: 3 }),
+      stateStore: store,
+    })
+
+    const status = await orchestrator.run(storyKeys)
+
+    // All 3 stories should complete successfully
+    for (const key of storyKeys) {
+      expect(status.stories[key]?.phase).toBe('COMPLETE')
+    }
+
+    // branchForStory called once per story (3 total)
+    expect(branchSpy).toHaveBeenCalledTimes(3)
+    expect(branchSpy).toHaveBeenCalledWith('26-7')
+    expect(branchSpy).toHaveBeenCalledWith('26-8')
+    expect(branchSpy).toHaveBeenCalledWith('26-9')
+
+    // mergeStory called once per story on COMPLETE (3 total)
+    expect(mergeSpy).toHaveBeenCalledTimes(3)
+    expect(mergeSpy).toHaveBeenCalledWith('26-7')
+    expect(mergeSpy).toHaveBeenCalledWith('26-8')
+    expect(mergeSpy).toHaveBeenCalledWith('26-9')
+
+    // No cross-contamination: each story state persisted independently in FileStateStore
+    const records = await Promise.all(storyKeys.map((k) => store.getStoryState(k)))
+    for (const record of records) {
+      expect(record?.phase).toBe('COMPLETE')
+    }
   })
 })

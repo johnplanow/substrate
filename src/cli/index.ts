@@ -29,6 +29,8 @@ import { registerUpgradeCommand } from './commands/upgrade.js'
 import { registerExportCommand } from './commands/export.js'
 import { registerRetryEscalatedCommand } from './commands/retry-escalated.js'
 import { registerContractsCommand } from './commands/contracts.js'
+import { registerDiffCommand } from './commands/diff.js'
+import { registerHistoryCommand } from './commands/history.js'
 
 // Increase max listeners before any commands or transports register their handlers.
 // With CLI commands registered, pino-pretty workers and Commander exit handlers
@@ -110,6 +112,10 @@ export async function createProgram(): Promise<Command> {
 
   // Contract declarations and verification
   registerContractsCommand(program)
+
+  // Dolt diff and history commands (Epic 26)
+  registerDiffCommand(program)
+  registerHistoryCommand(program)
 
   // Observability
   registerCostCommand(program, version)

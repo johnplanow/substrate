@@ -26,6 +26,8 @@ import type { PipelineRun } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 import type { OutputFormat } from './pipeline-shared.js'
 import { formatOutput, parseDbTimestampAsUtc } from './pipeline-shared.js'
+import type { StateStore } from '../../modules/state/index.js'
+import { createStateStore } from '../../modules/state/index.js'
 
 const logger = createLogger('health-cmd')
 
@@ -44,9 +46,21 @@ export interface HealthOptions {
   outputFormat: OutputFormat
   runId?: string
   projectRoot: string
+  stateStore?: StateStore
+  stateStoreConfig?: { backend?: string; basePath?: string }
 }
 
 export type HealthVerdict = 'HEALTHY' | 'STALLED' | 'NO_PIPELINE_RUNNING'
+
+// ---------------------------------------------------------------------------
+// DoltStateInfo — Dolt connectivity status for health output
+// ---------------------------------------------------------------------------
+
+export interface DoltStateInfo {
+  initialized: boolean
+  responsive: boolean
+  version?: string
+}
 
 interface ProcessInfo {
   orchestrator_pid: number | null
@@ -71,6 +85,8 @@ export interface PipelineHealthOutput {
     pending?: number
     details: Record<string, { phase: string; review_cycles: number }>
   }
+  /** Dolt state connectivity info. Present only when Dolt backend is configured. */
+  dolt_state?: DoltStateInfo
 }
 
 // ---------------------------------------------------------------------------
@@ -306,11 +322,39 @@ export function getAllDescendantPids(
 export async function getAutoHealthData(options: {
   runId?: string
   projectRoot: string
+  stateStore?: StateStore
+  stateStoreConfig?: { backend?: string; basePath?: string }
 }): Promise<PipelineHealthOutput> {
-  const { runId, projectRoot } = options
+  const { runId, projectRoot, stateStore, stateStoreConfig } = options
 
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+
+  // Task 4 (AC3): Compute Dolt connectivity info regardless of pipeline run status
+  let doltStateInfo: DoltStateInfo | undefined
+  if (stateStoreConfig?.backend === 'dolt' && stateStore) {
+    const repoPath = stateStoreConfig.basePath ?? projectRoot
+    const doltDirPath = join(repoPath, '.dolt')
+    const initialized = existsSync(doltDirPath)
+    let responsive = false
+    let version: string | undefined
+    try {
+      await stateStore.getHistory(1)
+      responsive = true
+      // Try to get dolt version
+      try {
+        const { execFile: ef } = await import('node:child_process')
+        const { promisify: p } = await import('node:util')
+        const execFileAsync = p(ef)
+        const { stdout } = await execFileAsync('dolt', ['version'])
+        const match = stdout.match(/dolt version (\S+)/)
+        if (match) version = match[1]
+      } catch { /* ignore */ }
+    } catch {
+      responsive = false
+    }
+    doltStateInfo = { initialized, responsive, ...(version !== undefined ? { version } : {}) }
+  }
 
   const NO_PIPELINE: PipelineHealthOutput = {
     verdict: 'NO_PIPELINE_RUNNING',
@@ -321,6 +365,7 @@ export async function getAutoHealthData(options: {
     last_activity: '',
     process: { orchestrator_pid: null, child_pids: [], zombies: [] },
     stories: { active: 0, completed: 0, escalated: 0, details: {} },
+    ...(doltStateInfo !== undefined ? { dolt_state: doltStateInfo } : {}),
   }
 
   if (!existsSync(dbPath)) {
@@ -406,7 +451,7 @@ export async function getAutoHealthData(options: {
       verdict = 'NO_PIPELINE_RUNNING'
     }
 
-    return {
+    const healthOutput: PipelineHealthOutput = {
       verdict,
       run_id: run.id,
       status: run.status,
@@ -415,7 +460,10 @@ export async function getAutoHealthData(options: {
       last_activity: run.updated_at ?? '',
       process: processInfo,
       stories: { active, completed, escalated, pending, details: storyDetails },
+      ...(doltStateInfo !== undefined ? { dolt_state: doltStateInfo } : {}),
     }
+
+    return healthOutput
   } finally {
     try {
       dbWrapper.close()
@@ -472,6 +520,16 @@ export async function runHealthAction(options: HealthOptions): Promise<number> {
             `\n  Summary: ${health.stories.active} active, ${health.stories.completed} completed, ${health.stories.escalated} escalated\n`,
           )
         }
+
+      }
+
+      // Task 4 (AC3): Dolt state connectivity info — shown regardless of run_id
+      if (health.dolt_state !== undefined) {
+        const ds = health.dolt_state
+        const initStr = ds.initialized ? 'yes' : 'no'
+        const respStr = ds.responsive ? 'yes' : 'no'
+        const verStr = ds.version !== undefined ? ` (v${ds.version})` : ''
+        process.stdout.write(`\n  Dolt State:   initialized=${initStr} responsive=${respStr}${verStr}\n`)
       }
     }
 
@@ -509,11 +567,35 @@ export function registerHealthCommand(
     )
     .action(async (opts: { runId?: string; projectRoot: string; outputFormat: string }) => {
       const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
-      const exitCode = await runHealthAction({
-        outputFormat,
-        runId: opts.runId,
-        projectRoot: opts.projectRoot,
-      })
-      process.exitCode = exitCode
+      const root = opts.projectRoot
+
+      // Task 5: Wire StateStore factory using Dolt path detection (same pattern as metrics.ts)
+      let stateStore: StateStore | undefined
+      let stateStoreConfig: { backend?: string; basePath?: string } | undefined
+      const doltStatePath = join(root, '.substrate', 'state', '.dolt')
+      if (existsSync(doltStatePath)) {
+        const basePath = join(root, '.substrate', 'state')
+        stateStoreConfig = { backend: 'dolt', basePath }
+        try {
+          stateStore = createStateStore({ backend: 'dolt', basePath })
+          await stateStore.initialize()
+        } catch {
+          stateStore = undefined
+          stateStoreConfig = undefined
+        }
+      }
+
+      try {
+        const exitCode = await runHealthAction({
+          outputFormat,
+          runId: opts.runId,
+          projectRoot: root,
+          stateStore,
+          stateStoreConfig,
+        })
+        process.exitCode = exitCode
+      } finally {
+        try { await stateStore?.close() } catch { /* ignore */ }
+      }
     })
 }

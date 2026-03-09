@@ -67,18 +67,30 @@ export class DoltClient {
     this._connected = true
   }
 
-  async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
+  async query<T>(sql: string, params?: unknown[], branch?: string): Promise<T[]> {
     if (!this._connected) {
       await this.connect()
     }
     if (this._useCliMode) {
-      return this._queryCli<T>(sql, params)
+      return this._queryCli<T>(sql, params, branch)
     }
-    return this._queryPool<T>(sql, params)
+    return this._queryPool<T>(sql, params, branch)
   }
 
-  private async _queryPool<T>(sql: string, params?: unknown[]): Promise<T[]> {
+  private async _queryPool<T>(sql: string, params?: unknown[], branch?: string): Promise<T[]> {
     try {
+      if (branch !== undefined && branch !== 'main') {
+        // For branch-targeting, acquire a dedicated connection and switch the database context.
+        // Dolt server mode supports `database/branch` as a database selector via USE statement.
+        const conn = await this._pool!.getConnection()
+        try {
+          await conn.execute(`USE \`substrate/${branch}\``)
+          const [rows] = await conn.execute(sql, params)
+          return rows as T[]
+        } finally {
+          conn.release()
+        }
+      }
       const [rows] = await this._pool!.execute(sql, params)
       return rows as T[]
     } catch (err: unknown) {
@@ -87,7 +99,7 @@ export class DoltClient {
     }
   }
 
-  private async _queryCli<T>(sql: string, params?: unknown[]): Promise<T[]> {
+  private async _queryCli<T>(sql: string, params?: unknown[], branch?: string): Promise<T[]> {
     // Substitute params with escaped literals
     let resolvedSql = sql
     if (params && params.length > 0) {
@@ -101,16 +113,35 @@ export class DoltClient {
     }
 
     try {
-      const { stdout } = await runExecFile(
-        'dolt',
-        ['sql', '-q', resolvedSql, '--result-format', 'json'],
-        { cwd: this.repoPath },
-      )
+      const args = branch
+        ? ['sql', '-b', branch, '-q', resolvedSql, '--result-format', 'json']
+        : ['sql', '-q', resolvedSql, '--result-format', 'json']
+      const { stdout } = await runExecFile('dolt', args, { cwd: this.repoPath })
       const parsed = JSON.parse(stdout || '{"rows":[]}')
       return (parsed.rows ?? []) as T[]
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
       throw new DoltQueryError(resolvedSql, detail)
+    }
+  }
+
+  /**
+   * Execute a raw Dolt CLI command (e.g. `dolt diff main...story/26-1 --stat`)
+   * and return the stdout as a string.
+   *
+   * This is distinct from `query()` which runs SQL. Use `exec()` for Dolt
+   * sub-commands like `diff`, `log`, `branch`, etc.
+   */
+  async exec(command: string): Promise<string> {
+    const parts = command.trim().split(/\s+/)
+    // If the command starts with 'dolt', strip it; otherwise pass all parts as args
+    const cmdArgs = parts[0] === 'dolt' ? parts.slice(1) : parts
+    try {
+      const { stdout } = await runExecFile('dolt', cmdArgs, { cwd: this.repoPath })
+      return stdout
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new DoltQueryError(command, detail)
     }
   }
 

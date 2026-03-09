@@ -181,6 +181,67 @@ export interface StateDiff {
 }
 
 // ---------------------------------------------------------------------------
+// DiffRow / TableDiff / StoryDiff — row-level diff (Story 26-7, 26-9)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single row change entry from DOLT_DIFF SQL output.
+ */
+export interface DiffRow {
+  rowKey: string
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+}
+
+/**
+ * Per-table row-level diff from DOLT_DIFF SQL output.
+ * Arrays of DiffRow entries for each change category.
+ */
+export interface TableDiff {
+  table: string
+  added: DiffRow[]
+  modified: DiffRow[]
+  deleted: DiffRow[]
+}
+
+/**
+ * Aggregate diff for a single story execution, with row-level changes per table.
+ * Returned by diffStory() on the Dolt backend; file backend returns empty tables array.
+ */
+export interface StoryDiff {
+  storyKey: string
+  tables: TableDiff[]
+}
+
+// ---------------------------------------------------------------------------
+// HistoryEntry / HistoryOptions (Story 26-9)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single entry in the Dolt commit history.
+ */
+export interface HistoryEntry {
+  /** Short commit hash (7 chars) */
+  hash: string
+  /** ISO 8601 timestamp */
+  timestamp: string
+  /** Story key extracted from commit message (e.g. "26-7"), or null if absent */
+  storyKey: string | null
+  /** Full commit message subject line */
+  message: string
+  /** Commit author name (optional — populated by Dolt backend when available) */
+  author?: string
+}
+
+/**
+ * Options for the getHistory query.
+ */
+export interface HistoryOptions {
+  /** Maximum number of commits to return (default 20) */
+  limit?: number
+}
+
+// ---------------------------------------------------------------------------
 // StateStoreConfig
 // ---------------------------------------------------------------------------
 
@@ -260,6 +321,9 @@ export interface StateStore {
   /** Roll back all changes made on the story branch. */
   rollbackStory(storyKey: string): Promise<void>
 
-  /** Compute a diff of state changes for the story branch. */
-  diffStory(storyKey: string): Promise<StateDiff>
+  /** Compute a stat-based diff of database changes for the story branch. */
+  diffStory(storyKey: string): Promise<StoryDiff>
+
+  /** Return a list of Dolt commits newest-first. File backend returns []. */
+  getHistory(limit?: number): Promise<HistoryEntry[]>
 }

@@ -33,6 +33,8 @@ import {
   formatPipelineStatusHuman,
   parseDbTimestampAsUtc,
 } from './pipeline-shared.js'
+import type { StateStore, StoryRecord } from '../../modules/state/index.js'
+import { createStateStore } from '../../modules/state/index.js'
 
 const logger = createLogger('status-cmd')
 
@@ -44,6 +46,8 @@ export interface StatusOptions {
   outputFormat: OutputFormat
   runId?: string
   projectRoot: string
+  stateStore?: StateStore
+  history?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -51,7 +55,38 @@ export interface StatusOptions {
 // ---------------------------------------------------------------------------
 
 export async function runStatusAction(options: StatusOptions): Promise<number> {
-  const { outputFormat, runId, projectRoot } = options
+  const { outputFormat, runId, projectRoot, stateStore, history } = options
+
+  // Task 3: --history flag — short-circuit before DB queries
+  if (history === true) {
+    if (!stateStore) {
+      process.stdout.write('History not available with file backend. Use Dolt backend for state history.\n')
+      return 0
+    }
+    try {
+      const entries = await stateStore.getHistory(20)
+      if (outputFormat === 'json') {
+        process.stdout.write(JSON.stringify(entries, null, 2) + '\n')
+        return 0
+      }
+      // Human format
+      process.stdout.write('TIMESTAMP            HASH     MESSAGE\n')
+      for (const entry of entries) {
+        const ts = (entry.timestamp ?? '').padEnd(20)
+        const hash = (entry.hash ?? '').padEnd(8)
+        process.stdout.write(`${ts} ${hash} ${entry.message}\n`)
+      }
+      return 0
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput(null, 'json', false, msg) + '\n')
+      } else {
+        process.stderr.write(`Error: ${msg}\n`)
+      }
+      return 1
+    }
+  }
 
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
@@ -114,6 +149,16 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
           )
           .get(run.id) as { cnt: number } | undefined
       )?.cnt ?? 0
+
+    // Task 2: Query StateStore for story states (AC1, AC2)
+    let storeStories: StoryRecord[] = []
+    if (stateStore) {
+      try {
+        storeStories = await stateStore.queryStories({})
+      } catch (err) {
+        logger.debug('StateStore query failed, continuing without store data', { err })
+      }
+    }
 
     if (outputFormat === 'json') {
       // AC5: output the exact schema defined in the story
@@ -180,6 +225,8 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
           stories_per_hour: storiesPerHour,
           cost_usd: totalCostUsd, // deprioritized per AC6
         },
+        // Task 2 (AC1, AC2): StateStore story states from Dolt/file backend
+        story_states: storeStories,
       }
 
       process.stdout.write(
@@ -247,6 +294,14 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
         }
       }
 
+      // Task 2 (AC1, AC2): Show StateStore story states in human output
+      if (storeStories.length > 0) {
+        process.stdout.write('\nStateStore Story States:\n')
+        for (const s of storeStories) {
+          process.stdout.write(`  ${s.storyKey}: ${s.phase} (${s.reviewCycles} review cycles)\n`)
+        }
+      }
+
       process.stdout.write('\n')
       process.stdout.write(formatTokenTelemetry(tokenSummary) + '\n')
     }
@@ -289,13 +344,34 @@ export function registerStatusCommand(
       'Output format: human (default) or json',
       'human',
     )
-    .action(async (opts: { runId?: string; projectRoot: string; outputFormat: string }) => {
+    .option('--history', 'Show Dolt commit history for the state store')
+    .action(async (opts: { runId?: string; projectRoot: string; outputFormat: string; history?: boolean }) => {
       const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
-      const exitCode = await runStatusAction({
-        outputFormat,
-        runId: opts.runId,
-        projectRoot: opts.projectRoot,
-      })
-      process.exitCode = exitCode
+      const root = opts.projectRoot
+
+      // Task 5: Wire StateStore factory using Dolt path detection (same pattern as metrics.ts)
+      let stateStore: StateStore | undefined
+      const doltStatePath = join(root, '.substrate', 'state', '.dolt')
+      if (existsSync(doltStatePath)) {
+        try {
+          stateStore = createStateStore({ backend: 'dolt', basePath: join(root, '.substrate', 'state') })
+          await stateStore.initialize()
+        } catch {
+          stateStore = undefined
+        }
+      }
+
+      try {
+        const exitCode = await runStatusAction({
+          outputFormat,
+          runId: opts.runId,
+          projectRoot: root,
+          stateStore,
+          history: opts.history,
+        })
+        process.exitCode = exitCode
+      } finally {
+        try { await stateStore?.close() } catch { /* ignore */ }
+      }
     })
 }

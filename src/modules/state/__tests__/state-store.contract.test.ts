@@ -182,6 +182,7 @@ function makeInMemoryDoltClient(): DoltClient {
 
       return []
     }),
+    exec: vi.fn().mockResolvedValue(''),
   } as unknown as DoltClient
 
   return client
@@ -366,10 +367,35 @@ function runContractTests(label: string, createStore: () => StateStore): void {
         await expect(store.rollbackStory('26-1')).resolves.toBeUndefined()
       })
 
-      it('diffStory returns a StateDiff', async () => {
+      it('diffStory returns a StoryDiff with storyKey and tables array', async () => {
         const diff = await store.diffStory('26-1')
         expect(diff.storyKey).toBe('26-1')
-        expect(Array.isArray(diff.changes)).toBe(true)
+        expect(Array.isArray(diff.tables)).toBe(true)
+      })
+    })
+
+    // -- getHistory ------------------------------------------------------------
+
+    describe('getHistory', () => {
+      it('returns an array', async () => {
+        const history = await store.getHistory()
+        expect(Array.isArray(history)).toBe(true)
+      })
+
+      it('returns an array when limit option is provided', async () => {
+        const history = await store.getHistory(5)
+        expect(Array.isArray(history)).toBe(true)
+      })
+
+      it('each entry has required fields when non-empty', async () => {
+        const history = await store.getHistory(100)
+        for (const entry of history) {
+          expect(typeof entry.hash).toBe('string')
+          expect(typeof entry.timestamp).toBe('string')
+          expect(typeof entry.message).toBe('string')
+          // storyKey is string | null
+          expect(entry.storyKey === null || typeof entry.storyKey === 'string').toBe(true)
+        }
       })
     })
 

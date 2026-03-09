@@ -336,9 +336,23 @@ describe('FileStateStore', () => {
       await expect(store.rollbackStory('26-1')).resolves.toBeUndefined()
     })
 
-    it('diffStory returns a StateDiff with empty changes array', async () => {
+    it('diffStory returns a StoryDiff with empty tables array', async () => {
       const diff = await store.diffStory('26-1')
-      expect(diff).toEqual({ storyKey: '26-1', changes: [] })
+      expect(diff).toEqual({ storyKey: '26-1', tables: [] })
+    })
+  })
+
+  // -- History ---------------------------------------------------------------
+
+  describe('getHistory', () => {
+    it('returns empty array', async () => {
+      const history = await store.getHistory()
+      expect(history).toEqual([])
+    })
+
+    it('returns empty array with limit option', async () => {
+      const history = await store.getHistory(5)
+      expect(history).toEqual([])
     })
   })
 

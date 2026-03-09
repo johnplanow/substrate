@@ -20,6 +20,11 @@ export type {
   ContractVerificationRecord,
   StateDiff,
   StateStoreConfig,
+  DiffRow,
+  TableDiff,
+  StoryDiff,
+  HistoryEntry,
+  HistoryOptions,
 } from './types.js'
 
 // Re-export the FileStateStore class.
@@ -42,6 +47,7 @@ export {
   DoltNotInitializedError,
   DoltQueryError,
   DoltMergeConflictError,
+  DoltMergeConflict,
 } from './errors.js'
 
 import type { StateStore, StateStoreConfig } from './types.js'

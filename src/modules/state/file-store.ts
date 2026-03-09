@@ -20,7 +20,8 @@ import type {
   ContractRecord,
   ContractFilter,
   ContractVerificationRecord,
-  StateDiff,
+  StoryDiff,
+  HistoryEntry,
 } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -200,8 +201,13 @@ export class FileStateStore implements StateStore {
     // No-op: file backend has no branching capability.
   }
 
-  async diffStory(storyKey: string): Promise<StateDiff> {
+  async diffStory(storyKey: string): Promise<StoryDiff> {
     // No diff available in the file backend.
-    return { storyKey, changes: [] }
+    return { storyKey, tables: [] }
+  }
+
+  async getHistory(_limit?: number): Promise<HistoryEntry[]> {
+    // No commit history in the file backend.
+    return []
   }
 }
