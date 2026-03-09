@@ -156,7 +156,7 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
       try {
         storeStories = await stateStore.queryStories({})
       } catch (err) {
-        logger.debug('StateStore query failed, continuing without store data', { err })
+        logger.debug({ err }, 'StateStore query failed, continuing without store data')
       }
     }
 

@@ -820,16 +820,17 @@ export class DoltStateStore implements StateStore {
     try {
       // Use dolt_log system table instead of CLI --format flag (not supported by Dolt)
       // dolt_log system table reflects the current branch; no branch parameter needed
-      const rows = await this._client.query(
+      const rows = await this._client.query<Record<string, unknown>>(
         `SELECT commit_hash, date, message, committer FROM dolt_log LIMIT ?`,
         [effectiveLimit],
       )
       const entries: HistoryEntry[] = []
       for (const row of rows) {
         const hash = String(row.commit_hash ?? '')
-        const timestamp = row.date instanceof Date
-          ? row.date.toISOString()
-          : String(row.date ?? '')
+        const dateVal = row.date
+        const timestamp = dateVal instanceof Date
+          ? dateVal.toISOString()
+          : String(dateVal ?? '')
         const message = String(row.message ?? '')
         const author = row.committer ? String(row.committer) : undefined
         // Extract story key from message

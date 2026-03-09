@@ -478,7 +478,7 @@ export function createImplementationOrchestrator(
             logger.warn({ err, storyKey }, 'mergeStory failed')
           }
         })
-      } else if (updates.phase === 'ESCALATED' || updates.phase === 'FAILED') {
+      } else if (updates.phase === 'ESCALATED') {
         void stateStore?.rollbackStory(storyKey).catch((err: unknown) =>
           logger.warn({ err, storyKey }, 'rollbackStory failed — branch may persist'),
         )

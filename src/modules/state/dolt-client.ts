@@ -85,13 +85,15 @@ export class DoltClient {
         const conn = await this._pool!.getConnection()
         try {
           await conn.execute(`USE \`substrate/${branch}\``)
-          const [rows] = await conn.execute(sql, params)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const [rows] = await conn.execute(sql, params as any)
           return rows as T[]
         } finally {
           conn.release()
         }
       }
-      const [rows] = await this._pool!.execute(sql, params)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const [rows] = await this._pool!.execute(sql, params as any)
       return rows as T[]
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)

@@ -459,6 +459,16 @@ export interface OrchestratorEvents {
     potentiallyAffectedTests: string[]
   }
 
+  // -------------------------------------------------------------------------
+  // Dolt state conflict events (Epic 26)
+  // -------------------------------------------------------------------------
+
+  /** Dolt merge conflict detected when merging a story branch into main */
+  'pipeline:state-conflict': {
+    storyKey: string
+    conflict: unknown
+  }
+
   /** Per-story metrics snapshot emitted when a story reaches a terminal state (Story 24-4) */
   'story:metrics': {
     storyKey: string

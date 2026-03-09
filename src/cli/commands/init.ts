@@ -795,7 +795,7 @@ export async function runInitAction(options: InitOptions): Promise<number> {
             return INIT_EXIT_ERROR
           }
           // auto mode: warn but don't fail
-          logger.warn('Dolt auto-init failed (non-blocking)', { error: msg })
+          logger.warn({ error: msg }, 'Dolt auto-init failed (non-blocking)')
         }
       }
     } else {
