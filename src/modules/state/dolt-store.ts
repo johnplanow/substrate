@@ -632,16 +632,50 @@ export class DoltStateStore implements StateStore {
 
   async diffStory(storyKey: string): Promise<StoryDiff> {
     const branchName = this._storyBranches.get(storyKey)
+
+    // If no in-memory branch, try to find the merge commit for an already-merged story
     if (branchName === undefined) {
-      return { storyKey, tables: [] }
+      return this._diffMergedStory(storyKey)
     }
 
+    return this._diffRange('main', branchName, storyKey)
+  }
+
+  /**
+   * Diff a merged story by finding its merge commit in the Dolt log.
+   * Uses `dolt log --oneline --grep "story/<storyKey>"` to locate the merge
+   * commit, then diffs `<hash>~1` vs `<hash>` for row-level changes.
+   */
+  private async _diffMergedStory(storyKey: string): Promise<StoryDiff> {
+    try {
+      const stdout = await this._client.exec(`dolt log --oneline --grep "story/${storyKey}"`)
+      const firstLine = stdout.trim().split('\n')[0]?.trim()
+      if (!firstLine) {
+        return { storyKey, tables: [] }
+      }
+      // dolt log --oneline format: "<hash> <message>"
+      const hash = firstLine.split(/\s+/)[0]
+      if (!hash) {
+        return { storyKey, tables: [] }
+      }
+      return this._diffRange(`${hash}~1`, hash, storyKey)
+    } catch {
+      // If log search fails (e.g. no merge commit found), return empty
+      return { storyKey, tables: [] }
+    }
+  }
+
+  /**
+   * Compute row-level diffs between two Dolt revisions (branches or commit hashes)
+   * across all tracked tables.
+   */
+  private async _diffRange(fromRef: string, toRef: string, storyKey: string): Promise<StoryDiff> {
     const tableDiffs: TableDiff[] = []
 
     for (const table of DoltStateStore.DIFF_TABLES) {
       try {
         const rows = await this._client.query<Record<string, unknown>>(
-          `SELECT * FROM DOLT_DIFF('main', '${branchName}', '${table}')`,
+          `SELECT * FROM DOLT_DIFF('${fromRef}', '${toRef}', '${table}')`,
           [],
           'main',
         )

@@ -524,11 +524,47 @@ describe('DoltStateStore', () => {
       expect(contractsTable!.added).toHaveLength(0)
     })
 
-    it('returns empty tables when no branch is registered (merged or never started)', async () => {
+    it('finds merge commit and diffs when branch is not registered (merged story)', async () => {
+      const execResults = new Map<string, string>([
+        ['--grep "story/26-7"', 'abc1234 Merge story/26-7: COMPLETE\n'],
+      ])
+      const queryResults = new Map<string, unknown[]>([
+        ["'stories'", [
+          { diff_type: 'added', after_story_key: '26-7', after_phase: 'COMPLETE', before_story_key: null },
+        ]],
+      ])
+      const client = makeClient(queryResults, execResults)
+      const store = makeStore(client)
+      // No branchForStory called — should fall back to merge commit lookup
+      const diff = await store.diffStory('26-7')
+      expect(diff.storyKey).toBe('26-7')
+      expect(diff.tables).toHaveLength(1)
+      expect(diff.tables[0]!.table).toBe('stories')
+      expect(diff.tables[0]!.added).toHaveLength(1)
+      // Verify DOLT_DIFF was called with commit hash range, not branch name
+      expect(client.query).toHaveBeenCalledWith(
+        expect.stringContaining("DOLT_DIFF('abc1234~1', 'abc1234'"),
+        [],
+        'main',
+      )
+      // Verify the log --grep was called
+      expect(client.exec).toHaveBeenCalledWith('dolt log --oneline --grep "story/26-7"')
+    })
+
+    it('returns empty tables when no branch and no merge commit found', async () => {
       const client = makeClient()
       const store = makeStore(client)
       const diff = await store.diffStory('26-7')
       expect(diff.storyKey).toBe('26-7')
+      expect(diff.tables).toEqual([])
+    })
+
+    it('returns empty tables when log --grep exec fails', async () => {
+      const client = makeClient()
+      ;(client.exec as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('dolt not found'))
+      const store = makeStore(client)
+      const diff = await store.diffStory('99-99')
+      expect(diff.storyKey).toBe('99-99')
       expect(diff.tables).toEqual([])
     })
   })
