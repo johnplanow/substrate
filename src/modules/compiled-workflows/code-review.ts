@@ -224,6 +224,7 @@ export async function runCodeReview(
     taskType: 'code-review',
     outputSchema: CodeReviewResultSchema,
     workingDirectory: deps.projectRoot,
+    ...(deps.otlpEndpoint !== undefined ? { otlpEndpoint: deps.otlpEndpoint } : {}),
   })
 
   let dispatchResult

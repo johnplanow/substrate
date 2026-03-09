@@ -32,6 +32,12 @@ export interface WorkflowDeps {
   projectRoot?: string
   /** Optional per-workflow token ceiling overrides from parsed config (Story 24-7) */
   tokenCeilings?: TokenCeilings
+  /**
+   * Optional OTLP endpoint URL for telemetry export (Story 27-9).
+   * When set, the compiled workflow injects this as otlpEndpoint into every
+   * dispatcher.dispatch() call so Claude Code sub-agents export telemetry.
+   */
+  otlpEndpoint?: string
 }
 
 // ---------------------------------------------------------------------------

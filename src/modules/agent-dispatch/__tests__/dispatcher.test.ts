@@ -1270,3 +1270,59 @@ describe('Lifecycle events at each transition', () => {
     expect(spawnedIdx).toBeLessThan(completedIdx)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 27-9: otlpEndpoint wiring (Task 4)
+// ---------------------------------------------------------------------------
+
+describe('otlpEndpoint wiring in DispatchRequest (Story 27-9)', () => {
+  it('passes otlpEndpoint to adapter.buildCommand() via AdapterOptions when set', async () => {
+    const fp = createFakeProcess()
+    fakeProcesses.push(fp)
+
+    const adapter = createMockAdapter()
+    const { dispatcher } = createTestDispatcher({ adapter })
+
+    const handle = dispatcher.dispatch({
+      prompt: 'do work',
+      agent: 'claude-code',
+      taskType: 'dev-story',
+      otlpEndpoint: 'http://localhost:9317',
+    })
+
+    await flushMicrotasks()
+    fp.writeStdout('')
+    fp.emitClose(0)
+    await handle.result
+
+    expect(adapter.buildCommand).toHaveBeenCalledWith(
+      'do work',
+      expect.objectContaining({ otlpEndpoint: 'http://localhost:9317' }),
+    )
+  })
+
+  it('does not pass otlpEndpoint to adapter when not set in DispatchRequest', async () => {
+    const fp = createFakeProcess()
+    fakeProcesses.push(fp)
+
+    const adapter = createMockAdapter()
+    const { dispatcher } = createTestDispatcher({ adapter })
+
+    const handle = dispatcher.dispatch({
+      prompt: 'do work',
+      agent: 'claude-code',
+      taskType: 'dev-story',
+    })
+
+    await flushMicrotasks()
+    fp.writeStdout('')
+    fp.emitClose(0)
+    await handle.result
+
+    // When otlpEndpoint is not in the request, it should not be in AdapterOptions
+    expect(adapter.buildCommand).toHaveBeenCalledWith(
+      'do work',
+      expect.not.objectContaining({ otlpEndpoint: expect.anything() }),
+    )
+  })
+})

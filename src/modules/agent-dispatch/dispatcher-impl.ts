@@ -382,7 +382,7 @@ export class DispatcherImpl implements Dispatcher {
     request: DispatchRequest<unknown>,
     resolve: (result: DispatchResult<unknown>) => void
   ): Promise<void> {
-    const { prompt, agent, taskType, timeout, outputSchema, workingDirectory, model, maxTurns } = request
+    const { prompt, agent, taskType, timeout, outputSchema, workingDirectory, model, maxTurns, otlpEndpoint } = request
 
     // Look up adapter
     const adapter = this._adapterRegistry.get(agent as Parameters<typeof this._adapterRegistry.get>[0])
@@ -414,6 +414,7 @@ export class DispatcherImpl implements Dispatcher {
       billingMode: 'subscription',
       ...(model !== undefined ? { model } : {}),
       ...(resolvedMaxTurns !== undefined ? { maxTurns: resolvedMaxTurns } : {}),
+      ...(otlpEndpoint !== undefined ? { otlpEndpoint } : {}),
     })
 
     // Resolve timeout

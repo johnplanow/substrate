@@ -19,6 +19,7 @@ import {
   SubscriptionRoutingSchema,
   RateLimitSchema,
   TokenCeilingsSchema,
+  TelemetryConfigSchema,
 } from '../config-schema.js'
 import type { SubstrateConfig } from '../config-schema.js'
 import { DEFAULT_CONFIG } from '../defaults.js'
@@ -401,6 +402,97 @@ describe('TokenCeilingsSchema', () => {
   it('rejects a string value (AC5)', () => {
     const result = TokenCeilingsSchema.safeParse({ 'create-story': 'abc' })
     expect(result.success).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// TelemetryConfigSchema (Story 27-9)
+// ---------------------------------------------------------------------------
+
+describe('TelemetryConfigSchema', () => {
+  it('accepts valid telemetry config with defaults', () => {
+    const result = TelemetryConfigSchema.safeParse({})
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.enabled).toBe(false)
+      expect(result.data.port).toBe(4318)
+    }
+  })
+
+  it('accepts enabled=true with default port', () => {
+    const result = TelemetryConfigSchema.safeParse({ enabled: true })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.enabled).toBe(true)
+      expect(result.data.port).toBe(4318)
+    }
+  })
+
+  it('accepts explicit port override', () => {
+    const result = TelemetryConfigSchema.safeParse({ enabled: true, port: 9317 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.port).toBe(9317)
+    }
+  })
+
+  it('rejects port 0 (below minimum)', () => {
+    const result = TelemetryConfigSchema.safeParse({ port: 0 })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects port 65536 (above maximum)', () => {
+    const result = TelemetryConfigSchema.safeParse({ port: 65536 })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts port boundary 1', () => {
+    const result = TelemetryConfigSchema.safeParse({ port: 1 })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts port boundary 65535', () => {
+    const result = TelemetryConfigSchema.safeParse({ port: 65535 })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects extra fields (strict)', () => {
+    const result = TelemetryConfigSchema.safeParse({ enabled: true, unknownField: 'oops' })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects non-integer port', () => {
+    const result = TelemetryConfigSchema.safeParse({ port: 4318.5 })
+    expect(result.success).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SubstrateConfigSchema — telemetry integration (Story 27-9)
+// ---------------------------------------------------------------------------
+
+describe('SubstrateConfigSchema — telemetry', () => {
+  it('accepts a config without telemetry section (optional)', () => {
+    const cfg = makeValidConfig()
+    const result = SubstrateConfigSchema.safeParse(cfg)
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a config with telemetry.enabled=true', () => {
+    const cfg = makeValidConfig({ telemetry: { enabled: true, port: 4318 } })
+    const result = SubstrateConfigSchema.safeParse(cfg)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.telemetry?.enabled).toBe(true)
+    }
+  })
+
+  it('accepts partial telemetry in PartialSubstrateConfigSchema', () => {
+    const result = PartialSubstrateConfigSchema.safeParse({ telemetry: { enabled: true } })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.telemetry?.enabled).toBe(true)
+    }
   })
 })
 

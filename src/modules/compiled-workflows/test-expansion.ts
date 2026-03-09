@@ -157,6 +157,7 @@ export async function runTestExpansion(
     taskType: 'test-expansion',
     outputSchema: TestExpansionResultSchema,
     workingDirectory: deps.projectRoot,
+    ...(deps.otlpEndpoint !== undefined ? { otlpEndpoint: deps.otlpEndpoint } : {}),
   })
 
   let dispatchResult

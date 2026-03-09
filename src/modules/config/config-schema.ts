@@ -162,6 +162,21 @@ export const TokenCeilingsSchema = z.object({
 export type TokenCeilings = z.infer<typeof TokenCeilingsSchema>
 
 // ---------------------------------------------------------------------------
+// Telemetry config schema (Story 27-9)
+// ---------------------------------------------------------------------------
+
+export const TelemetryConfigSchema = z
+  .object({
+    /** Whether OTLP telemetry ingestion is enabled */
+    enabled: z.boolean().default(false),
+    /** Port for the local OTLP HTTP ingestion server (1–65535) */
+    port: z.number().int().min(1).max(65535).default(4318),
+  })
+  .strict()
+
+export type TelemetryConfig = z.infer<typeof TelemetryConfigSchema>
+
+// ---------------------------------------------------------------------------
 // Top-level configuration document
 // ---------------------------------------------------------------------------
 
@@ -191,6 +206,8 @@ export const SubstrateConfigSchema = z
     budget: BudgetConfigSchema.optional(),
     /** Per-workflow token ceiling overrides (Story 24-7) */
     token_ceilings: TokenCeilingsSchema.optional(),
+    /** OTLP telemetry ingestion settings (Story 27-9) */
+    telemetry: TelemetryConfigSchema.optional(),
   })
   .strict()
 
@@ -222,6 +239,7 @@ export const PartialSubstrateConfigSchema = z
     cost_tracker: CostTrackerConfigSchema.partial().optional(),
     budget: BudgetConfigSchema.partial().optional(),
     token_ceilings: TokenCeilingsSchema.optional(),
+    telemetry: TelemetryConfigSchema.partial().optional(),
   })
   .strict()
 

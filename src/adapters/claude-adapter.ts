@@ -156,6 +156,17 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       unsetKeys.push('ANTHROPIC_API_KEY')
     }
 
+    // Inject OTLP telemetry env vars when an endpoint is provided (Story 27-9).
+    // These configure Claude Code to export traces/logs/metrics to the local
+    // IngestionServer that the orchestrator starts before any dispatch.
+    if (options.otlpEndpoint !== undefined) {
+      envEntries.CLAUDE_CODE_ENABLE_TELEMETRY = '1'
+      envEntries.OTEL_LOGS_EXPORTER = 'otlp'
+      envEntries.OTEL_METRICS_EXPORTER = 'otlp'
+      envEntries.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/json'
+      envEntries.OTEL_EXPORTER_OTLP_ENDPOINT = options.otlpEndpoint
+    }
+
     return {
       binary: 'claude',
       args,

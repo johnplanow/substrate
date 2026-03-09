@@ -32,6 +32,13 @@ export interface DispatchRequest<T = unknown> {
   model?: string
   /** Optional maximum agentic turns override (passed as --max-turns to Claude CLI) */
   maxTurns?: number
+  /**
+   * Optional OTLP endpoint URL for telemetry export (Story 27-9).
+   * When set, the dispatcher passes this endpoint to the adapter, which injects
+   * the 5 OTLP env vars into the spawned sub-agent process.
+   * Example: "http://localhost:4318"
+   */
+  otlpEndpoint?: string
 }
 
 // ---------------------------------------------------------------------------

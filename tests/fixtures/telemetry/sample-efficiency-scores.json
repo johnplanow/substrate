@@ -1,0 +1,38 @@
+[
+  {
+    "storyKey": "27-6",
+    "timestamp": 1700000000000,
+    "compositeScore": 75,
+    "cacheHitSubScore": 80,
+    "ioRatioSubScore": 70,
+    "contextManagementSubScore": 75,
+    "avgCacheHitRate": 0.8,
+    "avgIoRatio": 2.0,
+    "contextSpikeCount": 1,
+    "totalTurns": 13,
+    "perModelBreakdown": [
+      { "model": "claude-sonnet", "cacheHitRate": 0.75, "avgIoRatio": 2.0, "costPer1KOutputTokens": 0.003 }
+    ],
+    "perSourceBreakdown": [
+      { "source": "claude-code", "compositeScore": 88, "turnCount": 10 }
+    ]
+  },
+  {
+    "storyKey": "27-5",
+    "timestamp": 1699999000000,
+    "compositeScore": 82,
+    "cacheHitSubScore": 90,
+    "ioRatioSubScore": 75,
+    "contextManagementSubScore": 80,
+    "avgCacheHitRate": 0.9,
+    "avgIoRatio": 1.8,
+    "contextSpikeCount": 0,
+    "totalTurns": 8,
+    "perModelBreakdown": [
+      { "model": "claude-haiku", "cacheHitRate": 0.9, "avgIoRatio": 1.8, "costPer1KOutputTokens": 0.001 }
+    ],
+    "perSourceBreakdown": [
+      { "source": "claude-code", "compositeScore": 82, "turnCount": 8 }
+    ]
+  }
+]

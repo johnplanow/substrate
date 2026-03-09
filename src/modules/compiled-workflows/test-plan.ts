@@ -127,6 +127,7 @@ export async function runTestPlan(
       timeout: DEFAULT_TIMEOUT_MS,
       outputSchema: TestPlanResultSchema,
       ...(deps.projectRoot !== undefined ? { workingDirectory: deps.projectRoot } : {}),
+      ...(deps.otlpEndpoint !== undefined ? { otlpEndpoint: deps.otlpEndpoint } : {}),
     })
 
     dispatchResult = await handle.result

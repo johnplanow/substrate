@@ -1,0 +1,384 @@
+{
+  "storyKey": "27-7",
+  "sprintId": "sprint-3",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "turns": [
+    {
+      "spanId": "turn-001",
+      "turnNumber": 1,
+      "name": "claude-code:turn:1",
+      "timestamp": 1735689600000,
+      "source": "claude-code",
+      "model": "claude-sonnet-4-5",
+      "inputTokens": 5000,
+      "outputTokens": 800,
+      "cacheReadTokens": 1000,
+      "freshTokens": 4000,
+      "cacheHitRate": 0.2,
+      "costUsd": 0.015,
+      "durationMs": 3000,
+      "contextSize": 5000,
+      "contextDelta": 5000,
+      "toolName": null,
+      "isContextSpike": false,
+      "childSpans": [
+        {
+          "spanId": "child-001",
+          "name": "read_file",
+          "toolName": "read",
+          "inputTokens": 4000,
+          "outputTokens": 0,
+          "durationMs": 200
+        },
+        {
+          "spanId": "child-002",
+          "name": "bash",
+          "toolName": "bash",
+          "inputTokens": 100,
+          "outputTokens": 3500,
+          "durationMs": 800
+        }
+      ]
+    },
+    {
+      "spanId": "turn-002",
+      "turnNumber": 2,
+      "name": "claude-code:turn:2",
+      "timestamp": 1735689700000,
+      "source": "claude-code",
+      "model": "claude-sonnet-4-5",
+      "inputTokens": 8000,
+      "outputTokens": 1200,
+      "cacheReadTokens": 500,
+      "freshTokens": 7500,
+      "cacheHitRate": 0.0625,
+      "costUsd": 0.024,
+      "durationMs": 4500,
+      "contextSize": 13000,
+      "contextDelta": 8000,
+      "toolName": null,
+      "isContextSpike": true,
+      "childSpans": [
+        {
+          "spanId": "child-003",
+          "name": "read_file",
+          "toolName": "read",
+          "inputTokens": 6000,
+          "outputTokens": 0,
+          "durationMs": 300
+        },
+        {
+          "spanId": "child-004",
+          "name": "list_files",
+          "toolName": "ls",
+          "inputTokens": 500,
+          "outputTokens": 200,
+          "durationMs": 100
+        },
+        {
+          "spanId": "child-005",
+          "name": "bash",
+          "toolName": "bash",
+          "inputTokens": 200,
+          "outputTokens": 4000,
+          "durationMs": 900
+        }
+      ]
+    },
+    {
+      "spanId": "turn-003",
+      "turnNumber": 3,
+      "name": "claude-code:turn:3",
+      "timestamp": 1735689800000,
+      "source": "claude-code",
+      "model": "claude-haiku-3-5",
+      "inputTokens": 3000,
+      "outputTokens": 600,
+      "cacheReadTokens": 100,
+      "freshTokens": 2900,
+      "cacheHitRate": 0.0333,
+      "costUsd": 0.009,
+      "durationMs": 2000,
+      "contextSize": 16000,
+      "contextDelta": 3000,
+      "toolName": null,
+      "isContextSpike": false,
+      "childSpans": [
+        {
+          "spanId": "child-006",
+          "name": "read_file",
+          "toolName": "read",
+          "inputTokens": 2000,
+          "outputTokens": 0,
+          "durationMs": 150
+        }
+      ]
+    }
+  ],
+  "categories": [
+    {
+      "category": "file_reads",
+      "totalTokens": 12000,
+      "percentage": 45.3,
+      "eventCount": 3,
+      "avgTokensPerEvent": 4000,
+      "trend": "growing"
+    },
+    {
+      "category": "tool_outputs",
+      "totalTokens": 8200,
+      "percentage": 31.0,
+      "eventCount": 2,
+      "avgTokensPerEvent": 4100,
+      "trend": "stable"
+    },
+    {
+      "category": "system_prompts",
+      "totalTokens": 3000,
+      "percentage": 11.3,
+      "eventCount": 1,
+      "avgTokensPerEvent": 3000,
+      "trend": "stable"
+    },
+    {
+      "category": "conversation_history",
+      "totalTokens": 2200,
+      "percentage": 8.3,
+      "eventCount": 3,
+      "avgTokensPerEvent": 733,
+      "trend": "growing"
+    },
+    {
+      "category": "user_prompts",
+      "totalTokens": 900,
+      "percentage": 3.4,
+      "eventCount": 3,
+      "avgTokensPerEvent": 300,
+      "trend": "stable"
+    },
+    {
+      "category": "other",
+      "totalTokens": 150,
+      "percentage": 0.6,
+      "eventCount": 2,
+      "avgTokensPerEvent": 75,
+      "trend": "shrinking"
+    }
+  ],
+  "consumers": [
+    {
+      "consumerKey": "read_file|read",
+      "category": "file_reads",
+      "totalTokens": 12000,
+      "percentage": 45.3,
+      "eventCount": 3,
+      "topInvocations": [
+        {
+          "spanId": "child-003",
+          "name": "read_file",
+          "toolName": "read",
+          "totalTokens": 6000,
+          "inputTokens": 6000,
+          "outputTokens": 0
+        },
+        {
+          "spanId": "child-001",
+          "name": "read_file",
+          "toolName": "read",
+          "totalTokens": 4000,
+          "inputTokens": 4000,
+          "outputTokens": 0
+        },
+        {
+          "spanId": "child-006",
+          "name": "read_file",
+          "toolName": "read",
+          "totalTokens": 2000,
+          "inputTokens": 2000,
+          "outputTokens": 0
+        }
+      ]
+    },
+    {
+      "consumerKey": "bash|bash",
+      "category": "tool_outputs",
+      "totalTokens": 8200,
+      "percentage": 31.0,
+      "eventCount": 2,
+      "topInvocations": [
+        {
+          "spanId": "child-005",
+          "name": "bash",
+          "toolName": "bash",
+          "totalTokens": 4200,
+          "inputTokens": 200,
+          "outputTokens": 4000
+        },
+        {
+          "spanId": "child-002",
+          "name": "bash",
+          "toolName": "bash",
+          "totalTokens": 3600,
+          "inputTokens": 100,
+          "outputTokens": 3500
+        }
+      ]
+    },
+    {
+      "consumerKey": "system_prompt|",
+      "category": "system_prompts",
+      "totalTokens": 3000,
+      "percentage": 11.3,
+      "eventCount": 1,
+      "topInvocations": []
+    },
+    {
+      "consumerKey": "list_files|ls",
+      "category": "file_reads",
+      "totalTokens": 700,
+      "percentage": 2.6,
+      "eventCount": 1,
+      "topInvocations": [
+        {
+          "spanId": "child-004",
+          "name": "list_files",
+          "toolName": "ls",
+          "totalTokens": 700,
+          "inputTokens": 500,
+          "outputTokens": 200
+        }
+      ]
+    }
+  ],
+  "efficiencyScore": {
+    "storyKey": "27-7",
+    "timestamp": 1735689900000,
+    "compositeScore": 38,
+    "cacheHitSubScore": 11,
+    "ioRatioSubScore": 54,
+    "contextManagementSubScore": 67,
+    "avgCacheHitRate": 0.105,
+    "avgIoRatio": 4.3,
+    "contextSpikeCount": 1,
+    "totalTurns": 3,
+    "perModelBreakdown": [
+      {
+        "model": "claude-sonnet-4-5",
+        "cacheHitRate": 0.115,
+        "avgIoRatio": 4.5,
+        "costPer1KOutputTokens": 15.0
+      },
+      {
+        "model": "claude-haiku-3-5",
+        "cacheHitRate": 0.033,
+        "avgIoRatio": 5.0,
+        "costPer1KOutputTokens": 5.0
+      }
+    ],
+    "perSourceBreakdown": [
+      {
+        "source": "claude-code",
+        "compositeScore": 38,
+        "turnCount": 3
+      }
+    ]
+  },
+  "allSpans": [
+    {
+      "spanId": "span-001",
+      "traceId": "trace-abc",
+      "name": "read_file",
+      "source": "claude-code",
+      "model": "claude-sonnet-4-5",
+      "operationName": "file_read",
+      "storyKey": "27-7",
+      "inputTokens": 4000,
+      "outputTokens": 0,
+      "cacheReadTokens": 800,
+      "cacheCreationTokens": 0,
+      "costUsd": 0.008,
+      "durationMs": 200,
+      "startTime": 1735689601000
+    },
+    {
+      "spanId": "span-002",
+      "traceId": "trace-abc",
+      "name": "bash",
+      "source": "claude-code",
+      "model": "claude-sonnet-4-5",
+      "operationName": "execute_command",
+      "storyKey": "27-7",
+      "inputTokens": 100,
+      "outputTokens": 3500,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "costUsd": 0.007,
+      "durationMs": 800,
+      "startTime": 1735689602000
+    },
+    {
+      "spanId": "span-003",
+      "traceId": "trace-abc",
+      "name": "read_file",
+      "source": "claude-code",
+      "model": "claude-sonnet-4-5",
+      "operationName": "file_read",
+      "storyKey": "27-7",
+      "inputTokens": 6000,
+      "outputTokens": 0,
+      "cacheReadTokens": 200,
+      "cacheCreationTokens": 0,
+      "costUsd": 0.012,
+      "durationMs": 300,
+      "startTime": 1735689701000
+    },
+    {
+      "spanId": "span-004",
+      "traceId": "trace-abc",
+      "name": "list_files",
+      "source": "claude-code",
+      "model": "claude-sonnet-4-5",
+      "operationName": "list_files",
+      "storyKey": "27-7",
+      "inputTokens": 500,
+      "outputTokens": 200,
+      "cacheReadTokens": 100,
+      "cacheCreationTokens": 0,
+      "costUsd": 0.001,
+      "durationMs": 100,
+      "startTime": 1735689702000
+    },
+    {
+      "spanId": "span-005",
+      "traceId": "trace-abc",
+      "name": "execute_command",
+      "source": "claude-code",
+      "model": "claude-sonnet-4-5",
+      "operationName": "execute_command",
+      "storyKey": "27-7",
+      "inputTokens": 200,
+      "outputTokens": 4000,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "costUsd": 0.008,
+      "durationMs": 900,
+      "startTime": 1735689703000
+    },
+    {
+      "spanId": "span-006",
+      "traceId": "trace-abc",
+      "name": "read_file",
+      "source": "claude-code",
+      "model": "claude-haiku-3-5",
+      "operationName": "file_read",
+      "storyKey": "27-7",
+      "inputTokens": 2000,
+      "outputTokens": 0,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "costUsd": 0.002,
+      "durationMs": 150,
+      "startTime": 1735689801000
+    }
+  ]
+}

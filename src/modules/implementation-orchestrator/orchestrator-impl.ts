@@ -53,6 +53,9 @@ import { verifyContracts } from './contract-verifier.js'
 import type { ContractMismatch } from './types.js'
 import type { StateStore, StoryRecord, ContractRecord, ContractVerificationRecord } from '../state/index.js'
 import { DoltMergeConflict } from '../state/index.js'
+import type { ITelemetryPersistence } from '../telemetry/index.js'
+import { EfficiencyScorer, Categorizer, ConsumerAnalyzer } from '../telemetry/index.js'
+import type { IngestionServer } from '../telemetry/ingestion-server.js'
 
 // ---------------------------------------------------------------------------
 // OrchestratorDeps
@@ -80,6 +83,10 @@ export interface OrchestratorDeps {
   tokenCeilings?: TokenCeilings
   /** Optional StateStore for durable story state persistence (Story 26-4) */
   stateStore?: StateStore
+  /** Optional telemetry persistence for efficiency scoring (Story 27-6) */
+  telemetryPersistence?: ITelemetryPersistence
+  /** Optional OTLP ingestion server for agent telemetry export (Story 27-9) */
+  ingestionServer?: IngestionServer
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +150,7 @@ function buildTargetedFilesContent(issueList: unknown[]): string {
 export function createImplementationOrchestrator(
   deps: OrchestratorDeps,
 ): ImplementationOrchestrator {
-  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore } = deps
+  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer } = deps
 
   const logger = createLogger('implementation-orchestrator')
 
@@ -180,6 +187,10 @@ export function createImplementationOrchestrator(
 
   // -- post-sprint contract verification mismatches (Story 25-6) --
   let _contractMismatches: ContractMismatch[] | undefined
+
+  // -- OTLP telemetry endpoint (Story 27-9) --
+  // Set once when ingestionServer.start() resolves; cleared after run() completes.
+  let _otlpEndpoint: string | undefined
 
   // -- StateStore record cache (Story 26-4, AC3) --
   // Populated from stateStore.queryStories() after initialization for resume scenarios.
@@ -770,7 +781,7 @@ export function createImplementationOrchestrator(
     try {
       incrementDispatches(storyKey)
       const createResult = await runCreateStory(
-        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
+        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
         { epicId: storyKey.split('-')[0] ?? storyKey, storyKey, pipelineRunId: config.pipelineRunId },
       )
 
@@ -901,7 +912,7 @@ export function createImplementationOrchestrator(
     let testPlanPhaseResult: 'success' | 'failed' = 'failed'
     try {
       const testPlanResult = await runTestPlan(
-        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
+        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
         { storyKey, storyFilePath: storyFilePath ?? '', pipelineRunId: config.pipelineRunId ?? '' },
       )
       testPlanPhaseResult = testPlanResult.result
@@ -992,7 +1003,7 @@ export function createImplementationOrchestrator(
           let batchResult
           try {
             batchResult = await runDevStory(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
+              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
               {
                 storyKey,
                 storyFilePath: storyFilePath ?? '',
@@ -1084,7 +1095,7 @@ export function createImplementationOrchestrator(
         // AC7: Small/medium story — single dispatch (existing behavior)
         incrementDispatches(storyKey)
         const devResult = await runDevStory(
-          { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
+          { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
           {
             storyKey,
             storyFilePath: storyFilePath ?? '',
@@ -1301,7 +1312,7 @@ export function createImplementationOrchestrator(
             )
             incrementDispatches(storyKey)
             const batchReview = await runCodeReview(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
+              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
               {
                 storyKey,
                 storyFilePath: storyFilePath ?? '',
@@ -1345,7 +1356,7 @@ export function createImplementationOrchestrator(
           // Single review (small story or re-review after fix)
           incrementDispatches(storyKey)
           reviewResult = await runCodeReview(
-            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
+            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
             {
               storyKey,
               storyFilePath: storyFilePath ?? '',
@@ -1506,10 +1517,72 @@ export function createImplementationOrchestrator(
           }
         }
 
+        // Post-SHIP_IT/LGTM_WITH_NOTES: compute and persist efficiency score (Story 27-6)
+        // Non-blocking — telemetry failure never alters the pipeline verdict or state.
+        if (telemetryPersistence !== undefined) {
+          try {
+            const turns = await telemetryPersistence.getTurnAnalysis(storyKey)
+            if (turns.length > 0) {
+              const scorer = new EfficiencyScorer(logger)
+              const effScore = scorer.score(storyKey, turns)
+              await telemetryPersistence.storeEfficiencyScore(effScore)
+              logger.info(
+                {
+                  storyKey,
+                  compositeScore: effScore.compositeScore,
+                  modelCount: effScore.perModelBreakdown.length,
+                },
+                'Efficiency score computed and persisted',
+              )
+            } else {
+              logger.debug({ storyKey }, 'No turn analysis data available — skipping efficiency scoring')
+            }
+          } catch (effErr) {
+            logger.warn(
+              { storyKey, error: effErr instanceof Error ? effErr.message : String(effErr) },
+              'Efficiency scoring failed — story verdict unchanged',
+            )
+          }
+        }
+
+        // Post-SHIP_IT/LGTM_WITH_NOTES: compute semantic categorization + consumer stats (Story 27-5)
+        // Non-blocking — telemetry failure never alters the pipeline verdict or state.
+        // Guard: spans are populated only once the OTLP ingestion pipeline (story 27-1/27-2/27-3) is wired.
+        if (telemetryPersistence !== undefined) {
+          try {
+            const turns = await telemetryPersistence.getTurnAnalysis(storyKey)
+            // TODO(27-3): Replace empty array with telemetryPersistence.getSpansForStory(storyKey)
+            // once the OTLP span storage pipeline is wired.
+            const spans: import('../telemetry/index.js').NormalizedSpan[] = []
+            if (spans.length === 0) {
+              logger.debug({ storyKey }, 'No spans for telemetry categorization — skipping')
+            } else {
+              const categorizer = new Categorizer(logger)
+              const consumerAnalyzer = new ConsumerAnalyzer(categorizer, logger)
+              const categoryStats = categorizer.computeCategoryStats(spans, turns)
+              const consumerStats = consumerAnalyzer.analyze(spans)
+              await telemetryPersistence.storeCategoryStats(storyKey, categoryStats)
+              await telemetryPersistence.storeConsumerStats(storyKey, consumerStats)
+              const growingCount = categoryStats.filter((c) => c.trend === 'growing').length
+              const topCategory = categoryStats[0]?.category ?? 'none'
+              const topConsumer = consumerStats[0]?.consumerKey ?? 'none'
+              logger.info(
+                { storyKey, topCategory, topConsumer, growingCount },
+                'Semantic categorization and consumer analysis complete',
+              )
+            }
+          } catch (catErr) {
+            logger.warn(
+              { storyKey, error: catErr instanceof Error ? catErr.message : String(catErr) },
+              'Semantic categorization failed — story verdict unchanged',
+            )
+          }
+        }
+
         // Post-SHIP_IT/LGTM_WITH_NOTES: run test expansion analysis (non-blocking — never alters verdict/state)
         try {
           const expansionResult = await runTestExpansion(
-            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings },
+            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
             {
               storyKey,
               storyFilePath: storyFilePath ?? '',
@@ -1628,6 +1701,7 @@ export function createImplementationOrchestrator(
             taskType: 'minor-fixes',
             workingDirectory: projectRoot,
             ...(autoApproveMaxTurns !== undefined ? { maxTurns: autoApproveMaxTurns } : {}),
+            ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
           })
           const fixResult = await handle.result
 
@@ -1772,6 +1846,7 @@ export function createImplementationOrchestrator(
               outputSchema: DevStoryResultSchema,
               ...(fixMaxTurns !== undefined ? { maxTurns: fixMaxTurns } : {}),
               ...(projectRoot !== undefined ? { workingDirectory: projectRoot } : {}),
+              ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
             })
           : dispatcher.dispatch<unknown>({
               prompt: fixPrompt,
@@ -1780,6 +1855,7 @@ export function createImplementationOrchestrator(
               ...(fixModel !== undefined ? { model: fixModel } : {}),
               ...(fixMaxTurns !== undefined ? { maxTurns: fixMaxTurns } : {}),
               ...(projectRoot !== undefined ? { workingDirectory: projectRoot } : {}),
+              ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
             })
         const fixResult = await handle.result
 
@@ -1981,6 +2057,20 @@ export function createImplementationOrchestrator(
           }
         } catch (err) {
           logger.warn({ err }, 'StateStore.queryStories() failed during init — status merge will be empty (best-effort)')
+        }
+      }
+
+      // Story 27-9: Start OTLP ingestion server before first dispatch.
+      // The server captures telemetry from Claude Code sub-agents.
+      if (ingestionServer !== undefined) {
+        await ingestionServer.start().catch((err: unknown) =>
+          logger.warn({ err }, 'IngestionServer.start() failed — continuing without telemetry (best-effort)'),
+        )
+        try {
+          _otlpEndpoint = ingestionServer.getOtlpEnvVars().OTEL_EXPORTER_OTLP_ENDPOINT
+          logger.info({ otlpEndpoint: _otlpEndpoint }, 'OTLP telemetry ingestion active')
+        } catch {
+          // Server may not have started — endpoint remains undefined
         }
       }
 
@@ -2207,6 +2297,12 @@ export function createImplementationOrchestrator(
       if (stateStore !== undefined) {
         await stateStore.close().catch((err) =>
           logger.warn({ err }, 'StateStore.close() failed (best-effort)'),
+        )
+      }
+      // Story 27-9: Stop OTLP ingestion server in all exit paths (best-effort).
+      if (ingestionServer !== undefined) {
+        await ingestionServer.stop().catch((err: unknown) =>
+          logger.warn({ err }, 'IngestionServer.stop() failed (best-effort)'),
         )
       }
     }

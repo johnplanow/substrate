@@ -46,6 +46,13 @@ export interface AdapterOptions {
   apiKey?: string
   /** Optional maximum agentic turns (passed as --max-turns to Claude CLI) */
   maxTurns?: number
+  /**
+   * Optional OTLP endpoint URL for telemetry export (Story 27-9).
+   * When set, injects the 5 OTLP env vars into the spawned process so that
+   * Claude Code exports telemetry to the local IngestionServer.
+   * Example: "http://localhost:4318"
+   */
+  otlpEndpoint?: string
 }
 
 /**

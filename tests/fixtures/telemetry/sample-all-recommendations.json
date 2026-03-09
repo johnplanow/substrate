@@ -1,0 +1,35 @@
+[
+  {
+    "id": "crit0000crit0000",
+    "storyKey": "27-7",
+    "ruleId": "biggest_consumers",
+    "severity": "critical",
+    "title": "Top consumer uses excessive tokens",
+    "description": "read_file|read consumed 45% of all tokens across 120 invocations.",
+    "potentialSavingsTokens": 4500,
+    "potentialSavingsUsd": 0.009,
+    "actionTarget": "read_file|read",
+    "generatedAt": "2026-03-09T00:00:00.000Z"
+  },
+  {
+    "id": "warn0000warn0000",
+    "storyKey": "27-6",
+    "ruleId": "cache_efficiency",
+    "severity": "warning",
+    "title": "Low cache hit rate",
+    "description": "Average cache hit rate is only 23%. Consider consolidating prompts.",
+    "potentialSavingsTokens": 1500,
+    "potentialSavingsUsd": 0.003,
+    "generatedAt": "2026-03-09T00:00:00.000Z"
+  },
+  {
+    "id": "info0000info0000",
+    "storyKey": "27-5",
+    "ruleId": "growing_categories",
+    "severity": "info",
+    "title": "tool_outputs category is growing",
+    "description": "tool_outputs consumed 15% more tokens in the second half of the story.",
+    "potentialSavingsTokens": 500,
+    "generatedAt": "2026-03-09T00:00:00.000Z"
+  }
+]

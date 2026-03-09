@@ -56,6 +56,7 @@ import {
 } from '../../persistence/queries/metrics.js'
 import { createConfigSystem } from '../../modules/config/config-system-impl.js'
 import type { TokenCeilings } from '../../modules/config/config-schema.js'
+import { IngestionServer } from '../../modules/telemetry/ingestion-server.js'
 import { createLogger } from '../../utils/logger.js'
 import {
   VALID_PHASES,
@@ -251,15 +252,22 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // Non-fatal: process detection falls back to command-line matching
   }
 
-  // Load token_ceilings from project config (completing Story 24-7 CLI wiring).
+  // Load token_ceilings and telemetry config from project config.
   // Non-fatal: if config loading fails, orchestrator uses hardcoded defaults.
   let tokenCeilings: TokenCeilings | undefined
+  let telemetryEnabled = false
+  let telemetryPort = 4318
   try {
     const configSystem = createConfigSystem({ projectConfigDir: dbDir })
     await configSystem.load()
-    tokenCeilings = configSystem.getConfig().token_ceilings
+    const cfg = configSystem.getConfig()
+    tokenCeilings = cfg.token_ceilings
+    if (cfg.telemetry?.enabled === true) {
+      telemetryEnabled = true
+      telemetryPort = cfg.telemetry.port ?? 4318
+    }
   } catch {
-    logger.debug('Config loading skipped — using default token ceilings')
+    logger.debug('Config loading skipped — using default token ceilings and telemetry settings')
   }
 
   // Parse --stories early so both --from and legacy paths can use them
@@ -931,6 +939,12 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       })
     }
 
+    // Create OTLP ingestion server if telemetry is enabled (Story 27-9).
+    // The orchestrator handles start/stop lifecycle internally.
+    const ingestionServer = telemetryEnabled
+      ? new IngestionServer({ port: telemetryPort })
+      : undefined
+
     // Create orchestrator
     const orchestrator = createImplementationOrchestrator({
       db,
@@ -949,6 +963,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       },
       projectRoot,
       tokenCeilings,
+      ...(ingestionServer !== undefined ? { ingestionServer } : {}),
     })
 
     // Display startup header (only in legacy human mode without progress renderer or NDJSON emitter)
