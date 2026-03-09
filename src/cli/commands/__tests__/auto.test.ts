@@ -890,7 +890,7 @@ describe('runRunAction', () => {
     })
 
     expect(exitCode).toBe(0)
-    expect(mockDiscoverPendingStoryKeys).toHaveBeenCalledWith('/test/project')
+    expect(mockDiscoverPendingStoryKeys).toHaveBeenCalledWith('/test/project', undefined)
     expect(mockOrchestratorRun).toHaveBeenCalledWith(expect.arrayContaining(['7-2', '7-3']))
     const allOutput = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
     expect(allOutput).toContain('Discovered 2 pending stories from epics.md')
