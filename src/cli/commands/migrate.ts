@@ -257,8 +257,8 @@ export function registerMigrateCommand(program: Command): void {
         // AC3: Dolt commit after successful migration
         if (result.metricsWritten > 0) {
           try {
-            await client.exec('add .')
-            await client.exec('commit -m "Migrate historical data from SQLite"')
+            await client.execArgs(['add', '.'])
+            await client.execArgs(['commit', '-m', 'Migrate historical data from SQLite'])
           } catch (execErr: unknown) {
             const msg = execErr instanceof Error ? execErr.message : String(execErr)
             process.stderr.write(`Warning: Dolt commit failed (non-fatal): ${msg}\n`)

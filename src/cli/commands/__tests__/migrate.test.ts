@@ -41,6 +41,7 @@ const {
   mockClientConnect,
   mockClientQuery,
   mockClientExec,
+  mockClientExecArgs,
   mockClientClose,
   MockDoltNotInstalled,
 } = vi.hoisted(() => {
@@ -53,6 +54,7 @@ const {
   const mockClientConnect = vi.fn().mockResolvedValue(undefined)
   const mockClientQuery = vi.fn().mockResolvedValue([])
   const mockClientExec = vi.fn().mockResolvedValue('')
+  const mockClientExecArgs = vi.fn().mockResolvedValue('')
   const mockClientClose = vi.fn().mockResolvedValue(undefined)
   const mockCheckDoltInstalled = vi.fn().mockResolvedValue(undefined)
   return {
@@ -60,6 +62,7 @@ const {
     mockClientConnect,
     mockClientQuery,
     mockClientExec,
+    mockClientExecArgs,
     mockClientClose,
     MockDoltNotInstalled,
   }
@@ -71,6 +74,7 @@ vi.mock('../../../modules/state/index.js', () => ({
     connect: mockClientConnect,
     query: mockClientQuery,
     exec: mockClientExec,
+    execArgs: mockClientExecArgs,
     close: mockClientClose,
   })),
   DoltNotInstalled: MockDoltNotInstalled,
@@ -261,13 +265,13 @@ describe('migrate command', () => {
       expect(sql).toContain('ON DUPLICATE KEY UPDATE')
     })
 
-    it('calls client.exec with "add ." and commit message after writing', async () => {
+    it('calls client.execArgs with add and commit after writing', async () => {
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate'])
 
-      const execCalls = mockClientExec.mock.calls.map((c) => String(c[0]))
-      expect(execCalls).toContain('add .')
-      expect(execCalls.some((c) => c.includes('Migrate historical data from SQLite'))).toBe(true)
+      const execArgsCalls = mockClientExecArgs.mock.calls.map((c) => c[0] as string[])
+      expect(execArgsCalls).toContainEqual(['add', '.'])
+      expect(execArgsCalls.some((args) => args.includes('commit') && args.includes('Migrate historical data from SQLite'))).toBe(true)
     })
 
     it('prints "Migrated N story metrics." to stdout', async () => {
@@ -300,11 +304,11 @@ describe('migrate command', () => {
       expect(mockClientQuery).not.toHaveBeenCalled()
     })
 
-    it('does NOT call client.exec when --dry-run is set', async () => {
+    it('does NOT call client.execArgs when --dry-run is set', async () => {
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate', '--dry-run'])
 
-      expect(mockClientExec).not.toHaveBeenCalled()
+      expect(mockClientExecArgs).not.toHaveBeenCalled()
     })
 
     it('prints "Would migrate N story metrics (dry run — no changes written)"', async () => {
