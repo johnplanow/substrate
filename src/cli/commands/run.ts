@@ -303,7 +303,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       try {
         detectDb.open()
         runMigrations(detectDb.db)
-        const detection = detectStartPhase(detectDb.db, projectRoot)
+        const detection = detectStartPhase(detectDb.db, projectRoot, epicNumber)
 
         if (detection.phase !== 'implementation') {
           // Pipeline needs earlier phases — route through full pipeline
@@ -1005,7 +1005,11 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       writeRunMetrics(db, {
         run_id: pipelineRun.id,
         methodology: pack.manifest.name,
-        status: (failedKeys.length > 0 || escalatedKeys.length > 0) ? 'failed' : 'completed',
+        status: failedKeys.length > 0
+          ? 'failed'
+          : escalatedKeys.length > 0
+            ? 'completed_with_escalations'
+            : 'completed',
         started_at: pipelineRun.created_at ?? '',
         completed_at: new Date().toISOString(),
         wall_clock_seconds: Math.round((runEndMs - runStartMs) / 1000),

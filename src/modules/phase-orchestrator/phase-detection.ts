@@ -42,14 +42,16 @@ export interface PhaseDetectionResult {
 export function detectStartPhase(
   db: BetterSqlite3Database,
   projectRoot: string,
+  epicNumber?: number,
 ): PhaseDetectionResult {
   // Fast path: if stories are discoverable, go straight to implementation
   try {
-    const storyKeys = resolveStoryKeys(db, projectRoot)
+    const storyKeys = resolveStoryKeys(db, projectRoot, { epicNumber })
     if (storyKeys.length > 0) {
+      const scopeLabel = epicNumber !== undefined ? ` (epic ${epicNumber})` : ''
       return {
         phase: 'implementation',
-        reason: `${storyKeys.length} stories ready for implementation`,
+        reason: `${storyKeys.length} stories ready for implementation${scopeLabel}`,
         needsConcept: false,
       }
     }
