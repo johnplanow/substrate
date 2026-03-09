@@ -130,6 +130,8 @@ export interface RunOptions {
   skipResearch?: boolean
   /** When true, skip the pre-flight build check (Story 25-2) */
   skipPreflight?: boolean
+  /** Scope story discovery to a single epic number (e.g., 27) */
+  epic?: number
   /** Optional pre-initialized registry; if omitted, a new registry is created and discovered */
   registry?: AdapterRegistry
 }
@@ -152,6 +154,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     research: researchFlag,
     skipResearch: skipResearchFlag,
     skipPreflight,
+    epic: epicNumber,
     registry: injectedRegistry,
   } = options
 
@@ -345,6 +348,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(researchFlag === true ? { research: true } : {}),
       ...(skipResearchFlag === true ? { skipResearch: true } : {}),
       ...(skipPreflight === true ? { skipPreflight: true } : {}),
+      ...(epicNumber !== undefined ? { epic: epicNumber } : {}),
       ...(injectedRegistry !== undefined ? { registry: injectedRegistry } : {}),
     })
   }
@@ -442,10 +446,11 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
       // Fallback: discover from epics.md if requirements table is empty
       if (storyKeys.length === 0) {
-        storyKeys = discoverPendingStoryKeys(projectRoot)
+        storyKeys = discoverPendingStoryKeys(projectRoot, epicNumber)
         if (storyKeys.length > 0) {
+          const scopeLabel = epicNumber !== undefined ? `epic ${epicNumber}` : 'epics.md'
           process.stdout.write(
-            `Discovered ${storyKeys.length} pending stories from epics.md: ${storyKeys.join(', ')}\n`,
+            `Discovered ${storyKeys.length} pending stories from ${scopeLabel}: ${storyKeys.join(', ')}\n`,
           )
         }
       }
@@ -1131,6 +1136,8 @@ export interface FullPipelineOptions {
   tokenCeilings?: TokenCeilings
   /** Explicit story keys from --stories flag (passed through to implementation phase) */
   stories?: string[]
+  /** Scope story discovery to a single epic number */
+  epic?: number
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
@@ -1477,6 +1484,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         // explicit --stories → decisions table → epic shards → epics.md
         const storyKeys = resolveStoryKeys(db, projectRoot, {
           explicit: explicitStories,
+          epicNumber: options.epic,
         })
 
         if (storyKeys.length === 0 && outputFormat === 'human') {
@@ -1629,6 +1637,7 @@ export function registerRunCommand(
     .option('--concept <text>', 'Inline concept text (required when --from analysis)')
     .option('--concept-file <path>', 'Path to a file containing the concept text')
     .option('--stories <keys>', 'Comma-separated story keys (e.g., 10-1,10-2)')
+    .option('--epic <n>', 'Scope story discovery to a single epic number (e.g., 27)', (v) => parseInt(v, 10))
     .option('--concurrency <n>', 'Maximum parallel conflict groups', (v) => parseInt(v, 10), 3)
     .option('--project-root <path>', 'Project root directory', projectRoot)
     .option(
@@ -1652,6 +1661,7 @@ export function registerRunCommand(
         concept?: string
         conceptFile?: string
         stories?: string
+        epic?: number
         concurrency: number
         projectRoot: string
         outputFormat: string
@@ -1695,6 +1705,7 @@ export function registerRunCommand(
           concept: opts.concept,
           conceptFile: opts.conceptFile,
           stories: opts.stories,
+          epic: opts.epic,
           concurrency: opts.concurrency,
           outputFormat,
           projectRoot: opts.projectRoot,

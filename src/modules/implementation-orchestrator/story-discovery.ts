@@ -30,6 +30,8 @@ export interface ResolveStoryKeysOptions {
   pipelineRunId?: string
   /** Filter out stories already completed in previous pipeline runs. */
   filterCompleted?: boolean
+  /** Scope discovery to a single epic number (e.g., 27). Filters all levels. */
+  epicNumber?: number
 }
 
 /**
@@ -98,7 +100,13 @@ export function resolveStoryKeys(
 
   // Level 4: epics.md file on disk
   if (keys.length === 0) {
-    keys = discoverPendingStoryKeys(projectRoot)
+    keys = discoverPendingStoryKeys(projectRoot, opts?.epicNumber)
+  }
+
+  // Epic scope filter: if epicNumber is set, filter keys from Levels 2/3 to that epic
+  if (opts?.epicNumber !== undefined && keys.length > 0) {
+    const prefix = `${opts.epicNumber}-`
+    keys = keys.filter((k) => k.startsWith(prefix))
   }
 
   // Optional: filter out completed stories
@@ -178,24 +186,15 @@ export function parseStoryKeysFromEpics(content: string): string[] {
  * @param projectRoot - Absolute path to the project root directory
  * @returns Sorted array of pending story keys in "N-M" format
  */
-export function discoverPendingStoryKeys(projectRoot: string): string[] {
+export function discoverPendingStoryKeys(projectRoot: string, epicNumber?: number): string[] {
   let allKeys: string[] = []
 
-  // Try consolidated epics.md first
-  const epicsPath = findEpicsFile(projectRoot)
-  if (epicsPath !== undefined) {
-    try {
-      const content = readFileSync(epicsPath, 'utf-8')
-      allKeys = parseStoryKeysFromEpics(content)
-    } catch {
-      // fall through to individual epic files
-    }
-  }
-
-  // If no keys from epics.md, scan individual epic-*.md files
-  if (allKeys.length === 0) {
+  if (epicNumber !== undefined) {
+    // Scoped: scan only the specific epic file
     const epicFiles = findEpicFiles(projectRoot)
-    for (const epicFile of epicFiles) {
+    const targetPattern = new RegExp(`^epic-${epicNumber}[^0-9]`)
+    const matched = epicFiles.filter((f) => targetPattern.test(f.split('/').pop()!))
+    for (const epicFile of matched) {
       try {
         const content = readFileSync(epicFile, 'utf-8')
         const keys = parseStoryKeysFromEpics(content)
@@ -205,6 +204,32 @@ export function discoverPendingStoryKeys(projectRoot: string): string[] {
       }
     }
     allKeys = sortStoryKeys([...new Set(allKeys)])
+  } else {
+    // Try consolidated epics.md first
+    const epicsPath = findEpicsFile(projectRoot)
+    if (epicsPath !== undefined) {
+      try {
+        const content = readFileSync(epicsPath, 'utf-8')
+        allKeys = parseStoryKeysFromEpics(content)
+      } catch {
+        // fall through to individual epic files
+      }
+    }
+
+    // If no keys from epics.md, scan individual epic-*.md files
+    if (allKeys.length === 0) {
+      const epicFiles = findEpicFiles(projectRoot)
+      for (const epicFile of epicFiles) {
+        try {
+          const content = readFileSync(epicFile, 'utf-8')
+          const keys = parseStoryKeysFromEpics(content)
+          allKeys.push(...keys)
+        } catch {
+          // skip unreadable files
+        }
+      }
+      allKeys = sortStoryKeys([...new Set(allKeys)])
+    }
   }
 
   if (allKeys.length === 0) return []
