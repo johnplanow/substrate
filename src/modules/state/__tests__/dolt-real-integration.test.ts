@@ -194,9 +194,10 @@ describe.skipIf(SKIP || !doltAvailable())('DoltStateStore — real Dolt binary i
     expect(record).toBeDefined()
     expect(record!.phase).toBe('COMPLETE')
 
-    // Verify merge commit exists in Dolt log
-    const logOutput = execFileSync('dolt', ['log', '--oneline', '-5'], { cwd: tempDir, encoding: 'utf-8' })
-    expect(logOutput).toContain('Merge story 3-1')
+    // Verify story commit exists in Dolt log (may be a merge commit or
+    // a fast-forward bringing the pre-merge commit to main)
+    const logOutput = execFileSync('dolt', ['log', '--oneline', '-n', '5'], { cwd: tempDir, encoding: 'utf-8' })
+    expect(logOutput).toMatch(/[Ss]tory 3-1/)
 
     // Branch should be cleaned up (deleted from _storyBranches)
     // Attempting to merge again should be a no-op (logged warning)

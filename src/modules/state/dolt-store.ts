@@ -153,6 +153,9 @@ export class DoltStateStore implements StateStore {
   async initialize(): Promise<void> {
     await this._client.connect()
     await this._runMigrations()
+    // Commit schema changes so branches created via branchForStory()
+    // fork from a commit that includes the tables.
+    await this.flush('substrate: schema migrations')
     log.debug('DoltStateStore initialized at %s', this._repoPath)
   }
 
@@ -235,8 +238,8 @@ export class DoltStateStore implements StateStore {
    */
   async flush(message = 'substrate: auto-commit'): Promise<void> {
     try {
-      await this._client.exec('dolt add .')
-      await this._client.exec(`dolt commit --allow-empty -m '${message.replace(/'/g, "'\\''")}'`)
+      await this._client.execArgs(['add', '.'])
+      await this._client.execArgs(['commit', '--allow-empty', '-m', message])
       log.debug('Dolt flush committed: %s', message)
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
@@ -562,6 +565,37 @@ export class DoltStateStore implements StateStore {
       return
     }
     try {
+      // Commit any pending writes on the story branch before merging.
+      // Without this, writes remain in the working set and DOLT_MERGE
+      // only sees the committed state.
+      try {
+        await this._client.query(
+          `CALL DOLT_ADD('-A')`,
+          [],
+          branchName,
+        )
+        await this._client.query(
+          `CALL DOLT_COMMIT('-m', 'Story ${storyKey}: pre-merge commit', '--allow-empty')`,
+          [],
+          branchName,
+        )
+      } catch {
+        // Best-effort — branch may already be clean
+      }
+
+      // Commit any pending changes on main so DOLT_MERGE doesn't refuse
+      // with "local changes would be stomped by merge".
+      try {
+        await this._client.query(`CALL DOLT_ADD('-A')`, [], 'main')
+        await this._client.query(
+          `CALL DOLT_COMMIT('-m', 'substrate: pre-merge auto-commit', '--allow-empty')`,
+          [],
+          'main',
+        )
+      } catch {
+        // Best-effort — main may already be clean
+      }
+
       // Merge the story branch into main
       const mergeRows = await this._client.query<MergeResultRow>(
         `CALL DOLT_MERGE('${branchName}')`,
@@ -594,12 +628,18 @@ export class DoltStateStore implements StateStore {
         this._storyBranches.delete(storyKey)
         throw new DoltMergeConflictError(table, [rowKey], { rowKey, ourValue, theirValue })
       }
-      // Commit the merge on main
-      await this._client.query(
-        `CALL DOLT_COMMIT('-m', 'Merge story ${storyKey}: COMPLETE')`,
-        [],
-        'main',
-      )
+      // Commit the merge on main. Dolt may auto-commit fast-forward merges,
+      // so "nothing to commit" is expected and safe to ignore.
+      try {
+        await this._client.query(
+          `CALL DOLT_COMMIT('-m', 'Merge story ${storyKey}: COMPLETE')`,
+          [],
+          'main',
+        )
+      } catch (commitErr: unknown) {
+        const msg = commitErr instanceof Error ? commitErr.message : String(commitErr)
+        if (!msg.includes('nothing to commit')) throw commitErr
+      }
       this._storyBranches.delete(storyKey)
       log.debug('Merged branch %s into main for story %s', branchName, storyKey)
     } catch (err: unknown) {
@@ -653,23 +693,37 @@ export class DoltStateStore implements StateStore {
       return this._diffMergedStory(storyKey)
     }
 
+    // Commit pending (uncommitted) writes on the story branch so DOLT_DIFF
+    // can see them — DOLT_DIFF only compares committed state.
+    try {
+      await this._client.query(`CALL DOLT_ADD('-A')`, [], branchName)
+      await this._client.query(
+        `CALL DOLT_COMMIT('-m', 'Story ${storyKey}: pre-diff snapshot', '--allow-empty')`,
+        [],
+        branchName,
+      )
+    } catch {
+      // Best-effort — may fail if nothing to commit
+    }
+
     return this._diffRange('main', branchName, storyKey)
   }
 
   /**
    * Diff a merged story by finding its merge commit in the Dolt log.
-   * Uses `dolt log --oneline --grep "story/<storyKey>"` to locate the merge
-   * commit, then diffs `<hash>~1` vs `<hash>` for row-level changes.
+   * Queries the `dolt_log` system table for commits referencing the story,
+   * then diffs `<hash>~1` vs `<hash>` for row-level changes.
    */
   private async _diffMergedStory(storyKey: string): Promise<StoryDiff> {
     try {
-      const stdout = await this._client.exec(`dolt log --oneline --grep "story/${storyKey}"`)
-      const firstLine = stdout.trim().split('\n')[0]?.trim()
-      if (!firstLine) {
+      const rows = await this._client.query<{ commit_hash: string }>(
+        `SELECT commit_hash FROM dolt_log WHERE message LIKE ? LIMIT 1`,
+        [`%${storyKey}%`],
+      )
+      if (rows.length === 0) {
         return { storyKey, tables: [] }
       }
-      // dolt log --oneline format: "<hash> <message>"
-      const hash = firstLine.split(/\s+/)[0]
+      const hash = String(rows[0].commit_hash)
       if (!hash) {
         return { storyKey, tables: [] }
       }
@@ -763,29 +817,21 @@ export class DoltStateStore implements StateStore {
 
   async getHistory(limit?: number): Promise<HistoryEntry[]> {
     const effectiveLimit = limit ?? 20
-    const command = `dolt log --format="%h %aI %s" --limit ${effectiveLimit}`
     try {
-      const stdout = await this._client.exec(command)
+      // Use dolt_log system table instead of CLI --format flag (not supported by Dolt)
+      // dolt_log system table reflects the current branch; no branch parameter needed
+      const rows = await this._client.query(
+        `SELECT commit_hash, date, message, committer FROM dolt_log LIMIT ?`,
+        [effectiveLimit],
+      )
       const entries: HistoryEntry[] = []
-      for (const line of stdout.split('\n')) {
-        const trimmed = line.trim()
-        if (!trimmed) continue
-        // Format: "<hash> <isoTimestamp> <message subject>"
-        // Split into at most 3 parts: hash, timestamp, rest as message
-        const spaceIdx1 = trimmed.indexOf(' ')
-        if (spaceIdx1 === -1) continue
-        const hash = trimmed.slice(0, spaceIdx1)
-        const rest = trimmed.slice(spaceIdx1 + 1)
-        const spaceIdx2 = rest.indexOf(' ')
-        let timestamp: string
-        let message: string
-        if (spaceIdx2 === -1) {
-          timestamp = rest
-          message = ''
-        } else {
-          timestamp = rest.slice(0, spaceIdx2)
-          message = rest.slice(spaceIdx2 + 1)
-        }
+      for (const row of rows) {
+        const hash = String(row.commit_hash ?? '')
+        const timestamp = row.date instanceof Date
+          ? row.date.toISOString()
+          : String(row.date ?? '')
+        const message = String(row.message ?? '')
+        const author = row.committer ? String(row.committer) : undefined
         // Extract story key from message
         const storyKeyMatch = /story\/([0-9]+-[0-9]+)/i.exec(message)
         entries.push({
@@ -793,6 +839,7 @@ export class DoltStateStore implements StateStore {
           timestamp,
           storyKey: storyKeyMatch ? storyKeyMatch[1]! : null,
           message,
+          author,
         })
       }
       return entries

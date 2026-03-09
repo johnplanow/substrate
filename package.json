@@ -44,7 +44,7 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "postbuild": "cp -r src/cli/templates dist/cli/templates",
+    "postbuild": "cp -r src/cli/templates dist/cli/templates && cp src/modules/state/schema.sql dist/schema.sql",
     "dev": "tsx watch src/cli/index.ts",
     "test": "vitest run --coverage",
     "test:fast": "vitest run --exclude 'src/__tests__/e2e/**' --exclude '**/*integration*' --exclude '**/*e2e*'",

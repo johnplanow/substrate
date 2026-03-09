@@ -218,7 +218,8 @@ describe('AC3: mergeStory', () => {
     vi.mocked(client.query).mockResolvedValue([{ hash: 'abc', fast_forward: 1, conflicts: 0, message: '' }])
     await store.mergeStory('26-7')
     const calls = vi.mocked(client.query).mock.calls
-    const commitCall = calls.find(([sql]) => String(sql).includes('DOLT_COMMIT'))
+    // Find the post-merge DOLT_COMMIT (contains "Merge story"), not the pre-merge ones
+    const commitCall = calls.find(([sql]) => String(sql).includes('Merge story'))
     expect(commitCall).toBeDefined()
     expect(String(commitCall![0])).toContain('Merge story 26-7: COMPLETE')
   })
@@ -313,9 +314,14 @@ describe('AC5: Merge conflict detection', () => {
     const store = makeStore(client)
     await store.branchForStory('26-7')
     vi.mocked(client.query).mockClear()
-    // First call: DOLT_MERGE returns conflicts=1
+    // Pre-merge commits (4 calls: DOLT_ADD + DOLT_COMMIT on story branch, DOLT_ADD + DOLT_COMMIT on main)
+    vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_ADD on story branch
+    vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_COMMIT on story branch
+    vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_ADD on main
+    vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_COMMIT on main
+    // DOLT_MERGE returns conflicts=1
     vi.mocked(client.query).mockResolvedValueOnce([{ hash: null, fast_forward: 0, conflicts: 1, message: 'conflicts' }])
-    // Second call: dolt_conflicts_stories returns conflict detail
+    // dolt_conflicts_stories returns conflict detail
     vi.mocked(client.query).mockResolvedValueOnce([{
       base_story_key: '26-7',
       our_status: 'COMPLETE',
@@ -329,6 +335,11 @@ describe('AC5: Merge conflict detection', () => {
     const store = makeStore(client)
     await store.branchForStory('26-7')
     vi.mocked(client.query).mockClear()
+    // Pre-merge commits (4 calls)
+    vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_ADD on story branch
+    vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_COMMIT on story branch
+    vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_ADD on main
+    vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_COMMIT on main
     vi.mocked(client.query).mockResolvedValueOnce([{ conflicts: 1, hash: null, fast_forward: 0, message: '' }])
     vi.mocked(client.query).mockResolvedValueOnce([{ base_story_key: '26-7', our_status: 'A', their_status: 'B' }])
     try {
@@ -349,12 +360,17 @@ describe('AC6: diffStory row-level diff', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('returns empty tables when no branchForStory has been called', async () => {
-    // _storyBranches has no entry → returns empty immediately, no queries issued
+    // _storyBranches has no entry → falls back to merged-story lookup via dolt_log,
+    // which returns empty → result is empty tables
     const client = makeMockClient()
     const store = makeStore(client)
     const diff = await store.diffStory('26-7')
     expect(diff).toEqual({ storyKey: '26-7', tables: [] })
-    expect(client.query).not.toHaveBeenCalled()
+    // dolt_log query is issued for the merged-story fallback
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('dolt_log'),
+      expect.arrayContaining(['%26-7%']),
+    )
   })
 
   it('returns row-level DiffRow arrays via DOLT_DIFF SQL when branch is registered', async () => {

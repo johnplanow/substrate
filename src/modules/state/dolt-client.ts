@@ -113,11 +113,18 @@ export class DoltClient {
     }
 
     try {
-      const args = branch
-        ? ['sql', '-b', branch, '-q', resolvedSql, '--result-format', 'json']
-        : ['sql', '-q', resolvedSql, '--result-format', 'json']
+      // Dolt CLI has no branch flag for `dolt sql`. Prepend DOLT_CHECKOUT
+      // to switch branches when needed. Multi-statement output produces one
+      // JSON object per line — parse the last line for the actual result.
+      const branchPrefix = branch
+        ? `CALL DOLT_CHECKOUT('${branch.replace(/'/g, "''")}'); `
+        : ''
+      const args = ['sql', '-q', branchPrefix + resolvedSql, '--result-format', 'json']
       const { stdout } = await runExecFile('dolt', args, { cwd: this.repoPath })
-      const parsed = JSON.parse(stdout || '{"rows":[]}')
+      // When branch prefix is used, stdout has multiple JSON lines; take the last one
+      const lines = (stdout || '').trim().split('\n').filter(Boolean)
+      const lastLine = lines.length > 0 ? lines[lines.length - 1]! : '{"rows":[]}'
+      const parsed = JSON.parse(lastLine)
       return (parsed.rows ?? []) as T[]
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
@@ -136,12 +143,22 @@ export class DoltClient {
     const parts = command.trim().split(/\s+/)
     // If the command starts with 'dolt', strip it; otherwise pass all parts as args
     const cmdArgs = parts[0] === 'dolt' ? parts.slice(1) : parts
+    return this.execArgs(cmdArgs)
+  }
+
+  /**
+   * Execute a Dolt CLI command with pre-split arguments.
+   *
+   * Use this instead of `exec()` when arguments contain spaces (e.g. commit
+   * messages) to avoid whitespace-splitting issues.
+   */
+  async execArgs(args: string[]): Promise<string> {
     try {
-      const { stdout } = await runExecFile('dolt', cmdArgs, { cwd: this.repoPath })
+      const { stdout } = await runExecFile('dolt', args, { cwd: this.repoPath })
       return stdout
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
-      throw new DoltQueryError(command, detail)
+      throw new DoltQueryError(args.join(' '), detail)
     }
   }
 

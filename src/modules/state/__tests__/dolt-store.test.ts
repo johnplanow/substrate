@@ -53,6 +53,7 @@ function makeClient(queryResults: Map<string, unknown[]> = new Map(), execResult
       }
       return ''
     }),
+    execArgs: vi.fn().mockResolvedValue(''),
   } as unknown as DoltClient
 }
 
@@ -525,17 +526,15 @@ describe('DoltStateStore', () => {
     })
 
     it('finds merge commit and diffs when branch is not registered (merged story)', async () => {
-      const execResults = new Map<string, string>([
-        ['--grep "story/26-7"', 'abc1234 Merge story/26-7: COMPLETE\n'],
-      ])
       const queryResults = new Map<string, unknown[]>([
+        ['dolt_log', [{ commit_hash: 'abc1234' }]],
         ["'stories'", [
           { diff_type: 'added', after_story_key: '26-7', after_phase: 'COMPLETE', before_story_key: null },
         ]],
       ])
-      const client = makeClient(queryResults, execResults)
+      const client = makeClient(queryResults)
       const store = makeStore(client)
-      // No branchForStory called — should fall back to merge commit lookup
+      // No branchForStory called — should fall back to merge commit lookup via dolt_log
       const diff = await store.diffStory('26-7')
       expect(diff.storyKey).toBe('26-7')
       expect(diff.tables).toHaveLength(1)
@@ -547,8 +546,11 @@ describe('DoltStateStore', () => {
         [],
         'main',
       )
-      // Verify the log --grep was called
-      expect(client.exec).toHaveBeenCalledWith('dolt log --oneline --grep "story/26-7"')
+      // Verify dolt_log was queried for the merge commit
+      expect(client.query).toHaveBeenCalledWith(
+        expect.stringContaining('dolt_log'),
+        expect.arrayContaining(['%26-7%']),
+      )
     })
 
     it('returns empty tables when no branch and no merge commit found', async () => {
@@ -559,9 +561,9 @@ describe('DoltStateStore', () => {
       expect(diff.tables).toEqual([])
     })
 
-    it('returns empty tables when log --grep exec fails', async () => {
+    it('returns empty tables when dolt_log query fails', async () => {
       const client = makeClient()
-      ;(client.exec as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('dolt not found'))
+      ;(client.query as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('dolt not found'))
       const store = makeStore(client)
       const diff = await store.diffStory('99-99')
       expect(diff.storyKey).toBe('99-99')
@@ -572,14 +574,15 @@ describe('DoltStateStore', () => {
   // -- getHistory ------------------------------------------------------------
 
   describe('getHistory', () => {
-    it('returns parsed HistoryEntry array from dolt log output', async () => {
-      const logOutput = [
-        'a1b2c3d 2026-03-08T14:23:01+00:00 Merge story/26-7: branch-per-story complete',
-        'b2c3d4e 2026-03-07T10:00:00+00:00 substrate: auto-commit',
-        'c3d4e5f 2026-03-06T09:00:00+00:00 Merge story/26-1: done',
-      ].join('\n')
-      const execResults = new Map([['dolt log', logOutput]])
-      const client = makeClient(new Map(), execResults)
+    it('returns parsed HistoryEntry array from dolt_log query', async () => {
+      const queryResults = new Map([
+        ['dolt_log', [
+          { commit_hash: 'a1b2c3d', date: '2026-03-08T14:23:01+00:00', message: 'Merge story/26-7: branch-per-story complete', committer: 'substrate' },
+          { commit_hash: 'b2c3d4e', date: '2026-03-07T10:00:00+00:00', message: 'substrate: auto-commit', committer: 'substrate' },
+          { commit_hash: 'c3d4e5f', date: '2026-03-06T09:00:00+00:00', message: 'Merge story/26-1: done', committer: 'substrate' },
+        ]],
+      ])
+      const client = makeClient(queryResults)
       const store = makeStore(client)
       const entries = await store.getHistory(10)
       expect(entries).toHaveLength(3)
@@ -587,33 +590,35 @@ describe('DoltStateStore', () => {
       expect(entries[0].timestamp).toBe('2026-03-08T14:23:01+00:00')
       expect(entries[0].storyKey).toBe('26-7')
       expect(entries[0].message).toBe('Merge story/26-7: branch-per-story complete')
+      expect(entries[0].author).toBe('substrate')
       expect(entries[1].storyKey).toBeNull()
       expect(entries[2].storyKey).toBe('26-1')
     })
 
     it('uses default limit of 20 when no options provided', async () => {
-      const execResults = new Map([['dolt log', '']])
-      const client = makeClient(new Map(), execResults)
+      const queryResults = new Map([['dolt_log', []]])
+      const client = makeClient(queryResults)
       const store = makeStore(client)
       await store.getHistory()
-      const calls = vi.mocked(client.exec).mock.calls
-      expect(calls.length).toBeGreaterThan(0)
-      const command = String(calls[0][0])
-      expect(command).toContain('--limit 20')
+      const calls = vi.mocked(client.query).mock.calls
+      // Find the dolt_log query call
+      const logCall = calls.find(c => String(c[0]).includes('dolt_log'))
+      expect(logCall).toBeDefined()
+      expect(logCall![1]).toEqual([20])
     })
 
-    it('returns empty array for empty log output', async () => {
-      const execResults = new Map([['dolt log', '']])
-      const client = makeClient(new Map(), execResults)
+    it('returns empty array for empty query result', async () => {
+      const queryResults = new Map([['dolt_log', []]])
+      const client = makeClient(queryResults)
       const store = makeStore(client)
       const entries = await store.getHistory()
       expect(entries).toEqual([])
     })
 
-    it('throws DoltQueryError when exec fails', async () => {
+    it('throws DoltQueryError when query fails', async () => {
       const client = {
         ...makeClient(),
-        exec: vi.fn().mockRejectedValue(new Error('dolt not found')),
+        query: vi.fn().mockRejectedValue(new Error('dolt not found')),
       } as unknown as DoltClient
       const store = makeStore(client)
       await expect(store.getHistory()).rejects.toThrow()
@@ -623,24 +628,24 @@ describe('DoltStateStore', () => {
   // -- flush -----------------------------------------------------------------
 
   describe('flush', () => {
-    it('calls dolt add and dolt commit via client.exec', async () => {
-      const execCalls: string[] = []
+    it('calls dolt add and dolt commit via client.execArgs', async () => {
+      const execArgsCalls: string[][] = []
       const client = makeClient()
-      vi.mocked(client.exec).mockImplementation(async (cmd: string) => {
-        execCalls.push(cmd)
+      vi.mocked(client.execArgs).mockImplementation(async (args: string[]) => {
+        execArgsCalls.push(args)
         return ''
       })
       const store = makeStore(client)
       await store.flush('my commit')
-      expect(execCalls.length).toBeGreaterThanOrEqual(2)
-      expect(execCalls[0]).toContain('add')
-      expect(execCalls[1]).toContain('commit')
-      expect(execCalls[1]).toContain('my commit')
+      expect(execArgsCalls.length).toBeGreaterThanOrEqual(2)
+      expect(execArgsCalls[0]).toContain('add')
+      expect(execArgsCalls[1]).toContain('commit')
+      expect(execArgsCalls[1]).toContain('my commit')
     })
 
     it('does not throw when dolt commit fails', async () => {
       const client = makeClient()
-      vi.mocked(client.exec).mockRejectedValue(new Error('nothing to commit'))
+      vi.mocked(client.execArgs).mockRejectedValue(new Error('nothing to commit'))
       const store = makeStore(client)
       await expect(store.flush()).resolves.toBeUndefined()
     })

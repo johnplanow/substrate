@@ -340,6 +340,7 @@ function makeTrackingDoltClient() {
       return []
     }),
     exec: vi.fn().mockResolvedValue(''),
+    execArgs: vi.fn().mockResolvedValue(''),
   } as unknown as DoltClient
 
   return {
@@ -598,11 +599,18 @@ describe('Gap 2: diff and history CLI → StateStore lifecycle', () => {
   })
 
   it('history command calls initialize, getHistory, and close on DoltStateStore', async () => {
-    // Return mock dolt log output
+    // Return mock dolt_log query results
     const tracking = makeTrackingDoltClient()
-    ;(tracking.client.exec as ReturnType<typeof vi.fn>).mockResolvedValue(
-      'abc1234 2026-03-08T14:00:00+00:00 Merge story/26-1: COMPLETE\ndef5678 2026-03-08T13:00:00+00:00 Initialize schema\n',
-    )
+    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string) => {
+      if (/dolt_log/i.test(sql)) {
+        return [
+          { commit_hash: 'abc1234', date: '2026-03-08T14:00:00+00:00', message: 'Merge story/26-1: COMPLETE', committer: 'substrate' },
+          { commit_hash: 'def5678', date: '2026-03-08T13:00:00+00:00', message: 'Initialize schema', committer: 'substrate' },
+        ]
+      }
+      if (/CREATE TABLE/i.test(sql)) return []
+      return []
+    })
     const store = new DoltStateStore({ repoPath: '/tmp/e2e-test', client: tracking.client })
 
     await store.initialize()
@@ -619,16 +627,12 @@ describe('Gap 2: diff and history CLI → StateStore lifecycle', () => {
 
   it('diffStory uses merged-story fallback when branch is not in memory', async () => {
     const tracking = makeTrackingDoltClient()
-    // Return a merge commit from dolt log --grep
-    ;(tracking.client.exec as ReturnType<typeof vi.fn>).mockImplementation(async (cmd: string) => {
-      if (cmd.includes('--grep')) {
-        return 'abc1234 Merge story/26-1: COMPLETE\n'
-      }
-      return ''
-    })
-    // Return diff rows for the commit range
-    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string) => {
+    // Return diff rows for the commit range and dolt_log query
+    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string, params?: unknown[]) => {
       if (/CREATE TABLE/i.test(sql)) return []
+      if (/dolt_log/i.test(sql)) {
+        return [{ commit_hash: 'abc1234' }]
+      }
       if (/DOLT_DIFF\('abc1234~1', 'abc1234'/i.test(sql) && sql.includes("'stories'")) {
         return [
           { diff_type: 'added', after_story_key: '26-1', after_phase: 'COMPLETE', before_story_key: null },
@@ -649,8 +653,11 @@ describe('Gap 2: diff and history CLI → StateStore lifecycle', () => {
     expect(diff.tables[0].added).toHaveLength(1)
     expect(diff.tables[0].added[0].rowKey).toBe('26-1')
 
-    // Verify the fallback path was used: log --grep was called
-    expect(tracking.client.exec).toHaveBeenCalledWith('dolt log --oneline --grep "story/26-1"')
+    // Verify the fallback path used dolt_log query
+    expect(tracking.client.query).toHaveBeenCalledWith(
+      expect.stringContaining('dolt_log'),
+      expect.arrayContaining(['%26-1%']),
+    )
     // And DOLT_DIFF was called with commit hashes, not branch names
     expect(tracking.client.query).toHaveBeenCalledWith(
       expect.stringContaining("DOLT_DIFF('abc1234~1', 'abc1234'"),
@@ -909,17 +916,12 @@ describe('Gap 5: Post-pipeline diff and history against merged-story state', () 
     expect(tracking.mergedBranches).toContain('story/26-10')
 
     // Now simulate post-pipeline diff: branch is already merged, so the
-    // merged-story fallback path (dolt log --grep) must be used
-    ;(tracking.client.exec as ReturnType<typeof vi.fn>).mockImplementation(async (cmd: string) => {
-      if (cmd.includes('--grep') && cmd.includes('story/26-10')) {
-        return 'aaa1111 Merge story/26-10: COMPLETE\n'
-      }
-      return ''
-    })
-
-    // Wire up DOLT_DIFF query to return rows for the merged commit
-    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string) => {
+    // merged-story fallback path (dolt_log query) must be used
+    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string, params?: unknown[]) => {
       if (/CREATE TABLE/i.test(sql)) return []
+      if (/dolt_log/i.test(sql)) {
+        return [{ commit_hash: 'aaa1111' }]
+      }
       if (/DOLT_DIFF\('aaa1111~1', 'aaa1111'/i.test(sql) && sql.includes("'stories'")) {
         return [
           { diff_type: 'added', after_story_key: '26-10', after_phase: 'COMPLETE', before_story_key: null },
@@ -943,9 +945,10 @@ describe('Gap 5: Post-pipeline diff and history against merged-story state', () 
     expect(storiesTable!.added.length).toBeGreaterThan(0)
     expect(storiesTable!.added[0].rowKey).toBe('26-10')
 
-    // Verify fallback path was used (log --grep, not branch diff)
-    expect(tracking.client.exec).toHaveBeenCalledWith(
-      expect.stringContaining('dolt log --oneline --grep "story/26-10"'),
+    // Verify fallback path used dolt_log query
+    expect(tracking.client.query).toHaveBeenCalledWith(
+      expect.stringContaining('dolt_log'),
+      expect.arrayContaining(['%26-10%']),
     )
   })
 
@@ -974,12 +977,18 @@ describe('Gap 5: Post-pipeline diff and history against merged-story state', () 
     const status = await orchestrator.run(['26-10', '26-12'])
     expect(status.state).toBe('COMPLETE')
 
-    // Wire dolt log output for history
-    ;(tracking.client.exec as ReturnType<typeof vi.fn>).mockResolvedValue(
-      'aaa1111 2026-03-09T10:00:00+00:00 Merge story/26-10: COMPLETE\n' +
-      'bbb2222 2026-03-09T10:05:00+00:00 Merge story/26-12: COMPLETE\n' +
-      'ccc3333 2026-03-09T09:00:00+00:00 Initialize substrate state schema v1\n',
-    )
+    // Wire dolt_log query results for history
+    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string) => {
+      if (/dolt_log/i.test(sql)) {
+        return [
+          { commit_hash: 'aaa1111', date: '2026-03-09T10:00:00+00:00', message: 'Merge story/26-10: COMPLETE', committer: 'substrate' },
+          { commit_hash: 'bbb2222', date: '2026-03-09T10:05:00+00:00', message: 'Merge story/26-12: COMPLETE', committer: 'substrate' },
+          { commit_hash: 'ccc3333', date: '2026-03-09T09:00:00+00:00', message: 'Initialize substrate state schema v1', committer: 'substrate' },
+        ]
+      }
+      if (/CREATE TABLE/i.test(sql)) return []
+      return []
+    })
 
     const entries = await store.getHistory(10)
 
