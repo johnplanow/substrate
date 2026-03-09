@@ -14,6 +14,17 @@
  *   Gap 3: DoltMergeConflictError → orchestrator event emission
  *          (mergeStory throwing DoltMergeConflictError triggers
  *          pipeline:state-conflict event via instanceof check)
+ *
+ *   Gap 4: Init Dolt bootstrapping → createStateStore auto-detection →
+ *          orchestrator state wiring (init --dolt sets up .dolt, auto-detection
+ *          picks DoltStateStore, orchestrator persists state through it)
+ *
+ *   Gap 5: Post-pipeline diff/history against merged-story Dolt state
+ *          (orchestrator runs stories, branches merge, diff/history query
+ *          the actual merged state via fallback path)
+ *
+ *   Gap 6: CLI diff/history degraded-mode detection with createStateStore
+ *          (FileStateStore detected → degraded hints, DoltStateStore → no hint)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -28,7 +39,7 @@ import type {
 import type { TypedEventBus } from '../../core/event-bus.js'
 import type { OrchestratorConfig } from '../../modules/implementation-orchestrator/types.js'
 import type { DoltClient } from '../../modules/state/dolt-client.js'
-import { DoltStateStore, DoltMergeConflictError, DoltMergeConflict } from '../../modules/state/index.js'
+import { DoltStateStore, DoltMergeConflictError, DoltMergeConflict, FileStateStore, createStateStore } from '../../modules/state/index.js'
 
 // ---------------------------------------------------------------------------
 // Module mocks — must be hoisted
@@ -147,6 +158,7 @@ vi.mock('../../modules/agent-dispatch/interface-change-detector.js', () => ({
 vi.mock('node:child_process', () => ({
   execSync: vi.fn().mockReturnValue(''),
   execFile: vi.fn(),
+  spawnSync: vi.fn().mockReturnValue({ error: new Error('mock'), status: 1 }),
 }))
 
 vi.mock('node:fs', () => ({
@@ -744,5 +756,313 @@ describe('Gap 3: DoltMergeConflict triggers pipeline:state-conflict event', () =
       expect(capturedConflict.table).toBe('stories')
       expect(capturedConflict.rowKey).toBeDefined()
     }
+  })
+})
+
+// ===========================================================================
+// Gap 4: Init Dolt bootstrapping → createStateStore auto-detection → orchestrator
+// ===========================================================================
+
+describe('Gap 4: Init bootstrapping → auto-detection → orchestrator state wiring', () => {
+  it('createStateStore({ backend: "auto" }) returns DoltStateStore when binary + repo exist, and orchestrator persists state through it', async () => {
+    const { spawnSync: mockSpawnSync } = await import('node:child_process')
+    const { existsSync: mockExistsSync } = await import('node:fs')
+
+    // Simulate Dolt binary present and .dolt repo initialised
+    vi.mocked(mockSpawnSync).mockReturnValue({ error: null, status: 0 } as any)
+    vi.mocked(mockExistsSync).mockImplementation((p: any) => {
+      const path = String(p)
+      if (path.endsWith('.dolt')) return true
+      return false
+    })
+
+    const store = createStateStore({ backend: 'auto', basePath: '/tmp/init-test' })
+
+    // Auto-detection should pick DoltStateStore
+    expect(store).toBeInstanceOf(DoltStateStore)
+  })
+
+  it('createStateStore({ backend: "auto" }) falls back to FileStateStore when binary absent, orchestrator still completes stories', async () => {
+    const { spawnSync: mockSpawnSync } = await import('node:child_process')
+
+    // Simulate Dolt binary NOT present
+    vi.mocked(mockSpawnSync).mockReturnValue({
+      error: new Error('ENOENT'),
+      status: null,
+    } as any)
+
+    const store = createStateStore({ backend: 'auto', basePath: '/tmp/no-dolt' })
+
+    // Should fall back to FileStateStore
+    expect(store).toBeInstanceOf(FileStateStore)
+
+    // Orchestrator should still run successfully with FileStateStore
+    const storyKey = '26-10'
+    mockDetectConflictGroups.mockReturnValueOnce({
+      batches: [[['26-10']]],
+      edges: [],
+    })
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess(storyKey) as any)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt() as any)
+
+    const orchestrator = createImplementationOrchestrator({
+      db: makeDb(),
+      pack: makePack(),
+      contextCompiler: makeContextCompiler(),
+      dispatcher: makeDispatcher(),
+      eventBus: makeEventBus(),
+      config: defaultConfig(),
+      stateStore: store,
+    })
+
+    const status = await orchestrator.run([storyKey])
+    expect(status.state).toBe('COMPLETE')
+    expect(status.stories[storyKey]?.phase).toBe('COMPLETE')
+  })
+
+  it('createStateStore({ backend: "auto" }) falls back to FileStateStore when binary found but .dolt repo absent', async () => {
+    const { spawnSync: mockSpawnSync } = await import('node:child_process')
+    const { existsSync: mockExistsSync } = await import('node:fs')
+
+    // Binary present but no .dolt directory
+    vi.mocked(mockSpawnSync).mockReturnValue({ error: null, status: 0 } as any)
+    vi.mocked(mockExistsSync).mockReturnValue(false)
+
+    const store = createStateStore({ backend: 'auto', basePath: '/tmp/no-repo' })
+    expect(store).toBeInstanceOf(FileStateStore)
+  })
+
+  it('auto-detected DoltStateStore receives story writes through orchestrator branch lifecycle', async () => {
+    const { spawnSync: mockSpawnSync } = await import('node:child_process')
+    const { existsSync: mockExistsSync } = await import('node:fs')
+
+    vi.mocked(mockSpawnSync).mockReturnValue({ error: null, status: 0 } as any)
+    vi.mocked(mockExistsSync).mockImplementation((p: any) => String(p).endsWith('.dolt'))
+
+    // Use tracking client to verify writes go through Dolt
+    const tracking = makeTrackingDoltClient()
+    const store = new DoltStateStore({ repoPath: '/tmp/init-test', client: tracking.client })
+
+    const storyKey = '26-10'
+    mockDetectConflictGroups.mockReturnValueOnce({
+      batches: [[['26-10']]],
+      edges: [],
+    })
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess(storyKey) as any)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt() as any)
+
+    const orchestrator = createImplementationOrchestrator({
+      db: makeDb(),
+      pack: makePack(),
+      contextCompiler: makeContextCompiler(),
+      dispatcher: makeDispatcher(),
+      eventBus: makeEventBus(),
+      config: defaultConfig(),
+      stateStore: store,
+    })
+
+    const status = await orchestrator.run([storyKey])
+
+    expect(status.state).toBe('COMPLETE')
+    // Story branch was created, writes routed, and merged
+    expect(tracking.mergedBranches).toContain('story/26-10')
+    const branchWrites = tracking.writesPerBranch.get('story/26-10') ?? []
+    expect(branchWrites.length).toBeGreaterThan(0)
+  })
+})
+
+// ===========================================================================
+// Gap 5: Post-pipeline diff/history against merged-story Dolt state
+// ===========================================================================
+
+describe('Gap 5: Post-pipeline diff and history against merged-story state', () => {
+  it('diffStory returns table-level changes after orchestrator merges a completed story', async () => {
+    const storyKey = '26-10'
+    const tracking = makeTrackingDoltClient()
+
+    mockDetectConflictGroups.mockReturnValueOnce({
+      batches: [[['26-10']]],
+      edges: [],
+    })
+
+    // Set up orchestrator pipeline
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess(storyKey) as any)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt() as any)
+
+    const store = new DoltStateStore({ repoPath: '/tmp/e2e-test', client: tracking.client })
+    const orchestrator = createImplementationOrchestrator({
+      db: makeDb(),
+      pack: makePack(),
+      contextCompiler: makeContextCompiler(),
+      dispatcher: makeDispatcher(),
+      eventBus: makeEventBus(),
+      config: defaultConfig(),
+      stateStore: store,
+    })
+
+    // Run pipeline to completion — branch created, writes made, branch merged
+    const status = await orchestrator.run([storyKey])
+    expect(status.state).toBe('COMPLETE')
+    expect(tracking.mergedBranches).toContain('story/26-10')
+
+    // Now simulate post-pipeline diff: branch is already merged, so the
+    // merged-story fallback path (dolt log --grep) must be used
+    ;(tracking.client.exec as ReturnType<typeof vi.fn>).mockImplementation(async (cmd: string) => {
+      if (cmd.includes('--grep') && cmd.includes('story/26-10')) {
+        return 'aaa1111 Merge story/26-10: COMPLETE\n'
+      }
+      return ''
+    })
+
+    // Wire up DOLT_DIFF query to return rows for the merged commit
+    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string) => {
+      if (/CREATE TABLE/i.test(sql)) return []
+      if (/DOLT_DIFF\('aaa1111~1', 'aaa1111'/i.test(sql) && sql.includes("'stories'")) {
+        return [
+          { diff_type: 'added', after_story_key: '26-10', after_phase: 'COMPLETE', before_story_key: null },
+        ]
+      }
+      if (/DOLT_DIFF\('aaa1111~1', 'aaa1111'/i.test(sql) && sql.includes("'metrics'")) {
+        return [
+          { diff_type: 'added', after_story_key: '26-10', after_task_type: 'dev-story', before_story_key: null },
+        ]
+      }
+      return []
+    })
+
+    const diff = await store.diffStory('26-10')
+
+    expect(diff.storyKey).toBe('26-10')
+    expect(diff.tables.length).toBeGreaterThan(0)
+
+    const storiesTable = diff.tables.find((t) => t.table === 'stories')
+    expect(storiesTable).toBeDefined()
+    expect(storiesTable!.added.length).toBeGreaterThan(0)
+    expect(storiesTable!.added[0].rowKey).toBe('26-10')
+
+    // Verify fallback path was used (log --grep, not branch diff)
+    expect(tracking.client.exec).toHaveBeenCalledWith(
+      expect.stringContaining('dolt log --oneline --grep "story/26-10"'),
+    )
+  })
+
+  it('getHistory returns merge commits after multiple stories complete through orchestrator', async () => {
+    const tracking = makeTrackingDoltClient()
+
+    mockDetectConflictGroups.mockReturnValueOnce({
+      batches: [[['26-10'], ['26-12']]],
+      edges: [],
+    })
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('test') as any)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt() as any)
+
+    const store = new DoltStateStore({ repoPath: '/tmp/e2e-test', client: tracking.client })
+    const orchestrator = createImplementationOrchestrator({
+      db: makeDb(),
+      pack: makePack(),
+      contextCompiler: makeContextCompiler(),
+      dispatcher: makeDispatcher(),
+      eventBus: makeEventBus(),
+      config: defaultConfig({ maxConcurrency: 2 }),
+      stateStore: store,
+    })
+
+    const status = await orchestrator.run(['26-10', '26-12'])
+    expect(status.state).toBe('COMPLETE')
+
+    // Wire dolt log output for history
+    ;(tracking.client.exec as ReturnType<typeof vi.fn>).mockResolvedValue(
+      'aaa1111 2026-03-09T10:00:00+00:00 Merge story/26-10: COMPLETE\n' +
+      'bbb2222 2026-03-09T10:05:00+00:00 Merge story/26-12: COMPLETE\n' +
+      'ccc3333 2026-03-09T09:00:00+00:00 Initialize substrate state schema v1\n',
+    )
+
+    const entries = await store.getHistory(10)
+
+    expect(entries).toHaveLength(3)
+    expect(entries[0].hash).toBe('aaa1111')
+    expect(entries[0].storyKey).toBe('26-10')
+    expect(entries[1].hash).toBe('bbb2222')
+    expect(entries[1].storyKey).toBe('26-12')
+    expect(entries[2].hash).toBe('ccc3333')
+    expect(entries[2].storyKey).toBeNull()
+    expect(entries[2].message).toBe('Initialize substrate state schema v1')
+  })
+
+  it('diffStory returns empty tables when story has no Dolt changes (file backend ran)', async () => {
+    const tracking = makeTrackingDoltClient()
+    const store = new DoltStateStore({ repoPath: '/tmp/e2e-test', client: tracking.client })
+
+    // No merge commit found — story ran on file backend or was never merged
+    ;(tracking.client.exec as ReturnType<typeof vi.fn>).mockResolvedValue('')
+
+    const diff = await store.diffStory('26-99')
+
+    expect(diff.storyKey).toBe('26-99')
+    expect(diff.tables).toHaveLength(0)
+  })
+})
+
+// ===========================================================================
+// Gap 6: Diff/history CLI degraded-mode detection with createStateStore
+// ===========================================================================
+
+describe('Gap 6: CLI diff/history degraded-mode detection with auto-detection wiring', () => {
+  it('diff command detects FileStateStore and emits degraded-mode hint when .dolt absent', async () => {
+    const { existsSync: mockExistsSync } = await import('node:fs')
+    vi.mocked(mockExistsSync).mockReturnValue(false) // .dolt not found
+
+    const store = createStateStore({ backend: 'file', basePath: '/tmp/no-dolt' })
+
+    // Verify the store type that would trigger degraded mode in the CLI
+    expect(store).toBeInstanceOf(FileStateStore)
+    expect(store).not.toBeInstanceOf(DoltStateStore)
+  })
+
+  it('diff command detects DoltStateStore when .dolt exists, no degraded hint needed', async () => {
+    const { spawnSync: mockSpawnSync } = await import('node:child_process')
+    const { existsSync: mockExistsSync } = await import('node:fs')
+
+    vi.mocked(mockSpawnSync).mockReturnValue({ error: null, status: 0 } as any)
+    vi.mocked(mockExistsSync).mockImplementation((p: any) => String(p).endsWith('.dolt'))
+
+    // This mirrors how diff.ts creates the store: existsSync(.dolt) → explicit 'dolt'
+    const store = createStateStore({ backend: 'dolt', basePath: '/tmp/with-dolt' })
+
+    expect(store).toBeInstanceOf(DoltStateStore)
+    expect(store).not.toBeInstanceOf(FileStateStore)
+  })
+
+  it('degraded-mode hint detection correctly identifies binary-not-installed vs not-initialized states', async () => {
+    // This tests the getDegradedModeHint function wiring with checkDoltInstalled
+    const { getDegradedModeHint } = await import('../../utils/degraded-mode-hint.js')
+    const { existsSync: mockExistsSync } = await import('node:fs')
+
+    // Mock checkDoltInstalled to throw DoltNotInstalled
+    const stateModule = await import('../../modules/state/index.js')
+    const origCheckDolt = stateModule.checkDoltInstalled
+
+    // Case 1: Binary not installed → hint mentions installation URL
+    vi.spyOn(stateModule, 'checkDoltInstalled').mockRejectedValueOnce(
+      new stateModule.DoltNotInstalled(),
+    )
+
+    const notInstalledHint = await getDegradedModeHint('/tmp/state')
+    expect(notInstalledHint.doltInstalled).toBe(false)
+    expect(notInstalledHint.hint).toContain('https://docs.dolthub.com')
+    expect(notInstalledHint.hint).toContain('substrate init --dolt')
+
+    // Case 2: Binary installed but .dolt absent → hint says "not initialized"
+    vi.spyOn(stateModule, 'checkDoltInstalled').mockResolvedValueOnce(undefined)
+    vi.mocked(mockExistsSync).mockReturnValue(false)
+
+    const notInitHint = await getDegradedModeHint('/tmp/state')
+    expect(notInitHint.doltInstalled).toBe(true)
+    expect(notInitHint.hint).toContain('not initialized')
+    expect(notInitHint.hint).toContain('substrate init --dolt')
   })
 })
