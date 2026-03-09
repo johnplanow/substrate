@@ -507,6 +507,57 @@ describe('Gap 1: DoltStateStore branch lifecycle through orchestrator', () => {
       expect(branchWrites.length).toBeGreaterThan(0)
     }
   })
+
+  it('writes fall through to main and story completes when branchForStory fails', async () => {
+    const storyKey = '26-1'
+    const tracking = makeTrackingDoltClient()
+    // Make branch creation fail
+    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string, _params: unknown[] = [], branch?: string) => {
+      const s = sql.trim()
+      if (/CREATE TABLE/i.test(s)) return []
+      if (/CALL DOLT_BRANCH\('story\//i.test(s)) {
+        throw new Error('branch creation failed: permission denied')
+      }
+      // Track writes
+      if (/^(REPLACE|INSERT) INTO/i.test(s)) {
+        const branchKey = branch ?? 'main'
+        if (!tracking.writesPerBranch.has(branchKey)) tracking.writesPerBranch.set(branchKey, [])
+        tracking.writesPerBranch.get(branchKey)!.push(s)
+        return []
+      }
+      return []
+    })
+
+    const store = new DoltStateStore({ repoPath: '/tmp/e2e-test', client: tracking.client })
+
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess(storyKey) as any)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt() as any)
+
+    const orchestrator = createImplementationOrchestrator({
+      db: makeDb(),
+      pack: makePack(),
+      contextCompiler: makeContextCompiler(),
+      dispatcher: makeDispatcher(),
+      eventBus: makeEventBus(),
+      config: defaultConfig(),
+      stateStore: store,
+    })
+
+    const status = await orchestrator.run([storyKey])
+
+    // Story still completes despite branch failure
+    expect(status.stories[storyKey]?.phase).toBe('COMPLETE')
+
+    // Writes fell through to main (since no branch was registered)
+    const mainWrites = tracking.writesPerBranch.get('main') ?? []
+    expect(mainWrites.length).toBeGreaterThan(0)
+    expect(mainWrites.some((w) => /REPLACE INTO stories/i.test(w))).toBe(true)
+
+    // No story branch writes (branch was never created)
+    const storyBranchWrites = tracking.writesPerBranch.get('story/26-1') ?? []
+    expect(storyBranchWrites).toHaveLength(0)
+  })
 })
 
 // ===========================================================================

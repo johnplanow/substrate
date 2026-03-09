@@ -30,6 +30,17 @@ import type { StoryPhase } from '../implementation-orchestrator/types.js'
 import { DoltQueryError, DoltMergeConflictError } from './errors.js'
 const log = createLogger('modules:state:dolt')
 
+/**
+ * Validate that a story key matches the expected pattern (e.g. "26-7").
+ * Prevents SQL injection via string-interpolated identifiers.
+ */
+const STORY_KEY_PATTERN = /^[0-9]+-[0-9]+$/
+function assertValidStoryKey(storyKey: string): void {
+  if (!STORY_KEY_PATTERN.test(storyKey)) {
+    throw new DoltQueryError('assertValidStoryKey', `Invalid story key: '${storyKey}'. Must match pattern <number>-<number>.`)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Row shapes returned by SQL queries (matching schema.sql column names)
 // ---------------------------------------------------------------------------
@@ -530,6 +541,7 @@ export class DoltStateStore implements StateStore {
   // ---------------------------------------------------------------------------
 
   async branchForStory(storyKey: string): Promise<void> {
+    assertValidStoryKey(storyKey)
     const branchName = `story/${storyKey}`
     try {
       // Execute CALL DOLT_BRANCH on main to create the branch
@@ -543,6 +555,7 @@ export class DoltStateStore implements StateStore {
   }
 
   async mergeStory(storyKey: string): Promise<void> {
+    assertValidStoryKey(storyKey)
     const branchName = this._storyBranches.get(storyKey)
     if (branchName === undefined) {
       log.warn({ storyKey }, 'mergeStory called but no branch registered — no-op')
@@ -597,6 +610,7 @@ export class DoltStateStore implements StateStore {
   }
 
   async rollbackStory(storyKey: string): Promise<void> {
+    assertValidStoryKey(storyKey)
     const branchName = this._storyBranches.get(storyKey)
     if (branchName === undefined) {
       log.warn({ storyKey }, 'rollbackStory called but no branch registered — no-op')
@@ -631,6 +645,7 @@ export class DoltStateStore implements StateStore {
   ] as const
 
   async diffStory(storyKey: string): Promise<StoryDiff> {
+    assertValidStoryKey(storyKey)
     const branchName = this._storyBranches.get(storyKey)
 
     // If no in-memory branch, try to find the merge commit for an already-merged story

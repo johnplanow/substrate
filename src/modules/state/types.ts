@@ -214,7 +214,7 @@ export interface StoryDiff {
 }
 
 // ---------------------------------------------------------------------------
-// HistoryEntry / HistoryOptions (Story 26-9)
+// HistoryEntry (Story 26-9)
 // ---------------------------------------------------------------------------
 
 /**
@@ -231,14 +231,6 @@ export interface HistoryEntry {
   message: string
   /** Commit author name (optional — populated by Dolt backend when available) */
   author?: string
-}
-
-/**
- * Options for the getHistory query.
- */
-export interface HistoryOptions {
-  /** Maximum number of commits to return (default 20) */
-  limit?: number
 }
 
 // ---------------------------------------------------------------------------

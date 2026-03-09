@@ -418,3 +418,39 @@ describe('AC6: diffStory row-level diff', () => {
     expect(diff).toEqual({ storyKey: '26-7', tables: [] })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story key validation — prevents SQL injection via interpolated identifiers
+// ---------------------------------------------------------------------------
+
+describe('Story key validation', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('branchForStory rejects story key with SQL injection payload', async () => {
+    const store = makeStore(makeMockClient())
+    await expect(store.branchForStory("'; DROP TABLE stories;--")).rejects.toThrow('Invalid story key')
+  })
+
+  it('mergeStory rejects story key with spaces', async () => {
+    const store = makeStore(makeMockClient())
+    await expect(store.mergeStory('26 7')).rejects.toThrow('Invalid story key')
+  })
+
+  it('rollbackStory rejects story key with slashes', async () => {
+    const store = makeStore(makeMockClient())
+    await expect(store.rollbackStory('26/7')).rejects.toThrow('Invalid story key')
+  })
+
+  it('diffStory rejects story key with letters', async () => {
+    const store = makeStore(makeMockClient())
+    await expect(store.diffStory('abc-def')).rejects.toThrow('Invalid story key')
+  })
+
+  it('accepts valid story keys like 26-7, 1-1, 100-999', async () => {
+    const store = makeStore(makeMockClient())
+    // These should not throw (they may hit mock client but won't fail validation)
+    await expect(store.branchForStory('26-7')).resolves.toBeUndefined()
+    await expect(store.branchForStory('1-1')).resolves.toBeUndefined()
+    await expect(store.branchForStory('100-999')).resolves.toBeUndefined()
+  })
+})

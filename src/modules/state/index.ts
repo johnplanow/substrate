@@ -24,7 +24,6 @@ export type {
   TableDiff,
   StoryDiff,
   HistoryEntry,
-  HistoryOptions,
 } from './types.js'
 
 // Re-export the FileStateStore class.
