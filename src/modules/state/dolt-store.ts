@@ -19,7 +19,10 @@ import type {
   StoryFilter,
   MetricRecord,
   MetricFilter,
+  AggregateMetricResult,
   ContractRecord,
+  ContractFilter,
+  ContractVerificationRecord,
   StateDiff,
 } from './types.js'
 import type { StoryPhase } from '../implementation-orchestrator/types.js'
@@ -56,6 +59,16 @@ interface MetricRow {
   stall_count: number | null
   result: string | null
   recorded_at: string | null
+  sprint: string | null
+  timestamp: string | null
+}
+
+interface AggregateMetricRow {
+  task_type: string
+  avg_cost_usd: number | null
+  sum_tokens_in: number | null
+  sum_tokens_out: number | null
+  count: number
 }
 
 interface ContractRow {
@@ -72,6 +85,15 @@ interface DiffRow {
   diff_type: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any
+}
+
+interface ReviewVerdictRow {
+  story_key: string
+  task_type: string
+  verdict: string
+  issues_count: number | null
+  notes: string | null
+  timestamp: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +172,7 @@ export class DoltStateStore implements StateStore {
         stall_count     INT          NULL,
         result          VARCHAR(30)  NULL,
         recorded_at     VARCHAR(64)  NULL,
+        sprint          VARCHAR(50)  NULL,
         PRIMARY KEY (id)
       )`,
       // contracts: contract_name, schema_path, transport — direction is PK component.
@@ -160,6 +183,17 @@ export class DoltStateStore implements StateStore {
         schema_path   VARCHAR(500) NULL,
         transport     VARCHAR(200) NULL,
         PRIMARY KEY (story_key, contract_name, direction)
+      )`,
+      // review_verdicts: stores contract verification results and other post-review verdicts.
+      `CREATE TABLE IF NOT EXISTS review_verdicts (
+        id            BIGINT       NOT NULL AUTO_INCREMENT,
+        story_key     VARCHAR(100) NOT NULL,
+        task_type     VARCHAR(100) NOT NULL,
+        verdict       VARCHAR(64)  NOT NULL,
+        issues_count  INT          NULL,
+        notes         TEXT         NULL,
+        timestamp     VARCHAR(64)  NULL,
+        PRIMARY KEY (id)
       )`,
     ]
 
@@ -263,11 +297,11 @@ export class DoltStateStore implements StateStore {
   // ---------------------------------------------------------------------------
 
   async recordMetric(metric: MetricRecord): Promise<void> {
-    const recordedAt = metric.recordedAt ?? new Date().toISOString()
+    const recordedAt = metric.recordedAt ?? metric.timestamp ?? new Date().toISOString()
     const sql = `INSERT INTO metrics
       (story_key, task_type, model, tokens_in, tokens_out, cache_read_tokens,
-       cost_usd, wall_clock_ms, review_cycles, stall_count, result, recorded_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       cost_usd, wall_clock_ms, review_cycles, stall_count, result, recorded_at, sprint)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     await this._client.query(sql, [
       metric.storyKey,
       metric.taskType,
@@ -281,6 +315,7 @@ export class DoltStateStore implements StateStore {
       metric.stallCount ?? null,
       metric.result ?? null,
       recordedAt,
+      metric.sprint ?? null,
     ])
   }
 
@@ -288,13 +323,21 @@ export class DoltStateStore implements StateStore {
     const conditions: string[] = []
     const params: unknown[] = []
 
-    if (filter.storyKey !== undefined) {
+    // Support both camelCase and snake_case field aliases
+    const storyKey = filter.storyKey ?? filter.story_key
+    const taskType = filter.taskType ?? filter.task_type
+
+    if (storyKey !== undefined) {
       conditions.push('story_key = ?')
-      params.push(filter.storyKey)
+      params.push(storyKey)
     }
-    if (filter.taskType !== undefined) {
+    if (taskType !== undefined) {
       conditions.push('task_type = ?')
-      params.push(filter.taskType)
+      params.push(taskType)
+    }
+    if (filter.sprint !== undefined) {
+      conditions.push('sprint = ?')
+      params.push(filter.sprint)
     }
     if (filter.dateFrom !== undefined) {
       conditions.push('recorded_at >= ?')
@@ -304,11 +347,39 @@ export class DoltStateStore implements StateStore {
       conditions.push('recorded_at <= ?')
       params.push(filter.dateTo)
     }
+    if (filter.since !== undefined) {
+      conditions.push('recorded_at >= ?')
+      params.push(filter.since)
+    }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+
+    if (filter.aggregate) {
+      const sql = `SELECT task_type,
+        AVG(cost_usd) AS avg_cost_usd,
+        SUM(tokens_in) AS sum_tokens_in,
+        SUM(tokens_out) AS sum_tokens_out,
+        COUNT(*) AS count
+        FROM metrics ${where} GROUP BY task_type ORDER BY task_type`
+      const aggRows = await this._client.query<AggregateMetricRow>(sql, params)
+      return aggRows.map((r) => this._aggregateRowToMetric(r))
+    }
+
     const sql = `SELECT * FROM metrics ${where} ORDER BY id`
     const rows = await this._client.query<MetricRow>(sql, params)
     return rows.map((r) => this._rowToMetric(r))
+  }
+
+  private _aggregateRowToMetric(row: AggregateMetricRow): MetricRecord {
+    return {
+      storyKey: '',
+      taskType: row.task_type,
+      costUsd: row.avg_cost_usd ?? undefined,
+      tokensIn: row.sum_tokens_in ?? undefined,
+      tokensOut: row.sum_tokens_out ?? undefined,
+      count: row.count,
+      result: 'aggregate',
+    }
   }
 
   private _rowToMetric(row: MetricRow): MetricRecord {
@@ -325,6 +396,8 @@ export class DoltStateStore implements StateStore {
       stallCount: row.stall_count ?? undefined,
       result: row.result ?? undefined,
       recordedAt: row.recorded_at ?? undefined,
+      sprint: row.sprint ?? undefined,
+      timestamp: row.timestamp ?? row.recorded_at ?? undefined,
     }
   }
 
@@ -360,6 +433,82 @@ export class DoltStateStore implements StateStore {
       schemaPath: row.schema_path,
       transport: row.transport ?? undefined,
     }
+  }
+
+  async queryContracts(filter?: ContractFilter): Promise<ContractRecord[]> {
+    const conditions: string[] = []
+    const params: unknown[] = []
+
+    if (filter?.storyKey !== undefined) {
+      conditions.push('story_key = ?')
+      params.push(filter.storyKey)
+    }
+    if (filter?.direction !== undefined) {
+      conditions.push('direction = ?')
+      params.push(filter.direction)
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const sql = `SELECT * FROM contracts ${where} ORDER BY story_key, contract_name`
+    const rows = await this._client.query<ContractRow>(sql, params)
+    return rows.map((r) => this._rowToContract(r))
+  }
+
+  async setContractVerification(storyKey: string, results: ContractVerificationRecord[]): Promise<void> {
+    // Delete existing verification records for this story+task_type, then insert new ones.
+    await this._client.query(
+      `DELETE FROM review_verdicts WHERE story_key = ? AND task_type = 'contract-verification'`,
+      [storyKey],
+    )
+
+    const failCount = results.filter((r) => r.verdict === 'fail').length
+
+    for (const r of results) {
+      await this._client.query(
+        `INSERT INTO review_verdicts (story_key, task_type, verdict, issues_count, notes, timestamp)
+         VALUES (?, 'contract-verification', ?, ?, ?, ?)`,
+        [
+          storyKey,
+          r.verdict,
+          failCount,
+          JSON.stringify({ contractName: r.contractName, mismatchDescription: r.mismatchDescription }),
+          r.verifiedAt,
+        ],
+      )
+    }
+
+    // Flush changes to Dolt commit.
+    await this.flush(`substrate: contract-verification for ${storyKey}`)
+  }
+
+  async getContractVerification(storyKey: string): Promise<ContractVerificationRecord[]> {
+    const rows = await this._client.query<ReviewVerdictRow>(
+      `SELECT * FROM review_verdicts WHERE story_key = ? AND task_type = 'contract-verification' ORDER BY timestamp DESC`,
+      [storyKey],
+    )
+
+    return rows.map((row) => {
+      let contractName = ''
+      let mismatchDescription: string | undefined
+
+      if (row.notes !== null) {
+        try {
+          const parsed = JSON.parse(row.notes) as Record<string, unknown>
+          if (typeof parsed.contractName === 'string') contractName = parsed.contractName
+          if (typeof parsed.mismatchDescription === 'string') mismatchDescription = parsed.mismatchDescription
+        } catch {
+          // Ignore malformed notes
+        }
+      }
+
+      return {
+        storyKey: row.story_key,
+        contractName,
+        verdict: row.verdict as 'pass' | 'fail',
+        ...(mismatchDescription !== undefined ? { mismatchDescription } : {}),
+        verifiedAt: row.timestamp ?? new Date().toISOString(),
+      } satisfies ContractVerificationRecord
+    })
   }
 
   // ---------------------------------------------------------------------------

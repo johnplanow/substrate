@@ -8,6 +8,8 @@
  */
 
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { writeStoryMetrics } from '../../persistence/queries/metrics.js'
 import type {
   StateStore,
@@ -16,6 +18,8 @@ import type {
   MetricRecord,
   MetricFilter,
   ContractRecord,
+  ContractFilter,
+  ContractVerificationRecord,
   StateDiff,
 } from './types.js'
 
@@ -43,12 +47,15 @@ export interface FileStateStoreOptions {
  */
 export class FileStateStore implements StateStore {
   private readonly _db: BetterSqlite3Database | undefined
+  private readonly _basePath: string | undefined
   private readonly _stories: Map<string, StoryRecord> = new Map()
   private readonly _metrics: MetricRecord[] = []
   private readonly _contracts: Map<string, ContractRecord[]> = new Map()
+  private readonly _contractVerifications: Map<string, ContractVerificationRecord[]> = new Map()
 
   constructor(options: FileStateStoreOptions = {}) {
     this._db = options.db
+    this._basePath = options.basePath
   }
 
   // -- Lifecycle -------------------------------------------------------------
@@ -121,11 +128,17 @@ export class FileStateStore implements StateStore {
   }
 
   async queryMetrics(filter: MetricFilter): Promise<MetricRecord[]> {
+    // Support both camelCase and snake_case field aliases
+    const storyKey = filter.storyKey ?? filter.story_key
+    const taskType = filter.taskType ?? filter.task_type
+
     return this._metrics.filter((m) => {
-      if (filter.storyKey !== undefined && m.storyKey !== filter.storyKey) return false
-      if (filter.taskType !== undefined && m.taskType !== filter.taskType) return false
+      if (storyKey !== undefined && m.storyKey !== storyKey) return false
+      if (taskType !== undefined && m.taskType !== taskType) return false
+      if (filter.sprint !== undefined && m.sprint !== filter.sprint) return false
       if (filter.dateFrom !== undefined && m.recordedAt !== undefined && m.recordedAt < filter.dateFrom) return false
       if (filter.dateTo !== undefined && m.recordedAt !== undefined && m.recordedAt > filter.dateTo) return false
+      if (filter.since !== undefined && m.recordedAt !== undefined && m.recordedAt < filter.since) return false
       return true
     })
   }
@@ -138,6 +151,39 @@ export class FileStateStore implements StateStore {
 
   async setContracts(storyKey: string, contracts: ContractRecord[]): Promise<void> {
     this._contracts.set(storyKey, contracts.map((c) => ({ ...c })))
+  }
+
+  async queryContracts(filter?: ContractFilter): Promise<ContractRecord[]> {
+    const all: ContractRecord[] = []
+    for (const records of this._contracts.values()) {
+      for (const r of records) {
+        all.push(r)
+      }
+    }
+
+    return all.filter((r) => {
+      if (filter?.storyKey !== undefined && r.storyKey !== filter.storyKey) return false
+      if (filter?.direction !== undefined && r.direction !== filter.direction) return false
+      return true
+    })
+  }
+
+  async setContractVerification(storyKey: string, results: ContractVerificationRecord[]): Promise<void> {
+    this._contractVerifications.set(storyKey, results.map((r) => ({ ...r })))
+
+    if (this._basePath !== undefined) {
+      // Serialize the full map as a flat JSON object: { storyKey: records[] }
+      const serialized: Record<string, ContractVerificationRecord[]> = {}
+      for (const [key, records] of this._contractVerifications) {
+        serialized[key] = records
+      }
+      const filePath = join(this._basePath, 'contract-verifications.json')
+      await writeFile(filePath, JSON.stringify(serialized, null, 2), 'utf-8')
+    }
+  }
+
+  async getContractVerification(storyKey: string): Promise<ContractVerificationRecord[]> {
+    return this._contractVerifications.get(storyKey) ?? []
   }
 
   // -- Branching (no-ops for file backend) -----------------------------------

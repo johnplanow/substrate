@@ -5,9 +5,21 @@
  * All tests use the in-memory (no-DB) path so no SQLite mocking is needed.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+
+// Top-level vi.mock is hoisted above imports by vitest — this ensures that
+// file-store.ts receives the mocked writeFile when it is first loaded.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    writeFile: vi.fn().mockResolvedValue(undefined),
+  }
+})
+
+import { writeFile } from 'node:fs/promises'
 import { FileStateStore } from '../file-store.js'
-import type { StoryRecord, ContractRecord } from '../types.js'
+import type { StoryRecord, ContractRecord, ContractVerificationRecord } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -191,6 +203,121 @@ describe('FileStateStore', () => {
       const result = await store.getContracts('26-1')
       expect(result).toHaveLength(1)
       expect(result[0].contractName).toBe('NewContract')
+    })
+  })
+
+  // -- queryContracts --------------------------------------------------------
+
+  describe('queryContracts', () => {
+    beforeEach(async () => {
+      await store.setContracts('26-1', [
+        { storyKey: '26-1', contractName: 'StateStore', direction: 'export', schemaPath: 'src/modules/state/types.ts' },
+        { storyKey: '26-1', contractName: 'DoltClient', direction: 'import', schemaPath: 'src/modules/state/dolt-client.ts' },
+      ])
+      await store.setContracts('26-2', [
+        { storyKey: '26-2', contractName: 'MetricRecord', direction: 'export', schemaPath: 'src/modules/state/types.ts' },
+      ])
+    })
+
+    it('returns all contracts when no filter provided', async () => {
+      const results = await store.queryContracts()
+      expect(results).toHaveLength(3)
+    })
+
+    it('returns all contracts when empty filter provided', async () => {
+      const results = await store.queryContracts({})
+      expect(results).toHaveLength(3)
+    })
+
+    it('filters by storyKey', async () => {
+      const results = await store.queryContracts({ storyKey: '26-1' })
+      expect(results).toHaveLength(2)
+      expect(results.every((r) => r.storyKey === '26-1')).toBe(true)
+    })
+
+    it('filters by direction export', async () => {
+      const results = await store.queryContracts({ direction: 'export' })
+      expect(results).toHaveLength(2)
+      expect(results.every((r) => r.direction === 'export')).toBe(true)
+    })
+
+    it('filters by direction import', async () => {
+      const results = await store.queryContracts({ direction: 'import' })
+      expect(results).toHaveLength(1)
+      expect(results[0].contractName).toBe('DoltClient')
+    })
+
+    it('returns empty array when no contracts exist', async () => {
+      const emptyStore = new FileStateStore()
+      const results = await emptyStore.queryContracts()
+      expect(results).toEqual([])
+    })
+  })
+
+  // -- setContractVerification / getContractVerification ---------------------
+
+  describe('setContractVerification / getContractVerification', () => {
+    it('returns empty array for unknown story key', async () => {
+      const results = await store.getContractVerification('unknown')
+      expect(results).toEqual([])
+    })
+
+    it('round-trips verification records', async () => {
+      const records: ContractVerificationRecord[] = [
+        {
+          storyKey: '26-1',
+          contractName: 'StateStore',
+          verdict: 'pass',
+          verifiedAt: '2026-03-08T10:00:00.000Z',
+        },
+        {
+          storyKey: '26-1',
+          contractName: 'DoltClient',
+          verdict: 'fail',
+          mismatchDescription: 'Missing method close()',
+          verifiedAt: '2026-03-08T10:00:00.000Z',
+        },
+      ]
+
+      await store.setContractVerification('26-1', records)
+      const retrieved = await store.getContractVerification('26-1')
+
+      expect(retrieved).toEqual(records)
+    })
+
+    it('overwrites existing records on subsequent calls', async () => {
+      await store.setContractVerification('26-1', [
+        { storyKey: '26-1', contractName: 'OldContract', verdict: 'pass', verifiedAt: '2026-03-08T10:00:00.000Z' },
+      ])
+      await store.setContractVerification('26-1', [
+        { storyKey: '26-1', contractName: 'NewContract', verdict: 'fail', verifiedAt: '2026-03-08T11:00:00.000Z' },
+      ])
+
+      const result = await store.getContractVerification('26-1')
+      expect(result).toHaveLength(1)
+      expect(result[0].contractName).toBe('NewContract')
+    })
+
+    it('writes contract-verifications.json to disk when basePath is set', async () => {
+      // Use the top-level hoisted mock — the runtime vi.mock inside a test body
+      // is NOT hoisted by vitest and therefore does not replace file-store.ts's
+      // already-resolved writeFile import.  The top-level vi.mock above ensures
+      // the mock is in place before file-store.ts is imported.
+      const mockWriteFile = vi.mocked(writeFile)
+      mockWriteFile.mockClear()
+
+      const storeWithPath = new FileStateStore({ basePath: '/tmp/test-state' })
+      const records: ContractVerificationRecord[] = [
+        { storyKey: '26-1', contractName: 'StateStore', verdict: 'pass', verifiedAt: '2026-03-08T10:00:00.000Z' },
+      ]
+
+      await storeWithPath.setContractVerification('26-1', records)
+
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        expect.stringContaining('contract-verifications.json'),
+        expect.any(String),
+        'utf-8',
+      )
     })
   })
 

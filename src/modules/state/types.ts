@@ -74,6 +74,12 @@ export interface MetricRecord {
   stallCount?: number
   result?: string
   recordedAt?: string
+  /** Sprint identifier, e.g. "sprint-1" */
+  sprint?: string
+  /** ISO timestamp alias for recordedAt (used in CLI display) */
+  timestamp?: string
+  /** Number of records in an aggregated result set (populated when MetricFilter.aggregate=true) */
+  count?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +95,27 @@ export interface MetricFilter {
   sprint?: string
   dateFrom?: string
   dateTo?: string
+  story_key?: string
+  task_type?: string
+  /** ISO date string — only records at or after this timestamp are returned */
+  since?: string
+  /** When true, return aggregated results grouped by task_type */
+  aggregate?: boolean
+}
+
+// ---------------------------------------------------------------------------
+// AggregateMetricResult
+// ---------------------------------------------------------------------------
+
+/**
+ * Aggregated metric results grouped by task type.
+ */
+export interface AggregateMetricResult {
+  task_type: string
+  avg_cost_usd: number
+  sum_tokens_in: number
+  sum_tokens_out: number
+  count: number
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +131,35 @@ export interface ContractRecord {
   direction: 'export' | 'import'
   schemaPath: string
   transport?: string
+}
+
+// ---------------------------------------------------------------------------
+// ContractFilter
+// ---------------------------------------------------------------------------
+
+/**
+ * Filter criteria for querying interface-contract declarations.
+ */
+export interface ContractFilter {
+  /** Match a specific story key */
+  storyKey?: string
+  /** Match a specific direction */
+  direction?: 'export' | 'import'
+}
+
+// ---------------------------------------------------------------------------
+// ContractVerificationRecord
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of verifying a single interface-contract declaration.
+ */
+export interface ContractVerificationRecord {
+  storyKey: string
+  contractName: string
+  verdict: 'pass' | 'fail'
+  mismatchDescription?: string
+  verifiedAt: string
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +239,15 @@ export interface StateStore {
 
   /** Persist (replace) the interface-contract declarations for a story. */
   setContracts(storyKey: string, contracts: ContractRecord[]): Promise<void>
+
+  /** Query all interface-contract declarations, optionally filtered. */
+  queryContracts(filter?: ContractFilter): Promise<ContractRecord[]>
+
+  /** Persist contract verification results for a story. */
+  setContractVerification(storyKey: string, results: ContractVerificationRecord[]): Promise<void>
+
+  /** Retrieve contract verification results for a story. */
+  getContractVerification(storyKey: string): Promise<ContractVerificationRecord[]>
 
   // -- Branching (Dolt backend; no-ops for file backend) ---------------------
 

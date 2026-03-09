@@ -91,6 +91,12 @@ export interface OrchestratorConfig {
    * at all?" while per-story checks "did this story break the build?".
    */
   skipBuildVerify?: boolean
+  /**
+   * Sprint identifier for state store persistence (Story 26-4).
+   * When set, persisted StoryRecords include this value in the sprint field.
+   * Falls back to undefined when absent, resulting in no sprint label on records.
+   */
+  sprint?: string
 }
 
 // ---------------------------------------------------------------------------

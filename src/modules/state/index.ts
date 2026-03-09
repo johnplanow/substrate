@@ -14,7 +14,10 @@ export type {
   StoryFilter,
   MetricRecord,
   MetricFilter,
+  AggregateMetricResult,
   ContractRecord,
+  ContractFilter,
+  ContractVerificationRecord,
   StateDiff,
   StateStoreConfig,
 } from './types.js'

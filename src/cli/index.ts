@@ -28,6 +28,7 @@ import { registerBrainstormCommand } from './commands/brainstorm.js'
 import { registerUpgradeCommand } from './commands/upgrade.js'
 import { registerExportCommand } from './commands/export.js'
 import { registerRetryEscalatedCommand } from './commands/retry-escalated.js'
+import { registerContractsCommand } from './commands/contracts.js'
 
 // Increase max listeners before any commands or transports register their handlers.
 // With CLI commands registered, pino-pretty workers and Commander exit handlers
@@ -106,6 +107,9 @@ export async function createProgram(): Promise<Command> {
   registerMetricsCommand(program, version)
 
   registerRetryEscalatedCommand(program, version, process.cwd(), registry)
+
+  // Contract declarations and verification
+  registerContractsCommand(program)
 
   // Observability
   registerCostCommand(program, version)

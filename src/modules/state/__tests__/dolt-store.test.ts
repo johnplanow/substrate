@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { DoltStateStore } from '../dolt-store.js'
 import type { DoltClient } from '../dolt-client.js'
-import type { StoryRecord, MetricRecord, ContractRecord } from '../types.js'
+import type { StoryRecord, MetricRecord, ContractRecord, ContractVerificationRecord } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -271,8 +271,9 @@ describe('DoltStateStore', () => {
       const calls = vi.mocked(client.query).mock.calls
       const insertCall = calls.find(([sql]) => String(sql).includes('INSERT INTO metrics'))!
       const params = insertCall[1] as unknown[]
-      // recordedAt is the last param
-      const recordedAt = params[params.length - 1]
+      // recordedAt is at index 11 (story_key, task_type, model, tokens_in, tokens_out,
+      // cache_read_tokens, cost_usd, wall_clock_ms, review_cycles, stall_count, result, recorded_at, sprint)
+      const recordedAt = params[11]
       expect(typeof recordedAt).toBe('string')
       expect(String(recordedAt)).toMatch(/\d{4}-\d{2}-\d{2}/)
     })
@@ -538,6 +539,163 @@ describe('DoltStateStore', () => {
       )
       const store = makeStore()
       await expect(store.flush()).resolves.toBeUndefined()
+    })
+  })
+
+  // -- queryContracts --------------------------------------------------------
+
+  describe('queryContracts', () => {
+    it('builds SELECT * FROM contracts with no WHERE clause when no filter', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      await store.queryContracts()
+      const calls = vi.mocked(client.query).mock.calls
+      const selectCall = calls.find(([sql]) => String(sql).includes('FROM contracts') && !String(sql).includes('WHERE'))
+      expect(selectCall).toBeDefined()
+    })
+
+    it('builds WHERE story_key = ? for storyKey filter', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      await store.queryContracts({ storyKey: '26-1' })
+      const calls = vi.mocked(client.query).mock.calls
+      const selectCall = calls.find(([sql]) => String(sql).includes('FROM contracts'))!
+      expect(String(selectCall[0])).toContain('story_key = ?')
+      expect(selectCall[1]).toContain('26-1')
+    })
+
+    it('builds WHERE direction = ? for direction filter', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      await store.queryContracts({ direction: 'export' })
+      const calls = vi.mocked(client.query).mock.calls
+      const selectCall = calls.find(([sql]) => String(sql).includes('FROM contracts'))!
+      expect(String(selectCall[0])).toContain('direction = ?')
+      expect(selectCall[1]).toContain('export')
+    })
+
+    it('maps rows to ContractRecord[]', async () => {
+      const client = makeClient(
+        new Map([
+          [
+            'FROM contracts',
+            [
+              {
+                story_key: '26-1',
+                contract_name: 'StateStore',
+                direction: 'export',
+                schema_path: 'src/modules/state/types.ts',
+                transport: null,
+              },
+            ],
+          ],
+        ]),
+      )
+      const store = makeStore(client)
+      const results = await store.queryContracts()
+      expect(results).toHaveLength(1)
+      expect(results[0].storyKey).toBe('26-1')
+      expect(results[0].contractName).toBe('StateStore')
+    })
+  })
+
+  // -- setContractVerification / getContractVerification ---------------------
+
+  describe('setContractVerification', () => {
+    it('deletes existing records and inserts new ones', async () => {
+      const { execFile } = await import('node:child_process')
+      vi.mocked(execFile).mockImplementation(
+        (_cmd: string, _args: readonly string[], _opts: unknown, callback?: unknown) => {
+          if (typeof callback === 'function') callback(null, '', '')
+          return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
+        },
+      )
+      const client = makeClient()
+      const store = makeStore(client)
+      const records: ContractVerificationRecord[] = [
+        { storyKey: '26-1', contractName: 'StateStore', verdict: 'pass', verifiedAt: '2026-03-08T10:00:00.000Z' },
+        { storyKey: '26-1', contractName: 'DoltClient', verdict: 'fail', mismatchDescription: 'Missing close()', verifiedAt: '2026-03-08T10:00:00.000Z' },
+      ]
+
+      await store.setContractVerification('26-1', records)
+
+      const calls = vi.mocked(client.query).mock.calls
+      const deleteCall = calls.find(([sql]) => String(sql).includes('DELETE FROM review_verdicts'))
+      expect(deleteCall).toBeDefined()
+      expect(deleteCall![1]).toContain('26-1')
+
+      const insertCalls = calls.filter(([sql]) => String(sql).includes('INSERT INTO review_verdicts'))
+      expect(insertCalls).toHaveLength(2)
+    })
+
+    it('stores notes as JSON with contractName and mismatchDescription', async () => {
+      const { execFile } = await import('node:child_process')
+      vi.mocked(execFile).mockImplementation(
+        (_cmd: string, _args: readonly string[], _opts: unknown, callback?: unknown) => {
+          if (typeof callback === 'function') callback(null, '', '')
+          return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
+        },
+      )
+      const client = makeClient()
+      const store = makeStore(client)
+      const records: ContractVerificationRecord[] = [
+        { storyKey: '26-1', contractName: 'StateStore', verdict: 'fail', mismatchDescription: 'Type mismatch', verifiedAt: '2026-03-08T10:00:00.000Z' },
+      ]
+
+      await store.setContractVerification('26-1', records)
+
+      const calls = vi.mocked(client.query).mock.calls
+      const insertCall = calls.find(([sql]) => String(sql).includes('INSERT INTO review_verdicts'))!
+      const params = insertCall[1] as unknown[]
+      // notes is at index 3
+      const notes = JSON.parse(params[3] as string) as { contractName: string; mismatchDescription: string }
+      expect(notes.contractName).toBe('StateStore')
+      expect(notes.mismatchDescription).toBe('Type mismatch')
+    })
+  })
+
+  describe('getContractVerification', () => {
+    it('returns empty array when no records found', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      const results = await store.getContractVerification('26-99')
+      expect(results).toEqual([])
+    })
+
+    it('parses notes JSON to reconstruct ContractVerificationRecord', async () => {
+      const client = makeClient(
+        new Map([
+          [
+            'FROM review_verdicts',
+            [
+              {
+                story_key: '26-1',
+                task_type: 'contract-verification',
+                verdict: 'pass',
+                issues_count: 0,
+                notes: JSON.stringify({ contractName: 'StateStore', mismatchDescription: undefined }),
+                timestamp: '2026-03-08T10:00:00.000Z',
+              },
+            ],
+          ],
+        ]),
+      )
+      const store = makeStore(client)
+      const results = await store.getContractVerification('26-1')
+      expect(results).toHaveLength(1)
+      expect(results[0].contractName).toBe('StateStore')
+      expect(results[0].verdict).toBe('pass')
+      expect(results[0].verifiedAt).toBe('2026-03-08T10:00:00.000Z')
+    })
+
+    it('queries with correct SQL including task_type filter', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      await store.getContractVerification('26-1')
+      const calls = vi.mocked(client.query).mock.calls
+      const selectCall = calls.find(([sql]) => String(sql).includes('FROM review_verdicts'))!
+      expect(String(selectCall[0])).toContain("task_type = 'contract-verification'")
+      expect(String(selectCall[0])).toContain('story_key = ?')
     })
   })
 })

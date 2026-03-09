@@ -31,6 +31,8 @@ import {
 import type { RunMetricsRow } from '../../persistence/queries/metrics.js'
 import { getDecisionsByCategory } from '../../persistence/queries/decisions.js'
 import { STORY_METRICS } from '../../persistence/schemas/operational.js'
+import { createStateStore } from '../../modules/state/index.js'
+import type { MetricFilter, MetricRecord } from '../../modules/state/index.js'
 import { createLogger } from '../../utils/logger.js'
 import type { OutputFormat } from './pipeline-shared.js'
 import { formatOutput } from './pipeline-shared.js'
@@ -49,6 +51,16 @@ export interface MetricsOptions {
   tagBaseline?: string
   /** When provided, read and output the analysis report for this run-id (AC5 of Story 17-3). */
   analysis?: string
+  /** Filter metrics by sprint (e.g. "sprint-1") */
+  sprint?: string
+  /** Filter metrics by story key (e.g. "26-1") */
+  story?: string
+  /** Filter metrics by task type (e.g. "dev-story") */
+  taskType?: string
+  /** Only show records at or after this ISO timestamp */
+  since?: string
+  /** Aggregate results grouped by task_type */
+  aggregate?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -56,7 +68,7 @@ export interface MetricsOptions {
 // ---------------------------------------------------------------------------
 
 export async function runMetricsAction(options: MetricsOptions): Promise<number> {
-  const { outputFormat, projectRoot, limit = 10, compare, tagBaseline, analysis } = options
+  const { outputFormat, projectRoot, limit = 10, compare, tagBaseline, analysis, sprint, story, taskType, since, aggregate } = options
 
   // Analysis mode (AC5 of Story 17-3): read and output the analysis report for a run-id
   if (analysis !== undefined) {
@@ -169,6 +181,29 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     // List mode
     const runs: RunMetricsRow[] = listRunMetrics(db, limit)
 
+    // AC3/AC4/AC5 of Story 26-5: query StateStore if Dolt is present AND filter flags are used
+    // Only activate the Dolt path when at least one new filter flag is provided or --aggregate is set.
+    // A bare `substrate metrics` with no filter flags should not query Dolt unnecessarily.
+    let doltMetrics: MetricRecord[] | undefined
+    const doltStatePath = join(dbRoot, '.substrate', 'state', '.dolt')
+    const hasDoltFilters = sprint !== undefined || story !== undefined || taskType !== undefined || since !== undefined || aggregate === true
+    if (existsSync(doltStatePath) && hasDoltFilters) {
+      try {
+        const stateStore = createStateStore({ backend: 'dolt', basePath: join(dbRoot, '.substrate', 'state') })
+        await stateStore.initialize()
+        const doltFilter: MetricFilter = {}
+        if (sprint !== undefined) doltFilter.sprint = sprint
+        if (story !== undefined) doltFilter.storyKey = story
+        if (taskType !== undefined) doltFilter.taskType = taskType
+        if (since !== undefined) doltFilter.since = since
+        if (aggregate !== undefined) doltFilter.aggregate = aggregate
+        doltMetrics = await stateStore.queryMetrics(doltFilter)
+        await stateStore.close()
+      } catch (doltErr) {
+        logger.warn({ err: doltErr }, 'StateStore query failed — falling back to SQLite metrics only')
+      }
+    }
+
     // AC6 of Story 21-1: query story-metrics decisions for per-story efficiency data
     const storyMetricDecisions = getDecisionsByCategory(db, STORY_METRICS)
     const storyMetrics: Array<{
@@ -218,9 +253,32 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     })
 
     if (outputFormat === 'json') {
-      process.stdout.write(formatOutput({ runs, story_metrics: storyMetrics }, 'json', true) + '\n')
+      const jsonPayload: Record<string, unknown> = { runs, story_metrics: storyMetrics }
+      if (doltMetrics !== undefined) {
+        if (aggregate) {
+          // Aggregate mode: output as properly-named AggregateMetricResult objects with totals
+          const aggregateResults = doltMetrics.map((m) => ({
+            task_type: m.taskType,
+            count: m.count ?? 0,
+            avg_cost_usd: m.costUsd ?? 0,
+            sum_tokens_in: m.tokensIn ?? 0,
+            sum_tokens_out: m.tokensOut ?? 0,
+          }))
+          const aggregateTotals = {
+            total_count: aggregateResults.reduce((sum, r) => sum + r.count, 0),
+            total_avg_cost_usd: aggregateResults.reduce((sum, r) => sum + r.avg_cost_usd, 0),
+            total_tokens_in: aggregateResults.reduce((sum, r) => sum + r.sum_tokens_in, 0),
+            total_tokens_out: aggregateResults.reduce((sum, r) => sum + r.sum_tokens_out, 0),
+          }
+          jsonPayload.aggregate_metrics = aggregateResults
+          jsonPayload.aggregate_totals = aggregateTotals
+        } else {
+          jsonPayload.dolt_metrics = doltMetrics
+        }
+      }
+      process.stdout.write(formatOutput(jsonPayload, 'json', true) + '\n')
     } else {
-      if (runs.length === 0 && storyMetrics.length === 0) {
+      if (runs.length === 0 && storyMetrics.length === 0 && (doltMetrics === undefined || doltMetrics.length === 0)) {
         process.stdout.write('No run metrics recorded yet. Run `substrate run` to generate metrics.\n')
         return 0
       }
@@ -252,6 +310,52 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           process.stdout.write(
             `  ${sm.story_key.padEnd(16)} ${runShort.padEnd(12)} ${String(sm.wall_clock_seconds).padStart(8)} ${sm.input_tokens.toLocaleString().padStart(10)} ${sm.output_tokens.toLocaleString().padStart(11)} ${String(sm.review_cycles).padStart(7)} ${stalledStr.padStart(8)}${costStr}\n`,
           )
+        }
+      }
+      if (doltMetrics !== undefined && doltMetrics.length > 0) {
+        if (aggregate) {
+          // Aggregate mode: display task_type | count | avg_cost_usd | sum_tokens_in | sum_tokens_out
+          process.stdout.write(`\nStateStore Aggregate Metrics (by task type)\n`)
+          process.stdout.write('─'.repeat(80) + '\n')
+          process.stdout.write(`  ${'Task Type'.padEnd(20)} ${'Count'.padStart(8)} ${'Avg Cost'.padStart(12)} ${'Sum Tokens In'.padStart(14)} ${'Sum Tokens Out'.padStart(15)}\n`)
+          process.stdout.write('  ' + '─'.repeat(72) + '\n')
+          let totalCount = 0
+          let totalCost = 0
+          let totalTokensIn = 0
+          let totalTokensOut = 0
+          for (const m of doltMetrics) {
+            const count = m.count ?? 0
+            const avgCost = m.costUsd !== undefined ? `$${m.costUsd.toFixed(4)}` : '-'
+            const sumIn = m.tokensIn !== undefined ? m.tokensIn.toLocaleString() : '-'
+            const sumOut = m.tokensOut !== undefined ? m.tokensOut.toLocaleString() : '-'
+            totalCount += count
+            totalCost += m.costUsd ?? 0
+            totalTokensIn += m.tokensIn ?? 0
+            totalTokensOut += m.tokensOut ?? 0
+            process.stdout.write(
+              `  ${m.taskType.padEnd(20)} ${String(count).padStart(8)} ${avgCost.padStart(12)} ${sumIn.padStart(14)} ${sumOut.padStart(15)}\n`,
+            )
+          }
+          // Overall totals row
+          process.stdout.write('  ' + '─'.repeat(72) + '\n')
+          process.stdout.write(
+            `  ${'TOTAL'.padEnd(20)} ${String(totalCount).padStart(8)} ${`$${totalCost.toFixed(4)}`.padStart(12)} ${totalTokensIn.toLocaleString().padStart(14)} ${totalTokensOut.toLocaleString().padStart(15)}\n`,
+          )
+        } else {
+          // Regular mode: display per-record details
+          process.stdout.write(`\nStateStore Metrics (${doltMetrics.length} records)\n`)
+          process.stdout.write('─'.repeat(80) + '\n')
+          process.stdout.write(`  ${'Story'.padEnd(16)} ${'Task Type'.padEnd(16)} ${'Tokens In'.padStart(10)} ${'Tokens Out'.padStart(11)} ${'Wall(ms)'.padStart(10)} ${'Result'.padEnd(12)}\n`)
+          process.stdout.write('  ' + '─'.repeat(76) + '\n')
+          for (const m of doltMetrics) {
+            const tokIn = m.tokensIn !== undefined ? m.tokensIn.toLocaleString() : '-'
+            const tokOut = m.tokensOut !== undefined ? m.tokensOut.toLocaleString() : '-'
+            const wall = m.wallClockMs !== undefined ? String(m.wallClockMs) : '-'
+            const res = m.result ?? '-'
+            process.stdout.write(
+              `  ${m.storyKey.padEnd(16)} ${m.taskType.padEnd(16)} ${tokIn.padStart(10)} ${tokOut.padStart(11)} ${wall.padStart(10)} ${res.padEnd(12)}\n`,
+            )
+          }
         }
       }
     }
@@ -296,6 +400,11 @@ export function registerMetricsCommand(
     .option('--compare <run-id-a,run-id-b>', 'Compare two runs side-by-side (comma-separated IDs, e.g. abc123,def456)')
     .option('--tag-baseline <run-id>', 'Mark a run as the performance baseline')
     .option('--analysis <run-id>', 'Read and output the analysis report for the specified run (AC5 of Story 17-3)')
+    .option('--sprint <sprint>', 'Filter StateStore metrics by sprint (e.g. sprint-1)')
+    .option('--story <story-key>', 'Filter StateStore metrics by story key (e.g. 26-1)')
+    .option('--task-type <type>', 'Filter StateStore metrics by task type (e.g. dev-story)')
+    .option('--since <iso-date>', 'Filter StateStore metrics at or after this ISO timestamp')
+    .option('--aggregate', 'Aggregate StateStore metrics grouped by task_type')
     .action(
       async (opts: {
         projectRoot: string
@@ -304,6 +413,11 @@ export function registerMetricsCommand(
         compare?: string
         tagBaseline?: string
         analysis?: string
+        sprint?: string
+        story?: string
+        taskType?: string
+        since?: string
+        aggregate?: boolean
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         let compareIds: [string, string] | undefined
@@ -320,6 +434,11 @@ export function registerMetricsCommand(
           compare: compareIds,
           tagBaseline: opts.tagBaseline,
           analysis: opts.analysis,
+          sprint: opts.sprint,
+          story: opts.story,
+          taskType: opts.taskType,
+          since: opts.since,
+          aggregate: opts.aggregate,
         })
         process.exitCode = exitCode
       },
