@@ -41,6 +41,7 @@ import { runMigrations } from '../../persistence/migrations/index.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createLogger } from '../../utils/logger.js'
 import { ConfigError } from '../../core/errors.js'
+import { initializeDolt, DoltNotInstalled } from '../../modules/state/dolt-init.js'
 import type { OutputFormat } from './pipeline-shared.js'
 import {
   findPackageRoot,
@@ -831,14 +832,35 @@ export function registerInitCommand(
       'Output format: human (default) or json',
       'human',
     )
+    .option('--dolt', 'Initialize Dolt state database in .substrate/state/', false)
     .action(async (opts: {
       pack: string
       projectRoot: string
       yes: boolean
       force: boolean
       outputFormat: string
+      dolt: boolean
     }) => {
       const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
+
+      // --dolt: initialize Dolt state database only (short-circuit)
+      if (opts.dolt) {
+        try {
+          await initializeDolt({ projectRoot: opts.projectRoot })
+          process.stdout.write('✓ Dolt state database initialized at .substrate/state/\n')
+          process.exitCode = INIT_EXIT_SUCCESS
+        } catch (err) {
+          if (err instanceof DoltNotInstalled) {
+            process.stderr.write(`${err.message}\n`)
+          } else {
+            const msg = err instanceof Error ? err.message : String(err)
+            process.stderr.write(`✗ Dolt initialization failed: ${msg}\n`)
+          }
+          process.exitCode = INIT_EXIT_ERROR
+        }
+        return
+      }
+
       const exitCode = await runInitAction({
         pack: opts.pack,
         projectRoot: opts.projectRoot,

@@ -1,0 +1,200 @@
+/**
+ * StateStore abstraction layer — type definitions and interface.
+ *
+ * Defines the StateStore interface and all supporting types.
+ * The file-based backend (FileStateStore) wraps existing in-memory and
+ * SQLite behaviour; future backends (e.g. Dolt, Story 26-3) implement this
+ * same interface without touching consumer code.
+ */
+
+// Re-export StoryPhase from the orchestrator types to avoid duplication.
+export type { StoryPhase } from '../implementation-orchestrator/types.js'
+
+import type { StoryPhase } from '../implementation-orchestrator/types.js'
+
+// ---------------------------------------------------------------------------
+// StoryRecord
+// ---------------------------------------------------------------------------
+
+/**
+ * Persisted state for a single story across the pipeline lifecycle.
+ */
+export interface StoryRecord {
+  /** Unique story identifier, e.g. "26-1" */
+  storyKey: string
+  /** Current lifecycle phase */
+  phase: StoryPhase
+  /** Number of code-review cycles completed */
+  reviewCycles: number
+  /** Last verdict from code review, if any */
+  lastVerdict?: string
+  /** Error message if the story encountered a fatal error */
+  error?: string
+  /** ISO timestamp when processing started */
+  startedAt?: string
+  /** ISO timestamp when processing completed or was escalated */
+  completedAt?: string
+  /** Sprint identifier, e.g. "sprint-1" */
+  sprint?: string
+}
+
+// ---------------------------------------------------------------------------
+// StoryFilter
+// ---------------------------------------------------------------------------
+
+/**
+ * Filter criteria for querying stories from the store.
+ */
+export interface StoryFilter {
+  /** Match one phase or an array of phases */
+  phase?: StoryPhase | StoryPhase[]
+  /** Match a specific sprint */
+  sprint?: string
+  /** Match a specific story key */
+  storyKey?: string
+}
+
+// ---------------------------------------------------------------------------
+// MetricRecord
+// ---------------------------------------------------------------------------
+
+/**
+ * A single telemetry record for a pipeline task dispatch.
+ */
+export interface MetricRecord {
+  storyKey: string
+  taskType: string
+  model?: string
+  tokensIn?: number
+  tokensOut?: number
+  cacheReadTokens?: number
+  costUsd?: number
+  wallClockMs?: number
+  reviewCycles?: number
+  stallCount?: number
+  result?: string
+  recordedAt?: string
+}
+
+// ---------------------------------------------------------------------------
+// MetricFilter
+// ---------------------------------------------------------------------------
+
+/**
+ * Filter criteria for querying metrics from the store.
+ */
+export interface MetricFilter {
+  storyKey?: string
+  taskType?: string
+  sprint?: string
+  dateFrom?: string
+  dateTo?: string
+}
+
+// ---------------------------------------------------------------------------
+// ContractRecord
+// ---------------------------------------------------------------------------
+
+/**
+ * An interface-contract declaration associated with a story.
+ */
+export interface ContractRecord {
+  storyKey: string
+  contractName: string
+  direction: 'export' | 'import'
+  schemaPath: string
+  transport?: string
+}
+
+// ---------------------------------------------------------------------------
+// StateDiff
+// ---------------------------------------------------------------------------
+
+/**
+ * Diff of state changes for a story (used by Dolt backend for branch diffs).
+ * The file backend always returns an empty changes array.
+ */
+export interface StateDiff {
+  storyKey: string
+  changes: Array<{
+    table: string
+    rowKey: string
+    before?: unknown
+    after?: unknown
+  }>
+}
+
+// ---------------------------------------------------------------------------
+// StateStoreConfig
+// ---------------------------------------------------------------------------
+
+/**
+ * Configuration passed to createStateStore().
+ */
+export interface StateStoreConfig {
+  /** Storage backend to use. Defaults to 'file'. */
+  backend?: 'file' | 'dolt'
+  /** Base path for file-based storage (optional). */
+  basePath?: string
+  /** MySQL port for the Dolt backend (optional). */
+  doltPort?: number
+}
+
+// ---------------------------------------------------------------------------
+// StateStore interface
+// ---------------------------------------------------------------------------
+
+/**
+ * Unified state store abstraction for pipeline modules.
+ *
+ * All implementations are async; the file backend resolves immediately while
+ * the Dolt backend awaits actual DB round-trips.
+ */
+export interface StateStore {
+  /** Initialise the backend (open connections, run migrations, etc.). */
+  initialize(): Promise<void>
+
+  /** Gracefully close all backend resources. */
+  close(): Promise<void>
+
+  // -- Story state -----------------------------------------------------------
+
+  /** Retrieve the current state record for a story, or undefined if unknown. */
+  getStoryState(storyKey: string): Promise<StoryRecord | undefined>
+
+  /** Persist (create or replace) the state record for a story. */
+  setStoryState(storyKey: string, state: StoryRecord): Promise<void>
+
+  /** Return all stories matching the given filter criteria. */
+  queryStories<T extends StoryFilter>(filter: T): Promise<StoryRecord[]>
+
+  // -- Metrics ---------------------------------------------------------------
+
+  /** Record a single metric observation. */
+  recordMetric(metric: MetricRecord): Promise<void>
+
+  /** Query stored metrics, optionally filtered. */
+  queryMetrics(filter: MetricFilter): Promise<MetricRecord[]>
+
+  // -- Contracts -------------------------------------------------------------
+
+  /** Get all interface-contract declarations for a story. */
+  getContracts(storyKey: string): Promise<ContractRecord[]>
+
+  /** Persist (replace) the interface-contract declarations for a story. */
+  setContracts(storyKey: string, contracts: ContractRecord[]): Promise<void>
+
+  // -- Branching (Dolt backend; no-ops for file backend) ---------------------
+
+  /** Create a branch for isolated story execution. */
+  branchForStory(storyKey: string): Promise<void>
+
+  /** Merge the story branch back into main. */
+  mergeStory(storyKey: string): Promise<void>
+
+  /** Roll back all changes made on the story branch. */
+  rollbackStory(storyKey: string): Promise<void>
+
+  /** Compute a diff of state changes for the story branch. */
+  diffStory(storyKey: string): Promise<StateDiff>
+}

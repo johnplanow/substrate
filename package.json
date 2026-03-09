@@ -66,6 +66,7 @@
     "bmad-method": "^6.0.3",
     "commander": "^12.1.0",
     "js-yaml": "^4.1.1",
+    "mysql2": "^3.19.0",
     "pino": "^9.6.0",
     "semver": "^7.6.3",
     "substrate-ai": "^0.1.22",
