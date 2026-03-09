@@ -2,12 +2,16 @@
  * substrate history — Show Dolt commit history for the state repository.
  *
  * Story 26-9: Dolt Diff + History Commands
+ * Story 26-12: CLI Degraded-Mode Hints (refactored inline hints → shared utility)
  */
-import type { Command } from 'commander'
-import { join } from 'node:path'
 import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+
+import type { Command } from 'commander'
+
 import { createStateStore, FileStateStore } from '../../modules/state/index.js'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
+import { emitDegradedModeHint } from '../../utils/degraded-mode-hint.js'
 
 interface HistoryOptions {
   limit: string
@@ -34,14 +38,27 @@ export function registerHistoryCommand(program: Command): void {
       try {
         await store.initialize()
 
+        // Degrade gracefully when the file backend is active — Dolt-specific
+        // features (diff, history) are not available.
+        if (store instanceof FileStateStore) {
+          const result = await emitDegradedModeHint({
+            outputFormat: options.outputFormat,
+            command: 'history',
+            statePath,
+          })
+
+          if (options.outputFormat === 'json') {
+            console.log(JSON.stringify({ backend: 'file', hint: result.hint, entries: [] }))
+          }
+          // For text mode the hint has already been written to stderr by
+          // emitDegradedModeHint; nothing goes to stdout.
+          return
+        }
+
         const entries = await store.getHistory(limit)
 
         if (entries.length === 0) {
-          if (store instanceof FileStateStore) {
-            console.log('Diff/history not available with the file backend. Initialize Dolt with: substrate init --dolt')
-          } else {
-            console.log('No history available.')
-          }
+          console.log('No history available.')
           return
         }
 

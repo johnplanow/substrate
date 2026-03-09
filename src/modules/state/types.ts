@@ -241,8 +241,17 @@ export interface HistoryEntry {
  * Configuration passed to createStateStore().
  */
 export interface StateStoreConfig {
-  /** Storage backend to use. Defaults to 'file'. */
-  backend?: 'file' | 'dolt'
+  /**
+   * Storage backend to use. Defaults to `'file'`.
+   *
+   * - `'file'`  — in-memory Map + optional SQLite metrics (default, always available)
+   * - `'dolt'`  — Dolt-backed versioned state (requires Dolt binary on PATH)
+   * - `'auto'`  — auto-detect: uses `'dolt'` when the Dolt binary is on PATH and a
+   *               Dolt repo exists at `<basePath>/.substrate/state/.dolt/`; falls back
+   *               to `'file'` otherwise. The default will be changed to `'auto'` in
+   *               Epic 29 once Dolt is proven under production load.
+   */
+  backend?: 'file' | 'dolt' | 'auto'
   /** Base path for file-based storage (optional). */
   basePath?: string
   /** MySQL port for the Dolt backend (optional). */

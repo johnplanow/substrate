@@ -3,6 +3,7 @@
  * Unit tests for the `substrate history` command.
  *
  * Story 26-9: Dolt Diff + History Commands
+ * Story 26-12: CLI Degraded-Mode Hints (updated for stderr-based hints)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -40,6 +41,15 @@ vi.mock('../../../modules/state/index.js', () => ({
   FileStateStore: MockFileStateStore,
 }))
 
+// Mock the degraded-mode-hint utility
+const { mockEmitDegradedModeHint } = vi.hoisted(() => ({
+  mockEmitDegradedModeHint: vi.fn<(opts: unknown) => Promise<{ hint: string; doltInstalled: boolean }>>(),
+}))
+
+vi.mock('../../../utils/degraded-mode-hint.js', () => ({
+  emitDegradedModeHint: mockEmitDegradedModeHint,
+}))
+
 import { Command } from 'commander'
 import { registerHistoryCommand } from '../history.js'
 
@@ -64,24 +74,32 @@ function createProgram(): Command {
   return program
 }
 
+const MOCK_HINT = 'Note: Dolt is not installed. Install it from https://docs.dolthub.com/introduction/installation, then run `substrate init --dolt` to enable diff and history features.'
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe('history command', () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>
+  let stderrSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     vi.clearAllMocks()
     consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+
+    // Default: emitDegradedModeHint resolves with mock hint
+    mockEmitDegradedModeHint.mockResolvedValue({ hint: MOCK_HINT, doltInstalled: false })
   })
 
   afterEach(() => {
     consoleSpy.mockRestore()
+    stderrSpy.mockRestore()
   })
 
-  describe('empty history', () => {
-    it('prints graceful message for file backend with no history', async () => {
+  describe('file backend degraded mode', () => {
+    async function makeFileStoreInstance() {
       const { createStateStore, FileStateStore: MockFS } = await import('../../../modules/state/index.js')
       const fileStoreInstance = Object.create((MockFS as unknown as { prototype: object }).prototype) as object
       Object.assign(fileStoreInstance, {
@@ -90,14 +108,66 @@ describe('history command', () => {
         getHistory: vi.fn().mockResolvedValue([]),
       })
       vi.mocked(createStateStore).mockReturnValueOnce(fileStoreInstance as ReturnType<typeof createStateStore>)
+      return fileStoreInstance
+    }
+
+    it('calls emitDegradedModeHint when file backend is active (text mode)', async () => {
+      await makeFileStoreInstance()
 
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'history'])
 
-      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join('\n')
-      expect(output).toContain('substrate init --dolt')
+      expect(mockEmitDegradedModeHint).toHaveBeenCalledOnce()
+      expect(mockEmitDegradedModeHint).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'history', outputFormat: 'text' }),
+      )
     })
 
+    it('does not call console.log with hint text in text mode (hint goes to stderr via utility)', async () => {
+      await makeFileStoreInstance()
+
+      const program = createProgram()
+      await program.parseAsync(['node', 'substrate', 'history'])
+
+      // console.log must not be called at all (hint goes to stderr via utility, not stdout)
+      expect(consoleSpy).not.toHaveBeenCalled()
+    })
+
+    it('exit code remains 0 in degraded mode', async () => {
+      await makeFileStoreInstance()
+      process.exitCode = 0
+
+      const program = createProgram()
+      await program.parseAsync(['node', 'substrate', 'history'])
+
+      expect(process.exitCode).not.toBe(1)
+      process.exitCode = 0
+    })
+
+    it('emits JSON envelope with backend=file, hint field, and entries=[] in JSON mode', async () => {
+      await makeFileStoreInstance()
+
+      const program = createProgram()
+      await program.parseAsync(['node', 'substrate', 'history', '--output-format', 'json'])
+
+      expect(consoleSpy).toHaveBeenCalledOnce()
+      const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as Record<string, unknown>
+      expect(parsed.backend).toBe('file')
+      expect(typeof parsed.hint).toBe('string')
+      expect(parsed.entries).toEqual([])
+    })
+
+    it('does not call emitDegradedModeHint for Dolt backend', async () => {
+      mockGetHistory.mockResolvedValue([])
+
+      const program = createProgram()
+      await program.parseAsync(['node', 'substrate', 'history'])
+
+      expect(mockEmitDegradedModeHint).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('empty history (non-file backend)', () => {
     it('prints "No history available" for non-file backend with no history', async () => {
       mockGetHistory.mockResolvedValue([])
 

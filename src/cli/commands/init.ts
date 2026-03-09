@@ -41,7 +41,7 @@ import { runMigrations } from '../../persistence/migrations/index.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createLogger } from '../../utils/logger.js'
 import { ConfigError } from '../../core/errors.js'
-import { initializeDolt, DoltNotInstalled } from '../../modules/state/dolt-init.js'
+import { initializeDolt, checkDoltInstalled, DoltNotInstalled } from '../../modules/state/dolt-init.js'
 import type { OutputFormat } from './pipeline-shared.js'
 import {
   findPackageRoot,
@@ -563,6 +563,13 @@ export interface InitOptions {
   yes?: boolean
   /** AdapterRegistry to use (injectable for testing) */
   registry?: AdapterRegistry
+  /**
+   * Dolt bootstrapping mode:
+   *   'auto'  — detect Dolt on PATH; init if present, silently skip if absent (default)
+   *   'force' — always init Dolt; error if Dolt is not installed
+   *   'skip'  — skip Dolt bootstrapping entirely
+   */
+  doltMode?: 'auto' | 'force' | 'skip'
 }
 
 /**
@@ -762,12 +769,46 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     await scaffoldClaudeCommands(projectRoot, outputFormat)
 
     // ---------------------------------------------------------------
+    // Step 7: Dolt bootstrapping
+    // ---------------------------------------------------------------
+    const doltMode = options.doltMode ?? 'auto'
+    let doltInitialized = false
+    if (doltMode !== 'skip') {
+      try {
+        if (doltMode === 'auto') {
+          await checkDoltInstalled() // throws DoltNotInstalled if absent
+        }
+        await initializeDolt({ projectRoot })
+        doltInitialized = true
+      } catch (err) {
+        if (err instanceof DoltNotInstalled) {
+          if (doltMode === 'force') {
+            process.stderr.write(`${err.message}\n`)
+            return INIT_EXIT_ERROR
+          }
+          // auto mode: silently skip
+          logger.debug('Dolt not installed, skipping auto-init')
+        } else {
+          const msg = err instanceof Error ? err.message : String(err)
+          if (doltMode === 'force') {
+            process.stderr.write(`✗ Dolt initialization failed: ${msg}\n`)
+            return INIT_EXIT_ERROR
+          }
+          // auto mode: warn but don't fail
+          logger.warn('Dolt auto-init failed (non-blocking)', { error: msg })
+        }
+      }
+    } else {
+      logger.debug('Dolt step was skipped (--no-dolt)')
+    }
+
+    // ---------------------------------------------------------------
     // Step 6: Success output
     // ---------------------------------------------------------------
     const successMsg = `Pack '${packName}' and database initialized successfully at ${dbPath}`
     if (outputFormat === 'json') {
       process.stdout.write(
-        formatOutput({ pack: packName, dbPath, scaffolded, configPath, routingPolicyPath }, 'json', true) + '\n',
+        formatOutput({ pack: packName, dbPath, scaffolded, configPath, routingPolicyPath, doltInitialized }, 'json', true) + '\n',
       )
     } else {
       process.stdout.write(`\n  Substrate initialized successfully!\n\n`)
@@ -787,6 +828,10 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       process.stdout.write(`    CLAUDE.md             pipeline instructions for Claude Code\n`)
       process.stdout.write(`    .claude/commands/     /substrate-run, /substrate-supervisor, /substrate-metrics\n`)
       process.stdout.write(`    .substrate/           config, database, routing policy\n`)
+
+      if (doltInitialized) {
+        process.stdout.write(`✓ Dolt state store initialized at .substrate/state/\n`)
+      }
 
       process.stdout.write(
         `\n  Next steps:\n` +
@@ -832,7 +877,8 @@ export function registerInitCommand(
       'Output format: human (default) or json',
       'human',
     )
-    .option('--dolt', 'Initialize Dolt state database in .substrate/state/', false)
+    .option('--dolt', 'Initialize Dolt state database as part of init (forces Dolt bootstrapping)', false)
+    .option('--no-dolt', 'Skip Dolt state store initialization even if Dolt is installed')
     .action(async (opts: {
       pack: string
       projectRoot: string
@@ -840,26 +886,11 @@ export function registerInitCommand(
       force: boolean
       outputFormat: string
       dolt: boolean
+      noDolt: boolean
     }) => {
       const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
 
-      // --dolt: initialize Dolt state database only (short-circuit)
-      if (opts.dolt) {
-        try {
-          await initializeDolt({ projectRoot: opts.projectRoot })
-          process.stdout.write('✓ Dolt state database initialized at .substrate/state/\n')
-          process.exitCode = INIT_EXIT_SUCCESS
-        } catch (err) {
-          if (err instanceof DoltNotInstalled) {
-            process.stderr.write(`${err.message}\n`)
-          } else {
-            const msg = err instanceof Error ? err.message : String(err)
-            process.stderr.write(`✗ Dolt initialization failed: ${msg}\n`)
-          }
-          process.exitCode = INIT_EXIT_ERROR
-        }
-        return
-      }
+      const doltMode = opts.noDolt ? 'skip' : opts.dolt ? 'force' : 'auto'
 
       const exitCode = await runInitAction({
         pack: opts.pack,
@@ -867,6 +898,7 @@ export function registerInitCommand(
         outputFormat,
         force: opts.force,
         yes: opts.yes,
+        doltMode,
         ...(registry !== undefined && { registry }),
       })
       process.exitCode = exitCode
