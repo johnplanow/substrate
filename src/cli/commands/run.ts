@@ -57,6 +57,7 @@ import {
 import { createConfigSystem } from '../../modules/config/config-system-impl.js'
 import type { TokenCeilings } from '../../modules/config/config-schema.js'
 import { IngestionServer } from '../../modules/telemetry/ingestion-server.js'
+import { TelemetryPersistence } from '../../modules/telemetry/index.js'
 import { createLogger } from '../../utils/logger.js'
 import {
   VALID_PHASES,
@@ -358,6 +359,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(skipPreflight === true ? { skipPreflight: true } : {}),
       ...(epicNumber !== undefined ? { epic: epicNumber } : {}),
       ...(injectedRegistry !== undefined ? { registry: injectedRegistry } : {}),
+      ...(telemetryEnabled ? { telemetryEnabled: true, telemetryPort } : {}),
     })
   }
 
@@ -939,10 +941,13 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       })
     }
 
-    // Create OTLP ingestion server if telemetry is enabled (Story 27-9).
+    // Create OTLP ingestion server and telemetry persistence if telemetry is enabled (Story 27-9).
     // The orchestrator handles start/stop lifecycle internally.
     const ingestionServer = telemetryEnabled
       ? new IngestionServer({ port: telemetryPort })
+      : undefined
+    const telemetryPersistence = telemetryEnabled
+      ? new TelemetryPersistence(db)
       : undefined
 
     // Create orchestrator
@@ -964,6 +969,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       projectRoot,
       tokenCeilings,
       ...(ingestionServer !== undefined ? { ingestionServer } : {}),
+      ...(telemetryPersistence !== undefined ? { telemetryPersistence } : {}),
     })
 
     // Display startup header (only in legacy human mode without progress renderer or NDJSON emitter)
@@ -1157,10 +1163,14 @@ export interface FullPipelineOptions {
   stories?: string[]
   /** Scope story discovery to a single epic number */
   epic?: number
+  /** Whether OTLP telemetry ingestion is enabled */
+  telemetryEnabled?: boolean
+  /** Port for the local OTLP HTTP ingestion server */
+  telemetryPort?: number
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, registry: injectedRegistry, tokenCeilings, stories: explicitStories } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort } =
     options
 
   // Ensure database directory
@@ -1444,6 +1454,14 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           )
         }
       } else if (currentPhase === 'implementation') {
+        // Create OTLP ingestion server and telemetry persistence if enabled
+        const fpIngestionServer = fullTelemetryEnabled
+          ? new IngestionServer({ port: fullTelemetryPort ?? 4318 })
+          : undefined
+        const fpTelemetryPersistence = fullTelemetryEnabled
+          ? new TelemetryPersistence(db)
+          : undefined
+
         // Run implementation orchestrator
         const orchestrator = createImplementationOrchestrator({
           db,
@@ -1460,6 +1478,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           },
           projectRoot,
           tokenCeilings,
+          ...(fpIngestionServer !== undefined ? { ingestionServer: fpIngestionServer } : {}),
+          ...(fpTelemetryPersistence !== undefined ? { telemetryPersistence: fpTelemetryPersistence } : {}),
         })
 
         // Subscribe to events for progress reporting

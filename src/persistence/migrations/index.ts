@@ -19,6 +19,7 @@ import { migration007DecisionStore } from './007-decision-store.js'
 import { migration008AmendmentSchema } from './008-amendment-schema.js'
 import { migration009TokenUsageMetadata } from './009-token-usage-metadata.js'
 import { migration010RunMetrics } from './010-run-metrics.js'
+import { migration011TelemetrySchema } from './011-telemetry-schema.js'
 
 const logger = createLogger('persistence:migrations')
 
@@ -48,7 +49,7 @@ export interface Migration {
 // Registered migrations — add new migrations here in version order
 // ---------------------------------------------------------------------------
 
-const MIGRATIONS: Migration[] = [initialSchemaMigration, costTrackerSchemaMigration, budgetEnforcerSchemaMigration, sessionSignalsSchemaMigration, migration005PlansTable, migration006PlanVersions, migration007DecisionStore, migration008AmendmentSchema, migration009TokenUsageMetadata, migration010RunMetrics]
+const MIGRATIONS: Migration[] = [initialSchemaMigration, costTrackerSchemaMigration, budgetEnforcerSchemaMigration, sessionSignalsSchemaMigration, migration005PlansTable, migration006PlanVersions, migration007DecisionStore, migration008AmendmentSchema, migration009TokenUsageMetadata, migration010RunMetrics, migration011TelemetrySchema]
 
 // ---------------------------------------------------------------------------
 // Migration runner

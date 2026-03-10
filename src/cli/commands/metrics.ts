@@ -250,7 +250,6 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
 
     try {
       const telemetryPersistence = new TelemetryPersistence(sqliteDb)
-      telemetryPersistence.initSchema()
 
       // -- efficiency mode --
       if (efficiency === true) {
