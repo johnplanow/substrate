@@ -223,6 +223,7 @@ prompts:
   readiness-check: prompts/readiness-check.md
   # Test plan prompt (Story 25-7)
   test-plan: prompts/test-plan.md
+  test-expansion: prompts/test-expansion.md
 
 constraints:
   create-story: constraints/create-story.yaml

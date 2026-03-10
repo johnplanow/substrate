@@ -110,7 +110,8 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
 
   /**
    * Build spawn command for a coding task.
-   * Uses: `claude -p <prompt> --model <model> --dangerously-skip-permissions --system-prompt <minimal>`
+   * Uses: `claude -p --model <model> --dangerously-skip-permissions --system-prompt <minimal>`
+   * Prompt is delivered via stdin (not CLI arg) to avoid E2BIG on large prompts.
    */
   buildCommand(prompt: string, options: AdapterOptions): SpawnCommand {
     const model = options.model ?? DEFAULT_MODEL
@@ -132,7 +133,7 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       'Follow the instructions in the user message exactly. ' +
       'Emit ONLY the YAML output specified in the Output Contract — no other text.'
     const args = [
-      '-p', prompt,
+      '-p',
       '--model', model,
       '--dangerously-skip-permissions',
       '--system-prompt', systemPrompt,
@@ -197,9 +198,7 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
     // (type/result/usage) which breaks JSON parsing of the plan output.
     const args = [
       '-p',
-      planningPrompt,
-      '--model',
-      model,
+      '--model', model,
     ]
 
     if (options.additionalFlags && options.additionalFlags.length > 0) {

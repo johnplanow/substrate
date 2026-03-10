@@ -128,12 +128,12 @@ describe('ClaudeCodeAdapter', () => {
       expect(cmd.binary).toBe('claude')
     })
 
-    it('includes -p flag with prompt', () => {
+    it('includes -p flag but not prompt in args (prompt delivered via stdin)', () => {
       const prompt = 'Fix the bug in auth.ts'
       const cmd = adapter.buildCommand(prompt, defaultOptions)
-      const pIdx = cmd.args.indexOf('-p')
-      expect(pIdx).toBeGreaterThanOrEqual(0)
-      expect(cmd.args[pIdx + 1]).toBe(prompt)
+      expect(cmd.args).toContain('-p')
+      // Prompt must NOT be in args — avoids E2BIG on large prompts
+      expect(cmd.args).not.toContain(prompt)
     })
 
     it('does not include --output-format json (causes JSON envelope wrapping that breaks YAML extraction)', () => {
@@ -211,13 +211,13 @@ describe('ClaudeCodeAdapter', () => {
       expect(cmd.args).not.toContain('--output-format')
     })
 
-    it('includes the goal in the prompt arg', () => {
+    it('does not include goal in CLI args (prompt delivered via stdin)', () => {
       const goal = 'Implement user authentication'
       const cmd = adapter.buildPlanningCommand({ goal }, defaultOptions)
-      const pIdx = cmd.args.indexOf('-p')
-      expect(pIdx).toBeGreaterThanOrEqual(0)
-      const promptArg = cmd.args[pIdx + 1] ?? ''
-      expect(promptArg).toContain(goal)
+      expect(cmd.args).toContain('-p')
+      // Goal must NOT be in args — avoids E2BIG on large prompts
+      const argsJoined = cmd.args.join(' ')
+      expect(argsJoined).not.toContain(goal)
     })
 
     it('sets cwd to worktreePath', () => {

@@ -78,10 +78,12 @@ describe('ClaudeCodeAdapter.buildCommand()', () => {
     expect(cmd.env).toHaveProperty('CLAUDE_CODE_ENABLE_TELEMETRY', '1')
   })
 
-  it('builds valid args with a prompt', () => {
+  it('builds valid args without prompt in CLI args (prompt goes to stdin)', () => {
     const cmd = adapter.buildCommand('my prompt', makeOptions())
     expect(cmd.args).toContain('-p')
-    expect(cmd.args).toContain('my prompt')
+    // Prompt must NOT be in args — avoids E2BIG on large prompts.
+    // Dispatcher delivers prompt via stdin instead.
+    expect(cmd.args).not.toContain('my prompt')
     expect(cmd.binary).toBe('claude')
   })
 })
