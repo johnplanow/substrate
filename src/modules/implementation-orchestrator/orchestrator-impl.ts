@@ -2302,10 +2302,28 @@ export function createImplementationOrchestrator(
 
       // Story 25-6: Post-sprint contract verification pass.
       // Runs after all stories reach terminal state, before emitting orchestrator:complete.
-      // Query all interface-contract decisions and verify export/import pairs.
+      // Only verify contracts declared by stories in the current sprint to avoid
+      // false positives from stale declarations in previous epics.
       if (projectRoot !== undefined && contractDeclarations.length > 0) {
         try {
-          const mismatches = verifyContracts(contractDeclarations, projectRoot)
+          const totalDeclarations = contractDeclarations.length
+          const currentSprintDeclarations = contractDeclarations.filter(
+            (d) => storyKeys.includes(d.storyKey),
+          )
+          const stalePruned = totalDeclarations - currentSprintDeclarations.length
+
+          if (stalePruned > 0) {
+            logger.info(
+              { stalePruned, remaining: currentSprintDeclarations.length },
+              'Pruned stale contract declarations from previous epics',
+            )
+          }
+
+          let mismatches: ContractMismatch[] = []
+          if (currentSprintDeclarations.length > 0) {
+            mismatches = verifyContracts(currentSprintDeclarations, projectRoot)
+          }
+
           if (mismatches.length > 0) {
             _contractMismatches = mismatches
             for (const mismatch of mismatches) {
@@ -2320,19 +2338,29 @@ export function createImplementationOrchestrator(
               { mismatchCount: mismatches.length, mismatches },
               'Post-sprint contract verification found mismatches — manual review required',
             )
-          } else {
+          } else if (currentSprintDeclarations.length > 0) {
             logger.info('Post-sprint contract verification passed — all declared contracts satisfied')
           }
 
-          // Story 26-6: Persist verification results to StateStore.
+          // Emit consolidated summary event
+          eventBus.emit('pipeline:contract-verification-summary', {
+            verified: currentSprintDeclarations.length,
+            stalePruned,
+            mismatches: mismatches.length,
+            verdict: mismatches.length === 0 ? 'pass' : 'fail',
+          })
+
+          // Story 26-6: Persist verification results to StateStore (current sprint only).
           if (stateStore !== undefined) {
             try {
-              const allContractsForVerification = await stateStore.queryContracts()
+              const currentSprintContracts = (await stateStore.queryContracts()).filter(
+                (cr) => storyKeys.includes(cr.storyKey),
+              )
               const verifiedAt = new Date().toISOString()
 
               // Group by story key
-              const contractsByStory = new Map<string, typeof allContractsForVerification>()
-              for (const cr of allContractsForVerification) {
+              const contractsByStory = new Map<string, typeof currentSprintContracts>()
+              for (const cr of currentSprintContracts) {
                 const existing = contractsByStory.get(cr.storyKey) ?? []
                 existing.push(cr)
                 contractsByStory.set(cr.storyKey, existing)

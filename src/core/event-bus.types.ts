@@ -431,6 +431,18 @@ export interface OrchestratorEvents {
     mismatchDescription: string
   }
 
+  /** Consolidated contract verification summary (emitted once per verification pass) */
+  'pipeline:contract-verification-summary': {
+    /** Number of contract declarations verified (current sprint only) */
+    verified: number
+    /** Number of stale declarations pruned (from previous epics) */
+    stalePruned: number
+    /** Number of real mismatches found */
+    mismatches: number
+    /** 'pass' if zero mismatches, 'fail' otherwise */
+    verdict: 'pass' | 'fail'
+  }
+
   // -------------------------------------------------------------------------
   // Build verification gate events (Story 24-2)
   // -------------------------------------------------------------------------

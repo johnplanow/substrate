@@ -382,6 +382,18 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'mismatchDescription', type: 'string', description: 'Mismatch details (missing file, type error).' },
     ],
   },
+  {
+    type: 'pipeline:contract-verification-summary',
+    description: 'Contract verification summary. Consolidates pass/fail into a single event.',
+    when: 'After all stories complete, before pipeline:complete. Emitted once per verification pass.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'verified', type: 'number', description: 'Declarations verified (current sprint).' },
+      { name: 'stalePruned', type: 'number', description: 'Stale declarations pruned (previous epics).' },
+      { name: 'mismatches', type: 'number', description: 'Real mismatches found.' },
+      { name: 'verdict', type: 'pass|fail', description: 'Overall verification result.' },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

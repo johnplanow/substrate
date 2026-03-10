@@ -939,6 +939,18 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           mismatchDescription: payload.mismatchDescription,
         })
       })
+
+      // Contract verification summary: consolidated pass/fail result
+      eventBus.on('pipeline:contract-verification-summary', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'pipeline:contract-verification-summary',
+          ts: new Date().toISOString(),
+          verified: payload.verified,
+          stalePruned: payload.stalePruned,
+          mismatches: payload.mismatches,
+          verdict: payload.verdict,
+        })
+      })
     }
 
     // Create OTLP ingestion server and telemetry persistence if telemetry is enabled (Story 27-9).

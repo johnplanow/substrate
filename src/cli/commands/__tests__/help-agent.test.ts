@@ -99,6 +99,8 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'story:metrics',
       // Story 25-6: post-sprint contract verification mismatch
       'pipeline:contract-mismatch',
+      // Contract verification summary (consolidated result)
+      'pipeline:contract-verification-summary',
     ]
     const actualTypes = PIPELINE_EVENT_METADATA.map((e) => e.type)
     for (const t of expectedTypes) {
@@ -446,7 +448,7 @@ describe('generateHelpAgentOutput', () => {
     const output = generateHelpAgentOutput('0.1.14')
     const tokenCount = approximateTokenCount(output)
     // Conservative check: approximate token count < 2000 (threshold scales with event count)
-    expect(tokenCount).toBeLessThan(2700)
+    expect(tokenCount).toBeLessThan(2850)
   })
 
   it('output is valid markdown (AC2)', () => {
@@ -539,6 +541,6 @@ describe('runHelpAgent', () => {
     const written = stdoutSpy.mock.calls[0][0] as string
     const tokenCount = approximateTokenCount(written)
     // Conservative check: approximate token count < 2000 (threshold scales with event count)
-    expect(tokenCount).toBeLessThan(2700)
+    expect(tokenCount).toBeLessThan(2850)
   })
 })

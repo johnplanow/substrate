@@ -573,6 +573,28 @@ export interface PipelineContractMismatchEvent {
 }
 
 // ---------------------------------------------------------------------------
+// PipelineContractVerificationSummaryEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted once after post-sprint contract verification completes.
+ * Consolidates results into a single event instead of per-mismatch noise.
+ */
+export interface PipelineContractVerificationSummaryEvent {
+  type: 'pipeline:contract-verification-summary'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Number of contract declarations verified (current sprint only) */
+  verified: number
+  /** Number of stale declarations pruned (from previous epics) */
+  stalePruned: number
+  /** Number of real mismatches found */
+  mismatches: number
+  /** 'pass' if zero mismatches, 'fail' otherwise */
+  verdict: 'pass' | 'fail'
+}
+
+// ---------------------------------------------------------------------------
 // PipelineEvent discriminated union
 // ---------------------------------------------------------------------------
 
@@ -593,6 +615,7 @@ export type PipelineEvent =
   | PipelineCompleteEvent
   | PipelinePreFlightFailureEvent
   | PipelineContractMismatchEvent
+  | PipelineContractVerificationSummaryEvent
   | StoryPhaseEvent
   | StoryDoneEvent
   | StoryEscalationEvent
@@ -642,6 +665,8 @@ export const EVENT_TYPE_NAMES = [
   'pipeline:pre-flight-failure',
   // Story 25-6: post-sprint contract verification mismatch (non-blocking warning)
   'pipeline:contract-mismatch',
+  // Post-sprint contract verification summary (consolidated result)
+  'pipeline:contract-verification-summary',
   'story:phase',
   'story:done',
   'story:escalation',
