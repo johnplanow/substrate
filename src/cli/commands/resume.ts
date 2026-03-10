@@ -17,6 +17,9 @@ import type { Command } from 'commander'
 import { join } from 'path'
 import { mkdirSync, existsSync } from 'fs'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
+import { IngestionServer } from '../../modules/telemetry/ingestion-server.js'
+import { TelemetryPersistence } from '../../modules/telemetry/index.js'
+import { createConfigSystem } from '../../modules/config/config-system-impl.js'
 import { createEventBus } from '../../core/event-bus.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
 import { runMigrations } from '../../persistence/migrations/index.js'
@@ -376,6 +379,28 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           process.stdout.write(`[SOLUTIONING] Complete\n`)
         }
       } else if (currentPhase === 'implementation') {
+        // Create OTLP ingestion server and telemetry persistence if telemetry is enabled
+        let telemetryEnabled = false
+        let telemetryPort = 4318
+        try {
+          const configSystem = createConfigSystem({ projectConfigDir: dbDir })
+          await configSystem.load()
+          const cfg = configSystem.getConfig()
+          if (cfg.telemetry?.enabled === true) {
+            telemetryEnabled = true
+            telemetryPort = cfg.telemetry.port ?? 4318
+          }
+        } catch {
+          // Non-fatal: proceed without telemetry
+        }
+
+        const ingestionServer = telemetryEnabled
+          ? new IngestionServer({ port: telemetryPort })
+          : undefined
+        const telemetryPersistence = telemetryEnabled
+          ? new TelemetryPersistence(db)
+          : undefined
+
         const orchestrator = createImplementationOrchestrator({
           db,
           pack,
@@ -388,6 +413,8 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
             pipelineRunId: runId,
           },
           projectRoot,
+          ...(ingestionServer !== undefined ? { ingestionServer } : {}),
+          ...(telemetryPersistence !== undefined ? { telemetryPersistence } : {}),
         })
 
         eventBus.on('orchestrator:story-phase-complete', (payload) => {
