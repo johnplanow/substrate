@@ -48,11 +48,17 @@ export interface AdapterOptions {
   maxTurns?: number
   /**
    * Optional OTLP endpoint URL for telemetry export (Story 27-9).
-   * When set, injects the 5 OTLP env vars into the spawned process so that
+   * When set, injects OTLP env vars into the spawned process so that
    * Claude Code exports telemetry to the local IngestionServer.
    * Example: "http://localhost:4318"
    */
   otlpEndpoint?: string
+  /**
+   * Optional story key for OTEL resource attribute tagging.
+   * Injected as `substrate.story_key` via OTEL_RESOURCE_ATTRIBUTES
+   * so the telemetry pipeline can group spans/events per story.
+   */
+  storyKey?: string
 }
 
 /**

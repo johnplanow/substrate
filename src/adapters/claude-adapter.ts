@@ -157,14 +157,22 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
     }
 
     // Inject OTLP telemetry env vars when an endpoint is provided (Story 27-9).
-    // These configure Claude Code to export traces/logs/metrics to the local
-    // IngestionServer that the orchestrator starts before any dispatch.
+    // Claude Code exports metrics + logs/events via OpenTelemetry when enabled.
+    // See: https://code.claude.com/docs/en/monitoring-usage
     if (options.otlpEndpoint !== undefined) {
       envEntries.CLAUDE_CODE_ENABLE_TELEMETRY = '1'
       envEntries.OTEL_LOGS_EXPORTER = 'otlp'
       envEntries.OTEL_METRICS_EXPORTER = 'otlp'
       envEntries.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/json'
       envEntries.OTEL_EXPORTER_OTLP_ENDPOINT = options.otlpEndpoint
+      // Include tool names and details in log events
+      envEntries.OTEL_LOG_TOOL_DETAILS = '1'
+      // Shorter export intervals for pipeline visibility (defaults: 60s metrics, 5s logs)
+      envEntries.OTEL_METRIC_EXPORT_INTERVAL = '10000'
+      // Inject substrate.story_key as a resource attribute for per-story grouping
+      if (options.storyKey !== undefined) {
+        envEntries.OTEL_RESOURCE_ATTRIBUTES = `substrate.story_key=${options.storyKey}`
+      }
     }
 
     return {

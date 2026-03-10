@@ -291,6 +291,7 @@ export async function runDevStory(
       maxTurns: resolvedMaxTurns,
       ...(deps.projectRoot !== undefined ? { workingDirectory: deps.projectRoot } : {}),
       ...(deps.otlpEndpoint !== undefined ? { otlpEndpoint: deps.otlpEndpoint } : {}),
+      storyKey,
     })
 
     dispatchResult = await handle.result

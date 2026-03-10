@@ -212,8 +212,8 @@ function makeCodeReviewShipIt() {
 
 function makeContractMismatch(overrides?: object) {
   return {
-    exporter: '25-4',
-    importer: '25-5',
+    exporter: '25-6',
+    importer: '25-6',
     contractName: 'JudgeResult',
     mismatchDescription: 'Exported file not found: src/judge/types.ts',
     ...overrides,
@@ -262,19 +262,20 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
 
   it('AC1: verifyContracts is called after stories complete when projectRoot provided and declarations exist', async () => {
     // Simulate a contract declaration in the decision store
+    // storyKey must match a key passed to run() (stale-filtering prunes non-current-sprint declarations)
     mockGetDecisionsByCategory.mockReturnValue([
       {
         id: 'dec-1',
         category: 'interface-contract',
         key: 'JudgeResult',
         value: JSON.stringify({
-          storyKey: '25-4',
+          storyKey: '25-6',
           schemaName: 'JudgeResult',
           direction: 'export',
           filePath: 'src/judge/types.ts',
         }),
         phase: 'create-story',
-        storyKey: '25-4',
+        storyKey: '25-6',
         createdAt: new Date().toISOString(),
       },
     ])
@@ -307,13 +308,13 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
         category: 'interface-contract',
         key: 'JudgeResult',
         value: JSON.stringify({
-          storyKey: '25-4',
+          storyKey: '25-6',
           schemaName: 'JudgeResult',
           direction: 'export',
           filePath: 'src/judge/types.ts',
         }),
         phase: 'create-story',
-        storyKey: '25-4',
+        storyKey: '25-6',
         createdAt: new Date().toISOString(),
       },
     ])
@@ -365,21 +366,21 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
         category: 'interface-contract',
         key: 'JudgeResult',
         value: JSON.stringify({
-          storyKey: '25-4',
+          storyKey: '25-6',
           schemaName: 'JudgeResult',
           direction: 'export',
           filePath: 'src/judge/types.ts',
         }),
         phase: 'create-story',
-        storyKey: '25-4',
+        storyKey: '25-6',
         createdAt: new Date().toISOString(),
       },
     ])
 
     // verifyContracts returns 2 mismatches
     mockVerifyContracts.mockReturnValue([
-      makeContractMismatch({ importer: '25-5' }),
-      makeContractMismatch({ importer: '25-6', contractName: 'PublisherResult' }),
+      makeContractMismatch(),
+      makeContractMismatch({ contractName: 'PublisherResult' }),
     ])
 
     const orchestrator = createImplementationOrchestrator({
@@ -408,8 +409,8 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
       mismatchDescription: string
     })
 
-    expect(payloads[0]!.exporter).toBe('25-4')
-    expect(payloads[0]!.importer).toBe('25-5')
+    expect(payloads[0]!.exporter).toBe('25-6')
+    expect(payloads[0]!.importer).toBe('25-6')
     expect(payloads[0]!.contractName).toBe('JudgeResult')
     expect(payloads[0]!.mismatchDescription).toContain('Exported file not found')
 
@@ -424,13 +425,13 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
         category: 'interface-contract',
         key: 'JudgeResult',
         value: JSON.stringify({
-          storyKey: '25-4',
+          storyKey: '25-6',
           schemaName: 'JudgeResult',
           direction: 'export',
           filePath: 'src/judge/types.ts',
         }),
         phase: 'create-story',
-        storyKey: '25-4',
+        storyKey: '25-6',
         createdAt: new Date().toISOString(),
       },
     ])
@@ -468,13 +469,13 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
         category: 'interface-contract',
         key: 'JudgeResult',
         value: JSON.stringify({
-          storyKey: '25-4',
+          storyKey: '25-6',
           schemaName: 'JudgeResult',
           direction: 'export',
           filePath: 'src/judge/types.ts',
         }),
         phase: 'create-story',
-        storyKey: '25-4',
+        storyKey: '25-6',
         createdAt: new Date().toISOString(),
       },
     ])
@@ -497,8 +498,8 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
     expect(status.contractMismatches).toBeDefined()
     expect(status.contractMismatches).toHaveLength(1)
     expect(status.contractMismatches![0]!.contractName).toBe('JudgeResult')
-    expect(status.contractMismatches![0]!.exporter).toBe('25-4')
-    expect(status.contractMismatches![0]!.importer).toBe('25-5')
+    expect(status.contractMismatches![0]!.exporter).toBe('25-6')
+    expect(status.contractMismatches![0]!.importer).toBe('25-6')
     expect(status.contractMismatches![0]!.mismatchDescription).toContain('Exported file not found')
   })
 
@@ -509,13 +510,13 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
         category: 'interface-contract',
         key: 'JudgeResult',
         value: JSON.stringify({
-          storyKey: '25-4',
+          storyKey: '25-6',
           schemaName: 'JudgeResult',
           direction: 'export',
           filePath: 'src/judge/types.ts',
         }),
         phase: 'create-story',
-        storyKey: '25-4',
+        storyKey: '25-6',
         createdAt: new Date().toISOString(),
       },
     ])
@@ -544,13 +545,13 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
         category: 'interface-contract',
         key: 'SomeContract',
         value: JSON.stringify({
-          storyKey: '25-4',
+          storyKey: '25-6',
           schemaName: 'SomeContract',
           direction: 'export',
           filePath: 'src/some/types.ts',
         }),
         phase: 'create-story',
-        storyKey: '25-4',
+        storyKey: '25-6',
         createdAt: new Date().toISOString(),
       },
     ])
@@ -600,13 +601,13 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
         category: 'interface-contract',
         key: 'MyContract',
         value: JSON.stringify({
-          storyKey: '25-5',
+          storyKey: '25-6',
           schemaName: 'MyContract',
           direction: 'export',
           filePath: 'src/my-contract.ts',
         }),
         phase: 'create-story',
-        storyKey: '25-5',
+        storyKey: '25-6',
         createdAt: new Date().toISOString(),
       },
     ])
@@ -637,13 +638,13 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
         category: 'interface-contract',
         key: 'MyContract',
         value: JSON.stringify({
-          storyKey: '25-5',
+          storyKey: '25-6',
           schemaName: 'MyContract',
           direction: 'export',
           filePath: 'src/my-contract.ts',
         }),
         phase: 'create-story',
-        storyKey: '25-5',
+        storyKey: '25-6',
         createdAt: new Date().toISOString(),
       },
     ])

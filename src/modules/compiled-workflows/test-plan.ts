@@ -128,6 +128,7 @@ export async function runTestPlan(
       outputSchema: TestPlanResultSchema,
       ...(deps.projectRoot !== undefined ? { workingDirectory: deps.projectRoot } : {}),
       ...(deps.otlpEndpoint !== undefined ? { otlpEndpoint: deps.otlpEndpoint } : {}),
+      storyKey,
     })
 
     dispatchResult = await handle.result

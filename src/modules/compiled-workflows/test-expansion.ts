@@ -158,6 +158,7 @@ export async function runTestExpansion(
     outputSchema: TestExpansionResultSchema,
     workingDirectory: deps.projectRoot,
     ...(deps.otlpEndpoint !== undefined ? { otlpEndpoint: deps.otlpEndpoint } : {}),
+    storyKey,
   })
 
   let dispatchResult

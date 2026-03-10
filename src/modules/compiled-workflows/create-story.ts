@@ -135,6 +135,7 @@ export async function runCreateStory(
     outputSchema: CreateStoryResultSchema,
     ...(deps.projectRoot !== undefined ? { workingDirectory: deps.projectRoot } : {}),
     ...(deps.otlpEndpoint !== undefined ? { otlpEndpoint: deps.otlpEndpoint } : {}),
+    storyKey,
   })
 
   let dispatchResult

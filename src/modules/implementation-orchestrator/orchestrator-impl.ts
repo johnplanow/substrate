@@ -1770,6 +1770,7 @@ export function createImplementationOrchestrator(
             workingDirectory: projectRoot,
             ...(autoApproveMaxTurns !== undefined ? { maxTurns: autoApproveMaxTurns } : {}),
             ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
+            storyKey,
           })
           const fixResult = await handle.result
 

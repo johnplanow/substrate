@@ -35,10 +35,15 @@ export interface DispatchRequest<T = unknown> {
   /**
    * Optional OTLP endpoint URL for telemetry export (Story 27-9).
    * When set, the dispatcher passes this endpoint to the adapter, which injects
-   * the 5 OTLP env vars into the spawned sub-agent process.
+   * the OTLP env vars into the spawned sub-agent process.
    * Example: "http://localhost:4318"
    */
   otlpEndpoint?: string
+  /**
+   * Optional story key for OTEL resource attribute tagging.
+   * Passed through to the adapter for OTEL_RESOURCE_ATTRIBUTES injection.
+   */
+  storyKey?: string
 }
 
 // ---------------------------------------------------------------------------

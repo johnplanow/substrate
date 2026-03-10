@@ -30,7 +30,7 @@ describe('ClaudeCodeAdapter.buildCommand()', () => {
     expect(cmd.env).not.toHaveProperty('OTEL_EXPORTER_OTLP_ENDPOINT')
   })
 
-  it('injects all 5 OTLP env vars when otlpEndpoint is set', () => {
+  it('injects all OTLP env vars when otlpEndpoint is set', () => {
     const endpoint = 'http://localhost:9317'
     const cmd = adapter.buildCommand('test prompt', makeOptions({ otlpEndpoint: endpoint }))
     expect(cmd.env).toMatchObject({
@@ -39,7 +39,24 @@ describe('ClaudeCodeAdapter.buildCommand()', () => {
       OTEL_METRICS_EXPORTER: 'otlp',
       OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
       OTEL_EXPORTER_OTLP_ENDPOINT: endpoint,
+      OTEL_LOG_TOOL_DETAILS: '1',
+      OTEL_METRIC_EXPORT_INTERVAL: '10000',
     })
+  })
+
+  it('injects OTEL_RESOURCE_ATTRIBUTES when storyKey is set', () => {
+    const cmd = adapter.buildCommand('test prompt', makeOptions({
+      otlpEndpoint: 'http://localhost:9317',
+      storyKey: '28-1',
+    }))
+    expect(cmd.env?.OTEL_RESOURCE_ATTRIBUTES).toBe('substrate.story_key=28-1')
+  })
+
+  it('does not inject OTEL_RESOURCE_ATTRIBUTES when storyKey is not set', () => {
+    const cmd = adapter.buildCommand('test prompt', makeOptions({
+      otlpEndpoint: 'http://localhost:9317',
+    }))
+    expect(cmd.env).not.toHaveProperty('OTEL_RESOURCE_ATTRIBUTES')
   })
 
   it('OTEL_EXPORTER_OTLP_ENDPOINT matches the provided endpoint exactly', () => {
@@ -88,7 +105,7 @@ describe('ClaudeCodeAdapter + IngestionServer round-trip (Story 27-9, Task 7)', 
     await server.start()
 
     const serverVars = server.getOtlpEnvVars()
-    const endpoint = serverVars.OTEL_EXPORTER_OTLP_ENDPOINT
+    const endpoint = serverVars.OTEL_EXPORTER_OTLP_ENDPOINT!
 
     const adapter = new ClaudeCodeAdapter()
     const cmd = adapter.buildCommand('prompt', makeOptions({ otlpEndpoint: endpoint }))
