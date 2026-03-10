@@ -54,8 +54,9 @@ import type { ContractMismatch } from './types.js'
 import type { StateStore, StoryRecord, ContractRecord, ContractVerificationRecord } from '../state/index.js'
 import { DoltMergeConflict } from '../state/index.js'
 import type { ITelemetryPersistence } from '../telemetry/index.js'
-import { EfficiencyScorer, Categorizer, ConsumerAnalyzer } from '../telemetry/index.js'
+import { EfficiencyScorer, Categorizer, ConsumerAnalyzer, TelemetryNormalizer, TurnAnalyzer, Recommender } from '../telemetry/index.js'
 import type { IngestionServer } from '../telemetry/ingestion-server.js'
+import { TelemetryPipeline } from '../telemetry/telemetry-pipeline.js'
 
 // ---------------------------------------------------------------------------
 // OrchestratorDeps
@@ -2136,7 +2137,27 @@ export function createImplementationOrchestrator(
 
       // Story 27-9: Start OTLP ingestion server before first dispatch.
       // The server captures telemetry from Claude Code sub-agents.
+      // Story 27-12: Wire TelemetryPipeline to IngestionServer when telemetryPersistence is available.
       if (ingestionServer !== undefined) {
+        // Wire the full analysis pipeline when persistence is available (Story 27-12)
+        if (telemetryPersistence !== undefined) {
+          try {
+            const pipelineLogger = logger
+            const telemetryPipeline = new TelemetryPipeline({
+              normalizer: new TelemetryNormalizer(pipelineLogger),
+              turnAnalyzer: new TurnAnalyzer(pipelineLogger),
+              categorizer: new Categorizer(pipelineLogger),
+              consumerAnalyzer: new ConsumerAnalyzer(new Categorizer(pipelineLogger), pipelineLogger),
+              efficiencyScorer: new EfficiencyScorer(pipelineLogger),
+              recommender: new Recommender(pipelineLogger),
+              persistence: telemetryPersistence,
+            })
+            ingestionServer.setPipeline(telemetryPipeline)
+            logger.info('TelemetryPipeline wired to IngestionServer')
+          } catch (pipelineErr) {
+            logger.warn({ err: pipelineErr }, 'Failed to create TelemetryPipeline — continuing without analysis pipeline')
+          }
+        }
         await ingestionServer.start().catch((err: unknown) =>
           logger.warn({ err }, 'IngestionServer.start() failed — continuing without telemetry (best-effort)'),
         )

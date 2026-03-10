@@ -15,6 +15,7 @@ import type { PipelineHealthOutput } from './health.js'
 import { getAutoHealthData, getAllDescendantPids } from './health.js'
 import type { ResumeOptions } from './resume.js'
 import { runResumeAction } from './resume.js'
+import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
 import { runMigrations } from '../../persistence/migrations/index.js'
@@ -97,6 +98,12 @@ export interface SupervisorDeps {
     projectRoot: string
   }) => void | Promise<void>
   /**
+   * Lazily create and return an AdapterRegistry for use by resumePipeline.
+   * The supervisor process doesn't initialize one at startup (only `substrate run` does),
+   * so this must be called before any restart attempt.
+   */
+  getRegistry: () => Promise<AdapterRegistry>
+  /**
    * Write a run-level summary finding to the decision store (AC2 of Story 21-1).
    * Called when the pipeline reaches terminal state.
    * Optional — if omitted no decisions are written.
@@ -160,6 +167,17 @@ function defaultSupervisorDeps(): SupervisorDeps {
       }
     },
     getAllDescendants: (rootPids: number[]) => getAllDescendantPids(rootPids),
+    getRegistry: (() => {
+      let cached: AdapterRegistry | null = null
+      return async () => {
+        if (cached === null) {
+          const { AdapterRegistry: AR } = await import(/* @vite-ignore */ '../../adapters/adapter-registry.js')
+          cached = new AR()
+          await cached.discoverAndRegister()
+        }
+        return cached
+      }
+    })(),
     writeStallFindings: async (opts) => {
       try {
         const dbRoot = await resolveMainRepoRoot(opts.projectRoot)
@@ -327,14 +345,14 @@ export async function handleStallRecovery(
   health: PipelineHealthOutput,
   state: ProjectCycleState,
   config: { stallThreshold: number; maxRestarts: number; pack: string; outputFormat: OutputFormat },
-  deps: Pick<SupervisorDeps, 'killPid' | 'resumePipeline' | 'sleep' | 'incrementRestarts' | 'getAllDescendants' | 'writeStallFindings'>,
+  deps: Pick<SupervisorDeps, 'killPid' | 'resumePipeline' | 'sleep' | 'incrementRestarts' | 'getAllDescendants' | 'writeStallFindings' | 'getRegistry'>,
   io: {
     emitEvent: (event: Record<string, unknown>) => void
     log: (msg: string) => void
   },
 ): Promise<{ state: ProjectCycleState; maxRestartsExceeded: boolean } | null> {
   const { stallThreshold, maxRestarts, pack, outputFormat } = config
-  const { killPid, resumePipeline, sleep, incrementRestarts, getAllDescendants, writeStallFindings } = deps
+  const { killPid, resumePipeline, sleep, incrementRestarts, getAllDescendants, writeStallFindings, getRegistry } = deps
   const { emitEvent, log } = io
   const { projectRoot } = state
 
@@ -426,12 +444,14 @@ export async function handleStallRecovery(
   log(`Supervisor: Restarting pipeline (attempt ${newRestartCount}/${maxRestarts})`)
 
   try {
+    const registry = await getRegistry()
     await resumePipeline({
       runId: health.run_id ?? undefined,
       outputFormat,
       projectRoot,
       concurrency: 3,
       pack,
+      registry,
     })
     if (writeStallFindings) {
       await writeStallFindings({
@@ -686,6 +706,7 @@ export async function runSupervisorAction(
         incrementRestarts: resolvedDeps.incrementRestarts,
         getAllDescendants: resolvedDeps.getAllDescendants,
         writeStallFindings: resolvedDeps.writeStallFindings,
+        getRegistry: resolvedDeps.getRegistry,
       },
       { emitEvent, log },
     )

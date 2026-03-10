@@ -57,3 +57,22 @@ export { EfficiencyScorer, createEfficiencyScorer } from './efficiency-scorer.js
 export { Categorizer } from './categorizer.js'
 export { ConsumerAnalyzer } from './consumer-analyzer.js'
 export { Recommender } from './recommender.js'
+export { TurnAnalyzer } from './turn-analyzer.js'
+
+export { TelemetryNormalizer } from './normalizer.js'
+export { estimateCost, COST_TABLE, resolveModel } from './cost-table.js'
+export { normalizeTimestamp } from './timestamp-normalizer.js'
+export {
+  extractTokensFromAttributes,
+  extractTokensFromBody,
+  mergeTokenCounts,
+} from './token-extractor.js'
+
+export { detectSource } from './source-detector.js'
+export type { OtlpSource } from './source-detector.js'
+
+export { BatchBuffer } from './batch-buffer.js'
+export type { BatchBufferOptions } from './batch-buffer.js'
+
+export { TelemetryPipeline } from './telemetry-pipeline.js'
+export type { RawOtlpPayload, TelemetryPipelineDeps } from './telemetry-pipeline.js'

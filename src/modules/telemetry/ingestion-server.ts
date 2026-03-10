@@ -6,6 +6,11 @@
  * and exposes `getOtlpEnvVars()` to retrieve the 5 environment variables that
  * configure Claude Code to export telemetry to this endpoint.
  *
+ * When a `TelemetryPipeline` is injected, received payloads are parsed and
+ * buffered via `BatchBuffer`, which flushes to the pipeline on size or time
+ * triggers. Without a pipeline, the server operates in stub mode (acknowledge
+ * and discard), preserving backwards-compatibility.
+ *
  * Usage:
  *   const server = new IngestionServer({ port: 4318 })
  *   await server.start()
@@ -18,6 +23,9 @@ import type { Server, IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { AppError } from '../../errors/app-error.js'
 import { createLogger } from '../../utils/logger.js'
+import { BatchBuffer } from './batch-buffer.js'
+import type { TelemetryPipeline, RawOtlpPayload } from './telemetry-pipeline.js'
+import { detectSource } from './source-detector.js'
 
 const logger = createLogger('telemetry:ingestion-server')
 
@@ -44,6 +52,12 @@ export class TelemetryError extends AppError {
 export interface IngestionServerOptions {
   /** Port to bind to. Pass 0 to let the OS assign a free port (for tests). */
   port?: number
+  /** Optional TelemetryPipeline to process received payloads. */
+  pipeline?: TelemetryPipeline
+  /** Override BatchBuffer batch size (default: 100). */
+  batchSize?: number
+  /** Override BatchBuffer flush interval in ms (default: 5000). */
+  flushIntervalMs?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -58,9 +72,50 @@ export interface IngestionServerOptions {
 export class IngestionServer {
   private _server: Server | null = null
   private readonly _port: number
+  private readonly _batchSize: number
+  private readonly _flushIntervalMs: number
+  private _buffer: BatchBuffer<RawOtlpPayload> | undefined
+  private readonly _pendingBatches = new Set<Promise<void>>()
 
   constructor(options: IngestionServerOptions = {}) {
     this._port = options.port ?? 4318
+    this._batchSize = options.batchSize ?? 100
+    this._flushIntervalMs = options.flushIntervalMs ?? 5000
+
+    if (options.pipeline !== undefined) {
+      this._initPipeline(options.pipeline)
+    }
+  }
+
+  /**
+   * Wire a TelemetryPipeline before the server is started.
+   * Must be called before start() — has no effect if called after start().
+   */
+  setPipeline(pipeline: TelemetryPipeline): void {
+    if (this._server !== null) {
+      logger.warn('IngestionServer.setPipeline() called after start() — ignoring')
+      return
+    }
+    this._initPipeline(pipeline)
+  }
+
+  private _initPipeline(pipeline: TelemetryPipeline): void {
+    this._buffer = new BatchBuffer<RawOtlpPayload>({
+      batchSize: this._batchSize,
+      flushIntervalMs: this._flushIntervalMs,
+    })
+
+    // Wire: batch flush → pipeline processBatch
+    // Track each in-flight processBatch() promise so stop() can await them.
+    this._buffer.on('flush', (items: RawOtlpPayload[]) => {
+      const pending = pipeline.processBatch(items).catch((err: unknown) => {
+        logger.warn({ err }, 'TelemetryPipeline.processBatch failed (batch flush)')
+      })
+      this._pendingBatches.add(pending)
+      void pending.then(() => {
+        this._pendingBatches.delete(pending)
+      })
+    })
   }
 
   /**
@@ -85,6 +140,10 @@ export class IngestionServer {
         this._server = server
         const addr = server.address() as AddressInfo
         logger.info({ port: addr.port }, 'IngestionServer listening')
+
+        // Start the batch buffer timer (if pipeline is wired)
+        this._buffer?.start()
+
         resolve()
       })
     })
@@ -92,6 +151,7 @@ export class IngestionServer {
 
   /**
    * Stop the HTTP ingestion server.
+   * Drains the batch buffer before closing the HTTP server.
    * Resolves when the server has closed all connections.
    */
   async stop(): Promise<void> {
@@ -100,6 +160,16 @@ export class IngestionServer {
       return
     }
     this._server = null
+
+    // Stop (and drain) the batch buffer first
+    this._buffer?.stop()
+
+    // Await any in-flight processBatch() calls to satisfy AC5:
+    // "remaining buffered items are flushed and processed before the server closes"
+    if (this._pendingBatches.size > 0) {
+      await Promise.all([...this._pendingBatches])
+    }
+
     return new Promise<void>((resolve, reject) => {
       server.close((err) => {
         if (err !== undefined && err !== null) {
@@ -139,21 +209,39 @@ export class IngestionServer {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private _handleRequest(_req: IncomingMessage, res: ServerResponse): void {
+  private _handleRequest(req: IncomingMessage, res: ServerResponse): void {
+    // Health check support
+    if (req.url === '/health' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ status: 'ok' }))
+      return
+    }
+
     // Collect body
     const chunks: Buffer[] = []
-    _req.on('data', (chunk: Buffer) => {
+    req.on('data', (chunk: Buffer) => {
       chunks.push(chunk)
     })
-    _req.on('end', () => {
-      // Accept all OTLP payloads — future stories will parse and persist them.
-      // For now, acknowledge receipt and log at trace level.
-      const body = Buffer.concat(chunks).toString('utf-8')
-      logger.trace({ url: _req.url, bodyLength: body.length }, 'OTLP payload received')
+    req.on('end', () => {
+      const bodyStr = Buffer.concat(chunks).toString('utf-8')
+      logger.trace({ url: req.url, bodyLength: bodyStr.length }, 'OTLP payload received')
+
+      // If a pipeline is wired, parse and buffer the payload
+      if (this._buffer !== undefined) {
+        try {
+          const body: unknown = JSON.parse(bodyStr)
+          const source = detectSource(body)
+          const payload: RawOtlpPayload = { body, source, receivedAt: Date.now() }
+          this._buffer.push(payload)
+        } catch (err) {
+          logger.warn({ err, url: req.url }, 'Failed to parse OTLP payload JSON — discarding')
+        }
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end('{}')
     })
-    _req.on('error', (err) => {
+    req.on('error', (err) => {
       logger.warn({ err }, 'Error reading OTLP request body')
       res.writeHead(400)
       res.end('Bad Request')

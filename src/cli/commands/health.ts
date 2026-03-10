@@ -470,6 +470,10 @@ export async function getAutoHealthData(options: {
         verdict = 'STALLED'
       } else if (processInfo.orchestrator_pid !== null && processInfo.child_pids.length === 0 && active > 0) {
         verdict = 'STALLED'
+      } else if (processInfo.orchestrator_pid === null && active > 0) {
+        // Orchestrator process is dead but stories are still active — the
+        // pipeline crashed without reaching terminal state.
+        verdict = 'STALLED'
       } else {
         verdict = 'HEALTHY'
       }

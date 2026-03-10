@@ -157,6 +157,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
         sleep: vi.fn().mockResolvedValue(undefined),
         incrementRestarts: vi.fn(),
         getAllDescendants: vi.fn().mockReturnValue([]),
+        getRegistry: vi.fn().mockResolvedValue({}),
         writeStallFindings,
       },
       {
@@ -192,6 +193,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
         sleep: vi.fn().mockResolvedValue(undefined),
         incrementRestarts: vi.fn(),
         getAllDescendants: vi.fn().mockReturnValue([]),
+        getRegistry: vi.fn().mockResolvedValue({}),
         writeStallFindings,
       },
       {
