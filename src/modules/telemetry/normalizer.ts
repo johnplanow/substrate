@@ -28,6 +28,7 @@ interface OtlpAttrValue {
   stringValue?: string
   intValue?: string | number
   doubleValue?: string | number
+  boolValue?: boolean
 }
 
 interface OtlpAttr {
