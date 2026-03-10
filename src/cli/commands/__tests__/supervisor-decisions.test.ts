@@ -426,3 +426,191 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Fix 3 regression: supervisor exits 0 (not 2) when pipeline completes
+// after maxRestartsExceeded
+// ---------------------------------------------------------------------------
+
+describe('Fix 3: supervisor exit code when pipeline completes after maxRestartsExceeded', () => {
+  it('returns 0 when pipeline reaches terminal state on poll after maxRestartsExceeded', async () => {
+    // Scenario: poll 1 = stall detected, maxRestarts exceeded
+    //           poll 2 = NO_PIPELINE_RUNNING (all stories succeeded)
+    // Expected: exit code 0 (not 2)
+    let pollCount = 0
+    const exitCode = await runSupervisorAction(
+      {
+        pollInterval: 0.01,
+        stallThreshold: 1,
+        maxRestarts: 0, // maxRestarts=0 means first stall immediately triggers maxRestartsExceeded
+        outputFormat: 'json',
+        projectRoot: '/tmp/test',
+        pack: 'bmad',
+      },
+      {
+        getHealth: vi.fn().mockImplementation(async () => {
+          pollCount++
+          if (pollCount <= 1) {
+            // Poll 1: stalled with staleness above threshold
+            return {
+              verdict: 'STALLED' as const,
+              run_id: 'run-fix3',
+              status: 'running',
+              current_phase: 'implementation',
+              staleness_seconds: 700,
+              last_activity: new Date().toISOString(),
+              process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+              stories: {
+                active: 1, completed: 0, escalated: 0,
+                details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } },
+              },
+            }
+          }
+          // Poll 2: pipeline completed successfully
+          return {
+            verdict: 'NO_PIPELINE_RUNNING' as const,
+            run_id: 'run-fix3',
+            status: 'completed',
+            current_phase: null,
+            staleness_seconds: 0,
+            last_activity: new Date().toISOString(),
+            process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+            stories: {
+              active: 0, completed: 1, escalated: 0,
+              details: { '1-1': { phase: 'COMPLETE', review_cycles: 1 } },
+            },
+          }
+        }),
+        killPid: vi.fn(),
+        resumePipeline: vi.fn().mockResolvedValue(0),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        incrementRestarts: vi.fn(),
+        getAllDescendants: vi.fn().mockReturnValue([]),
+        getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+        writeStallFindings: vi.fn(),
+        writeRunSummary: vi.fn(),
+      },
+    )
+
+    // Should exit 0 (pipeline completed successfully) not 2 (maxRestartsExceeded)
+    expect(exitCode).toBe(0)
+  })
+
+  it('returns 1 when pipeline completes with escalations after maxRestartsExceeded', async () => {
+    let pollCount = 0
+    const exitCode = await runSupervisorAction(
+      {
+        pollInterval: 0.01,
+        stallThreshold: 1,
+        maxRestarts: 0,
+        outputFormat: 'json',
+        projectRoot: '/tmp/test',
+        pack: 'bmad',
+      },
+      {
+        getHealth: vi.fn().mockImplementation(async () => {
+          pollCount++
+          if (pollCount <= 1) {
+            return {
+              verdict: 'STALLED' as const,
+              run_id: 'run-fix3b',
+              status: 'running',
+              current_phase: 'implementation',
+              staleness_seconds: 700,
+              last_activity: new Date().toISOString(),
+              process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+              stories: {
+                active: 1, completed: 0, escalated: 0,
+                details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } },
+              },
+            }
+          }
+          return {
+            verdict: 'NO_PIPELINE_RUNNING' as const,
+            run_id: 'run-fix3b',
+            status: 'completed',
+            current_phase: null,
+            staleness_seconds: 0,
+            last_activity: new Date().toISOString(),
+            process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+            stories: {
+              active: 0, completed: 0, escalated: 1,
+              details: { '1-1': { phase: 'ESCALATED', review_cycles: 2 } },
+            },
+          }
+        }),
+        killPid: vi.fn(),
+        resumePipeline: vi.fn().mockResolvedValue(0),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        incrementRestarts: vi.fn(),
+        getAllDescendants: vi.fn().mockReturnValue([]),
+        getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+        writeStallFindings: vi.fn(),
+        writeRunSummary: vi.fn(),
+      },
+    )
+
+    // Should exit 1 (escalations) not 2
+    expect(exitCode).toBe(1)
+  })
+
+  it('returns 2 when pipeline is still running after maxRestartsExceeded grace poll', async () => {
+    let pollCount = 0
+    const exitCode = await runSupervisorAction(
+      {
+        pollInterval: 0.01,
+        stallThreshold: 600,
+        maxRestarts: 0,
+        outputFormat: 'json',
+        projectRoot: '/tmp/test',
+        pack: 'bmad',
+      },
+      {
+        getHealth: vi.fn().mockImplementation(async () => {
+          pollCount++
+          if (pollCount <= 1) {
+            // Poll 1: stalled (staleness above 600s threshold)
+            return {
+              verdict: 'STALLED' as const,
+              run_id: 'run-fix3c',
+              status: 'running',
+              current_phase: 'implementation',
+              staleness_seconds: 700,
+              last_activity: new Date().toISOString(),
+              process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+              stories: {
+                active: 1, completed: 0, escalated: 0,
+                details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } },
+              },
+            }
+          }
+          // Poll 2: still running, staleness below threshold (no stall detected)
+          return {
+            verdict: 'HEALTHY' as const,
+            run_id: 'run-fix3c',
+            status: 'running',
+            current_phase: 'implementation',
+            staleness_seconds: 10,
+            last_activity: new Date().toISOString(),
+            process: { orchestrator_pid: 1234, child_pids: [5678], zombies: [] },
+            stories: {
+              active: 1, completed: 0, escalated: 0,
+              details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } },
+            },
+          }
+        }),
+        killPid: vi.fn(),
+        resumePipeline: vi.fn().mockResolvedValue(0),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        incrementRestarts: vi.fn(),
+        getAllDescendants: vi.fn().mockReturnValue([]),
+        getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
+        writeStallFindings: vi.fn(),
+        writeRunSummary: vi.fn(),
+      },
+    )
+
+    // Pipeline didn't reach terminal state — should still exit 2
+    expect(exitCode).toBe(2)
+  })
+})

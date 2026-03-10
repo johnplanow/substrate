@@ -12,11 +12,18 @@ Example: `npm run substrate:dev -- run --events --stories 10-1`
 
 ## Testing
 
-- **During development iteration:** `npm run test:fast` — unit tests only, excludes e2e/integration, no coverage (~30s)
+- **During development iteration:** `npm run test:fast` — unit tests only, excludes e2e/integration, no coverage (~50s)
 - **For targeted validation:** `npm run test:changed` — only tests affected by your changed files (fastest)
 - **Full validation / pre-merge:** `npm test` — full suite with coverage (~140s)
-- **NEVER run `npm test` concurrently** — only one vitest instance at a time
 - Prefer `test:fast` or `test:changed` during iteration to avoid slow feedback loops and memory pressure
+
+### Test Execution Rules (CRITICAL)
+
+- **NEVER run tests concurrently** — only one vitest instance at a time. Before running, verify: `pgrep -f vitest` returns nothing.
+- **ALWAYS use `timeout: 300000`** (5 min) — test suite takes ~50s but startup adds overhead. Default 2-min timeout will kill it.
+- **NEVER pipe test output** through `tail`, `head`, `grep`, or any command — pipes discard the vitest summary line and make results unverifiable.
+- **NEVER run tests in background** — always foreground with timeout. Background runs lose output.
+- **Confirm results by checking for "Test Files" in output** — exit code 0 alone is insufficient (a pipe exit code ≠ test exit code).
 
 <!-- substrate:start -->
 ## Substrate Pipeline

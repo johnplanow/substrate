@@ -60,6 +60,8 @@ export interface DoltStateInfo {
   initialized: boolean
   responsive: boolean
   version?: string
+  branches?: string[]
+  current_branch?: string
 }
 
 interface ProcessInfo {
@@ -338,10 +340,12 @@ export async function getAutoHealthData(options: {
     const initialized = existsSync(doltDirPath)
     let responsive = false
     let version: string | undefined
+    let branches: string[] | undefined
+    let currentBranch: string | undefined
     try {
       await stateStore.getHistory(1)
       responsive = true
-      // Try to get dolt version
+      // Try to get dolt version and branch info
       try {
         const { execFile: ef } = await import('node:child_process')
         const { promisify: p } = await import('node:util')
@@ -350,10 +354,32 @@ export async function getAutoHealthData(options: {
         const match = stdout.match(/dolt version (\S+)/)
         if (match) version = match[1]
       } catch { /* ignore */ }
+      // List branches
+      try {
+        const { execFile: ef } = await import('node:child_process')
+        const { promisify: p } = await import('node:util')
+        const execFileAsync = p(ef)
+        const { stdout } = await execFileAsync('dolt', ['branch', '--list'], { cwd: repoPath })
+        const lines = stdout.split('\n').filter((l: string) => l.trim().length > 0)
+        branches = lines.map((l: string) => {
+          const trimmed = l.trim()
+          if (trimmed.startsWith('* ')) {
+            currentBranch = trimmed.slice(2).trim()
+            return currentBranch
+          }
+          return trimmed
+        })
+      } catch { /* ignore — dolt branch may fail if not a dolt repo */ }
     } catch {
       responsive = false
     }
-    doltStateInfo = { initialized, responsive, ...(version !== undefined ? { version } : {}) }
+    doltStateInfo = {
+      initialized,
+      responsive,
+      ...(version !== undefined ? { version } : {}),
+      ...(branches !== undefined ? { branches } : {}),
+      ...(currentBranch !== undefined ? { current_branch: currentBranch } : {}),
+    }
   }
 
   const NO_PIPELINE: PipelineHealthOutput = {

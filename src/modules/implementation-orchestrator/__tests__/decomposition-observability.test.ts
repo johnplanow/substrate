@@ -663,8 +663,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
 
       await orchestrator.run(['13-5'])
 
-      // AC5: addTokenUsage called once per batch (2 batches)
-      expect(mockAddTokenUsage).toHaveBeenCalledTimes(2)
+      // AC5: addTokenUsage called for each phase (create-story, test-plan, 2 batch dev-story, code-review)
+      // Filter to batch-specific calls (phase === 'dev-story', agent starts with 'batch-')
+      const batchCalls = mockAddTokenUsage.mock.calls.filter(
+        (call) => call[2].phase === 'dev-story' && call[2].agent?.startsWith('batch-'),
+      )
+      expect(batchCalls).toHaveLength(2)
     })
 
     it('token usage metadata JSON contains storyKey and batchIndex', async () => {
@@ -681,10 +685,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
 
       await orchestrator.run(['13-5'])
 
-      // AC5: Inspect first addTokenUsage call metadata
-      const firstCall = mockAddTokenUsage.mock.calls[0]
-      expect(firstCall).toBeDefined()
-      const usageInput = firstCall![2]
+      // AC5: Find first batch-specific addTokenUsage call
+      const batchCalls = mockAddTokenUsage.mock.calls.filter(
+        (call) => call[2].phase === 'dev-story' && call[2].agent?.startsWith('batch-'),
+      )
+      expect(batchCalls.length).toBeGreaterThan(0)
+      const usageInput = batchCalls[0]![2]
       expect(usageInput.metadata).toBeDefined()
 
       const meta = JSON.parse(usageInput.metadata ?? '{}') as Record<string, unknown>
@@ -707,8 +713,11 @@ describe('Decomposition Observability (Story 13-5)', () => {
 
       await orchestrator.run(['13-5'])
 
-      const firstCall = mockAddTokenUsage.mock.calls[0]
-      const meta = JSON.parse(firstCall![2].metadata ?? '{}') as Record<string, unknown>
+      // Find first batch-specific call
+      const batchCalls = mockAddTokenUsage.mock.calls.filter(
+        (call) => call[2].phase === 'dev-story' && call[2].agent?.startsWith('batch-'),
+      )
+      const meta = JSON.parse(batchCalls[0]![2].metadata ?? '{}') as Record<string, unknown>
       expect(['success', 'failed']).toContain(meta.result)
     })
 
@@ -725,7 +734,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       await orchestrator.run(['5-1'])
 
       // AC6: No batch-context token usage records for simple stories
-      expect(mockAddTokenUsage).not.toHaveBeenCalled()
+      // (addTokenUsage IS called for create-story, test-plan, dev-story, code-review
+      //  but none with batch-specific agent names)
+      const batchCalls = mockAddTokenUsage.mock.calls.filter(
+        (call) => call[2].phase === 'dev-story' && call[2].agent?.startsWith('batch-'),
+      )
+      expect(batchCalls).toHaveLength(0)
     })
 
     it('passes the pipelineRunId to addTokenUsage', async () => {

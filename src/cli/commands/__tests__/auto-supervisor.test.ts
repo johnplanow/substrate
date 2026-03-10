@@ -597,10 +597,12 @@ describe('runSupervisorAction — AC6: max restarts safety valve', () => {
 
   it('exits 2 when restart count exceeds maxRestarts', async () => {
     // maxRestarts=2, but we stall 3 times → abort on the 3rd stall (restartCount already equals maxRestarts)
+    // Poll 4 is the grace poll — pipeline still not terminal, so exit code 2
     const healthSequence = [
       makeStalled(700),  // kill + restart #1
       makeStalled(700),  // kill + restart #2
-      makeStalled(700),  // restartCount === 2 === maxRestarts → abort
+      makeStalled(700),  // restartCount === 2 === maxRestarts → abort, sets maxRestartsExhausted
+      makeStalled(700),  // grace poll: still not terminal → exit 2
     ]
     let callIdx = 0
 
@@ -616,7 +618,7 @@ describe('runSupervisorAction — AC6: max restarts safety valve', () => {
   })
 
   it('emits supervisor:abort event when max restarts exceeded', async () => {
-    const healthSequence = [makeStalled(700), makeStalled(700)]
+    const healthSequence = [makeStalled(700), makeStalled(700), makeStalled(700)]
     let callIdx = 0
 
     const deps: Partial<SupervisorDeps> = {
@@ -640,7 +642,7 @@ describe('runSupervisorAction — AC6: max restarts safety valve', () => {
   })
 
   it('does NOT attempt another resume after aborting', async () => {
-    const healthSequence = [makeStalled(700), makeStalled(700)]
+    const healthSequence = [makeStalled(700), makeStalled(700), makeStalled(700)]
     let callIdx = 0
     const resumePipeline = vi.fn().mockResolvedValue(0)
 

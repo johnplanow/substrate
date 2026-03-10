@@ -8,6 +8,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    env: {
+      LOG_LEVEL: 'silent',
+    },
+    teardownTimeout: 5000,
     include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
     pool: 'forks',
     poolOptions: {

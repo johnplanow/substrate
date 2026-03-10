@@ -791,6 +791,23 @@ export function createImplementationOrchestrator(
         phase: 'IN_STORY_CREATION',
         result: createResult,
       })
+
+      // Record create-story token usage for accurate per-story cost attribution
+      if (config.pipelineRunId !== undefined && createResult.tokenUsage !== undefined) {
+        try {
+          addTokenUsage(db, config.pipelineRunId, {
+            phase: 'create-story',
+            agent: 'create-story',
+            input_tokens: createResult.tokenUsage.input,
+            output_tokens: createResult.tokenUsage.output,
+            cost_usd: 0,
+            metadata: JSON.stringify({ storyKey }),
+          })
+        } catch (tokenErr) {
+          logger.warn({ storyKey, err: tokenErr }, 'Failed to record create-story token usage')
+        }
+      }
+
       persistState()
 
       if (createResult.result === 'failed') {
@@ -910,12 +927,14 @@ export function createImplementationOrchestrator(
     persistState()
 
     let testPlanPhaseResult: 'success' | 'failed' = 'failed'
+    let testPlanTokenUsage: { input: number; output: number } | undefined
     try {
       const testPlanResult = await runTestPlan(
         { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
         { storyKey, storyFilePath: storyFilePath ?? '', pipelineRunId: config.pipelineRunId ?? '' },
       )
       testPlanPhaseResult = testPlanResult.result
+      testPlanTokenUsage = testPlanResult.tokenUsage
       if (testPlanResult.result === 'success') {
         logger.info({ storyKey }, 'Test plan generated successfully')
       } else {
@@ -926,6 +945,22 @@ export function createImplementationOrchestrator(
     }
 
     endPhase(storyKey, 'test-plan')
+
+    // Record test-plan token usage for accurate per-story cost attribution
+    if (config.pipelineRunId !== undefined && testPlanTokenUsage !== undefined) {
+      try {
+        addTokenUsage(db, config.pipelineRunId, {
+          phase: 'test-plan',
+          agent: 'test-plan',
+          input_tokens: testPlanTokenUsage.input,
+          output_tokens: testPlanTokenUsage.output,
+          cost_usd: 0,
+          metadata: JSON.stringify({ storyKey }),
+        })
+      } catch (tokenErr) {
+        logger.warn({ storyKey, err: tokenErr }, 'Failed to record test-plan token usage')
+      }
+    }
 
     eventBus.emit('orchestrator:story-phase-complete', {
       storyKey,
@@ -1104,6 +1139,22 @@ export function createImplementationOrchestrator(
         )
 
         devFilesModified = devResult.files_modified ?? []
+
+        // Record single-dispatch dev-story token usage for per-story cost attribution
+        if (config.pipelineRunId !== undefined && devResult.tokenUsage !== undefined) {
+          try {
+            addTokenUsage(db, config.pipelineRunId, {
+              phase: 'dev-story',
+              agent: 'dev-story',
+              input_tokens: devResult.tokenUsage.input,
+              output_tokens: devResult.tokenUsage.output,
+              cost_usd: 0,
+              metadata: JSON.stringify({ storyKey }),
+            })
+          } catch (tokenErr) {
+            logger.warn({ storyKey, err: tokenErr }, 'Failed to record dev-story token usage')
+          }
+        }
 
         eventBus.emit('orchestrator:story-phase-complete', {
           storyKey,
@@ -1367,6 +1418,22 @@ export function createImplementationOrchestrator(
               ...(previousIssueList.length > 0 ? { previousIssues: previousIssueList } : {}),
             },
           )
+        }
+
+        // Record code-review token usage for per-story cost attribution
+        if (config.pipelineRunId !== undefined && reviewResult.tokenUsage !== undefined) {
+          try {
+            addTokenUsage(db, config.pipelineRunId, {
+              phase: 'code-review',
+              agent: useBatchedReview ? 'code-review-batched' : 'code-review',
+              input_tokens: reviewResult.tokenUsage.input,
+              output_tokens: reviewResult.tokenUsage.output,
+              cost_usd: 0,
+              metadata: JSON.stringify({ storyKey, reviewCycle: reviewCycles }),
+            })
+          } catch (tokenErr) {
+            logger.warn({ storyKey, err: tokenErr }, 'Failed to record code-review token usage')
+          }
         }
 
         // Phantom review detection: dispatch failures (crash, timeout, non-zero exit)
@@ -2022,11 +2089,14 @@ export function createImplementationOrchestrator(
     }
 
     // Seed methodology context from planning artifacts (idempotent)
+    const _startupTimings: Record<string, number> = {}
     if (projectRoot !== undefined) {
+      const seedStart = Date.now()
       const seedResult = seedMethodologyContext(db, projectRoot)
+      _startupTimings.seedMethodologyMs = Date.now() - seedStart
       if (seedResult.decisionsCreated > 0) {
         logger.info(
-          { decisionsCreated: seedResult.decisionsCreated, skippedCategories: seedResult.skippedCategories },
+          { decisionsCreated: seedResult.decisionsCreated, skippedCategories: seedResult.skippedCategories, durationMs: _startupTimings.seedMethodologyMs },
           'Methodology context seeded from planning artifacts',
         )
       }
@@ -2039,7 +2109,9 @@ export function createImplementationOrchestrator(
       // Initialize StateStore (Story 26-4, AC7): open connections before any dispatch.
       // Inside try/finally so stateStore.close() is always called if initialize() throws.
       if (stateStore !== undefined) {
+        const stateStoreInitStart = Date.now()
         await stateStore.initialize()
+        _startupTimings.stateStoreInitMs = Date.now() - stateStoreInitStart
         // Now that the connection is open, persist PENDING states that were deferred above.
         for (const key of storyKeys) {
           const pendingState = _stories.get(key)
@@ -2051,7 +2123,9 @@ export function createImplementationOrchestrator(
         }
         // Populate cache from StateStore for resume-from-prior-run scenarios (AC3).
         try {
+          const queryStoriesStart = Date.now()
           const existingRecords = await stateStore.queryStories({})
+          _startupTimings.queryStoriesMs = Date.now() - queryStoriesStart
           for (const record of existingRecords) {
             _stateStoreCache.set(record.storyKey, record)
           }
@@ -2086,7 +2160,9 @@ export function createImplementationOrchestrator(
       let contractDeclarations: ContractDeclaration[] = []
 
       if (stateStore !== undefined) {
+        const queryContractsStart = Date.now()
         const allContractRecords = await stateStore.queryContracts()
+        _startupTimings.queryContractsMs = Date.now() - queryContractsStart
         contractDeclarations = allContractRecords.map((r) => ({
           storyKey: r.storyKey,
           contractName: r.contractName,
@@ -2123,11 +2199,13 @@ export function createImplementationOrchestrator(
 
       // Detect conflict groups with contract-aware dispatch ordering (Story 25-5).
       // Cross-project runs (no conflictGroups in pack) get maximum parallelism within each batch.
+      const conflictDetectStart = Date.now()
       const { batches, edges: contractEdges } = detectConflictGroupsWithContracts(
         storyKeys,
         { moduleMap: pack.manifest.conflictGroups },
         contractDeclarations,
       )
+      _startupTimings.conflictDetectMs = Date.now() - conflictDetectStart
 
       // AC5: Log contract dependency edges as structured events for observability
       if (contractEdges.length > 0) {
@@ -2145,11 +2223,13 @@ export function createImplementationOrchestrator(
       }, 'Orchestrator starting')
 
       if (config.skipPreflight !== true) {
+        const preflightStart = Date.now()
         const preFlightResult = runBuildVerification({
           verifyCommand: pack.manifest.verifyCommand,
           verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
           projectRoot: projectRoot ?? process.cwd(),
         })
+        _startupTimings.preflightMs = Date.now() - preflightStart
 
         if (preFlightResult.status === 'failed' || preFlightResult.status === 'timeout') {
           stopHeartbeat()
@@ -2176,6 +2256,9 @@ export function createImplementationOrchestrator(
           logger.info('Pre-flight build check passed')
         }
       }
+
+      // Log startup timing breakdown for latency profiling (Fix 5)
+      logger.info(_startupTimings, 'Orchestrator startup timings (ms)')
 
       try {
         // Story 25-5: Run batches sequentially (contract ordering), groups within each batch in parallel.

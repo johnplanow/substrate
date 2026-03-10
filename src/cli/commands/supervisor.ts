@@ -486,6 +486,7 @@ export async function runSupervisorAction(
   const { getHealth, sleep, runAnalysis, getTokenSnapshot, writeRunSummary } = resolvedDeps
 
   let state: ProjectCycleState = { projectRoot, runId, restartCount: 0 }
+  let maxRestartsExhausted = false
   const startTime = Date.now()
 
   function emitEvent(event: Record<string, unknown>): void {
@@ -665,6 +666,14 @@ export async function runSupervisorAction(
       return (summary.failed.length > 0 || summary.escalated.length > 0) ? 1 : 0
     }
 
+    // --- Max restarts exhaustion check ---
+    // If max restarts were exhausted on a previous cycle and the pipeline
+    // didn't reach terminal state (checked above), exit with code 2.
+    // This must run BEFORE stall recovery to avoid re-entering handleStallRecovery.
+    if (maxRestartsExhausted) {
+      return 2
+    }
+
     // --- Stall detection and recovery ---
     const stallResult = await handleStallRecovery(
       health,
@@ -681,8 +690,15 @@ export async function runSupervisorAction(
       { emitEvent, log },
     )
     if (stallResult !== null) {
-      if (stallResult.maxRestartsExceeded) return 2
-      state = stallResult.state
+      if (stallResult.maxRestartsExceeded) {
+        // Don't return immediately — do one more poll cycle so the terminal
+        // state check (above) can detect if the pipeline actually completed
+        // before the stall was detected. This avoids returning exit code 2
+        // when the pipeline finished successfully.
+        maxRestartsExhausted = true
+      } else {
+        state = stallResult.state
+      }
     }
 
     // Wait for next poll interval
@@ -730,6 +746,7 @@ export async function runMultiProjectSupervisor(
   )
   const doneProjects = new Set<string>()
   const projectExitCodes = new Map<string, number>()
+  const maxRestartsExhaustedProjects = new Set<string>()
   const startTime = Date.now()
 
   function emitEvent(event: Record<string, unknown>): void {
@@ -803,6 +820,14 @@ export async function runMultiProjectSupervisor(
         continue
       }
 
+      // If max restarts were exhausted on a previous cycle and the pipeline
+      // still hasn't reached terminal state, mark as done with exit code 2.
+      if (maxRestartsExhaustedProjects.has(projectRoot)) {
+        doneProjects.add(projectRoot)
+        projectExitCodes.set(projectRoot, 2)
+        continue
+      }
+
       // Stall recovery
       const stallResult = await handleStallRecovery(
         health,
@@ -816,8 +841,9 @@ export async function runMultiProjectSupervisor(
       )
       if (stallResult !== null) {
         if (stallResult.maxRestartsExceeded) {
-          doneProjects.add(projectRoot)
-          projectExitCodes.set(projectRoot, 2)
+          // Don't mark as done immediately — give one more poll cycle for
+          // the terminal state check to detect if the pipeline completed.
+          maxRestartsExhaustedProjects.add(projectRoot)
         } else {
           states.set(projectRoot, stallResult.state)
         }
