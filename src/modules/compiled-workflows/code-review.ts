@@ -166,6 +166,22 @@ export async function runCodeReview(
     }
   }
 
+  // Build repo-map context (Story 28-7)
+  let repoContextContent = ''
+  if (deps.repoMapInjector !== undefined) {
+    const injection = await deps.repoMapInjector.buildContext(storyContent, deps.maxRepoMapTokens ?? 2000)
+    repoContextContent = injection.text
+    logger.info(
+      {
+        storyKey,
+        repoMapTokens: Math.ceil(injection.text.length / 4),
+        symbolCount: injection.symbolCount,
+        truncated: injection.truncated,
+      },
+      'Repo-map context assembled',
+    )
+  }
+
   // Build previous findings section for scoped re-reviews
   let previousFindingsContent = ''
   if (previousIssues !== undefined && previousIssues.length > 0) {
@@ -197,6 +213,7 @@ export async function runCodeReview(
     { name: 'git_diff', content: gitDiffContent, priority: 'important' as const },
     { name: 'previous_findings', content: previousFindingsContent, priority: 'optional' as const },
     { name: 'arch_constraints', content: archConstraintsContent, priority: 'optional' as const },
+    { name: 'repo_context', content: repoContextContent, priority: 'optional' as const },
     { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' as const },
   ]
 

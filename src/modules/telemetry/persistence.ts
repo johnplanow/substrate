@@ -93,6 +93,15 @@ export interface ITelemetryPersistence {
 
   /** Retrieve consumer stats for a story ordered by total_tokens descending. */
   getConsumerStats(storyKey: string): Promise<ConsumerStats[]>
+
+  // -- OTEL span recording (story 28-6) --------------------------------------
+
+  /**
+   * Record a named span with arbitrary attributes.
+   * Used by RoutingTelemetry and RepoMapTelemetry to emit routing/repo-map spans.
+   * Implementations may persist to DB, log, or no-op.
+   */
+  recordSpan(span: { name: string; attributes: Record<string, unknown> }): void
 }
 
 // ---------------------------------------------------------------------------
@@ -753,5 +762,17 @@ export class TelemetryPersistence implements ITelemetryPersistence {
       }
       return ConsumerStatsSchema.parse(raw)
     })
+  }
+
+  // ---------------------------------------------------------------------------
+  // ITelemetryPersistence — OTEL span recording (story 28-6)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Record a named span with arbitrary attributes.
+   * Currently logs the span at debug level; future migrations may persist to DB.
+   */
+  recordSpan(span: { name: string; attributes: Record<string, unknown> }): void {
+    logger.debug({ span }, 'recordSpan')
   }
 }

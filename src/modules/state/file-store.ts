@@ -2,15 +2,12 @@
  * FileStateStore — file/in-memory backend for the StateStore interface.
  *
  * Story state is kept in an in-memory Map (mirroring the _stories Map in
- * orchestrator-impl.ts). Metrics are stored in-memory when no SQLite DB is
- * provided, or delegated to writeStoryMetrics when a DB is available.
+ * orchestrator-impl.ts). Metrics are stored entirely in-memory.
  * Contracts are stored in-memory. Branch operations are no-ops.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { writeFile } from 'node:fs/promises'
+import { writeFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { writeStoryMetrics } from '../../persistence/queries/metrics.js'
 import type {
   StateStore,
   StoryRecord,
@@ -29,8 +26,6 @@ import type {
 // ---------------------------------------------------------------------------
 
 export interface FileStateStoreOptions {
-  /** Optional SQLite DB for metric persistence. When absent, metrics are in-memory. */
-  db?: BetterSqlite3Database
   /** Optional base path (reserved for future file-system persistence). */
   basePath?: string
 }
@@ -42,20 +37,20 @@ export interface FileStateStoreOptions {
 /**
  * In-memory / file-backed StateStore implementation.
  *
- * Suitable for the current pipeline where orchestrator state is ephemeral and
- * metrics can optionally be flushed to SQLite. Replace with DoltStateStore
- * (story 26-3) to gain branch-per-story isolation and versioned history.
+ * Suitable for CI environments and testing where orchestrator state is
+ * ephemeral. Use DoltStateStore for branch-per-story isolation and versioned
+ * history in production.
  */
 export class FileStateStore implements StateStore {
-  private readonly _db: BetterSqlite3Database | undefined
   private readonly _basePath: string | undefined
   private readonly _stories: Map<string, StoryRecord> = new Map()
   private readonly _metrics: MetricRecord[] = []
   private readonly _contracts: Map<string, ContractRecord[]> = new Map()
   private readonly _contractVerifications: Map<string, ContractVerificationRecord[]> = new Map()
+  /** Key-value metrics store: outer key = runId, inner key = metric key */
+  private readonly _kvMetrics: Map<string, Map<string, unknown>> = new Map()
 
   constructor(options: FileStateStoreOptions = {}) {
-    this._db = options.db
     this._basePath = options.basePath
   }
 
@@ -106,26 +101,11 @@ export class FileStateStore implements StateStore {
   // -- Metrics ---------------------------------------------------------------
 
   async recordMetric(metric: MetricRecord): Promise<void> {
-    // Always store in the in-memory array so queryMetrics works without a DB.
     const record: MetricRecord = {
       ...metric,
       recordedAt: metric.recordedAt ?? new Date().toISOString(),
     }
     this._metrics.push(record)
-
-    // Additionally persist to SQLite when a DB is available.
-    if (this._db) {
-      writeStoryMetrics(this._db, {
-        run_id: 'default',
-        story_key: metric.storyKey,
-        result: metric.result ?? 'unknown',
-        wall_clock_seconds: metric.wallClockMs !== undefined ? metric.wallClockMs / 1000 : undefined,
-        input_tokens: metric.tokensIn,
-        output_tokens: metric.tokensOut,
-        cost_usd: metric.costUsd,
-        review_cycles: metric.reviewCycles,
-      })
-    }
   }
 
   async queryMetrics(filter: MetricFilter): Promise<MetricRecord[]> {
@@ -142,6 +122,64 @@ export class FileStateStore implements StateStore {
       if (filter.since !== undefined && m.recordedAt !== undefined && m.recordedAt < filter.since) return false
       return true
     })
+  }
+
+  // -- Key-value metrics (story 28-6) ----------------------------------------
+
+  /**
+   * Persist an arbitrary key-value metric for a run.
+   * Stored in memory AND written to `{basePath}/kv-metrics.json` when basePath is set.
+   */
+  async setMetric(runId: string, key: string, value: unknown): Promise<void> {
+    // Update in-memory store
+    let runMap = this._kvMetrics.get(runId)
+    if (runMap === undefined) {
+      runMap = new Map()
+      this._kvMetrics.set(runId, runMap)
+    }
+    runMap.set(key, value)
+
+    // Persist to file when basePath is configured
+    if (this._basePath !== undefined) {
+      await this._flushKvMetrics()
+    }
+  }
+
+  /**
+   * Retrieve a previously stored key-value metric for a run.
+   * Reads from in-memory cache, falling back to the JSON file when basePath is set.
+   */
+  async getMetric(runId: string, key: string): Promise<unknown> {
+    // Check in-memory first
+    const inMemory = this._kvMetrics.get(runId)?.get(key)
+    if (inMemory !== undefined) return inMemory
+
+    // Attempt file-based read when basePath is configured
+    if (this._basePath !== undefined) {
+      try {
+        const filePath = join(this._basePath, 'kv-metrics.json')
+        const content = await readFile(filePath, 'utf-8')
+        const parsed = JSON.parse(content) as Record<string, Record<string, unknown>>
+        return parsed[runId]?.[key] ?? undefined
+      } catch {
+        // ignore read errors (file not found, parse error, etc.) — return undefined
+      }
+    }
+    return undefined
+  }
+
+  /** Serialize the in-memory kv metrics map to JSON on disk. */
+  private async _flushKvMetrics(): Promise<void> {
+    if (this._basePath === undefined) return
+    const serialized: Record<string, Record<string, unknown>> = {}
+    for (const [runId, runMap] of this._kvMetrics) {
+      serialized[runId] = {}
+      for (const [key, value] of runMap) {
+        serialized[runId][key] = value
+      }
+    }
+    const filePath = join(this._basePath, 'kv-metrics.json')
+    await writeFile(filePath, JSON.stringify(serialized, null, 2), 'utf-8')
   }
 
   // -- Contracts -------------------------------------------------------------

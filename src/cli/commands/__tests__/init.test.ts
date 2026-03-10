@@ -321,6 +321,40 @@ describe('Dolt bootstrapping', () => {
     expect(parsed.data.doltInitialized).toBe(false)
   })
 
+  it('AC6: doltMode auto + Dolt NOT installed — human output shows ℹ Dolt not detected hint', async () => {
+    const { DoltNotInstalled } = await import('../../../modules/state/dolt-init.js')
+    mockCheckDoltInstalled.mockRejectedValue(new DoltNotInstalled())
+
+    const exitCode = await runInitAction({
+      pack: 'bmad',
+      projectRoot: '/test/project',
+      outputFormat: 'human',
+      yes: true,
+      registry: mockRegistry,
+      doltMode: 'auto',
+    })
+
+    expect(exitCode).toBe(INIT_EXIT_SUCCESS)
+    const allOutput = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
+    expect(allOutput).toContain('Dolt not detected')
+    expect(allOutput).toContain('https://docs.dolthub.com/introduction/installation')
+  })
+
+  it('AC6: doltMode skip — human output does NOT show ℹ Dolt not detected hint', async () => {
+    const exitCode = await runInitAction({
+      pack: 'bmad',
+      projectRoot: '/test/project',
+      outputFormat: 'human',
+      yes: true,
+      registry: mockRegistry,
+      doltMode: 'skip',
+    })
+
+    expect(exitCode).toBe(INIT_EXIT_SUCCESS)
+    const allOutput = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
+    expect(allOutput).not.toContain('Dolt not detected')
+  })
+
   // -------------------------------------------------------------------------
   // AC7: doltMode 'auto' + initializeDolt throws non-DoltNotInstalled error
   // -------------------------------------------------------------------------

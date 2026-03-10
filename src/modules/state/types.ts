@@ -242,14 +242,13 @@ export interface HistoryEntry {
  */
 export interface StateStoreConfig {
   /**
-   * Storage backend to use. Defaults to `'file'`.
+   * Storage backend to use. Defaults to `'auto'`.
    *
-   * - `'file'`  — in-memory Map + optional SQLite metrics (default, always available)
+   * - `'auto'`  — auto-detect (default): uses `'dolt'` when the Dolt binary is on PATH
+   *               and a Dolt repo exists at `<basePath>/.substrate/state/.dolt/`; falls
+   *               back to `'file'` otherwise.
+   * - `'file'`  — in-memory Map + optional SQLite metrics (always available, no Dolt needed)
    * - `'dolt'`  — Dolt-backed versioned state (requires Dolt binary on PATH)
-   * - `'auto'`  — auto-detect: uses `'dolt'` when the Dolt binary is on PATH and a
-   *               Dolt repo exists at `<basePath>/.substrate/state/.dolt/`; falls back
-   *               to `'file'` otherwise. The default will be changed to `'auto'` in
-   *               Epic 29 once Dolt is proven under production load.
    */
   backend?: 'file' | 'dolt' | 'auto'
   /** Base path for file-based storage (optional). */
@@ -293,6 +292,19 @@ export interface StateStore {
 
   /** Query stored metrics, optionally filtered. */
   queryMetrics(filter: MetricFilter): Promise<MetricRecord[]>
+
+  /**
+   * Persist an arbitrary key-value metric for a run.
+   * Implementations may store in memory, on disk, or in a database.
+   * Keys are scoped by `runId` to avoid collisions across runs.
+   */
+  setMetric(runId: string, key: string, value: unknown): Promise<void>
+
+  /**
+   * Retrieve a previously stored key-value metric for a run.
+   * Returns undefined when no value was stored for the given runId+key.
+   */
+  getMetric(runId: string, key: string): Promise<unknown>
 
   // -- Contracts -------------------------------------------------------------
 

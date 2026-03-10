@@ -17,6 +17,23 @@ import type { ContextCompiler } from '../../context-compiler/context-compiler.js
 import type { Dispatcher, DispatchResult } from '../../agent-dispatch/types.js'
 
 // ---------------------------------------------------------------------------
+// Shared mock logger (must be hoisted before vi.mock factory references it)
+// ---------------------------------------------------------------------------
+
+const { mockLogger } = vi.hoisted(() => ({
+  mockLogger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}))
+
+vi.mock('../../../utils/logger.js', () => ({
+  createLogger: () => mockLogger,
+}))
+
+// ---------------------------------------------------------------------------
 // Mock fs/promises
 // ---------------------------------------------------------------------------
 
@@ -1000,6 +1017,99 @@ describe('runDevStory', () => {
       await runDevStory(deps, { ...DEFAULT_PARAMS, priorFiles: [] })
 
       expect(capturedPrompt).not.toContain('prior batch')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // AC4/AC7 (28-7): repoMapInjector integration
+  // -------------------------------------------------------------------------
+
+  describe('AC4/AC7 (28-7): repoMapInjector integration', () => {
+    it('calls buildContext with story content and default token budget when repoMapInjector is provided', async () => {
+      const injectionText = '# repo-map: 3 symbols\nsrc/foo.ts:10 function bar()'
+      const mockBuildContext = vi.fn().mockResolvedValue({
+        text: injectionText,
+        symbolCount: 3,
+        truncated: false,
+      })
+      const deps = createMockDeps({
+        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+      })
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(createSuccessDispatchResult()),
+      })
+
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(mockBuildContext).toHaveBeenCalledWith(STORY_CONTENT, 2000)
+    })
+
+    it('passes maxRepoMapTokens to buildContext when provided in deps', async () => {
+      const mockBuildContext = vi.fn().mockResolvedValue({ text: '', symbolCount: 0, truncated: false })
+      const deps = createMockDeps({
+        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+        maxRepoMapTokens: 1500,
+      })
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(createSuccessDispatchResult()),
+      })
+
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(mockBuildContext).toHaveBeenCalledWith(STORY_CONTENT, 1500)
+    })
+
+    it('emits info log with storyKey, symbolCount, truncated, repoMapTokens when repoMapInjector is set', async () => {
+      const injectionText = '# repo-map: 3 symbols\nsrc/foo.ts:10 function bar()'
+      const mockBuildContext = vi.fn().mockResolvedValue({
+        text: injectionText,
+        symbolCount: 3,
+        truncated: false,
+      })
+      const deps = createMockDeps({
+        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+      })
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(createSuccessDispatchResult()),
+      })
+
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          storyKey: DEFAULT_PARAMS.storyKey,
+          symbolCount: 3,
+          truncated: false,
+          repoMapTokens: Math.ceil(injectionText.length / 4),
+        }),
+        'Repo-map context assembled',
+      )
+    })
+
+    it('does not emit repo-map info log when repoMapInjector is absent from deps', async () => {
+      const deps = createMockDeps()
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(createSuccessDispatchResult()),
+      })
+
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(mockLogger.info).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'Repo-map context assembled',
+      )
     })
   })
 

@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto'
 import type { ChildProcess } from 'node:child_process'
 import type { TypedEventBus } from '../../core/event-bus.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
+import type { RoutingResolver } from '../../modules/routing/index.js'
 import type {
   Dispatcher,
   DispatchRequest,
@@ -192,6 +193,7 @@ export class DispatcherImpl implements Dispatcher {
   private readonly _eventBus: TypedEventBus
   private readonly _adapterRegistry: AdapterRegistry
   private readonly _config: DispatchConfig
+  private readonly _routingResolver: RoutingResolver | null
 
   private readonly _running: Map<string, ActiveDispatch> = new Map()
   private readonly _queue: QueuedDispatch[] = []
@@ -207,6 +209,7 @@ export class DispatcherImpl implements Dispatcher {
     this._eventBus = eventBus
     this._adapterRegistry = adapterRegistry
     this._config = config
+    this._routingResolver = config.routingResolver ?? null
   }
 
   // ---------------------------------------------------------------------------
@@ -384,6 +387,27 @@ export class DispatcherImpl implements Dispatcher {
   ): Promise<void> {
     const { prompt, agent, taskType, timeout, outputSchema, workingDirectory, model, maxTurns, otlpEndpoint, storyKey } = request
 
+    // Resolve effective model: explicit request.model wins; then routing resolver; then undefined (adapter default)
+    let effectiveModel: string | undefined = model
+
+    if (effectiveModel === undefined && this._routingResolver !== null) {
+      const resolution = this._routingResolver.resolveModel(taskType)
+      if (resolution !== null) {
+        effectiveModel = resolution.model
+        // Emit routing:model-selected before agent:spawned
+        this._eventBus.emit('routing:model-selected', {
+          dispatchId: id,
+          taskType,
+          model: resolution.model,
+          phase: resolution.phase,
+          source: resolution.source,
+        })
+        logger.debug({ id, taskType, model: resolution.model, routingSource: resolution.source }, 'Routing resolved model')
+      } else {
+        logger.debug({ id, taskType, routingSource: 'fallback' }, 'Routing returned null — using adapter default')
+      }
+    }
+
     // Look up adapter
     const adapter = this._adapterRegistry.get(agent as Parameters<typeof this._adapterRegistry.get>[0])
     if (adapter === undefined) {
@@ -412,7 +436,7 @@ export class DispatcherImpl implements Dispatcher {
     const cmd = adapter.buildCommand(prompt, {
       worktreePath,
       billingMode: 'subscription',
-      ...(model !== undefined ? { model } : {}),
+      ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
       ...(resolvedMaxTurns !== undefined ? { maxTurns: resolvedMaxTurns } : {}),
       ...(otlpEndpoint !== undefined ? { otlpEndpoint } : {}),
       ...(storyKey !== undefined ? { storyKey } : {}),
@@ -600,6 +624,8 @@ export class DispatcherImpl implements Dispatcher {
           dispatchId: id,
           exitCode: code,
           output: stdout,
+          inputTokens,
+          outputTokens: Math.ceil(stdout.length / CHARS_PER_TOKEN),
         } as never)
 
         logger.debug({ id, agent, taskType, durationMs }, 'Agent completed')
@@ -1034,7 +1060,7 @@ export function checkGitDiffFiles(workingDir: string = process.cwd()): string[] 
 export interface CreateDispatcherOptions {
   eventBus: TypedEventBus
   adapterRegistry: AdapterRegistry
-  config?: Partial<DispatchConfig>
+  config?: Partial<DispatchConfig> & { routingResolver?: RoutingResolver }
 }
 
 /**
@@ -1049,6 +1075,7 @@ export function createDispatcher(options: CreateDispatcherOptions): Dispatcher {
       ...DEFAULT_TIMEOUTS,
       ...(options.config?.defaultTimeouts ?? {}),
     },
+    routingResolver: options.config?.routingResolver ?? undefined,
   }
 
   return new DispatcherImpl(options.eventBus, options.adapterRegistry, config)

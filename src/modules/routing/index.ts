@@ -34,3 +34,34 @@ export {
 
 export type { RoutingEngineImplOptions } from './routing-engine-impl.js'
 export { RoutingEngineImpl, createRoutingEngineImpl } from './routing-engine-impl.js'
+
+export type { ModelRoutingConfig, ModelPhaseConfig } from './model-routing-config.js'
+export {
+  ModelRoutingConfigSchema,
+  RoutingConfigError,
+  loadModelRoutingConfig,
+} from './model-routing-config.js'
+
+export type { ModelResolution } from './model-routing-resolver.js'
+export {
+  RoutingResolver,
+  TASK_TYPE_PHASE_MAP,
+} from './model-routing-resolver.js'
+
+export type {
+  PhaseTokenEntry,
+  PhaseTokenBreakdown,
+  RoutingRecommendation,
+  RoutingAnalysis,
+  TuneLogEntry,
+} from './types.js'
+
+export { RoutingTokenAccumulator } from './routing-token-accumulator.js'
+
+export { RoutingTelemetry } from './routing-telemetry.js'
+
+export { RoutingRecommender } from './routing-recommender.js'
+
+export { RoutingTuner } from './routing-tuner.js'
+
+export { getModelTier } from './model-tier.js'

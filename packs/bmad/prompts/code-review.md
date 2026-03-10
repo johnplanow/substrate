@@ -14,6 +14,8 @@
 ### Architecture Constraints
 {{arch_constraints}}
 
+{{repo_context}}
+
 ### Prior Run Findings
 {{prior_findings}}
 

@@ -29,8 +29,16 @@ import { createEventBus } from '../../core/event-bus.js'
 import { DatabaseWrapper } from '../../persistence/database.js'
 import { runMigrations } from '../../persistence/migrations/index.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
-import { createContextCompiler } from '../../modules/context-compiler/index.js'
+import { createContextCompiler, RepoMapInjector } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
+import { RoutingResolver } from '../../modules/routing/index.js'
+import {
+  DoltSymbolRepository,
+  DoltRepoMapMetaRepository,
+  RepoMapQueryEngine,
+  RepoMapModule,
+} from '../../modules/repo-map/index.js'
+import { DoltClient } from '../../modules/state/index.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { createImplementationOrchestrator, discoverPendingStoryKeys, resolveStoryKeys } from '../../modules/implementation-orchestrator/index.js'
 import { detectStartPhase } from '../../modules/phase-orchestrator/phase-detection.js'
@@ -134,6 +142,8 @@ export interface RunOptions {
   skipPreflight?: boolean
   /** Scope story discovery to a single epic number (e.g., 27) */
   epic?: number
+  /** When true, preview routing and repo-map injection without dispatching (Story 28-9) */
+  dryRun?: boolean
   /** Optional pre-initialized registry; if omitted, a new registry is created and discovered */
   registry?: AdapterRegistry
 }
@@ -157,6 +167,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     skipResearch: skipResearchFlag,
     skipPreflight,
     epic: epicNumber,
+    dryRun,
     registry: injectedRegistry,
   } = options
 
@@ -514,9 +525,102 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
 
+    const routingConfigPath = join(projectRoot, 'substrate.routing.yml')
+    const routingResolver = RoutingResolver.createWithFallback(routingConfigPath, logger)
+
+    // --- Story 28-9: Dolt detection + repo-map wiring ---
+    // Detect Dolt by checking whether the canonical state path has a .dolt subdirectory.
+    // When Dolt is available, construct the repo-map chain for structural context injection
+    // and staleness detection. When Dolt is not available, incur zero performance cost.
+    const statePath = join(dbRoot, '.substrate', 'state')
+    const isDoltAvailable = existsSync(join(statePath, '.dolt'))
+    let repoMapInjector: RepoMapInjector | undefined
+    let repoMapModule: RepoMapModule | undefined
+    const MAX_REPO_MAP_TOKENS = 2000
+    if (isDoltAvailable) {
+      try {
+        const doltClient = new DoltClient({ repoPath: statePath })
+        const symbolRepo = new DoltSymbolRepository(doltClient, logger)
+        const metaRepo = new DoltRepoMapMetaRepository(doltClient)
+        const queryEngine = new RepoMapQueryEngine(symbolRepo, logger)
+        repoMapInjector = new RepoMapInjector(queryEngine, logger)
+        repoMapModule = new RepoMapModule(metaRepo, logger)
+        logger.debug('repo-map injector constructed (Dolt backend detected)')
+      } catch (err) {
+        logger.warn({ err }, 'Failed to construct repo-map injector — continuing without it')
+      }
+    }
+
+    // --- Story 28-9: --dry-run preview ---
+    // When --dry-run is active, resolve routing decisions and estimated symbol counts
+    // for each story × phase combination, then exit without spawning any sub-agents.
+    if (dryRun === true) {
+      const phases = ['explore', 'generate', 'review']
+      const storiesPreview: Array<{ storyKey: string; phases: Array<{ phase: string; model: string; estimatedSymbolCount: number }> }> = []
+      const artifactsDir = join(projectRoot, '_bmad-output', 'implementation-artifacts')
+      for (const storyKey of storyKeys) {
+        let storyContent = ''
+        if (existsSync(artifactsDir)) {
+          try {
+            const { readdir } = await import('fs/promises')
+            const allFiles = await readdir(artifactsDir)
+            const match = allFiles.find((f) => f.startsWith(`${storyKey}-`) && f.endsWith('.md'))
+            if (match !== undefined) {
+              storyContent = await readFile(join(artifactsDir, match), 'utf-8')
+            }
+          } catch {
+            // story file not found — use empty content
+          }
+        }
+        const phasesResult = []
+        for (const phase of phases) {
+          const model = routingResolver.resolveModel(phase)?.model ?? 'default'
+          let estimatedSymbolCount = 0
+          if (repoMapInjector !== undefined) {
+            try {
+              const injection = await repoMapInjector.buildContext(storyContent, MAX_REPO_MAP_TOKENS)
+              estimatedSymbolCount = injection.symbolCount
+            } catch {
+              // ignore injection errors
+            }
+          }
+          phasesResult.push({ phase, model, estimatedSymbolCount })
+        }
+        storiesPreview.push({ storyKey, phases: phasesResult })
+      }
+      if (outputFormat === 'json') {
+        process.stdout.write(JSON.stringify({ stories: storiesPreview }) + '\n')
+      } else {
+        const COL = { story: 8, phase: 10, model: 30, symbols: 12 }
+        const header =
+          'Story'.padEnd(COL.story) +
+          'Phase'.padEnd(COL.phase) +
+          'Model'.padEnd(COL.model) +
+          'Est. Symbols'
+        const sep = '─'.repeat(COL.story + COL.phase + COL.model + COL.symbols)
+        process.stdout.write(header + '\n')
+        process.stdout.write(sep + '\n')
+        for (const s of storiesPreview) {
+          for (const p of s.phases) {
+            process.stdout.write(
+              s.storyKey.padEnd(COL.story) +
+                p.phase.padEnd(COL.phase) +
+                p.model.padEnd(COL.model) +
+                String(p.estimatedSymbolCount) +
+                '\n',
+            )
+          }
+        }
+      }
+      return 0
+    }
+
     const dispatcher = createDispatcher({
       eventBus,
       adapterRegistry: injectedRegistry,
+      config: {
+        routingResolver,
+      },
     })
 
     // AC5: Subscribe to phase-complete events to record token usage
@@ -962,6 +1066,24 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ? new TelemetryPersistence(db)
       : undefined
 
+    // --- Story 28-9: staleness check (AC5) ---
+    // Non-blocking: compare stored commit SHA against HEAD and emit event if stale.
+    // Runs after story resolution, before first dispatch.
+    if (repoMapModule !== undefined) {
+      try {
+        const stale = await repoMapModule.checkStaleness()
+        if (stale !== null) {
+          eventBus.emit('pipeline:repo-map-stale', stale)
+          logger.warn(stale, 'Repo-map is stale — run `substrate repo-map --update` to refresh')
+        }
+      } catch (err) {
+        logger.warn(
+          { error: err instanceof Error ? err.message : String(err) },
+          'Staleness check failed — skipping',
+        )
+      }
+    }
+
     // Create orchestrator
     const orchestrator = createImplementationOrchestrator({
       db,
@@ -982,6 +1104,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       tokenCeilings,
       ...(ingestionServer !== undefined ? { ingestionServer } : {}),
       ...(telemetryPersistence !== undefined ? { telemetryPersistence } : {}),
+      ...(repoMapInjector !== undefined ? { repoMapInjector, maxRepoMapTokens: MAX_REPO_MAP_TOKENS } : {}),
     })
 
     // Display startup header (only in legacy human mode without progress renderer or NDJSON emitter)
@@ -1232,7 +1355,16 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
       throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
 
-    const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
+    const routingConfigPath = join(projectRoot, 'substrate.routing.yml')
+    const routingResolver = RoutingResolver.createWithFallback(routingConfigPath, logger)
+
+    const dispatcher = createDispatcher({
+      eventBus,
+      adapterRegistry: injectedRegistry,
+      config: {
+        routingResolver,
+      },
+    })
 
     const phaseDeps = { db, pack, contextCompiler, dispatcher }
 
@@ -1704,6 +1836,7 @@ export function registerRunCommand(
     .option('--research', 'Enable the research phase even if not set in the pack manifest')
     .option('--skip-research', 'Skip the research phase even if enabled in the pack manifest')
     .option('--skip-preflight', 'Skip the pre-flight build check (escape hatch for known-broken projects)')
+    .option('--dry-run', 'Preview routing and repo-map injection without dispatching (Story 28-9)')
     .action(
       async (opts: {
         pack: string
@@ -1724,6 +1857,7 @@ export function registerRunCommand(
         research?: boolean
         skipResearch?: boolean
         skipPreflight?: boolean
+        dryRun?: boolean
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -1767,6 +1901,7 @@ export function registerRunCommand(
           research: opts.research,
           skipResearch: opts.skipResearch,
           skipPreflight: opts.skipPreflight,
+          dryRun: opts.dryRun,
           registry,
         })
         process.exitCode = exitCode

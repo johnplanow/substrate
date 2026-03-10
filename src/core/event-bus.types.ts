@@ -256,6 +256,34 @@ export interface OrchestratorEvents {
   'version:update_available': { currentVersion: string; latestVersion: string; breaking: boolean }
 
   // -------------------------------------------------------------------------
+  // Model routing events (Epic 28, story 28-5 / 28-6 / 28-8)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted when a sub-agent dispatch is resolved to a specific model via RoutingResolver.
+   * Carries enough context to attribute downstream token usage to a pipeline phase.
+   */
+  'routing:model-selected': {
+    dispatchId: string
+    taskType: string
+    phase: string
+    model: string
+    source: 'phase' | 'override'
+  }
+
+  /**
+   * Emitted by RoutingTuner when it successfully applies an auto-tune downgrade.
+   * Carries the phase and old/new model names for downstream consumers (e.g. NDJSON event stream).
+   */
+  'routing:auto-tuned': {
+    runId: string
+    phase: string
+    oldModel: string
+    newModel: string
+    estimatedSavingsPct: number
+  }
+
+  // -------------------------------------------------------------------------
   // Agent dispatch events (sub-agent dispatch engine)
   // -------------------------------------------------------------------------
 
@@ -266,7 +294,15 @@ export interface OrchestratorEvents {
   'agent:output': { dispatchId: string; data: string }
 
   /** A sub-agent completed successfully */
-  'agent:completed': { dispatchId: string; exitCode: number; output: string }
+  'agent:completed': {
+    dispatchId: string
+    exitCode: number
+    output: string
+    /** Estimated input tokens (char-length heuristic) */
+    inputTokens?: number
+    /** Estimated output tokens (char-length heuristic) */
+    outputTokens?: number
+  }
 
   /** A sub-agent exited with a non-zero code or encountered an error */
   'agent:failed': { dispatchId: string; error: string; exitCode: number }
@@ -479,6 +515,24 @@ export interface OrchestratorEvents {
   'pipeline:state-conflict': {
     storyKey: string
     conflict: unknown
+  }
+
+  // -------------------------------------------------------------------------
+  // Repo-map events (Epic 28, Story 28-9)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted at pipeline startup when the repo-map symbol index is detected as
+   * stale (HEAD SHA has changed since the last index update). Non-blocking —
+   * the pipeline continues; consumers may choose to trigger an update.
+   */
+  'pipeline:repo-map-stale': {
+    /** SHA stored in the repo-map meta (last index update) */
+    storedSha: string
+    /** Current HEAD commit SHA */
+    headSha: string
+    /** Number of files in the stored index */
+    fileCount: number
   }
 
   /** Per-story metrics snapshot emitted when a story reaches a terminal state (Story 24-4) */

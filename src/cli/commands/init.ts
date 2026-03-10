@@ -831,6 +831,10 @@ export async function runInitAction(options: InitOptions): Promise<number> {
 
       if (doltInitialized) {
         process.stdout.write(`✓ Dolt state store initialized at .substrate/state/\n`)
+      } else if (doltMode !== 'skip') {
+        process.stdout.write(
+          `ℹ  Dolt not detected — install Dolt for versioned state, \`substrate diff\`, and observability persistence. See: https://docs.dolthub.com/introduction/installation\n`,
+        )
       }
 
       process.stdout.write(

@@ -327,8 +327,11 @@ describe('schema.sql content validation', () => {
     })
   }
 
-  it('does not use AUTO_INCREMENT anywhere', () => {
-    expect(schemaContent).not.toMatch(/AUTO_INCREMENT/i)
+  it('does not use AUTO_INCREMENT outside repo_map_symbols', () => {
+    // repo_map_symbols uses BIGINT AUTO_INCREMENT per story 28-2 spec
+    const withoutRepoMapSymbols = schemaContent
+      .replace(/CREATE TABLE IF NOT EXISTS repo_map_symbols[\s\S]*?\);/i, '')
+    expect(withoutRepoMapSymbols).not.toMatch(/AUTO_INCREMENT/i)
   })
 
   it('inserts schema version 1 with INSERT IGNORE', () => {

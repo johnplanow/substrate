@@ -31,8 +31,10 @@ import {
 import type { RunMetricsRow } from '../../persistence/queries/metrics.js'
 import { getDecisionsByCategory } from '../../persistence/queries/decisions.js'
 import { STORY_METRICS } from '../../persistence/schemas/operational.js'
-import { createStateStore } from '../../modules/state/index.js'
+import { createStateStore, FileStateStore } from '../../modules/state/index.js'
 import type { MetricFilter, MetricRecord } from '../../modules/state/index.js'
+import type { PhaseTokenBreakdown } from '../../modules/routing/index.js'
+import { RoutingRecommender } from '../../modules/routing/index.js'
 import { createLogger } from '../../utils/logger.js'
 import type { OutputFormat } from './pipeline-shared.js'
 import { formatOutput } from './pipeline-shared.js'
@@ -77,6 +79,8 @@ export interface MetricsOptions {
   categories?: boolean
   /** Compare efficiency scores of two stories side-by-side */
   compareStories?: [string, string]
+  /** Show routing recommendations derived from phase token breakdown history */
+  routingRecommendations?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +193,7 @@ function printCategoryTable(stats: CategoryStats[], label: string): void {
 }
 
 export async function runMetricsAction(options: MetricsOptions): Promise<number> {
-  const { outputFormat, projectRoot, limit = 10, compare, tagBaseline, analysis, sprint, story, taskType, since, aggregate, efficiency, recommendations, turns, consumers, categories, compareStories } = options
+  const { outputFormat, projectRoot, limit = 10, compare, tagBaseline, analysis, sprint, story, taskType, since, aggregate, efficiency, recommendations, turns, consumers, categories, compareStories, routingRecommendations } = options
 
   // ---------------------------------------------------------------------------
   // Flag conflict detection for telemetry modes
@@ -378,6 +382,94 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     }
   }
 
+  // Routing recommendations mode (Story 28-8)
+  if (routingRecommendations === true) {
+    const dbRoot = await resolveMainRepoRoot(projectRoot)
+    const dbDir = join(dbRoot, '.substrate')
+    const doltStatePath = join(dbDir, 'state', '.dolt')
+    const doltExists = existsSync(doltStatePath)
+    const stateBackend = doltExists ? 'dolt' : 'file'
+    const stateBasePath = join(dbDir, 'state')
+
+    const stateStore = createStateStore({ backend: stateBackend, basePath: stateBasePath })
+    await stateStore.initialize()
+
+    try {
+      // Load the run index
+      const runIndexRaw = await stateStore.getMetric('__global__', 'phase_token_breakdown_runs')
+      const runIds: string[] = Array.isArray(runIndexRaw) ? (runIndexRaw as string[]) : []
+      const recentRunIds = runIds.slice(-20)
+
+      const breakdowns: PhaseTokenBreakdown[] = []
+      for (const runId of recentRunIds) {
+        try {
+          const raw = await stateStore.getMetric(runId, 'phase_token_breakdown')
+          if (raw !== undefined && raw !== null) {
+            const parsed: PhaseTokenBreakdown =
+              typeof raw === 'string' ? (JSON.parse(raw) as PhaseTokenBreakdown) : (raw as PhaseTokenBreakdown)
+            breakdowns.push(parsed)
+          }
+        } catch {
+          // skip bad entries
+        }
+      }
+
+      // We need a routing config to know current models per phase.
+      // Use a minimal stub if no config is available.
+      const routingConfigPath = join(dbDir, 'routing.yml')
+      let routingConfig: import('../../modules/routing/index.js').ModelRoutingConfig | null = null
+      if (existsSync(routingConfigPath)) {
+        try {
+          const { loadModelRoutingConfig } = await import('../../modules/routing/index.js')
+          routingConfig = loadModelRoutingConfig(routingConfigPath)
+        } catch {
+          // ignore
+        }
+      }
+
+      if (routingConfig === null) {
+        routingConfig = {
+          version: 1,
+          phases: {},
+          baseline_model: 'claude-sonnet',
+        }
+      }
+
+      const recommender = new RoutingRecommender(createLogger('routing:recommender'))
+      const analysis = recommender.analyze(breakdowns, routingConfig)
+
+      if (outputFormat === 'json') {
+        process.stdout.write(
+          formatOutput(
+            {
+              recommendations: analysis.recommendations,
+              analysisRuns: analysis.analysisRuns,
+              insufficientData: analysis.insufficientData,
+            },
+            'json',
+            true,
+          ) + '\n',
+        )
+      } else {
+        process.stdout.write(`Routing Recommendations:\n`)
+        if (analysis.insufficientData) {
+          process.stdout.write(`No recommendations yet — need at least 3 pipeline runs\n`)
+        } else if (analysis.recommendations.length === 0) {
+          process.stdout.write(`  No recommendations — all phases are in the neutral zone\n`)
+        } else {
+          for (const rec of analysis.recommendations) {
+            process.stdout.write(
+              `  ${rec.phase} | ${rec.currentModel} → ${rec.suggestedModel} | est. savings: ${Math.round(rec.estimatedSavingsPct)}%\n`,
+            )
+          }
+        }
+      }
+    } finally {
+      await stateStore.close().catch(() => { /* ignore */ })
+    }
+    return 0
+  }
+
   // Analysis mode (AC5 of Story 17-3): read and output the analysis report for a run-id
   if (analysis !== undefined) {
     const dbRoot = await resolveMainRepoRoot(projectRoot)
@@ -560,8 +652,26 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       }
     })
 
+    // Story 28-6: Fetch phase_token_breakdown for each run from FileStateStore (kv-metrics.json).
+    // Returns null when no breakdown was stored (no routing config, or different backend).
+    const phaseBreakdownMap: Record<string, PhaseTokenBreakdown | null> = {}
+    try {
+      const kvStore = new FileStateStore({ basePath: join(dbRoot, '.substrate') })
+      for (const run of runs) {
+        const raw = await kvStore.getMetric(run.run_id, 'phase_token_breakdown')
+        phaseBreakdownMap[run.run_id] = (raw !== undefined ? raw : null) as PhaseTokenBreakdown | null
+      }
+    } catch {
+      // Non-fatal: fall back to null for all runs
+    }
+
     if (outputFormat === 'json') {
-      const jsonPayload: Record<string, unknown> = { runs, story_metrics: storyMetrics }
+      // Enrich each run with its phase_token_breakdown field
+      const runsWithBreakdown = runs.map((run) => ({
+        ...run,
+        phase_token_breakdown: phaseBreakdownMap[run.run_id] ?? null,
+      }))
+      const jsonPayload: Record<string, unknown> = { runs: runsWithBreakdown, story_metrics: storyMetrics }
       if (doltMetrics !== undefined) {
         if (aggregate) {
           // Aggregate mode: output as properly-named AggregateMetricResult objects with totals
@@ -604,6 +714,16 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           process.stdout.write(`  Stories:   attempted=${run.stories_attempted} succeeded=${run.stories_succeeded} failed=${run.stories_failed} escalated=${run.stories_escalated}\n`)
           process.stdout.write(`  Tokens:    ${(run.total_input_tokens ?? 0).toLocaleString()} in / ${(run.total_output_tokens ?? 0).toLocaleString()} out  $${(run.total_cost_usd ?? 0).toFixed(4)}\n`)
           process.stdout.write(`  Cycles:    ${run.total_review_cycles}  |  Dispatches: ${run.total_dispatches}  |  Concurrency: ${run.concurrency_setting}\n`)
+          // Story 28-6: Print phase token breakdown table if present
+          const breakdown = phaseBreakdownMap[run.run_id]
+          if (breakdown !== null && breakdown !== undefined && breakdown.entries.length > 0) {
+            process.stdout.write('  Phase Token Breakdown:\n')
+            for (const entry of breakdown.entries) {
+              process.stdout.write(
+                `    ${entry.phase.padEnd(10)} | ${entry.model.padEnd(30)} | in: ${entry.inputTokens} | out: ${entry.outputTokens} | dispatches: ${entry.dispatchCount}\n`,
+              )
+            }
+          }
         }
       }
       if (storyMetrics.length > 0) {
@@ -719,6 +839,7 @@ export function registerMetricsCommand(
     .option('--consumers <storyKey>', 'Show consumer stats for a specific story')
     .option('--categories', 'Show category stats (optionally scoped by --story <storyKey>)')
     .option('--compare-stories <storyA,storyB>', 'Compare efficiency scores of two stories side-by-side (comma-separated keys)')
+    .option('--routing-recommendations', 'Show routing recommendations derived from phase token breakdown history')
     .action(
       async (opts: {
         projectRoot: string
@@ -738,6 +859,7 @@ export function registerMetricsCommand(
         consumers?: string
         categories?: boolean
         compareStories?: string
+        routingRecommendations?: boolean
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         let compareIds: [string, string] | undefined
@@ -776,6 +898,7 @@ export function registerMetricsCommand(
           ...(opts.consumers !== undefined && { consumers: opts.consumers }),
           ...(opts.categories !== undefined && { categories: opts.categories }),
           ...(compareStoriesIds !== undefined && { compareStories: compareStoriesIds }),
+          ...(opts.routingRecommendations !== undefined && { routingRecommendations: opts.routingRecommendations }),
         }
         const exitCode = await runMetricsAction(metricsOpts)
         process.exitCode = exitCode

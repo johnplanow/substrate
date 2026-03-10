@@ -57,6 +57,7 @@ import type { ITelemetryPersistence } from '../telemetry/index.js'
 import { EfficiencyScorer, Categorizer, ConsumerAnalyzer, TelemetryNormalizer, TurnAnalyzer, Recommender } from '../telemetry/index.js'
 import type { IngestionServer } from '../telemetry/ingestion-server.js'
 import { TelemetryPipeline } from '../telemetry/telemetry-pipeline.js'
+import type { RepoMapInjector } from '../context-compiler/index.js'
 
 // ---------------------------------------------------------------------------
 // OrchestratorDeps
@@ -88,6 +89,10 @@ export interface OrchestratorDeps {
   telemetryPersistence?: ITelemetryPersistence
   /** Optional OTLP ingestion server for agent telemetry export (Story 27-9) */
   ingestionServer?: IngestionServer
+  /** Optional repo-map injector for structural context injection (Story 28-9) */
+  repoMapInjector?: RepoMapInjector
+  /** Optional token budget for repo-map context injection (Story 28-9) */
+  maxRepoMapTokens?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +156,7 @@ function buildTargetedFilesContent(issueList: unknown[]): string {
 export function createImplementationOrchestrator(
   deps: OrchestratorDeps,
 ): ImplementationOrchestrator {
-  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer } = deps
+  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer, repoMapInjector, maxRepoMapTokens } = deps
 
   const logger = createLogger('implementation-orchestrator')
 
@@ -1039,7 +1044,7 @@ export function createImplementationOrchestrator(
           let batchResult
           try {
             batchResult = await runDevStory(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
+              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens },
               {
                 storyKey,
                 storyFilePath: storyFilePath ?? '',
@@ -1131,7 +1136,7 @@ export function createImplementationOrchestrator(
         // AC7: Small/medium story — single dispatch (existing behavior)
         incrementDispatches(storyKey)
         const devResult = await runDevStory(
-          { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
+          { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens },
           {
             storyKey,
             storyFilePath: storyFilePath ?? '',
@@ -1364,7 +1369,7 @@ export function createImplementationOrchestrator(
             )
             incrementDispatches(storyKey)
             const batchReview = await runCodeReview(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
+              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens },
               {
                 storyKey,
                 storyFilePath: storyFilePath ?? '',
@@ -1408,7 +1413,7 @@ export function createImplementationOrchestrator(
           // Single review (small story or re-review after fix)
           incrementDispatches(storyKey)
           reviewResult = await runCodeReview(
-            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
+            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens },
             {
               storyKey,
               storyFilePath: storyFilePath ?? '',

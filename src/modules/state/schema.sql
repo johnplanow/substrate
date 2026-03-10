@@ -203,3 +203,34 @@ CREATE INDEX IF NOT EXISTS idx_consumer_stats_story ON consumer_stats (story_key
 
 INSERT IGNORE INTO _schema_version (version, description) VALUES (3, 'Add category_stats and consumer_stats tables (Epic 27-5)');
 INSERT IGNORE INTO _schema_version (version, description) VALUES (4, 'Add recommendations table (Epic 27-7)');
+
+-- ---------------------------------------------------------------------------
+-- repo_map_symbols (story 28-2 / Epic 28)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS repo_map_symbols (
+  id          BIGINT AUTO_INCREMENT NOT NULL,
+  file_path   VARCHAR(1000)         NOT NULL,
+  symbol_name VARCHAR(500)          NOT NULL,
+  symbol_kind VARCHAR(20)           NOT NULL,
+  signature   TEXT,
+  line_number INT                   NOT NULL DEFAULT 0,
+  exported    TINYINT(1)            NOT NULL DEFAULT 0,
+  file_hash   VARCHAR(64)           NOT NULL,
+  PRIMARY KEY (id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_repo_map_symbols_file ON repo_map_symbols (file_path);
+CREATE INDEX IF NOT EXISTS idx_repo_map_symbols_kind ON repo_map_symbols (symbol_kind);
+
+-- ---------------------------------------------------------------------------
+-- repo_map_meta (story 28-2 / Epic 28)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS repo_map_meta (
+  id          INT      NOT NULL DEFAULT 1,
+  commit_sha  VARCHAR(64),
+  updated_at  DATETIME,
+  file_count  INT      NOT NULL DEFAULT 0,
+  PRIMARY KEY (id)
+);
+
+INSERT IGNORE INTO _schema_version (version, description) VALUES (5, 'Add repo_map_symbols and repo_map_meta tables (Epic 28-2)');

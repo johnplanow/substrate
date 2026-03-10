@@ -217,6 +217,22 @@ export async function runDevStory(
     ? await buildProjectContext(storyContent, deps.projectRoot)
     : ''
 
+  // Build repo-map context (Story 28-7)
+  let repoContextContent = ''
+  if (deps.repoMapInjector !== undefined) {
+    const injection = await deps.repoMapInjector.buildContext(storyContent, deps.maxRepoMapTokens ?? 2000)
+    repoContextContent = injection.text
+    logger.info(
+      {
+        storyKey,
+        repoMapTokens: Math.ceil(injection.text.length / 4),
+        symbolCount: injection.symbolCount,
+        truncated: injection.truncated,
+      },
+      'Repo-map context assembled',
+    )
+  }
+
   // Query prior findings for learning loop injection (Story 22-1, AC2)
   let priorFindingsContent = ''
   try {
@@ -264,6 +280,7 @@ export async function runDevStory(
     { name: 'prior_files', content: priorFilesContent, priority: 'optional' },
     { name: 'files_in_scope', content: filesInScopeContent, priority: 'optional' },
     { name: 'project_context', content: projectContextContent, priority: 'important' },
+    { name: 'repo_context', content: repoContextContent, priority: 'optional' },
     { name: 'test_patterns', content: testPatternsContent, priority: 'optional' },
     { name: 'test_plan', content: testPlanContent, priority: 'optional' },
     { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' },

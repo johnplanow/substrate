@@ -99,11 +99,11 @@ function detectDoltAvailableSync(basePath: string): { available: boolean; reason
 /**
  * Create a StateStore backed by the specified backend.
  *
- * @param config - Optional configuration. Defaults to `{ backend: 'file' }`.
+ * @param config - Optional configuration. Defaults to `{ backend: 'auto' }`.
  * @returns A StateStore instance. Call `initialize()` before use.
  */
 export function createStateStore(config: StateStoreConfig = {}): StateStore {
-  const backend = config.backend ?? 'file'
+  const backend = config.backend ?? 'auto'
 
   if (backend === 'dolt') {
     const repoPath = config.basePath ?? process.cwd()

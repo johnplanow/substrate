@@ -32,6 +32,8 @@ import { registerRetryEscalatedCommand } from './commands/retry-escalated.js'
 import { registerContractsCommand } from './commands/contracts.js'
 import { registerDiffCommand } from './commands/diff.js'
 import { registerHistoryCommand } from './commands/history.js'
+import { registerRepoMapCommand } from './commands/repo-map.js'
+import { registerRoutingCommand } from './commands/routing.js'
 
 // Increase max listeners before any commands or transports register their handlers.
 // With CLI commands registered, pino-pretty workers and Commander exit handlers
@@ -118,6 +120,10 @@ export async function createProgram(): Promise<Command> {
   registerDiffCommand(program)
   registerHistoryCommand(program)
   registerMigrateCommand(program)
+
+  // Context engineering commands (Epic 28)
+  registerRepoMapCommand(program)
+  registerRoutingCommand(program)
 
   // Observability
   registerCostCommand(program, version)

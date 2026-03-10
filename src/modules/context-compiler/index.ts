@@ -33,3 +33,6 @@ export {
   SectionReportSchema,
   CompileResultSchema,
 } from './types.js'
+
+export { RepoMapInjector } from './repo-map-injector.js'
+export type { InjectionResult } from './repo-map-injector.js'

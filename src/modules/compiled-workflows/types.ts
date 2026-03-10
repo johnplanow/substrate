@@ -10,6 +10,7 @@ import type { MethodologyPack } from '../methodology-pack/types.js'
 import type { ContextCompiler } from '../context-compiler/context-compiler.js'
 import type { Dispatcher } from '../agent-dispatch/types.js'
 import type { TokenCeilings } from '../config/config-schema.js'
+import type { RepoMapInjector } from '../context-compiler/index.js'
 
 // ---------------------------------------------------------------------------
 // WorkflowDeps — dependency injection container
@@ -38,6 +39,16 @@ export interface WorkflowDeps {
    * dispatcher.dispatch() call so Claude Code sub-agents export telemetry.
    */
   otlpEndpoint?: string
+  /**
+   * Optional repo-map injector for structural context injection (Story 28-7).
+   * When set, repo-map symbols relevant to the story are injected into prompts.
+   */
+  repoMapInjector?: RepoMapInjector
+  /**
+   * Optional token budget for repo-map context injection (default: 2000).
+   * Sourced from ModelRoutingConfig.max_repo_map_tokens or explicit override.
+   */
+  maxRepoMapTokens?: number
 }
 
 // ---------------------------------------------------------------------------

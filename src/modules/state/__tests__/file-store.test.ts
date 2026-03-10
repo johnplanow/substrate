@@ -161,6 +161,71 @@ describe('FileStateStore', () => {
     })
   })
 
+  // -- setMetric / getMetric -------------------------------------------------
+
+  describe('setMetric / getMetric', () => {
+    it('returns undefined for an unknown runId', async () => {
+      const result = await store.getMetric('no-such-run', 'any-key')
+      expect(result).toBeUndefined()
+    })
+
+    it('returns undefined for unknown key within a known runId', async () => {
+      await store.setMetric('run-1', 'known-key', 42)
+      const result = await store.getMetric('run-1', 'unknown-key')
+      expect(result).toBeUndefined()
+    })
+
+    it('stores and retrieves a primitive value', async () => {
+      await store.setMetric('run-1', 'token_count', 1234)
+      const result = await store.getMetric('run-1', 'token_count')
+      expect(result).toBe(1234)
+    })
+
+    it('stores and retrieves an object value', async () => {
+      const value = { explore: 100, generate: 500, review: 200 }
+      await store.setMetric('run-2', 'phase_breakdown', value)
+      const result = await store.getMetric('run-2', 'phase_breakdown')
+      expect(result).toEqual(value)
+    })
+
+    it('overwrites an existing value for the same runId/key', async () => {
+      await store.setMetric('run-1', 'tokens', 100)
+      await store.setMetric('run-1', 'tokens', 999)
+      const result = await store.getMetric('run-1', 'tokens')
+      expect(result).toBe(999)
+    })
+
+    it('isolates metrics by runId', async () => {
+      await store.setMetric('run-A', 'key', 'valueA')
+      await store.setMetric('run-B', 'key', 'valueB')
+      expect(await store.getMetric('run-A', 'key')).toBe('valueA')
+      expect(await store.getMetric('run-B', 'key')).toBe('valueB')
+    })
+
+    it('flushes kv-metrics.json to disk when basePath is set', async () => {
+      const mockWriteFile = vi.mocked(writeFile)
+      mockWriteFile.mockClear()
+
+      const storeWithPath = new FileStateStore({ basePath: '/tmp/test-kv' })
+      await storeWithPath.setMetric('run-1', 'phase_tokens', 100)
+
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        expect.stringContaining('kv-metrics.json'),
+        expect.any(String),
+        'utf-8',
+      )
+    })
+
+    it('does not call writeFile when no basePath is set', async () => {
+      const mockWriteFile = vi.mocked(writeFile)
+      mockWriteFile.mockClear()
+
+      await store.setMetric('run-1', 'key', 'value')
+
+      expect(mockWriteFile).not.toHaveBeenCalled()
+    })
+  })
+
   // -- getContracts / setContracts -------------------------------------------
 
   describe('getContracts / setContracts', () => {

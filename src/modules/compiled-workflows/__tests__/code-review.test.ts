@@ -11,13 +11,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Hoist mock functions so they are available when vi.mock factories execute
 // ---------------------------------------------------------------------------
 
-const { mockReadFile, mockGetGitDiffSummary, mockGetGitDiffStatSummary, mockGetGitDiffForFiles, mockStageIntentToAdd, mockGetGitChangedFiles } = vi.hoisted(() => ({
+const { mockReadFile, mockGetGitDiffSummary, mockGetGitDiffStatSummary, mockGetGitDiffForFiles, mockStageIntentToAdd, mockGetGitChangedFiles, mockLogger } = vi.hoisted(() => ({
   mockReadFile: vi.fn(),
   mockGetGitDiffSummary: vi.fn(),
   mockGetGitDiffStatSummary: vi.fn(),
   mockGetGitDiffForFiles: vi.fn(),
   mockStageIntentToAdd: vi.fn(),
   mockGetGitChangedFiles: vi.fn(),
+  mockLogger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
 }))
 
 // ---------------------------------------------------------------------------
@@ -37,12 +43,7 @@ vi.mock('../git-helpers.js', () => ({
 }))
 
 vi.mock('../../../utils/logger.js', () => ({
-  createLogger: () => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  }),
+  createLogger: () => mockLogger,
 }))
 
 // ---------------------------------------------------------------------------
@@ -729,6 +730,120 @@ describe('runCodeReview', () => {
     })
 
     expect(mockGetGitDiffSummary).toHaveBeenCalledWith(process.cwd())
+  })
+
+  // -------------------------------------------------------------------------
+  // AC4/AC7 (28-7): repoMapInjector integration
+  // -------------------------------------------------------------------------
+
+  describe('AC4/AC7 (28-7): repoMapInjector integration', () => {
+    it('calls buildContext with story content and default token budget when repoMapInjector is provided', async () => {
+      const storyContent = '## Story\nAs a developer...\n\n## Acceptance Criteria\n### AC1: ...'
+      mockReadFile.mockResolvedValue(storyContent)
+
+      const injectionText = '# repo-map: 2 symbols\nsrc/foo.ts:5 function foo()'
+      const mockBuildContext = vi.fn().mockResolvedValue({
+        text: injectionText,
+        symbolCount: 2,
+        truncated: false,
+      })
+
+      const dispatchFn = vi.fn().mockReturnValue({
+        id: 'test-id',
+        status: 'running',
+        cancel: vi.fn(),
+        result: Promise.resolve(makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })),
+      })
+
+      const deps = {
+        ...makeMockDeps({ dispatch: dispatchFn }),
+        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+      }
+
+      await runCodeReview(deps, DEFAULT_PARAMS)
+
+      expect(mockBuildContext).toHaveBeenCalledWith(storyContent, 2000)
+    })
+
+    it('passes maxRepoMapTokens to buildContext when provided in deps', async () => {
+      const mockBuildContext = vi.fn().mockResolvedValue({ text: '', symbolCount: 0, truncated: false })
+
+      const dispatchFn = vi.fn().mockReturnValue({
+        id: 'test-id',
+        status: 'running',
+        cancel: vi.fn(),
+        result: Promise.resolve(makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })),
+      })
+
+      const deps = {
+        ...makeMockDeps({ dispatch: dispatchFn }),
+        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+        maxRepoMapTokens: 1200,
+      }
+
+      await runCodeReview(deps, DEFAULT_PARAMS)
+
+      expect(mockBuildContext).toHaveBeenCalledWith(expect.any(String), 1200)
+    })
+
+    it('emits info log with storyKey, symbolCount, truncated, repoMapTokens when repoMapInjector is set', async () => {
+      const injectionText = '# repo-map: 2 symbols\nsrc/foo.ts:5 function foo()'
+      const mockBuildContext = vi.fn().mockResolvedValue({
+        text: injectionText,
+        symbolCount: 2,
+        truncated: false,
+      })
+
+      const dispatchFn = vi.fn().mockReturnValue({
+        id: 'test-id',
+        status: 'running',
+        cancel: vi.fn(),
+        result: Promise.resolve(makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })),
+      })
+
+      const deps = {
+        ...makeMockDeps({ dispatch: dispatchFn }),
+        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+      }
+
+      await runCodeReview(deps, DEFAULT_PARAMS)
+
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          storyKey: DEFAULT_PARAMS.storyKey,
+          symbolCount: 2,
+          truncated: false,
+          repoMapTokens: Math.ceil(injectionText.length / 4),
+        }),
+        'Repo-map context assembled',
+      )
+    })
+
+    it('does not emit repo-map info log when repoMapInjector is absent from deps', async () => {
+      const dispatchFn = vi.fn().mockReturnValue({
+        id: 'test-id',
+        status: 'running',
+        cancel: vi.fn(),
+        result: Promise.resolve(makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })),
+      })
+
+      const deps = makeMockDeps({ dispatch: dispatchFn })
+
+      await runCodeReview(deps, DEFAULT_PARAMS)
+
+      expect(mockLogger.info).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'Repo-map context assembled',
+      )
+    })
   })
 })
 

@@ -815,6 +815,30 @@ export class DoltStateStore implements StateStore {
   // History (Story 26-9)
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // Key-value metrics (story 28-6)
+  // ---------------------------------------------------------------------------
+
+  /** In-memory KV store for per-run arbitrary metrics. Not persisted to Dolt. */
+  private readonly _kvMetrics: Map<string, Map<string, unknown>> = new Map()
+
+  async setMetric(runId: string, key: string, value: unknown): Promise<void> {
+    let runMap = this._kvMetrics.get(runId)
+    if (runMap === undefined) {
+      runMap = new Map()
+      this._kvMetrics.set(runId, runMap)
+    }
+    runMap.set(key, value)
+  }
+
+  async getMetric(runId: string, key: string): Promise<unknown> {
+    return this._kvMetrics.get(runId)?.get(key)
+  }
+
+  // ---------------------------------------------------------------------------
+  // History (Story 26-9)
+  // ---------------------------------------------------------------------------
+
   async getHistory(limit?: number): Promise<HistoryEntry[]> {
     const effectiveLimit = limit ?? 20
     try {

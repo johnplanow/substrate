@@ -13,6 +13,8 @@
 
 {{project_context}}
 
+{{repo_context}}
+
 ### Test Patterns
 {{test_patterns}}
 

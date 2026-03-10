@@ -8,6 +8,8 @@
 
 import type { ZodSchema } from 'zod'
 
+import type { RoutingResolver } from '../../modules/routing/index.js'
+
 // ---------------------------------------------------------------------------
 // DispatchRequest
 // ---------------------------------------------------------------------------
@@ -106,6 +108,12 @@ export interface DispatchConfig {
   maxConcurrency: number
   /** Default timeouts per task type in milliseconds */
   defaultTimeouts: Record<string, number>
+  /**
+   * Optional routing resolver for model selection.
+   * When provided, the dispatcher uses it to resolve the effective model
+   * for each dispatch based on the task type and routing configuration.
+   */
+  routingResolver?: RoutingResolver
 }
 
 // ---------------------------------------------------------------------------

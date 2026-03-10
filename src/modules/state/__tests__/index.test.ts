@@ -59,9 +59,21 @@ describe('createStateStore', () => {
     mockExistsSync.mockReturnValue(false)
   })
 
-  it('returns a FileStateStore when called with no arguments', () => {
+  it('returns FileStateStore when called with no arguments and Dolt is absent (auto-detection)', () => {
     const store = createStateStore()
     expect(store).toBeInstanceOf(FileStateStore)
+    // auto-detection ran (spawnSync was called to probe for the dolt binary)
+    expect(mockSpawnSync).toHaveBeenCalled()
+  })
+
+  it('returns DoltStateStore when called with no arguments and Dolt is detected (auto-detection)', () => {
+    mockDoltBinaryPresent()
+    mockExistsSync.mockReturnValue(true)
+
+    const store = createStateStore()
+    expect(store).toBeInstanceOf(DoltStateStore)
+    // auto-detection ran (spawnSync was called to probe for the dolt binary)
+    expect(mockSpawnSync).toHaveBeenCalled()
   })
 
   it('returns a FileStateStore when called with { backend: "file" }', () => {
