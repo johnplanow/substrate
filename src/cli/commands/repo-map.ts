@@ -145,9 +145,9 @@ export function registerRepoMapCommand(program: Command): void {
       // --update: trigger incremental update
       if (options.update === true) {
         logger.info('repo-map --update: triggering incremental update')
-        const gitClient = new GitClient()
-        const grammarLoader = new GrammarLoader()
-        const parser = new SymbolParser(grammarLoader)
+        const gitClient = new GitClient(logger)
+        const grammarLoader = new GrammarLoader(logger)
+        const parser = new SymbolParser(grammarLoader, logger)
         const storage = new RepoMapStorage(symbolRepo, metaRepo, gitClient, logger)
 
         await storage.incrementalUpdate(dbRoot, parser)
