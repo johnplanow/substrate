@@ -94,4 +94,8 @@ export const DEFAULT_CONFIG: SubstrateConfig = {
     codex: DEFAULT_CODEX_PROVIDER,
     gemini: DEFAULT_GEMINI_PROVIDER,
   },
+  telemetry: {
+    enabled: true,
+    port: 4318,
+  },
 }

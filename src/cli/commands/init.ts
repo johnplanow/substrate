@@ -682,6 +682,7 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       task_graph_version: CURRENT_TASK_GRAPH_VERSION,
       global: DEFAULT_CONFIG.global,
       providers: configProviders,
+      telemetry: DEFAULT_CONFIG.telemetry,
     }
 
     const routingPolicy: RoutingPolicy = structuredClone(DEFAULT_ROUTING_POLICY)
