@@ -171,7 +171,7 @@ export function parseYamlResult<T>(
   let raw: unknown
 
   try {
-    raw = yaml.load(yamlText)
+    raw = yaml.load(sanitizeYamlEscapes(yamlText))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return { parsed: null, error: `YAML parse error: ${message}` }
@@ -196,4 +196,37 @@ export function parseYamlResult<T>(
     parsed: null,
     error: `Schema validation error: ${result.error.message}`,
   }
+}
+
+// ---------------------------------------------------------------------------
+// YAML escape sanitization
+// ---------------------------------------------------------------------------
+
+/**
+ * Valid YAML escape sequences in double-quoted strings (YAML 1.2 spec).
+ * Any backslash followed by a character NOT in this set is invalid.
+ */
+const VALID_YAML_ESCAPES = new Set([
+  '0', 'a', 'b', 't', '\t', 'n', 'v', 'f', 'r', 'e', ' ', '"', '/',
+  '\\', 'N', '_', 'L', 'P', 'x', 'u', 'U',
+])
+
+/**
+ * Sanitize invalid backslash escape sequences in YAML double-quoted strings.
+ *
+ * LLMs frequently emit invalid escapes like `\$` or `\#` inside double-quoted
+ * YAML values (e.g., `vi.mock('\$lib/types/review')`). js-yaml rejects these.
+ * This function strips the backslash from invalid sequences, turning `\$` → `$`.
+ *
+ * Only operates within double-quoted string regions to avoid corrupting
+ * single-quoted strings, block scalars, or unquoted values.
+ */
+function sanitizeYamlEscapes(yamlText: string): string {
+  // Process each line — only fix invalid escapes inside double-quoted segments
+  return yamlText.replace(/"(?:[^"\\]|\\.)*"/g, (match) => {
+    return match.replace(/\\(.)/g, (esc, ch: string) => {
+      if (VALID_YAML_ESCAPES.has(ch)) return esc  // valid escape, keep it
+      return ch  // invalid escape like \$ → just the character
+    })
+  })
 }

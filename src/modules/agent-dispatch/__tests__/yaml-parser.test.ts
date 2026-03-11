@@ -279,4 +279,44 @@ nested:
     expect(error).toBeNull()
     expect(parsed).not.toBeNull()
   })
+
+  it('sanitizes invalid YAML escape sequences like \\$ in double-quoted strings', () => {
+    const yaml = `
+result: success
+coverage_notes: "AC1: vi.mock('\\$lib/types/review') covers the import. AC2: done."
+`
+    const { parsed, error } = parseYamlResult(yaml)
+    expect(error).toBeNull()
+    expect(parsed).not.toBeNull()
+    const p = parsed as Record<string, unknown>
+    expect(p.result).toBe('success')
+    expect(p.coverage_notes).toContain("$lib/types/review")
+  })
+
+  it('preserves valid YAML escape sequences while sanitizing invalid ones', () => {
+    const yaml = `
+result: success
+notes: "line1\\nline2\\t\\$special"
+`
+    const { parsed, error } = parseYamlResult(yaml)
+    expect(error).toBeNull()
+    const p = parsed as Record<string, unknown>
+    // \n and \t are valid YAML escapes — should be interpreted
+    expect(p.notes).toContain('\n')
+    expect(p.notes).toContain('\t')
+    // \$ is invalid — backslash stripped, $ preserved
+    expect(p.notes).toContain('$special')
+  })
+
+  it('does not modify single-quoted strings when sanitizing escapes', () => {
+    const yaml = `
+result: success
+path: 'no\\$escapes\\nhere'
+`
+    const { parsed, error } = parseYamlResult(yaml)
+    expect(error).toBeNull()
+    const p = parsed as Record<string, unknown>
+    // Single-quoted YAML strings treat backslash literally
+    expect(p.path).toBe('no\\$escapes\\nhere')
+  })
 })
