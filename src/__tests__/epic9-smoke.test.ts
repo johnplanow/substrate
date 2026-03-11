@@ -113,7 +113,7 @@ describe('Item 6: Debate Panel DB write', () => {
     await panel.decide({
       key: 'smoke-db-decision',
       phase: 'planning',
-      category: 'architecture',
+      context: 'architecture',
       question: 'Should we use SQLite?',
       tier: 'routine',
     });

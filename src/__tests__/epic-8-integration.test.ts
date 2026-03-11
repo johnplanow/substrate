@@ -379,7 +379,6 @@ describe('Gap 4: Monitor reset roundtrip — seed, reset, verify empty', () => {
       agent: 'claude',
       taskType: 'coding',
       outcome: 'success',
-      failureReason: undefined,
       inputTokens: 100,
       outputTokens: 200,
       durationMs: 500,
@@ -420,7 +419,6 @@ describe('Gap 4: Monitor reset roundtrip — seed, reset, verify empty', () => {
       agent: 'claude',
       taskType: 'coding',
       outcome: 'success',
-      failureReason: undefined,
       inputTokens: 1000,
       outputTokens: 500,
       durationMs: 2000,
@@ -459,7 +457,6 @@ describe('Gap 4: Monitor reset roundtrip — seed, reset, verify empty', () => {
       agent: 'claude',
       taskType: 'coding',
       outcome: 'success',
-      failureReason: undefined,
       inputTokens: 100,
       outputTokens: 0,
       durationMs: 0,
@@ -508,8 +505,8 @@ describe('Gap 4: Monitor reset roundtrip — seed, reset, verify empty', () => {
 
     const aggregates = monitorDb.getAggregates()
     expect(aggregates).toHaveLength(1)
-    expect(aggregates[0].taskType).toBe('testing')
-    expect(aggregates[0].totalInputTokens).toBe(200)
+    expect(aggregates[0]!.taskType).toBe('testing')
+    expect(aggregates[0]!.totalInputTokens).toBe(200)
   })
 })
 

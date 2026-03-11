@@ -107,10 +107,10 @@ function makePhaseEvent(
   status: StoryPhaseEvent['status'],
   verdict?: string,
 ): StoryPhaseEvent {
-  return { type: 'story:phase', ts: '', key, phase, status, verdict }
+  return { type: 'story:phase', ts: '', key, phase, status, ...(verdict !== undefined && { verdict }) }
 }
 
-function makeDoneEvent(key: string, result: 'success' | 'failed', review_cycles = 1): StoryDoneEvent {
+function makeDoneEvent(key: string, result: 'success' = 'success', review_cycles = 1): StoryDoneEvent {
   return { type: 'story:done', ts: '', key, result, review_cycles }
 }
 
@@ -855,14 +855,14 @@ describe('EventEmitter event sequence integrity', () => {
 
     emitter.emit(makeStartEvent(['10-1', '10-2', '10-3']))
     emitter.emit(makeDoneEvent('10-1', 'success', 1))
-    emitter.emit(makeDoneEvent('10-2', 'failed', 0))
+    emitter.emit(makeEscalationEvent('10-2', 'Build failed', 0))
     emitter.emit(makeEscalationEvent('10-3', 'Complex issue', 3))
     emitter.emit(makeCompleteEvent(['10-1'], ['10-2'], ['10-3']))
 
     const lines = output().split('\n').filter((l) => l.trim() !== '')
     expect(lines).toHaveLength(5)
 
-    const complete = JSON.parse(lines[4]) as PipelineCompleteEvent
+    const complete = JSON.parse(lines[4]!) as PipelineCompleteEvent
     expect(complete.succeeded).toEqual(['10-1'])
     expect(complete.failed).toEqual(['10-2'])
     expect(complete.escalated).toEqual(['10-3'])

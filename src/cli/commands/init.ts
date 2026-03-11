@@ -410,18 +410,26 @@ export async function scaffoldClaudeCommands(
       logger.warn({ err: compileErr }, 'Agent compilation failed; agent commands may be incomplete')
     }
 
-    const { AgentCommandGenerator } = _require(
-      join(installerLibPath, 'ide', 'shared', 'agent-command-generator.js'),
-    ) as { AgentCommandGenerator: new (bmadFolderName: string) => BmadAgentGenerator }
-    const { WorkflowCommandGenerator } = _require(
-      join(installerLibPath, 'ide', 'shared', 'workflow-command-generator.js'),
-    ) as { WorkflowCommandGenerator: new (bmadFolderName: string) => BmadWorkflowGenerator }
-    const { TaskToolCommandGenerator } = _require(
-      join(installerLibPath, 'ide', 'shared', 'task-tool-command-generator.js'),
-    ) as { TaskToolCommandGenerator: new (bmadFolderName: string) => BmadTaskToolGenerator }
-    const { ManifestGenerator } = _require(
-      join(installerLibPath, 'core', 'manifest-generator.js'),
-    ) as { ManifestGenerator: new () => BmadManifestGenerator }
+    // CJS/ESM interop: some environments (e.g. vitest) wrap CJS exports
+    // in a default property. Try named export first, fall back to .default.
+    const resolveExport = <T>(mod: Record<string, unknown>, name: string): T => {
+      if (typeof mod[name] === 'function') return mod[name] as T
+      const def = mod.default as Record<string, unknown> | undefined
+      if (def && typeof def[name] === 'function') return def[name] as T
+      throw new Error(`${name} is not a constructor`)
+    }
+
+    const agentMod = _require(join(installerLibPath, 'ide', 'shared', 'agent-command-generator.js')) as Record<string, unknown>
+    const AgentCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadAgentGenerator>(agentMod, 'AgentCommandGenerator')
+
+    const workflowMod = _require(join(installerLibPath, 'ide', 'shared', 'workflow-command-generator.js')) as Record<string, unknown>
+    const WorkflowCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadWorkflowGenerator>(workflowMod, 'WorkflowCommandGenerator')
+
+    const taskToolMod = _require(join(installerLibPath, 'ide', 'shared', 'task-tool-command-generator.js')) as Record<string, unknown>
+    const TaskToolCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadTaskToolGenerator>(taskToolMod, 'TaskToolCommandGenerator')
+
+    const manifestMod = _require(join(installerLibPath, 'core', 'manifest-generator.js')) as Record<string, unknown>
+    const ManifestGenerator = resolveExport<new () => BmadManifestGenerator>(manifestMod, 'ManifestGenerator')
 
     const nonCoreModules = scanBmadModules(bmadDir)
     const allModules = ['core', ...nonCoreModules]

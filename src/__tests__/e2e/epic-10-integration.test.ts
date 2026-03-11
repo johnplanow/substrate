@@ -238,7 +238,6 @@ describe('Gap 1: create-story → dev-story storyFilePath handoff', () => {
   it('escalates without calling dev-story when create-story returns no story_file', async () => {
     mockRunCreateStory.mockResolvedValue({
       result: 'success' as const,
-      story_file: undefined, // missing file path
       story_key: '10-2',
       story_title: 'Missing file',
       tokenUsage: { input: 100, output: 50 },

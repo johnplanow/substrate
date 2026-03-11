@@ -69,6 +69,7 @@ function mockDispatcher(): Dispatcher {
     dispatch: () => { throw new Error('should not dispatch in unit tests') },
     getPending: () => 0,
     getRunning: () => 0,
+    getMemoryState: () => ({ freeMB: 1024, thresholdMB: 256, pressureLevel: 0, isPressured: false }),
     shutdown: async () => undefined,
   }
 }
@@ -442,7 +443,7 @@ describe('Integration: Debate Panel → Decision Store → Context Compiler (9-1
       { viewpoint: 'maintainability', recommendation: 'option-B', confidence: 0.9, risks: [] },
     ]
     const splitGenerator: PerspectiveGeneratorFn = async (viewpoint) => ({
-      ...(perspectives[callIdx++] ?? perspectives[0]),
+      ...(perspectives[callIdx++] ?? perspectives[0]!),
       viewpoint,
     })
 

@@ -135,7 +135,7 @@ describe('Monitor Agent E2E Integration', () => {
 
     const aggregates = monitorDb.getAggregates()
     expect(aggregates.length).toBeGreaterThan(0)
-    const aggregate = aggregates[0]
+    const aggregate = aggregates[0]!
     expect(aggregate.totalTasks).toBe(5)
     expect(aggregate.successfulTasks).toBe(5)
     expect(aggregate.failedTasks).toBe(0)

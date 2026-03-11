@@ -293,7 +293,7 @@ function makeTrackingDoltClient() {
       // CALL DOLT_BRANCH — create a story branch
       if (/CALL DOLT_BRANCH\('(story\/[^']+)'\)/i.test(s)) {
         const match = s.match(/CALL DOLT_BRANCH\('(story\/[^']+)'\)/i)
-        if (match) branches.add(match[1])
+        if (match) branches.add(match[1]!)
         return []
       }
 
@@ -301,8 +301,8 @@ function makeTrackingDoltClient() {
       if (/CALL DOLT_BRANCH\('-D'/i.test(s)) {
         const match = s.match(/DOLT_BRANCH\('-D',\s*'(story\/[^']+)'\)/)
         if (match) {
-          branches.delete(match[1])
-          droppedBranches.push(match[1])
+          branches.delete(match[1]!)
+          droppedBranches.push(match[1]!)
         }
         return []
       }
@@ -314,8 +314,8 @@ function makeTrackingDoltClient() {
           if (simulateMergeConflict) {
             return [{ conflicts: 1 }]
           }
-          branches.delete(match[1])
-          mergedBranches.push(match[1])
+          branches.delete(match[1]!)
+          mergedBranches.push(match[1]!)
         }
         return [{ conflicts: 0 }]
       }
@@ -618,11 +618,11 @@ describe('Gap 2: diff and history CLI → StateStore lifecycle', () => {
     await store.close()
 
     expect(entries).toHaveLength(2)
-    expect(entries[0].hash).toBe('abc1234')
-    expect(entries[0].storyKey).toBe('26-1')
-    expect(entries[0].message).toBe('Merge story/26-1: COMPLETE')
-    expect(entries[1].hash).toBe('def5678')
-    expect(entries[1].storyKey).toBeNull()
+    expect(entries[0]!.hash).toBe('abc1234')
+    expect(entries[0]!.storyKey).toBe('26-1')
+    expect(entries[0]!.message).toBe('Merge story/26-1: COMPLETE')
+    expect(entries[1]!.hash).toBe('def5678')
+    expect(entries[1]!.storyKey).toBeNull()
   })
 
   it('diffStory uses merged-story fallback when branch is not in memory', async () => {
@@ -649,9 +649,9 @@ describe('Gap 2: diff and history CLI → StateStore lifecycle', () => {
 
     expect(diff.storyKey).toBe('26-1')
     expect(diff.tables).toHaveLength(1)
-    expect(diff.tables[0].table).toBe('stories')
-    expect(diff.tables[0].added).toHaveLength(1)
-    expect(diff.tables[0].added[0].rowKey).toBe('26-1')
+    expect(diff.tables[0]!.table).toBe('stories')
+    expect(diff.tables[0]!.added).toHaveLength(1)
+    expect(diff.tables[0]!.added[0]!.rowKey).toBe('26-1')
 
     // Verify the fallback path used dolt_log query
     expect(tracking.client.query).toHaveBeenCalledWith(
@@ -943,7 +943,7 @@ describe('Gap 5: Post-pipeline diff and history against merged-story state', () 
     const storiesTable = diff.tables.find((t) => t.table === 'stories')
     expect(storiesTable).toBeDefined()
     expect(storiesTable!.added.length).toBeGreaterThan(0)
-    expect(storiesTable!.added[0].rowKey).toBe('26-10')
+    expect(storiesTable!.added[0]!.rowKey).toBe('26-10')
 
     // Verify fallback path used dolt_log query
     expect(tracking.client.query).toHaveBeenCalledWith(
@@ -993,13 +993,13 @@ describe('Gap 5: Post-pipeline diff and history against merged-story state', () 
     const entries = await store.getHistory(10)
 
     expect(entries).toHaveLength(3)
-    expect(entries[0].hash).toBe('aaa1111')
-    expect(entries[0].storyKey).toBe('26-10')
-    expect(entries[1].hash).toBe('bbb2222')
-    expect(entries[1].storyKey).toBe('26-12')
-    expect(entries[2].hash).toBe('ccc3333')
-    expect(entries[2].storyKey).toBeNull()
-    expect(entries[2].message).toBe('Initialize substrate state schema v1')
+    expect(entries[0]!.hash).toBe('aaa1111')
+    expect(entries[0]!.storyKey).toBe('26-10')
+    expect(entries[1]!.hash).toBe('bbb2222')
+    expect(entries[1]!.storyKey).toBe('26-12')
+    expect(entries[2]!.hash).toBe('ccc3333')
+    expect(entries[2]!.storyKey).toBeNull()
+    expect(entries[2]!.message).toBe('Initialize substrate state schema v1')
   })
 
   it('diffStory returns empty tables when story has no Dolt changes (file backend ran)', async () => {

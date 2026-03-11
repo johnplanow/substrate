@@ -544,11 +544,11 @@ describe('Gap 3: Contract declaration parsing → decision store → dispatch or
     const dispatchOrder: string[] = []
 
     mockRunCreateStory.mockImplementation(async (_deps, params) => {
-      const key = (params as Record<string, string>).storyKey
+      const key = (params as Record<string, string>).storyKey!
       return makeCreateStorySuccess(key, `/stories/${key}.md`)
     })
     mockRunDevStory.mockImplementation(async (_deps, params) => {
-      const key = (params as Record<string, string>).storyKey
+      const key = (params as Record<string, string>).storyKey!
       dispatchOrder.push(key)
       return makeDevStorySuccess()
     })
@@ -576,7 +576,7 @@ describe('Gap 3: Contract declaration parsing → decision store → dispatch or
     mockGetDecisionsByCategory.mockReturnValue([])
 
     mockRunCreateStory.mockImplementation(async (_deps, params) => {
-      const key = (params as Record<string, string>).storyKey
+      const key = (params as Record<string, string>).storyKey!
       return makeCreateStorySuccess(key, `/stories/${key}.md`)
     })
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
@@ -732,7 +732,8 @@ describe('Gap 5: Test-plan phase invocation and tokenCeilings', () => {
     expect(mockRunTestPlan).toHaveBeenCalledTimes(1)
 
     // First arg is deps (includes tokenCeilings)
-    const [deps, params] = mockRunTestPlan.mock.calls[0]
+    const call = mockRunTestPlan.mock.calls[0]!
+    const [deps, params] = call
     expect(deps).toHaveProperty('tokenCeilings', tokenCeilings)
     expect(deps).toHaveProperty('pack')
     expect(deps).toHaveProperty('dispatcher')
@@ -888,12 +889,12 @@ describe('Gap 7: Multi-batch sequential execution from contract ordering', () =>
     const timeline: Array<{ event: string; storyKey: string }> = []
 
     mockRunCreateStory.mockImplementation(async (_deps, params) => {
-      const key = (params as Record<string, string>).storyKey
+      const key = (params as Record<string, string>).storyKey!
       return makeCreateStorySuccess(key, `/stories/${key}.md`)
     })
 
     mockRunDevStory.mockImplementation(async (_deps, params) => {
-      const key = (params as Record<string, string>).storyKey
+      const key = (params as Record<string, string>).storyKey!
       timeline.push({ event: 'dev-start', storyKey: key })
       // Small delay to ensure timing is observable
       await new Promise((r) => setTimeout(r, 10))
@@ -902,7 +903,7 @@ describe('Gap 7: Multi-batch sequential execution from contract ordering', () =>
     })
 
     mockRunCodeReview.mockImplementation(async (_deps, params) => {
-      const key = (params as Record<string, string>).storyKey
+      const key = (params as Record<string, string>).storyKey!
       timeline.push({ event: 'review-end', storyKey: key })
       return makeCodeReviewShipIt()
     })

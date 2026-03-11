@@ -303,22 +303,22 @@ describe('E2E: AC5 - Sorting and ordering', () => {
   it('default sort is newest first (created)', async () => {
     const { output } = await runWorktreesCommand(['--json'])
     const parsed = JSON.parse(output) as { data: { taskId: string }[] }
-    expect(parsed.data[0].taskId).toBe('task-b')  // 2024-01-16 newest
+    expect(parsed.data[0]!.taskId).toBe('task-b')  // 2024-01-16 newest
   })
 
   it('--sort task-id sorts alphabetically', async () => {
     const { output } = await runWorktreesCommand(['--sort', 'task-id', '--json'])
     const parsed = JSON.parse(output) as { data: { taskId: string }[] }
-    expect(parsed.data[0].taskId).toBe('task-a')
-    expect(parsed.data[1].taskId).toBe('task-b')
-    expect(parsed.data[2].taskId).toBe('task-c')
+    expect(parsed.data[0]!.taskId).toBe('task-a')
+    expect(parsed.data[1]!.taskId).toBe('task-b')
+    expect(parsed.data[2]!.taskId).toBe('task-c')
   })
 
   it('--sort created sorts newest first', async () => {
     const { output } = await runWorktreesCommand(['--sort', 'created', '--json'])
     const parsed = JSON.parse(output) as { data: { taskId: string }[] }
-    expect(parsed.data[0].taskId).toBe('task-b')  // newest
-    expect(parsed.data[2].taskId).toBe('task-a')  // oldest
+    expect(parsed.data[0]!.taskId).toBe('task-b')  // newest
+    expect(parsed.data[2]!.taskId).toBe('task-a')  // oldest
   })
 })
 

@@ -14,7 +14,7 @@ import type { WorktreeInfo } from '../../../modules/git-worktree/git-worktree-ma
 // Mock GitWorktreeManager
 // ---------------------------------------------------------------------------
 
-const mockListWorktrees = vi.fn<[], Promise<WorktreeInfo[]>>()
+const mockListWorktrees = vi.fn<() => Promise<WorktreeInfo[]>>()
 
 vi.mock('../../../modules/git-worktree/git-worktree-manager-impl.js', () => ({
   createGitWorktreeManager: vi.fn(() => ({
@@ -221,8 +221,8 @@ describe('worktrees command - integration', () => {
     ])
     const { output } = await runIntegrated(['worktrees', '--json'])
     const parsed = JSON.parse(output) as { data: { taskId: string }[] }
-    expect(parsed.data[0].taskId).toBe('task-beta')  // newer
-    expect(parsed.data[1].taskId).toBe('task-alpha') // older
+    expect(parsed.data[0]!.taskId).toBe('task-beta')  // newer
+    expect(parsed.data[1]!.taskId).toBe('task-alpha') // older
   })
 
   // Registration test

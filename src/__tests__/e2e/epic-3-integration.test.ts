@@ -233,7 +233,7 @@ describe('GAP-E3-1: Full worktree lifecycle — task:ready → merge → cleanup
 
     const createdEvents = eventBus.getEmittedEvents().filter((e) => e.event === 'worktree:created')
     expect(createdEvents).toHaveLength(1)
-    expect((createdEvents[0].payload as { taskId: string }).taskId).toBe('task-e2e-1')
+    expect((createdEvents[0]!.payload as { taskId: string }).taskId).toBe('task-e2e-1')
 
     // STEP 2 (story 3-2): merge the created worktree
     vi.mocked(gitUtils.getMergedFiles).mockResolvedValueOnce(['src/feature.ts'])
@@ -243,14 +243,14 @@ describe('GAP-E3-1: Full worktree lifecycle — task:ready → merge → cleanup
 
     const mergedEvents = eventBus.getEmittedEvents().filter((e) => e.event === 'worktree:merged')
     expect(mergedEvents).toHaveLength(1)
-    expect((mergedEvents[0].payload as { taskId: string }).taskId).toBe('task-e2e-1')
+    expect((mergedEvents[0]!.payload as { taskId: string }).taskId).toBe('task-e2e-1')
 
     // STEP 3 (story 3-1): cleanup the worktree after merge
     await manager.cleanupWorktree('task-e2e-1')
 
     const removedEvents = eventBus.getEmittedEvents().filter((e) => e.event === 'worktree:removed')
     expect(removedEvents).toHaveLength(1)
-    expect((removedEvents[0].payload as { taskId: string }).taskId).toBe('task-e2e-1')
+    expect((removedEvents[0]!.payload as { taskId: string }).taskId).toBe('task-e2e-1')
 
     await manager.shutdown()
   })
@@ -308,7 +308,7 @@ describe('GAP-E3-1: Full worktree lifecycle — task:ready → merge → cleanup
 
     const conflictEvents = eventBus.getEmittedEvents().filter((e) => e.event === 'worktree:conflict')
     expect(conflictEvents).toHaveLength(1)
-    expect((conflictEvents[0].payload as { taskId: string }).taskId).toBe('task-conflict-flow')
+    expect((conflictEvents[0]!.payload as { taskId: string }).taskId).toBe('task-conflict-flow')
 
     // Cleanup despite conflict (story 3-1)
     await manager.cleanupWorktree('task-conflict-flow')
@@ -639,12 +639,12 @@ describe('GAP-E3-6: Cross-story event sequencing — worktrees discovered via li
 
     const worktrees = await manager.listWorktrees()
     expect(worktrees).toHaveLength(1)
-    expect(worktrees[0].taskId).toBe('task-naming-check')
-    expect(worktrees[0].branchName).toBe('substrate/task-task-naming-check')
+    expect(worktrees[0]!.taskId).toBe('task-naming-check')
+    expect(worktrees[0]!.branchName).toBe('substrate/task-task-naming-check')
 
     // Use the taskId from listWorktrees to call mergeWorktree
     vi.mocked(gitUtils.getMergedFiles).mockResolvedValueOnce(['feature.ts'])
-    const mergeResult = await manager.mergeWorktree(worktrees[0].taskId, 'main')
+    const mergeResult = await manager.mergeWorktree(worktrees[0]!.taskId, 'main')
     expect(mergeResult.success).toBe(true)
 
     // The simulateMerge call should have used the branch name format matching worktrees listing
