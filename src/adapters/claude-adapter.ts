@@ -170,6 +170,9 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       envEntries.OTEL_LOG_TOOL_DETAILS = '1'
       // Shorter export intervals for pipeline visibility (defaults: 60s metrics, 5s logs)
       envEntries.OTEL_METRIC_EXPORT_INTERVAL = '10000'
+      // Prevent child process from hanging if the OTLP endpoint is unreachable.
+      // Without this, the OTEL SDK retries indefinitely on shutdown, blocking exit.
+      envEntries.OTEL_EXPORTER_OTLP_TIMEOUT = '5000'
       // Inject substrate.story_key as a resource attribute for per-story grouping
       if (options.storyKey !== undefined) {
         envEntries.OTEL_RESOURCE_ATTRIBUTES = `substrate.story_key=${options.storyKey}`

@@ -189,6 +189,37 @@ describe('ClaudeCodeAdapter', () => {
       const cmd = adapter.buildCommand('Fix it', defaultOptions)
       expect(cmd.unsetEnvKeys).toContain('CLAUDECODE')
     })
+
+    it('unsets ANTHROPIC_API_KEY when not in API billing mode', () => {
+      const cmd = adapter.buildCommand('Fix it', {
+        ...defaultOptions,
+        billingMode: 'subscription',
+      })
+      expect(cmd.unsetEnvKeys).toContain('ANTHROPIC_API_KEY')
+      expect(cmd.env?.ANTHROPIC_API_KEY).toBeUndefined()
+    })
+
+    it('sets OTEL_EXPORTER_OTLP_TIMEOUT when otlpEndpoint provided', () => {
+      const cmd = adapter.buildCommand('Fix it', {
+        ...defaultOptions,
+        otlpEndpoint: 'http://localhost:4318',
+      })
+      expect(cmd.env?.OTEL_EXPORTER_OTLP_TIMEOUT).toBe('5000')
+    })
+
+    it('sets all OTLP env vars when otlpEndpoint provided', () => {
+      const cmd = adapter.buildCommand('Fix it', {
+        ...defaultOptions,
+        otlpEndpoint: 'http://localhost:4318',
+        storyKey: '5-1',
+      })
+      expect(cmd.env?.CLAUDE_CODE_ENABLE_TELEMETRY).toBe('1')
+      expect(cmd.env?.OTEL_LOGS_EXPORTER).toBe('otlp')
+      expect(cmd.env?.OTEL_METRICS_EXPORTER).toBe('otlp')
+      expect(cmd.env?.OTEL_EXPORTER_OTLP_PROTOCOL).toBe('http/json')
+      expect(cmd.env?.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('http://localhost:4318')
+      expect(cmd.env?.OTEL_RESOURCE_ATTRIBUTES).toBe('substrate.story_key=5-1')
+    })
   })
 
   // -------------------------------------------------------------------------
