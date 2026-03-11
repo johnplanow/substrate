@@ -21,6 +21,7 @@
 import { createServer } from 'node:http'
 import type { Server, IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { createGunzip, createInflate } from 'node:zlib'
 import { AppError } from '../../errors/app-error.js'
 import { createLogger } from '../../utils/logger.js'
 import { BatchBuffer } from './batch-buffer.js'
@@ -217,12 +218,18 @@ export class IngestionServer {
       return
     }
 
-    // Collect body
+    // Collect body, decompressing gzip/deflate if needed
+    const encoding = req.headers['content-encoding']
+    let stream: NodeJS.ReadableStream = req
+    if (encoding === 'gzip' || encoding === 'deflate') {
+      stream = encoding === 'gzip' ? req.pipe(createGunzip()) : req.pipe(createInflate())
+    }
+
     const chunks: Buffer[] = []
-    req.on('data', (chunk: Buffer) => {
+    stream.on('data', (chunk: Buffer) => {
       chunks.push(chunk)
     })
-    req.on('end', () => {
+    stream.on('end', () => {
       const bodyStr = Buffer.concat(chunks).toString('utf-8')
       logger.trace({ url: req.url, bodyLength: bodyStr.length }, 'OTLP payload received')
 
@@ -241,10 +248,12 @@ export class IngestionServer {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end('{}')
     })
-    req.on('error', (err) => {
+    stream.on('error', (err) => {
       logger.warn({ err }, 'Error reading OTLP request body')
-      res.writeHead(400)
-      res.end('Bad Request')
+      if (!res.headersSent) {
+        res.writeHead(400)
+        res.end('Bad Request')
+      }
     })
   }
 }
