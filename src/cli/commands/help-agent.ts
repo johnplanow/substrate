@@ -306,6 +306,19 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     ],
   },
   {
+    type: 'routing:model-selected',
+    description: 'Model routing resolver selected a model for a dispatch.',
+    when: 'When a story dispatch uses model routing and the resolver returns a non-null model.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'dispatch_id', type: 'string', description: 'Unique dispatch ID.' },
+      { name: 'task_type', type: 'string', description: 'Task type (dev-story, test-plan, code-review).' },
+      { name: 'phase', type: 'string', description: 'Routing phase that matched (generate, explore, review).' },
+      { name: 'model', type: 'string', description: 'Selected model ID.' },
+      { name: 'source', type: 'string', description: 'How selected: phase, baseline, or override.' },
+    ],
+  },
+  {
     type: 'pipeline:pre-flight-failure',
     description: 'Pre-flight build check failed before any story was dispatched. Pipeline aborts immediately.',
     when: 'When the build command exits with a non-zero code before the first story dispatch.',
@@ -657,6 +670,9 @@ Patterns for \`substrate supervisor --output-format json\` events:
 
 ### On \`supervisor:experiment:error\`
 - Report error. Suggest running without \`--experiment\` for a clean run.
+
+### On \`routing:model-selected\`
+- Informational. Log which model was selected for the dispatch and why (phase config, baseline, or override).
 `
 }
 

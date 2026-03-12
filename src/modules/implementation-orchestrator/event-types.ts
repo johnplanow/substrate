@@ -595,6 +595,29 @@ export interface PipelineContractVerificationSummaryEvent {
 }
 
 // ---------------------------------------------------------------------------
+// RoutingModelSelectedEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the RoutingResolver selects a model for a dispatch.
+ */
+export interface RoutingModelSelectedEvent {
+  type: 'routing:model-selected'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Unique dispatch ID */
+  dispatch_id: string
+  /** Task type (e.g. 'dev-story', 'test-plan', 'code-review') */
+  task_type: string
+  /** Routing phase that matched (e.g. 'generate', 'explore', 'review') */
+  phase: string
+  /** Selected model ID */
+  model: string
+  /** How the model was selected: 'phase', 'baseline', 'override' */
+  source: string
+}
+
+// ---------------------------------------------------------------------------
 // PipelineEvent discriminated union
 // ---------------------------------------------------------------------------
 
@@ -640,6 +663,7 @@ export type PipelineEvent =
   | SupervisorExperimentRecommendationsEvent
   | SupervisorExperimentCompleteEvent
   | SupervisorExperimentErrorEvent
+  | RoutingModelSelectedEvent
 
 // ---------------------------------------------------------------------------
 // Compile-time source of truth for all event type discriminants
@@ -694,6 +718,8 @@ export const EVENT_TYPE_NAMES = [
   'supervisor:experiment:recommendations',
   'supervisor:experiment:complete',
   'supervisor:experiment:error',
+  // Epic 28: model routing observability
+  'routing:model-selected',
 ] as const
 
 /**
