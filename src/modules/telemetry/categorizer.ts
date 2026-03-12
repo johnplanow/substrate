@@ -44,6 +44,9 @@ const EXACT_CATEGORY_MAP = new Map<string, SemanticCategory>([
   ['run_command', 'tool_outputs'],
   ['memory_read', 'system_prompts'],
   ['web_fetch', 'tool_outputs'],
+  // Claude Code OTLP log event names
+  ['api_request', 'conversation_history'],
+  ['tool_decision', 'tool_outputs'],
 ])
 
 const PREFIX_PATTERNS: Array<{ pattern: RegExp; category: SemanticCategory }> = [

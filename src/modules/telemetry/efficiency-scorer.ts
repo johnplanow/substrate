@@ -143,11 +143,15 @@ export class EfficiencyScorer {
   }
 
   /**
-   * Average I/O ratio: inputTokens / max(outputTokens, 1) per turn.
+   * Average I/O ratio: totalInput / max(outputTokens, 1) per turn.
+   * Total input = inputTokens (fresh) + cacheReadTokens (cached).
    */
   private _computeAvgIoRatio(turns: TurnAnalysis[]): number {
     if (turns.length === 0) return 0
-    const sum = turns.reduce((acc, t) => acc + t.inputTokens / Math.max(t.outputTokens, 1), 0)
+    const sum = turns.reduce((acc, t) => {
+      const totalInput = t.inputTokens + (t.cacheReadTokens ?? 0)
+      return acc + totalInput / Math.max(t.outputTokens, 1)
+    }, 0)
     return sum / turns.length
   }
 
@@ -179,8 +183,10 @@ export class EfficiencyScorer {
         groupTurns.reduce((acc, t) => acc + t.cacheHitRate, 0) / groupTurns.length
 
       const avgIoRatio =
-        groupTurns.reduce((acc, t) => acc + t.inputTokens / Math.max(t.outputTokens, 1), 0) /
-        groupTurns.length
+        groupTurns.reduce((acc, t) => {
+          const totalInput = t.inputTokens + (t.cacheReadTokens ?? 0)
+          return acc + totalInput / Math.max(t.outputTokens, 1)
+        }, 0) / groupTurns.length
 
       const totalCostUsd = groupTurns.reduce((acc, t) => acc + t.costUsd, 0)
       const totalOutputTokens = groupTurns.reduce((acc, t) => acc + t.outputTokens, 0)
@@ -243,8 +249,10 @@ export class EfficiencyScorer {
   private _computeIoRatioSubScoreForGroup(turns: TurnAnalysis[]): number {
     if (turns.length === 0) return 0
     const avg =
-      turns.reduce((acc, t) => acc + t.inputTokens / Math.max(t.outputTokens, 1), 0) /
-      turns.length
+      turns.reduce((acc, t) => {
+        const totalInput = t.inputTokens + (t.cacheReadTokens ?? 0)
+        return acc + totalInput / Math.max(t.outputTokens, 1)
+      }, 0) / turns.length
     return this._clamp(100 - (avg - 1) * 20, 0, 100)
   }
 

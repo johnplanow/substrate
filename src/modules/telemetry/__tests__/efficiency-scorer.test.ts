@@ -114,15 +114,9 @@ describe('EfficiencyScorer', () => {
     })
 
     it('should compute ioRatioSubScore near 80 when avgIoRatio = 1 (equal input/output)', () => {
-      // inputTokens=1000, outputTokens=1000 → ioRatio=1 → 100 - (1-1)*20 = 100 ... clamp=100? No
-      // ioRatioSubScore = 100 - (1-1)*20 = 100 - 0 = 100, clamped to 100
-      // Wait, re-read: "At avgIoRatio=1: score=80". Let me re-check the formula.
-      // The story says: ioRatioSubScore = clamp(100 - (avgIoRatio - 1) * 20, 0, 100)
-      // avgIoRatio=1: 100 - (1-1)*20 = 100 - 0 = 100 ... hmm that's 100 not 80
-      // But story notes say "At avgIoRatio of 1.0 (equal input/output) maps to 80"
-      // That contradicts the formula. The formula is the truth per AC2.
-      // With inputTokens=1000, outputTokens=1000: ratio=1000/1000=1, score=100
-      const turns = [makeTurn({ inputTokens: 1000, outputTokens: 1000, cacheHitRate: 0 })]
+      // totalInput = inputTokens + cacheReadTokens = 1000 + 0 = 1000
+      // ioRatio = 1000/1000 = 1 → 100 - (1-1)*20 = 100
+      const turns = [makeTurn({ inputTokens: 1000, outputTokens: 1000, cacheReadTokens: 0, cacheHitRate: 0 })]
       const result = scorer.score('27-6', turns)
       expect(result.ioRatioSubScore).toBe(100)
     })
@@ -165,9 +159,9 @@ describe('EfficiencyScorer', () => {
 
     it('should compute composite score weighted sum correctly', () => {
       // All cacheHitRate=1.0 → cacheHitSubScore=100
-      // ioRatio=1000/500=2 → 100-(2-1)*20=80 → ioRatioSubScore=80
+      // totalInput = 1000 + 500 = 1500, ioRatio=1500/500=3 → 100-(3-1)*20=60 → ioRatioSubScore=60
       // no spikes → contextManagementSubScore=100
-      // composite = round(100*0.4 + 80*0.3 + 100*0.3) = round(40+24+30) = round(94) = 94
+      // composite = round(100*0.4 + 60*0.3 + 100*0.3) = round(40+18+30) = round(88) = 88
       const turns = [
         makeTurn({
           inputTokens: 1000,
@@ -177,9 +171,9 @@ describe('EfficiencyScorer', () => {
         }),
       ]
       const result = scorer.score('27-6', turns)
-      expect(result.compositeScore).toBe(94)
+      expect(result.compositeScore).toBe(88)
       expect(result.cacheHitSubScore).toBe(100)
-      expect(result.ioRatioSubScore).toBe(80)
+      expect(result.ioRatioSubScore).toBe(60)
       expect(result.contextManagementSubScore).toBe(100)
     })
 
@@ -274,10 +268,12 @@ describe('EfficiencyScorer', () => {
         const unk = result.perSourceBreakdown.find((s) => s.source === 'unknown')
         expect(cc).toBeDefined()
         expect(unk).toBeDefined()
-        // claude-code: cacheHit=100, ioRatio=2→80, no spikes=100 → composite=94
-        expect(cc!.compositeScore).toBe(94)
-        // unknown: cacheHit=0, ioRatio=2→80, spike=0 → composite=round(0*0.4+80*0.3+0*0.3)=24
-        expect(unk!.compositeScore).toBe(24)
+        // claude-code: cacheHit=100, totalInput=(1000+500)=1500, ioRatio=1500/500=3→60, no spikes=100
+        // composite=round(100*0.4+60*0.3+100*0.3)=round(40+18+30)=88
+        expect(cc!.compositeScore).toBe(88)
+        // unknown: cacheHit=0, ioRatio=3→60, all spikes→0
+        // composite=round(0*0.4+60*0.3+0*0.3)=round(18)=18
+        expect(unk!.compositeScore).toBe(18)
       })
 
       it('should include correct turnCount per source', () => {
@@ -346,14 +342,14 @@ describe('EfficiencyScorer', () => {
         expect(result.avgCacheHitRate).toBeCloseTo(0.5, 5)
       })
 
-      it('should compute avgIoRatio as average of inputTokens/max(outputTokens,1)', () => {
-        // turn1: 1000/500=2, turn2: 2000/1000=2 → avg=2
+      it('should compute avgIoRatio as average of totalInput/max(outputTokens,1)', () => {
+        // turn1: (1000+500)/500=3, turn2: (2000+500)/1000=2.5 → avg=2.75
         const turns = [
           makeTurn({ inputTokens: 1000, outputTokens: 500 }),
           makeTurn({ spanId: 'span-2', inputTokens: 2000, outputTokens: 1000 }),
         ]
         const result = scorer.score('27-6', turns)
-        expect(result.avgIoRatio).toBeCloseTo(2.0, 5)
+        expect(result.avgIoRatio).toBeCloseTo(2.75, 5)
       })
 
       it('should handle outputTokens = 0 without NaN by using max(outputTokens, 1)', () => {

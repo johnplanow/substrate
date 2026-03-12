@@ -113,10 +113,15 @@ export class LogTurnAnalyzer {
       const turns: TurnAnalysis[] = merged.map(
         ({ representative: log, inputTokens, outputTokens, cacheReadTokens, costUsd }, idx) => {
           const prevContext = runningContext
-          runningContext += inputTokens
+          // contextSize tracks total input (fresh + cached) to reflect actual context window usage
+          runningContext += inputTokens + cacheReadTokens
 
           const freshTokens = inputTokens - cacheReadTokens
-          const cacheHitRate = inputTokens > 0 ? cacheReadTokens / inputTokens : 0
+          // cacheHitRate = fraction of total input that came from cache (0-1).
+          // Claude API reports input_tokens as fresh (non-cached) only, so
+          // total input = inputTokens + cacheReadTokens.
+          const totalInput = inputTokens + cacheReadTokens
+          const cacheHitRate = totalInput > 0 ? cacheReadTokens / totalInput : 0
 
           return {
             spanId: log.spanId ?? log.logId,

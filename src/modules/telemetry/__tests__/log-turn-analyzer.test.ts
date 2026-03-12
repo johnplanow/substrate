@@ -150,17 +150,19 @@ describe('LogTurnAnalyzer', () => {
     expect(result[0].freshTokens).toBe(700)
   })
 
-  it('computes cacheHitRate as cacheReadTokens / inputTokens', () => {
+  it('computes cacheHitRate as cacheReadTokens / (inputTokens + cacheReadTokens)', () => {
     const log = makeLog({ inputTokens: 1000, cacheReadTokens: 400 })
     const result = analyzer.analyze([log])
-    expect(result[0].cacheHitRate).toBeCloseTo(0.4)
+    // 400 / (1000 + 400) = 0.2857...
+    expect(result[0].cacheHitRate).toBeCloseTo(400 / 1400)
   })
 
-  it('cacheHitRate is 1 when cacheReadTokens equals inputTokens', () => {
+  it('cacheHitRate is 0.5 when cacheReadTokens equals inputTokens', () => {
     const log = makeLog({ inputTokens: 500, cacheReadTokens: 500 })
     const result = analyzer.analyze([log])
     expect(result[0].freshTokens).toBe(0)
-    expect(result[0].cacheHitRate).toBe(1)
+    // 500 / (500 + 500) = 0.5
+    expect(result[0].cacheHitRate).toBe(0.5)
   })
 
   it('cacheHitRate is 0 when inputTokens is 0', () => {
@@ -186,9 +188,11 @@ describe('LogTurnAnalyzer', () => {
   // -- AC3: Context growth tracking --------------------------------------------
 
   it('accumulates contextSize correctly across multiple turns', () => {
-    const log1 = makeLog({ spanId: 'x', timestamp: 1000, inputTokens: 100 })
-    const log2 = makeLog({ spanId: 'y', timestamp: 2000, inputTokens: 200 })
-    const log3 = makeLog({ spanId: 'z', timestamp: 3000, inputTokens: 300 })
+    // contextSize = cumulative (inputTokens + cacheReadTokens)
+    // Using cacheReadTokens: 0 to keep the math simple
+    const log1 = makeLog({ spanId: 'x', timestamp: 1000, inputTokens: 100, cacheReadTokens: 0 })
+    const log2 = makeLog({ spanId: 'y', timestamp: 2000, inputTokens: 200, cacheReadTokens: 0 })
+    const log3 = makeLog({ spanId: 'z', timestamp: 3000, inputTokens: 300, cacheReadTokens: 0 })
 
     const result = analyzer.analyze([log1, log2, log3])
 
