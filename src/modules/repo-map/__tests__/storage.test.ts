@@ -290,6 +290,25 @@ describe('DoltSymbolRepository', () => {
       const result = await repo.findByDependedBy('nonexistent')
       expect(result).toEqual([])
     })
+
+    it('maps dependencies: null to empty array [] (AC3: NULL column after ALTER TABLE ADD COLUMN)', async () => {
+      // Existing rows written before the `dependencies` column existed will have NULL
+      // after `ALTER TABLE repo_map_symbols ADD COLUMN dependencies JSON`.
+      // _rowToRepoMapSymbol must treat NULL as [] so downstream callers never see undefined.
+      queryMock.mockResolvedValue([{
+        file_path: 'src/legacy.ts',
+        symbol_name: 'legacyFn',
+        symbol_kind: 'function',
+        signature: null,
+        line_number: 1,
+        exported: 1,
+        file_hash: 'oldhash',
+        dependencies: null,
+      }])
+      const result = await repo.findByDependedBy('anything')
+      expect(result).toHaveLength(1)
+      expect(result[0]!.dependencies).toEqual([])
+    })
   })
 })
 

@@ -20,11 +20,16 @@ vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
 }))
 
+// Hoist the info spy so it can be referenced in both the vi.mock factory and test assertions.
+const { mockLogInfo } = vi.hoisted(() => ({
+  mockLogInfo: vi.fn(),
+}))
+
 vi.mock('../../../utils/logger.js', () => ({
   createLogger: () => ({
     debug: vi.fn(),
     warn: vi.fn(),
-    info: vi.fn(),
+    info: mockLogInfo,
     error: vi.fn(),
   }),
 }))
@@ -102,6 +107,116 @@ describe('DoltStateStore', () => {
       const store = makeStore(client)
       await store.close()
       expect(client.close).toHaveBeenCalledOnce()
+    })
+  })
+
+  // -- schema migration: dependencies column ---------------------------------
+
+  describe('schema migration — dependencies column', () => {
+    it('runs ALTER TABLE when dependencies column is missing (SHOW COLUMNS returns empty)', async () => {
+      // Default client returns [] for all queries — SHOW COLUMNS returns 0 rows → migration applies
+      const client = makeClient(
+        new Map([
+          ['SHOW COLUMNS FROM repo_map_symbols', []],
+        ]),
+      )
+      const store = makeStore(client)
+      await store.initialize()
+
+      const calls = vi.mocked(client.query).mock.calls
+      const alterCall = calls.find(([sql]) => String(sql).includes('ALTER TABLE repo_map_symbols'))
+      expect(alterCall).toBeDefined()
+      expect(String(alterCall![0])).toContain('ADD COLUMN dependencies JSON')
+    })
+
+    it('skips ALTER TABLE when dependencies column already exists (SHOW COLUMNS returns 1 row)', async () => {
+      // SHOW COLUMNS returns a row — column exists, migration is a no-op
+      const client = makeClient(
+        new Map([
+          ['SHOW COLUMNS FROM repo_map_symbols', [{ Field: 'dependencies', Type: 'json', Null: 'YES', Key: '', Default: null, Extra: '' }]],
+        ]),
+      )
+      const store = makeStore(client)
+      await store.initialize()
+
+      const calls = vi.mocked(client.query).mock.calls
+      const alterCall = calls.find(([sql]) => String(sql).includes('ALTER TABLE repo_map_symbols'))
+      expect(alterCall).toBeUndefined()
+    })
+
+    it('inserts schema version 6 into _schema_version after migration', async () => {
+      // SHOW COLUMNS returns [] → migration runs → version 6 should be recorded
+      const client = makeClient(
+        new Map([
+          ['SHOW COLUMNS FROM repo_map_symbols', []],
+        ]),
+      )
+      const store = makeStore(client)
+      await store.initialize()
+
+      const calls = vi.mocked(client.query).mock.calls
+      const versionCall = calls.find(
+        ([sql]) => String(sql).includes('INSERT IGNORE INTO _schema_version') && String(sql).includes('(6,'),
+      )
+      expect(versionCall).toBeDefined()
+    })
+
+    it('emits info-level log with migration metadata when ALTER TABLE runs (AC5)', async () => {
+      mockLogInfo.mockClear()
+      const client = makeClient(
+        new Map([
+          ['SHOW COLUMNS FROM repo_map_symbols', []],
+        ]),
+      )
+      const store = makeStore(client)
+      await store.initialize()
+
+      expect(mockLogInfo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          component: 'dolt-state',
+          migration: 'v5-to-v6',
+          column: 'dependencies',
+          table: 'repo_map_symbols',
+        }),
+        expect.any(String),
+      )
+    })
+
+    it('does NOT emit migration log when column already exists (AC5 negative)', async () => {
+      mockLogInfo.mockClear()
+      const client = makeClient(
+        new Map([
+          ['SHOW COLUMNS FROM repo_map_symbols', [{ Field: 'dependencies', Type: 'json', Null: 'YES', Key: '', Default: null, Extra: '' }]],
+        ]),
+      )
+      const store = makeStore(client)
+      await store.initialize()
+
+      const migrationCall = vi.mocked(mockLogInfo).mock.calls.find(
+        ([meta]) => typeof meta === 'object' && meta !== null && (meta as Record<string, unknown>)['migration'] === 'v5-to-v6',
+      )
+      expect(migrationCall).toBeUndefined()
+    })
+
+    it('skips migration silently when repo_map_symbols table does not exist (query throws)', async () => {
+      // Simulate table-not-found error from SHOW COLUMNS
+      const client = makeClient()
+      let showColumnsCalled = false
+      vi.mocked(client.query).mockImplementation(async (sql: string) => {
+        if (String(sql).includes('SHOW COLUMNS FROM repo_map_symbols')) {
+          showColumnsCalled = true
+          throw new Error("Table 'substrate.repo_map_symbols' doesn't exist")
+        }
+        return []
+      })
+      const store = makeStore(client)
+      // Should not throw even when SHOW COLUMNS fails
+      await expect(store.initialize()).resolves.toBeUndefined()
+      expect(showColumnsCalled).toBe(true)
+      // ALTER TABLE should NOT have been called
+      const calls = vi.mocked(client.query).mock.calls
+      const alterCall = calls.find(([sql]) => String(sql).includes('ALTER TABLE repo_map_symbols'))
+      expect(alterCall).toBeUndefined()
     })
   })
 

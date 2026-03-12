@@ -225,6 +225,29 @@ export class DoltStateStore implements StateStore {
     for (const sql of ddl) {
       await this._client.query(sql)
     }
+
+    // v5 → v6: add dependencies JSON column to repo_map_symbols
+    // Uses SHOW COLUMNS to detect missing column (idempotent — no error if already present).
+    // Skips silently if repo_map_symbols does not yet exist (fresh DB or non-Dolt env).
+    try {
+      const colRows = await this._client.query<Record<string, unknown>>(
+        `SHOW COLUMNS FROM repo_map_symbols LIKE 'dependencies'`,
+      )
+      if (colRows.length === 0) {
+        await this._client.query(`ALTER TABLE repo_map_symbols ADD COLUMN dependencies JSON`)
+        await this._client.query(
+          `INSERT IGNORE INTO _schema_version (version, description) VALUES (6, 'Add dependencies JSON column to repo_map_symbols (Epic 28-3)')`,
+        )
+        log.info(
+          { component: 'dolt-state', migration: 'v5-to-v6', column: 'dependencies', table: 'repo_map_symbols' },
+          'Applied migration v5-to-v6: added dependencies column to repo_map_symbols',
+        )
+      }
+    } catch {
+      // repo_map_symbols does not yet exist — migration will be applied by schema.sql
+      log.debug('Skipping repo_map_symbols migration: table not yet created')
+    }
+
     log.debug('Schema migrations applied')
   }
 
