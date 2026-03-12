@@ -211,6 +211,16 @@ describe('Categorizer', () => {
       })
     })
 
+    describe('Tier 5: log_turn default', () => {
+      it('should classify "log_turn" as conversation_history', () => {
+        expect(categorizer.classify('log_turn')).toBe('conversation_history')
+      })
+
+      it('should classify "log_turn" with toolName as tool_outputs (tier 4 wins)', () => {
+        expect(categorizer.classify('log_turn', 'some_tool')).toBe('tool_outputs')
+      })
+    })
+
     describe('case-insensitivity for tier 3', () => {
       it('should handle mixed-case operations in fuzzy tier', () => {
         expect(categorizer.classify('Read_Partial_File')).toBe('file_reads')
@@ -315,6 +325,173 @@ describe('Categorizer', () => {
 
       const toolOutputs = result.find((r) => r.category === 'tool_outputs')!
       expect(toolOutputs.trend).toBe('stable')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // computeCategoryStatsFromTurns()
+  // -------------------------------------------------------------------------
+
+  describe('computeCategoryStatsFromTurns()', () => {
+    it('should return all 6 SemanticCategory values with zeros when turns is empty', () => {
+      const result = categorizer.computeCategoryStatsFromTurns([])
+
+      const categories = result.map((r) => r.category)
+      expect(categories).toContain('tool_outputs')
+      expect(categories).toContain('file_reads')
+      expect(categories).toContain('system_prompts')
+      expect(categories).toContain('conversation_history')
+      expect(categories).toContain('user_prompts')
+      expect(categories).toContain('other')
+      expect(result).toHaveLength(6)
+      for (const stat of result) {
+        expect(stat.totalTokens).toBe(0)
+        expect(stat.eventCount).toBe(0)
+        expect(stat.trend).toBe('stable')
+      }
+    })
+
+    it('should classify turns with toolName → tool_outputs', () => {
+      const turns = [
+        makeTurn({ spanId: 't1', name: 'unknown_op', toolName: 'bash', inputTokens: 100, outputTokens: 50 }),
+      ]
+      const result = categorizer.computeCategoryStatsFromTurns(turns)
+
+      const toolOutputs = result.find((r) => r.category === 'tool_outputs')!
+      expect(toolOutputs.totalTokens).toBe(150)
+      expect(toolOutputs.eventCount).toBe(1)
+    })
+
+    it('should classify turns without toolName using name classification', () => {
+      const turns = [
+        makeTurn({ spanId: 't1', name: 'read_file', toolName: undefined, inputTokens: 200, outputTokens: 100, turnNumber: 1 }),
+        makeTurn({ spanId: 't2', name: 'system_prompt', toolName: undefined, inputTokens: 300, outputTokens: 0, turnNumber: 2, timestamp: 2000 }),
+      ]
+      const result = categorizer.computeCategoryStatsFromTurns(turns)
+
+      const fileReads = result.find((r) => r.category === 'file_reads')!
+      const systemPrompts = result.find((r) => r.category === 'system_prompts')!
+      expect(fileReads.totalTokens).toBe(300)
+      expect(fileReads.eventCount).toBe(1)
+      expect(systemPrompts.totalTokens).toBe(300)
+      expect(systemPrompts.eventCount).toBe(1)
+    })
+
+    it('should return all 6 categories even when some have zero turns', () => {
+      const turns = [
+        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 1000, outputTokens: 500 }),
+      ]
+      const result = categorizer.computeCategoryStatsFromTurns(turns)
+
+      expect(result).toHaveLength(6)
+      const toolOutputs = result.find((r) => r.category === 'tool_outputs')!
+      const fileReads = result.find((r) => r.category === 'file_reads')!
+      expect(toolOutputs.totalTokens).toBe(1500)
+      expect(fileReads.totalTokens).toBe(0)
+      expect(fileReads.eventCount).toBe(0)
+    })
+
+    it('should compute percentage correctly', () => {
+      const turns = [
+        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 500, outputTokens: 500 }),
+      ]
+      const result = categorizer.computeCategoryStatsFromTurns(turns)
+
+      const toolOutputs = result.find((r) => r.category === 'tool_outputs')!
+      expect(toolOutputs.percentage).toBe(100)
+      const fileReads = result.find((r) => r.category === 'file_reads')!
+      expect(fileReads.percentage).toBe(0)
+    })
+
+    it('should compute avgTokensPerEvent correctly', () => {
+      const turns = [
+        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 100, outputTokens: 100, turnNumber: 1 }),
+        makeTurn({ spanId: 't2', name: 'bash', inputTokens: 200, outputTokens: 200, turnNumber: 2, timestamp: 2000 }),
+      ]
+      const result = categorizer.computeCategoryStatsFromTurns(turns)
+
+      const toolOutputs = result.find((r) => r.category === 'tool_outputs')!
+      expect(toolOutputs.totalTokens).toBe(600)
+      expect(toolOutputs.eventCount).toBe(2)
+      expect(toolOutputs.avgTokensPerEvent).toBe(300)
+    })
+
+    it('should sort results by totalTokens descending', () => {
+      const turns = [
+        makeTurn({ spanId: 't1', name: 'read_file', inputTokens: 100, outputTokens: 50, turnNumber: 1 }),
+        makeTurn({ spanId: 't2', name: 'bash', inputTokens: 1000, outputTokens: 500, turnNumber: 2, timestamp: 2000 }),
+        makeTurn({ spanId: 't3', name: 'system_prompt', inputTokens: 200, outputTokens: 0, turnNumber: 3, timestamp: 3000 }),
+      ]
+      const result = categorizer.computeCategoryStatsFromTurns(turns)
+
+      expect(result[0].category).toBe('tool_outputs')
+      expect(result[1].category).toBe('system_prompts')
+      expect(result[2].category).toBe('file_reads')
+    })
+
+    it('should detect growing trend when second-half turns have > 1.2x first-half tokens', () => {
+      const turns = [
+        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 100, outputTokens: 0, turnNumber: 1, timestamp: 1000 }),
+        makeTurn({ spanId: 't2', name: 'bash', inputTokens: 100, outputTokens: 0, turnNumber: 2, timestamp: 2000 }),
+        makeTurn({ spanId: 't3', name: 'bash', inputTokens: 200, outputTokens: 0, turnNumber: 3, timestamp: 3000 }),
+        makeTurn({ spanId: 't4', name: 'bash', inputTokens: 200, outputTokens: 0, turnNumber: 4, timestamp: 4000 }),
+      ]
+      // firstHalf (turns[0,1]) = 200, secondHalf (turns[2,3]) = 400; 400 > 1.2 * 200 = 240
+      const result = categorizer.computeCategoryStatsFromTurns(turns)
+      const toolOutputs = result.find((r) => r.category === 'tool_outputs')!
+      expect(toolOutputs.trend).toBe('growing')
+    })
+
+    it('should detect shrinking trend when second-half turns have < 0.8x first-half tokens', () => {
+      const turns = [
+        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 400, outputTokens: 0, turnNumber: 1, timestamp: 1000 }),
+        makeTurn({ spanId: 't2', name: 'bash', inputTokens: 400, outputTokens: 0, turnNumber: 2, timestamp: 2000 }),
+        makeTurn({ spanId: 't3', name: 'bash', inputTokens: 100, outputTokens: 0, turnNumber: 3, timestamp: 3000 }),
+        makeTurn({ spanId: 't4', name: 'bash', inputTokens: 100, outputTokens: 0, turnNumber: 4, timestamp: 4000 }),
+      ]
+      // firstHalf = 800, secondHalf = 200; 200 < 0.8 * 800 = 640
+      const result = categorizer.computeCategoryStatsFromTurns(turns)
+      const toolOutputs = result.find((r) => r.category === 'tool_outputs')!
+      expect(toolOutputs.trend).toBe('shrinking')
+    })
+
+    it('should return stable trend when < 2 turns', () => {
+      const turns = [
+        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 100, outputTokens: 50 }),
+      ]
+      const result = categorizer.computeCategoryStatsFromTurns(turns)
+      const toolOutputs = result.find((r) => r.category === 'tool_outputs')!
+      expect(toolOutputs.trend).toBe('stable')
+    })
+
+    it('should return growing trend when first-half is zero and second-half has tokens', () => {
+      const turns = [
+        makeTurn({ spanId: 't1', name: 'read_file', inputTokens: 0, outputTokens: 0, turnNumber: 1 }),
+        makeTurn({ spanId: 't2', name: 'read_file', inputTokens: 500, outputTokens: 0, turnNumber: 2, timestamp: 2000 }),
+      ]
+      const result = categorizer.computeCategoryStatsFromTurns(turns)
+      const fileReads = result.find((r) => r.category === 'file_reads')!
+      expect(fileReads.trend).toBe('growing')
+    })
+
+    it('should return stable trend for zero-token category (first=0, second=0)', () => {
+      const turns = [
+        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 100, outputTokens: 0, turnNumber: 1 }),
+        makeTurn({ spanId: 't2', name: 'bash', inputTokens: 200, outputTokens: 0, turnNumber: 2, timestamp: 2000 }),
+      ]
+      const result = categorizer.computeCategoryStatsFromTurns(turns)
+      const fileReads = result.find((r) => r.category === 'file_reads')!
+      expect(fileReads.trend).toBe('stable')
+    })
+
+    it('should compute 0 percentage when grandTotal is 0', () => {
+      const turns = [
+        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 0, outputTokens: 0 }),
+      ]
+      const result = categorizer.computeCategoryStatsFromTurns(turns)
+      for (const stat of result) {
+        expect(stat.percentage).toBe(0)
+      }
     })
   })
 

@@ -1,13 +1,13 @@
 /**
- * Integration test for Story 27-12 Task 7:
+ * Integration test for Story 27-12 Task 7 (updated for 27-15 dual-track):
  * POST OTLP payload → BatchBuffer → TelemetryPipeline → SQLite persistence.
  *
  * Verifies the full end-to-end wiring: an HTTP POST to the ingestion server
  * triggers normalization, turn analysis, efficiency scoring, and persistence.
  *
  * Uses:
- *   - Real TelemetryNormalizer, TurnAnalyzer, Categorizer, ConsumerAnalyzer,
- *     EfficiencyScorer, Recommender (all working implementations)
+ *   - Real TelemetryNormalizer, TurnAnalyzer, LogTurnAnalyzer, Categorizer,
+ *     ConsumerAnalyzer, EfficiencyScorer, Recommender (all working implementations)
  *   - Real TelemetryPersistence backed by an in-memory SQLite database
  *   - batchSize=1 to trigger an immediate flush on each POST
  *   - server.stop() awaits in-flight processBatch() calls (AC5 guarantee)
@@ -21,6 +21,7 @@ import { IngestionServer } from '../ingestion-server.js'
 import { TelemetryPipeline } from '../telemetry-pipeline.js'
 import { TelemetryNormalizer } from '../normalizer.js'
 import { TurnAnalyzer } from '../turn-analyzer.js'
+import { LogTurnAnalyzer } from '../log-turn-analyzer.js'
 import { Categorizer } from '../categorizer.js'
 import { ConsumerAnalyzer } from '../consumer-analyzer.js'
 import { EfficiencyScorer } from '../efficiency-scorer.js'
@@ -191,6 +192,44 @@ function makeOtlpTracePayload(storyKey: string): object {
   }
 }
 
+/**
+ * A minimal but valid OTLP log payload with one log record tagged with a storyKey.
+ * The log has token counts so that LogTurnAnalyzer can produce a TurnAnalysis entry.
+ */
+function makeOtlpLogPayload(storyKey: string): object {
+  return {
+    resourceLogs: [
+      {
+        resource: {
+          attributes: [
+            { key: 'service.name', value: { stringValue: 'claude-code' } },
+            { key: 'substrate.story_key', value: { stringValue: storyKey } },
+          ],
+        },
+        scopeLogs: [
+          {
+            logRecords: [
+              {
+                traceId: 'b1b2b3b4b5b6b7b8b9b0b1b2b3b4b5b6',
+                spanId: 'b1b2c3d4e5f6a7b8',
+                timeUnixNano: '1700000002000000000',
+                severityText: 'INFO',
+                body: { stringValue: 'LLM completion' },
+                attributes: [
+                  { key: 'gen_ai.request.model', value: { stringValue: 'claude-3-5-sonnet' } },
+                  { key: 'gen_ai.usage.input_tokens', value: { intValue: 80 } },
+                  { key: 'gen_ai.usage.output_tokens', value: { intValue: 40 } },
+                  { key: 'event.name', value: { stringValue: 'llm.completion' } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
@@ -208,6 +247,7 @@ describe('Ingestion pipeline integration: POST → buffer → pipeline → SQLit
     const log = createLogger('test:ingestion-pipeline', { level: 'silent' })
     const normalizer = new TelemetryNormalizer(log)
     const turnAnalyzer = new TurnAnalyzer(log)
+    const logTurnAnalyzer = new LogTurnAnalyzer(log)
     const categorizer = new Categorizer(log)
     const consumerAnalyzer = new ConsumerAnalyzer(categorizer, log)
     const efficiencyScorer = new EfficiencyScorer(log)
@@ -216,6 +256,7 @@ describe('Ingestion pipeline integration: POST → buffer → pipeline → SQLit
     pipeline = new TelemetryPipeline({
       normalizer,
       turnAnalyzer,
+      logTurnAnalyzer,
       categorizer,
       consumerAnalyzer,
       efficiencyScorer,
@@ -317,5 +358,30 @@ describe('Ingestion pipeline integration: POST → buffer → pipeline → SQLit
     expect(score2).not.toBeNull()
     expect(score1!.storyKey).toBe(STORY_KEY)
     expect(score2!.storyKey).toBe(STORY_KEY + '-2')
+  })
+
+  // -- Story 27-15: Log-only OTLP payload integration test --
+
+  it('AC3/AC6: log-only OTLP payload flows to turn analysis and efficiency persistence', async () => {
+    const logStoryKey = '27-15-log-only'
+    await server.start()
+
+    const endpoint = server.getOtlpEnvVars().OTEL_EXPORTER_OTLP_ENDPOINT
+    const logPayload = makeOtlpLogPayload(logStoryKey)
+    const response = await sendPost(endpoint + '/v1/logs', JSON.stringify(logPayload))
+
+    expect(response.status).toBe(200)
+
+    await server.stop()
+
+    // Verify turn analysis was persisted from logs
+    const turns = await persistence.getTurnAnalysis(logStoryKey)
+    expect(turns.length).toBeGreaterThanOrEqual(1)
+
+    // Verify efficiency score was computed and persisted
+    const score = await persistence.getEfficiencyScore(logStoryKey)
+    expect(score).not.toBeNull()
+    expect(score!.storyKey).toBe(logStoryKey)
+    expect(score!.totalTurns).toBeGreaterThanOrEqual(1)
   })
 })

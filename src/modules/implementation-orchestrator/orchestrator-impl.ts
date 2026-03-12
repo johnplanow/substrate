@@ -54,7 +54,7 @@ import type { ContractMismatch } from './types.js'
 import type { StateStore, StoryRecord, ContractRecord, ContractVerificationRecord } from '../state/index.js'
 import { DoltMergeConflict } from '../state/index.js'
 import type { ITelemetryPersistence } from '../telemetry/index.js'
-import { EfficiencyScorer, Categorizer, ConsumerAnalyzer, TelemetryNormalizer, TurnAnalyzer, Recommender } from '../telemetry/index.js'
+import { EfficiencyScorer, Categorizer, ConsumerAnalyzer, TelemetryNormalizer, TurnAnalyzer, LogTurnAnalyzer, Recommender } from '../telemetry/index.js'
 import type { IngestionServer } from '../telemetry/ingestion-server.js'
 import { TelemetryPipeline } from '../telemetry/telemetry-pipeline.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
@@ -1618,22 +1618,19 @@ export function createImplementationOrchestrator(
           }
         }
 
-        // Post-SHIP_IT/LGTM_WITH_NOTES: compute semantic categorization + consumer stats (Story 27-5)
+        // Post-SHIP_IT/LGTM_WITH_NOTES: compute semantic categorization + consumer stats (Story 27-5, 27-16)
         // Non-blocking — telemetry failure never alters the pipeline verdict or state.
-        // Guard: spans are populated only once the OTLP ingestion pipeline (story 27-1/27-2/27-3) is wired.
+        // Uses turn analysis data (not raw spans) — Claude Code exports logs/metrics, not traces.
         if (telemetryPersistence !== undefined) {
           try {
             const turns = await telemetryPersistence.getTurnAnalysis(storyKey)
-            // TODO(27-3): Replace empty array with telemetryPersistence.getSpansForStory(storyKey)
-            // once the OTLP span storage pipeline is wired.
-            const spans: import('../telemetry/index.js').NormalizedSpan[] = []
-            if (spans.length === 0) {
-              logger.debug({ storyKey }, 'No spans for telemetry categorization — skipping')
+            if (turns.length === 0) {
+              logger.debug({ storyKey }, 'No turn analysis data for telemetry categorization — skipping')
             } else {
               const categorizer = new Categorizer(logger)
               const consumerAnalyzer = new ConsumerAnalyzer(categorizer, logger)
-              const categoryStats = categorizer.computeCategoryStats(spans, turns)
-              const consumerStats = consumerAnalyzer.analyze(spans)
+              const categoryStats = categorizer.computeCategoryStatsFromTurns(turns)
+              const consumerStats = consumerAnalyzer.analyzeFromTurns(turns)
               await telemetryPersistence.storeCategoryStats(storyKey, categoryStats)
               await telemetryPersistence.storeConsumerStats(storyKey, consumerStats)
               const growingCount = categoryStats.filter((c) => c.trend === 'growing').length
@@ -2152,6 +2149,7 @@ export function createImplementationOrchestrator(
             const telemetryPipeline = new TelemetryPipeline({
               normalizer: new TelemetryNormalizer(pipelineLogger),
               turnAnalyzer: new TurnAnalyzer(pipelineLogger),
+              logTurnAnalyzer: new LogTurnAnalyzer(pipelineLogger),
               categorizer: new Categorizer(pipelineLogger),
               consumerAnalyzer: new ConsumerAnalyzer(new Categorizer(pipelineLogger), pipelineLogger),
               efficiencyScorer: new EfficiencyScorer(pipelineLogger),

@@ -58,6 +58,7 @@ export { Categorizer } from './categorizer.js'
 export { ConsumerAnalyzer } from './consumer-analyzer.js'
 export { Recommender } from './recommender.js'
 export { TurnAnalyzer } from './turn-analyzer.js'
+export { LogTurnAnalyzer } from './log-turn-analyzer.js'
 
 export { TelemetryNormalizer } from './normalizer.js'
 export { estimateCost, COST_TABLE, resolveModel } from './cost-table.js'

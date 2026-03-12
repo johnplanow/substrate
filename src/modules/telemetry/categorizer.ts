@@ -130,6 +130,12 @@ export class Categorizer {
       return 'tool_outputs'
     }
 
+    // Tier 5: log-derived turns without explicit operation names default to
+    // conversation_history (they represent LLM turns, not unknown operations)
+    if (lower === 'log_turn') {
+      return 'conversation_history'
+    }
+
     return 'other'
   }
 
@@ -182,6 +188,93 @@ export class Categorizer {
     if (secondHalfTokens > 1.2 * firstHalfTokens) return 'growing'
     if (secondHalfTokens < 0.8 * firstHalfTokens) return 'shrinking'
     return 'stable'
+  }
+
+  // ---------------------------------------------------------------------------
+  // computeCategoryStatsFromTurns
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Compute per-category token statistics from TurnAnalysis data (not raw spans).
+   *
+   * All six SemanticCategory values are always present in the result (zero-token
+   * categories are included with totalTokens: 0). Results are sorted by
+   * totalTokens descending.
+   *
+   * Trend is computed by comparing first-half vs second-half turn token attribution
+   * for each category, using the same 1.2×/0.8× thresholds as computeTrend().
+   *
+   * @param turns - TurnAnalysis[] for the story
+   */
+  computeCategoryStatsFromTurns(turns: TurnAnalysis[]): CategoryStats[] {
+    if (turns.length === 0) {
+      return ALL_CATEGORIES.map((category) => ({
+        category,
+        totalTokens: 0,
+        percentage: 0,
+        eventCount: 0,
+        avgTokensPerEvent: 0,
+        trend: 'stable' as Trend,
+      }))
+    }
+
+    const grandTotal = turns.reduce((sum, t) => sum + t.inputTokens + t.outputTokens, 0)
+
+    // Track tokens by category, split by first/second half for trend
+    type BucketData = { total: number; count: number; first: number; second: number }
+    const buckets = new Map<SemanticCategory, BucketData>()
+    for (const cat of ALL_CATEGORIES) {
+      buckets.set(cat, { total: 0, count: 0, first: 0, second: 0 })
+    }
+
+    const half = Math.floor(turns.length / 2)
+
+    for (let i = 0; i < turns.length; i++) {
+      const turn = turns[i]
+      const cat = this.classify(turn.name, turn.toolName)
+      const bucket = buckets.get(cat)!
+      const tokens = turn.inputTokens + turn.outputTokens
+      bucket.total += tokens
+      bucket.count += 1
+      if (i < half) {
+        bucket.first += tokens
+      } else {
+        bucket.second += tokens
+      }
+    }
+
+    const results: CategoryStats[] = ALL_CATEGORIES.map((category) => {
+      const bucket = buckets.get(category)!
+      const totalTokens = bucket.total
+      const eventCount = bucket.count
+      const percentage =
+        grandTotal > 0 ? Math.round((totalTokens / grandTotal) * 100 * 1000) / 1000 : 0
+      const avgTokensPerEvent = eventCount > 0 ? totalTokens / eventCount : 0
+
+      // Compute trend from first vs second half turn token counts for this category
+      let trend: Trend = 'stable'
+      if (turns.length >= 2) {
+        const { first, second } = bucket
+        if (first === 0 && second === 0) {
+          trend = 'stable'
+        } else if (first === 0) {
+          trend = 'growing'
+        } else if (second > 1.2 * first) {
+          trend = 'growing'
+        } else if (second < 0.8 * first) {
+          trend = 'shrinking'
+        }
+      }
+
+      return { category, totalTokens, percentage, eventCount, avgTokensPerEvent, trend }
+    })
+
+    this._logger.debug(
+      { categories: results.length, grandTotal },
+      'Computed category stats from turns',
+    )
+
+    return results.sort((a, b) => b.totalTokens - a.totalTokens)
   }
 
   // ---------------------------------------------------------------------------

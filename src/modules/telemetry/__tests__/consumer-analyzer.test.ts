@@ -16,7 +16,7 @@ import type pino from 'pino'
 
 import { ConsumerAnalyzer } from '../consumer-analyzer.js'
 import type { Categorizer } from '../categorizer.js'
-import type { NormalizedSpan, SemanticCategory } from '../types.js'
+import type { NormalizedSpan, SemanticCategory, TurnAnalysis } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Mock factories
@@ -423,5 +423,207 @@ describe('ConsumerAnalyzer', () => {
       expect(inv.inputTokens).toBe(200)
       expect(inv.outputTokens).toBe(100)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// TurnAnalysis fixture factory
+// ---------------------------------------------------------------------------
+
+let _turnCounter = 0
+
+function makeTurn(overrides: Partial<TurnAnalysis> = {}): TurnAnalysis {
+  _turnCounter++
+  return {
+    spanId: `turn-${_turnCounter}`,
+    turnNumber: _turnCounter,
+    name: 'assistant_turn',
+    timestamp: 1000 * _turnCounter,
+    source: 'claude-code',
+    model: 'claude-sonnet',
+    inputTokens: 100,
+    outputTokens: 50,
+    cacheReadTokens: 0,
+    freshTokens: 100,
+    cacheHitRate: 0,
+    costUsd: 0.001,
+    durationMs: 1000,
+    contextSize: 1000,
+    contextDelta: 1000,
+    isContextSpike: false,
+    childSpans: [],
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// analyzeFromTurns() tests
+// ---------------------------------------------------------------------------
+
+describe('ConsumerAnalyzer.analyzeFromTurns()', () => {
+  let analyzer: ConsumerAnalyzer
+  let mockCategorizer: Categorizer
+
+  beforeEach(() => {
+    _turnCounter = 0
+    mockCategorizer = makeMockCategorizer('tool_outputs')
+    analyzer = new ConsumerAnalyzer(mockCategorizer, makeMockLogger())
+  })
+
+  it('should return [] for empty turns array', () => {
+    expect(analyzer.analyzeFromTurns([])).toEqual([])
+  })
+
+  it('should group turns with same model and no toolName into single ConsumerStats', () => {
+    const turns = [
+      makeTurn({ spanId: 't1', model: 'claude-sonnet', toolName: undefined, inputTokens: 100, outputTokens: 50 }),
+      makeTurn({ spanId: 't2', model: 'claude-sonnet', toolName: undefined, inputTokens: 200, outputTokens: 100 }),
+    ]
+    const result = analyzer.analyzeFromTurns(turns)
+
+    expect(result).toHaveLength(1)
+    expect(result[0].consumerKey).toBe('claude-sonnet|')
+    expect(result[0].totalTokens).toBe(450) // (100+50) + (200+100)
+    expect(result[0].eventCount).toBe(2)
+  })
+
+  it('should separate turns with same model but different toolNames', () => {
+    const turns = [
+      makeTurn({ spanId: 't1', model: 'claude-sonnet', toolName: 'bash', inputTokens: 100, outputTokens: 50 }),
+      makeTurn({ spanId: 't2', model: 'claude-sonnet', toolName: 'read_file', inputTokens: 200, outputTokens: 100 }),
+    ]
+    const result = analyzer.analyzeFromTurns(turns)
+
+    expect(result).toHaveLength(2)
+    const keys = result.map((r) => r.consumerKey).sort()
+    expect(keys).toContain('claude-sonnet|bash')
+    expect(keys).toContain('claude-sonnet|read_file')
+  })
+
+  it('should separate turns with different models', () => {
+    const turns = [
+      makeTurn({ spanId: 't1', model: 'claude-sonnet', toolName: undefined, inputTokens: 100, outputTokens: 50 }),
+      makeTurn({ spanId: 't2', model: 'claude-haiku', toolName: undefined, inputTokens: 200, outputTokens: 100 }),
+    ]
+    const result = analyzer.analyzeFromTurns(turns)
+
+    expect(result).toHaveLength(2)
+    const keys = result.map((r) => r.consumerKey).sort()
+    expect(keys).toContain('claude-sonnet|')
+    expect(keys).toContain('claude-haiku|')
+  })
+
+  it('should use "unknown" as model part when turn.model is undefined', () => {
+    const turns = [
+      makeTurn({ spanId: 't1', model: undefined, toolName: undefined, inputTokens: 100, outputTokens: 50 }),
+    ]
+    const result = analyzer.analyzeFromTurns(turns)
+
+    expect(result).toHaveLength(1)
+    expect(result[0].consumerKey).toBe('unknown|')
+  })
+
+  it('should build consumerKey as model|toolName', () => {
+    const turns = [
+      makeTurn({ spanId: 't1', model: 'my-model', toolName: 'my-tool', inputTokens: 100, outputTokens: 50 }),
+    ]
+    const result = analyzer.analyzeFromTurns(turns)
+    expect(result[0].consumerKey).toBe('my-model|my-tool')
+  })
+
+  it('should exclude zero-token groups', () => {
+    const turns = [
+      makeTurn({ spanId: 't1', model: 'claude-sonnet', inputTokens: 0, outputTokens: 0 }),
+    ]
+    const result = analyzer.analyzeFromTurns(turns)
+    expect(result).toHaveLength(0)
+  })
+
+  it('should exclude zero-token groups while keeping non-zero groups', () => {
+    const turns = [
+      makeTurn({ spanId: 't1', model: 'zero-model', inputTokens: 0, outputTokens: 0 }),
+      makeTurn({ spanId: 't2', model: 'real-model', inputTokens: 100, outputTokens: 50 }),
+    ]
+    const result = analyzer.analyzeFromTurns(turns)
+    expect(result).toHaveLength(1)
+    expect(result[0].consumerKey).toBe('real-model|')
+  })
+
+  it('should sort results by totalTokens descending', () => {
+    const turns = [
+      makeTurn({ spanId: 't1', model: 'low-model', inputTokens: 100, outputTokens: 0 }),
+      makeTurn({ spanId: 't2', model: 'high-model', inputTokens: 1000, outputTokens: 0 }),
+      makeTurn({ spanId: 't3', model: 'mid-model', inputTokens: 500, outputTokens: 0 }),
+    ]
+    const result = analyzer.analyzeFromTurns(turns)
+
+    expect(result[0].totalTokens).toBeGreaterThanOrEqual(result[1].totalTokens)
+    expect(result[1].totalTokens).toBeGreaterThanOrEqual(result[2].totalTokens)
+    expect(result[0].consumerKey).toBe('high-model|')
+  })
+
+  it('should compute percentage correctly for each group', () => {
+    const turns = [
+      makeTurn({ spanId: 't1', model: 'model-a', inputTokens: 300, outputTokens: 0 }),
+      makeTurn({ spanId: 't2', model: 'model-b', inputTokens: 700, outputTokens: 0 }),
+    ]
+    const result = analyzer.analyzeFromTurns(turns)
+
+    const modelA = result.find((r) => r.consumerKey === 'model-a|')!
+    const modelB = result.find((r) => r.consumerKey === 'model-b|')!
+    expect(modelA.percentage).toBeCloseTo(30, 2)
+    expect(modelB.percentage).toBeCloseTo(70, 2)
+  })
+
+  it('should cap topInvocations at 20 when group has 25 turns', () => {
+    const turns: TurnAnalysis[] = []
+    for (let i = 0; i < 25; i++) {
+      turns.push(makeTurn({ model: 'claude-sonnet', toolName: undefined, inputTokens: (i + 1) * 10, outputTokens: 5 }))
+    }
+    const result = analyzer.analyzeFromTurns(turns)
+
+    expect(result).toHaveLength(1)
+    expect(result[0].topInvocations).toHaveLength(20)
+    expect(result[0].eventCount).toBe(25)
+  })
+
+  it('should populate TopInvocation fields from turn data', () => {
+    const turns = [
+      makeTurn({
+        spanId: 'inv-turn-1',
+        model: 'claude-sonnet',
+        name: 'bash_turn',
+        toolName: 'my_tool',
+        inputTokens: 200,
+        outputTokens: 100,
+      }),
+    ]
+    const result = analyzer.analyzeFromTurns(turns)
+    const inv = result[0].topInvocations[0]
+
+    expect(inv.spanId).toBe('inv-turn-1')
+    expect(inv.name).toBe('bash_turn')
+    expect(inv.toolName).toBe('my_tool')
+    expect(inv.totalTokens).toBe(300)
+    expect(inv.inputTokens).toBe(200)
+    expect(inv.outputTokens).toBe(100)
+  })
+
+  it('should call categorizer.classify with turn name and toolName', () => {
+    const turns = [
+      makeTurn({ spanId: 't1', model: 'claude-sonnet', name: 'bash', toolName: 'my_tool', inputTokens: 100, outputTokens: 50 }),
+    ]
+    analyzer.analyzeFromTurns(turns)
+    expect(mockCategorizer.classify).toHaveBeenCalledWith('bash', 'my_tool')
+  })
+
+  it('should assign category from categorizer.classify', () => {
+    const mockCat = makeMockCategorizer('file_reads')
+    const customAnalyzer = new ConsumerAnalyzer(mockCat, makeMockLogger())
+    const turns = [
+      makeTurn({ spanId: 't1', model: 'claude-sonnet', inputTokens: 100, outputTokens: 50 }),
+    ]
+    const result = customAnalyzer.analyzeFromTurns(turns)
+    expect(result[0].category).toBe('file_reads')
   })
 })

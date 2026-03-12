@@ -3,11 +3,14 @@
  *
  * Processing flow for each batch of raw OTLP payloads:
  *   1. Normalize raw OTLP → NormalizedSpan[] / NormalizedLog[] (TelemetryNormalizer)
- *   2. Analyze spans per story → TurnAnalysis[] (TurnAnalyzer)
- *   3. Compute category stats → CategoryStats[] (Categorizer)
- *   4. Compute consumer stats → ConsumerStats[] (ConsumerAnalyzer)
- *   5. Score efficiency → EfficiencyScore (EfficiencyScorer)
- *   6. Generate recommendations → Recommendation[] (Recommender)
+ *   2. Analyze turns via dual-track:
+ *      a. Span-based: TurnAnalyzer.analyze(spans) → TurnAnalysis[]
+ *      b. Log-based:  LogTurnAnalyzer.analyze(logs) → TurnAnalysis[]
+ *      c. Merge & deduplicate by spanId (prefer span-derived)
+ *   3. Compute category stats → CategoryStats[] (Categorizer) — span-only
+ *   4. Compute consumer stats → ConsumerStats[] (ConsumerAnalyzer) — span-only
+ *   5. Score efficiency → EfficiencyScore (EfficiencyScorer) — from merged turns
+ *   6. Generate recommendations → Recommendation[] (Recommender) — from merged turns
  *   7. Persist all results (ITelemetryPersistence)
  *
  * Design invariants:
@@ -15,18 +18,22 @@
  *   - Never throws from processBatch() — errors are caught per-item and logged
  *   - Grouping by storyKey; payloads without a storyKey are skipped at the
  *     analysis stage (normalised data is still stored)
+ *   - Log-only path (AC3): when no spans are present, LogTurnAnalyzer produces
+ *     turns for efficiency scoring and persistence (categorizer/consumer remain
+ *     span-only — addressed in story 27-16)
  */
 
 import { createLogger } from '../../utils/logger.js'
 import type { TelemetryNormalizer } from './normalizer.js'
 import type { TurnAnalyzer } from './turn-analyzer.js'
+import type { LogTurnAnalyzer } from './log-turn-analyzer.js'
 import type { Categorizer } from './categorizer.js'
 import type { ConsumerAnalyzer } from './consumer-analyzer.js'
 import type { EfficiencyScorer } from './efficiency-scorer.js'
 import type { Recommender } from './recommender.js'
 import type { ITelemetryPersistence } from './persistence.js'
 import type { OtlpSource } from './source-detector.js'
-import type { NormalizedSpan, NormalizedLog, RecommenderContext } from './types.js'
+import type { NormalizedSpan, NormalizedLog, TurnAnalysis, RecommenderContext } from './types.js'
 
 const logger = createLogger('telemetry:pipeline')
 
@@ -56,6 +63,7 @@ export interface RawOtlpPayload {
 export interface TelemetryPipelineDeps {
   normalizer: TelemetryNormalizer
   turnAnalyzer: TurnAnalyzer
+  logTurnAnalyzer: LogTurnAnalyzer
   categorizer: Categorizer
   consumerAnalyzer: ConsumerAnalyzer
   efficiencyScorer: EfficiencyScorer
@@ -77,6 +85,7 @@ export interface TelemetryPipelineDeps {
 export class TelemetryPipeline {
   private readonly _normalizer: TelemetryNormalizer
   private readonly _turnAnalyzer: TurnAnalyzer
+  private readonly _logTurnAnalyzer: LogTurnAnalyzer
   private readonly _categorizer: Categorizer
   private readonly _consumerAnalyzer: ConsumerAnalyzer
   private readonly _efficiencyScorer: EfficiencyScorer
@@ -86,6 +95,7 @@ export class TelemetryPipeline {
   constructor(deps: TelemetryPipelineDeps) {
     this._normalizer = deps.normalizer
     this._turnAnalyzer = deps.turnAnalyzer
+    this._logTurnAnalyzer = deps.logTurnAnalyzer
     this._categorizer = deps.categorizer
     this._consumerAnalyzer = deps.consumerAnalyzer
     this._efficiencyScorer = deps.efficiencyScorer
@@ -100,8 +110,14 @@ export class TelemetryPipeline {
   /**
    * Process a batch of raw OTLP payloads through the full analysis pipeline.
    *
-   * Each payload is normalized independently. Spans are then grouped by storyKey
-   * for per-story analysis. Items that fail normalization are skipped with a warning.
+   * Each payload is normalized independently. Spans and logs are grouped by
+   * storyKey for per-story analysis. Items that fail normalization are skipped
+   * with a warning.
+   *
+   * Dual-track analysis (Story 27-15):
+   *   - Span-derived turns via TurnAnalyzer
+   *   - Log-derived turns via LogTurnAnalyzer
+   *   - Merged (deduplicated by spanId) before downstream analysis
    */
   async processBatch(items: RawOtlpPayload[]): Promise<void> {
     if (items.length === 0) return
@@ -130,16 +146,17 @@ export class TelemetryPipeline {
 
     logger.debug({ spans: allSpans.length, logs: allLogs.length }, 'TelemetryPipeline: normalized batch')
 
-    if (allSpans.length === 0) {
-      logger.debug('TelemetryPipeline: no spans normalized from batch')
+    // AC1: No early return on zero spans — only return if BOTH are empty
+    if (allSpans.length === 0 && allLogs.length === 0) {
+      logger.debug('TelemetryPipeline: no spans or logs normalized from batch')
       return
     }
 
     // -- Step 2: Group by storyKey --
 
-    const spansByStory = new Map<string, NormalizedSpan[]>()
     const unknownStoryKey = '__unknown__'
 
+    const spansByStory = new Map<string, NormalizedSpan[]>()
     for (const span of allSpans) {
       const key = span.storyKey ?? unknownStoryKey
       const existing = spansByStory.get(key)
@@ -150,40 +167,100 @@ export class TelemetryPipeline {
       }
     }
 
-    // -- Step 3: Per-story analysis and persistence --
+    // AC5: Group logs by storyKey using same extraction logic as spans
+    const logsByStory = new Map<string, NormalizedLog[]>()
+    for (const log of allLogs) {
+      const key = log.storyKey ?? unknownStoryKey
+      const existing = logsByStory.get(key)
+      if (existing !== undefined) {
+        existing.push(log)
+      } else {
+        logsByStory.set(key, [log])
+      }
+    }
 
-    for (const [storyKey, spans] of spansByStory) {
-      // Skip spans without a story key for the analysis stages
+    // Collect all unique story keys from both sources
+    const allStoryKeys = new Set<string>()
+    for (const key of spansByStory.keys()) allStoryKeys.add(key)
+    for (const key of logsByStory.keys()) allStoryKeys.add(key)
+
+    // -- Step 3: Per-story dual-track analysis and persistence --
+
+    for (const storyKey of allStoryKeys) {
+      // Skip data without a story key for the analysis stages
       if (storyKey === unknownStoryKey) {
-        logger.debug({ spanCount: spans.length }, 'TelemetryPipeline: spans without storyKey — skipping analysis')
+        const spanCount = spansByStory.get(unknownStoryKey)?.length ?? 0
+        const logCount = logsByStory.get(unknownStoryKey)?.length ?? 0
+        logger.debug(
+          { spanCount, logCount },
+          'TelemetryPipeline: data without storyKey — skipping analysis',
+        )
         continue
       }
 
       try {
-        await this._processStory(storyKey, spans)
+        const spans = spansByStory.get(storyKey) ?? []
+        const logs = logsByStory.get(storyKey) ?? []
+
+        // Dual-track turn analysis (AC2)
+        const spanTurns = spans.length > 0 ? this._turnAnalyzer.analyze(spans) : []
+        const logTurns = logs.length > 0 ? this._logTurnAnalyzer.analyze(logs) : []
+        const mergedTurns = this._mergeTurns(spanTurns, logTurns)
+
+        if (spans.length > 0) {
+          // Has spans: full analysis with span-based categorizer/consumer (AC4 compatible)
+          await this._processStory(storyKey, spans, mergedTurns)
+        } else {
+          // Log-only path: efficiency + persistence only (AC3, AC6)
+          await this._processStoryFromTurns(storyKey, mergedTurns)
+        }
       } catch (err) {
         logger.warn({ err, storyKey }, 'TelemetryPipeline: story processing failed — skipping')
       }
     }
 
-    logger.debug({ storyCount: spansByStory.size }, 'TelemetryPipeline.processBatch complete')
+    logger.debug({ storyCount: allStoryKeys.size }, 'TelemetryPipeline.processBatch complete')
   }
 
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private async _processStory(storyKey: string, spans: NormalizedSpan[]): Promise<void> {
-    // Step 2: Turn analysis
-    const turns = this._turnAnalyzer.analyze(spans)
+  /**
+   * Merge span-derived and log-derived turns, deduplicating by spanId.
+   * When a span and a log share the same spanId, the span-derived turn is preferred
+   * (richer data). The merged result is sorted chronologically and renumbered.
+   */
+  private _mergeTurns(spanTurns: TurnAnalysis[], logTurns: TurnAnalysis[]): TurnAnalysis[] {
+    if (logTurns.length === 0) return spanTurns
+    if (spanTurns.length === 0) return logTurns
 
-    // Step 3: Category stats
+    const spanTurnIds = new Set(spanTurns.map((t) => t.spanId))
+    const uniqueLogTurns = logTurns.filter((t) => !spanTurnIds.has(t.spanId))
+    return [...spanTurns, ...uniqueLogTurns]
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .map((t, i) => ({ ...t, turnNumber: i + 1 }))
+  }
+
+  /**
+   * Full span-based analysis path (unchanged behavior when no logs present — AC4).
+   * When mergedTurns is provided, uses those instead of computing from spans alone.
+   */
+  private async _processStory(
+    storyKey: string,
+    spans: NormalizedSpan[],
+    mergedTurns: TurnAnalysis[],
+  ): Promise<void> {
+    // Step 2: Turn analysis — use pre-merged turns
+    const turns = mergedTurns
+
+    // Step 3: Category stats (span-based — categorizer remains span-only per dev notes)
     const categories = this._categorizer.computeCategoryStats(spans, turns)
 
-    // Step 4: Consumer stats
+    // Step 4: Consumer stats (span-based — consumer analyzer remains span-only per dev notes)
     const consumers = this._consumerAnalyzer.analyze(spans)
 
-    // Step 5: Efficiency score
+    // Step 5: Efficiency score (from merged turns)
     const efficiencyScore = this._efficiencyScorer.score(storyKey, turns)
 
     // Step 6: Recommendations
@@ -234,6 +311,38 @@ export class TelemetryPipeline {
         recommendations: recommendations.length,
       },
       'TelemetryPipeline: story analysis complete',
+    )
+  }
+
+  /**
+   * Log-only analysis path (AC3, AC6): processes turns from LogTurnAnalyzer
+   * through efficiency scoring and persistence.
+   *
+   * Categorizer and consumer analyzer remain span-only for now (story 27-16).
+   */
+  private async _processStoryFromTurns(storyKey: string, turns: TurnAnalysis[]): Promise<void> {
+    if (turns.length === 0) return
+
+    // Efficiency score from log-derived turns
+    const efficiencyScore = this._efficiencyScorer.score(storyKey, turns)
+
+    // Persist turn analysis and efficiency score (AC6)
+    await Promise.all([
+      this._persistence.storeTurnAnalysis(storyKey, turns).catch((err: unknown) =>
+        logger.warn({ err, storyKey }, 'Failed to store turn analysis'),
+      ),
+      this._persistence.storeEfficiencyScore(efficiencyScore).catch((err: unknown) =>
+        logger.warn({ err, storyKey }, 'Failed to store efficiency score'),
+      ),
+    ])
+
+    logger.info(
+      {
+        storyKey,
+        turns: turns.length,
+        compositeScore: efficiencyScore.compositeScore,
+      },
+      'TelemetryPipeline: story analysis from turns complete',
     )
   }
 }

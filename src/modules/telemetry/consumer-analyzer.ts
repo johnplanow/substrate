@@ -13,7 +13,7 @@
 
 import type pino from 'pino'
 
-import type { NormalizedSpan, ConsumerStats, TopInvocation } from './types.js'
+import type { NormalizedSpan, ConsumerStats, TopInvocation, TurnAnalysis } from './types.js'
 import type { Categorizer } from './categorizer.js'
 
 // ---------------------------------------------------------------------------
@@ -107,6 +107,81 @@ export class ConsumerAnalyzer {
   }
 
   // ---------------------------------------------------------------------------
+  // analyzeFromTurns
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Group turns by consumer key (model|toolName), rank by totalTokens descending,
+   * and return ConsumerStats for each non-zero-token group.
+   *
+   * @param turns - All TurnAnalysis records for the story
+   */
+  analyzeFromTurns(turns: TurnAnalysis[]): ConsumerStats[] {
+    if (turns.length === 0) return []
+
+    const grandTotal = turns.reduce((sum, t) => sum + t.inputTokens + t.outputTokens, 0)
+
+    // Group turns by consumerKey (model|toolName)
+    const groups = new Map<string, TurnAnalysis[]>()
+    for (const turn of turns) {
+      const key = this._buildConsumerKeyFromTurn(turn)
+      const existing = groups.get(key)
+      if (existing !== undefined) {
+        existing.push(turn)
+      } else {
+        groups.set(key, [turn])
+      }
+    }
+
+    const results: ConsumerStats[] = []
+
+    for (const [consumerKey, groupTurns] of groups) {
+      const totalTokens = groupTurns.reduce((sum, t) => sum + t.inputTokens + t.outputTokens, 0)
+
+      // Exclude zero-token groups
+      if (totalTokens === 0) continue
+
+      const percentage =
+        grandTotal > 0 ? Math.round((totalTokens / grandTotal) * 100 * 1000) / 1000 : 0
+      const eventCount = groupTurns.length
+
+      // Determine category using the first turn's name + toolName
+      const firstTurn = groupTurns[0]
+      const category = this._categorizer.classify(firstTurn.name, firstTurn.toolName)
+
+      // Top 20 invocations sorted by totalTokens descending
+      const sorted = groupTurns
+        .slice()
+        .sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens))
+
+      const topInvocations: TopInvocation[] = sorted.slice(0, 20).map((t) => ({
+        spanId: t.spanId,
+        name: t.name,
+        toolName: t.toolName,
+        totalTokens: t.inputTokens + t.outputTokens,
+        inputTokens: t.inputTokens,
+        outputTokens: t.outputTokens,
+      }))
+
+      results.push({
+        consumerKey,
+        category,
+        totalTokens,
+        percentage,
+        eventCount,
+        topInvocations,
+      })
+    }
+
+    this._logger.debug(
+      { consumers: results.length, grandTotal },
+      'Computed consumer stats from turns',
+    )
+
+    return results.sort((a, b) => b.totalTokens - a.totalTokens)
+  }
+
+  // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 
@@ -118,6 +193,16 @@ export class ConsumerAnalyzer {
     const operationPart = (span.operationName ?? span.name ?? 'unknown').slice(0, 200)
     const toolPart = (this._extractToolName(span) ?? '').slice(0, 100)
     return `${operationPart}|${toolPart}`
+  }
+
+  /**
+   * Build a stable consumer key from a turn.
+   * Format: `model|toolName` (tool part is empty string if absent).
+   */
+  private _buildConsumerKeyFromTurn(turn: TurnAnalysis): string {
+    const modelPart = (turn.model ?? 'unknown').slice(0, 200)
+    const toolPart = (turn.toolName ?? '').slice(0, 100)
+    return `${modelPart}|${toolPart}`
   }
 
   /**
