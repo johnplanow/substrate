@@ -31,7 +31,7 @@ import { runMigrations } from '../../persistence/migrations/index.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler, RepoMapInjector } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
-import { RoutingResolver, RoutingTokenAccumulator, RoutingTelemetry, loadModelRoutingConfig } from '../../modules/routing/index.js'
+import { RoutingResolver, RoutingTokenAccumulator, RoutingTelemetry, RoutingTuner, RoutingRecommender, loadModelRoutingConfig } from '../../modules/routing/index.js'
 import type { ModelRoutingConfig } from '../../modules/routing/index.js'
 import {
   DoltSymbolRepository,
@@ -547,6 +547,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       // Config not found or invalid — accumulator not constructed (graceful degradation)
       logger.debug('Routing config not loadable — RoutingTokenAccumulator skipped')
     }
+    let routingTuner: RoutingTuner | undefined
     if (routingConfig !== undefined) {
       const kvStateStore = new FileStateStore({ basePath: join(dbRoot, '.substrate') })
       routingTokenAccumulator = new RoutingTokenAccumulator(routingConfig, kvStateStore, logger)
@@ -568,6 +569,17 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           outputTokens: payload.outputTokens ?? 0,
         })
       })
+
+      // Story 28-8: Construct RoutingTuner only when auto_tune is enabled
+      if (routingConfig.auto_tune === true) {
+        routingTuner = new RoutingTuner(
+          kvStateStore,
+          new RoutingRecommender(logger),
+          eventBus,
+          routingConfigPath,
+          logger,
+        )
+      }
     }
 
     // --- Story 28-9: Dolt detection + repo-map wiring ---
@@ -1185,6 +1197,15 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         logger.debug({ runId: pipelineRun.id }, 'Phase token breakdown flushed')
       } catch (flushErr) {
         logger.warn({ err: flushErr }, 'Failed to flush phase token breakdown (best-effort)')
+      }
+    }
+
+    // Story 28-8: Auto-tune routing config after pipeline run completes (best-effort)
+    if (routingTuner !== undefined && routingConfig !== undefined) {
+      try {
+        await routingTuner.maybeAutoTune(pipelineRun.id, routingConfig)
+      } catch (tuneErr) {
+        logger.warn({ err: tuneErr }, 'RoutingTuner.maybeAutoTune failed (best-effort)')
       }
     }
 
