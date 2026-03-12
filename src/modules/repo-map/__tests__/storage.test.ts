@@ -336,7 +336,7 @@ describe('DoltRepoMapMetaRepository', () => {
 
       const params = queryMock.mock.calls[0]![1] as unknown[]
       expect(params[0]).toBe('abc123')
-      expect(params[1]).toEqual(updatedAt)
+      expect(params[1]).toBe(updatedAt.toISOString())
       expect(params[2]).toBe(42)
     })
   })

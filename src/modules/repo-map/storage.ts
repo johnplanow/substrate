@@ -318,7 +318,7 @@ export class DoltRepoMapMetaRepository implements IRepoMapMetaRepository {
            commit_sha = VALUES(commit_sha),
            updated_at = VALUES(updated_at),
            file_count = VALUES(file_count)`,
-        [meta.commitSha, meta.updatedAt, meta.fileCount],
+        [meta.commitSha, meta.updatedAt.toISOString(), meta.fileCount],
       )
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
