@@ -69,7 +69,8 @@ export class RepoMapQueryEngine {
         const directSets: RepoMapSymbol[][] = []
 
         if (hasFilesFilter) {
-          // We need all symbols to glob-match against file patterns
+          // TODO: For large repos (10K+ symbols), add SQL-side LIKE prefix filter
+          // before client-side minimatch to avoid full table scan. See Epic 28 Known Limitations.
           const all = await this.repo.findAll()
           const matched = all.filter(s =>
             q.files!.some(p => minimatch(s.filePath, p, { dot: false })),

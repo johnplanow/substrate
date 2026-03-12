@@ -31,14 +31,16 @@ import { runMigrations } from '../../persistence/migrations/index.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler, RepoMapInjector } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
-import { RoutingResolver } from '../../modules/routing/index.js'
+import { RoutingResolver, RoutingTokenAccumulator, RoutingTelemetry, loadModelRoutingConfig } from '../../modules/routing/index.js'
+import type { ModelRoutingConfig } from '../../modules/routing/index.js'
 import {
   DoltSymbolRepository,
   DoltRepoMapMetaRepository,
   RepoMapQueryEngine,
   RepoMapModule,
+  RepoMapTelemetry,
 } from '../../modules/repo-map/index.js'
-import { DoltClient } from '../../modules/state/index.js'
+import { DoltClient, FileStateStore } from '../../modules/state/index.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { createImplementationOrchestrator, discoverPendingStoryKeys, resolveStoryKeys } from '../../modules/implementation-orchestrator/index.js'
 import { detectStartPhase } from '../../modules/phase-orchestrator/phase-detection.js'
@@ -402,6 +404,12 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
     const db = dbWrapper.db
 
+    // Story 28-6: Create TelemetryPersistence early so it's available for routing and
+    // repo-map telemetry injection. The IngestionServer stays near the orchestrator.
+    const telemetryPersistence = telemetryEnabled
+      ? new TelemetryPersistence(db)
+      : undefined
+
     // Load methodology pack
     const packLoader = createPackLoader()
     let pack
@@ -528,6 +536,40 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     const routingConfigPath = join(projectRoot, 'substrate.routing.yml')
     const routingResolver = RoutingResolver.createWithFallback(routingConfigPath, logger)
 
+    // --- Story 28-6: Routing telemetry wiring ---
+    // Load routing config to construct RoutingTokenAccumulator (needs baseline_model).
+    // If the config file is absent, the accumulator is skipped — no phase breakdown data.
+    let routingTokenAccumulator: RoutingTokenAccumulator | undefined
+    let routingConfig: ModelRoutingConfig | undefined
+    try {
+      routingConfig = loadModelRoutingConfig(routingConfigPath)
+    } catch {
+      // Config not found or invalid — accumulator not constructed (graceful degradation)
+      logger.debug('Routing config not loadable — RoutingTokenAccumulator skipped')
+    }
+    if (routingConfig !== undefined) {
+      const kvStateStore = new FileStateStore({ basePath: join(dbRoot, '.substrate') })
+      routingTokenAccumulator = new RoutingTokenAccumulator(routingConfig, kvStateStore, logger)
+
+      // AC1: Subscribe to routing:model-selected events
+      eventBus.on('routing:model-selected', (payload) => {
+        routingTokenAccumulator!.onRoutingSelected({
+          dispatchId: payload.dispatchId,
+          phase: payload.phase,
+          model: payload.model,
+        })
+      })
+
+      // AC2: Subscribe to agent:completed events for token attribution
+      eventBus.on('agent:completed', (payload) => {
+        routingTokenAccumulator!.onAgentCompleted({
+          dispatchId: payload.dispatchId,
+          inputTokens: payload.inputTokens ?? 0,
+          outputTokens: payload.outputTokens ?? 0,
+        })
+      })
+    }
+
     // --- Story 28-9: Dolt detection + repo-map wiring ---
     // Detect Dolt by checking whether the canonical state path has a .dolt subdirectory.
     // When Dolt is available, construct the repo-map chain for structural context injection
@@ -542,7 +584,11 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         const doltClient = new DoltClient({ repoPath: statePath })
         const symbolRepo = new DoltSymbolRepository(doltClient, logger)
         const metaRepo = new DoltRepoMapMetaRepository(doltClient)
-        const queryEngine = new RepoMapQueryEngine(symbolRepo, logger)
+        // AC6: Inject RepoMapTelemetry when telemetry is enabled
+        const repoMapTelemetry = telemetryPersistence !== undefined
+          ? new RepoMapTelemetry(telemetryPersistence, logger)
+          : undefined
+        const queryEngine = new RepoMapQueryEngine(symbolRepo, logger, repoMapTelemetry)
         repoMapInjector = new RepoMapInjector(queryEngine, logger)
         repoMapModule = new RepoMapModule(metaRepo, logger)
         logger.debug('repo-map injector constructed (Dolt backend detected)')
@@ -1057,14 +1103,27 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       })
     }
 
-    // Create OTLP ingestion server and telemetry persistence if telemetry is enabled (Story 27-9).
+    // Create OTLP ingestion server if telemetry is enabled (Story 27-9).
+    // TelemetryPersistence was created earlier (Story 28-6) for routing/repo-map telemetry.
     // The orchestrator handles start/stop lifecycle internally.
     const ingestionServer = telemetryEnabled
       ? new IngestionServer({ port: telemetryPort })
       : undefined
-    const telemetryPersistence = telemetryEnabled
-      ? new TelemetryPersistence(db)
-      : undefined
+
+    // --- Story 28-6 AC5: Wire RoutingTelemetry — emit OTEL spans for each routing decision ---
+    if (telemetryPersistence !== undefined) {
+      const routingTelemetry = new RoutingTelemetry(telemetryPersistence, logger)
+      eventBus.on('routing:model-selected', (payload) => {
+        routingTelemetry.recordModelResolved({
+          dispatchId: payload.dispatchId,
+          taskType: payload.taskType,
+          phase: payload.phase,
+          model: payload.model,
+          source: payload.source,
+          latencyMs: 0, // Observed via event — resolve latency is sub-ms
+        })
+      })
+    }
 
     // --- Story 28-9: staleness check (AC5) ---
     // Non-blocking: compare stored commit SHA against HEAD and emit event if stale.
@@ -1118,6 +1177,16 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
     // Run the orchestrator
     const status = await orchestrator.run(storyKeys)
+
+    // AC3 (Story 28-6): Flush phase token breakdown to StateStore at run completion
+    if (routingTokenAccumulator !== undefined) {
+      try {
+        await routingTokenAccumulator.flush(pipelineRun.id)
+        logger.debug({ runId: pipelineRun.id }, 'Phase token breakdown flushed')
+      } catch (flushErr) {
+        logger.warn({ err: flushErr }, 'Failed to flush phase token breakdown (best-effort)')
+      }
+    }
 
     // Compute succeeded/failed/escalated for both progress renderer and ndjson emitter
     const succeededKeys: string[] = []

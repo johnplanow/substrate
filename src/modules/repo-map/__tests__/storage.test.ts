@@ -105,10 +105,10 @@ describe('DoltSymbolRepository', () => {
       const calls = queryMock.mock.calls
       const insertCall = calls[1]!
       expect(insertCall[0]).toContain('INSERT INTO repo_map_symbols')
-      // 2 rows → 2 placeholder groups
-      expect(insertCall[0]).toContain('(?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?)')
-      // file_path, symbol_name, symbol_kind, signature, line_number, exported, file_hash for each
-      expect(insertCall[1]).toHaveLength(14) // 7 params × 2 symbols
+      // 2 rows → 2 placeholder groups (8 columns each including dependencies)
+      expect(insertCall[0]).toContain('(?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?)')
+      // file_path, symbol_name, symbol_kind, signature, line_number, exported, file_hash, dependencies
+      expect(insertCall[1]).toHaveLength(16) // 8 params × 2 symbols
     })
 
     it('still runs DELETE even when symbols array is empty (file deletion)', async () => {
@@ -141,6 +141,23 @@ describe('DoltSymbolRepository', () => {
       const insertCall = queryMock.mock.calls[1]!
       const params = insertCall[1] as unknown[]
       expect(params[5]).toBe(0)
+    })
+
+    it('derives dependencies JSON from import entries in symbols array', async () => {
+      const symbols = [
+        makeSymbol({ name: 'myFunc', kind: 'function' }),
+        makeSymbol({ name: './types.js', kind: 'import', exported: false }),
+        makeSymbol({ name: 'react', kind: 'import', exported: false }),
+      ]
+      await repo.upsertFileSymbols('src/foo.ts', symbols, 'hash')
+      const insertCall = queryMock.mock.calls[1]!
+      const params = insertCall[1] as unknown[]
+      // dependencies is the 8th param (index 7) for each row, same value for all rows
+      const depsJson = params[7] as string
+      expect(JSON.parse(depsJson)).toEqual(['./types.js', 'react'])
+      // All 3 rows get the same dependencies JSON
+      expect(params[15]).toBe(depsJson)
+      expect(params[23]).toBe(depsJson)
     })
   })
 
@@ -241,6 +258,37 @@ describe('DoltSymbolRepository', () => {
       queryMock.mockResolvedValue([])
       await repo.getFileHash('src/bar.ts')
       expect(queryMock.mock.calls[0]![1]).toEqual(['src/bar.ts'])
+    })
+  })
+
+  describe('findByDependedBy', () => {
+    it('queries with JSON_CONTAINS and returns mapped symbols', async () => {
+      queryMock.mockResolvedValue([{
+        file_path: 'src/consumer.ts',
+        symbol_name: 'Consumer',
+        symbol_kind: 'class',
+        signature: null,
+        line_number: 5,
+        exported: 1,
+        file_hash: 'abc',
+        dependencies: '["./types.js","react"]',
+      }])
+      const result = await repo.findByDependedBy('./types.js')
+
+      const sql = queryMock.mock.calls[0]![0] as string
+      expect(sql).toContain('JSON_CONTAINS')
+      expect(sql).toContain('JSON_QUOTE')
+      expect(queryMock.mock.calls[0]![1]).toEqual(['./types.js'])
+
+      expect(result).toHaveLength(1)
+      expect(result[0]!.symbolName).toBe('Consumer')
+      expect(result[0]!.dependencies).toEqual(['./types.js', 'react'])
+    })
+
+    it('returns empty array when no matches', async () => {
+      queryMock.mockResolvedValue([])
+      const result = await repo.findByDependedBy('nonexistent')
+      expect(result).toEqual([])
     })
   })
 })

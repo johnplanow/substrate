@@ -215,7 +215,8 @@ CREATE TABLE IF NOT EXISTS repo_map_symbols (
   signature   TEXT,
   line_number INT                   NOT NULL DEFAULT 0,
   exported    TINYINT(1)            NOT NULL DEFAULT 0,
-  file_hash   VARCHAR(64)           NOT NULL,
+  file_hash     VARCHAR(64)           NOT NULL,
+  dependencies  JSON,
   PRIMARY KEY (id)
 );
 
@@ -234,3 +235,4 @@ CREATE TABLE IF NOT EXISTS repo_map_meta (
 );
 
 INSERT IGNORE INTO _schema_version (version, description) VALUES (5, 'Add repo_map_symbols and repo_map_meta tables (Epic 28-2)');
+INSERT IGNORE INTO _schema_version (version, description) VALUES (6, 'Add dependencies JSON column to repo_map_symbols (Epic 28-3)');
