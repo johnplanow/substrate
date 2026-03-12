@@ -953,6 +953,19 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         }
       })
 
+      // Emit routing:model-selected as NDJSON event for observability
+      eventBus.on('routing:model-selected', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'routing:model-selected',
+          ts: new Date().toISOString(),
+          dispatch_id: payload.dispatchId,
+          task_type: payload.taskType,
+          phase: payload.phase,
+          model: payload.model,
+          source: payload.source,
+        })
+      })
+
       // AC4: story:done events on story completion
       eventBus.on('orchestrator:story-complete', (payload) => {
         ndjsonEmitter!.emit({

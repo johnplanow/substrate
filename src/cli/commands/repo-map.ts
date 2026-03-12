@@ -21,6 +21,8 @@ import {
   SymbolParser,
 } from '../../modules/repo-map/index.js'
 import { RepoMapInjector } from '../../modules/context-compiler/index.js'
+import { AppError } from '../../errors/app-error.js'
+import { ERR_REPO_MAP_STORAGE_WRITE } from '../../errors/index.js'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createLogger } from '../../utils/logger.js'
 
@@ -92,6 +94,23 @@ export function registerRepoMapCommand(program: Command): void {
 
       // Construct Dolt-backed repos
       const doltClient = new DoltClient({ repoPath: statePath })
+
+      // Migrate: ensure dependencies column exists on repo_map_symbols (added in v6).
+      // DoltStateStore.applyMigrations() handles this when the pipeline runs, but the
+      // CLI constructs DoltSymbolRepository directly, so we must check here too.
+      try {
+        const colRows = await doltClient.query<Record<string, unknown>>(
+          `SHOW COLUMNS FROM repo_map_symbols LIKE 'dependencies'`,
+        )
+        if (colRows.length === 0) {
+          await doltClient.query(`ALTER TABLE repo_map_symbols ADD COLUMN dependencies JSON`)
+          logger.info('Applied migration: added dependencies column to repo_map_symbols')
+        }
+      } catch {
+        // repo_map_symbols does not yet exist — will be created by schema.sql on first update
+        logger.debug('Skipping repo_map_symbols migration: table not yet created')
+      }
+
       const symbolRepo = new DoltSymbolRepository(doltClient, logger)
       const metaRepo = new DoltRepoMapMetaRepository(doltClient)
       const repoMapModule = new RepoMapModule(metaRepo, logger)
@@ -147,24 +166,54 @@ export function registerRepoMapCommand(program: Command): void {
         logger.info('repo-map --update: triggering incremental update')
         const gitClient = new GitClient(logger)
         const grammarLoader = new GrammarLoader(logger)
+
+        // P2: Check tree-sitter availability upfront and warn clearly
+        if (grammarLoader.getGrammar('.ts') === null) {
+          const msg = 'tree-sitter grammars not installed. Run `npm install tree-sitter tree-sitter-typescript tree-sitter-javascript tree-sitter-python` in the substrate installation directory.'
+          if (options.outputFormat === 'json') {
+            console.log(JSON.stringify({ result: 'error', error: msg }))
+          } else {
+            process.stderr.write(`Error: ${msg}\n`)
+          }
+          process.exitCode = 1
+          return
+        }
+
         const parser = new SymbolParser(grammarLoader, logger)
         const storage = new RepoMapStorage(symbolRepo, metaRepo, gitClient, logger)
 
-        await storage.incrementalUpdate(dbRoot, parser)
+        let updateWarning: string | undefined
+        try {
+          await storage.incrementalUpdate(dbRoot, parser)
+        } catch (err: unknown) {
+          if (err instanceof AppError && err.code === ERR_REPO_MAP_STORAGE_WRITE) {
+            // Storage-layer write error — report partial success with whatever symbols were written
+            updateWarning = err.message
+            logger.warn({ err }, 'repo-map --update: storage write error (partial update)')
+          } else {
+            throw err
+          }
+        }
 
         const meta = await metaRepo.getMeta()
         const symbolCount = (await symbolRepo.getSymbols()).length
 
         if (options.outputFormat === 'json') {
           console.log(JSON.stringify({
-            result: 'updated',
+            result: updateWarning ? 'partial' : 'updated',
             symbolCount,
             fileCount: meta?.fileCount ?? 0,
             commitSha: meta?.commitSha ?? null,
             updatedAt: meta?.updatedAt?.toISOString() ?? null,
+            ...(updateWarning ? { warning: updateWarning } : {}),
           }))
         } else {
-          console.log(`Repo-map updated: ${symbolCount} symbols across ${meta?.fileCount ?? 0} files`)
+          if (updateWarning) {
+            console.log(`Repo-map partially updated: ${symbolCount} symbols across ${meta?.fileCount ?? 0} files`)
+            console.log(`Warning: ${updateWarning}`)
+          } else {
+            console.log(`Repo-map updated: ${symbolCount} symbols across ${meta?.fileCount ?? 0} files`)
+          }
         }
         return
       }

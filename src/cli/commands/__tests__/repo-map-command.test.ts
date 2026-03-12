@@ -40,7 +40,7 @@ const {
 }))
 
 vi.mock('../../../modules/state/index.js', () => ({
-  DoltClient: vi.fn().mockImplementation(() => ({})),
+  DoltClient: vi.fn().mockImplementation(() => ({ query: vi.fn().mockResolvedValue([{ Field: 'dependencies' }]) })),
 }))
 
 vi.mock('../../../modules/repo-map/index.js', () => ({
@@ -60,7 +60,7 @@ vi.mock('../../../modules/repo-map/index.js', () => ({
     incrementalUpdate: mockIncrementalUpdate,
   })),
   GitClient: vi.fn().mockImplementation(() => ({})),
-  GrammarLoader: vi.fn().mockImplementation(() => ({})),
+  GrammarLoader: vi.fn().mockImplementation(() => ({ getGrammar: vi.fn().mockReturnValue({}) })),
   SymbolParser: vi.fn().mockImplementation(() => ({})),
 }))
 
