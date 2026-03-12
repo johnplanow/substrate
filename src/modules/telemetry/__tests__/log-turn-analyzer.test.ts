@@ -144,10 +144,10 @@ describe('LogTurnAnalyzer', () => {
     expect(result[0].model).toBe('claude-3-5-sonnet-20241022')
   })
 
-  it('computes freshTokens as inputTokens - cacheReadTokens', () => {
+  it('computes freshTokens as inputTokens (Claude API input_tokens is already fresh)', () => {
     const log = makeLog({ inputTokens: 1000, cacheReadTokens: 300 })
     const result = analyzer.analyze([log])
-    expect(result[0].freshTokens).toBe(700)
+    expect(result[0].freshTokens).toBe(1000)
   })
 
   it('computes cacheHitRate as cacheReadTokens / (inputTokens + cacheReadTokens)', () => {
@@ -160,7 +160,7 @@ describe('LogTurnAnalyzer', () => {
   it('cacheHitRate is 0.5 when cacheReadTokens equals inputTokens', () => {
     const log = makeLog({ inputTokens: 500, cacheReadTokens: 500 })
     const result = analyzer.analyze([log])
-    expect(result[0].freshTokens).toBe(0)
+    expect(result[0].freshTokens).toBe(500)
     // 500 / (500 + 500) = 0.5
     expect(result[0].cacheHitRate).toBe(0.5)
   })

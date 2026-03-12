@@ -316,9 +316,7 @@ export class TelemetryPipeline {
 
   /**
    * Log-only analysis path (AC3, AC6): processes turns from LogTurnAnalyzer
-   * through efficiency scoring and persistence.
-   *
-   * Categorizer and consumer analyzer remain span-only for now (story 27-16).
+   * through efficiency scoring, category stats, and persistence.
    */
   private async _processStoryFromTurns(storyKey: string, turns: TurnAnalysis[]): Promise<void> {
     if (turns.length === 0) return
@@ -326,7 +324,10 @@ export class TelemetryPipeline {
     // Efficiency score from log-derived turns
     const efficiencyScore = this._efficiencyScorer.score(storyKey, turns)
 
-    // Persist turn analysis and efficiency score (AC6)
+    // Category stats from turns (no raw spans needed)
+    const categoryStats = this._categorizer.computeCategoryStatsFromTurns(turns)
+
+    // Persist turn analysis, efficiency score, and category stats
     await Promise.all([
       this._persistence.storeTurnAnalysis(storyKey, turns).catch((err: unknown) =>
         logger.warn({ err, storyKey }, 'Failed to store turn analysis'),
@@ -334,6 +335,11 @@ export class TelemetryPipeline {
       this._persistence.storeEfficiencyScore(efficiencyScore).catch((err: unknown) =>
         logger.warn({ err, storyKey }, 'Failed to store efficiency score'),
       ),
+      categoryStats.length > 0
+        ? this._persistence.storeCategoryStats(storyKey, categoryStats).catch((err: unknown) =>
+            logger.warn({ err, storyKey }, 'Failed to store category stats'),
+          )
+        : Promise.resolve(),
     ])
 
     logger.info(
@@ -341,6 +347,7 @@ export class TelemetryPipeline {
         storyKey,
         turns: turns.length,
         compositeScore: efficiencyScore.compositeScore,
+        categories: categoryStats.length,
       },
       'TelemetryPipeline: story analysis from turns complete',
     )

@@ -116,7 +116,8 @@ export class LogTurnAnalyzer {
           // contextSize tracks total input (fresh + cached) to reflect actual context window usage
           runningContext += inputTokens + cacheReadTokens
 
-          const freshTokens = inputTokens - cacheReadTokens
+          // Claude API input_tokens IS the fresh (non-cached) count, so freshTokens = inputTokens
+          const freshTokens = inputTokens
           // cacheHitRate = fraction of total input that came from cache (0-1).
           // Claude API reports input_tokens as fresh (non-cached) only, so
           // total input = inputTokens + cacheReadTokens.

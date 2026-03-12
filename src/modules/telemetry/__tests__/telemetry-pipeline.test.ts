@@ -524,18 +524,21 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
     )
   })
 
-  it('AC3: log-only path does NOT call span-based categorizer or consumer analyzer', async () => {
+  it('AC3: log-only path calls computeCategoryStatsFromTurns but NOT span-based categorizer or consumer analyzer', async () => {
     const logs = [makeLog()]
     const deps = makeMockDeps([], logs)
     const pipeline = new TelemetryPipeline(deps)
 
     await pipeline.processBatch([makePayload()])
 
-    // Categorizer and consumer not called (they remain span-only)
+    // Span-based categorizer and consumer not called
     expect((deps.categorizer as unknown as { computeCategoryStats: ReturnType<typeof vi.fn> }).computeCategoryStats)
       .not.toHaveBeenCalled()
     expect((deps.consumerAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
       .not.toHaveBeenCalled()
+    // Turn-based category stats IS called
+    expect((deps.categorizer as unknown as { computeCategoryStatsFromTurns: ReturnType<typeof vi.fn> }).computeCategoryStatsFromTurns)
+      .toHaveBeenCalled()
   })
 
   // -- AC4: Span-only path unchanged --
