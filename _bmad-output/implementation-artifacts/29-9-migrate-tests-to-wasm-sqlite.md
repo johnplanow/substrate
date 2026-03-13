@@ -1,6 +1,6 @@
 # Story 29-9: Migrate Test Files from better-sqlite3 to WASM Mock + Delete Legacy Files
 
-Status: pending
+Status: review
 
 ## Story
 
@@ -88,14 +88,22 @@ Story 29-8 moved `better-sqlite3` from production dependencies to devDependencie
 
 ## Tasks
 
-- [ ] Task 1: Add `better-sqlite3` vitest alias to `vitest.config.ts`
-- [ ] Task 2: Migrate `src/persistence/__tests__/` (5 files)
-- [ ] Task 3: Migrate `src/persistence/queries/__tests__/` (4 files)
-- [ ] Task 4: Migrate `test/persistence/` (3 files)
-- [ ] Task 5: Migrate `src/modules/` test files (~35 files)
-- [ ] Task 6: Migrate `src/cli/commands/__tests__/` (~25 files)
+- [x] Task 1: Add `better-sqlite3` vitest alias to `vitest.config.ts`
+- [x] Task 2: Migrate `src/persistence/__tests__/` (5 files)
+- [x] Task 3: Migrate `src/persistence/queries/__tests__/` (4 files)
+- [x] Task 4: Migrate `test/persistence/` (3 files)
+- [x] Task 5: Migrate `src/modules/` test files (~35 files)
+- [x] Task 6: Migrate `src/cli/commands/__tests__/` (~15 files done in caeac21, ~10 remaining)
 - [ ] Task 7: Migrate `src/__tests__/` and `test/integration/` (~15 files)
 - [ ] Task 8: Migrate production source files (type imports → remove or use local types)
 - [ ] Task 9: Delete `sqlite-adapter.ts`, `database.ts`, `migrations/` directory
 - [ ] Task 10: Remove `better-sqlite3` and `@types/better-sqlite3` from devDependencies
 - [ ] Task 11: Run full test suite + build validation
+
+## Constraints (learned from first pipeline run)
+
+**CRITICAL — do NOT violate these:**
+1. **NEVER modify `tsconfig.json`** — the vitest alias in `vitest.config.ts` handles test-time redirection. Adding a tsconfig path mapping for `better-sqlite3` causes the bundler to include sql.js in the production dist, crashing the CLI binary.
+2. **NEVER import from `wasm-sqlite-adapter.ts` in production code** — this file is test infrastructure only. Production CLI commands (cost.ts, init.ts, retry-escalated.ts, etc.) must keep using `DatabaseWrapper` + `runMigrations()` until a proper migration to `createDatabaseAdapter()` is done.
+3. **Production code changes are OUT OF SCOPE** — this story migrates TEST files only. Do not modify files in `src/cli/commands/*.ts` or `src/modules/**/*.ts` (non-test). Task 8 means removing `better-sqlite3` TYPE imports from production files (replacing with local type definitions), NOT changing runtime behavior.
+4. **Tests that create file-path databases** need `writeFileSync(dbPath, '')` after `new Database(dbPath)` so that `existsSync(dbPath)` checks in production code pass (the WASM mock uses in-memory storage, not real files).
