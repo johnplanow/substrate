@@ -16,7 +16,6 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { Command } from 'commander'
-import Database from 'better-sqlite3'
 
 import { checkDoltInstalled, createDoltClient, DoltNotInstalled } from '../../modules/state/index.js'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
@@ -61,12 +60,14 @@ interface MigrationResult {
  * the story_metrics rows.  Returns an empty snapshot if the file does not
  * exist or the table is missing.
  */
-export function readSqliteSnapshot(dbPath: string): SqliteSnapshot {
-  let db: InstanceType<typeof Database> | null = null
+export async function readSqliteSnapshot(dbPath: string): Promise<SqliteSnapshot> {
+  let db: any = null
   try {
-    db = new Database(dbPath, { readonly: true })
+    const BetterSqlite3Module = await import('better-sqlite3')
+    const BetterSqlite3 = BetterSqlite3Module.default
+    db = new BetterSqlite3(dbPath, { readonly: true })
   } catch {
-    // File not found or unreadable
+    // File not found, unreadable, or better-sqlite3 not installed
     return { storyMetrics: [] }
   }
 
@@ -219,7 +220,7 @@ export function registerMigrateCommand(program: Command): void {
 
       // Read SQLite snapshot
       const dbPath = join(projectRoot, '.substrate', 'substrate.db')
-      const snapshot = readSqliteSnapshot(dbPath)
+      const snapshot = await readSqliteSnapshot(dbPath)
 
       // AC4: No SQLite database
       if (snapshot.storyMetrics.length === 0) {

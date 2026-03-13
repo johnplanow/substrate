@@ -17,32 +17,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Mocks — declared before imports
 // ---------------------------------------------------------------------------
 
-// Mock DatabaseWrapper
-const mockOpen = vi.fn()
-const mockClose = vi.fn()
-const mockDb = {}
-
+// Mock adapter
 const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
 
-vi.mock('../../../persistence/database.js', () => ({
-  DatabaseWrapper: vi.fn().mockImplementation(() => ({
-    open: mockOpen,
-    close: mockClose,
-    get db() {
-      return mockDb
-    },
-    get isOpen() {
-      return true
-    },
-    get adapter() {
-      return mockAdapter
-    },
-  })),
+vi.mock('../../../persistence/adapter.js', () => ({
+  createDatabaseAdapter: vi.fn(() => mockAdapter),
 }))
 
-// Mock runMigrations
-vi.mock('../../../persistence/migrations/index.js', () => ({
-  runMigrations: vi.fn(),
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Mock getRetryableEscalations

@@ -15,9 +15,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { runMigrations } from '../../migrations/index.js'
-import { SqliteDatabaseAdapter } from '../../sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../wasm-sqlite-adapter.js'
+import { initSchema } from '../../schema.js'
 import {
   createAmendmentRun,
   loadParentRunDecisions,
@@ -37,11 +36,11 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function openMemoryDb(): BetterSqlite3Database {
+async function openMemoryDb() {
   const db = new Database(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
-  runMigrations(db)
+  await initSchema(new SyncDatabaseAdapter(db))
   return db
 }
 
@@ -49,7 +48,7 @@ function openMemoryDb(): BetterSqlite3Database {
  * Insert a pipeline run directly with a given status.
  */
 function insertRun(
-  db: BetterSqlite3Database,
+  db: InstanceType<typeof Database>,
   id: string,
   status: string = 'running',
   parentRunId: string | null = null,
@@ -64,7 +63,7 @@ function insertRun(
  * Insert a decision for a given run.
  */
 function insertDecision(
-  db: BetterSqlite3Database,
+  db: InstanceType<typeof Database>,
   id: string,
   runId: string,
   overrides: {
@@ -94,10 +93,10 @@ function insertDecision(
 // ---------------------------------------------------------------------------
 
 describe('createAmendmentRun()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openMemoryDb()
+  beforeEach(async () => {
+    db = await openMemoryDb()
   })
 
   afterEach(() => {
@@ -105,7 +104,7 @@ describe('createAmendmentRun()', () => {
   })
 
   it('AC1: throws "Parent run not found" when parentRunId does not exist', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const input: CreateAmendmentRunInput = {
       id: crypto.randomUUID(),
       parentRunId: 'nonexistent-run-id',
@@ -115,7 +114,7 @@ describe('createAmendmentRun()', () => {
   })
 
   it('AC1: throws when parent run status is "running" (not completed)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'run-running', 'running')
     const input: CreateAmendmentRunInput = {
       id: crypto.randomUUID(),
@@ -128,7 +127,7 @@ describe('createAmendmentRun()', () => {
   })
 
   it('AC1: throws when parent run status is "failed" (not completed)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'run-failed', 'failed')
     const input: CreateAmendmentRunInput = {
       id: crypto.randomUUID(),
@@ -141,7 +140,7 @@ describe('createAmendmentRun()', () => {
   })
 
   it('AC1: throws when parent run status is "paused" (not completed)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'run-paused', 'paused')
     const input: CreateAmendmentRunInput = {
       id: crypto.randomUUID(),
@@ -154,7 +153,7 @@ describe('createAmendmentRun()', () => {
   })
 
   it('AC1: throws when parent run status is "stopped" (not completed)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'run-stopped', 'stopped')
     const input: CreateAmendmentRunInput = {
       id: crypto.randomUUID(),
@@ -167,7 +166,7 @@ describe('createAmendmentRun()', () => {
   })
 
   it('AC1: returns new run ID when parent is completed', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'run-completed', 'completed')
     const newId = crypto.randomUUID()
     const input: CreateAmendmentRunInput = {
@@ -180,7 +179,7 @@ describe('createAmendmentRun()', () => {
   })
 
   it('AC1: inserts new run with correct parent_run_id and status = running', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'run-completed', 'completed')
     const newId = crypto.randomUUID()
     const input: CreateAmendmentRunInput = {
@@ -207,7 +206,7 @@ describe('createAmendmentRun()', () => {
   })
 
   it('AC1: stores configJson when provided', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'run-completed-cfg', 'completed')
     const newId = crypto.randomUUID()
     const input: CreateAmendmentRunInput = {
@@ -230,10 +229,10 @@ describe('createAmendmentRun()', () => {
 // ---------------------------------------------------------------------------
 
 describe('loadParentRunDecisions()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openMemoryDb()
+  beforeEach(async () => {
+    db = await openMemoryDb()
     insertRun(db, 'parent-run', 'completed')
   })
 
@@ -242,13 +241,13 @@ describe('loadParentRunDecisions()', () => {
   })
 
   it('AC2: returns empty array when no decisions exist for the run', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await loadParentRunDecisions(adapter, 'parent-run')
     expect(result).toEqual([])
   })
 
   it('AC2: returns only non-superseded decisions (superseded_by IS NULL)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertDecision(db, 'dec-active-1', 'parent-run', { key: 'k1' })
     insertDecision(db, 'dec-active-2', 'parent-run', { key: 'k2' })
     insertDecision(db, 'dec-superseder', 'parent-run', { key: 'k3' })
@@ -267,7 +266,7 @@ describe('loadParentRunDecisions()', () => {
   })
 
   it('AC2: superseded decision is excluded, non-superseded superseder is included', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     // dec-new supersedes dec-old
     // dec-old should be excluded (superseded_by is set)
     // dec-new should be included (superseded_by is NULL — it supersedes dec-old but is not itself superseded)
@@ -282,7 +281,7 @@ describe('loadParentRunDecisions()', () => {
   })
 
   it('AC2: does not return decisions from other runs', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'other-run', 'completed')
     insertDecision(db, 'dec-mine', 'parent-run', { key: 'mine' })
     insertDecision(db, 'dec-theirs', 'other-run', { key: 'theirs' })
@@ -294,7 +293,7 @@ describe('loadParentRunDecisions()', () => {
   })
 
   it('AC2: returns decisions in created_at ASC order', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     // Insert with explicit timestamps to ensure ordering
     db.prepare(`
       INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, superseded_by, created_at, updated_at)
@@ -319,10 +318,10 @@ describe('loadParentRunDecisions()', () => {
 // ---------------------------------------------------------------------------
 
 describe('supersedeDecision()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openMemoryDb()
+  beforeEach(async () => {
+    db = await openMemoryDb()
     insertRun(db, 'run-for-supersede', 'running')
     insertDecision(db, 'original-dec', 'run-for-supersede', { key: 'original' })
     insertDecision(db, 'superseding-dec', 'run-for-supersede', { key: 'superseding' })
@@ -333,21 +332,21 @@ describe('supersedeDecision()', () => {
   })
 
   it('AC3: throws "Decision not found" when originalDecisionId does not exist', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await expect(
       supersedeDecision(adapter, 'does-not-exist', 'superseding-dec'),
     ).rejects.toThrow('Decision not found: does-not-exist')
   })
 
   it('AC3: throws "Superseding decision not found" when supersedingDecisionId does not exist', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await expect(
       supersedeDecision(adapter, 'original-dec', 'does-not-exist'),
     ).rejects.toThrow('Superseding decision not found: does-not-exist')
   })
 
   it('AC3: throws "Decision is already superseded" when originalDecisionId already has superseded_by set', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     // First supersession should succeed
     await supersedeDecision(adapter, 'original-dec', 'superseding-dec')
 
@@ -359,7 +358,7 @@ describe('supersedeDecision()', () => {
   })
 
   it('AC3: successfully updates superseded_by on the original decision', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await supersedeDecision(adapter, 'original-dec', 'superseding-dec')
 
     const row = db
@@ -369,13 +368,13 @@ describe('supersedeDecision()', () => {
   })
 
   it('AC3: returns void on success', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await supersedeDecision(adapter, 'original-dec', 'superseding-dec')
     expect(result).toBeUndefined()
   })
 
   it('AC3: superseding decision itself is not affected', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await supersedeDecision(adapter, 'original-dec', 'superseding-dec')
 
     const row = db
@@ -390,10 +389,10 @@ describe('supersedeDecision()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getActiveDecisions()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openMemoryDb()
+  beforeEach(async () => {
+    db = await openMemoryDb()
     insertRun(db, 'run-a', 'running')
     insertRun(db, 'run-b', 'running')
 
@@ -413,7 +412,7 @@ describe('getActiveDecisions()', () => {
   })
 
   it('AC4: returns all active decisions when no filter provided', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getActiveDecisions(adapter)
     const ids = result.map((d) => d.id)
     // dec-a1 is superseded, all others should be active
@@ -426,7 +425,7 @@ describe('getActiveDecisions()', () => {
   })
 
   it('AC4: filters by pipeline_run_id', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getActiveDecisions(adapter, { pipeline_run_id: 'run-a' })
     const ids = result.map((d) => d.id)
     expect(ids).not.toContain('dec-a1')
@@ -438,7 +437,7 @@ describe('getActiveDecisions()', () => {
   })
 
   it('AC4: filters by phase', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getActiveDecisions(adapter, { phase: 'analysis' })
     const ids = result.map((d) => d.id)
     expect(ids).not.toContain('dec-a1') // superseded
@@ -449,7 +448,7 @@ describe('getActiveDecisions()', () => {
   })
 
   it('AC4: filters by category', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getActiveDecisions(adapter, { category: 'tech' })
     const ids = result.map((d) => d.id)
     expect(ids).toContain('dec-a2')
@@ -459,7 +458,7 @@ describe('getActiveDecisions()', () => {
   })
 
   it('AC4: filters by key', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getActiveDecisions(adapter, { key: 'key2' })
     const ids = result.map((d) => d.id)
     expect(ids).toContain('dec-a2')
@@ -467,7 +466,7 @@ describe('getActiveDecisions()', () => {
   })
 
   it('AC4: supports combined filters (pipeline_run_id + phase)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getActiveDecisions(adapter, { pipeline_run_id: 'run-a', phase: 'analysis' })
     const ids = result.map((d) => d.id)
     expect(ids).not.toContain('dec-a1') // superseded
@@ -479,13 +478,13 @@ describe('getActiveDecisions()', () => {
   })
 
   it('AC4: returns empty array when filter matches no active decisions', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getActiveDecisions(adapter, { phase: 'implementation' })
     expect(result).toEqual([])
   })
 
   it('AC4: results are ordered by created_at ASC', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     // Insert with explicit timestamps
     insertRun(db, 'run-ordered', 'running')
     db.prepare(`
@@ -511,10 +510,10 @@ describe('getActiveDecisions()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getAmendmentRunChain()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openMemoryDb()
+  beforeEach(async () => {
+    db = await openMemoryDb()
   })
 
   afterEach(() => {
@@ -522,7 +521,7 @@ describe('getAmendmentRunChain()', () => {
   })
 
   it('AC5: returns single entry for a run with no parent (top-level run)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'root-run', 'completed')
     const chain = await getAmendmentRunChain(adapter, 'root-run')
     expect(chain).toHaveLength(1)
@@ -532,7 +531,7 @@ describe('getAmendmentRunChain()', () => {
   })
 
   it('AC5: returns root → child for a 2-level chain', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'root', 'completed')
     insertRun(db, 'amend-1', 'running', 'root')
 
@@ -547,7 +546,7 @@ describe('getAmendmentRunChain()', () => {
   })
 
   it('AC5: returns correct order for a 3-level chain (root → amend1 → amend2)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'r0', 'completed')
     insertRun(db, 'r1', 'completed', 'r0')
     insertRun(db, 'r2', 'running', 'r1')
@@ -563,7 +562,7 @@ describe('getAmendmentRunChain()', () => {
   })
 
   it('AC5: throws "Amendment chain depth exceeded maxDepth" when chain exceeds maxDepth', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     // Create a chain of 3 runs but set maxDepth to 1
     insertRun(db, 'depth-r0', 'completed')
     insertRun(db, 'depth-r1', 'completed', 'depth-r0')
@@ -575,7 +574,7 @@ describe('getAmendmentRunChain()', () => {
   })
 
   it('AC5: uses default maxDepth of 10 (does not throw for chain of 5)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     // Build a chain of 5 levels
     insertRun(db, 'chain-0', 'completed')
     insertRun(db, 'chain-1', 'completed', 'chain-0')
@@ -589,13 +588,13 @@ describe('getAmendmentRunChain()', () => {
   })
 
   it('AC5: returns empty array for a runId that does not exist', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const chain = await getAmendmentRunChain(adapter, 'does-not-exist')
     expect(chain).toEqual([])
   })
 
   it('AC5: AmendmentChainEntry has all required fields', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'entry-run', 'completed')
     const chain = await getAmendmentRunChain(adapter, 'entry-run')
     expect(chain).toHaveLength(1)
@@ -610,7 +609,7 @@ describe('getAmendmentRunChain()', () => {
   })
 
   it('AC5: throws at exactly maxDepth + 1 levels', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     // maxDepth = 2, chain = 4 levels (0,1,2,3): should throw when traversing beyond 2
     insertRun(db, 'md-0', 'completed')
     insertRun(db, 'md-1', 'completed', 'md-0')
@@ -628,10 +627,10 @@ describe('getAmendmentRunChain()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getLatestCompletedRun()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openMemoryDb()
+  beforeEach(async () => {
+    db = await openMemoryDb()
   })
 
   afterEach(() => {
@@ -639,13 +638,13 @@ describe('getLatestCompletedRun()', () => {
   })
 
   it('AC6: returns undefined when no runs exist', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getLatestCompletedRun(adapter)
     expect(result).toBeUndefined()
   })
 
   it('AC6: returns undefined when only non-completed runs exist', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'running-run', 'running')
     insertRun(db, 'failed-run', 'failed')
     insertRun(db, 'stopped-run', 'stopped')
@@ -654,7 +653,7 @@ describe('getLatestCompletedRun()', () => {
   })
 
   it('AC6: returns the single completed run', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'only-completed', 'completed')
     const result = await getLatestCompletedRun(adapter)
     expect(result).toBeDefined()
@@ -663,7 +662,7 @@ describe('getLatestCompletedRun()', () => {
   })
 
   it('AC6: returns the most recently created completed run when multiple exist', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     db.prepare(`
       INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
       VALUES ('old-completed', 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')
@@ -682,7 +681,7 @@ describe('getLatestCompletedRun()', () => {
   })
 
   it('AC6: ignores non-completed runs when selecting most recent', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     db.prepare(`
       INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
       VALUES ('completed-1', 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')
@@ -698,7 +697,7 @@ describe('getLatestCompletedRun()', () => {
   })
 
   it('AC6: return type has PipelineRun fields', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'type-check-run', 'completed')
     const result = await getLatestCompletedRun(adapter)
     expect(result).toBeDefined()
@@ -715,10 +714,10 @@ describe('getLatestCompletedRun()', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC7: Parameterized query safety', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openMemoryDb()
+  beforeEach(async () => {
+    db = await openMemoryDb()
   })
 
   afterEach(() => {
@@ -726,7 +725,7 @@ describe('AC7: Parameterized query safety', () => {
   })
 
   it('createAmendmentRun() handles special characters in IDs safely', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertRun(db, 'safe-parent-run', 'completed')
     const newId = "safe'; DROP TABLE pipeline_runs; --"
     // This should throw due to UUID format or FK constraint — not SQL injection
@@ -743,14 +742,14 @@ describe('AC7: Parameterized query safety', () => {
   })
 
   it('loadParentRunDecisions() with SQL injection attempt returns empty array (not error)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const maliciousId = "' OR '1'='1"
     const result = await loadParentRunDecisions(adapter, maliciousId)
     expect(result).toEqual([])
   })
 
   it('getActiveDecisions() with SQL injection filter returns empty results (not error)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getActiveDecisions(adapter, { phase: "'; DROP TABLE decisions; --" })
     expect(result).toEqual([])
     // decisions table still exists

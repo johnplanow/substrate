@@ -19,26 +19,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Mocks — declared before imports (vi.mock is hoisted)
 // ---------------------------------------------------------------------------
 
-// Mock DatabaseWrapper
-const mockOpen = vi.fn()
-const mockClose = vi.fn()
-let mockDb: Record<string, unknown> = {}
+// Mock adapter
+const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
 
-vi.mock('../../../persistence/database.js', () => ({
-  DatabaseWrapper: vi.fn().mockImplementation(() => ({
-    open: mockOpen,
-    close: mockClose,
-    get db() {
-      return mockDb
-    },
-    get isOpen() {
-      return true
-    },
-  })),
+vi.mock('../../../persistence/adapter.js', () => ({
+  createDatabaseAdapter: vi.fn(() => mockAdapter),
 }))
 
-vi.mock('../../../persistence/migrations/index.js', () => ({
-  runMigrations: vi.fn(),
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Mock PackLoader — simulate successful pack load
@@ -170,13 +159,6 @@ function setupDefaultMocks() {
   mockReaddirSync.mockReturnValue([])
   mockReadFileSync.mockReturnValue('')
   mockPackLoad.mockResolvedValue(mockPack())
-
-  const mockPrepare = vi.fn().mockReturnValue({
-    all: vi.fn().mockReturnValue([]),
-    get: vi.fn().mockReturnValue(undefined),
-    run: vi.fn(),
-  })
-  mockDb = { prepare: mockPrepare }
 
   // fs/promises: readFile for CLAUDE.md template and others
   mockReadFile.mockImplementation((path: string) => {

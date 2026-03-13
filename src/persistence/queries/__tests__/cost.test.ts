@@ -21,9 +21,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { runMigrations } from '../../migrations/index.js'
-import { SqliteDatabaseAdapter } from '../../sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../wasm-sqlite-adapter.js'
+import { initSchema } from '../../schema.js'
 import {
   recordCostEntry,
   getCostEntryById,
@@ -44,16 +43,16 @@ import type { CreateCostEntryInput } from '../cost.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function openDb(): BetterSqlite3Database {
+async function openDb() {
   const db = new Database(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
-  runMigrations(db)
+  await initSchema(new SyncDatabaseAdapter(db))
   return db
 }
 
 /** Insert a session row (required FK for cost_entries.session_id). */
-function insertSession(db: BetterSqlite3Database, id: string): void {
+function insertSession(db: InstanceType<typeof Database>, id: string): void {
   db.prepare(
     `INSERT INTO sessions (id, graph_file, status, created_at, updated_at)
      VALUES (?, 'test.json', 'active', datetime('now'), datetime('now'))`,
@@ -61,7 +60,7 @@ function insertSession(db: BetterSqlite3Database, id: string): void {
 }
 
 /** Insert a task row (required FK when cost_entries.task_id is non-null). */
-function insertTask(db: BetterSqlite3Database, sessionId: string, taskId: string): void {
+function insertTask(db: InstanceType<typeof Database>, sessionId: string, taskId: string): void {
   db.prepare(
     `INSERT INTO tasks (id, session_id, name, prompt, status, cost_usd, created_at, updated_at)
      VALUES (?, ?, 'test-task', 'test-prompt', 'completed', 0.0, datetime('now'), datetime('now'))`,
@@ -74,7 +73,7 @@ function insertTask(db: BetterSqlite3Database, sessionId: string, taskId: string
  * or set values that are not exposed through recordCostEntry.
  */
 function insertCostEntryDirect(
-  db: BetterSqlite3Database,
+  db: InstanceType<typeof Database>,
   sessionId: string,
   opts: {
     agent?: string
@@ -131,10 +130,10 @@ function makeEntry(sessionId: string, overrides: Partial<CreateCostEntryInput> =
 // ---------------------------------------------------------------------------
 
 describe('recordCostEntry()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openDb()
+  beforeEach(async () => {
+    db = await openDb()
     insertSession(db, 'sess-rec')
   })
 
@@ -143,28 +142,28 @@ describe('recordCostEntry()', () => {
   })
 
   it('AC1/AC2: accepts SqliteDatabaseAdapter and returns a Promise<number>', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const id = await recordCostEntry(adapter, makeEntry('sess-rec'))
     expect(typeof id).toBe('number')
     expect(id).toBeGreaterThan(0)
   })
 
   it('returns a positive integer ID for the inserted row', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const id = await recordCostEntry(adapter, makeEntry('sess-rec'))
     expect(Number.isInteger(id)).toBe(true)
     expect(id).toBeGreaterThan(0)
   })
 
   it('returns incrementing IDs for subsequent inserts', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const id1 = await recordCostEntry(adapter, makeEntry('sess-rec'))
     const id2 = await recordCostEntry(adapter, makeEntry('sess-rec'))
     expect(id2).toBeGreaterThan(id1)
   })
 
   it('inserted row is retrievable via getCostEntryById', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const id = await recordCostEntry(adapter, makeEntry('sess-rec', { agent: 'my-agent', cost_usd: 0.042 }))
     const fetched = await getCostEntryById(adapter, id)
     expect(fetched).not.toBeNull()
@@ -173,7 +172,7 @@ describe('recordCostEntry()', () => {
   })
 
   it('stores category as execution (hardcoded value)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const id = await recordCostEntry(adapter, makeEntry('sess-rec'))
     const row = db.prepare('SELECT category FROM cost_entries WHERE id = ?').get(id) as { category: string }
     expect(row.category).toBe('execution')
@@ -185,10 +184,10 @@ describe('recordCostEntry()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getCostEntryById()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openDb()
+  beforeEach(async () => {
+    db = await openDb()
     insertSession(db, 'sess-get')
   })
 
@@ -197,12 +196,12 @@ describe('getCostEntryById()', () => {
   })
 
   it('returns null for a nonexistent id', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     expect(await getCostEntryById(adapter, 999999)).toBeNull()
   })
 
   it('returns a correctly mapped CostEntry with all fields', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const id = await recordCostEntry(
       adapter,
       makeEntry('sess-get', {
@@ -232,7 +231,7 @@ describe('getCostEntryById()', () => {
   })
 
   it('maps savings_usd correctly for subscription entries', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const id = await recordCostEntry(
       adapter,
       makeEntry('sess-get', { billing_mode: 'subscription', cost_usd: 0, savings_usd: 0.02 }),
@@ -248,10 +247,10 @@ describe('getCostEntryById()', () => {
 // ---------------------------------------------------------------------------
 
 describe('incrementTaskCost()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openDb()
+  beforeEach(async () => {
+    db = await openDb()
     insertSession(db, 'sess-inc')
     insertTask(db, 'sess-inc', 'task-inc')
   })
@@ -261,14 +260,14 @@ describe('incrementTaskCost()', () => {
   })
 
   it('increments task cost_usd by the given delta', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await incrementTaskCost(adapter, 'task-inc', 0.05)
     const row = db.prepare('SELECT cost_usd FROM tasks WHERE id = ?').get('task-inc') as { cost_usd: number }
     expect(row.cost_usd).toBeCloseTo(0.05)
   })
 
   it('accumulates multiple increments correctly', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await incrementTaskCost(adapter, 'task-inc', 0.01)
     await incrementTaskCost(adapter, 'task-inc', 0.02)
     await incrementTaskCost(adapter, 'task-inc', 0.03)
@@ -282,10 +281,10 @@ describe('incrementTaskCost()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getSessionCostSummary()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openDb()
+  beforeEach(async () => {
+    db = await openDb()
     insertSession(db, 'sess-sum')
   })
 
@@ -294,7 +293,7 @@ describe('getSessionCostSummary()', () => {
   })
 
   it('returns zero totals for a session with no cost entries', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const summary = await getSessionCostSummary(adapter, 'sess-sum')
     expect(summary.total_cost_usd).toBe(0)
     expect(summary.subscription_cost_usd).toBe(0)
@@ -305,7 +304,7 @@ describe('getSessionCostSummary()', () => {
   })
 
   it('returns correct totals for api billing entries', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertCostEntryDirect(db, 'sess-sum', { billingMode: 'api', estimatedCost: 0.01 })
     insertCostEntryDirect(db, 'sess-sum', { billingMode: 'api', estimatedCost: 0.02 })
     const summary = await getSessionCostSummary(adapter, 'sess-sum')
@@ -316,7 +315,7 @@ describe('getSessionCostSummary()', () => {
   })
 
   it('separates subscription and api costs correctly', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertCostEntryDirect(db, 'sess-sum', { billingMode: 'api', estimatedCost: 0.01 })
     insertCostEntryDirect(db, 'sess-sum', { billingMode: 'subscription', estimatedCost: 0.02, savingsUsd: 0.02 })
     const summary = await getSessionCostSummary(adapter, 'sess-sum')
@@ -328,7 +327,7 @@ describe('getSessionCostSummary()', () => {
   })
 
   it('populates per_agent_breakdown with agent totals', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertCostEntryDirect(db, 'sess-sum', { agent: 'agent-a', estimatedCost: 0.01 })
     insertCostEntryDirect(db, 'sess-sum', { agent: 'agent-b', estimatedCost: 0.02 })
     const summary = await getSessionCostSummary(adapter, 'sess-sum')
@@ -339,7 +338,7 @@ describe('getSessionCostSummary()', () => {
   })
 
   it('returns a savingsSummary string', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const summary = await getSessionCostSummary(adapter, 'sess-sum')
     expect(typeof summary.savingsSummary).toBe('string')
   })
@@ -350,10 +349,10 @@ describe('getSessionCostSummary()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getSessionCostSummaryFiltered()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openDb()
+  beforeEach(async () => {
+    db = await openDb()
     insertSession(db, 'sess-filt')
     insertCostEntryDirect(db, 'sess-filt', { category: 'execution', estimatedCost: 0.01 })
     insertCostEntryDirect(db, 'sess-filt', { category: 'planning', estimatedCost: 0.05 })
@@ -364,14 +363,14 @@ describe('getSessionCostSummaryFiltered()', () => {
   })
 
   it('excludes planning entries when includePlanning=false', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const summary = await getSessionCostSummaryFiltered(adapter, 'sess-filt', false)
     expect(summary.total_cost_usd).toBeCloseTo(0.01)
     expect(summary.task_count).toBe(1)
   })
 
   it('includes all entries when includePlanning=true', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const summary = await getSessionCostSummaryFiltered(adapter, 'sess-filt', true)
     expect(summary.total_cost_usd).toBeCloseTo(0.06)
     expect(summary.task_count).toBe(2)
@@ -383,10 +382,10 @@ describe('getSessionCostSummaryFiltered()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTaskCostSummary()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openDb()
+  beforeEach(async () => {
+    db = await openDb()
     insertSession(db, 'sess-task')
     insertTask(db, 'sess-task', 'task-t1')
   })
@@ -396,7 +395,7 @@ describe('getTaskCostSummary()', () => {
   })
 
   it('returns zero cost and tokens for a task with no entries', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const summary = await getTaskCostSummary(adapter, 'task-t1')
     expect(summary.cost_usd).toBe(0)
     expect(summary.tokens.input).toBe(0)
@@ -405,7 +404,7 @@ describe('getTaskCostSummary()', () => {
   })
 
   it('aggregates tokens and cost across multiple entries', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertCostEntryDirect(db, 'sess-task', { taskId: 'task-t1', inputTokens: 100, outputTokens: 50, estimatedCost: 0.01 })
     insertCostEntryDirect(db, 'sess-task', { taskId: 'task-t1', inputTokens: 200, outputTokens: 100, estimatedCost: 0.02 })
     const summary = await getTaskCostSummary(adapter, 'task-t1')
@@ -416,7 +415,7 @@ describe('getTaskCostSummary()', () => {
   })
 
   it('returns billing_mode=mixed for entries with both api and subscription', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertCostEntryDirect(db, 'sess-task', { taskId: 'task-t1', billingMode: 'api' })
     insertCostEntryDirect(db, 'sess-task', { taskId: 'task-t1', billingMode: 'subscription' })
     const summary = await getTaskCostSummary(adapter, 'task-t1')
@@ -424,14 +423,14 @@ describe('getTaskCostSummary()', () => {
   })
 
   it('returns billing_mode=subscription for all-subscription entries', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertCostEntryDirect(db, 'sess-task', { taskId: 'task-t1', billingMode: 'subscription' })
     const summary = await getTaskCostSummary(adapter, 'task-t1')
     expect(summary.billing_mode).toBe('subscription')
   })
 
   it('returns billing_mode=api for all-api entries', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertCostEntryDirect(db, 'sess-task', { taskId: 'task-t1', billingMode: 'api' })
     const summary = await getTaskCostSummary(adapter, 'task-t1')
     expect(summary.billing_mode).toBe('api')
@@ -443,10 +442,10 @@ describe('getTaskCostSummary()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getAgentCostBreakdown()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openDb()
+  beforeEach(async () => {
+    db = await openDb()
     insertSession(db, 'sess-agt')
     insertCostEntryDirect(db, 'sess-agt', { agent: 'agt-x', billingMode: 'api', estimatedCost: 0.01 })
     insertCostEntryDirect(db, 'sess-agt', { agent: 'agt-x', billingMode: 'subscription', estimatedCost: 0.02, savingsUsd: 0.02 })
@@ -458,26 +457,26 @@ describe('getAgentCostBreakdown()', () => {
   })
 
   it('returns correct task_count for the requested agent', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const breakdown = await getAgentCostBreakdown(adapter, 'sess-agt', 'agt-x')
     expect(breakdown.task_count).toBe(2)
   })
 
   it('returns correct cost_usd for the requested agent', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const breakdown = await getAgentCostBreakdown(adapter, 'sess-agt', 'agt-x')
     expect(breakdown.cost_usd).toBeCloseTo(0.03)
   })
 
   it('separates subscription_tasks and api_tasks counts correctly', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const breakdown = await getAgentCostBreakdown(adapter, 'sess-agt', 'agt-x')
     expect(breakdown.subscription_tasks).toBe(1)
     expect(breakdown.api_tasks).toBe(1)
   })
 
   it('does not include entries from other agents in the session', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const breakdown = await getAgentCostBreakdown(adapter, 'sess-agt', 'agt-x')
     // agt-y has a separate entry; agt-x total should still be 2
     expect(breakdown.task_count).toBe(2)
@@ -489,10 +488,10 @@ describe('getAgentCostBreakdown()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getAllCostEntries()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openDb()
+  beforeEach(async () => {
+    db = await openDb()
     insertSession(db, 'sess-all')
     insertCostEntryDirect(db, 'sess-all', { estimatedCost: 0.01 })
     insertCostEntryDirect(db, 'sess-all', { estimatedCost: 0.02 })
@@ -504,24 +503,24 @@ describe('getAllCostEntries()', () => {
   })
 
   it('returns all entries for the session', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const entries = await getAllCostEntries(adapter, 'sess-all')
     expect(entries).toHaveLength(3)
   })
 
   it('respects the limit parameter', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const entries = await getAllCostEntries(adapter, 'sess-all', 2)
     expect(entries).toHaveLength(2)
   })
 
   it('returns empty array for an unknown session', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     expect(await getAllCostEntries(adapter, 'unknown-session')).toHaveLength(0)
   })
 
   it('maps DB columns to CostEntry fields', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const entries = await getAllCostEntries(adapter, 'sess-all')
     const entry = entries[0]
     expect(entry).toHaveProperty('id')
@@ -539,10 +538,10 @@ describe('getAllCostEntries()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getAllCostEntriesFiltered()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openDb()
+  beforeEach(async () => {
+    db = await openDb()
     insertSession(db, 'sess-ef')
     insertCostEntryDirect(db, 'sess-ef', { category: 'execution', estimatedCost: 0.01 })
     insertCostEntryDirect(db, 'sess-ef', { category: 'planning', estimatedCost: 0.05 })
@@ -554,19 +553,19 @@ describe('getAllCostEntriesFiltered()', () => {
   })
 
   it('excludes planning entries when includePlanning=false', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const entries = await getAllCostEntriesFiltered(adapter, 'sess-ef', false)
     expect(entries).toHaveLength(2)
   })
 
   it('includes all entries (including planning) when includePlanning=true', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const entries = await getAllCostEntriesFiltered(adapter, 'sess-ef', true)
     expect(entries).toHaveLength(3)
   })
 
   it('returns empty array for an unknown session', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     expect(await getAllCostEntriesFiltered(adapter, 'unknown', false)).toHaveLength(0)
   })
 })
@@ -576,10 +575,10 @@ describe('getAllCostEntriesFiltered()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getPlanningCostTotal()', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openDb()
+  beforeEach(async () => {
+    db = await openDb()
     insertSession(db, 'sess-plan')
   })
 
@@ -588,18 +587,18 @@ describe('getPlanningCostTotal()', () => {
   })
 
   it('returns 0 for a session with no entries', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     expect(await getPlanningCostTotal(adapter, 'sess-plan')).toBe(0)
   })
 
   it('returns 0 when there are only execution entries', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertCostEntryDirect(db, 'sess-plan', { category: 'execution', estimatedCost: 0.01 })
     expect(await getPlanningCostTotal(adapter, 'sess-plan')).toBe(0)
   })
 
   it('returns the sum of planning entry costs', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertCostEntryDirect(db, 'sess-plan', { category: 'planning', estimatedCost: 0.05 })
     insertCostEntryDirect(db, 'sess-plan', { category: 'planning', estimatedCost: 0.03 })
     insertCostEntryDirect(db, 'sess-plan', { category: 'execution', estimatedCost: 0.01 })
@@ -613,10 +612,10 @@ describe('getPlanningCostTotal()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getSessionCost() [legacy]', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openDb()
+  beforeEach(async () => {
+    db = await openDb()
     insertSession(db, 'sess-leg')
   })
 
@@ -625,7 +624,7 @@ describe('getSessionCost() [legacy]', () => {
   })
 
   it('returns zero totals for an empty session', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getSessionCost(adapter, 'sess-leg')
     expect(result.total_cost).toBe(0)
     expect(result.total_input_tokens).toBe(0)
@@ -634,7 +633,7 @@ describe('getSessionCost() [legacy]', () => {
   })
 
   it('returns correct aggregated totals', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertCostEntryDirect(db, 'sess-leg', { estimatedCost: 0.01, inputTokens: 100, outputTokens: 50 })
     insertCostEntryDirect(db, 'sess-leg', { estimatedCost: 0.02, inputTokens: 200, outputTokens: 80 })
     const result = await getSessionCost(adapter, 'sess-leg')
@@ -650,10 +649,10 @@ describe('getSessionCost() [legacy]', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTaskCost() [legacy]', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openDb()
+  beforeEach(async () => {
+    db = await openDb()
     insertSession(db, 'sess-tleg')
     insertTask(db, 'sess-tleg', 'task-tleg')
   })
@@ -663,7 +662,7 @@ describe('getTaskCost() [legacy]', () => {
   })
 
   it('returns zero totals for a task with no entries', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getTaskCost(adapter, 'task-tleg')
     expect(result.total_cost).toBe(0)
     expect(result.total_input_tokens).toBe(0)
@@ -672,7 +671,7 @@ describe('getTaskCost() [legacy]', () => {
   })
 
   it('returns correct totals for task entries', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     insertCostEntryDirect(db, 'sess-tleg', { taskId: 'task-tleg', estimatedCost: 0.01, inputTokens: 100, outputTokens: 40 })
     const result = await getTaskCost(adapter, 'task-tleg')
     expect(result.total_cost).toBeCloseTo(0.01)

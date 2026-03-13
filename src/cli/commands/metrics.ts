@@ -20,8 +20,8 @@ import { join } from 'path'
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
-import { DatabaseWrapper } from '../../persistence/database.js'
-import { runMigrations } from '../../persistence/migrations/index.js'
+import { createDatabaseAdapter } from '../../persistence/adapter.js'
+import { initSchema } from '../../persistence/schema.js'
 import {
   listRunMetrics,
   getRunMetrics,
@@ -40,7 +40,6 @@ import type { OutputFormat } from './pipeline-shared.js'
 import { formatOutput } from './pipeline-shared.js'
 import { TelemetryPersistence } from '../../modules/telemetry/index.js'
 import type { EfficiencyScore, Recommendation, TurnAnalysis, CategoryStats, ConsumerStats } from '../../modules/telemetry/index.js'
-import Database from 'better-sqlite3'
 
 const logger = createLogger('metrics-cmd')
 
@@ -91,11 +90,12 @@ export interface MetricsOptions {
 // Telemetry helper: open SQLite DB for telemetry queries
 // ---------------------------------------------------------------------------
 
-async function openTelemetryDb(dbPath: string): Promise<import('better-sqlite3').Database | null> {
+async function openTelemetryDb(dbPath: string): Promise<any | null> {
   if (!existsSync(dbPath)) return null
   try {
-    const db = new Database(dbPath, { readonly: true })
-    return db
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const BetterSqlite3 = require('better-sqlite3')
+    return new BetterSqlite3(dbPath, { readonly: true })
   } catch {
     return null
   }
@@ -522,12 +522,9 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     return 0
   }
 
-  const dbWrapper = new DatabaseWrapper(dbPath)
+  const adapter = createDatabaseAdapter({ backend: 'sqlite', databasePath: dbPath })
   try {
-    dbWrapper.open()
-    runMigrations(dbWrapper.db)
-    const db = dbWrapper.db
-    const adapter = dbWrapper.adapter
+    await initSchema(adapter)
 
     // Tag-baseline mode (AC4)
     if (tagBaseline !== undefined) {
@@ -800,7 +797,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     return 1
   } finally {
     try {
-      dbWrapper.close()
+      await adapter.close()
     } catch {
       // ignore
     }

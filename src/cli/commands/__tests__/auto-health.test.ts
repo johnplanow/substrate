@@ -10,7 +10,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
-import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
@@ -23,7 +22,8 @@ import { buildPipelineStatusOutput } from '../pipeline-shared.js'
 
 async function createTestDb(): Promise<DatabaseAdapter> {
   const adapter = await createWasmSqliteAdapter()
-  await initSchema(adapter)
+  const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
+  await realInitSchema(adapter)
   return adapter
 }
 
@@ -57,20 +57,18 @@ async function createTestRun(
   return rows[0]!
 }
 
-// Mock the DB opening and process tree inspection
-vi.mock('../../../persistence/database.js', () => {
+// Mock the DB adapter factory and schema init
+vi.mock('../../../persistence/adapter.js', () => {
   let mockAdapter: DatabaseAdapter | null = null
   return {
-    DatabaseWrapper: class {
-      open() { /* noop */ }
-      close() { /* noop */ }
-      get adapter() {
-        return mockAdapter!
-      }
-    },
+    createDatabaseAdapter: () => mockAdapter!,
     __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
   }
 })
+
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
+}))
 
 vi.mock('../../../utils/git-root.js', () => ({
   resolveMainRepoRoot: vi.fn().mockResolvedValue('/tmp/test-project'),
@@ -97,7 +95,7 @@ describe('runHealthAction', () => {
   beforeEach(async () => {
     adapter = await createTestDb()
     // Inject mock adapter
-    const dbModule = await import('../../../persistence/database.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
     dbModule.__setMockAdapter(adapter)
 
     stdoutChunks = []
@@ -290,7 +288,7 @@ describe('runHealthAction — JSON schema completeness (T11)', () => {
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/database.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
     dbModule.__setMockAdapter(adapter)
     stdoutChunks = []
     process.stdout.write = ((chunk: string) => {
@@ -432,7 +430,7 @@ describe('runHealthAction — human output format (T11)', () => {
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/database.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
     dbModule.__setMockAdapter(adapter)
     stdoutChunks = []
     process.stdout.write = ((chunk: string) => {

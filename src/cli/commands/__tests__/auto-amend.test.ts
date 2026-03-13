@@ -23,34 +23,15 @@ import { Command } from 'commander'
 // Mocks — declared before imports
 // ---------------------------------------------------------------------------
 
-// Mock DatabaseWrapper
-const mockOpen = vi.fn()
-const mockClose = vi.fn()
-const mockPrepare = vi.fn()
-
-let mockDb: Record<string, unknown>
-
+// Mock adapter
 const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
 
-vi.mock('../../../persistence/database.js', () => ({
-  DatabaseWrapper: vi.fn().mockImplementation(() => ({
-    open: mockOpen,
-    close: mockClose,
-    get db() {
-      return mockDb
-    },
-    get isOpen() {
-      return true
-    },
-    get adapter() {
-      return mockAdapter
-    },
-  })),
+vi.mock('../../../persistence/adapter.js', () => ({
+  createDatabaseAdapter: vi.fn(() => mockAdapter),
 }))
 
-// Mock runMigrations
-vi.mock('../../../persistence/migrations/index.js', () => ({
-  runMigrations: vi.fn(),
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Mock existsSync and readFile
@@ -185,19 +166,6 @@ import { writeFile } from 'fs/promises'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeDb(overrides: Record<string, unknown> = {}) {
-  const defaultPrepare = vi.fn().mockReturnValue({
-    get: vi.fn().mockReturnValue({ cnt: 0 }),
-    all: vi.fn().mockReturnValue([]),
-    run: vi.fn(),
-  })
-
-  return {
-    prepare: defaultPrepare,
-    ...overrides,
-  }
-}
-
 function makeHandler() {
   return {
     loadContextForPhase: mockLoadContextForPhase,
@@ -225,8 +193,6 @@ let stderrSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   vi.clearAllMocks()
-
-  mockDb = makeDb() as unknown as Record<string, unknown>
 
   // Default: handler returns amendment context
   mockCreateAmendmentContextHandler.mockReturnValue(makeHandler())
@@ -326,7 +292,8 @@ describe('AC2: flag validation — --concept or --concept-file required', () => 
 
   it('does not open DB when concept validation fails', async () => {
     await runAmendAction({ projectRoot: '/test/project', pack: 'bmad' })
-    expect(mockOpen).not.toHaveBeenCalled()
+    const { createDatabaseAdapter } = await import('../../../persistence/adapter.js')
+    expect(createDatabaseAdapter).not.toHaveBeenCalled()
   })
 
   it('accepts --concept inline text', async () => {
@@ -409,7 +376,8 @@ describe('AC3: --stop-after / --from conflict validation', () => {
       from: 'planning' as any,
     })
 
-    expect(mockOpen).not.toHaveBeenCalled()
+    const { createDatabaseAdapter } = await import('../../../persistence/adapter.js')
+    expect(createDatabaseAdapter).not.toHaveBeenCalled()
   })
 
   it('calls validateStopAfterFromConflict with stopAfter and from', async () => {
@@ -761,7 +729,8 @@ describe('AC10: amend command is registered as a top-level command', () => {
 describe('error paths', () => {
   it('exits 1 if DB does not exist', async () => {
     const { existsSync } = await import('fs')
-    vi.mocked(existsSync).mockReturnValueOnce(false)
+    // Must return false for both dbPath and doltDir checks
+    vi.mocked(existsSync).mockReturnValueOnce(false).mockReturnValueOnce(false)
 
     const result = await runAmendAction({ ...baseOptions })
 

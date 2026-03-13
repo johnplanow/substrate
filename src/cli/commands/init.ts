@@ -36,8 +36,8 @@ import type {
 } from '../../modules/config/config-schema.js'
 import { CURRENT_CONFIG_FORMAT_VERSION, CURRENT_TASK_GRAPH_VERSION } from '../../modules/config/config-schema.js'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
-import { DatabaseWrapper } from '../../persistence/database.js'
-import { runMigrations } from '../../persistence/migrations/index.js'
+import { createDatabaseAdapter } from '../../persistence/adapter.js'
+import { initSchema } from '../../persistence/schema.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createLogger } from '../../utils/logger.js'
 import { ConfigError } from '../../core/errors.js'
@@ -764,10 +764,9 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     // ---------------------------------------------------------------
     // Step 4: Initialize database
     // ---------------------------------------------------------------
-    const dbWrapper = new DatabaseWrapper(dbPath)
-    dbWrapper.open()
-    runMigrations(dbWrapper.db)
-    dbWrapper.close()
+    const dbAdapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
+    await initSchema(dbAdapter)
+    await dbAdapter.close()
 
     // ---------------------------------------------------------------
     // Step 5: Scaffold CLAUDE.md, statusline, settings, commands

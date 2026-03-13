@@ -12,10 +12,9 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 
 import type { DatabaseAdapter } from '../adapter.js'
-import { SqliteDatabaseAdapter } from '../sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../wasm-sqlite-adapter.js'
 import { DoltDatabaseAdapter } from '../dolt-adapter.js'
 import { InMemoryDatabaseAdapter } from '../memory-adapter.js'
 import type { DoltClient } from '../../modules/state/dolt-client.js'
@@ -25,7 +24,7 @@ import type { DoltClient } from '../../modules/state/dolt-client.js'
 // ---------------------------------------------------------------------------
 
 /** Open an in-memory SQLite database ready for testing. */
-function openSqliteDb(): BetterSqlite3Database {
+function openSqliteDb() {
   const db = new Database(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
@@ -51,19 +50,19 @@ const CREATE_TABLE_SQL =
 // SqliteDatabaseAdapter contract tests
 // ---------------------------------------------------------------------------
 
-describe('SqliteDatabaseAdapter contract', () => {
-  let rawDb: BetterSqlite3Database
+describe('SyncDatabaseAdapter contract', () => {
+  let rawDb: ReturnType<typeof openSqliteDb>
   let adapter: DatabaseAdapter
 
   beforeEach(() => {
     rawDb = openSqliteDb()
-    adapter = new SqliteDatabaseAdapter(rawDb)
+    adapter = new SyncDatabaseAdapter(rawDb)
     rawDb.exec(CREATE_TABLE_SQL)
   })
 
   afterEach(async () => {
     try {
-      await adapter.close()
+      rawDb.close()
     } catch {
       // Already closed
     }

@@ -17,8 +17,9 @@ import type { ResumeOptions } from './resume.js'
 import { runResumeAction } from './resume.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
-import { DatabaseWrapper } from '../../persistence/database.js'
-import { runMigrations } from '../../persistence/migrations/index.js'
+import { createDatabaseAdapter } from '../../persistence/adapter.js'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
+import { initSchema } from '../../persistence/schema.js'
 import {
   incrementRunRestarts,
   getRunMetrics,
@@ -129,23 +130,21 @@ function defaultSupervisorDeps(): SupervisorDeps {
     resumePipeline: runResumeAction,
     sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     incrementRestarts: (() => {
-      // Cache the db handle across calls so that a fresh connection is not
-      // opened and closed on every supervisor restart (connection-per-call
-      // would be wasteful given restarts are infrequent but the pattern should
-      // not accumulate file descriptors over many restarts).
-      let cachedDbWrapper: DatabaseWrapper | null = null
+      // Cache the adapter across calls so that a fresh connection is not
+      // opened and closed on every supervisor restart.
+      let cachedAdapter: DatabaseAdapter | null = null
       return async (runId: string, projectRoot: string) => {
         try {
-          if (cachedDbWrapper === null) {
+          if (cachedAdapter === null) {
             const dbRoot = await resolveMainRepoRoot(projectRoot)
-            const dbPath = join(dbRoot, '.substrate', 'substrate.db')
-            cachedDbWrapper = new DatabaseWrapper(dbPath)
+            cachedAdapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
+            await initSchema(cachedAdapter)
           }
-          await incrementRunRestarts(cachedDbWrapper.adapter, runId)
+          await incrementRunRestarts(cachedAdapter, runId)
         } catch {
           // Best-effort — never block the supervisor
-          try { cachedDbWrapper?.close() } catch { /* ignore close errors */ }
-          cachedDbWrapper = null // reset so next call retries the connection
+          try { await cachedAdapter?.close() } catch { /* ignore close errors */ }
+          cachedAdapter = null // reset so next call retries the connection
         }
       }
     })(),
@@ -153,14 +152,15 @@ function defaultSupervisorDeps(): SupervisorDeps {
       try {
         const dbRoot = await resolveMainRepoRoot(projectRoot)
         const dbPath = join(dbRoot, '.substrate', 'substrate.db')
-        if (!existsSync(dbPath)) return { input: 0, output: 0, cost_usd: 0 }
-        const dbWrapper = new DatabaseWrapper(dbPath)
+        const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
+        if (!existsSync(dbPath) && !existsSync(doltDir)) return { input: 0, output: 0, cost_usd: 0 }
+        const tsAdapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
         try {
-          dbWrapper.open()
-          const agg = await aggregateTokenUsageForRun(dbWrapper.adapter, runId)
+          await initSchema(tsAdapter)
+          const agg = await aggregateTokenUsageForRun(tsAdapter, runId)
           return { input: agg.input, output: agg.output, cost_usd: agg.cost }
         } finally {
-          try { dbWrapper.close() } catch { /* ignore */ }
+          try { await tsAdapter.close() } catch { /* ignore */ }
         }
       } catch {
         return { input: 0, output: 0, cost_usd: 0 }
@@ -182,17 +182,17 @@ function defaultSupervisorDeps(): SupervisorDeps {
       try {
         const dbRoot = await resolveMainRepoRoot(opts.projectRoot)
         const dbPath = join(dbRoot, '.substrate', 'substrate.db')
-        if (!existsSync(dbPath)) return
-        const dbWrapper = new DatabaseWrapper(dbPath)
+        const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
+        if (!existsSync(dbPath) && !existsSync(doltDir)) return
+        const sfAdapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
         try {
-          dbWrapper.open()
-          const stAdapter = dbWrapper.adapter
+          await initSchema(sfAdapter)
           const activeStories = Object.entries(opts.storyDetails).filter(
             ([, s]) => s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED',
           )
           const now = Date.now()
           for (const [storyKey, storyState] of activeStories) {
-            await createDecision(stAdapter, {
+            await createDecision(sfAdapter, {
               pipeline_run_id: opts.runId ?? null,
               phase: 'supervisor',
               category: OPERATIONAL_FINDING,
@@ -207,7 +207,7 @@ function defaultSupervisorDeps(): SupervisorDeps {
             })
           }
         } finally {
-          try { dbWrapper.close() } catch { /* ignore */ }
+          try { await sfAdapter.close() } catch { /* ignore */ }
         }
       } catch {
         // Best-effort — never block the supervisor
@@ -221,11 +221,11 @@ function defaultSupervisorDeps(): SupervisorDeps {
       try {
         const dbRoot = await resolveMainRepoRoot(opts.projectRoot)
         const dbPath = join(dbRoot, '.substrate', 'substrate.db')
-        if (!existsSync(dbPath)) return
-        const dbWrapper = new DatabaseWrapper(dbPath)
+        const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
+        if (!existsSync(dbPath) && !existsSync(doltDir)) return
+        const rsAdapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
         try {
-          dbWrapper.open()
-          const rsAdapter = dbWrapper.adapter
+          await initSchema(rsAdapter)
           // Query token totals directly from DB
           const tokenAgg = await aggregateTokenUsageForRun(rsAdapter, opts.runId)
           await createDecision(rsAdapter, {
@@ -245,7 +245,7 @@ function defaultSupervisorDeps(): SupervisorDeps {
             rationale: `Run summary: ${opts.succeeded.length} succeeded, ${opts.failed.length} failed, ${opts.escalated.length} escalated. ${opts.total_restarts} restarts. Elapsed: ${opts.elapsed_seconds}s.`,
           })
         } finally {
-          try { dbWrapper.close() } catch { /* ignore */ }
+          try { await rsAdapter.close() } catch { /* ignore */ }
         }
       } catch {
         // Best-effort — never block the supervisor
@@ -254,12 +254,11 @@ function defaultSupervisorDeps(): SupervisorDeps {
     runAnalysis: async (runId: string, projectRoot: string) => {
       // AC1 of Story 17-3: generate post-run analysis report after terminal state
       const dbPath = join(projectRoot, '.substrate', 'substrate.db')
-      if (!existsSync(dbPath)) return
-      const dbWrapper = new DatabaseWrapper(dbPath)
+      const doltDir = join(projectRoot, '.substrate', 'state', '.dolt')
+      if (!existsSync(dbPath) && !existsSync(doltDir)) return
+      const raAdapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
       try {
-        dbWrapper.open()
-        runMigrations(dbWrapper.db)
-        const raAdapter = dbWrapper.adapter
+        await initSchema(raAdapter)
         const run = await getRunMetrics(raAdapter, runId)
         if (!run) return
         const stories = await getStoryMetricsForRun(raAdapter, runId)
@@ -274,7 +273,7 @@ function defaultSupervisorDeps(): SupervisorDeps {
       } catch {
         // Best-effort — never block the supervisor
       } finally {
-        try { dbWrapper.close() } catch { /* ignore */ }
+        try { await raAdapter.close() } catch { /* ignore */ }
       }
     },
   }
@@ -619,13 +618,9 @@ export async function runSupervisorAction(
               const { createExperimenter } = await import(/* @vite-ignore */ '../../modules/supervisor/experimenter.js')
               const { getLatestRun: getLatest } = await import(/* @vite-ignore */ '../../persistence/queries/decisions.js')
 
-              const dbPath = join(projectRoot, '.substrate', 'substrate.db')
-              const expDbWrapper = new DatabaseWrapper(dbPath)
+              const expAdapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
               try {
-                expDbWrapper.open()
-                runMigrations(expDbWrapper.db)
-                const expDb = expDbWrapper.db
-                const expAdapter = expDbWrapper.adapter
+                await initSchema(expAdapter)
 
                 const { runRunAction: runPipeline } = await import(/* @vite-ignore */ './run.js')
                 const runStoryFn = async (opts: { stories: string; projectRoot: string; pack: string }) => {
@@ -652,7 +647,7 @@ export async function runSupervisorAction(
                 )
 
                 const results = await experimenter.runExperiments(
-                  expDb,
+                  expAdapter,
                   recommendations as any[],
                   health.run_id!,
                 )
@@ -669,7 +664,7 @@ export async function runSupervisorAction(
                   regressed,
                 })
               } finally {
-                try { expDbWrapper.close() } catch { /* ignore */ }
+                try { await expAdapter.close() } catch { /* ignore */ }
               }
             } catch (expErr) {
               const msg = expErr instanceof Error ? expErr.message : String(expErr)

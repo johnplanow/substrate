@@ -1,31 +1,29 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import Database from 'better-sqlite3';
-import { SqliteDatabaseAdapter } from '../persistence/sqlite-adapter.js';
+import { createAdapterFromSyncDb } from '../persistence/wasm-sqlite-adapter.js';
 import type { DatabaseAdapter } from '../persistence/adapter.js';
-import { runMigrations } from '../persistence/migrations/index.js';
+import { initSchema } from '../persistence/schema.js';
 import { createContextCompiler } from '../modules/context-compiler/index.js';
 import { createDecision } from '../persistence/queries/decisions.js';
 import { createGate } from '../modules/quality-gates/gate-registry.js';
 import { createDebatePanel } from '../modules/debate-panel/index.js';
 import { createPackLoader } from '../modules/methodology-pack/index.js';
-import { existsSync, unlinkSync } from 'fs';
-import { join, resolve, dirname } from 'path';
+import { join } from 'path';
+import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-const DB_PATH = '/tmp/smoke-epic9.db';
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 let db: ReturnType<typeof Database>;
 let adapter: DatabaseAdapter;
 
-beforeAll(() => {
-  db = new Database(DB_PATH);
-  runMigrations(db);
-  adapter = new SqliteDatabaseAdapter(db);
+beforeAll(async () => {
+  db = new Database(':memory:');
+  adapter = createAdapterFromSyncDb(db);
+  await initSchema(adapter);
 });
 
 afterAll(() => {
   db.close();
-  if (existsSync(DB_PATH)) unlinkSync(DB_PATH);
 });
 
 // Item 4: Context compiler

@@ -49,6 +49,7 @@ export {
 
 export type { ITelemetryPersistence } from './persistence.js'
 export { TelemetryPersistence } from './persistence.js'
+export { AdapterTelemetryPersistence } from './adapter-persistence.js'
 
 export { IngestionServer, TelemetryError } from './ingestion-server.js'
 export type { IngestionServerOptions } from './ingestion-server.js'

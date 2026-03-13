@@ -189,18 +189,14 @@ describe('AC1: stories_count from token_usage_json (not requirements table)', ()
 // AC2: Status and Health Agree on Counts
 // ---------------------------------------------------------------------------
 
-// Mock filesystem/DB for health command integration
-vi.mock('../../../persistence/database.js', () => {
+// Mock adapter for health command integration — initSchema is NOT mocked
+// because the test's own createTestDb() calls it to set up real tables.
+// The production health.ts code calls initSchema(adapter) on the injected
+// adapter which is idempotent (CREATE TABLE IF NOT EXISTS).
+vi.mock('../../../persistence/adapter.js', () => {
   let mockAdapter: DatabaseAdapter | null = null
   return {
-    DatabaseWrapper: class {
-      open() { /* noop */ }
-      close() { /* noop */ }
-      get adapter() {
-        return mockAdapter!
-      }
-      get isOpen() { return true }
-    },
+    createDatabaseAdapter: () => mockAdapter!,
     __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
   }
 })
@@ -222,7 +218,7 @@ describe('AC2: Status and Health story completion counts agree', () => {
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/database.js') as {
+    const dbModule = await import('../../../persistence/adapter.js') as {
       __setMockAdapter: (a: DatabaseAdapter) => void
     }
     dbModule.__setMockAdapter(adapter)

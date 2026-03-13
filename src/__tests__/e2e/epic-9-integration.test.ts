@@ -15,18 +15,17 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { resolve } from 'path'
 
 // Persistence (9-1)
-import { runMigrations } from '../../persistence/migrations/index.js'
+import { initSchema } from '../../persistence/schema.js'
 import {
   createDecision,
   createRequirement,
   createConstraint,
   createPipelineRun,
 } from '../../persistence/queries/decisions.js'
-import { SqliteDatabaseAdapter } from '../../persistence/sqlite-adapter.js'
+import { createAdapterFromSyncDb } from '../../persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../persistence/adapter.js'
 
 // Context Compiler (9-2)
@@ -59,11 +58,10 @@ import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function openDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
+async function openDb(): Promise<{ db: ReturnType<typeof BetterSqlite3>; adapter: DatabaseAdapter }> {
   const db = new BetterSqlite3(':memory:')
-  db.pragma('foreign_keys = ON')
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = createAdapterFromSyncDb(db)
+  await initSchema(adapter)
   return { db, adapter }
 }
 

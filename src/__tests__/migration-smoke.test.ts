@@ -1,16 +1,12 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
-import { runMigrations } from '../persistence/migrations/index.js';
-import { unlinkSync, existsSync } from 'fs';
+import { initSchema } from '../persistence/schema.js';
+import { createAdapterFromSyncDb } from '../persistence/wasm-sqlite-adapter.js';
 
-const DB_PATH = '/tmp/smoke-test-epic9.db';
-
-afterAll(() => { if (existsSync(DB_PATH)) unlinkSync(DB_PATH); });
-
-describe('Epic 9 migration smoke test', () => {
-  it('creates all expected decision store tables', () => {
-    const db = new Database(DB_PATH);
-    runMigrations(db);
+describe('Schema smoke test', () => {
+  it('creates all expected decision store tables', async () => {
+    const db = new Database(':memory:');
+    await initSchema(createAdapterFromSyncDb(db));
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all()
       .map((r: any) => r.name);
     db.close();
@@ -21,9 +17,9 @@ describe('Epic 9 migration smoke test', () => {
     }
   });
 
-  it('decisions table has all expected columns', () => {
-    const db = new Database(DB_PATH);
-    runMigrations(db);
+  it('decisions table has all expected columns', async () => {
+    const db = new Database(':memory:');
+    await initSchema(createAdapterFromSyncDb(db));
     const cols = db.prepare("PRAGMA table_info(decisions)").all()
       .map((r: any) => r.name);
     db.close();

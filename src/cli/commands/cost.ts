@@ -21,8 +21,8 @@
 import type { Command } from 'commander'
 import { join } from 'path'
 import { existsSync } from 'fs'
-import { DatabaseWrapper } from '../../persistence/database.js'
-import { runMigrations } from '../../persistence/migrations/index.js'
+import { createDatabaseAdapter } from '../../persistence/adapter.js'
+import { initSchema } from '../../persistence/schema.js'
 import {
   getSessionCostSummary,
   getAllCostEntriesFiltered,
@@ -278,7 +278,8 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
   const dbPath = join(projectRoot, '.substrate', 'substrate.db')
 
   // Check if database exists
-  if (!existsSync(dbPath)) {
+  const doltDir = join(projectRoot, '.substrate', 'state', '.dolt')
+  if (!existsSync(dbPath) && !existsSync(doltDir)) {
     process.stderr.write(
       `Error: No Substrate database found at ${dbPath}. Run 'substrate init' first.\n`,
     )
@@ -294,23 +295,12 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
     return COST_EXIT_ERROR
   }
 
-  let wrapper: DatabaseWrapper | null = null
+  let adapter: import('../../persistence/adapter.js').DatabaseAdapter | null = null
 
   try {
     // Open database
-    wrapper = new DatabaseWrapper(dbPath)
-    wrapper.open()
-    const db = wrapper.db
-    const adapter = wrapper.adapter
-
-    // Null guard on db (FIX 5)
-    if (!db) {
-      process.stderr.write('Database connection failed\n')
-      return COST_EXIT_ERROR
-    }
-
-    // Run migrations to ensure schema is up-to-date
-    runMigrations(db)
+    adapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
+    await initSchema(adapter)
 
     // Resolve session ID
     let sessionId: string | null = explicitSessionId ?? null
@@ -406,9 +396,9 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
     logger.error({ err }, 'runCostAction failed')
     return COST_EXIT_ERROR
   } finally {
-    if (wrapper !== null) {
+    if (adapter !== null) {
       try {
-        wrapper.close()
+        await adapter.close()
       } catch {
         // Ignore close errors
       }

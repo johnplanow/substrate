@@ -7,11 +7,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import BetterSqlite3 from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { SqliteDatabaseAdapter } from '../../../src/persistence/sqlite-adapter.js'
+import Database from 'better-sqlite3'
+import { SyncDatabaseAdapter } from '../../../src/persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../src/persistence/adapter.js'
-import { runMigrations } from '../../../src/persistence/migrations/index.js'
+import { initSchema } from '../../../src/persistence/schema.js'
 import {
   writeRunMetrics,
   writeStoryMetrics,
@@ -24,12 +23,12 @@ import {
   aggregateTokenUsageForRun,
 } from '../../../src/persistence/queries/metrics.js'
 
-function openMemoryDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
-  const db = new BetterSqlite3(':memory:')
+async function openMemoryDb(): Promise<{ db: InstanceType<typeof Database>; adapter: DatabaseAdapter }> {
+  const db = new Database(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter }
 }
 
@@ -53,11 +52,11 @@ const BASE_RUN: Parameters<typeof writeRunMetrics>[1] = {
 }
 
 describe('run metrics queries', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openMemoryDb()
+  beforeEach(async () => {
+    const setup = await openMemoryDb()
     db = setup.db
     adapter = setup.adapter
   })
@@ -250,11 +249,11 @@ describe('run metrics queries', () => {
 })
 
 describe('story metrics queries', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
-    const setup = openMemoryDb()
+    const setup = await openMemoryDb()
     db = setup.db
     adapter = setup.adapter
     // story_metrics has run_id FK — write a run_metrics row first
@@ -374,11 +373,11 @@ describe('story metrics queries', () => {
 })
 
 describe('aggregateTokenUsageForRun', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openMemoryDb()
+  beforeEach(async () => {
+    const setup = await openMemoryDb()
     db = setup.db
     adapter = setup.adapter
   })

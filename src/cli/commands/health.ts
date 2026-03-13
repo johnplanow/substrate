@@ -17,7 +17,8 @@ import type { Command } from 'commander'
 import { join } from 'path'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
-import { DatabaseWrapper } from '../../persistence/database.js'
+import { createDatabaseAdapter } from '../../persistence/adapter.js'
+import { initSchema } from '../../persistence/schema.js'
 import {
   getLatestRun,
   getPipelineRunById,
@@ -394,14 +395,14 @@ export async function getAutoHealthData(options: {
     ...(doltStateInfo !== undefined ? { dolt_state: doltStateInfo } : {}),
   }
 
-  if (!existsSync(dbPath)) {
+  const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
+  if (!existsSync(dbPath) && !existsSync(doltDir)) {
     return NO_PIPELINE
   }
 
-  const dbWrapper = new DatabaseWrapper(dbPath)
+  const adapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
   try {
-    dbWrapper.open()
-    const adapter = dbWrapper.adapter
+    await initSchema(adapter)
 
     let run: PipelineRun | undefined
     if (runId !== undefined) {
@@ -496,7 +497,7 @@ export async function getAutoHealthData(options: {
     return healthOutput
   } finally {
     try {
-      dbWrapper.close()
+      await adapter.close()
     } catch {
       // ignore
     }

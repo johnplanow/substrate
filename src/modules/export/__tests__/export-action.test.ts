@@ -30,6 +30,27 @@ vi.mock('../../../utils/git-root.js', () => ({
   resolveMainRepoRoot: vi.fn().mockImplementation((root: string) => Promise.resolve(root)),
 }))
 
+// Mock createDatabaseAdapter to open the seeded SQLite file via SqliteDatabaseAdapter.
+// The production code calls createDatabaseAdapter({ backend: 'auto', basePath }) which
+// would fall back to InMemoryDatabaseAdapter in tests (no Dolt). This mock ensures the
+// seeded SQLite data is accessible.
+const { mockCreateDatabaseAdapter } = vi.hoisted(() => {
+  const mockCreateDatabaseAdapter = vi.fn()
+  return { mockCreateDatabaseAdapter }
+})
+
+vi.mock('../../../persistence/adapter.js', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>
+  return {
+    ...actual,
+    createDatabaseAdapter: mockCreateDatabaseAdapter,
+  }
+})
+
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
+}))
+
 // ---------------------------------------------------------------------------
 // T13: runExportAction --output-format json (AC7)
 // ---------------------------------------------------------------------------
@@ -117,12 +138,19 @@ describe('T13: runExportAction --output-format json', () => {
       rationale: null,
     })
 
+    // Close the seeded DB so createDatabaseAdapter can reopen it
+    db.close()
+
     // Create a placeholder file so export.ts's existsSync(dbPath) check passes.
-    // DatabaseWrapper will use the WASM mock's path-cached database (same seeded data).
+    // The WASM mock Database is in-memory and doesn't create real files.
     writeFileSync(dbPath, '')
 
-    // Close the file DB so DatabaseWrapper can reopen it
-    db.close()
+    // Configure the mock to open the seeded SQLite file via SqliteDatabaseAdapter
+    mockCreateDatabaseAdapter.mockImplementation(() => {
+      const reopenedDb = new BetterSqlite3(dbPath)
+      reopenedDb.pragma('foreign_keys = ON')
+      return new SqliteDatabaseAdapter(reopenedDb)
+    })
 
     // Capture process.stdout.write output
     stdoutOutput = []

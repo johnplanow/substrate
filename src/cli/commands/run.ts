@@ -11,7 +11,7 @@
  *   CLI is a thin wiring layer — all business logic lives in modules.
  *
  * Database (ADR-003: SQLite WAL):
- *   Uses DatabaseWrapper from src/persistence/database.ts for all DB access.
+ *   Uses DatabaseAdapter from src/persistence/adapter.ts for all DB access.
  */
 
 import type { Command } from 'commander'
@@ -26,8 +26,8 @@ import { createTuiApp, isTuiCapable, printNonTtyWarning } from '../../tui/index.
 
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createEventBus } from '../../core/event-bus.js'
-import { DatabaseWrapper } from '../../persistence/database.js'
-import { runMigrations } from '../../persistence/migrations/index.js'
+import { createDatabaseAdapter } from '../../persistence/adapter.js'
+import { initSchema } from '../../persistence/schema.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler, RepoMapInjector } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
@@ -67,7 +67,7 @@ import {
 import { createConfigSystem } from '../../modules/config/config-system-impl.js'
 import type { TokenCeilings } from '../../modules/config/config-schema.js'
 import { IngestionServer } from '../../modules/telemetry/ingestion-server.js'
-import { TelemetryPersistence } from '../../modules/telemetry/index.js'
+import { AdapterTelemetryPersistence } from '../../modules/telemetry/adapter-persistence.js'
 import { createLogger } from '../../utils/logger.js'
 import {
   VALID_PHASES,
@@ -313,11 +313,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // Auto-detect: open DB temporarily to inspect pipeline state
     mkdirSync(dbDir, { recursive: true })
     try {
-      const detectDb = new DatabaseWrapper(dbPath)
+      const detectAdapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
       try {
-        detectDb.open()
-        runMigrations(detectDb.db)
-        const detection = detectStartPhase(detectDb.db, projectRoot, epicNumber)
+        await initSchema(detectAdapter)
+        const detection = await detectStartPhase(detectAdapter, projectRoot, epicNumber)
 
         if (detection.phase !== 'implementation') {
           // Pipeline needs earlier phases — route through full pipeline
@@ -335,14 +334,14 @@ export async function runRunAction(options: RunOptions): Promise<number> {
             } else {
               process.stderr.write(`Error: ${errorMsg}\n`)
             }
-            detectDb.close()
+            await detectAdapter.close()
             return 1
           }
         } else if (outputFormat === 'human') {
           process.stdout.write(`[AUTO-DETECT] ${detection.reason}\n`)
         }
       } finally {
-        detectDb.close()
+        await detectAdapter.close()
       }
     } catch {
       // DB not initialized — fall through to legacy path
@@ -385,12 +384,11 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   }
 
   // Open database
-  const dbWrapper = new DatabaseWrapper(dbPath)
+  const adapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
 
   try {
     try {
-      dbWrapper.open()
-      runMigrations(dbWrapper.db)
+      await initSchema(adapter)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       const errorMsg = `Decision store not initialized. Run 'substrate init' first.\n${msg}`
@@ -402,13 +400,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       return 1
     }
 
-    const db = dbWrapper.db
-    const adapter = dbWrapper.adapter
-
     // Story 28-6: Create TelemetryPersistence early so it's available for routing and
     // repo-map telemetry injection. The IngestionServer stays near the orchestrator.
     const telemetryPersistence = telemetryEnabled
-      ? new TelemetryPersistence(db)
+      ? new AdapterTelemetryPersistence(adapter)
       : undefined
 
     // Load methodology pack
@@ -430,9 +425,9 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // Discover story keys from DB if not provided
     if (storyKeys.length === 0) {
       // Query requirements table for active stories
-      const activeReqs = db
-        .prepare(`SELECT description FROM requirements WHERE status = 'active' AND type = 'story'`)
-        .all() as Array<{ description: string }>
+      const activeReqs = await adapter.query<{ description: string }>(
+        `SELECT description FROM requirements WHERE status = 'active' AND type = 'story'`,
+      )
 
       for (const req of activeReqs) {
         const match = STORY_KEY_PATTERN.exec(req.description.trim())
@@ -445,11 +440,9 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       if (storyKeys.length > 0) {
         const completedStoryKeys = new Set<string>()
         try {
-          const completedRuns = db
-            .prepare(
-              `SELECT token_usage_json FROM pipeline_runs WHERE status = 'completed' AND token_usage_json IS NOT NULL`,
-            )
-            .all() as Array<{ token_usage_json: string }>
+          const completedRuns = await adapter.query<{ token_usage_json: string }>(
+            `SELECT token_usage_json FROM pipeline_runs WHERE status = 'completed' AND token_usage_json IS NOT NULL`,
+          )
 
           for (const row of completedRuns) {
             try {
@@ -529,7 +522,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
     // Create dependencies
     const eventBus = createEventBus()
-    const contextCompiler = createContextCompiler({ db })
+    const contextCompiler = createContextCompiler({ db: adapter })
     if (!injectedRegistry) {
       throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
@@ -1173,7 +1166,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
     // Create orchestrator
     const orchestrator = createImplementationOrchestrator({
-      db,
+      db: adapter,
       pack,
       contextCompiler,
       dispatcher,
@@ -1364,7 +1357,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     return 1
   } finally {
     try {
-      dbWrapper.close()
+      await adapter.close()
     } catch {
       // ignore
     }
@@ -1419,12 +1412,11 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     mkdirSync(dbDir, { recursive: true })
   }
 
-  const dbWrapper = new DatabaseWrapper(dbPath)
+  const adapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
 
   try {
     try {
-      dbWrapper.open()
-      runMigrations(dbWrapper.db)
+      await initSchema(adapter)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       const errorMsg = `Decision store not initialized. Run 'substrate init' first.\n${msg}`
@@ -1435,9 +1427,6 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
       }
       return 1
     }
-
-    const db = dbWrapper.db
-    const adapter = dbWrapper.adapter
 
     // Load methodology pack
     const packLoader = createPackLoader()
@@ -1457,7 +1446,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
     // Create shared dependencies
     const eventBus = createEventBus()
-    const contextCompiler = createContextCompiler({ db })
+    const contextCompiler = createContextCompiler({ db: adapter })
     if (!injectedRegistry) {
       throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
@@ -1473,7 +1462,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
       },
     })
 
-    const phaseDeps = { db, pack, contextCompiler, dispatcher }
+    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher }
 
     // Create PhaseOrchestrator — when --skip-ux is set, override uxDesign to false;
     // when --research/--skip-research are set, override research accordingly.
@@ -1710,12 +1699,12 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           ? new IngestionServer({ port: fullTelemetryPort ?? 4318 })
           : undefined
         const fpTelemetryPersistence = fullTelemetryEnabled
-          ? new TelemetryPersistence(db)
+          ? new AdapterTelemetryPersistence(adapter)
           : undefined
 
         // Run implementation orchestrator
         const orchestrator = createImplementationOrchestrator({
-          db,
+          db: adapter,
           pack,
           contextCompiler,
           dispatcher,
@@ -1774,7 +1763,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         // Resolve story keys via unified fallback chain:
         // explicit --stories → decisions table → epic shards → epics.md
-        const storyKeys = resolveStoryKeys(db, projectRoot, {
+        const storyKeys = resolveStoryKeys(adapter, projectRoot, {
           explicit: explicitStories,
           epicNumber: options.epic,
         })
@@ -1803,10 +1792,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         const gate = createStopAfterGate(stopAfter)
         if (gate.shouldHalt()) {
           // Count decisions for summary
-          const decisionsCount =
-            (db
-              .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
-              .get(runId) as { cnt: number } | undefined)?.cnt ?? 0
+          const stopCountRows = await adapter.query<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`, [runId])
+          const decisionsCount = stopCountRows[0]?.cnt ?? 0
 
           // Update run status to 'stopped' atomically before emitting summary (AC4)
           await updatePipelineRun(adapter, runId, { status: 'stopped' })
@@ -1849,20 +1836,18 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     const durationMs = Date.now() - startedAt
 
     // Count decisions and stories
-    const decisionsCount = (db
-      .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
-      .get(runId) as { cnt: number } | undefined)?.cnt ?? 0
+    const decRows = await adapter.query<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`, [runId])
+    const decisionsCount = decRows[0]?.cnt ?? 0
 
-    const storiesCount = (db
-      .prepare(
-        `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
-      )
-      .get(runId) as { cnt: number } | undefined)?.cnt ?? 0
+    const storyRows = await adapter.query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
+      [runId],
+    )
+    const storiesCount = storyRows[0]?.cnt ?? 0
 
     // Get pipeline run for summary
-    const finalRun = db.prepare('SELECT * FROM pipeline_runs WHERE id = ?').get(runId) as
-      | PipelineRun
-      | undefined
+    const finalRunRows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [runId])
+    const finalRun = finalRunRows[0]
 
     if (outputFormat === 'json') {
       const statusOutput = buildPipelineStatusOutput(
@@ -1900,7 +1885,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     return 1
   } finally {
     try {
-      dbWrapper.close()
+      await adapter.close()
     } catch {
       // ignore
     }

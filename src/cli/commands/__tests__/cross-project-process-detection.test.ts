@@ -11,7 +11,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { join } from 'path'
 import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
-import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
@@ -24,20 +23,17 @@ import {
 // Module mocks
 // ---------------------------------------------------------------------------
 
-vi.mock('../../../persistence/database.js', () => {
+vi.mock('../../../persistence/adapter.js', () => {
   let mockAdapter: DatabaseAdapter | null = null
   return {
-    DatabaseWrapper: class {
-      open() { /* noop */ }
-      close() { /* noop */ }
-      get adapter() {
-        return mockAdapter!
-      }
-      get isOpen() { return true }
-    },
+    createDatabaseAdapter: () => mockAdapter!,
     __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
   }
 })
+
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
+}))
 
 vi.mock('../../../utils/git-root.js', () => ({
   resolveMainRepoRoot: vi.fn().mockResolvedValue('/tmp/cross-project-test'),
@@ -57,7 +53,8 @@ vi.mock('node:fs', async (importOriginal) => {
 
 async function createTestDb(): Promise<DatabaseAdapter> {
   const adapter = await createWasmSqliteAdapter()
-  await initSchema(adapter)
+  const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
+  await realInitSchema(adapter)
   return adapter
 }
 
@@ -314,7 +311,7 @@ describe('getAutoHealthData — AC4: verdict correctness for running pipeline', 
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/database.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
     dbModule.__setMockAdapter(adapter)
   })
 

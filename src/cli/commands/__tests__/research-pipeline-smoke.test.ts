@@ -17,12 +17,11 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod'
-import { runMigrations } from '../../../persistence/migrations/index.js'
+import { initSchema } from '../../../persistence/schema.js'
 import {
   createPipelineRun,
   registerArtifact,
@@ -30,7 +29,7 @@ import {
   getDecisionsByPhaseForRun,
 } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { createAdapterFromSyncDb } from '../../../persistence/wasm-sqlite-adapter.js'
 import { createBuiltInPhases } from '../../../modules/phase-orchestrator/built-in-phases.js'
 import { createPhaseOrchestrator } from '../../../modules/phase-orchestrator/index.js'
 import { buildResearchSteps, runResearchPhase } from '../../../modules/phase-orchestrator/phases/research.js'
@@ -49,18 +48,21 @@ import type { Dispatcher, DispatchResult } from '../../../modules/agent-dispatch
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+async function createTestDb(): Promise<{ db: ReturnType<typeof Database>; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'research-smoke-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  runMigrations(db)
+  const dbPath = join(tmpDir, 'test.db')
+  const db = new Database(dbPath)
+  await initSchema(createAdapterFromSyncDb(db))
+  // Create placeholder file so existsSync(dbPath) checks in production code pass.
+  writeFileSync(dbPath, '')
   return { db, tmpDir }
 }
 
 async function createTestRun(
-  db: BetterSqlite3Database,
+  db: ReturnType<typeof Database>,
   startPhase = 'research',
 ): Promise<string> {
-  const run = await createPipelineRun(new SqliteDatabaseAdapter(db), { methodology: 'bmad', start_phase: startPhase })
+  const run = await createPipelineRun(createAdapterFromSyncDb(db), { methodology: 'bmad', start_phase: startPhase })
   return run.id
 }
 
@@ -166,11 +168,11 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  db: ReturnType<typeof Database>,
   dispatcher: Dispatcher,
   pack: MethodologyPack,
 ): PhaseDeps {
-  return { db: new SqliteDatabaseAdapter(db), pack, contextCompiler: makeContextCompiler(), dispatcher }
+  return { db: createAdapterFromSyncDb(db), pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
 
 // ---------------------------------------------------------------------------
@@ -262,11 +264,11 @@ describe('Manifest flag precedence (effectiveResearch logic)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research → Analysis gate enforcement', () => {
-  let db: BetterSqlite3Database
+  let db: ReturnType<typeof Database>
   let tmpDir: string
 
-  beforeEach(() => {
-    const setup = createTestDb()
+  beforeEach(async () => {
+    const setup = await createTestDb()
     db = setup.db
     tmpDir = setup.tmpDir
   })
@@ -278,7 +280,7 @@ describe('Research → Analysis gate enforcement', () => {
 
   it('analysis phase entry gate BLOCKS when research enabled but research-findings artifact missing', async () => {
     const pack = makePack({}, { research: true })
-    const orchestrator = createPhaseOrchestrator({ db: new SqliteDatabaseAdapter(db), pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: createAdapterFromSyncDb(db), pack: pack as never })
 
     const runId = await orchestrator.startRun('test concept', 'research')
     // Set current phase to research (simulating research in progress)
@@ -292,13 +294,13 @@ describe('Research → Analysis gate enforcement', () => {
 
   it('analysis phase entry gate PASSES when research enabled and research-findings artifact exists', async () => {
     const pack = makePack({}, { research: true })
-    const orchestrator = createPhaseOrchestrator({ db: new SqliteDatabaseAdapter(db), pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: createAdapterFromSyncDb(db), pack: pack as never })
 
     const runId = await orchestrator.startRun('test concept', 'research')
     db.prepare(`UPDATE pipeline_runs SET current_phase = 'research' WHERE id = ?`).run(runId)
 
     // Register the required artifact
-    await registerArtifact(new SqliteDatabaseAdapter(db), {
+    await registerArtifact(createAdapterFromSyncDb(db), {
       pipeline_run_id: runId,
       phase: 'research',
       type: 'research-findings',
@@ -312,7 +314,7 @@ describe('Research → Analysis gate enforcement', () => {
 
   it('analysis phase has NO research gate when research is disabled', async () => {
     const pack = makePack({}, { research: false })
-    const orchestrator = createPhaseOrchestrator({ db: new SqliteDatabaseAdapter(db), pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: createAdapterFromSyncDb(db), pack: pack as never })
 
     const runId = await orchestrator.startRun('test concept', 'analysis')
 
@@ -327,12 +329,12 @@ describe('Research → Analysis gate enforcement', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research phase decision store persistence', () => {
-  let db: BetterSqlite3Database
+  let db: ReturnType<typeof Database>
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     tmpDir = setup.tmpDir
     runId = await createTestRun(db)
@@ -361,7 +363,7 @@ describe('Research phase decision store persistence', () => {
     expect(result.success).toBe(true)
 
     // Verify all 4 discovery fields persisted
-    const decisions = await getDecisionsByPhaseForRun(new SqliteDatabaseAdapter(db),runId, 'research')
+    const decisions = await getDecisionsByPhaseForRun(createAdapterFromSyncDb(db),runId, 'research')
     const keys = decisions.map((d) => d.key)
     expect(keys).toContain('concept_classification')
     expect(keys).toContain('market_findings')
@@ -375,7 +377,7 @@ describe('Research phase decision store persistence', () => {
 
   it('step 2 synthesis persists all 5 fields including arrays to decision store', async () => {
     // Pre-seed step 1 results so step 2 can resolve step: context
-    await createDecision(new SqliteDatabaseAdapter(db), {
+    await createDecision(createAdapterFromSyncDb(db), {
       pipeline_run_id: runId,
       phase: 'research',
       category: 'research',
@@ -400,7 +402,7 @@ describe('Research phase decision store persistence', () => {
     expect(result.success).toBe(true)
 
     // Verify all 5 synthesis fields persisted
-    const decisions = await getDecisionsByPhaseForRun(new SqliteDatabaseAdapter(db),runId, 'research')
+    const decisions = await getDecisionsByPhaseForRun(createAdapterFromSyncDb(db),runId, 'research')
     const keys = decisions.map((d) => d.key)
     expect(keys).toContain('market_context')
     expect(keys).toContain('competitive_landscape')
@@ -442,7 +444,7 @@ describe('Research phase decision store persistence', () => {
     expect(artifact!.type).toBe('research-findings')
 
     // Verify all 9 decision fields exist
-    const decisions = await getDecisionsByPhaseForRun(new SqliteDatabaseAdapter(db),runId, 'research')
+    const decisions = await getDecisionsByPhaseForRun(createAdapterFromSyncDb(db),runId, 'research')
     const keys = decisions.map((d) => d.key)
     // Step 1: 4 fields
     expect(keys).toContain('concept_classification')
@@ -463,12 +465,12 @@ describe('Research phase decision store persistence', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research → Analysis context handoff', () => {
-  let db: BetterSqlite3Database
+  let db: ReturnType<typeof Database>
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     tmpDir = setup.tmpDir
     runId = await createTestRun(db)
@@ -566,12 +568,12 @@ describe('Research → Analysis context handoff', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research phase token usage tracking', () => {
-  let db: BetterSqlite3Database
+  let db: ReturnType<typeof Database>
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     tmpDir = setup.tmpDir
     runId = await createTestRun(db)
@@ -611,12 +613,12 @@ describe('Research phase token usage tracking', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research phase failure propagation', () => {
-  let db: BetterSqlite3Database
+  let db: ReturnType<typeof Database>
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     tmpDir = setup.tmpDir
     runId = await createTestRun(db)
@@ -785,11 +787,11 @@ describe('Research schema validation edge cases', () => {
 // ---------------------------------------------------------------------------
 
 describe('Backwards compatibility: pipeline without research', () => {
-  let db: BetterSqlite3Database
+  let db: ReturnType<typeof Database>
   let tmpDir: string
 
-  beforeEach(() => {
-    const setup = createTestDb()
+  beforeEach(async () => {
+    const setup = await createTestDb()
     db = setup.db
     tmpDir = setup.tmpDir
   })
@@ -801,7 +803,7 @@ describe('Backwards compatibility: pipeline without research', () => {
 
   it('phase orchestrator without research starts at analysis and has no research gates', async () => {
     const pack = makePack({}, { research: false })
-    const orchestrator = createPhaseOrchestrator({ db: new SqliteDatabaseAdapter(db), pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: createAdapterFromSyncDb(db), pack: pack as never })
 
     const runId = await orchestrator.startRun('test concept', 'analysis')
     const status = await orchestrator.getRunStatus(runId)
@@ -811,12 +813,12 @@ describe('Backwards compatibility: pipeline without research', () => {
 
   it('analysis advances to planning without needing research artifacts', async () => {
     const pack = makePack({}, { research: false })
-    const orchestrator = createPhaseOrchestrator({ db: new SqliteDatabaseAdapter(db), pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: createAdapterFromSyncDb(db), pack: pack as never })
 
     const runId = await orchestrator.startRun('test concept', 'analysis')
 
     // Register analysis artifact
-    await registerArtifact(new SqliteDatabaseAdapter(db), {
+    await registerArtifact(createAdapterFromSyncDb(db), {
       pipeline_run_id: runId,
       phase: 'analysis',
       type: 'product-brief',

@@ -13,8 +13,36 @@
  * - --compare-stories mode: fetches two scores, renders side-by-side; exits 1 when missing
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest'
 import type { MetricsOptions } from '../metrics.js'
+
+// ---------------------------------------------------------------------------
+// Create a real (minimal) SQLite database file so that the native
+// `require('better-sqlite3')` call inside `openTelemetryDb` can open it.
+// The vitest resolve alias for better-sqlite3 only applies to ESM imports,
+// not CJS require(), so the native module is loaded and needs a real file.
+// ---------------------------------------------------------------------------
+const { setupTelemetryDb, cleanupTelemetryDb } = vi.hoisted(() => {
+  const { execSync } = require('node:child_process')
+  const TELEMETRY_TEST_ROOT = '/tmp/test-project'
+  const TELEMETRY_DB_DIR = TELEMETRY_TEST_ROOT + '/.substrate'
+  const TELEMETRY_DB_PATH = TELEMETRY_DB_DIR + '/substrate.db'
+  return {
+    setupTelemetryDb: () => {
+      execSync(`mkdir -p "${TELEMETRY_DB_DIR}"`)
+      // Create a valid empty SQLite database using the native better-sqlite3
+      const NativeDatabase = require('better-sqlite3')
+      const db = new NativeDatabase(TELEMETRY_DB_PATH)
+      db.close()
+    },
+    cleanupTelemetryDb: () => {
+      try { execSync(`rm -rf "${TELEMETRY_TEST_ROOT}"`) } catch { /* ignore */ }
+    },
+  }
+})
+
+beforeAll(() => { setupTelemetryDb() })
+afterAll(() => { cleanupTelemetryDb() })
 
 // ---------------------------------------------------------------------------
 // Mocks — set up before any imports of the module under test
@@ -32,16 +60,14 @@ vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
 }))
 
-vi.mock('../../../persistence/database.js', () => ({
-  DatabaseWrapper: vi.fn().mockImplementation(() => ({
-    open: vi.fn(),
-    close: vi.fn(),
-    db: {},
-  })),
+const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+
+vi.mock('../../../persistence/adapter.js', () => ({
+  createDatabaseAdapter: vi.fn(() => mockAdapter),
 }))
 
-vi.mock('../../../persistence/migrations/index.js', () => ({
-  runMigrations: vi.fn(),
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../../persistence/queries/metrics.js', () => ({
@@ -96,16 +122,21 @@ const mockTelemetryPersistence = {
   storeConsumerStats: vi.fn(),
 }
 
-const mockSqliteClose = vi.fn()
-const mockSqliteDb = { close: mockSqliteClose }
-
 vi.mock('../../../modules/telemetry/index.js', () => ({
   TelemetryPersistence: vi.fn().mockImplementation(() => mockTelemetryPersistence),
 }))
 
-vi.mock('better-sqlite3', () => ({
-  default: vi.fn().mockImplementation(() => mockSqliteDb),
-}))
+// Mock better-sqlite3 so the `require('better-sqlite3')` call in openTelemetryDb
+// returns a usable constructor. The global alias points to an ESM WASM mock that
+// cannot be required, so we provide a simple mock here.
+const mockSqliteDb = { close: vi.fn() }
+vi.mock('better-sqlite3', () => {
+  const Database = vi.fn().mockImplementation(() => mockSqliteDb)
+  Database.prototype = {}
+  return { default: Database, Database }
+})
+
+
 
 // ---------------------------------------------------------------------------
 // Fixture factories

@@ -19,8 +19,8 @@ import { join } from 'path'
 import { existsSync } from 'fs'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createEventBus } from '../../core/event-bus.js'
-import { DatabaseWrapper } from '../../persistence/database.js'
-import { runMigrations } from '../../persistence/migrations/index.js'
+import { createDatabaseAdapter } from '../../persistence/adapter.js'
+import { initSchema } from '../../persistence/schema.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
@@ -58,7 +58,8 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
 
-  if (!existsSync(dbPath)) {
+  const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
+  if (!existsSync(dbPath) && !existsSync(doltDir)) {
     const errorMsg = `Decision store not initialized. Run 'substrate init' first.`
     if (outputFormat === 'json') {
       process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
@@ -68,13 +69,10 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     return 1
   }
 
-  const dbWrapper = new DatabaseWrapper(dbPath)
+  const adapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
 
   try {
-    dbWrapper.open()
-    runMigrations(dbWrapper.db)
-    const db = dbWrapper.db
-    const adapter = dbWrapper.adapter
+    await initSchema(adapter)
 
     // Query retryable escalations from the decision store
     const { retryable, skipped } = await getRetryableEscalations(adapter, runId)
@@ -144,14 +142,14 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     })
 
     const eventBus = createEventBus()
-    const contextCompiler = createContextCompiler({ db })
+    const contextCompiler = createContextCompiler({ db: adapter })
     if (!injectedRegistry) {
       throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
     const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
 
     const orchestrator = createImplementationOrchestrator({
-      db,
+      db: adapter,
       pack,
       contextCompiler,
       dispatcher,
@@ -220,7 +218,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     return 1
   } finally {
     try {
-      dbWrapper.close()
+      await adapter.close()
     } catch {
       // ignore
     }

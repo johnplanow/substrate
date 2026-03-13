@@ -10,21 +10,33 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createDecision, getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { createAdapterFromSyncDb } from '../../../persistence/wasm-sqlite-adapter.js'
 import { OPERATIONAL_FINDING } from '../../../persistence/schemas/operational.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   handleStallRecovery,
   buildTerminalSummary,
   runSupervisorAction,
 } from '../supervisor.js'
 import type { PipelineHealthOutput } from '../health.js'
+
+// Mock the DB adapter factory so defaultSupervisorDeps uses the test adapter
+vi.mock('../../../persistence/adapter.js', () => {
+  let mockAdapter: DatabaseAdapter | null = null
+  return {
+    createDatabaseAdapter: () => mockAdapter!,
+    __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
+  }
+})
+
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
+}))
 
 // Mock resolveMainRepoRoot so defaultSupervisorDeps closures use our temp dir
 vi.mock('../../../utils/git-root.js', () => ({
@@ -35,10 +47,10 @@ vi.mock('../../../utils/git-root.js', () => ({
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function openTestDb(): BetterSqlite3Database {
+async function openTestDb() {
   const db = new BetterSqlite3(':memory:')
-  db.pragma('foreign_keys = ON')
-  runMigrations(db)
+  const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
+  await realInitSchema(createAdapterFromSyncDb(db))
   return db
 }
 
@@ -66,15 +78,15 @@ function makeHealthStalled(overrides?: Partial<PipelineHealthOutput>): PipelineH
 // ---------------------------------------------------------------------------
 
 describe('AC1: Supervisor writes stall findings to decision store', () => {
-  let db: BetterSqlite3Database
+  let db: Awaited<ReturnType<typeof openTestDb>>
 
-  beforeEach(() => {
-    db = openTestDb()
+  beforeEach(async () => {
+    db = await openTestDb()
   })
 
   it('writeStallFindings inserts operational-finding decisions for active stories', async () => {
     // Simulate what defaultSupervisorDeps.writeStallFindings does, but directly
-    const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
+    const run = await createPipelineRun(createAdapterFromSyncDb(db),{ methodology: 'bmad' })
     const storyDetails: Record<string, { phase: string; review_cycles: number }> = {
       '1-1': { phase: 'IN_DEV', review_cycles: 0 },
       '1-2': { phase: 'COMPLETE', review_cycles: 1 },
@@ -88,7 +100,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
     )
 
     for (const [storyKey, storyState] of activeStories) {
-      await createDecision(new SqliteDatabaseAdapter(db), {
+      await createDecision(createAdapterFromSyncDb(db), {
         pipeline_run_id: run.id,
         phase: 'supervisor',
         category: OPERATIONAL_FINDING,
@@ -103,7 +115,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
       })
     }
 
-    const decisions = await getDecisionsByCategory(new SqliteDatabaseAdapter(db),OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(createAdapterFromSyncDb(db),OPERATIONAL_FINDING)
     // Only active stories should have findings (1-1 and 1-3, not 1-2 which is COMPLETE)
     expect(decisions).toHaveLength(2)
 
@@ -121,8 +133,8 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
   })
 
   it('max-restarts-escalated outcome is persisted correctly', async () => {
-    const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
-    await createDecision(new SqliteDatabaseAdapter(db), {
+    const run = await createPipelineRun(createAdapterFromSyncDb(db),{ methodology: 'bmad' })
+    await createDecision(createAdapterFromSyncDb(db), {
       pipeline_run_id: run.id,
       phase: 'supervisor',
       category: OPERATIONAL_FINDING,
@@ -135,7 +147,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
       }),
     })
 
-    const decisions = await getDecisionsByCategory(new SqliteDatabaseAdapter(db),OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(createAdapterFromSyncDb(db),OPERATIONAL_FINDING)
     expect(decisions).toHaveLength(1)
     const val = JSON.parse(decisions[0]!.value)
     expect(val.outcome).toBe('max-restarts-escalated')
@@ -217,15 +229,15 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC2: Supervisor run-level summary to decision store', () => {
-  let db: BetterSqlite3Database
+  let db: Awaited<ReturnType<typeof openTestDb>>
 
-  beforeEach(() => {
-    db = openTestDb()
+  beforeEach(async () => {
+    db = await openTestDb()
   })
 
   it('writeRunSummary inserts operational-finding decision with correct key and value', async () => {
     // Simulate the writeRunSummary logic directly against in-memory DB
-    const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
+    const run = await createPipelineRun(createAdapterFromSyncDb(db),{ methodology: 'bmad' })
     const opts = {
       runId: run.id,
       succeeded: ['1-1', '1-2'],
@@ -235,7 +247,7 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
       elapsed_seconds: 450,
     }
 
-    await createDecision(new SqliteDatabaseAdapter(db), {
+    await createDecision(createAdapterFromSyncDb(db), {
       pipeline_run_id: opts.runId,
       phase: 'supervisor',
       category: OPERATIONAL_FINDING,
@@ -252,7 +264,7 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
       rationale: `Run summary: ${opts.succeeded.length} succeeded, ${opts.failed.length} failed.`,
     })
 
-    const decisions = await getDecisionsByCategory(new SqliteDatabaseAdapter(db),OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(createAdapterFromSyncDb(db),OPERATIONAL_FINDING)
     expect(decisions).toHaveLength(1)
     expect(decisions[0]!.key).toBe(`run-summary:${run.id}`)
     expect(decisions[0]!.category).toBe('operational-finding')
@@ -273,7 +285,7 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
     if (totalStories === 0) {
       // writeRunSummary would return early
     } else {
-      await createDecision(new SqliteDatabaseAdapter(db), {
+      await createDecision(createAdapterFromSyncDb(db), {
         pipeline_run_id: 'run-empty',
         phase: 'supervisor',
         category: OPERATIONAL_FINDING,
@@ -282,7 +294,7 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
       })
     }
 
-    const decisions = await getDecisionsByCategory(new SqliteDatabaseAdapter(db),OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(createAdapterFromSyncDb(db),OPERATIONAL_FINDING)
     expect(decisions).toHaveLength(0)
   })
 })
@@ -320,24 +332,29 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
   let runId: string
   let stdoutChunks: string[]
   let writeSpy: ReturnType<typeof vi.spyOn>
+  let smokeDb: InstanceType<typeof BetterSqlite3>
 
   beforeEach(async () => {
     tempProjectRoot = join(tmpdir(), `substrate-supervisor-smoke-${randomUUID()}`)
     const substrateDir = join(tempProjectRoot, '.substrate')
     mkdirSync(substrateDir, { recursive: true })
 
-    // Create a real seeded DB
+    // Create a real seeded DB (in-process, backed by BetterSqlite3 VFS)
     dbPath = join(substrateDir, 'substrate.db')
-    const db = new BetterSqlite3(dbPath)
-    db.pragma('foreign_keys = ON')
-    runMigrations(db)
-    const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
+    smokeDb = new BetterSqlite3(dbPath)
+    // BetterSqlite3 uses an emscripten VFS inside vitest — the file may not
+    // appear on the real filesystem. Write a placeholder so that the
+    // defaultSupervisorDeps' existsSync(dbPath) guard check passes.
+    writeFileSync(dbPath, '')
+    const adapter = createAdapterFromSyncDb(smokeDb)
+    const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
+    await realInitSchema(adapter)
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     runId = run.id
 
-    // Create a placeholder file so supervisor.ts's existsSync(dbPath) check passes.
-    // DatabaseWrapper will use the WASM mock's path-cached database (same seeded data).
-    writeFileSync(dbPath, '')
-    db.close()
+    // Inject the adapter so defaultSupervisorDeps closures use this DB
+    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    dbModule.__setMockAdapter(adapter)
 
     stdoutChunks = []
     writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: any) => {
@@ -348,6 +365,7 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
 
   afterEach(() => {
     writeSpy.mockRestore()
+    try { smokeDb.close() } catch { /* already closed */ }
     if (existsSync(tempProjectRoot)) {
       rmSync(tempProjectRoot, { recursive: true, force: true })
     }
@@ -408,29 +426,27 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
       },
     )
 
-    // Now verify the decisions landed in the real DB
-    const db = new BetterSqlite3(dbPath, { readonly: true })
-    try {
-      const decisions = await getDecisionsByCategory(new SqliteDatabaseAdapter(db),OPERATIONAL_FINDING)
+    // Verify the decisions landed in the DB via the injected adapter
+    // (BetterSqlite3 uses an emscripten VFS inside vitest, so opening a
+    // second connection to the same path won't see the data — read from
+    // the same adapter instance that defaultSupervisorDeps wrote through.)
+    const decisions = await getDecisionsByCategory(createAdapterFromSyncDb(smokeDb), OPERATIONAL_FINDING)
 
-      // Should have at least one stall finding for story 1-1
-      const stallFindings = decisions.filter((d) => d.key.startsWith('stall:'))
-      expect(stallFindings.length).toBeGreaterThanOrEqual(1)
-      const stallVal = JSON.parse(stallFindings[0]!.value)
-      expect(stallVal.phase).toBe('IN_DEV')
-      expect(stallVal.outcome).toMatch(/recovered|failed/)
-      expect(stallVal.staleness_secs).toBe(700)
+    // Should have at least one stall finding for story 1-1
+    const stallFindings = decisions.filter((d) => d.key.startsWith('stall:'))
+    expect(stallFindings.length).toBeGreaterThanOrEqual(1)
+    const stallVal = JSON.parse(stallFindings[0]!.value)
+    expect(stallVal.phase).toBe('IN_DEV')
+    expect(stallVal.outcome).toMatch(/recovered|failed/)
+    expect(stallVal.staleness_secs).toBe(700)
 
-      // Should have a run-summary decision
-      const summaries = decisions.filter((d) => d.key.startsWith('run-summary:'))
-      expect(summaries.length).toBeGreaterThanOrEqual(1)
-      const summaryVal = JSON.parse(summaries[0]!.value)
-      expect(summaryVal).toHaveProperty('succeeded')
-      expect(summaryVal).toHaveProperty('failed')
-      expect(summaryVal).toHaveProperty('elapsed_seconds')
-    } finally {
-      db.close()
-    }
+    // Should have a run-summary decision
+    const summaries = decisions.filter((d) => d.key.startsWith('run-summary:'))
+    expect(summaries.length).toBeGreaterThanOrEqual(1)
+    const summaryVal = JSON.parse(summaries[0]!.value)
+    expect(summaryVal).toHaveProperty('succeeded')
+    expect(summaryVal).toHaveProperty('failed')
+    expect(summaryVal).toHaveProperty('elapsed_seconds')
   })
 })
 

@@ -31,15 +31,17 @@ vi.mock('../../../utils/logger.js', () => ({
   }),
 }))
 
-vi.mock('../../../persistence/database.js', () => ({
-  DatabaseWrapper: class {
-    db = {
-      prepare: () => ({ get: () => undefined, run: () => undefined, all: () => [] }),
-      close: () => {},
-    }
-    open() { /* noop */ }
-    close() { /* noop */ }
-  },
+vi.mock('../../../persistence/adapter.js', () => ({
+  createDatabaseAdapter: vi.fn(() => ({
+    query: vi.fn().mockResolvedValue([]),
+    exec: vi.fn().mockResolvedValue(undefined),
+    transaction: vi.fn(),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+}))
+
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('node:fs', async (importOriginal) => {

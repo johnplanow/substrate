@@ -8,12 +8,12 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { runMigrations } from '../../../persistence/migrations/index.js'
+import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import { writeStoryMetrics } from '../../../persistence/queries/metrics.js'
 import { runStatusAction } from '../status.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { createAdapterFromSyncDb } from '../../../persistence/wasm-sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Mock resolveMainRepoRoot so the action uses an in-memory DB path override
@@ -30,25 +30,23 @@ vi.mock('fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
 }))
 
-// We need to override DatabaseWrapper so we can inject our in-memory DB.
-let _injectedDb: BetterSqlite3Database | null = null
+// Override createDatabaseAdapter to inject our test adapter
+let _injectedAdapter: DatabaseAdapter | null = null
 
-vi.mock('../../../persistence/database.js', async () => {
-  const { SqliteDatabaseAdapter: Adapter } = await import('../../../persistence/sqlite-adapter.js')
+vi.mock('../../../persistence/adapter.js', () => {
   return {
-    DatabaseWrapper: vi.fn().mockImplementation(() => ({
-      open: vi.fn(),
-      close: vi.fn(),
-      get db() {
-        return _injectedDb
-      },
-      get isOpen() {
-        return true
-      },
-      get adapter() {
-        return new Adapter(_injectedDb)
-      },
-    })),
+    createDatabaseAdapter: () => _injectedAdapter!,
+  }
+})
+
+vi.mock('../../../persistence/schema.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../../persistence/schema.js')>()
+  return {
+    ...original,
+    initSchema: vi.fn().mockImplementation(async (adapter: DatabaseAdapter) => {
+      // Call real initSchema on the injected adapter to set up tables
+      return original.initSchema(adapter)
+    }),
   }
 })
 
@@ -65,10 +63,11 @@ vi.mock('../../../utils/logger.js', () => ({
 // Test setup helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): BetterSqlite3Database {
+async function createTestDb(): Promise<{ db: ReturnType<typeof Database>; adapter: DatabaseAdapter }> {
   const db = new Database(':memory:')
-  runMigrations(db)
-  return db
+  const adapter = createAdapterFromSyncDb(db)
+  await initSchema(adapter)
+  return { db, adapter }
 }
 
 // ---------------------------------------------------------------------------
@@ -76,12 +75,15 @@ function createTestDb(): BetterSqlite3Database {
 // ---------------------------------------------------------------------------
 
 describe('AC5/AC6: status --output-format json includes pipeline metrics v2', () => {
-  let db: BetterSqlite3Database
+  let db: ReturnType<typeof Database>
+  let adapter: DatabaseAdapter
   let stdoutChunks: string[]
 
-  beforeEach(() => {
-    db = createTestDb()
-    _injectedDb = db
+  beforeEach(async () => {
+    const testDb = await createTestDb()
+    db = testDb.db
+    adapter = testDb.adapter
+    _injectedAdapter = adapter
 
     stdoutChunks = []
     vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
@@ -94,10 +96,10 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
   })
 
   it('JSON output includes story_metrics array and pipeline_metrics object', async () => {
-    const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
 
     // Write story metrics for two stories
-    await writeStoryMetrics(new SqliteDatabaseAdapter(db),{
+    await writeStoryMetrics(adapter, {
       run_id: run.id,
       story_key: '24-1',
       result: 'success',
@@ -110,7 +112,7 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
       dispatches: 2,
     })
 
-    await writeStoryMetrics(new SqliteDatabaseAdapter(db),{
+    await writeStoryMetrics(adapter, {
       run_id: run.id,
       story_key: '24-2',
       result: 'escalated',
@@ -121,13 +123,6 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
       cost_usd: 0.02,
       review_cycles: 2,
       dispatches: 3,
-    })
-
-    // Mock the queries that status.ts does directly on db
-    const origPrepare = db.prepare.bind(db)
-    vi.spyOn(db, 'prepare').mockImplementation((sql: string) => {
-      // Allow real queries to pass through
-      return origPrepare(sql)
     })
 
     // Manually insert the run into pipeline_runs with created_at/updated_at
@@ -203,8 +198,8 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
   })
 
   it('pipeline_metrics.cost_usd is the last key in the object (AC6)', async () => {
-    const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
-    await writeStoryMetrics(new SqliteDatabaseAdapter(db),{
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await writeStoryMetrics(adapter, {
       run_id: run.id,
       story_key: '1-1',
       result: 'success',
@@ -230,10 +225,10 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
   })
 
   it('stories_per_hour is computed for completed stories', async () => {
-    const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
 
     // One success story with 1-hour wall clock
-    await writeStoryMetrics(new SqliteDatabaseAdapter(db),{
+    await writeStoryMetrics(adapter, {
       run_id: run.id,
       story_key: '3-1',
       result: 'success',
@@ -267,7 +262,7 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
   })
 
   it('story_metrics is empty when no story metrics exist', async () => {
-    const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
 
     await runStatusAction({
       outputFormat: 'json',

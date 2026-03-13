@@ -10,7 +10,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
-import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
@@ -25,7 +24,8 @@ import type { PipelineHealthOutput } from '../health.js'
 
 async function createTestDb(): Promise<DatabaseAdapter> {
   const adapter = await createWasmSqliteAdapter()
-  await initSchema(adapter)
+  const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
+  await realInitSchema(adapter)
   return adapter
 }
 
@@ -63,20 +63,17 @@ async function createTestRun(
 // Module mocks (same pattern as auto-health.test.ts)
 // ---------------------------------------------------------------------------
 
-vi.mock('../../../persistence/database.js', () => {
+vi.mock('../../../persistence/adapter.js', () => {
   let mockAdapter: DatabaseAdapter | null = null
   return {
-    DatabaseWrapper: class {
-      open() { /* noop */ }
-      close() { /* noop */ }
-      get adapter() {
-        return mockAdapter!
-      }
-      get isOpen() { return true }
-    },
+    createDatabaseAdapter: () => mockAdapter!,
     __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
   }
 })
+
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
+}))
 
 vi.mock('../../../utils/git-root.js', () => ({
   resolveMainRepoRoot: vi.fn().mockResolvedValue('/tmp/test-project'),
@@ -99,7 +96,7 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/database.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
     dbModule.__setMockAdapter(adapter)
   })
 
@@ -435,7 +432,7 @@ describe('getAutoHealthData — AC7: health detection across all phases', () => 
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/database.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
     dbModule.__setMockAdapter(adapter)
   })
 
@@ -807,7 +804,7 @@ describe('getAutoHealthData — child liveness prevents false STALLED', () => {
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/database.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
     dbModule.__setMockAdapter(adapter)
   })
 

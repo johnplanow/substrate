@@ -2,7 +2,7 @@
  * DatabaseAdapter — unified async interface for all persistence backends.
  *
  * Implementations:
- *  - SqliteDatabaseAdapter: wraps better-sqlite3 (synchronous ops wrapped in promises)
+ *  - LegacySqliteAdapter (inline): wraps better-sqlite3 (synchronous ops wrapped in promises)
  *  - DoltDatabaseAdapter: delegates to DoltClient (async mysql2 or CLI)
  *  - InMemoryDatabaseAdapter: in-memory Maps (for CI / unit tests)
  *
@@ -15,7 +15,6 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { createLogger } from '../utils/logger.js'
-import { SqliteDatabaseAdapter } from './sqlite-adapter.js'
 import { DoltDatabaseAdapter } from './dolt-adapter.js'
 import { InMemoryDatabaseAdapter } from './memory-adapter.js'
 import { DoltClient } from '../modules/state/dolt-client.js'
@@ -100,6 +99,38 @@ function isDoltAvailable(basePath: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// LegacySqliteAdapter — inline adapter for the 'sqlite' backend path.
+// Replaces the deleted SqliteDatabaseAdapter import.
+// ---------------------------------------------------------------------------
+
+/** Inline legacy adapter for the sqlite backend path. */
+class LegacySqliteAdapter implements DatabaseAdapter {
+  private readonly _db: any
+  constructor(db: any) { this._db = db }
+  async query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
+    const stmt = this._db.prepare(sql)
+    if (stmt.reader) {
+      return (params && params.length > 0 ? stmt.all(...params) : stmt.all()) as T[]
+    }
+    if (params && params.length > 0) { stmt.run(...params) } else { stmt.run() }
+    return []
+  }
+  async exec(sql: string): Promise<void> { this._db.exec(sql) }
+  async transaction<T>(fn: (adapter: DatabaseAdapter) => Promise<T>): Promise<T> {
+    this._db.exec('BEGIN')
+    try {
+      const result = await fn(this)
+      this._db.exec('COMMIT')
+      return result
+    } catch (err) {
+      try { this._db.exec('ROLLBACK') } catch { /* already rolled back */ }
+      throw err
+    }
+  }
+  async close(): Promise<void> { this._db.close() }
+}
+
+// ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
@@ -116,9 +147,9 @@ export function createDatabaseAdapter(config: DatabaseAdapterConfig = { backend:
   if (backend === 'sqlite') {
     // Dynamically require better-sqlite3 to avoid import-time side effects
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const BetterSqlite3 = require('better-sqlite3') as typeof import('better-sqlite3').default
+    const BetterSqlite3 = require('better-sqlite3')
     const db = new BetterSqlite3(config.databasePath ?? ':memory:')
-    return new SqliteDatabaseAdapter(db)
+    return new LegacySqliteAdapter(db)
   }
 
   if (backend === 'dolt') {

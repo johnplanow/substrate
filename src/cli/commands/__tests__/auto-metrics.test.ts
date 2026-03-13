@@ -8,18 +8,32 @@
  *   - JSON output format
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
-import { runMigrations } from '../../../persistence/migrations/index.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
+import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { writeRunMetrics, writeStoryMetrics } from '../../../persistence/queries/metrics.js'
 import { runMetricsAction } from '../metrics.js'
 import type { MetricsOptions } from '../metrics.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+
+// Mock the DB adapter factory so production code reuses the test's adapter
+vi.mock('../../../persistence/adapter.js', () => {
+  let mockAdapter: DatabaseAdapter | null = null
+  return {
+    createDatabaseAdapter: () => mockAdapter!,
+    __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
+  }
+})
+
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
+}))
+
+// Import the real initSchema for test setup (the mock is only for production code paths)
+const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,27 +69,28 @@ function captureStderr(): { getOutput: () => string; restore: () => void } {
   }
 }
 
-/** Create a temp project with an initialized substrate DB */
-function createTempProject(): { projectRoot: string; db: BetterSqlite3Database } {
+/** Create a temp project with an initialized substrate DB adapter */
+async function createTempProject(): Promise<{ projectRoot: string; adapter: DatabaseAdapter }> {
   const projectRoot = join(tmpdir(), `substrate-test-${randomUUID()}`)
   const dbDir = join(projectRoot, '.substrate')
   mkdirSync(dbDir, { recursive: true })
 
-  const dbPath = join(dbDir, 'substrate.db')
-  const db = new Database(dbPath)
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  runMigrations(db)
-
   // Create placeholder file so existsSync(dbPath) passes in metrics.ts.
-  // The WASM mock uses in-memory storage with path caching, not real files.
+  const dbPath = join(dbDir, 'substrate.db')
   writeFileSync(dbPath, '')
 
-  return { projectRoot, db }
+  const adapter = await createWasmSqliteAdapter()
+  await realInitSchema(adapter)
+
+  // Inject mock adapter so production code reuses the same DB
+  const adapterModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+  adapterModule.__setMockAdapter(adapter)
+
+  return { projectRoot, adapter }
 }
 
-async function seedRun(db: BetterSqlite3Database, runId: string, overrides: Record<string, unknown> = {}): Promise<void> {
-  await writeRunMetrics(new SqliteDatabaseAdapter(db), {
+async function seedRun(adapter: DatabaseAdapter, runId: string, overrides: Record<string, unknown> = {}): Promise<void> {
+  await writeRunMetrics(adapter, {
     run_id: runId,
     methodology: 'bmad',
     status: 'completed',
@@ -100,25 +115,24 @@ async function seedRun(db: BetterSqlite3Database, runId: string, overrides: Reco
 describe('runMetricsAction — AC3: list mode', () => {
   let stdoutCapture: ReturnType<typeof captureStdout>
   let projectRoot: string
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
-  beforeEach(() => {
+  beforeEach(async () => {
     stdoutCapture = captureStdout()
-    const project = createTempProject()
+    const project = await createTempProject()
     projectRoot = project.projectRoot
-    db = project.db
+    adapter = project.adapter
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     stdoutCapture.restore()
-    db.close()
+    await adapter.close()
     if (existsSync(projectRoot)) rmSync(projectRoot, { recursive: true, force: true })
   })
 
   it('lists recent runs in human format', async () => {
-    await seedRun(db,'run-001')
-    await seedRun(db,'run-002', { started_at: '2026-01-16T00:00:00.000Z' })
-    db.close()
+    await seedRun(adapter, 'run-001')
+    await seedRun(adapter, 'run-002', { started_at: '2026-01-16T00:00:00.000Z' })
 
     const exitCode = await runMetricsAction({ outputFormat: 'human', projectRoot })
     expect(exitCode).toBe(0)
@@ -130,8 +144,7 @@ describe('runMetricsAction — AC3: list mode', () => {
   })
 
   it('lists runs in JSON format', async () => {
-    await seedRun(db,'run-001')
-    db.close()
+    await seedRun(adapter, 'run-001')
 
     const exitCode = await runMetricsAction({ outputFormat: 'json', projectRoot })
     expect(exitCode).toBe(0)
@@ -144,10 +157,9 @@ describe('runMetricsAction — AC3: list mode', () => {
   })
 
   it('respects --limit option', async () => {
-    await seedRun(db,'run-001')
-    await seedRun(db,'run-002', { started_at: '2026-01-16T00:00:00.000Z' })
-    await seedRun(db,'run-003', { started_at: '2026-01-17T00:00:00.000Z' })
-    db.close()
+    await seedRun(adapter, 'run-001')
+    await seedRun(adapter, 'run-002', { started_at: '2026-01-16T00:00:00.000Z' })
+    await seedRun(adapter, 'run-003', { started_at: '2026-01-17T00:00:00.000Z' })
 
     const exitCode = await runMetricsAction({ outputFormat: 'json', projectRoot, limit: 2 })
     expect(exitCode).toBe(0)
@@ -157,8 +169,6 @@ describe('runMetricsAction — AC3: list mode', () => {
   })
 
   it('shows empty message when no runs exist', async () => {
-    db.close()
-
     const exitCode = await runMetricsAction({ outputFormat: 'human', projectRoot })
     expect(exitCode).toBe(0)
 
@@ -174,27 +184,26 @@ describe('runMetricsAction — AC3: compare mode', () => {
   let stdoutCapture: ReturnType<typeof captureStdout>
   let stderrCapture: ReturnType<typeof captureStderr>
   let projectRoot: string
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
-  beforeEach(() => {
+  beforeEach(async () => {
     stdoutCapture = captureStdout()
     stderrCapture = captureStderr()
-    const project = createTempProject()
+    const project = await createTempProject()
     projectRoot = project.projectRoot
-    db = project.db
+    adapter = project.adapter
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     stdoutCapture.restore()
     stderrCapture.restore()
-    db.close()
+    await adapter.close()
     if (existsSync(projectRoot)) rmSync(projectRoot, { recursive: true, force: true })
   })
 
   it('compares two runs in human format', async () => {
-    await seedRun(db,'run-001', { total_input_tokens: 5000, total_cost_usd: 0.05 })
-    await seedRun(db,'run-002', { total_input_tokens: 8000, total_cost_usd: 0.08 })
-    db.close()
+    await seedRun(adapter, 'run-001', { total_input_tokens: 5000, total_cost_usd: 0.05 })
+    await seedRun(adapter, 'run-002', { total_input_tokens: 8000, total_cost_usd: 0.08 })
 
     const exitCode = await runMetricsAction({
       outputFormat: 'human',
@@ -209,9 +218,8 @@ describe('runMetricsAction — AC3: compare mode', () => {
   })
 
   it('compares two runs in JSON format', async () => {
-    await seedRun(db,'run-001', { total_input_tokens: 5000, wall_clock_seconds: 600 })
-    await seedRun(db,'run-002', { total_input_tokens: 7500, wall_clock_seconds: 900 })
-    db.close()
+    await seedRun(adapter, 'run-001', { total_input_tokens: 5000, wall_clock_seconds: 600 })
+    await seedRun(adapter, 'run-002', { total_input_tokens: 7500, wall_clock_seconds: 900 })
 
     const exitCode = await runMetricsAction({
       outputFormat: 'json',
@@ -227,8 +235,7 @@ describe('runMetricsAction — AC3: compare mode', () => {
   })
 
   it('returns error for missing run IDs', async () => {
-    await seedRun(db,'run-001')
-    db.close()
+    await seedRun(adapter, 'run-001')
 
     const exitCode = await runMetricsAction({
       outputFormat: 'human',
@@ -247,26 +254,25 @@ describe('runMetricsAction — AC4: tag baseline', () => {
   let stdoutCapture: ReturnType<typeof captureStdout>
   let stderrCapture: ReturnType<typeof captureStderr>
   let projectRoot: string
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
-  beforeEach(() => {
+  beforeEach(async () => {
     stdoutCapture = captureStdout()
     stderrCapture = captureStderr()
-    const project = createTempProject()
+    const project = await createTempProject()
     projectRoot = project.projectRoot
-    db = project.db
+    adapter = project.adapter
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     stdoutCapture.restore()
     stderrCapture.restore()
-    db.close()
+    await adapter.close()
     if (existsSync(projectRoot)) rmSync(projectRoot, { recursive: true, force: true })
   })
 
   it('tags a run as baseline', async () => {
-    await seedRun(db,'run-001')
-    db.close()
+    await seedRun(adapter, 'run-001')
 
     const exitCode = await runMetricsAction({
       outputFormat: 'human',
@@ -278,8 +284,7 @@ describe('runMetricsAction — AC4: tag baseline', () => {
   })
 
   it('tags baseline in JSON format', async () => {
-    await seedRun(db,'run-001')
-    db.close()
+    await seedRun(adapter, 'run-001')
 
     const exitCode = await runMetricsAction({
       outputFormat: 'json',
@@ -294,8 +299,6 @@ describe('runMetricsAction — AC4: tag baseline', () => {
   })
 
   it('returns error when tagging non-existent run', async () => {
-    db.close()
-
     const exitCode = await runMetricsAction({
       outputFormat: 'human',
       projectRoot,

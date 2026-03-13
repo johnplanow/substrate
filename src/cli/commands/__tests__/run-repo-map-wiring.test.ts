@@ -65,24 +65,14 @@ const {
 // vi.mock declarations
 // ---------------------------------------------------------------------------
 
-vi.mock('../../../persistence/database.js', () => ({
-  DatabaseWrapper: vi.fn().mockImplementation(() => ({
-    open: vi.fn(),
-    close: vi.fn(),
-    get db() {
-      return {
-        prepare: vi.fn().mockReturnValue({
-          all: vi.fn().mockReturnValue([]),
-          get: vi.fn().mockReturnValue(undefined),
-        }),
-      }
-    },
-    get isOpen() { return true },
-  })),
+const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+
+vi.mock('../../../persistence/adapter.js', () => ({
+  createDatabaseAdapter: vi.fn(() => mockAdapter),
 }))
 
-vi.mock('../../../persistence/migrations/index.js', () => ({
-  runMigrations: vi.fn(),
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../../modules/methodology-pack/pack-loader.js', () => ({

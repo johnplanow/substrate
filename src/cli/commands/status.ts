@@ -17,9 +17,11 @@ import type { Command } from 'commander'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
-import { DatabaseWrapper } from '../../persistence/database.js'
+import { createDatabaseAdapter } from '../../persistence/adapter.js'
+import { initSchema } from '../../persistence/schema.js'
 import {
   getLatestRun,
+  getPipelineRunById,
   getTokenUsageSummary,
 } from '../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../persistence/queries/decisions.js'
@@ -91,7 +93,8 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
 
-  if (!existsSync(dbPath)) {
+  const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
+  if (!existsSync(dbPath) && !existsSync(doltDir)) {
     const errorMsg = `Decision store not initialized. Run 'substrate init' first.`
     if (outputFormat === 'json') {
       process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
@@ -101,19 +104,15 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
     return 1
   }
 
-  const dbWrapper = new DatabaseWrapper(dbPath)
+  const adapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
 
   try {
-    dbWrapper.open()
-    const db = dbWrapper.db
-    const adapter = dbWrapper.adapter
+    await initSchema(adapter)
 
     // Query pipeline run
     let run: PipelineRun | undefined
     if (runId !== undefined && runId !== '') {
-      run = db
-        .prepare('SELECT * FROM pipeline_runs WHERE id = ?')
-        .get(runId) as PipelineRun | undefined
+      run = await getPipelineRunById(adapter, runId)
     } else {
       run = await getLatestRun(adapter)
     }
@@ -135,21 +134,17 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
     const tokenSummary = await getTokenUsageSummary(adapter, run.id)
 
     // Count decisions and stories
-    const decisionsCount =
-      (
-        db
-          .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
-          .get(run.id) as { cnt: number } | undefined
-      )?.cnt ?? 0
+    const decisionsCountRows = await adapter.query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`,
+      [run.id],
+    )
+    const decisionsCount = decisionsCountRows[0]?.cnt ?? 0
 
-    const storiesCount =
-      (
-        db
-          .prepare(
-            `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
-          )
-          .get(run.id) as { cnt: number } | undefined
-      )?.cnt ?? 0
+    const storiesCountRows = await adapter.query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
+      [run.id],
+    )
+    const storiesCount = storiesCountRows[0]?.cnt ?? 0
 
     // Task 2: Query StateStore for story states (AC1, AC2)
     let storeStories: StoryRecord[] = []
@@ -319,7 +314,7 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
     return 1
   } finally {
     try {
-      dbWrapper.close()
+      await adapter.close()
     } catch {
       // ignore
     }

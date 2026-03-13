@@ -19,32 +19,16 @@ import { Command } from 'commander'
 // Mocks — declared before imports
 // ---------------------------------------------------------------------------
 
-// Mock DatabaseWrapper
-const mockOpen = vi.fn()
-const mockClose = vi.fn()
-let mockDb: Record<string, unknown> = {}
+// Mock adapter
 
 const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
 
-vi.mock('../../../persistence/database.js', () => ({
-  DatabaseWrapper: vi.fn().mockImplementation(() => ({
-    open: mockOpen,
-    close: mockClose,
-    get db() {
-      return mockDb
-    },
-    get isOpen() {
-      return true
-    },
-    get adapter() {
-      return mockAdapter
-    },
-  })),
+vi.mock('../../../persistence/adapter.js', () => ({
+  createDatabaseAdapter: vi.fn(() => mockAdapter),
 }))
 
-// Mock runMigrations
-vi.mock('../../../persistence/migrations/index.js', () => ({
-  runMigrations: vi.fn(),
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Mock PackLoader
@@ -114,13 +98,21 @@ const mockGetLatestRun = vi.fn()
 const mockAddTokenUsage = vi.fn()
 const mockGetTokenUsageSummary = vi.fn()
 
+const mockGetPipelineRunById = vi.fn()
+
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   createPipelineRun: (...args: unknown[]) => mockCreatePipelineRun(...args),
   getLatestRun: (...args: unknown[]) => mockGetLatestRun(...args),
+  getPipelineRunById: (...args: unknown[]) => mockGetPipelineRunById(...args),
   addTokenUsage: (...args: unknown[]) => mockAddTokenUsage(...args),
   getTokenUsageSummary: (...args: unknown[]) => mockGetTokenUsageSummary(...args),
   getRunningPipelineRuns: vi.fn().mockResolvedValue([]),
   updatePipelineRun: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../../persistence/queries/metrics.js', () => ({
+  getStoryMetricsForRun: vi.fn().mockResolvedValue([]),
+  writeStoryMetrics: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../health.js', () => ({
@@ -344,7 +336,8 @@ describe('runInitAction', () => {
 
     expect(exitCode).toBe(0)
     expect(mockPackLoad).toHaveBeenCalledWith('/test/project/packs/bmad')
-    expect(mockOpen).toHaveBeenCalled()
+    const { createDatabaseAdapter } = await import('../../../persistence/adapter.js')
+    expect(createDatabaseAdapter).toHaveBeenCalled()
     expect(stdoutWrite).toHaveBeenCalledWith(expect.stringContaining('initialized successfully'))
     stdoutWrite.mockRestore()
   })
@@ -686,13 +679,8 @@ describe('runRunAction', () => {
     mockOrchestratorRun.mockResolvedValue(defaultStatus)
     mockGetTokenUsageSummary.mockResolvedValue([])
     mockDiscoverPendingStoryKeys.mockReturnValue([])
-
-    // Setup mock db.prepare for story discovery
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-    })
-    mockDb = { prepare: mockPrepare }
+    // Reset adapter.query to default (returns [] — no stories from DB)
+    mockAdapter.query.mockResolvedValue([])
   })
 
   it('AC2: creates pipeline run, starts orchestrator, outputs progress', async () => {
@@ -826,13 +814,13 @@ describe('runRunAction', () => {
   })
 
   it('AC8: discovers story keys from decision store when --stories not provided', async () => {
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([
-        { description: '10-1' },
-        { description: '10-2' },
-      ]),
+    // Mock adapter.query to return story descriptions when querying requirements table
+    mockAdapter.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('requirements') && sql.includes('description')) {
+        return [{ description: '10-1' }, { description: '10-2' }]
+      }
+      return []
     })
-    mockDb = { prepare: mockPrepare }
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
@@ -851,10 +839,7 @@ describe('runRunAction', () => {
   })
 
   it('AC8: outputs message when no stories discovered', async () => {
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-    })
-    mockDb = { prepare: mockPrepare }
+    // adapter.query returns [] by default — no stories discovered
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
@@ -874,12 +859,7 @@ describe('runRunAction', () => {
   })
 
   it('AC4 (14.2): falls back to discoverPendingStoryKeys when requirements table is empty', async () => {
-    // requirements table returns nothing
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-    })
-    mockDb = { prepare: mockPrepare }
+    // adapter.query returns [] by default — requirements table empty
     // epics.md fallback returns two pending stories
     mockDiscoverPendingStoryKeys.mockReturnValue(['7-2', '7-3'])
 
@@ -1027,10 +1007,7 @@ describe('runStatusAction', () => {
   it('AC3: queries latest run and formats output (human)', async () => {
     const run = mockPipelineRun()
     mockGetLatestRun.mockResolvedValue(run)
-    const mockPrepare = vi.fn().mockReturnValue({
-      get: vi.fn().mockReturnValue(run),
-    })
-    mockDb = { prepare: mockPrepare }
+    // adapter.query returns [] by default (0 counts) — fine for this test
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
@@ -1049,10 +1026,7 @@ describe('runStatusAction', () => {
 
   it('AC3: queries specific run with --run-id', async () => {
     const run = mockPipelineRun({ id: 'specific-run-id' })
-    const mockGet = vi.fn().mockReturnValue(run)
-    mockDb = {
-      prepare: vi.fn().mockReturnValue({ get: mockGet }),
-    }
+    mockGetPipelineRunById.mockResolvedValue(run)
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
@@ -1072,12 +1046,7 @@ describe('runStatusAction', () => {
     const run = mockPipelineRun()
     mockGetLatestRun.mockResolvedValue(run)
     mockGetTokenUsageSummary.mockResolvedValue([])
-    mockDb = {
-      prepare: vi.fn().mockReturnValue({
-        get: vi.fn().mockReturnValue({ cnt: 0 }),
-        all: vi.fn().mockReturnValue([]),
-      }),
-    }
+    // adapter.query returns [] by default (0 counts) — fine for this test
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
@@ -1116,9 +1085,6 @@ describe('runStatusAction', () => {
 
   it('no runs found outputs error and exits 1', async () => {
     mockGetLatestRun.mockResolvedValue(undefined)
-    mockDb = {
-      prepare: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue(undefined) }),
-    }
 
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
@@ -1137,9 +1103,6 @@ describe('runStatusAction', () => {
   it('AC5: displays token telemetry in human format', async () => {
     const run = mockPipelineRun()
     mockGetLatestRun.mockResolvedValue(run)
-    mockDb = {
-      prepare: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue(run) }),
-    }
     mockGetTokenUsageSummary.mockResolvedValue([
       {
         phase: 'implementation',
@@ -1176,9 +1139,6 @@ describe('runStatusAction', () => {
       token_usage_json: JSON.stringify(storyState),
     })
     mockGetLatestRun.mockResolvedValue(run)
-    mockDb = {
-      prepare: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue(run) }),
-    }
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 

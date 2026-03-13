@@ -26,9 +26,11 @@ import type { Command } from 'commander'
 import { join, isAbsolute } from 'node:path'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
-import { DatabaseWrapper } from '../../persistence/database.js'
+import { createDatabaseAdapter } from '../../persistence/adapter.js'
+import { initSchema } from '../../persistence/schema.js'
 import {
   getLatestRun,
+  getPipelineRunById,
   getDecisionsByPhaseForRun,
   getDecisionsByCategory,
   listRequirements,
@@ -85,14 +87,15 @@ export interface ExportResult {
 export async function runExportAction(options: ExportOptions): Promise<number> {
   const { runId, outputDir, projectRoot, outputFormat } = options
 
-  let dbWrapper: DatabaseWrapper | undefined
+  let adapter: import('../../persistence/adapter.js').DatabaseAdapter | undefined
 
   try {
     // Resolve the database path (inside try/catch so errors are handled uniformly)
     const dbRoot = await resolveMainRepoRoot(projectRoot)
     const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+    const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
 
-    if (!existsSync(dbPath)) {
+    if (!existsSync(dbPath) && !existsSync(doltDir)) {
       const errorMsg = `Decision store not initialized. Run 'substrate init' first.`
       if (outputFormat === 'json') {
         process.stdout.write(JSON.stringify({ error: errorMsg }) + '\n')
@@ -102,17 +105,13 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
       return 1
     }
 
-    dbWrapper = new DatabaseWrapper(dbPath)
-    dbWrapper.open()
-    const db = dbWrapper.db
-    const adapter = dbWrapper.adapter
+    adapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
+    await initSchema(adapter)
 
     // Find the pipeline run to export
     let run: PipelineRun | undefined
     if (runId !== undefined && runId !== '') {
-      run = db
-        .prepare('SELECT * FROM pipeline_runs WHERE id = ?')
-        .get(runId) as PipelineRun | undefined
+      run = await getPipelineRunById(adapter, runId)
     } else {
       run = await getLatestRun(adapter)
     }
@@ -314,9 +313,9 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
     logger.error({ err }, 'export action failed')
     return 1
   } finally {
-    if (dbWrapper !== undefined) {
+    if (adapter !== undefined) {
       try {
-        dbWrapper.close()
+        await adapter.close()
       } catch {
         // ignore
       }

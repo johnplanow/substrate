@@ -18,29 +18,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Mocks — must be declared before imports that reference mocked modules
 // ---------------------------------------------------------------------------
 
-// Mock DatabaseWrapper
-const mockOpen = vi.fn()
-const mockClose = vi.fn()
-let mockDb: Record<string, unknown> = { fake: true }
-
+// Mock adapter
 const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
 
-vi.mock('../../../persistence/database.js', () => ({
-  DatabaseWrapper: vi.fn().mockImplementation(() => ({
-    open: mockOpen,
-    close: mockClose,
-    get db() {
-      return mockDb
-    },
-    get adapter() {
-      return mockAdapter
-    },
-  })),
+vi.mock('../../../persistence/adapter.js', () => ({
+  createDatabaseAdapter: vi.fn(() => mockAdapter),
 }))
 
-// Mock migrations
-vi.mock('../../../persistence/migrations/index.js', () => ({
-  runMigrations: vi.fn(),
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Mock cost queries
@@ -93,7 +79,6 @@ import {
 } from '../cost.js'
 import type { CostActionOptions } from '../cost.js'
 import type { SessionCostSummary, CostEntry, AgentCostBreakdown } from '../../../modules/cost-tracker/types.js'
-import { DatabaseWrapper } from '../../../persistence/database.js'
 
 // ---------------------------------------------------------------------------
 // Test data factories
@@ -242,19 +227,6 @@ beforeEach(() => {
   mockGetSessionCostSummaryFiltered.mockResolvedValue(createMockSummary())
   mockGetAllCostEntriesFiltered.mockResolvedValue(createMockEntries())
   mockGetPlanningCostTotal.mockResolvedValue(0.05)
-  // Reset db mock
-  mockDb = { fake: true }
-  // Re-apply DatabaseWrapper mock implementation in case vi.restoreAllMocks() cleared it
-  vi.mocked(DatabaseWrapper).mockImplementation(() => ({
-    open: mockOpen,
-    close: mockClose,
-    get db() {
-      return mockDb
-    },
-    get adapter() {
-      return mockAdapter
-    },
-  }) as unknown as InstanceType<typeof DatabaseWrapper>)
 })
 
 afterEach(() => {
@@ -265,8 +237,6 @@ afterEach(() => {
   mockGetPlanningCostTotal.mockReset()
   mockGetLatestSessionId.mockReset()
   mockExistsSync.mockReset()
-  mockOpen.mockReset()
-  mockClose.mockReset()
 })
 
 // ---------------------------------------------------------------------------
@@ -698,7 +668,8 @@ describe('AC8: error handling', () => {
   })
 
   it('handles database open error gracefully', async () => {
-    mockOpen.mockImplementation(() => {
+    const { createDatabaseAdapter } = await import('../../../persistence/adapter.js')
+    vi.mocked(createDatabaseAdapter).mockImplementationOnce(() => {
       throw new Error('cannot open database')
     })
 
@@ -721,14 +692,14 @@ describe('AC8: error handling', () => {
     expect(errOutput).toContain('SQL error')
   })
 
-  it('closes database wrapper in finally block even on error', async () => {
+  it('closes adapter in finally block even on error', async () => {
     mockGetSessionCostSummaryFiltered.mockImplementation(() => {
       throw new Error('some error')
     })
 
     await runCostAction(defaultOptions())
 
-    expect(mockClose).toHaveBeenCalledOnce()
+    expect(mockAdapter.close).toHaveBeenCalled()
   })
 })
 

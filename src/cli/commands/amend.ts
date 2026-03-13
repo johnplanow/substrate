@@ -22,8 +22,8 @@ import { readFile, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createEventBus } from '../../core/event-bus.js'
-import { DatabaseWrapper } from '../../persistence/database.js'
-import { runMigrations } from '../../persistence/migrations/index.js'
+import { createDatabaseAdapter } from '../../persistence/adapter.js'
+import { initSchema } from '../../persistence/schema.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
@@ -168,18 +168,16 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
   const dbPath = join(dbDir, 'substrate.db')
   const packPath = join(projectRoot, 'packs', packName)
 
-  if (!existsSync(dbPath)) {
+  const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
+  if (!existsSync(dbPath) && !existsSync(doltDir)) {
     process.stderr.write(`Error: Decision store not initialized. Run 'substrate init' first.\n`)
     return 1
   }
 
-  const dbWrapper = new DatabaseWrapper(dbPath)
+  const adapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
 
   try {
-    dbWrapper.open()
-    runMigrations(dbWrapper.db)
-    const db = dbWrapper.db
-    const adapter = dbWrapper.adapter
+    await initSchema(adapter)
 
     // AC4: Resolve parentRunId: use --run-id or getLatestCompletedRun()
     let parentRunId: string
@@ -219,7 +217,7 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
     }
 
     // AC6: createAmendmentContextHandler() before the phase loop
-    const handler = createAmendmentContextHandler(db, parentRunId, { framingConcept: concept })
+    const handler = await createAmendmentContextHandler(adapter, parentRunId, { framingConcept: concept })
 
     // Load methodology pack and assemble PhaseDeps (matching runFullPipeline pattern)
     const packLoader = createPackLoader()
@@ -233,12 +231,12 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
     }
 
     const eventBus = createEventBus()
-    const contextCompiler = createContextCompiler({ db })
+    const contextCompiler = createContextCompiler({ db: adapter })
     if (!injectedRegistry) {
       throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
     const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
-    const phaseDeps = { db, pack, contextCompiler, dispatcher }
+    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher }
 
     // Determine phases to run
     const phaseOrder: PhaseName[] = ['analysis', 'planning', 'solutioning', 'implementation']
@@ -348,10 +346,11 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
       if (stopAfter !== undefined && currentPhase === stopAfter) {
         const gate = createStopAfterGate(stopAfter)
         if (gate.shouldHalt()) {
-          const decisionsCount =
-            (db
-              .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
-              .get(amendmentRunId) as { cnt: number } | undefined)?.cnt ?? 0
+          const decisionsCountRows = await adapter.query<{ cnt: number }>(
+            `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`,
+            [amendmentRunId],
+          )
+          const decisionsCount = decisionsCountRows[0]?.cnt ?? 0
 
           await updatePipelineRun(adapter, amendmentRunId, { status: 'stopped' })
 
@@ -413,7 +412,7 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
     return 1
   } finally {
     try {
-      dbWrapper.close()
+      await adapter.close()
     } catch {
       // ignore
     }

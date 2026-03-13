@@ -18,11 +18,11 @@ import { join } from 'path'
 import { mkdirSync, existsSync } from 'fs'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { IngestionServer } from '../../modules/telemetry/ingestion-server.js'
-import { TelemetryPersistence } from '../../modules/telemetry/index.js'
+import { AdapterTelemetryPersistence } from '../../modules/telemetry/adapter-persistence.js'
 import { createConfigSystem } from '../../modules/config/config-system-impl.js'
 import { createEventBus } from '../../core/event-bus.js'
-import { DatabaseWrapper } from '../../persistence/database.js'
-import { runMigrations } from '../../persistence/migrations/index.js'
+import { createDatabaseAdapter } from '../../persistence/adapter.js'
+import { initSchema } from '../../persistence/schema.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
@@ -88,7 +88,8 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
 
-  if (!existsSync(dbPath)) {
+  const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
+  if (!existsSync(dbPath) && !existsSync(doltDir)) {
     const errorMsg = `Decision store not initialized. Run 'substrate init' first.`
     if (outputFormat === 'json') {
       process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
@@ -98,12 +99,10 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
     return 1
   }
 
-  const dbWrapper = new DatabaseWrapper(dbPath)
+  const adapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
 
   try {
-    dbWrapper.open()
-    const db = dbWrapper.db
-    const adapter = dbWrapper.adapter
+    await initSchema(adapter)
 
     // Load methodology pack
     const packLoader = createPackLoader()
@@ -124,9 +123,8 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
     // Load pipeline run
     let run: PipelineRun | undefined
     if (specifiedRunId !== undefined && specifiedRunId !== '') {
-      run = db
-        .prepare('SELECT * FROM pipeline_runs WHERE id = ?')
-        .get(specifiedRunId) as PipelineRun | undefined
+      const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [specifiedRunId])
+      run = rows[0]
     } else {
       run = await getLatestRun(adapter)
     }
@@ -207,7 +205,7 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
     return 1
   } finally {
     try {
-      dbWrapper.close()
+      await adapter.close()
     } catch {
       // ignore
     }
@@ -253,13 +251,10 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     mkdirSync(dbDir, { recursive: true })
   }
 
-  const dbWrapper = new DatabaseWrapper(dbPath)
+  const adapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
 
   try {
-    dbWrapper.open()
-    runMigrations(dbWrapper.db)
-    const db = dbWrapper.db
-    const adapter = dbWrapper.adapter
+    await initSchema(adapter)
 
     const packLoader = createPackLoader()
     let pack
@@ -277,12 +272,12 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     }
 
     const eventBus = createEventBus()
-    const contextCompiler = createContextCompiler({ db })
+    const contextCompiler = createContextCompiler({ db: adapter })
     if (!injectedRegistry) {
       throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
     const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
-    const phaseDeps = { db, pack, contextCompiler, dispatcher }
+    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher }
 
     const phaseOrchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
@@ -400,11 +395,11 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           ? new IngestionServer({ port: telemetryPort })
           : undefined
         const telemetryPersistence = telemetryEnabled
-          ? new TelemetryPersistence(db)
+          ? new AdapterTelemetryPersistence(adapter)
           : undefined
 
         const orchestrator = createImplementationOrchestrator({
-          db,
+          db: adapter,
           pack,
           contextCompiler,
           dispatcher,
@@ -441,7 +436,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
         })
 
         // Resolve story keys via unified fallback chain (scoped to this run)
-        const storyKeys = resolveStoryKeys(db, projectRoot, {
+        const storyKeys = resolveStoryKeys(adapter, projectRoot, {
           pipelineRunId: runId,
         })
 
@@ -463,10 +458,8 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
         const gate = createStopAfterGate(stopAfter)
         if (gate.shouldHalt()) {
           // Count decisions for summary
-          const decisionsCount =
-            (db
-              .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
-              .get(runId) as { cnt: number } | undefined)?.cnt ?? 0
+          const countRows = await adapter.query<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`, [runId])
+          const decisionsCount = countRows[0]?.cnt ?? 0
 
           // Update run status to 'stopped' atomically before emitting summary (AC4)
           await updatePipelineRun(adapter, runId, { status: 'stopped' })
@@ -509,25 +502,17 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     const tokenSummary = await getTokenUsageSummary(adapter, runId)
     const durationMs = Date.now() - startedAt
 
-    const decisionsCount =
-      (
-        db
-          .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
-          .get(runId) as { cnt: number } | undefined
-      )?.cnt ?? 0
+    const decRows = await adapter.query<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`, [runId])
+    const decisionsCount = decRows[0]?.cnt ?? 0
 
-    const storiesCount =
-      (
-        db
-          .prepare(
-            `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
-          )
-          .get(runId) as { cnt: number } | undefined
-      )?.cnt ?? 0
+    const storyRows = await adapter.query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
+      [runId],
+    )
+    const storiesCount = storyRows[0]?.cnt ?? 0
 
-    const finalRun = db.prepare('SELECT * FROM pipeline_runs WHERE id = ?').get(runId) as
-      | PipelineRun
-      | undefined
+    const finalRunRows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [runId])
+    const finalRun = finalRunRows[0]
 
     if (outputFormat === 'json') {
       const statusOutput = buildPipelineStatusOutput(
@@ -563,7 +548,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     return 1
   } finally {
     try {
-      dbWrapper.close()
+      await adapter.close()
     } catch {
       // ignore
     }

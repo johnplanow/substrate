@@ -13,10 +13,9 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import BetterSqlite3 from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { runMigrations } from '../migrations/index.js'
-import { SqliteDatabaseAdapter } from '../sqlite-adapter.js'
+import Database from 'better-sqlite3'
+import { SyncDatabaseAdapter } from '../wasm-sqlite-adapter.js'
+import { initSchema } from '../schema.js'
 import {
   createDecision,
   upsertDecision,
@@ -53,10 +52,11 @@ import {
 // Setup
 // ---------------------------------------------------------------------------
 
-function openTestDb(): BetterSqlite3Database {
-  const db = new BetterSqlite3(':memory:')
+async function openTestDb() {
+  const db = new Database(':memory:')
   db.pragma('foreign_keys = ON')
-  runMigrations(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return db
 }
 
@@ -65,10 +65,10 @@ function openTestDb(): BetterSqlite3Database {
 // ---------------------------------------------------------------------------
 
 describe('AC1: Migration 007 creates all required tables', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openTestDb()
+  beforeEach(async () => {
+    db = await openTestDb()
   })
 
   const expectedTables = [
@@ -89,9 +89,9 @@ describe('AC1: Migration 007 creates all required tables', () => {
     })
   }
 
-  it('migration is idempotent (safe to run multiple times)', () => {
-    // Running migrations again should not throw
-    expect(() => runMigrations(db)).not.toThrow()
+  it('migration is idempotent (safe to run multiple times)', async () => {
+    // Running initSchema again should not throw
+    await expect(initSchema(new SyncDatabaseAdapter(db))).resolves.not.toThrow()
   })
 
   it('creates index idx_decisions_phase', () => {
@@ -156,14 +156,14 @@ describe('AC1: Migration 007 creates all required tables', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC2: Decisions table CRUD', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openTestDb()
+  beforeEach(async () => {
+    db = await openTestDb()
   })
 
   it('createDecision inserts a row with auto-generated UUID', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const decision = await createDecision(adapter, {
       phase: 'analysis',
       category: 'tech-stack',
@@ -183,7 +183,7 @@ describe('AC2: Decisions table CRUD', () => {
   })
 
   it('createDecision stores created_at timestamp', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const decision = await createDecision(adapter, {
       phase: 'planning',
       category: 'arch',
@@ -194,7 +194,7 @@ describe('AC2: Decisions table CRUD', () => {
   })
 
   it('getDecisionsByPhase returns all decisions for a phase', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'k1', value: 'v1' })
     await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'k2', value: 'v2' })
     await createDecision(adapter, { phase: 'planning', category: 'a', key: 'k3', value: 'v3' })
@@ -205,13 +205,13 @@ describe('AC2: Decisions table CRUD', () => {
   })
 
   it('getDecisionsByPhase returns empty array when no decisions for phase', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const results = await getDecisionsByPhase(adapter, 'nonexistent-phase')
     expect(results).toHaveLength(0)
   })
 
   it('getDecisionByKey returns a single decision by phase+key', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'mykey', value: 'myvalue' })
     const result = await getDecisionByKey(adapter, 'analysis', 'mykey')
     expect(result).toBeDefined()
@@ -220,13 +220,13 @@ describe('AC2: Decisions table CRUD', () => {
   })
 
   it('getDecisionByKey returns undefined for non-existent key', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getDecisionByKey(adapter, 'analysis', 'nokey')
     expect(result).toBeUndefined()
   })
 
   it('updateDecision updates value and sets updated_at', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const decision = await createDecision(adapter, {
       phase: 'analysis',
       category: 'a',
@@ -242,7 +242,7 @@ describe('AC2: Decisions table CRUD', () => {
   })
 
   it('updateDecision is a no-op when no updates provided', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const decision = await createDecision(adapter, {
       phase: 'analysis',
       category: 'a',
@@ -255,7 +255,7 @@ describe('AC2: Decisions table CRUD', () => {
   })
 
   it('generates unique UUIDs for each decision', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const d1 = await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'k1', value: 'v1' })
     const d2 = await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'k2', value: 'v2' })
     expect(d1.id).not.toBe(d2.id)
@@ -267,14 +267,14 @@ describe('AC2: Decisions table CRUD', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC3: Requirements table CRUD', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openTestDb()
+  beforeEach(async () => {
+    db = await openTestDb()
   })
 
   it('createRequirement inserts with status=active', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const req = await createRequirement(adapter, {
       source: 'user-interview',
       type: 'functional',
@@ -289,7 +289,7 @@ describe('AC3: Requirements table CRUD', () => {
   })
 
   it('listRequirements returns all requirements without filter', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await createRequirement(adapter, {
       source: 'spec',
       type: 'functional',
@@ -308,7 +308,7 @@ describe('AC3: Requirements table CRUD', () => {
   })
 
   it('listRequirements filters by type', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await createRequirement(adapter, {
       source: 's',
       type: 'functional',
@@ -328,7 +328,7 @@ describe('AC3: Requirements table CRUD', () => {
   })
 
   it('listRequirements filters by priority', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await createRequirement(adapter, {
       source: 's',
       type: 'functional',
@@ -348,7 +348,7 @@ describe('AC3: Requirements table CRUD', () => {
   })
 
   it('listRequirements filters by status', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const req = await createRequirement(adapter, {
       source: 's',
       type: 'functional',
@@ -365,7 +365,7 @@ describe('AC3: Requirements table CRUD', () => {
   })
 
   it('updateRequirementStatus transitions status', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const req = await createRequirement(adapter, {
       source: 's',
       type: 'functional',
@@ -386,14 +386,14 @@ describe('AC3: Requirements table CRUD', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC4: Constraints table CRUD', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openTestDb()
+  beforeEach(async () => {
+    db = await openTestDb()
   })
 
   it('createConstraint inserts a new row', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const constraint = await createConstraint(adapter, {
       category: 'security',
       description: 'All data must be encrypted at rest',
@@ -407,7 +407,7 @@ describe('AC4: Constraints table CRUD', () => {
   })
 
   it('listConstraints returns all constraints without filter', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await createConstraint(adapter, { category: 'security', description: 'Encryption', source: 's' })
     await createConstraint(adapter, { category: 'performance', description: 'Latency limit', source: 's' })
 
@@ -416,7 +416,7 @@ describe('AC4: Constraints table CRUD', () => {
   })
 
   it('listConstraints filters by category', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await createConstraint(adapter, { category: 'security', description: 'Enc', source: 's' })
     await createConstraint(adapter, { category: 'performance', description: 'Lat', source: 's' })
 
@@ -426,7 +426,7 @@ describe('AC4: Constraints table CRUD', () => {
   })
 
   it('listConstraints returns empty array when no constraints match filter', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const results = await listConstraints(adapter, { category: 'nonexistent' })
     expect(results).toHaveLength(0)
   })
@@ -437,14 +437,14 @@ describe('AC4: Constraints table CRUD', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC5: Artifacts table CRUD', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openTestDb()
+  beforeEach(async () => {
+    db = await openTestDb()
   })
 
   it('registerArtifact inserts a new row', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const artifact = await registerArtifact(adapter, {
       phase: 'analysis',
       type: 'requirements-doc',
@@ -461,7 +461,7 @@ describe('AC5: Artifacts table CRUD', () => {
   })
 
   it('getArtifactsByPhase returns all artifacts for a phase', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await registerArtifact(adapter, { phase: 'analysis', type: 'doc1', path: '/a/1' })
     await registerArtifact(adapter, { phase: 'analysis', type: 'doc2', path: '/a/2' })
     await registerArtifact(adapter, { phase: 'planning', type: 'doc3', path: '/p/3' })
@@ -472,13 +472,13 @@ describe('AC5: Artifacts table CRUD', () => {
   })
 
   it('getArtifactsByPhase returns empty array for unknown phase', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const results = await getArtifactsByPhase(adapter, 'nonexistent')
     expect(results).toHaveLength(0)
   })
 
   it('getArtifactByType returns the latest artifact of that type', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     // Insert two artifacts of the same type; the second (later) should be returned
     await registerArtifact(adapter, {
       phase: 'analysis',
@@ -497,7 +497,7 @@ describe('AC5: Artifacts table CRUD', () => {
   })
 
   it('getArtifactByType returns undefined for non-existent type', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getArtifactByType(adapter, 'analysis', 'no-such-type')
     expect(result).toBeUndefined()
   })
@@ -508,14 +508,14 @@ describe('AC5: Artifacts table CRUD', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC6: Pipeline runs table CRUD', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openTestDb()
+  beforeEach(async () => {
+    db = await openTestDb()
   })
 
   it('createPipelineRun inserts with status=running', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const run = await createPipelineRun(adapter, {
       methodology: 'agile',
       start_phase: 'analysis',
@@ -531,7 +531,7 @@ describe('AC6: Pipeline runs table CRUD', () => {
   })
 
   it('updatePipelineRun updates phase and status', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const run = await createPipelineRun(adapter, { methodology: 'agile' })
     await updatePipelineRun(adapter, run.id, { current_phase: 'planning', status: 'paused' })
 
@@ -541,7 +541,7 @@ describe('AC6: Pipeline runs table CRUD', () => {
   })
 
   it('updatePipelineRun updates token_usage_json', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const run = await createPipelineRun(adapter, { methodology: 'waterfall' })
     const usageJson = JSON.stringify({ total: 1000 })
     await updatePipelineRun(adapter, run.id, { token_usage_json: usageJson })
@@ -551,13 +551,13 @@ describe('AC6: Pipeline runs table CRUD', () => {
   })
 
   it('updatePipelineRun is a no-op when no updates provided', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const run = await createPipelineRun(adapter, { methodology: 'agile' })
     await expect(updatePipelineRun(adapter, run.id, {})).resolves.not.toThrow()
   })
 
   it('getLatestRun returns the most recent pipeline run', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await createPipelineRun(adapter, { methodology: 'agile' })
     const latest = await createPipelineRun(adapter, { methodology: 'kanban' })
 
@@ -569,13 +569,13 @@ describe('AC6: Pipeline runs table CRUD', () => {
   })
 
   it('getLatestRun returns undefined when no runs exist', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const result = await getLatestRun(adapter)
     expect(result).toBeUndefined()
   })
 
   it('pipeline run status transitions (running -> completed)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const run = await createPipelineRun(adapter, { methodology: 'agile' })
     await updatePipelineRun(adapter, run.id, { status: 'completed' })
 
@@ -584,7 +584,7 @@ describe('AC6: Pipeline runs table CRUD', () => {
   })
 
   it('pipeline run status transitions (running -> failed)', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const run = await createPipelineRun(adapter, { methodology: 'agile' })
     await updatePipelineRun(adapter, run.id, { status: 'failed' })
 
@@ -691,18 +691,18 @@ describe('AC7: Zod schemas validate inputs at persistence boundary', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC8: Token usage tracking', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
   let runId: string
 
   beforeEach(async () => {
-    db = openTestDb()
-    const adapter = new SqliteDatabaseAdapter(db)
+    db = await openTestDb()
+    const adapter = new SyncDatabaseAdapter(db)
     const run = await createPipelineRun(adapter, { methodology: 'agile' })
     runId = run.id
   })
 
   it('addTokenUsage inserts a usage record', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await expect(
       addTokenUsage(adapter, runId, {
         phase: 'analysis',
@@ -715,7 +715,7 @@ describe('AC8: Token usage tracking', () => {
   })
 
   it('getTokenUsageSummary returns aggregated totals by phase and agent', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await addTokenUsage(adapter, runId, {
       phase: 'analysis',
       agent: 'claude',
@@ -754,13 +754,13 @@ describe('AC8: Token usage tracking', () => {
   })
 
   it('getTokenUsageSummary returns empty array when no usage records exist', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const summary = await getTokenUsageSummary(adapter, runId)
     expect(summary).toHaveLength(0)
   })
 
   it('getTokenUsageSummary aggregates by agent within phase', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     await addTokenUsage(adapter, runId, {
       phase: 'analysis',
       agent: 'claude',
@@ -791,7 +791,7 @@ describe('AC8: Token usage tracking', () => {
   })
 
   it('getTokenUsageSummary only includes records for the given runId', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const run2 = await createPipelineRun(adapter, { methodology: 'kanban' })
     await addTokenUsage(adapter, runId, {
       phase: 'analysis',
@@ -922,14 +922,14 @@ describe('Story 12-6: DecisionSchema includes superseded_by', () => {
 // ---------------------------------------------------------------------------
 
 describe('upsertDecision — decision deduplication on retry', () => {
-  let db: BetterSqlite3Database
+  let db: InstanceType<typeof Database>
 
-  beforeEach(() => {
-    db = openTestDb()
+  beforeEach(async () => {
+    db = await openTestDb()
   })
 
   it('inserts a new decision when no match exists', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     const result = await upsertDecision(adapter, {
       pipeline_run_id: run.id,
@@ -946,7 +946,7 @@ describe('upsertDecision — decision deduplication on retry', () => {
   })
 
   it('updates existing decision with same pipeline_run_id + category + key', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     const original = await upsertDecision(adapter, {
       pipeline_run_id: run.id,
@@ -975,7 +975,7 @@ describe('upsertDecision — decision deduplication on retry', () => {
   })
 
   it('does not deduplicate decisions with different categories', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     await upsertDecision(adapter, {
       pipeline_run_id: run.id,
@@ -997,7 +997,7 @@ describe('upsertDecision — decision deduplication on retry', () => {
   })
 
   it('does not deduplicate decisions with different pipeline_run_ids', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const run1 = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     const run2 = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     await upsertDecision(adapter, {
@@ -1020,7 +1020,7 @@ describe('upsertDecision — decision deduplication on retry', () => {
   })
 
   it('count after N upserts equals count from single insert', async () => {
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
     const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     for (let i = 0; i < 5; i++) {
       await upsertDecision(adapter, {
