@@ -12,8 +12,8 @@ import { DebatePanelImpl, createDebatePanel } from '../debate-panel-impl.js'
 import type { PerspectiveGeneratorFn } from '../debate-panel-impl.js'
 import type { Perspective, DecisionRequest } from '../types.js'
 import type { Dispatcher } from '../../agent-dispatch/types.js'
-import { runMigrations } from '../../../persistence/migrations/index.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
@@ -343,10 +343,10 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
   let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = new BetterSqlite3(':memory:')
-    runMigrations(db)
-    adapter = new SqliteDatabaseAdapter(db)
+    adapter = new SyncDatabaseAdapter(db)
+    await initSchema(adapter)
   })
 
   it('persists routine decision to database', async () => {

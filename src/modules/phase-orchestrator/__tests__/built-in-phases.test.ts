@@ -11,8 +11,8 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { runMigrations } from '../../../persistence/migrations/index.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { registerArtifact, createPipelineRun } from '../../../persistence/queries/decisions.js'
 import {
@@ -31,11 +31,11 @@ import type { MethodologyPack } from '../../methodology-pack/types.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
+async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'built-in-phases-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter, tmpDir }
 }
 
@@ -70,7 +70,7 @@ describe('Built-in Phase Definitions', () => {
   let runId: string
 
   beforeEach(async () => {
-    const result = createTestDb()
+    const result = await createTestDb()
     db = result.db
     adapter = result.adapter
     tmpDir = result.tmpDir
@@ -418,7 +418,7 @@ describe('createUxDesignPhaseDefinition (T8)', () => {
   let runId: string
 
   beforeEach(async () => {
-    const result = createTestDb()
+    const result = await createTestDb()
     db = result.db
     adapter = result.adapter
     tmpDir = result.tmpDir
@@ -487,8 +487,8 @@ describe('PhaseOrchestrator - conditional UX design registration (T8)', () => {
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const result = createTestDb()
+  beforeEach(async () => {
+    const result = await createTestDb()
     db = result.db
     adapter = result.adapter
     tmpDir = result.tmpDir
@@ -593,7 +593,7 @@ describe('createResearchPhaseDefinition (Story 20.1)', () => {
   let runId: string
 
   beforeEach(async () => {
-    const result = createTestDb()
+    const result = await createTestDb()
     db = result.db
     adapter = result.adapter
     tmpDir = result.tmpDir
@@ -721,7 +721,7 @@ describe('createAnalysisPhaseDefinition - conditional research entry gate (Story
   let runId: string
 
   beforeEach(async () => {
-    const result = createTestDb()
+    const result = await createTestDb()
     db = result.db
     adapter = result.adapter
     tmpDir = result.tmpDir
@@ -769,8 +769,8 @@ describe('PhaseOrchestrator - conditional research registration (Story 20.1)', (
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const result = createTestDb()
+  beforeEach(async () => {
+    const result = await createTestDb()
     db = result.db
     adapter = result.adapter
     tmpDir = result.tmpDir

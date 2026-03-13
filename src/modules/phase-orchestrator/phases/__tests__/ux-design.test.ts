@@ -13,8 +13,8 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { runMigrations } from '../../../../persistence/migrations/index.js'
-import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
   createPipelineRun,
@@ -31,11 +31,11 @@ import type { Dispatcher, DispatchResult } from '../../../agent-dispatch/types.j
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
+async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'ux-design-phase-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter, tmpDir }
 }
 
@@ -286,7 +286,7 @@ describe('runUxDesignPhase - execution (T9)', () => {
   let runId: string
 
   beforeEach(async () => {
-    const r = createTestDb()
+    const r = await createTestDb()
     db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir

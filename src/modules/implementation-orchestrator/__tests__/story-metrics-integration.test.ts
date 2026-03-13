@@ -12,9 +12,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun, getDecisionsByCategory } from '../../../persistence/queries/decisions.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { STORY_METRICS } from '../../../persistence/schemas/operational.js'
 
@@ -123,8 +123,8 @@ describe('Smoke: orchestrator writes story-metrics decision through real DB', ()
   beforeEach(async () => {
     db = new BetterSqlite3(':memory:')
     db.pragma('foreign_keys = ON')
-    runMigrations(db)
-    adapter = new SqliteDatabaseAdapter(db)
+    adapter = new SyncDatabaseAdapter(db)
+    await initSchema(adapter)
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     runId = run.id
 

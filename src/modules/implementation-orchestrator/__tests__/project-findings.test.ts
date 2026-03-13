@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { getProjectFindings } from '../project-findings.js'
 import { createDecision } from '../../../persistence/queries/decisions.js'
@@ -24,7 +24,7 @@ describe('getProjectFindings', () => {
         created_at TEXT DEFAULT (datetime('now'))
       )
     `)
-    adapter = new SqliteDatabaseAdapter(db)
+    adapter = new SyncDatabaseAdapter(db)
   })
 
   afterEach(() => {

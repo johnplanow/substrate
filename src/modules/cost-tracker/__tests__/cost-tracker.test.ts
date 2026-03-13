@@ -28,8 +28,8 @@ import type { CostTracker } from '../cost-tracker-impl.js'
 import { CostTrackerSubscriber, createCostTrackerSubscriber } from '../cost-tracker-subscriber.js'
 import { TOKEN_RATES, getTokenRate, estimateCost, estimateCostSafe } from '../token-rates.js'
 import type { CostEntry, SessionCostSummary, TaskCostSummary } from '../types.js'
-import { runMigrations } from '../../../persistence/migrations/index.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   recordCostEntry,
@@ -44,12 +44,12 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
+async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
   const db = new Database(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter }
 }
 
@@ -178,8 +178,8 @@ describe('Cost Persistence Queries', () => {
   let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = createTestDb()
+  beforeEach(async () => {
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     createTestSession(db)
@@ -583,8 +583,8 @@ describe('CostTrackerImpl', () => {
   let eventBus: TypedEventBus
   let tracker: CostTracker
 
-  beforeEach(() => {
-    const setup = createTestDb()
+  beforeEach(async () => {
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     eventBus = new TypedEventBusImpl()
@@ -934,7 +934,7 @@ describe('CostTrackerSubscriber', () => {
   let subscriber: CostTrackerSubscriber
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     eventBus = new TypedEventBusImpl()
@@ -1193,7 +1193,7 @@ describe('CostTrackerSubscriber', () => {
 
 describe('createCostTracker', () => {
   it('creates a working CostTracker with default token rates', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const eventBus = new TypedEventBusImpl()
     const tracker = createCostTracker({ db: adapter, eventBus })
 
@@ -1216,7 +1216,7 @@ describe('createCostTracker', () => {
   })
 
   it('creates a CostTracker with custom token rates that are actually used', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const eventBus = new TypedEventBusImpl()
     // Override anthropic/claude-3-sonnet with a very high rate to prove injection works
     const customRates = {

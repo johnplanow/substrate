@@ -368,7 +368,7 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       supportsSubscriptionBilling: true,
       supportsApiBilling: true,
       supportsPlanGeneration: true,
-      maxContextTokens: 200_000,
+      maxContextTokens: 1_000_000,
       supportedTaskTypes: [
         'code',
         'refactor',

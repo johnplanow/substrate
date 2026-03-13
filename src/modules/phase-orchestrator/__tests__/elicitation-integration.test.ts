@@ -21,7 +21,8 @@ import { mkdtempSync, rmSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod'
-import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import {
   createPipelineRun,
   getDecisionsByPhaseForRun,
@@ -37,18 +38,17 @@ import type { PhaseDeps } from '../phases/types.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchResult } from '../../agent-dispatch/types.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers — test DB setup
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
+async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'elicitation-integration-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter, tmpDir }
 }
 
@@ -512,7 +512,7 @@ describe('Integration: Elicitation results stored in decision store (AC4)', () =
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
@@ -717,7 +717,7 @@ describe('Integration: End-to-end elicitation round', () => {
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir

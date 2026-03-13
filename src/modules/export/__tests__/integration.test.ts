@@ -20,14 +20,14 @@ import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import {
   createDecision,
   createPipelineRun,
   getDecisionsByPhaseForRun,
   getDecisionsByPhase,
 } from '../../../persistence/queries/decisions.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   renderProductBrief,
@@ -44,11 +44,11 @@ import { runExportAction } from '../../../cli/commands/export.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function openTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
+async function openTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
   const db = new BetterSqlite3(':memory:')
   db.pragma('foreign_keys = ON')
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter }
 }
 
@@ -91,7 +91,7 @@ describe('T11: write decisions → export → verify markdown output', () => {
   let tempDir: string
 
   beforeEach(async () => {
-    const r = openTestDb()
+    const r = await openTestDb()
     db = r.db
     adapter = r.adapter
     runId = await createTestRun(adapter)
@@ -378,8 +378,8 @@ describe('T11: write decisions → export → verify markdown output', () => {
     const dbPath = join(substrateDir, 'substrate.db')
     const fileDb = new BetterSqlite3(dbPath)
     fileDb.pragma('foreign_keys = ON')
-    runMigrations(fileDb)
-    const fileAdapter = new SqliteDatabaseAdapter(fileDb)
+    const fileAdapter = new SyncDatabaseAdapter(fileDb)
+    await initSchema(fileAdapter)
 
     const fileRun = await createPipelineRun(fileAdapter, { methodology: 'bmad' })
     const fileRunId = fileRun.id
@@ -416,7 +416,7 @@ describe('T11: write decisions → export → verify markdown output', () => {
     // Using a distinct key ('target_users') avoids relying on SQLite insertion-order
     // for duplicate-key deduplication via Object.fromEntries.
     const fileDb2 = new BetterSqlite3(dbPath)
-    const fileAdapter2 = new SqliteDatabaseAdapter(fileDb2)
+    const fileAdapter2 = new SyncDatabaseAdapter(fileDb2)
     await createDecision(fileAdapter2, {
       pipeline_run_id: fileRunId,
       phase: 'analysis',
@@ -486,10 +486,10 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
   let tempProjectRoot: string
 
   beforeEach(async () => {
-    const r1 = openTestDb()
+    const r1 = await openTestDb()
     sourceDb = r1.db
     sourceAdapter = r1.adapter
-    const r2 = openTestDb()
+    const r2 = await openTestDb()
     seedDb = r2.db
     seedAdapter = r2.adapter
     runId = await createTestRun(sourceAdapter)

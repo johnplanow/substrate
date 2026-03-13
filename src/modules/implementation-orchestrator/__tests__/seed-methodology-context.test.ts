@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
 import type { Database as DB } from 'better-sqlite3'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createHash } from 'node:crypto'
 
@@ -68,7 +68,7 @@ const CREATE_DECISIONS_TABLE = `
 function createTestDb(): { db: DB; adapter: DatabaseAdapter } {
   const db = new Database(':memory:')
   db.exec(CREATE_DECISIONS_TABLE)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
   return { db, adapter }
 }
 

@@ -17,26 +17,25 @@ import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vites
 import type { MetricsOptions } from '../metrics.js'
 
 // ---------------------------------------------------------------------------
-// Create a real (minimal) SQLite database file so that the native
-// `require('better-sqlite3')` call inside `openTelemetryDb` can open it.
-// The vitest resolve alias for better-sqlite3 only applies to ESM imports,
-// not CJS require(), so the native module is loaded and needs a real file.
+// Create a placeholder database file so that existsSync checks can pass
+// when tests enable the telemetry-db code path.
+// Note: createDatabaseAdapter is fully mocked below, so the file never needs
+// to be a valid SQLite database — we just need it to exist on disk.
 // ---------------------------------------------------------------------------
 const { setupTelemetryDb, cleanupTelemetryDb } = vi.hoisted(() => {
-  const { execSync } = require('node:child_process')
+  const { mkdirSync, writeFileSync, rmSync } = require('node:fs')
   const TELEMETRY_TEST_ROOT = '/tmp/test-project'
   const TELEMETRY_DB_DIR = TELEMETRY_TEST_ROOT + '/.substrate'
   const TELEMETRY_DB_PATH = TELEMETRY_DB_DIR + '/substrate.db'
   return {
     setupTelemetryDb: () => {
-      execSync(`mkdir -p "${TELEMETRY_DB_DIR}"`)
-      // Create a valid empty SQLite database using the native better-sqlite3
-      const NativeDatabase = require('better-sqlite3')
-      const db = new NativeDatabase(TELEMETRY_DB_PATH)
-      db.close()
+      mkdirSync(TELEMETRY_DB_DIR, { recursive: true })
+      // Create an empty placeholder file — createDatabaseAdapter is mocked,
+      // so the file never needs to contain a valid SQLite database.
+      writeFileSync(TELEMETRY_DB_PATH, '')
     },
     cleanupTelemetryDb: () => {
-      try { execSync(`rm -rf "${TELEMETRY_TEST_ROOT}"`) } catch { /* ignore */ }
+      try { rmSync(TELEMETRY_TEST_ROOT, { recursive: true, force: true }) } catch { /* ignore */ }
     },
   }
 })

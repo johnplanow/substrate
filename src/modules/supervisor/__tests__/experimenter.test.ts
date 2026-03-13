@@ -36,9 +36,9 @@ import type {
 import type { RunMetricsRow, StoryMetricsRow } from '../../../persistence/queries/metrics.js'
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import { runMigrations } from '../../../persistence/migrations/index.js'
 import { getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
 import { EXPERIMENT_RESULT } from '../../../persistence/schemas/operational.js'
 
@@ -1147,8 +1147,8 @@ describe('Story 21-1 AC3: experiment result written to decision store', () => {
     // Use a real in-memory DB instead of the mock object
     const db: BetterSqlite3Database = new BetterSqlite3(':memory:')
     db.pragma('foreign_keys = ON')
-    runMigrations(db)
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
+    await initSchema(adapter)
 
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     const baselineRunId = run.id

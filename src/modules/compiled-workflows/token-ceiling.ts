@@ -19,11 +19,11 @@ import type { TokenCeilings } from '../config/config-schema.js'
  * These match the hardcoded constants previously defined inline in each workflow.
  */
 export const TOKEN_CEILING_DEFAULTS: Record<string, number> = {
-  'create-story': 10_000,
-  'dev-story': 80_000,
-  'code-review': 100_000,
-  'test-plan': 20_000,
-  'test-expansion': 40_000,
+  'create-story': 50_000,
+  'dev-story': 400_000,
+  'code-review': 500_000,
+  'test-plan': 100_000,
+  'test-expansion': 200_000,
 }
 
 // ---------------------------------------------------------------------------

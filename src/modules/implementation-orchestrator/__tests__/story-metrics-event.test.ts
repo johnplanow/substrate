@@ -11,9 +11,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 
 // ---------------------------------------------------------------------------
@@ -128,8 +128,8 @@ describe('AC8: story:metrics event emitted on terminal state', () => {
   beforeEach(async () => {
     db = new BetterSqlite3(':memory:')
     db.pragma('foreign_keys = ON')
-    runMigrations(db)
-    adapter = new SqliteDatabaseAdapter(db)
+    adapter = new SyncDatabaseAdapter(db)
+    await initSchema(adapter)
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     runId = run.id
 

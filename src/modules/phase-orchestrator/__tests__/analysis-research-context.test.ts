@@ -25,8 +25,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod'
-import { runMigrations } from '../../../persistence/migrations/index.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   createPipelineRun,
@@ -43,11 +43,11 @@ import type { Dispatcher, DispatchResult } from '../../agent-dispatch/types.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
+async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'analysis-research-context-'))
   const db = new Database(join(tmpDir, 'test.db'))
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter, tmpDir }
 }
 
@@ -201,7 +201,7 @@ describe('resolveContext() — decision: source with no matching entries (Task 3
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
@@ -271,7 +271,7 @@ describe('analysis-step-1-vision — research-enabled path (Task 4)', () => {
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
@@ -390,7 +390,7 @@ describe('analysis-step-1-vision — research-disabled path (Task 5)', () => {
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir

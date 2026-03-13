@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Database from 'better-sqlite3'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { detectStartPhase } from '../phase-detection.js'
 
@@ -58,7 +58,7 @@ function createTestDb(): { db: InstanceType<typeof Database>; adapter: DatabaseA
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
   return { db, adapter }
 }
 
@@ -208,7 +208,7 @@ describe('detectStartPhase', () => {
         created_at TEXT, updated_at TEXT
       );
     `)
-    const brokenAdapter = new SqliteDatabaseAdapter(brokenDb)
+    const brokenAdapter = new SyncDatabaseAdapter(brokenDb)
 
     const result = await detectStartPhase(brokenAdapter, '/project')
     expect(result.phase).toBe('analysis')

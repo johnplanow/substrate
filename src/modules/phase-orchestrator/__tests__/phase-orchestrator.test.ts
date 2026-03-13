@@ -12,8 +12,8 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { runMigrations } from '../../../persistence/migrations/index.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { registerArtifact, getPipelineRunById } from '../../../persistence/queries/decisions.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
@@ -25,11 +25,11 @@ import { runGates, serializePhaseHistory, deserializePhaseHistory, parseConfigJs
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
+async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'phase-orch-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter, tmpDir }
 }
 
@@ -112,8 +112,8 @@ describe('PhaseOrchestrator — core', () => {
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const result = createTestDb()
+  beforeEach(async () => {
+    const result = await createTestDb()
     db = result.db
     adapter = result.adapter
     tmpDir = result.tmpDir

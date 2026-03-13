@@ -57,11 +57,11 @@ describe('getTokenCeiling', () => {
 
   it('returns correct defaults for all workflow types', () => {
     const workflowDefaults: Array<[string, number]> = [
-      ['create-story', 10_000],
-      ['dev-story', 80_000],
-      ['code-review', 100_000],
-      ['test-plan', 20_000],
-      ['test-expansion', 40_000],
+      ['create-story', 50_000],
+      ['dev-story', 400_000],
+      ['code-review', 500_000],
+      ['test-plan', 100_000],
+      ['test-expansion', 200_000],
     ]
 
     for (const [workflow, expected] of workflowDefaults) {
@@ -100,11 +100,11 @@ describe('getTokenCeiling', () => {
 
 describe('TOKEN_CEILING_DEFAULTS', () => {
   it('exports the expected hardcoded default values', () => {
-    expect(TOKEN_CEILING_DEFAULTS['create-story']).toBe(10_000)
-    expect(TOKEN_CEILING_DEFAULTS['dev-story']).toBe(80_000)
-    expect(TOKEN_CEILING_DEFAULTS['code-review']).toBe(100_000)
-    expect(TOKEN_CEILING_DEFAULTS['test-plan']).toBe(20_000)
-    expect(TOKEN_CEILING_DEFAULTS['test-expansion']).toBe(40_000)
+    expect(TOKEN_CEILING_DEFAULTS['create-story']).toBe(50_000)
+    expect(TOKEN_CEILING_DEFAULTS['dev-story']).toBe(400_000)
+    expect(TOKEN_CEILING_DEFAULTS['code-review']).toBe(500_000)
+    expect(TOKEN_CEILING_DEFAULTS['test-plan']).toBe(100_000)
+    expect(TOKEN_CEILING_DEFAULTS['test-expansion']).toBe(200_000)
   })
 })
 

@@ -23,7 +23,8 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import {
   createPipelineRun,
   createDecision,
@@ -41,18 +42,17 @@ import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
+async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'epic11-integration-'))
   const db = new Database(join(tmpDir, 'test.db'))
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter, tmpDir }
 }
 
@@ -212,8 +212,8 @@ describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const r = createTestDb()
+  beforeEach(async () => {
+    const r = await createTestDb()
     db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
@@ -335,8 +335,8 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const r = createTestDb()
+  beforeEach(async () => {
+    const r = await createTestDb()
     db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
@@ -489,8 +489,8 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const r = createTestDb()
+  beforeEach(async () => {
+    const r = await createTestDb()
     db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
@@ -628,8 +628,8 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const r = createTestDb()
+  beforeEach(async () => {
+    const r = await createTestDb()
     db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
@@ -782,8 +782,8 @@ describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const r = createTestDb()
+  beforeEach(async () => {
+    const r = await createTestDb()
     db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
@@ -862,8 +862,8 @@ describe('Gap 6: parseConfigJson used by orchestrator lifecycle (11-1)', () => {
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const r = createTestDb()
+  beforeEach(async () => {
+    const r = await createTestDb()
     db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
@@ -970,8 +970,8 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const r = createTestDb()
+  beforeEach(async () => {
+    const r = await createTestDb()
     db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
@@ -1057,8 +1057,8 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
 
   it('buildPipelineStatusOutput correctly sums token usage from multiple phases', async () => {
     const db2 = new Database(':memory:')
-    runMigrations(db2)
-    const adapter2 = new SqliteDatabaseAdapter(db2)
+    const adapter2 = new SyncDatabaseAdapter(db2)
+    await initSchema(adapter2)
 
     const run = await createPipelineRun(adapter2, {
       methodology: 'bmad',
@@ -1104,8 +1104,8 @@ describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () 
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const r = createTestDb()
+  beforeEach(async () => {
+    const r = await createTestDb()
     db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir

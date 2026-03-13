@@ -17,7 +17,8 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun, registerArtifact } from '../../../persistence/queries/decisions.js'
 import { createPhaseOrchestrator } from '../phase-orchestrator-impl.js'
 import {
@@ -26,18 +27,17 @@ import {
 } from '../built-in-phases.js'
 import { runGates } from '../phase-orchestrator-impl.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
+async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'ux-skipped-integration-'))
   const db = new Database(join(tmpDir, 'test.db'))
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter, tmpDir }
 }
 
@@ -113,8 +113,8 @@ describe('PhaseOrchestrator - phase list without UX design', () => {
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const r = createTestDb()
+  beforeEach(async () => {
+    const r = await createTestDb()
     db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
@@ -160,7 +160,7 @@ describe('Solutioning entry gate - no ux-design gate when UX skipped', () => {
   let runId: string
 
   beforeEach(async () => {
-    const r = createTestDb()
+    const r = await createTestDb()
     db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
@@ -228,8 +228,8 @@ describe('Full pipeline advance without UX design', () => {
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const r = createTestDb()
+  beforeEach(async () => {
+    const r = await createTestDb()
     db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir

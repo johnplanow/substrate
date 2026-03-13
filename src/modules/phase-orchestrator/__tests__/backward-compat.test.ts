@@ -17,8 +17,8 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { runMigrations } from '../../../persistence/migrations/index.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   createPipelineRun,
@@ -35,11 +35,11 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
+async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'compat-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter, tmpDir }
 }
 
@@ -183,8 +183,8 @@ describe('AC7: Database schema backward compatibility', () => {
   let db: BetterSqlite3Database
   let tmpDir: string
 
-  beforeEach(() => {
-    const setup = createTestDb()
+  beforeEach(async () => {
+    const setup = await createTestDb()
     db = setup.db
     tmpDir = setup.tmpDir
   })
@@ -257,9 +257,10 @@ describe('AC7: Database schema backward compatibility', () => {
     expect(names).toContain('idx_artifacts_phase')
   })
 
-  it('schema migration is idempotent (safe to run multiple times)', () => {
-    expect(() => runMigrations(db)).not.toThrow()
-    expect(() => runMigrations(db)).not.toThrow()
+  it('schema migration is idempotent (safe to run multiple times)', async () => {
+    const adapter = new SyncDatabaseAdapter(db)
+    await expect(initSchema(adapter)).resolves.not.toThrow()
+    await expect(initSchema(adapter)).resolves.not.toThrow()
   })
 })
 
@@ -274,7 +275,7 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
@@ -411,8 +412,8 @@ describe('AC7: auto status output schema unchanged', () => {
   let adapter: DatabaseAdapter
   let tmpDir: string
 
-  beforeEach(() => {
-    const setup = createTestDb()
+  beforeEach(async () => {
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir

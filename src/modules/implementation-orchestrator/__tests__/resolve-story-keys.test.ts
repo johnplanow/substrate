@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Database from 'better-sqlite3'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { resolveStoryKeys } from '../story-discovery.js'
 
@@ -58,7 +58,7 @@ function createTestDb(): { db: InstanceType<typeof Database>; adapter: DatabaseA
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
   return { db, adapter }
 }
 
@@ -294,7 +294,7 @@ describe('resolveStoryKeys', () => {
   describe('error resilience', () => {
     it('handles DB with missing decisions table gracefully', async () => {
       const brokenDb = new Database(':memory:')
-      const brokenAdapter = new SqliteDatabaseAdapter(brokenDb)
+      const brokenAdapter = new SyncDatabaseAdapter(brokenDb)
       // No tables created — queries will throw
       mockExistsSync.mockReturnValue(false)
 
@@ -305,7 +305,7 @@ describe('resolveStoryKeys', () => {
 
     it('falls through from broken DB to epics.md', async () => {
       const brokenDb = new Database(':memory:')
-      const brokenAdapter = new SqliteDatabaseAdapter(brokenDb)
+      const brokenAdapter = new SyncDatabaseAdapter(brokenDb)
       mockExistsSync.mockImplementation((p: string) => {
         if (p.endsWith('epics.md')) return true
         return false

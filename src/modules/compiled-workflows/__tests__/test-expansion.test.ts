@@ -237,9 +237,9 @@ describe('runTestExpansion', () => {
   // AC2: Scoped diff fallback to stat-only when over budget
   // -------------------------------------------------------------------------
 
-  it('uses stat-only summary when scoped diff exceeds 40,000-token ceiling', async () => {
-    // Scoped diff that exceeds 40000 token ceiling (~160000 chars)
-    mockGetGitDiffForFiles.mockResolvedValue('x'.repeat(165000))
+  it('uses stat-only summary when scoped diff exceeds 200,000-token ceiling', async () => {
+    // Scoped diff that exceeds 200000 token ceiling (~800000 chars)
+    mockGetGitDiffForFiles.mockResolvedValue('x'.repeat(825_000))
     mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
 
     const dispatchFn = vi.fn().mockReturnValue({

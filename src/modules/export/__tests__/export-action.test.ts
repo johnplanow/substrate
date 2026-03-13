@@ -13,8 +13,8 @@ import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { runMigrations } from '../../../persistence/migrations/index.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import {
   createDecision,
   createPipelineRun,
@@ -47,9 +47,9 @@ vi.mock('../../../persistence/adapter.js', async (importOriginal) => {
   }
 })
 
-vi.mock('../../../persistence/schema.js', () => ({
-  initSchema: vi.fn().mockResolvedValue(undefined),
-}))
+// initSchema is NOT mocked here — the test setup needs the real implementation
+// to create tables before seeding data. initSchema uses CREATE TABLE IF NOT EXISTS,
+// so it's idempotent when runExportAction calls it again on the reopened adapter.
 
 // ---------------------------------------------------------------------------
 // T13: runExportAction --output-format json (AC7)
@@ -71,8 +71,8 @@ describe('T13: runExportAction --output-format json', () => {
     const dbPath = join(substrateDir, 'substrate.db')
     const db = new BetterSqlite3(dbPath)
     db.pragma('foreign_keys = ON')
-    runMigrations(db)
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
+    await initSchema(adapter)
 
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     runId = run.id
@@ -149,7 +149,7 @@ describe('T13: runExportAction --output-format json', () => {
     mockCreateDatabaseAdapter.mockImplementation(() => {
       const reopenedDb = new BetterSqlite3(dbPath)
       reopenedDb.pragma('foreign_keys = ON')
-      return new SqliteDatabaseAdapter(reopenedDb)
+      return new SyncDatabaseAdapter(reopenedDb)
     })
 
     // Capture process.stdout.write output
@@ -232,7 +232,7 @@ describe('T13: runExportAction --output-format json', () => {
     const dbPathLocal = join(substrateDir, 'substrate.db')
     const db = new BetterSqlite3(dbPathLocal)
     db.pragma('foreign_keys = ON')
-    const adapter = new SqliteDatabaseAdapter(db)
+    const adapter = new SyncDatabaseAdapter(db)
 
     await createDecision(adapter, {
       pipeline_run_id: runId,

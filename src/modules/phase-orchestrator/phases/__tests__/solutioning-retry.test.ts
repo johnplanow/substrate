@@ -23,8 +23,8 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { runMigrations } from '../../../../persistence/migrations/index.js'
-import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
   createPipelineRun,
@@ -45,11 +45,11 @@ import type { TypedEventBus } from '../../../../core/event-bus.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
+async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'solutioning-retry-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter, tmpDir }
 }
 
@@ -292,7 +292,7 @@ describe('Retry flow: trigger conditions (AC6)', () => {
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
@@ -395,7 +395,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
@@ -527,7 +527,7 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
@@ -624,7 +624,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
@@ -797,7 +797,7 @@ describe('Retry flow: token usage accumulation', () => {
   let runId: string
 
   beforeEach(async () => {
-    const setup = createTestDb()
+    const setup = await createTestDb()
     db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
