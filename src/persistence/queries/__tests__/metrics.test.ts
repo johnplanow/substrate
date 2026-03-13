@@ -12,6 +12,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../sqlite-adapter.js'
 import {
   writeRunMetrics,
   writeStoryMetrics,
@@ -47,12 +48,12 @@ function insertPipelineRun(db: BetterSqlite3Database, id: string, status = 'comp
   ).run(id, status)
 }
 
-function seedRunMetrics(
-  db: BetterSqlite3Database,
+async function seedRunMetrics(
+  adapter: SqliteDatabaseAdapter,
   overrides: Partial<RunMetricsInput> & { run_id: string },
-): void {
+): Promise<void> {
   const { run_id, ...rest } = overrides
-  writeRunMetrics(db, {
+  await writeRunMetrics(adapter, {
     run_id,
     methodology: 'bmad',
     status: 'completed',
@@ -76,18 +77,20 @@ describe('writeRunMetrics (T9)', () => {
     db.close()
   })
 
-  it('inserts a row with all required fields', () => {
-    seedRunMetrics(db, { run_id: 'run-001' })
-    const row = getRunMetrics(db, 'run-001')
+  it('inserts a row with all required fields', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await seedRunMetrics(adapter, { run_id: 'run-001' })
+    const row = await getRunMetrics(adapter, 'run-001')
     expect(row).toBeDefined()
     expect(row!.run_id).toBe('run-001')
     expect(row!.methodology).toBe('bmad')
     expect(row!.status).toBe('completed')
   })
 
-  it('stores optional numeric fields with defaults of 0', () => {
-    seedRunMetrics(db, { run_id: 'run-002' })
-    const row = getRunMetrics(db, 'run-002')!
+  it('stores optional numeric fields with defaults of 0', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await seedRunMetrics(adapter, { run_id: 'run-002' })
+    const row = (await getRunMetrics(adapter, 'run-002'))!
     expect(row.total_input_tokens).toBe(0)
     expect(row.total_output_tokens).toBe(0)
     expect(row.total_cost_usd).toBe(0)
@@ -101,8 +104,9 @@ describe('writeRunMetrics (T9)', () => {
     expect(row.is_baseline).toBe(0)
   })
 
-  it('stores all provided optional fields correctly', () => {
-    seedRunMetrics(db, {
+  it('stores all provided optional fields correctly', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await seedRunMetrics(adapter, {
       run_id: 'run-003',
       total_input_tokens: 1000,
       total_output_tokens: 500,
@@ -119,7 +123,7 @@ describe('writeRunMetrics (T9)', () => {
       wall_clock_seconds: 300.5,
       completed_at: '2026-01-01T01:00:00.000Z',
     })
-    const row = getRunMetrics(db, 'run-003')!
+    const row = (await getRunMetrics(adapter, 'run-003'))!
     expect(row.total_input_tokens).toBe(1000)
     expect(row.total_output_tokens).toBe(500)
     expect(row.total_cost_usd).toBeCloseTo(0.025)
@@ -136,15 +140,17 @@ describe('writeRunMetrics (T9)', () => {
     expect(row.completed_at).toBe('2026-01-01T01:00:00.000Z')
   })
 
-  it('upserts (INSERT OR REPLACE) on duplicate run_id', () => {
-    seedRunMetrics(db, { run_id: 'run-004', total_input_tokens: 100 })
-    seedRunMetrics(db, { run_id: 'run-004', total_input_tokens: 200 })
-    const row = getRunMetrics(db, 'run-004')!
+  it('upserts (INSERT OR REPLACE) on duplicate run_id', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await seedRunMetrics(adapter, { run_id: 'run-004', total_input_tokens: 100 })
+    await seedRunMetrics(adapter, { run_id: 'run-004', total_input_tokens: 200 })
+    const row = (await getRunMetrics(adapter, 'run-004'))!
     expect(row.total_input_tokens).toBe(200)
   })
 
-  it('returns undefined for an unknown run_id', () => {
-    const row = getRunMetrics(db, 'nonexistent')
+  it('returns undefined for an unknown run_id', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const row = await getRunMetrics(adapter, 'nonexistent')
     expect(row).toBeUndefined()
   })
 })
@@ -160,7 +166,8 @@ describe('writeStoryMetrics (T9)', () => {
     db.close()
   })
 
-  it('inserts a story metrics row', () => {
+  it('inserts a story metrics row', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     const input: StoryMetricsInput = {
       run_id: 'run-s1',
       story_key: '17-1',
@@ -173,8 +180,8 @@ describe('writeStoryMetrics (T9)', () => {
       wall_clock_seconds: 60,
       phase_durations_json: JSON.stringify({ 'create-story': 10, 'dev-story': 50 }),
     }
-    writeStoryMetrics(db, input)
-    const rows = getStoryMetricsForRun(db, 'run-s1')
+    await writeStoryMetrics(adapter, input)
+    const rows = await getStoryMetricsForRun(adapter, 'run-s1')
     expect(rows).toHaveLength(1)
     const row = rows[0]
     expect(row.story_key).toBe('17-1')
@@ -184,37 +191,41 @@ describe('writeStoryMetrics (T9)', () => {
     expect(row.review_cycles).toBe(2)
   })
 
-  it('upserts on duplicate run_id + story_key', () => {
+  it('upserts on duplicate run_id + story_key', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     const base: StoryMetricsInput = { run_id: 'run-s2', story_key: '17-1', result: 'failed' }
-    writeStoryMetrics(db, base)
-    writeStoryMetrics(db, { ...base, result: 'success', input_tokens: 999 })
-    const rows = getStoryMetricsForRun(db, 'run-s2')
+    await writeStoryMetrics(adapter, base)
+    await writeStoryMetrics(adapter, { ...base, result: 'success', input_tokens: 999 })
+    const rows = await getStoryMetricsForRun(adapter, 'run-s2')
     expect(rows).toHaveLength(1)
     expect(rows[0].result).toBe('success')
     expect(rows[0].input_tokens).toBe(999)
   })
 
-  it('stores phase_durations_json as a JSON string', () => {
+  it('stores phase_durations_json as a JSON string', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     const durations = { 'create-story': 30, 'dev-story': 90 }
-    writeStoryMetrics(db, {
+    await writeStoryMetrics(adapter, {
       run_id: 'run-s3',
       story_key: '17-2',
       result: 'success',
       phase_durations_json: JSON.stringify(durations),
     })
-    const rows = getStoryMetricsForRun(db, 'run-s3')
+    const rows = await getStoryMetricsForRun(adapter, 'run-s3')
     expect(rows[0].phase_durations_json).toBe(JSON.stringify(durations))
   })
 
-  it('returns empty array for run with no story metrics', () => {
-    expect(getStoryMetricsForRun(db, 'no-such-run')).toHaveLength(0)
+  it('returns empty array for run with no story metrics', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    expect(await getStoryMetricsForRun(adapter, 'no-such-run')).toHaveLength(0)
   })
 
-  it('returns all stories for a run in insertion order', () => {
-    writeStoryMetrics(db, { run_id: 'run-s4', story_key: 'A', result: 'success' })
-    writeStoryMetrics(db, { run_id: 'run-s4', story_key: 'B', result: 'failed' })
-    writeStoryMetrics(db, { run_id: 'run-s4', story_key: 'C', result: 'escalated' })
-    const rows = getStoryMetricsForRun(db, 'run-s4')
+  it('returns all stories for a run in insertion order', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await writeStoryMetrics(adapter, { run_id: 'run-s4', story_key: 'A', result: 'success' })
+    await writeStoryMetrics(adapter, { run_id: 'run-s4', story_key: 'B', result: 'failed' })
+    await writeStoryMetrics(adapter, { run_id: 'run-s4', story_key: 'C', result: 'escalated' })
+    const rows = await getStoryMetricsForRun(adapter, 'run-s4')
     expect(rows).toHaveLength(3)
     expect(rows.map((r) => r.story_key)).toEqual(['A', 'B', 'C'])
   })
@@ -231,14 +242,16 @@ describe('aggregateTokenUsageForRun (T9)', () => {
     db.close()
   })
 
-  it('returns zeros when no token_usage rows exist for the run', () => {
-    const agg = aggregateTokenUsageForRun(db, 'run-tok-empty')
+  it('returns zeros when no token_usage rows exist for the run', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const agg = await aggregateTokenUsageForRun(adapter, 'run-tok-empty')
     expect(agg.input).toBe(0)
     expect(agg.output).toBe(0)
     expect(agg.cost).toBe(0)
   })
 
-  it('aggregates token rows for a specific pipeline run', () => {
+  it('aggregates token rows for a specific pipeline run', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // Insert a pipeline_run and token_usage rows directly
     insertPipelineRun(db, 'run-tok-1')
     db.prepare(
@@ -250,13 +263,14 @@ describe('aggregateTokenUsageForRun (T9)', () => {
        VALUES (?, ?, ?, ?, ?, ?)`,
     ).run('run-tok-1', 'code-review', 'claude', 200, 100, 0.010)
 
-    const agg = aggregateTokenUsageForRun(db, 'run-tok-1')
+    const agg = await aggregateTokenUsageForRun(adapter, 'run-tok-1')
     expect(agg.input).toBe(300)
     expect(agg.output).toBe(150)
     expect(agg.cost).toBeCloseTo(0.015)
   })
 
-  it('does not aggregate rows from a different run', () => {
+  it('does not aggregate rows from a different run', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertPipelineRun(db, 'run-tok-2a')
     insertPipelineRun(db, 'run-tok-2b')
     db.prepare(
@@ -264,7 +278,7 @@ describe('aggregateTokenUsageForRun (T9)', () => {
        VALUES (?, ?, ?, ?, ?, ?)`,
     ).run('run-tok-2a', 'dev-story', 'claude', 999, 888, 0.099)
 
-    const agg = aggregateTokenUsageForRun(db, 'run-tok-2b')
+    const agg = await aggregateTokenUsageForRun(adapter, 'run-tok-2b')
     expect(agg.input).toBe(0)
   })
 })
@@ -276,47 +290,52 @@ describe('aggregateTokenUsageForRun (T9)', () => {
 describe('listRunMetrics (T10)', () => {
   let db: BetterSqlite3Database
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = openDb()
+    const adapter = new SqliteDatabaseAdapter(db)
     // Seed three runs with distinct started_at values
-    seedRunMetrics(db, { run_id: 'run-L1', started_at: '2026-01-01T00:00:00.000Z' })
-    seedRunMetrics(db, { run_id: 'run-L2', started_at: '2026-01-02T00:00:00.000Z' })
-    seedRunMetrics(db, { run_id: 'run-L3', started_at: '2026-01-03T00:00:00.000Z' })
+    await seedRunMetrics(adapter, { run_id: 'run-L1', started_at: '2026-01-01T00:00:00.000Z' })
+    await seedRunMetrics(adapter, { run_id: 'run-L2', started_at: '2026-01-02T00:00:00.000Z' })
+    await seedRunMetrics(adapter, { run_id: 'run-L3', started_at: '2026-01-03T00:00:00.000Z' })
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('returns rows newest first', () => {
-    const rows = listRunMetrics(db)
+  it('returns rows newest first', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const rows = await listRunMetrics(adapter)
     expect(rows[0].run_id).toBe('run-L3')
     expect(rows[1].run_id).toBe('run-L2')
     expect(rows[2].run_id).toBe('run-L1')
   })
 
-  it('respects the limit parameter', () => {
-    const rows = listRunMetrics(db, 2)
+  it('respects the limit parameter', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const rows = await listRunMetrics(adapter, 2)
     expect(rows).toHaveLength(2)
     expect(rows[0].run_id).toBe('run-L3')
     expect(rows[1].run_id).toBe('run-L2')
   })
 
-  it('returns empty array when no rows exist', () => {
+  it('returns empty array when no rows exist', async () => {
     const emptyDb = openDb()
-    expect(listRunMetrics(emptyDb)).toHaveLength(0)
+    const emptyAdapter = new SqliteDatabaseAdapter(emptyDb)
+    expect(await listRunMetrics(emptyAdapter)).toHaveLength(0)
     emptyDb.close()
   })
 
-  it('defaults to limit 10', () => {
+  it('defaults to limit 10', async () => {
     const db2 = openDb()
+    const adapter2 = new SqliteDatabaseAdapter(db2)
     for (let i = 1; i <= 12; i++) {
-      seedRunMetrics(db2, {
+      await seedRunMetrics(adapter2, {
         run_id: `bulk-run-${i}`,
         started_at: `2026-01-${String(i).padStart(2, '0')}T00:00:00.000Z`,
       })
     }
-    const rows = listRunMetrics(db2)
+    const rows = await listRunMetrics(adapter2)
     expect(rows).toHaveLength(10)
     db2.close()
   })
@@ -325,54 +344,60 @@ describe('listRunMetrics (T10)', () => {
 describe('tagRunAsBaseline / getBaselineRunMetrics (T10)', () => {
   let db: BetterSqlite3Database
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = openDb()
-    seedRunMetrics(db, { run_id: 'run-B1' })
-    seedRunMetrics(db, { run_id: 'run-B2' })
+    const adapter = new SqliteDatabaseAdapter(db)
+    await seedRunMetrics(adapter, { run_id: 'run-B1' })
+    await seedRunMetrics(adapter, { run_id: 'run-B2' })
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('returns undefined when no baseline is set', () => {
-    expect(getBaselineRunMetrics(db)).toBeUndefined()
+  it('returns undefined when no baseline is set', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    expect(await getBaselineRunMetrics(adapter)).toBeUndefined()
   })
 
-  it('marks a run as baseline and returns it', () => {
-    tagRunAsBaseline(db, 'run-B1')
-    const baseline = getBaselineRunMetrics(db)
+  it('marks a run as baseline and returns it', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await tagRunAsBaseline(adapter, 'run-B1')
+    const baseline = await getBaselineRunMetrics(adapter)
     expect(baseline).toBeDefined()
     expect(baseline!.run_id).toBe('run-B1')
     expect(baseline!.is_baseline).toBe(1)
   })
 
-  it('clears previous baseline when a new one is set', () => {
-    tagRunAsBaseline(db, 'run-B1')
-    tagRunAsBaseline(db, 'run-B2')
-    const baseline = getBaselineRunMetrics(db)
+  it('clears previous baseline when a new one is set', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await tagRunAsBaseline(adapter, 'run-B1')
+    await tagRunAsBaseline(adapter, 'run-B2')
+    const baseline = await getBaselineRunMetrics(adapter)
     expect(baseline!.run_id).toBe('run-B2')
 
     // Verify old baseline was cleared
-    const oldRun = getRunMetrics(db, 'run-B1')!
+    const oldRun = (await getRunMetrics(adapter, 'run-B1'))!
     expect(oldRun.is_baseline).toBe(0)
   })
 
-  it('updates is_baseline field on getRunMetrics after tagging', () => {
-    tagRunAsBaseline(db, 'run-B1')
-    expect(getRunMetrics(db, 'run-B1')!.is_baseline).toBe(1)
-    tagRunAsBaseline(db, 'run-B2')
-    expect(getRunMetrics(db, 'run-B1')!.is_baseline).toBe(0)
-    expect(getRunMetrics(db, 'run-B2')!.is_baseline).toBe(1)
+  it('updates is_baseline field on getRunMetrics after tagging', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await tagRunAsBaseline(adapter, 'run-B1')
+    expect((await getRunMetrics(adapter, 'run-B1'))!.is_baseline).toBe(1)
+    await tagRunAsBaseline(adapter, 'run-B2')
+    expect((await getRunMetrics(adapter, 'run-B1'))!.is_baseline).toBe(0)
+    expect((await getRunMetrics(adapter, 'run-B2'))!.is_baseline).toBe(1)
   })
 })
 
 describe('compareRunMetrics (T10)', () => {
   let db: BetterSqlite3Database
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = openDb()
-    seedRunMetrics(db, {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await seedRunMetrics(adapter, {
       run_id: 'run-C1',
       total_input_tokens: 1000,
       total_output_tokens: 500,
@@ -380,7 +405,7 @@ describe('compareRunMetrics (T10)', () => {
       wall_clock_seconds: 200,
       total_review_cycles: 4,
     })
-    seedRunMetrics(db, {
+    await seedRunMetrics(adapter, {
       run_id: 'run-C2',
       total_input_tokens: 1200,
       total_output_tokens: 600,
@@ -394,72 +419,82 @@ describe('compareRunMetrics (T10)', () => {
     db.close()
   })
 
-  it('returns null when run A does not exist', () => {
-    expect(compareRunMetrics(db, 'ghost', 'run-C2')).toBeNull()
+  it('returns null when run A does not exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    expect(await compareRunMetrics(adapter, 'ghost', 'run-C2')).toBeNull()
   })
 
-  it('returns null when run B does not exist', () => {
-    expect(compareRunMetrics(db, 'run-C1', 'ghost')).toBeNull()
+  it('returns null when run B does not exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    expect(await compareRunMetrics(adapter, 'run-C1', 'ghost')).toBeNull()
   })
 
-  it('computes correct token deltas (positive when B > A)', () => {
-    const delta = compareRunMetrics(db, 'run-C1', 'run-C2')!
+  it('computes correct token deltas (positive when B > A)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const delta = (await compareRunMetrics(adapter, 'run-C1', 'run-C2'))!
     expect(delta).not.toBeNull()
     expect(delta.token_input_delta).toBe(200)
     expect(delta.token_output_delta).toBe(100)
   })
 
-  it('computes correct token percentage deltas', () => {
-    const delta = compareRunMetrics(db, 'run-C1', 'run-C2')!
+  it('computes correct token percentage deltas', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const delta = (await compareRunMetrics(adapter, 'run-C1', 'run-C2'))!
     // 200 / 1000 = 20%
     expect(delta.token_input_pct).toBeCloseTo(20)
     // 100 / 500 = 20%
     expect(delta.token_output_pct).toBeCloseTo(20)
   })
 
-  it('computes correct wall clock delta', () => {
-    const delta = compareRunMetrics(db, 'run-C1', 'run-C2')!
+  it('computes correct wall clock delta', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const delta = (await compareRunMetrics(adapter, 'run-C1', 'run-C2'))!
     expect(delta.wall_clock_delta_seconds).toBeCloseTo(50)
     // 50 / 200 = 25%
     expect(delta.wall_clock_pct).toBeCloseTo(25)
   })
 
-  it('computes correct review cycle delta', () => {
-    const delta = compareRunMetrics(db, 'run-C1', 'run-C2')!
+  it('computes correct review cycle delta', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const delta = (await compareRunMetrics(adapter, 'run-C1', 'run-C2'))!
     expect(delta.review_cycles_delta).toBe(2)
     // 2 / 4 = 50%
     expect(delta.review_cycles_pct).toBeCloseTo(50)
   })
 
-  it('computes correct cost delta', () => {
-    const delta = compareRunMetrics(db, 'run-C1', 'run-C2')!
+  it('computes correct cost delta', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const delta = (await compareRunMetrics(adapter, 'run-C1', 'run-C2'))!
     expect(delta.cost_delta).toBeCloseTo(0.01)
     // 0.01 / 0.02 = 50%
     expect(delta.cost_pct).toBeCloseTo(50)
   })
 
-  it('returns negative deltas when B < A', () => {
+  it('returns negative deltas when B < A', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // Swap A and B
-    const delta = compareRunMetrics(db, 'run-C2', 'run-C1')!
+    const delta = (await compareRunMetrics(adapter, 'run-C2', 'run-C1'))!
     expect(delta.token_input_delta).toBe(-200)
     expect(delta.token_input_pct).toBeCloseTo(-16.7)
   })
 
-  it('returns null pct fields when base values are zero (undefined/infinite change)', () => {
-    seedRunMetrics(db, {
+  it('returns null pct fields when base values are zero (undefined/infinite change)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await seedRunMetrics(adapter, {
       run_id: 'run-zero',
       total_input_tokens: 0,
       total_review_cycles: 0,
       wall_clock_seconds: 0,
     })
-    const delta = compareRunMetrics(db, 'run-zero', 'run-C1')!
+    const delta = (await compareRunMetrics(adapter, 'run-zero', 'run-C1'))!
     expect(delta.token_input_pct).toBeNull()
     expect(delta.review_cycles_pct).toBeNull()
     expect(delta.wall_clock_pct).toBeNull()
   })
 
-  it('populates run_id_a and run_id_b correctly', () => {
-    const delta = compareRunMetrics(db, 'run-C1', 'run-C2')!
+  it('populates run_id_a and run_id_b correctly', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const delta = (await compareRunMetrics(adapter, 'run-C1', 'run-C2'))!
     expect(delta.run_id_a).toBe('run-C1')
     expect(delta.run_id_b).toBe('run-C2')
   })
@@ -468,75 +503,82 @@ describe('compareRunMetrics (T10)', () => {
 describe('getRunSummaryForSupervisor (T10 / AC5)', () => {
   let db: BetterSqlite3Database
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = openDb()
-    seedRunMetrics(db, {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await seedRunMetrics(adapter, {
       run_id: 'run-sup-1',
       total_input_tokens: 1000,
       total_output_tokens: 500,
       total_review_cycles: 4,
     })
-    writeStoryMetrics(db, { run_id: 'run-sup-1', story_key: '17-1', result: 'success' })
-    writeStoryMetrics(db, { run_id: 'run-sup-1', story_key: '17-2', result: 'failed' })
+    await writeStoryMetrics(adapter, { run_id: 'run-sup-1', story_key: '17-1', result: 'success' })
+    await writeStoryMetrics(adapter, { run_id: 'run-sup-1', story_key: '17-2', result: 'failed' })
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('returns null for an unknown run', () => {
-    expect(getRunSummaryForSupervisor(db, 'no-such-run')).toBeNull()
+  it('returns null for an unknown run', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    expect(await getRunSummaryForSupervisor(adapter, 'no-such-run')).toBeNull()
   })
 
-  it('returns the run row and story rows', () => {
-    const summary = getRunSummaryForSupervisor(db, 'run-sup-1')!
+  it('returns the run row and story rows', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const summary = (await getRunSummaryForSupervisor(adapter, 'run-sup-1'))!
     expect(summary).not.toBeNull()
     expect(summary.run.run_id).toBe('run-sup-1')
     expect(summary.stories).toHaveLength(2)
     expect(summary.stories.map((s) => s.story_key)).toEqual(['17-1', '17-2'])
   })
 
-  it('returns undefined baseline when none is set', () => {
-    const summary = getRunSummaryForSupervisor(db, 'run-sup-1')!
+  it('returns undefined baseline when none is set', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const summary = (await getRunSummaryForSupervisor(adapter, 'run-sup-1'))!
     expect(summary.baseline).toBeUndefined()
     expect(summary.token_vs_baseline_pct).toBeNull()
     expect(summary.review_cycles_vs_baseline_pct).toBeNull()
   })
 
-  it('computes token_vs_baseline_pct when baseline exists', () => {
+  it('computes token_vs_baseline_pct when baseline exists', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // Seed baseline run with known token counts
-    seedRunMetrics(db, {
+    await seedRunMetrics(adapter, {
       run_id: 'run-baseline',
       total_input_tokens: 800,
       total_output_tokens: 400,
       total_review_cycles: 2,
     })
-    tagRunAsBaseline(db, 'run-baseline')
+    await tagRunAsBaseline(adapter, 'run-baseline')
 
-    const summary = getRunSummaryForSupervisor(db, 'run-sup-1')!
+    const summary = (await getRunSummaryForSupervisor(adapter, 'run-sup-1'))!
     expect(summary.baseline).toBeDefined()
     expect(summary.baseline!.run_id).toBe('run-baseline')
     // Tokens: run=1500, baseline=1200 → pct = (1500-1200)/1200 * 100 = 25%
     expect(summary.token_vs_baseline_pct).toBeCloseTo(25)
   })
 
-  it('computes review_cycles_vs_baseline_pct correctly', () => {
-    seedRunMetrics(db, {
+  it('computes review_cycles_vs_baseline_pct correctly', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await seedRunMetrics(adapter, {
       run_id: 'run-baseline2',
       total_input_tokens: 1000,
       total_output_tokens: 500,
       total_review_cycles: 2,
     })
-    tagRunAsBaseline(db, 'run-baseline2')
+    await tagRunAsBaseline(adapter, 'run-baseline2')
 
-    const summary = getRunSummaryForSupervisor(db, 'run-sup-1')!
+    const summary = (await getRunSummaryForSupervisor(adapter, 'run-sup-1'))!
     // cycles: run=4, baseline=2 → pct = (4-2)/2 * 100 = 100%
     expect(summary.review_cycles_vs_baseline_pct).toBeCloseTo(100)
   })
 
-  it('returns null deltas when the run IS the baseline', () => {
-    tagRunAsBaseline(db, 'run-sup-1')
-    const summary = getRunSummaryForSupervisor(db, 'run-sup-1')!
+  it('returns null deltas when the run IS the baseline', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await tagRunAsBaseline(adapter, 'run-sup-1')
+    const summary = (await getRunSummaryForSupervisor(adapter, 'run-sup-1'))!
     // When the queried run is the baseline, skip delta calculation
     expect(summary.token_vs_baseline_pct).toBeNull()
     expect(summary.review_cycles_vs_baseline_pct).toBeNull()
@@ -573,38 +615,42 @@ describe('aggregateTokenUsageForStory', () => {
     ).run(runId, phase, 'claude', input, output, cost, metadata)
   }
 
-  it('returns zeros when no token_usage rows exist for the run', () => {
+  it('returns zeros when no token_usage rows exist for the run', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertPipelineRun(db, 'run-story-empty')
-    const agg = aggregateTokenUsageForStory(db, 'run-story-empty', '17-1')
+    const agg = await aggregateTokenUsageForStory(adapter, 'run-story-empty', '17-1')
     expect(agg.input).toBe(0)
     expect(agg.output).toBe(0)
     expect(agg.cost).toBe(0)
   })
 
-  it('returns zeros when no rows match the given storyKey', () => {
+  it('returns zeros when no rows match the given storyKey', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertPipelineRun(db, 'run-story-nomatch')
     insertTokenUsageWithMetadata(
       db, 'run-story-nomatch', 'dev-story', 100, 50, 0.005,
       JSON.stringify({ storyKey: '17-2' }),
     )
-    const agg = aggregateTokenUsageForStory(db, 'run-story-nomatch', '17-1')
+    const agg = await aggregateTokenUsageForStory(adapter, 'run-story-nomatch', '17-1')
     expect(agg.input).toBe(0)
     expect(agg.output).toBe(0)
     expect(agg.cost).toBe(0)
   })
 
-  it('returns zeros when metadata is NULL', () => {
+  it('returns zeros when metadata is NULL', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertPipelineRun(db, 'run-story-null-meta')
     insertTokenUsageWithMetadata(
       db, 'run-story-null-meta', 'dev-story', 100, 50, 0.005, null,
     )
-    const agg = aggregateTokenUsageForStory(db, 'run-story-null-meta', '17-1')
+    const agg = await aggregateTokenUsageForStory(adapter, 'run-story-null-meta', '17-1')
     expect(agg.input).toBe(0)
     expect(agg.output).toBe(0)
     expect(agg.cost).toBe(0)
   })
 
-  it('aggregates only rows matching the given storyKey', () => {
+  it('aggregates only rows matching the given storyKey', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertPipelineRun(db, 'run-story-match')
     // Matching rows for story 17-1
     insertTokenUsageWithMetadata(
@@ -620,20 +666,21 @@ describe('aggregateTokenUsageForStory', () => {
       db, 'run-story-match', 'dev-story', 999, 999, 0.999,
       JSON.stringify({ storyKey: '17-2' }),
     )
-    const agg = aggregateTokenUsageForStory(db, 'run-story-match', '17-1')
+    const agg = await aggregateTokenUsageForStory(adapter, 'run-story-match', '17-1')
     expect(agg.input).toBe(300)
     expect(agg.output).toBe(130)
     expect(agg.cost).toBeCloseTo(0.015)
   })
 
-  it('does not aggregate rows from a different run', () => {
+  it('does not aggregate rows from a different run', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertPipelineRun(db, 'run-story-other-run-a')
     insertPipelineRun(db, 'run-story-other-run-b')
     insertTokenUsageWithMetadata(
       db, 'run-story-other-run-a', 'dev-story', 500, 200, 0.02,
       JSON.stringify({ storyKey: '17-1' }),
     )
-    const agg = aggregateTokenUsageForStory(db, 'run-story-other-run-b', '17-1')
+    const agg = await aggregateTokenUsageForStory(adapter, 'run-story-other-run-b', '17-1')
     expect(agg.input).toBe(0)
   })
 })
@@ -653,44 +700,49 @@ describe('incrementRunRestarts', () => {
     db.close()
   })
 
-  it('increments restarts from 0 to 1 on first call', () => {
-    seedRunMetrics(db, { run_id: 'run-restart-1', restarts: 0 })
-    incrementRunRestarts(db, 'run-restart-1')
-    expect(getRunMetrics(db, 'run-restart-1')!.restarts).toBe(1)
+  it('increments restarts from 0 to 1 on first call', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await seedRunMetrics(adapter, { run_id: 'run-restart-1', restarts: 0 })
+    await incrementRunRestarts(adapter, 'run-restart-1')
+    expect((await getRunMetrics(adapter, 'run-restart-1'))!.restarts).toBe(1)
   })
 
-  it('increments restarts multiple times correctly', () => {
-    seedRunMetrics(db, { run_id: 'run-restart-2', restarts: 0 })
-    incrementRunRestarts(db, 'run-restart-2')
-    incrementRunRestarts(db, 'run-restart-2')
-    incrementRunRestarts(db, 'run-restart-2')
-    expect(getRunMetrics(db, 'run-restart-2')!.restarts).toBe(3)
+  it('increments restarts multiple times correctly', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await seedRunMetrics(adapter, { run_id: 'run-restart-2', restarts: 0 })
+    await incrementRunRestarts(adapter, 'run-restart-2')
+    await incrementRunRestarts(adapter, 'run-restart-2')
+    await incrementRunRestarts(adapter, 'run-restart-2')
+    expect((await getRunMetrics(adapter, 'run-restart-2'))!.restarts).toBe(3)
   })
 
-  it('does not throw when the run_id does not yet exist', () => {
+  it('does not throw when the run_id does not yet exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // Should not throw — inserts a placeholder row so the count is preserved
-    expect(() => incrementRunRestarts(db, 'nonexistent-run')).not.toThrow()
+    await expect(incrementRunRestarts(adapter, 'nonexistent-run')).resolves.not.toThrow()
   })
 
-  it('preserves restart count when writeRunMetrics is called after incrementRunRestarts on nonexistent row', () => {
+  it('preserves restart count when writeRunMetrics is called after incrementRunRestarts on nonexistent row', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // Simulates the real pipeline sequence: supervisor restarts before
     // writeRunMetrics has ever been called for a run_id.
-    incrementRunRestarts(db, 'run-restart-preexist')
-    incrementRunRestarts(db, 'run-restart-preexist')
+    await incrementRunRestarts(adapter, 'run-restart-preexist')
+    await incrementRunRestarts(adapter, 'run-restart-preexist')
     // Now writeRunMetrics is called at pipeline terminal state
-    writeRunMetrics(db, {
+    await writeRunMetrics(adapter, {
       run_id: 'run-restart-preexist',
       methodology: 'bmad',
       status: 'completed',
       started_at: '2026-01-01T00:00:00.000Z',
     })
-    expect(getRunMetrics(db, 'run-restart-preexist')!.restarts).toBe(2)
+    expect((await getRunMetrics(adapter, 'run-restart-preexist'))!.restarts).toBe(2)
   })
 
-  it('does not affect other runs', () => {
-    seedRunMetrics(db, { run_id: 'run-restart-3a', restarts: 0 })
-    seedRunMetrics(db, { run_id: 'run-restart-3b', restarts: 0 })
-    incrementRunRestarts(db, 'run-restart-3a')
-    expect(getRunMetrics(db, 'run-restart-3b')!.restarts).toBe(0)
+  it('does not affect other runs', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await seedRunMetrics(adapter, { run_id: 'run-restart-3a', restarts: 0 })
+    await seedRunMetrics(adapter, { run_id: 'run-restart-3b', restarts: 0 })
+    await incrementRunRestarts(adapter, 'run-restart-3a')
+    expect((await getRunMetrics(adapter, 'run-restart-3b'))!.restarts).toBe(0)
   })
 })

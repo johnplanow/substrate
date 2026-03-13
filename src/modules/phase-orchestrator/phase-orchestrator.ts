@@ -101,5 +101,5 @@ export interface PhaseOrchestrator {
    * @param phase - The phase name that failed (e.g., 'solutioning')
    * @param reason - Human-readable failure reason
    */
-  markPhaseFailed(runId: string, phase: string, reason: string): void
+  markPhaseFailed(runId: string, phase: string, reason: string): Promise<void>
 }

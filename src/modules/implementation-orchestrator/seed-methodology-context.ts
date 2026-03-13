@@ -12,7 +12,7 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import { createDecision, getDecisionsByPhase, upsertDecision } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 
@@ -54,15 +54,15 @@ export interface SeedResult {
  * @param projectRoot - Absolute path to the target project root
  * @returns SeedResult with counts of decisions created and categories skipped
  */
-export function seedMethodologyContext(
-  db: BetterSqlite3Database,
+export async function seedMethodologyContext(
+  db: DatabaseAdapter,
   projectRoot: string,
-): SeedResult {
+): Promise<SeedResult> {
   const result: SeedResult = { decisionsCreated: 0, skippedCategories: [] }
 
   try {
     // Seed architecture constraints (consumed by code-review + create-story)
-    const archCount = seedArchitecture(db, projectRoot)
+    const archCount = await seedArchitecture(db, projectRoot)
     if (archCount === -1) {
       result.skippedCategories.push('architecture')
     } else {
@@ -70,7 +70,7 @@ export function seedMethodologyContext(
     }
 
     // Seed epic shards (consumed by create-story)
-    const epicCount = seedEpicShards(db, projectRoot)
+    const epicCount = await seedEpicShards(db, projectRoot)
     if (epicCount === -1) {
       result.skippedCategories.push('epic-shard')
     } else {
@@ -78,7 +78,7 @@ export function seedMethodologyContext(
     }
 
     // Seed test patterns (consumed by dev-story)
-    const testCount = seedTestPatterns(db, projectRoot)
+    const testCount = await seedTestPatterns(db, projectRoot)
     if (testCount === -1) {
       result.skippedCategories.push('test-patterns')
     } else {
@@ -108,9 +108,9 @@ export function seedMethodologyContext(
  * Extracts key sections (tech stack, ADRs, component overview) as separate decisions.
  * Returns number of decisions created, or -1 if skipped (already seeded).
  */
-function seedArchitecture(db: BetterSqlite3Database, projectRoot: string): number {
+async function seedArchitecture(db: DatabaseAdapter, projectRoot: string): Promise<number> {
   // Check if architecture decisions already exist
-  const existing = getDecisionsByPhase(db, 'solutioning')
+  const existing = await getDecisionsByPhase(db, 'solutioning')
   if (existing.some((d) => d.category === 'architecture')) {
     return -1
   }
@@ -130,7 +130,7 @@ function seedArchitecture(db: BetterSqlite3Database, projectRoot: string): numbe
   let count = 0
 
   for (const section of sections) {
-    createDecision(db, {
+    await createDecision(db, {
       pipeline_run_id: null,
       phase: 'solutioning',
       category: 'architecture',
@@ -143,7 +143,7 @@ function seedArchitecture(db: BetterSqlite3Database, projectRoot: string): numbe
 
   if (count === 0) {
     // Fallback: seed the whole file (truncated) as a single decision
-    createDecision(db, {
+    await createDecision(db, {
       pipeline_run_id: null,
       phase: 'solutioning',
       category: 'architecture',
@@ -169,7 +169,7 @@ function seedArchitecture(db: BetterSqlite3Database, projectRoot: string): numbe
  *
  * Returns number of decisions created, or -1 if skipped (hash unchanged).
  */
-function seedEpicShards(db: BetterSqlite3Database, projectRoot: string): number {
+async function seedEpicShards(db: DatabaseAdapter, projectRoot: string): Promise<number> {
   const epicsPath = findArtifact(projectRoot, [
     '_bmad-output/planning-artifacts/epics.md',
     '_bmad-output/epics.md',
@@ -183,7 +183,7 @@ function seedEpicShards(db: BetterSqlite3Database, projectRoot: string): number 
   const currentHash = createHash('sha256').update(content).digest('hex')
 
   // Retrieve stored hash from the decision store
-  const implementationDecisions = getDecisionsByPhase(db, 'implementation')
+  const implementationDecisions = await getDecisionsByPhase(db, 'implementation')
   const storedHashDecision = implementationDecisions.find(
     (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file',
   )
@@ -198,14 +198,14 @@ function seedEpicShards(db: BetterSqlite3Database, projectRoot: string): number 
   // AC1/AC6: Hash differs or missing — delete existing epic-shard decisions and re-seed
   if (implementationDecisions.some((d) => d.category === 'epic-shard')) {
     logger.debug({ storedHash, currentHash }, 'Epics file changed — deleting stale epic-shard decisions')
-    db.prepare("DELETE FROM decisions WHERE phase = 'implementation' AND category = 'epic-shard'").run()
+    await db.exec("DELETE FROM decisions WHERE phase = 'implementation' AND category = 'epic-shard'")
   }
 
   const shards = parseEpicShards(content)
   let count = 0
 
   for (const shard of shards) {
-    createDecision(db, {
+    await createDecision(db, {
       pipeline_run_id: null,
       phase: 'implementation',
       category: 'epic-shard',
@@ -219,10 +219,10 @@ function seedEpicShards(db: BetterSqlite3Database, projectRoot: string): number 
   // Store/update the content hash so subsequent calls can skip re-seeding.
   // Use delete + create (not upsertDecision) because upsertDecision's SQL
   // `pipeline_run_id = ?` with null never matches existing NULL rows in SQLite.
-  db.prepare(
+  await db.exec(
     "DELETE FROM decisions WHERE phase = 'implementation' AND category = 'epic-shard-hash' AND key = 'epics-file'",
-  ).run()
-  createDecision(db, {
+  )
+  await createDecision(db, {
     pipeline_run_id: null,
     phase: 'implementation',
     category: 'epic-shard-hash',
@@ -240,9 +240,9 @@ function seedEpicShards(db: BetterSqlite3Database, projectRoot: string): number 
  * Detects test framework from package.json and seeds appropriate patterns.
  * Returns number of decisions created, or -1 if skipped (already seeded).
  */
-function seedTestPatterns(db: BetterSqlite3Database, projectRoot: string): number {
+async function seedTestPatterns(db: DatabaseAdapter, projectRoot: string): Promise<number> {
   // Check if test-patterns decisions already exist
-  const existing = getDecisionsByPhase(db, 'solutioning')
+  const existing = await getDecisionsByPhase(db, 'solutioning')
   if (existing.some((d) => d.category === 'test-patterns')) {
     return -1
   }
@@ -250,7 +250,7 @@ function seedTestPatterns(db: BetterSqlite3Database, projectRoot: string): numbe
   const patterns = detectTestPatterns(projectRoot)
   if (patterns === undefined) return 0
 
-  createDecision(db, {
+  await createDecision(db, {
     pipeline_run_id: null,
     phase: 'solutioning',
     category: 'test-patterns',

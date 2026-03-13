@@ -21,7 +21,7 @@
  *   const decisions = handler.getParentDecisions()
  */
 
-import type { Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import { loadParentRunDecisions } from '../../persistence/queries/amendments.js'
 import type { Decision } from '../../persistence/schemas/decisions.js'
 import type { PhaseName } from '../stop-after/types.js'
@@ -171,13 +171,13 @@ function buildContextBlock(
  * @param options - Optional configuration (phaseFilter, framingConcept)
  * @returns AmendmentContextHandler instance
  */
-export function createAmendmentContextHandler(
-  db: Database,
+export async function createAmendmentContextHandler(
+  db: DatabaseAdapter,
   parentRunId: string,
   options?: Partial<AmendmentPhaseRunOptions>,
-): AmendmentContextHandler {
+): Promise<AmendmentContextHandler> {
   // Eagerly load parent decisions at construction time (AC5, Dev Notes: Loading Strategy)
-  const allDecisions: Decision[] = loadParentRunDecisions(db, parentRunId)
+  const allDecisions: Decision[] = await loadParentRunDecisions(db, parentRunId)
 
   // Apply phaseFilter if provided
   const parentDecisions: Decision[] =

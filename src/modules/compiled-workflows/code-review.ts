@@ -109,7 +109,7 @@ export async function runCodeReview(
   }
 
   // Step 3: Query architecture constraints from decision store
-  const archConstraintsContent = getArchConstraints(deps)
+  const archConstraintsContent = await getArchConstraints(deps)
 
   // Step 4: Capture git diff using three-tier strategy.
   // Tier 1: Scoped diff (only files modified by dev-story) — most useful for review
@@ -199,7 +199,7 @@ export async function runCodeReview(
   // Query prior findings for learning loop injection (Story 22-1, AC3)
   let priorFindingsContent = ''
   try {
-    const findings = getProjectFindings(deps.db)
+    const findings = await getProjectFindings(deps.db)
     if (findings.length > 0) {
       priorFindingsContent = 'Previous reviews found these recurring patterns — pay special attention:\n\n' + findings
       logger.debug({ storyKey, findingsLen: findings.length }, 'Injecting prior findings into code-review prompt')
@@ -348,9 +348,9 @@ export async function runCodeReview(
  * Retrieve architecture constraints from the decision store.
  * Looks for decisions with phase='solutioning', category='architecture'.
  */
-function getArchConstraints(deps: WorkflowDeps): string {
+async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
   try {
-    const decisions = getDecisionsByPhase(deps.db, 'solutioning')
+    const decisions = await getDecisionsByPhase(deps.db, 'solutioning')
     const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
     if (constraints.length === 0) return ''
     return constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')

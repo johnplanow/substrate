@@ -11,6 +11,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 
@@ -118,15 +120,17 @@ function createMockDispatcher(): Dispatcher {
 
 describe('AC8: story:metrics event emitted on terminal state', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let runId: string
   let emittedEvents: Array<{ event: string; payload: unknown }>
   let eventBus: TypedEventBus
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = new BetterSqlite3(':memory:')
     db.pragma('foreign_keys = ON')
     runMigrations(db)
-    const run = createPipelineRun(db, { methodology: 'bmad' })
+    adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     runId = run.id
 
     // Capture emitted events
@@ -164,7 +168,7 @@ describe('AC8: story:metrics event emitted on terminal state', () => {
     } as any)
 
     const orchestrator = createImplementationOrchestrator({
-      db,
+      db: adapter,
       pack: createMockPack(),
       contextCompiler: createMockContextCompiler(),
       dispatcher: createMockDispatcher(),
@@ -202,7 +206,7 @@ describe('AC8: story:metrics event emitted on terminal state', () => {
     mockRunCreateStory.mockRejectedValue(new Error('Simulated create-story failure'))
 
     const orchestrator = createImplementationOrchestrator({
-      db,
+      db: adapter,
       pack: createMockPack(),
       contextCompiler: createMockContextCompiler(),
       dispatcher: createMockDispatcher(),
@@ -242,7 +246,7 @@ describe('AC8: story:metrics event emitted on terminal state', () => {
     } as any)
 
     const orchestrator = createImplementationOrchestrator({
-      db,
+      db: adapter,
       pack: createMockPack(),
       contextCompiler: createMockContextCompiler(),
       dispatcher: createMockDispatcher(),
@@ -292,7 +296,7 @@ describe('AC8: story:metrics event emitted on terminal state', () => {
     } as any)
 
     const orchestrator = createImplementationOrchestrator({
-      db,
+      db: adapter,
       pack: createMockPack(),
       contextCompiler: createMockContextCompiler(),
       dispatcher: createMockDispatcher(),

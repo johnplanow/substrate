@@ -14,6 +14,7 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 import { getAutoHealthData, inspectProcessTree, isOrchestratorProcessLine, getAllDescendantPids, DEFAULT_STALL_THRESHOLD_SECONDS } from '../health.js'
 import { runSupervisorAction } from '../supervisor.js'
 import type { SupervisorDeps, SupervisorOptions } from '../supervisor.js'
@@ -29,7 +30,7 @@ function createTestDb(): BetterSqlite3Database {
   return db
 }
 
-function createTestRun(
+async function createTestRun(
   db: BetterSqlite3Database,
   overrides: {
     status?: string
@@ -37,8 +38,8 @@ function createTestRun(
     token_usage_json?: string
     updated_at?: string
   } = {},
-): PipelineRun {
-  const run = createPipelineRun(db, {
+): Promise<PipelineRun> {
+  const run = await createPipelineRun(new SqliteDatabaseAdapter(db), {
     methodology: 'bmad',
     start_phase: 'implementation',
     config_json: null,
@@ -62,7 +63,8 @@ function createTestRun(
 // Module mocks (same pattern as auto-health.test.ts)
 // ---------------------------------------------------------------------------
 
-vi.mock('../../../persistence/database.js', () => {
+vi.mock('../../../persistence/database.js', async () => {
+  const { SqliteDatabaseAdapter } = await import('../../../persistence/sqlite-adapter.js')
   let mockDb: BetterSqlite3Database | null = null
   return {
     DatabaseWrapper: class {
@@ -72,6 +74,9 @@ vi.mock('../../../persistence/database.js', () => {
       }
       open() { /* noop */ }
       close() { /* noop */ }
+      get adapter() {
+        return new SqliteDatabaseAdapter(this.db)
+      }
     },
     __setMockDb: (db: BetterSqlite3Database) => { mockDb = db },
   }
@@ -113,7 +118,7 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
       .replace('T', ' ')
       .replace(/\.\d{3}Z$/, '') // "2026-03-02 04:01:56"
 
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       updated_at: sqliteFormat,
     })
@@ -132,7 +137,7 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
       .replace('T', ' ')
       .replace(/\.\d{3}Z$/, '')
 
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       updated_at: sqliteFormat,
     })
@@ -150,7 +155,7 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
       .replace('T', ' ')
       .replace(/\.\d{3}Z$/, '')
 
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       updated_at: sqliteFormat,
     })
@@ -164,7 +169,7 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
   it('also works for ISO timestamps with Z suffix (existing format)', async () => {
     const isoWithZ = new Date(Date.now() - 300_000).toISOString() // already has Z
 
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       updated_at: isoWithZ,
     })
@@ -446,7 +451,7 @@ describe('getAutoHealthData — AC7: health detection across all phases', () => 
 
   for (const phase of runningPhases) {
     it(`returns HEALTHY verdict for a running pipeline in ${phase} phase (recent activity)`, async () => {
-      createTestRun(db, {
+      await createTestRun(db,{
         status: 'running',
         current_phase: phase,
         updated_at: new Date().toISOString(), // fresh — not stale
@@ -464,7 +469,7 @@ describe('getAutoHealthData — AC7: health detection across all phases', () => 
 
   it('verdict is derived from run.status, not current_phase', async () => {
     // A completed run in any phase must be NO_PIPELINE_RUNNING
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'completed',
       current_phase: 'implementation',
     })
@@ -476,7 +481,7 @@ describe('getAutoHealthData — AC7: health detection across all phases', () => 
 
   it('a stale pipeline in analysis phase is detected as STALLED', async () => {
     const elevenMinAgo = new Date(Date.now() - 700_000).toISOString()
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'analysis',
       updated_at: elevenMinAgo,
@@ -489,7 +494,7 @@ describe('getAutoHealthData — AC7: health detection across all phases', () => 
 
   it('a stale pipeline in planning phase is detected as STALLED', async () => {
     const elevenMinAgo = new Date(Date.now() - 700_000).toISOString()
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'planning',
       updated_at: elevenMinAgo,
@@ -817,7 +822,7 @@ describe('getAutoHealthData — child liveness prevents false STALLED', () => {
   it('returns HEALTHY when stale but orchestrator has live non-zombie children', async () => {
     // Pipeline is 12 minutes stale (> 600s threshold) but children are alive
     const twelveMinAgo = new Date(Date.now() - 720_000).toISOString()
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       updated_at: twelveMinAgo,

@@ -5,7 +5,7 @@
  * as well as the shared dependency injection interface used by all phases.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { Dispatcher } from '../../agent-dispatch/types.js'
@@ -20,8 +20,8 @@ import type { TypedEventBus } from '../../../core/event-bus.js'
  * Each phase receives the same set of shared dependencies.
  */
 export interface PhaseDeps {
-  /** SQLite database instance (WAL mode, per ADR-003) */
-  db: BetterSqlite3Database
+  /** Database adapter instance (per ADR-003) */
+  db: DatabaseAdapter
   /** Loaded methodology pack (provides prompts, constraints, templates) */
   pack: MethodologyPack
   /** Context compiler (provides countTokens and compile utilities) */

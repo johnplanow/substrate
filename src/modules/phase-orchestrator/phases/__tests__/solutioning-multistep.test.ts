@@ -15,6 +15,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
   createPipelineRun,
   createDecision,
@@ -30,28 +32,29 @@ import type { Dispatcher, DispatchResult } from '../../../agent-dispatch/types.j
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'solutioning-multistep-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
-function seedPlanningDecisions(db: BetterSqlite3Database, runId: string): void {
+async function seedPlanningDecisions(adapter: DatabaseAdapter, runId: string): Promise<void> {
   // Seed functional requirements
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'planning',
     category: 'functional-requirements',
     key: 'FR-0',
     value: JSON.stringify({ description: 'Users can create tasks', priority: 'must' }),
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'planning',
     category: 'functional-requirements',
@@ -59,7 +62,7 @@ function seedPlanningDecisions(db: BetterSqlite3Database, runId: string): void {
     value: JSON.stringify({ description: 'Users can view task board', priority: 'must' }),
   })
   // Seed non-functional requirements
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'planning',
     category: 'non-functional-requirements',
@@ -250,11 +253,11 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack: MethodologyPack,
 ): PhaseDeps {
-  return { db, pack, contextCompiler: makeContextCompiler(), dispatcher }
+  return { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
 
 // ---------------------------------------------------------------------------
@@ -263,15 +266,17 @@ function makeDeps(
 
 describe('runSolutioningPhase() multi-step path', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
-    seedPlanningDecisions(db, runId)
+    runId = await createTestRun(adapter)
+    await seedPlanningDecisions(adapter, runId)
   })
 
   afterEach(() => {
@@ -282,7 +287,7 @@ describe('runSolutioningPhase() multi-step path', () => {
   it('uses multi-step path for both architecture and story generation', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: SolutioningPhaseParams = { runId }
 
     const result = await runSolutioningPhase(deps, params)
@@ -295,13 +300,13 @@ describe('runSolutioningPhase() multi-step path', () => {
   it('persists architecture decisions from all 3 arch steps', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: SolutioningPhaseParams = { runId }
 
     await runSolutioningPhase(deps, params)
 
-    const archDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-      .filter((d) => d.category === 'architecture')
+    const allDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
+    const archDecisions = allDecisions.filter((d) => d.category === 'architecture')
     // Step runner uses step-name-prefixed keys, so no collisions across steps:
     // Step 1 produces 2 decisions (architecture-step-1-context-0, architecture-step-1-context-1)
     // Step 2 produces 1 decision (architecture-step-2-decisions-0)
@@ -313,15 +318,14 @@ describe('runSolutioningPhase() multi-step path', () => {
   it('persists epics and stories from multi-step story generation', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: SolutioningPhaseParams = { runId }
 
     await runSolutioningPhase(deps, params)
 
-    const epicDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-      .filter((d) => d.category === 'epics')
-    const storyDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-      .filter((d) => d.category === 'stories')
+    const allSolutioningDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
+    const epicDecisions = allSolutioningDecisions.filter((d) => d.category === 'epics')
+    const storyDecisions = allSolutioningDecisions.filter((d) => d.category === 'stories')
 
     expect(epicDecisions.length).toBeGreaterThanOrEqual(1)
     expect(storyDecisions.length).toBeGreaterThanOrEqual(2)
@@ -330,7 +334,7 @@ describe('runSolutioningPhase() multi-step path', () => {
   it('runs readiness check after multi-step story generation', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: SolutioningPhaseParams = { runId }
 
     const result = await runSolutioningPhase(deps, params)
@@ -342,7 +346,7 @@ describe('runSolutioningPhase() multi-step path', () => {
   it('returns story and epic counts on success', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: SolutioningPhaseParams = { runId }
 
     const result = await runSolutioningPhase(deps, params)
@@ -357,7 +361,7 @@ describe('runSolutioningPhase() multi-step path', () => {
   it('accumulates token usage from all steps', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: SolutioningPhaseParams = { runId }
 
     const result = await runSolutioningPhase(deps, params)
@@ -442,7 +446,7 @@ describe('runSolutioningPhase() multi-step path', () => {
       return Promise.resolve('Template: {{requirements}} {{architecture_decisions}} {{gap_analysis}}')
     })
 
-    const deps = makeDeps(db, dispatcher, noStepsPack)
+    const deps = makeDeps(adapter, dispatcher, noStepsPack)
     const params: SolutioningPhaseParams = { runId }
 
     const result = await runSolutioningPhase(deps, params)
@@ -468,7 +472,7 @@ describe('runSolutioningPhase() multi-step path', () => {
       getRunning: vi.fn().mockReturnValue(0),
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: SolutioningPhaseParams = { runId }
 
     const result = await runSolutioningPhase(deps, params)
@@ -481,25 +485,25 @@ describe('runSolutioningPhase() multi-step path', () => {
     // Run the full multi-step solutioning phase once to completion
     const pack = makeMultiStepPack()
     const dispatcher1 = makeMultiStepDispatcher()
-    const deps1 = makeDeps(db, dispatcher1, pack)
+    const deps1 = makeDeps(adapter, dispatcher1, pack)
     const params: SolutioningPhaseParams = { runId }
 
     await runSolutioningPhase(deps1, params)
 
-    const archDecisionsAfterFirstRun = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-      .filter((d) => d.category === 'architecture')
+    const allAfterFirst = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
+    const archDecisionsAfterFirstRun = allAfterFirst.filter((d) => d.category === 'architecture')
     const countAfterFirst = archDecisionsAfterFirstRun.length
 
     // Simulate running architecture generation again by calling runSolutioningPhase a second
     // time on the same runId. The existing architecture artifact causes the arch sub-phase
     // to be skipped entirely (skip-on-retry guard), so decision count must stay the same.
     const dispatcher2 = makeMultiStepDispatcher()
-    const deps2 = makeDeps(db, dispatcher2, pack)
+    const deps2 = makeDeps(adapter, dispatcher2, pack)
 
     await runSolutioningPhase(deps2, params)
 
-    const archDecisionsAfterSecondRun = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-      .filter((d) => d.category === 'architecture')
+    const allAfterSecond = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
+    const archDecisionsAfterSecondRun = allAfterSecond.filter((d) => d.category === 'architecture')
     const countAfterSecond = archDecisionsAfterSecondRun.length
 
     // Decision count must not increase — upsert/skip-on-retry guarantees no doubling

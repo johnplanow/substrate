@@ -8,7 +8,7 @@
  *   - `formatActionableError` — categorize and format error message (AC7)
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,25 +30,24 @@ export interface FailedTaskDetail {
 /**
  * Query all failed tasks for a session from the database.
  */
-export function fetchFailedTaskDetails(
-  db: BetterSqlite3Database,
+export async function fetchFailedTaskDetails(
+  db: DatabaseAdapter,
   sessionId: string,
-): FailedTaskDetail[] {
-  const rows = db
-    .prepare(
-      `SELECT id, agent, exit_code, error, completed_at, retry_count
-       FROM tasks
-       WHERE session_id = ? AND status = 'failed'
-       ORDER BY created_at ASC`,
-    )
-    .all(sessionId) as Array<{
+): Promise<FailedTaskDetail[]> {
+  const rows = await db.query<{
     id: string
     agent: string | null
     exit_code: number | null
     error: string | null
     completed_at: string | null
     retry_count: number
-  }>
+  }>(
+    `SELECT id, agent, exit_code, error, completed_at, retry_count
+     FROM tasks
+     WHERE session_id = ? AND status = 'failed'
+     ORDER BY created_at ASC`,
+    [sessionId],
+  )
 
   return rows.map((row) => ({
     taskId: row.id,

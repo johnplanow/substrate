@@ -106,6 +106,7 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
   try {
     dbWrapper.open()
     const db = dbWrapper.db
+    const adapter = dbWrapper.adapter
 
     // Query pipeline run
     let run: PipelineRun | undefined
@@ -114,7 +115,7 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
         .prepare('SELECT * FROM pipeline_runs WHERE id = ?')
         .get(runId) as PipelineRun | undefined
     } else {
-      run = getLatestRun(db)
+      run = await getLatestRun(adapter)
     }
 
     if (run === undefined) {
@@ -131,7 +132,7 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
     }
 
     // Get token usage summary
-    const tokenSummary = getTokenUsageSummary(db, run.id)
+    const tokenSummary = await getTokenUsageSummary(adapter, run.id)
 
     // Count decisions and stories
     const decisionsCount =
@@ -165,7 +166,7 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
       const statusOutput = buildPipelineStatusOutput(run, tokenSummary, decisionsCount, storiesCount)
 
       // Story 24-4 (AC5, AC6): augment with per-story metrics and pipeline summary
-      const storyMetricsRows = getStoryMetricsForRun(db, run.id)
+      const storyMetricsRows = await getStoryMetricsForRun(adapter, run.id)
 
       // Per-story v2 metrics (wall_clock_ms, phase_breakdown, tokens, review_cycles, dispatches)
       const storyMetricsV2 = storyMetricsRows.map((row) => {

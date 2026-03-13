@@ -10,6 +10,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createDecision, getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
 import { STORY_METRICS } from '../../../persistence/schemas/operational.js'
@@ -18,11 +20,12 @@ import { STORY_METRICS } from '../../../persistence/schemas/operational.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function openTestDb(): BetterSqlite3Database {
+function openTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new BetterSqlite3(':memory:')
   db.pragma('foreign_keys = ON')
   runMigrations(db)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 // ---------------------------------------------------------------------------
@@ -31,14 +34,17 @@ function openTestDb(): BetterSqlite3Database {
 
 describe('AC4: Orchestrator writes story-metrics decisions', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openTestDb()
+    const setup = openTestDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
-  it('inserts story-metrics decision with correct key format and value shape', () => {
+  it('inserts story-metrics decision with correct key format and value shape', async () => {
     const storyKey = '1-1'
-    const run = createPipelineRun(db, { methodology: 'bmad' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     const runId = run.id
     const wallClockSeconds = 180
     const inputTokens = 8000
@@ -46,7 +52,7 @@ describe('AC4: Orchestrator writes story-metrics decisions', () => {
     const reviewCycles = 2
     const stalled = false
 
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'implementation',
       category: STORY_METRICS,
@@ -61,7 +67,7 @@ describe('AC4: Orchestrator writes story-metrics decisions', () => {
       rationale: `Story ${storyKey} completed with result=success in ${wallClockSeconds}s.`,
     })
 
-    const decisions = getDecisionsByCategory(db, STORY_METRICS)
+    const decisions = await getDecisionsByCategory(adapter, STORY_METRICS)
     expect(decisions).toHaveLength(1)
 
     const d = decisions[0]!
@@ -78,13 +84,13 @@ describe('AC4: Orchestrator writes story-metrics decisions', () => {
     expect(val.stalled).toBe(false)
   })
 
-  it('uses "unknown" as run_id fallback when pipelineRunId is null', () => {
+  it('uses "unknown" as run_id fallback when pipelineRunId is null', async () => {
     // This tests the fix for review issue #4
     const storyKey = '2-1'
     const runId = null
     const safeRunId = runId ?? 'unknown'
 
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'implementation',
       category: STORY_METRICS,
@@ -98,7 +104,7 @@ describe('AC4: Orchestrator writes story-metrics decisions', () => {
       }),
     })
 
-    const decisions = getDecisionsByCategory(db, STORY_METRICS)
+    const decisions = await getDecisionsByCategory(adapter, STORY_METRICS)
     expect(decisions).toHaveLength(1)
 
     const d = decisions[0]!
@@ -111,8 +117,8 @@ describe('AC4: Orchestrator writes story-metrics decisions', () => {
     expect(val.stalled).toBe(true)
   })
 
-  it('multiple stories produce multiple decisions', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
+  it('multiple stories produce multiple decisions', async () => {
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     const runId = run.id
     const stories = [
       { key: '1-1', wall: 100, input: 5000, output: 1000, cycles: 1, stalled: false },
@@ -120,7 +126,7 @@ describe('AC4: Orchestrator writes story-metrics decisions', () => {
     ]
 
     for (const s of stories) {
-      createDecision(db, {
+      await createDecision(adapter, {
         pipeline_run_id: runId,
         phase: 'implementation',
         category: STORY_METRICS,
@@ -135,7 +141,7 @@ describe('AC4: Orchestrator writes story-metrics decisions', () => {
       })
     }
 
-    const decisions = getDecisionsByCategory(db, STORY_METRICS)
+    const decisions = await getDecisionsByCategory(adapter, STORY_METRICS)
     expect(decisions).toHaveLength(2)
 
     const keys = decisions.map((d) => d.key)

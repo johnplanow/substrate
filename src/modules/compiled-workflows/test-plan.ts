@@ -94,7 +94,7 @@ export async function runTestPlan(
   // Step 3: Query architecture constraints from decision store (optional context)
   // ---------------------------------------------------------------------------
 
-  const archConstraintsContent = getArchConstraints(deps)
+  const archConstraintsContent = await getArchConstraints(deps)
 
   // ---------------------------------------------------------------------------
   // Step 4: Assemble prompt with token budget enforcement
@@ -179,7 +179,7 @@ export async function runTestPlan(
   const parsed = dispatchResult.parsed
 
   try {
-    createDecision(deps.db, {
+    await createDecision(deps.db, {
       pipeline_run_id: pipelineRunId,
       phase: 'implementation',
       category: TEST_PLAN,
@@ -238,9 +238,9 @@ function makeTestPlanFailureResult(error: string): TestPlanResult {
  * Looks for decisions with phase='solutioning', category='architecture'.
  * Returns empty string if none found or on error (graceful degradation).
  */
-function getArchConstraints(deps: WorkflowDeps): string {
+async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
   try {
-    const decisions = getDecisionsByPhase(deps.db, 'solutioning')
+    const decisions = await getDecisionsByPhase(deps.db, 'solutioning')
     const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
     if (constraints.length === 0) return ''
     return constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')

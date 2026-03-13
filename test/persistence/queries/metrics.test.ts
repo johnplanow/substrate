@@ -9,6 +9,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import { SqliteDatabaseAdapter } from '../../../src/persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../src/persistence/adapter.js'
 import { runMigrations } from '../../../src/persistence/migrations/index.js'
 import {
   writeRunMetrics,
@@ -22,12 +24,13 @@ import {
   aggregateTokenUsageForRun,
 } from '../../../src/persistence/queries/metrics.js'
 
-function openMemoryDb(): BetterSqlite3Database {
+function openMemoryDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new BetterSqlite3(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   runMigrations(db)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 const BASE_RUN: Parameters<typeof writeRunMetrics>[1] = {
@@ -51,9 +54,12 @@ const BASE_RUN: Parameters<typeof writeRunMetrics>[1] = {
 
 describe('run metrics queries', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMemoryDb()
+    const setup = openMemoryDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
@@ -61,13 +67,13 @@ describe('run metrics queries', () => {
   })
 
   describe('writeRunMetrics', () => {
-    it('inserts a run metrics row without error', () => {
-      expect(() => writeRunMetrics(db, BASE_RUN)).not.toThrow()
+    it('inserts a run metrics row without error', async () => {
+      await expect(writeRunMetrics(adapter, BASE_RUN)).resolves.not.toThrow()
     })
 
-    it('round-trips the run metrics row', () => {
-      writeRunMetrics(db, BASE_RUN)
-      const row = getRunMetrics(db, 'run-001')
+    it('round-trips the run metrics row', async () => {
+      await writeRunMetrics(adapter, BASE_RUN)
+      const row = await getRunMetrics(adapter, 'run-001')
       expect(row).toBeDefined()
       expect(row?.run_id).toBe('run-001')
       expect(row?.methodology).toBe('bmad')
@@ -85,22 +91,22 @@ describe('run metrics queries', () => {
       expect(row?.is_baseline).toBe(0)
     })
 
-    it('upserts on repeated write (INSERT OR REPLACE)', () => {
-      writeRunMetrics(db, BASE_RUN)
-      writeRunMetrics(db, { ...BASE_RUN, status: 'failed', stories_failed: 1 })
-      const row = getRunMetrics(db, 'run-001')
+    it('upserts on repeated write (INSERT OR REPLACE)', async () => {
+      await writeRunMetrics(adapter, BASE_RUN)
+      await writeRunMetrics(adapter, { ...BASE_RUN, status: 'failed', stories_failed: 1 })
+      const row = await getRunMetrics(adapter, 'run-001')
       expect(row?.status).toBe('failed')
       expect(row?.stories_failed).toBe(1)
     })
 
-    it('uses defaults for optional fields', () => {
-      writeRunMetrics(db, {
+    it('uses defaults for optional fields', async () => {
+      await writeRunMetrics(adapter, {
         run_id: 'run-min',
         methodology: 'bmad',
         status: 'running',
         started_at: '2026-01-01T00:00:00Z',
       })
-      const row = getRunMetrics(db, 'run-min')
+      const row = await getRunMetrics(adapter, 'run-min')
       expect(row?.total_input_tokens).toBe(0)
       expect(row?.total_output_tokens).toBe(0)
       expect(row?.is_baseline).toBe(0)
@@ -109,46 +115,46 @@ describe('run metrics queries', () => {
   })
 
   describe('getRunMetrics', () => {
-    it('returns undefined for unknown run_id', () => {
-      expect(getRunMetrics(db, 'nonexistent')).toBeUndefined()
+    it('returns undefined for unknown run_id', async () => {
+      expect(await getRunMetrics(adapter, 'nonexistent')).toBeUndefined()
     })
 
-    it('returns the correct row for known run_id', () => {
-      writeRunMetrics(db, BASE_RUN)
-      const row = getRunMetrics(db, 'run-001')
+    it('returns the correct row for known run_id', async () => {
+      await writeRunMetrics(adapter, BASE_RUN)
+      const row = await getRunMetrics(adapter, 'run-001')
       expect(row?.run_id).toBe('run-001')
     })
   })
 
   describe('listRunMetrics', () => {
-    it('returns empty array when no rows exist', () => {
-      expect(listRunMetrics(db)).toEqual([])
+    it('returns empty array when no rows exist', async () => {
+      expect(await listRunMetrics(adapter)).toEqual([])
     })
 
-    it('returns all rows when fewer than limit', () => {
-      writeRunMetrics(db, BASE_RUN)
-      writeRunMetrics(db, { ...BASE_RUN, run_id: 'run-002', started_at: '2026-01-02T00:00:00Z' })
-      const rows = listRunMetrics(db)
+    it('returns all rows when fewer than limit', async () => {
+      await writeRunMetrics(adapter, BASE_RUN)
+      await writeRunMetrics(adapter, { ...BASE_RUN, run_id: 'run-002', started_at: '2026-01-02T00:00:00Z' })
+      const rows = await listRunMetrics(adapter)
       expect(rows).toHaveLength(2)
     })
 
-    it('respects limit parameter', () => {
+    it('respects limit parameter', async () => {
       for (let i = 1; i <= 5; i++) {
-        writeRunMetrics(db, {
+        await writeRunMetrics(adapter, {
           ...BASE_RUN,
           run_id: `run-00${i}`,
           started_at: `2026-01-0${i}T00:00:00Z`,
         })
       }
-      const rows = listRunMetrics(db, 3)
+      const rows = await listRunMetrics(adapter, 3)
       expect(rows).toHaveLength(3)
     })
 
-    it('returns rows in descending started_at order', () => {
-      writeRunMetrics(db, { ...BASE_RUN, run_id: 'run-a', started_at: '2026-01-01T00:00:00Z' })
-      writeRunMetrics(db, { ...BASE_RUN, run_id: 'run-b', started_at: '2026-01-03T00:00:00Z' })
-      writeRunMetrics(db, { ...BASE_RUN, run_id: 'run-c', started_at: '2026-01-02T00:00:00Z' })
-      const rows = listRunMetrics(db)
+    it('returns rows in descending started_at order', async () => {
+      await writeRunMetrics(adapter, { ...BASE_RUN, run_id: 'run-a', started_at: '2026-01-01T00:00:00Z' })
+      await writeRunMetrics(adapter, { ...BASE_RUN, run_id: 'run-b', started_at: '2026-01-03T00:00:00Z' })
+      await writeRunMetrics(adapter, { ...BASE_RUN, run_id: 'run-c', started_at: '2026-01-02T00:00:00Z' })
+      const rows = await listRunMetrics(adapter)
       expect(rows[0].run_id).toBe('run-b')
       expect(rows[1].run_id).toBe('run-c')
       expect(rows[2].run_id).toBe('run-a')
@@ -156,43 +162,43 @@ describe('run metrics queries', () => {
   })
 
   describe('tagRunAsBaseline', () => {
-    it('marks the run as baseline', () => {
-      writeRunMetrics(db, BASE_RUN)
-      tagRunAsBaseline(db, 'run-001')
-      const row = getRunMetrics(db, 'run-001')
+    it('marks the run as baseline', async () => {
+      await writeRunMetrics(adapter, BASE_RUN)
+      await tagRunAsBaseline(adapter, 'run-001')
+      const row = await getRunMetrics(adapter, 'run-001')
       expect(row?.is_baseline).toBe(1)
     })
 
-    it('clears existing baseline when tagging a new one', () => {
-      writeRunMetrics(db, BASE_RUN)
-      writeRunMetrics(db, { ...BASE_RUN, run_id: 'run-002', started_at: '2026-01-02T00:00:00Z' })
-      tagRunAsBaseline(db, 'run-001')
-      tagRunAsBaseline(db, 'run-002')
-      const row1 = getRunMetrics(db, 'run-001')
-      const row2 = getRunMetrics(db, 'run-002')
+    it('clears existing baseline when tagging a new one', async () => {
+      await writeRunMetrics(adapter, BASE_RUN)
+      await writeRunMetrics(adapter, { ...BASE_RUN, run_id: 'run-002', started_at: '2026-01-02T00:00:00Z' })
+      await tagRunAsBaseline(adapter, 'run-001')
+      await tagRunAsBaseline(adapter, 'run-002')
+      const row1 = await getRunMetrics(adapter, 'run-001')
+      const row2 = await getRunMetrics(adapter, 'run-002')
       expect(row1?.is_baseline).toBe(0)
       expect(row2?.is_baseline).toBe(1)
     })
   })
 
   describe('getBaselineRunMetrics', () => {
-    it('returns undefined when no baseline is set', () => {
-      writeRunMetrics(db, BASE_RUN)
-      expect(getBaselineRunMetrics(db)).toBeUndefined()
+    it('returns undefined when no baseline is set', async () => {
+      await writeRunMetrics(adapter, BASE_RUN)
+      expect(await getBaselineRunMetrics(adapter)).toBeUndefined()
     })
 
-    it('returns the baseline row after tagging', () => {
-      writeRunMetrics(db, BASE_RUN)
-      tagRunAsBaseline(db, 'run-001')
-      const baseline = getBaselineRunMetrics(db)
+    it('returns the baseline row after tagging', async () => {
+      await writeRunMetrics(adapter, BASE_RUN)
+      await tagRunAsBaseline(adapter, 'run-001')
+      const baseline = await getBaselineRunMetrics(adapter)
       expect(baseline?.run_id).toBe('run-001')
     })
   })
 
   describe('compareRunMetrics', () => {
-    beforeEach(() => {
-      writeRunMetrics(db, BASE_RUN)
-      writeRunMetrics(db, {
+    beforeEach(async () => {
+      await writeRunMetrics(adapter, BASE_RUN)
+      await writeRunMetrics(adapter, {
         ...BASE_RUN,
         run_id: 'run-002',
         started_at: '2026-01-02T00:00:00Z',
@@ -204,39 +210,39 @@ describe('run metrics queries', () => {
       })
     })
 
-    it('returns null when run A is not found', () => {
-      expect(compareRunMetrics(db, 'unknown', 'run-002')).toBeNull()
+    it('returns null when run A is not found', async () => {
+      expect(await compareRunMetrics(adapter, 'unknown', 'run-002')).toBeNull()
     })
 
-    it('returns null when run B is not found', () => {
-      expect(compareRunMetrics(db, 'run-001', 'unknown')).toBeNull()
+    it('returns null when run B is not found', async () => {
+      expect(await compareRunMetrics(adapter, 'run-001', 'unknown')).toBeNull()
     })
 
-    it('computes correct token deltas', () => {
-      const delta = compareRunMetrics(db, 'run-001', 'run-002')
+    it('computes correct token deltas', async () => {
+      const delta = await compareRunMetrics(adapter, 'run-001', 'run-002')
       expect(delta).not.toBeNull()
       expect(delta?.token_input_delta).toBe(2000)   // 12000 - 10000
       expect(delta?.token_output_delta).toBe(1000)  // 6000 - 5000
     })
 
-    it('computes correct token percentage deltas', () => {
-      const delta = compareRunMetrics(db, 'run-001', 'run-002')
+    it('computes correct token percentage deltas', async () => {
+      const delta = await compareRunMetrics(adapter, 'run-001', 'run-002')
       expect(delta?.token_input_pct).toBe(20)  // 2000/10000 * 100
       expect(delta?.token_output_pct).toBe(20) // 1000/5000 * 100
     })
 
-    it('computes correct wall clock delta', () => {
-      const delta = compareRunMetrics(db, 'run-001', 'run-002')
+    it('computes correct wall clock delta', async () => {
+      const delta = await compareRunMetrics(adapter, 'run-001', 'run-002')
       expect(delta?.wall_clock_delta_seconds).toBe(60) // 360 - 300
     })
 
-    it('computes correct review cycle delta', () => {
-      const delta = compareRunMetrics(db, 'run-001', 'run-002')
+    it('computes correct review cycle delta', async () => {
+      const delta = await compareRunMetrics(adapter, 'run-001', 'run-002')
       expect(delta?.review_cycles_delta).toBe(1) // 4 - 3
     })
 
-    it('includes run IDs in result', () => {
-      const delta = compareRunMetrics(db, 'run-001', 'run-002')
+    it('includes run IDs in result', async () => {
+      const delta = await compareRunMetrics(adapter, 'run-001', 'run-002')
       expect(delta?.run_id_a).toBe('run-001')
       expect(delta?.run_id_b).toBe('run-002')
     })
@@ -245,11 +251,14 @@ describe('run metrics queries', () => {
 
 describe('story metrics queries', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    db = openMemoryDb()
+  beforeEach(async () => {
+    const setup = openMemoryDb()
+    db = setup.db
+    adapter = setup.adapter
     // story_metrics has run_id FK — write a run_metrics row first
-    writeRunMetrics(db, {
+    await writeRunMetrics(adapter, {
       run_id: 'run-001',
       methodology: 'bmad',
       status: 'running',
@@ -262,18 +271,18 @@ describe('story metrics queries', () => {
   })
 
   describe('writeStoryMetrics', () => {
-    it('inserts a story metrics row without error', () => {
-      expect(() => writeStoryMetrics(db, {
+    it('inserts a story metrics row without error', async () => {
+      await expect(writeStoryMetrics(adapter, {
         run_id: 'run-001',
         story_key: '17-1',
         result: 'success',
         review_cycles: 2,
         dispatches: 3,
-      })).not.toThrow()
+      })).resolves.not.toThrow()
     })
 
-    it('round-trips the story metrics row', () => {
-      writeStoryMetrics(db, {
+    it('round-trips the story metrics row', async () => {
+      await writeStoryMetrics(adapter, {
         run_id: 'run-001',
         story_key: '17-1',
         result: 'success',
@@ -284,7 +293,7 @@ describe('story metrics queries', () => {
         output_tokens: 2000,
         cost_usd: 0.02,
       })
-      const rows = getStoryMetricsForRun(db, 'run-001')
+      const rows = await getStoryMetricsForRun(adapter, 'run-001')
       expect(rows).toHaveLength(1)
       const row = rows[0]
       expect(row.story_key).toBe('17-1')
@@ -294,44 +303,44 @@ describe('story metrics queries', () => {
       expect(row.phase_durations_json).toBe('{"create-story":10,"dev-story":120,"code-review":30}')
     })
 
-    it('upserts on repeated write (ON CONFLICT)', () => {
-      writeStoryMetrics(db, {
+    it('upserts on repeated write (ON CONFLICT)', async () => {
+      await writeStoryMetrics(adapter, {
         run_id: 'run-001',
         story_key: '17-1',
         result: 'escalated',
         review_cycles: 0,
         dispatches: 1,
       })
-      writeStoryMetrics(db, {
+      await writeStoryMetrics(adapter, {
         run_id: 'run-001',
         story_key: '17-1',
         result: 'success',
         review_cycles: 2,
         dispatches: 4,
       })
-      const rows = getStoryMetricsForRun(db, 'run-001')
+      const rows = await getStoryMetricsForRun(adapter, 'run-001')
       expect(rows).toHaveLength(1)
       expect(rows[0].result).toBe('success')
       expect(rows[0].review_cycles).toBe(2)
     })
 
-    it('stores result=failed correctly', () => {
-      writeStoryMetrics(db, {
+    it('stores result=failed correctly', async () => {
+      await writeStoryMetrics(adapter, {
         run_id: 'run-001',
         story_key: '17-2',
         result: 'failed',
       })
-      const rows = getStoryMetricsForRun(db, 'run-001')
+      const rows = await getStoryMetricsForRun(adapter, 'run-001')
       expect(rows[0].result).toBe('failed')
     })
 
-    it('uses 0 defaults for optional numeric fields', () => {
-      writeStoryMetrics(db, {
+    it('uses 0 defaults for optional numeric fields', async () => {
+      await writeStoryMetrics(adapter, {
         run_id: 'run-001',
         story_key: '17-3',
         result: 'success',
       })
-      const rows = getStoryMetricsForRun(db, 'run-001')
+      const rows = await getStoryMetricsForRun(adapter, 'run-001')
       expect(rows[0].review_cycles).toBe(0)
       expect(rows[0].dispatches).toBe(0)
       expect(rows[0].input_tokens).toBe(0)
@@ -339,48 +348,51 @@ describe('story metrics queries', () => {
   })
 
   describe('getStoryMetricsForRun', () => {
-    it('returns empty array when no rows exist for run', () => {
-      expect(getStoryMetricsForRun(db, 'run-001')).toEqual([])
+    it('returns empty array when no rows exist for run', async () => {
+      expect(await getStoryMetricsForRun(adapter, 'run-001')).toEqual([])
     })
 
-    it('returns multiple story rows for a run', () => {
-      writeStoryMetrics(db, { run_id: 'run-001', story_key: '17-1', result: 'success' })
-      writeStoryMetrics(db, { run_id: 'run-001', story_key: '17-2', result: 'escalated' })
-      const rows = getStoryMetricsForRun(db, 'run-001')
+    it('returns multiple story rows for a run', async () => {
+      await writeStoryMetrics(adapter, { run_id: 'run-001', story_key: '17-1', result: 'success' })
+      await writeStoryMetrics(adapter, { run_id: 'run-001', story_key: '17-2', result: 'escalated' })
+      const rows = await getStoryMetricsForRun(adapter, 'run-001')
       expect(rows).toHaveLength(2)
     })
 
-    it('does not return rows for other runs', () => {
-      writeRunMetrics(db, {
+    it('does not return rows for other runs', async () => {
+      await writeRunMetrics(adapter, {
         run_id: 'run-002',
         methodology: 'bmad',
         status: 'running',
         started_at: '2026-01-02T00:00:00Z',
       })
-      writeStoryMetrics(db, { run_id: 'run-001', story_key: '17-1', result: 'success' })
-      writeStoryMetrics(db, { run_id: 'run-002', story_key: '17-1', result: 'success' })
-      expect(getStoryMetricsForRun(db, 'run-001')).toHaveLength(1)
+      await writeStoryMetrics(adapter, { run_id: 'run-001', story_key: '17-1', result: 'success' })
+      await writeStoryMetrics(adapter, { run_id: 'run-002', story_key: '17-1', result: 'success' })
+      expect(await getStoryMetricsForRun(adapter, 'run-001')).toHaveLength(1)
     })
   })
 })
 
 describe('aggregateTokenUsageForRun', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMemoryDb()
+    const setup = openMemoryDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('returns zeros when no token_usage rows exist for run', () => {
-    const agg = aggregateTokenUsageForRun(db, 'nonexistent-run')
+  it('returns zeros when no token_usage rows exist for run', async () => {
+    const agg = await aggregateTokenUsageForRun(adapter, 'nonexistent-run')
     expect(agg).toEqual({ input: 0, output: 0, cost: 0 })
   })
 
-  it('aggregates token_usage rows for a run', () => {
+  it('aggregates token_usage rows for a run', async () => {
     // Insert a pipeline run and token usage records
     db.exec(`INSERT INTO pipeline_runs (id, methodology, current_phase, status, created_at, updated_at)
       VALUES ('run-tok', 'bmad', 'implementation', 'running', datetime('now'), datetime('now'))`)
@@ -389,7 +401,7 @@ describe('aggregateTokenUsageForRun', () => {
     db.prepare(`INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?)`)
       .run('run-tok', 'dev-story', 'claude-code', 2000, 1000, 0.02)
 
-    const agg = aggregateTokenUsageForRun(db, 'run-tok')
+    const agg = await aggregateTokenUsageForRun(adapter, 'run-tok')
     expect(agg.input).toBe(3000)
     expect(agg.output).toBe(1500)
     expect(agg.cost).toBeCloseTo(0.03, 5)

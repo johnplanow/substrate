@@ -20,6 +20,7 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createPipelineRun, registerArtifact } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun, TokenUsageSummary } from '../../../persistence/queries/decisions.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 import {
   buildPipelineStatusOutput,
   formatPipelineStatusHuman,
@@ -38,11 +39,11 @@ function createTestDb(): BetterSqlite3Database {
   return db
 }
 
-function createTestRun(
+async function createTestRun(
   db: BetterSqlite3Database,
   overrides: Partial<PipelineRun> = {},
-): PipelineRun {
-  const run = createPipelineRun(db, {
+): Promise<PipelineRun> {
+  const run = await createPipelineRun(new SqliteDatabaseAdapter(db), {
     methodology: 'bmad',
     start_phase: 'analysis',
     config_json: overrides.config_json ?? null,
@@ -98,9 +99,9 @@ function makeTokenSummary(phases: string[]): TokenUsageSummary[] {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput', () => {
-  it('AC5: produces schema with all required fields', () => {
+  it('AC5: produces schema with all required fields', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       config_json: JSON.stringify({
         concept: 'test',
         phaseHistory: makePhaseHistory(['analysis', 'planning'], 'solutioning'),
@@ -129,9 +130,9 @@ describe('buildPipelineStatusOutput', () => {
     db.close()
   })
 
-  it('completed run: all phases show "complete"', () => {
+  it('completed run: all phases show "complete"', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       status: 'completed',
       config_json: JSON.stringify({
         concept: 'test',
@@ -150,9 +151,9 @@ describe('buildPipelineStatusOutput', () => {
     db.close()
   })
 
-  it('running pipeline: current phase shows "running", future phases show "pending"', () => {
+  it('running pipeline: current phase shows "running", future phases show "pending"', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       current_phase: 'solutioning',
       status: 'running',
       config_json: JSON.stringify({
@@ -172,9 +173,9 @@ describe('buildPipelineStatusOutput', () => {
     db.close()
   })
 
-  it('no phase history: planning/solutioning/implementation show "pending"', () => {
+  it('no phase history: planning/solutioning/implementation show "pending"', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)  // no config_json, current_phase=analysis
+    const run = await createTestRun(db)  // no config_json, current_phase=analysis
 
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
@@ -187,9 +188,9 @@ describe('buildPipelineStatusOutput', () => {
     db.close()
   })
 
-  it('correctly sums token usage per phase', () => {
+  it('correctly sums token usage per phase', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
 
     const tokenSummary: TokenUsageSummary[] = [
       { phase: 'analysis', agent: 'claude-code', total_input_tokens: 1200, total_output_tokens: 800, total_cost_usd: 0.006 },
@@ -205,9 +206,9 @@ describe('buildPipelineStatusOutput', () => {
     db.close()
   })
 
-  it('includes token_usage per phase when data available', () => {
+  it('includes token_usage per phase when data available', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       config_json: JSON.stringify({
         concept: 'test',
         phaseHistory: makePhaseHistory(['analysis']),
@@ -225,9 +226,9 @@ describe('buildPipelineStatusOutput', () => {
     db.close()
   })
 
-  it('AC5: matches exact JSON schema from story spec (solutioning running)', () => {
+  it('AC5: matches exact JSON schema from story spec (solutioning running)', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       current_phase: 'solutioning',
       config_json: JSON.stringify({
         concept: 'test',
@@ -289,9 +290,9 @@ describe('buildPipelineStatusOutput', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC4: last_event_ts and active_dispatches (Story 16-7)', () => {
-  it('includes last_event_ts field matching last_activity', () => {
+  it('includes last_event_ts field matching last_activity', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
 
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
@@ -302,9 +303,9 @@ describe('buildPipelineStatusOutput — AC4: last_event_ts and active_dispatches
     db.close()
   })
 
-  it('includes active_dispatches field defaulting to 0 when no token_usage_json', () => {
+  it('includes active_dispatches field defaulting to 0 when no token_usage_json', async () => {
     const db = createTestDb()
-    const run = createTestRun(db) // no token_usage_json
+    const run = await createTestRun(db) // no token_usage_json
 
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
@@ -314,9 +315,9 @@ describe('buildPipelineStatusOutput — AC4: last_event_ts and active_dispatches
     db.close()
   })
 
-  it('active_dispatches counts non-terminal stories from token_usage_json', () => {
+  it('active_dispatches counts non-terminal stories from token_usage_json', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
     // Inject story state: 2 active (IN_STORY_CREATION, IN_DEV), 1 complete, 1 pending, 1 escalated
     const storyState = {
       stories: {
@@ -341,9 +342,9 @@ describe('buildPipelineStatusOutput — AC4: last_event_ts and active_dispatches
     db.close()
   })
 
-  it('active_dispatches is 0 when all stories are complete or escalated', () => {
+  it('active_dispatches is 0 when all stories are complete or escalated', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
     const storyState = {
       stories: {
         '16-1': { phase: 'COMPLETE', reviewCycles: 1 },
@@ -364,9 +365,9 @@ describe('buildPipelineStatusOutput — AC4: last_event_ts and active_dispatches
     db.close()
   })
 
-  it('active_dispatches is 0 when token_usage_json has no stories key', () => {
+  it('active_dispatches is 0 when token_usage_json has no stories key', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
     db.prepare(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`).run(
       JSON.stringify({ state: 'RUNNING', maxConcurrentActual: 2 }), // no stories key
       run.id,
@@ -380,9 +381,9 @@ describe('buildPipelineStatusOutput — AC4: last_event_ts and active_dispatches
     db.close()
   })
 
-  it('last_event_ts and active_dispatches appear in JSON output via formatOutput', () => {
+  it('last_event_ts and active_dispatches appear in JSON output via formatOutput', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
     const storyState = {
       stories: {
         '16-1': { phase: 'IN_DEV', reviewCycles: 0 },
@@ -413,9 +414,9 @@ describe('buildPipelineStatusOutput — AC4: last_event_ts and active_dispatches
 // ---------------------------------------------------------------------------
 
 describe('formatPipelineStatusHuman', () => {
-  it('AC4: human format shows all phases with status indicators', () => {
+  it('AC4: human format shows all phases with status indicators', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       current_phase: 'planning',
       config_json: JSON.stringify({
         concept: 'test',
@@ -444,9 +445,9 @@ describe('formatPipelineStatusHuman', () => {
     db.close()
   })
 
-  it('shows token usage when available', () => {
+  it('shows token usage when available', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       config_json: JSON.stringify({
         concept: 'test',
         phaseHistory: makePhaseHistory(['analysis']),
@@ -466,9 +467,9 @@ describe('formatPipelineStatusHuman', () => {
     db.close()
   })
 
-  it('shows decisions and stories count', () => {
+  it('shows decisions and stories count', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
 
     const statusOutput = buildPipelineStatusOutput(run, [], 42, 15)
     const output = formatPipelineStatusHuman(statusOutput)
@@ -479,9 +480,9 @@ describe('formatPipelineStatusHuman', () => {
     db.close()
   })
 
-  it('shows total cost and total tokens', () => {
+  it('shows total cost and total tokens', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
 
     const tokenSummary: TokenUsageSummary[] = [
       { phase: 'analysis', agent: 'claude-code', total_input_tokens: 1000, total_output_tokens: 500, total_cost_usd: 0.015 },
@@ -502,9 +503,9 @@ describe('formatPipelineStatusHuman', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatPipelineSummary', () => {
-  it('AC8: human format shows all required metrics', () => {
+  it('AC8: human format shows all required metrics', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, { status: 'completed' })
+    const run = await createTestRun(db, { status: 'completed' })
 
     const tokenSummary: TokenUsageSummary[] = [
       { phase: 'analysis', agent: 'claude-code', total_input_tokens: 2000, total_output_tokens: 1000, total_cost_usd: 0.021 },
@@ -525,9 +526,9 @@ describe('formatPipelineSummary', () => {
     db.close()
   })
 
-  it('AC8: JSON format includes all metrics', () => {
+  it('AC8: JSON format includes all metrics', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, { status: 'completed' })
+    const run = await createTestRun(db, { status: 'completed' })
 
     const tokenSummary: TokenUsageSummary[] = [
       { phase: 'analysis', agent: 'claude-code', total_input_tokens: 2000, total_output_tokens: 1000, total_cost_usd: 0.021 },
@@ -552,9 +553,9 @@ describe('formatPipelineSummary', () => {
     db.close()
   })
 
-  it('calculates savings percentage correctly', () => {
+  it('calculates savings percentage correctly', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
 
     // 17,100 tokens = ~70% savings vs 56,800 baseline
     const tokenSummary: TokenUsageSummary[] = [
@@ -571,9 +572,9 @@ describe('formatPipelineSummary', () => {
     db.close()
   })
 
-  it('shows overhead when tokens exceed baseline', () => {
+  it('shows overhead when tokens exceed baseline', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
 
     // More tokens than baseline
     const tokenSummary: TokenUsageSummary[] = [
@@ -595,21 +596,21 @@ describe('formatPipelineSummary', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatOutput', () => {
-  it('returns JSON success format', () => {
+  it('returns JSON success format', async () => {
     const result = formatOutput({ foo: 'bar' }, 'json', true)
     const parsed = JSON.parse(result)
     expect(parsed.success).toBe(true)
     expect(parsed.data).toEqual({ foo: 'bar' })
   })
 
-  it('returns JSON error format', () => {
+  it('returns JSON error format', async () => {
     const result = formatOutput(null, 'json', false, 'something went wrong')
     const parsed = JSON.parse(result)
     expect(parsed.success).toBe(false)
     expect(parsed.error).toBe('something went wrong')
   })
 
-  it('returns human format string as-is', () => {
+  it('returns human format string as-is', async () => {
     const result = formatOutput('hello world', 'human')
     expect(result).toBe('hello world')
   })
@@ -620,11 +621,11 @@ describe('formatOutput', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatTokenTelemetry', () => {
-  it('shows "No token usage recorded" when empty', () => {
+  it('shows "No token usage recorded" when empty', async () => {
     expect(formatTokenTelemetry([])).toBe('No token usage recorded.')
   })
 
-  it('shows BMAD baseline comparison with custom baseline', () => {
+  it('shows BMAD baseline comparison with custom baseline', async () => {
     const summary: TokenUsageSummary[] = [
       {
         phase: 'analysis',
@@ -640,7 +641,7 @@ describe('formatTokenTelemetry', () => {
     expect(output).toContain('Savings:')
   })
 
-  it('defaults to implementation-only baseline (23,800)', () => {
+  it('defaults to implementation-only baseline (23,800)', async () => {
     const summary: TokenUsageSummary[] = [
       {
         phase: 'implementation',
@@ -660,13 +661,13 @@ describe('formatTokenTelemetry', () => {
 // ---------------------------------------------------------------------------
 
 describe('Error message strings', () => {
-  it('status with no runs returns expected error message text', () => {
+  it('status with no runs returns expected error message text', async () => {
     // Verify the error message text for no runs
     const errorMsg = 'No pipeline runs found. Run `substrate run` first.'
     expect(errorMsg).toContain('No pipeline runs found')
   })
 
-  it('status with missing db returns expected error message text', () => {
+  it('status with missing db returns expected error message text', async () => {
     const errorMsg = `Decision store not initialized. Run 'substrate init' first.`
     expect(errorMsg).toContain('Decision store not initialized')
   })

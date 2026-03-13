@@ -401,13 +401,13 @@ export async function getAutoHealthData(options: {
   const dbWrapper = new DatabaseWrapper(dbPath)
   try {
     dbWrapper.open()
-    const db = dbWrapper.db
+    const adapter = dbWrapper.adapter
 
     let run: PipelineRun | undefined
     if (runId !== undefined) {
-      run = getPipelineRunById(db, runId)
+      run = await getPipelineRunById(adapter, runId)
     } else {
-      run = getLatestRun(db)
+      run = await getLatestRun(adapter)
     }
 
     if (run === undefined) {

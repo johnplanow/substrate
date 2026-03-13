@@ -1,5 +1,5 @@
 /**
- * Amendment query functions for the SQLite persistence layer.
+ * Amendment query functions for the persistence layer.
  *
  * Provides operations specific to the amendment workflow:
  * - Creating amendment runs (validated against parent run status)
@@ -8,9 +8,12 @@
  * - Querying active decisions with optional filtering
  * - Traversing the amendment run chain
  * - Finding the latest completed run
+ *
+ * All functions are async and accept a DatabaseAdapter, making them
+ * compatible with both the SqliteDatabaseAdapter and DoltDatabaseAdapter.
  */
 
-import type { Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../adapter.js'
 import type { Decision, PipelineRun } from '../schemas/decisions.js'
 
 // ---------------------------------------------------------------------------
@@ -56,11 +59,13 @@ export interface AmendmentChainEntry {
  * Throws if the parent run is not found or not completed.
  * Returns the new run's ID on success.
  */
-export function createAmendmentRun(db: Database, input: CreateAmendmentRunInput): string {
+export async function createAmendmentRun(adapter: DatabaseAdapter, input: CreateAmendmentRunInput): Promise<string> {
   // Validate parent run exists and is completed
-  const parentRun = db
-    .prepare('SELECT id, status FROM pipeline_runs WHERE id = ?')
-    .get(input.parentRunId) as { id: string; status: string } | undefined
+  const rows = await adapter.query<{ id: string; status: string }>(
+    'SELECT id, status FROM pipeline_runs WHERE id = ?',
+    [input.parentRunId],
+  )
+  const parentRun = rows[0]
 
   if (!parentRun) {
     throw new Error(`Parent run not found: ${input.parentRunId}`)
@@ -73,14 +78,15 @@ export function createAmendmentRun(db: Database, input: CreateAmendmentRunInput)
   }
 
   // Insert new amendment run with parent_run_id set
-  db.prepare(`
-    INSERT INTO pipeline_runs (id, methodology, current_phase, status, config_json, parent_run_id, created_at, updated_at)
-    VALUES (?, ?, NULL, 'running', ?, ?, datetime('now'), datetime('now'))
-  `).run(
-    input.id,
-    input.methodology,
-    input.configJson ?? null,
-    input.parentRunId,
+  await adapter.query(
+    `INSERT INTO pipeline_runs (id, methodology, current_phase, status, config_json, parent_run_id, created_at, updated_at)
+     VALUES (?, ?, NULL, 'running', ?, ?, datetime('now'), datetime('now'))`,
+    [
+      input.id,
+      input.methodology,
+      input.configJson ?? null,
+      input.parentRunId,
+    ],
   )
 
   return input.id
@@ -96,13 +102,13 @@ export function createAmendmentRun(db: Database, input: CreateAmendmentRunInput)
  * Returns decisions WHERE superseded_by IS NULL for the specified run,
  * ordered by created_at ASC.
  */
-export function loadParentRunDecisions(db: Database, parentRunId: string): Decision[] {
-  const stmt = db.prepare(`
-    SELECT * FROM decisions
-    WHERE pipeline_run_id = ? AND superseded_by IS NULL
-    ORDER BY created_at ASC
-  `)
-  return stmt.all(parentRunId) as Decision[]
+export async function loadParentRunDecisions(adapter: DatabaseAdapter, parentRunId: string): Promise<Decision[]> {
+  return adapter.query<Decision>(
+    `SELECT * FROM decisions
+     WHERE pipeline_run_id = ? AND superseded_by IS NULL
+     ORDER BY created_at ASC`,
+    [parentRunId],
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -119,24 +125,28 @@ export function loadParentRunDecisions(db: Database, parentRunId: string): Decis
  *
  * On success, updates the original decision's superseded_by field.
  */
-export function supersedeDecision(
-  db: Database,
+export async function supersedeDecision(
+  adapter: DatabaseAdapter,
   originalDecisionId: string,
   supersedingDecisionId: string,
-): void {
+): Promise<void> {
   // Check original decision exists
-  const original = db
-    .prepare('SELECT id, superseded_by FROM decisions WHERE id = ?')
-    .get(originalDecisionId) as { id: string; superseded_by: string | null } | undefined
+  const origRows = await adapter.query<{ id: string; superseded_by: string | null }>(
+    'SELECT id, superseded_by FROM decisions WHERE id = ?',
+    [originalDecisionId],
+  )
+  const original = origRows[0]
 
   if (!original) {
     throw new Error(`Decision not found: ${originalDecisionId}`)
   }
 
   // Check superseding decision exists
-  const superseding = db
-    .prepare('SELECT id FROM decisions WHERE id = ?')
-    .get(supersedingDecisionId) as { id: string } | undefined
+  const superRows = await adapter.query<{ id: string }>(
+    'SELECT id FROM decisions WHERE id = ?',
+    [supersedingDecisionId],
+  )
+  const superseding = superRows[0]
 
   if (!superseding) {
     throw new Error(`Superseding decision not found: ${supersedingDecisionId}`)
@@ -148,9 +158,10 @@ export function supersedeDecision(
   }
 
   // Perform the update
-  db.prepare(`
-    UPDATE decisions SET superseded_by = ?, updated_at = datetime('now') WHERE id = ?
-  `).run(supersedingDecisionId, originalDecisionId)
+  await adapter.query(
+    `UPDATE decisions SET superseded_by = ?, updated_at = datetime('now') WHERE id = ?`,
+    [supersedingDecisionId, originalDecisionId],
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +175,7 @@ export function supersedeDecision(
  * If no filter is provided, returns all active decisions across all runs.
  * Results are ordered by created_at ASC.
  */
-export function getActiveDecisions(db: Database, filter?: ActiveDecisionsFilter): Decision[] {
+export async function getActiveDecisions(adapter: DatabaseAdapter, filter?: ActiveDecisionsFilter): Promise<Decision[]> {
   const conditions: string[] = ['superseded_by IS NULL']
   const values: unknown[] = []
 
@@ -186,8 +197,10 @@ export function getActiveDecisions(db: Database, filter?: ActiveDecisionsFilter)
   }
 
   const where = `WHERE ${conditions.join(' AND ')}`
-  const stmt = db.prepare(`SELECT * FROM decisions ${where} ORDER BY created_at ASC`)
-  return stmt.all(...values) as Decision[]
+  return adapter.query<Decision>(
+    `SELECT * FROM decisions ${where} ORDER BY created_at ASC`,
+    values,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -204,11 +217,11 @@ export function getActiveDecisions(db: Database, filter?: ActiveDecisionsFilter)
  * Returns an array of AmendmentChainEntry objects ordered root → current,
  * with depth 0 at the root.
  */
-export function getAmendmentRunChain(
-  db: Database,
+export async function getAmendmentRunChain(
+  adapter: DatabaseAdapter,
   runId: string,
   maxDepth: number = 10,
-): AmendmentChainEntry[] {
+): Promise<AmendmentChainEntry[]> {
   const chain: AmendmentChainEntry[] = []
   let currentId: string | null = runId
   let depth = 0
@@ -220,11 +233,16 @@ export function getAmendmentRunChain(
       )
     }
 
-    const row = db
-      .prepare('SELECT id, parent_run_id, status, created_at FROM pipeline_runs WHERE id = ?')
-      .get(currentId) as
-      | { id: string; parent_run_id: string | null; status: string; created_at: string }
-      | undefined
+    const rows = await adapter.query<{
+      id: string
+      parent_run_id: string | null
+      status: string
+      created_at: string
+    }>(
+      'SELECT id, parent_run_id, status, created_at FROM pipeline_runs WHERE id = ?',
+      [currentId],
+    )
+    const row = rows[0]
 
     if (!row) break
 
@@ -260,12 +278,12 @@ export function getAmendmentRunChain(
  * Get the most recently created pipeline run with status = 'completed'.
  * Returns undefined if no completed run exists.
  */
-export function getLatestCompletedRun(db: Database): PipelineRun | undefined {
-  const stmt = db.prepare(`
-    SELECT * FROM pipeline_runs
-    WHERE status = 'completed'
-    ORDER BY created_at DESC, rowid DESC
-    LIMIT 1
-  `)
-  return stmt.get() as PipelineRun | undefined
+export async function getLatestCompletedRun(adapter: DatabaseAdapter): Promise<PipelineRun | undefined> {
+  const rows = await adapter.query<PipelineRun>(
+    `SELECT * FROM pipeline_runs
+     WHERE status = 'completed'
+     ORDER BY created_at DESC, rowid DESC
+     LIMIT 1`,
+  )
+  return rows[0]
 }

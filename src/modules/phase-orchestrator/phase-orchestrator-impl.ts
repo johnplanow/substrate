@@ -7,7 +7,7 @@
  * resume capability, artifact tracking, and phase history serialization.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import type { GatePipeline } from '../quality-gates/gate-pipeline.js'
 import type { MethodologyPack } from '../methodology-pack/types.js'
 import {
@@ -36,8 +36,8 @@ import type {
  * Dependencies required to create a PhaseOrchestrator.
  */
 export interface PhaseOrchestratorDeps {
-  /** SQLite database instance (decision store) */
-  db: BetterSqlite3Database
+  /** Database adapter instance (decision store) */
+  db: DatabaseAdapter
   /** Optional quality gate pipeline (used for solutioning-readiness checks) */
   qualityGates?: GatePipeline
   /** The loaded methodology pack (provides phase definitions and metadata) */
@@ -52,20 +52,20 @@ export interface PhaseOrchestratorDeps {
  * Run all gate checks sequentially, collecting all failures (no short-circuit).
  *
  * @param gates - Array of gate checks to run
- * @param db - SQLite database instance
+ * @param adapter - Database adapter instance
  * @param runId - Pipeline run ID
  * @returns Aggregate result with pass/fail status and failure details
  */
 export async function runGates(
   gates: GateCheck[],
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   runId: string,
 ): Promise<GateRunResult> {
   const failures: Array<{ gate: string; error: string }> = []
 
   for (const gate of gates) {
     try {
-      const passed = await gate.check(db, runId)
+      const passed = await gate.check(adapter, runId)
       if (!passed) {
         failures.push({ gate: gate.name, error: gate.errorMessage })
       }
@@ -143,7 +143,7 @@ export function parseConfigJson(configJson: string | null | undefined): {
 // ---------------------------------------------------------------------------
 
 class PhaseOrchestratorImpl implements PhaseOrchestrator {
-  private readonly _db: BetterSqlite3Database
+  private readonly _db: DatabaseAdapter
   private readonly _pack: MethodologyPack
   private readonly _qualityGates: GatePipeline | undefined
   private _phases: PhaseDefinition[]
@@ -169,8 +169,8 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
           description: packPhase.description,
           entryGates: [],
           exitGates: [],
-          onEnter: async (_db, _runId) => {},
-          onExit: async (_db, _runId) => {},
+          onEnter: async (_adapter, _runId) => {},
+          onExit: async (_adapter, _runId) => {},
         })
       }
     }
@@ -194,7 +194,7 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
       ],
     })
 
-    const run = createPipelineRun(this._db, {
+    const run = await createPipelineRun(this._db, {
       methodology: this._pack.manifest.name,
       start_phase: firstPhase,
       config_json: configJson,
@@ -208,7 +208,7 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
   // -------------------------------------------------------------------------
 
   async advancePhase(runId: string): Promise<AdvancePhaseResult> {
-    const run = getPipelineRunById(this._db, runId)
+    const run = await getPipelineRunById(this._db, runId)
     if (!run) {
       return {
         advanced: false,
@@ -246,7 +246,7 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
     const nextPhaseIdx = currentPhaseIdx + 1
     if (nextPhaseIdx >= this._phases.length) {
       // No more phases — mark as completed
-      updatePipelineRun(this._db, runId, { status: 'completed' })
+      await updatePipelineRun(this._db, runId, { status: 'completed' })
       return {
         advanced: true,
         phase: currentPhaseName,
@@ -295,8 +295,8 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
     const newConfigJson = JSON.stringify({ ...config, phaseHistory: history })
 
     // 5. Update pipeline_run config and current_phase (before callbacks for defensive ordering)
-    updatePipelineRunConfig(this._db, runId, newConfigJson)
-    updatePipelineRun(this._db, runId, { current_phase: nextPhaseDef.name })
+    await updatePipelineRunConfig(this._db, runId, newConfigJson)
+    await updatePipelineRun(this._db, runId, { current_phase: nextPhaseDef.name })
 
     // 6. Call lifecycle callbacks (after state is persisted)
     await currentPhaseDef.onExit(this._db, runId)
@@ -313,7 +313,7 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
   // -------------------------------------------------------------------------
 
   async resumeRun(runId: string): Promise<PhaseRunStatus> {
-    const run = getPipelineRunById(this._db, runId)
+    const run = await getPipelineRunById(this._db, runId)
     if (!run) {
       throw new Error(`Pipeline run '${runId}' not found`)
     }
@@ -342,14 +342,14 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
 
     // If all phases are done, mark the run as completed and return
     if (resumePhaseIdx >= this._phases.length) {
-      updatePipelineRun(this._db, runId, { status: 'completed' })
+      await updatePipelineRun(this._db, runId, { status: 'completed' })
       return this.getRunStatus(runId)
     }
 
     const resumePhaseName = this._phases[resumePhaseIdx].name
 
     // Update the run status and current_phase
-    updatePipelineRun(this._db, runId, {
+    await updatePipelineRun(this._db, runId, {
       status: 'running',
       current_phase: resumePhaseName,
     })
@@ -362,13 +362,13 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
   // -------------------------------------------------------------------------
 
   async getRunStatus(runId: string): Promise<PhaseRunStatus> {
-    const run = getPipelineRunById(this._db, runId)
+    const run = await getPipelineRunById(this._db, runId)
     if (!run) {
       throw new Error(`Pipeline run '${runId}' not found`)
     }
 
     const config = parseConfigJson(run.config_json)
-    const allArtifacts = getArtifactsByRun(this._db, runId)
+    const allArtifacts = await getArtifactsByRun(this._db, runId)
 
     // Determine completed phases from phase history (phases with completedAt set)
     const completedPhases = config.phaseHistory
@@ -409,12 +409,12 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
   // markPhaseFailed
   // -------------------------------------------------------------------------
 
-  markPhaseFailed(runId: string, phase: string, reason: string): void {
+  async markPhaseFailed(runId: string, phase: string, reason: string): Promise<void> {
     // 1. Update pipeline run status to 'failed'
-    updatePipelineRun(this._db, runId, { status: 'failed' })
+    await updatePipelineRun(this._db, runId, { status: 'failed' })
 
     // 2. Record the failure reason in the phase history via config_json
-    const run = getPipelineRunById(this._db, runId)
+    const run = await getPipelineRunById(this._db, runId)
     if (!run) return
 
     const config = parseConfigJson(run.config_json)
@@ -448,7 +448,7 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
     }
 
     const newConfigJson = JSON.stringify({ ...config, phaseHistory: history })
-    updatePipelineRunConfig(this._db, runId, newConfigJson)
+    await updatePipelineRunConfig(this._db, runId, newConfigJson)
   }
 }
 

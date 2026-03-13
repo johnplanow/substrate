@@ -26,6 +26,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod'
 import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   createPipelineRun,
   createDecision,
@@ -41,15 +43,16 @@ import type { Dispatcher, DispatchResult } from '../../agent-dispatch/types.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'analysis-research-context-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'research' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'research' })
   return run.id
 }
 
@@ -133,12 +136,12 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack: MethodologyPack,
 ): PhaseDeps {
   return {
-    db,
+    db: adapter,
     pack,
     contextCompiler: makeContextCompiler(),
     dispatcher,
@@ -149,7 +152,7 @@ function makeDeps(
  * Seed the decision store with research findings — matching what the
  * research-step-2-synthesis step would persist after completing.
  */
-function seedResearchFindings(db: BetterSqlite3Database, runId: string): void {
+async function seedResearchFindings(adapter: DatabaseAdapter, runId: string): Promise<void> {
   const findings = [
     { key: 'market_context', value: 'Global developer tooling market is growing at 18% CAGR' },
     { key: 'competitive_landscape', value: 'Main competitors: GitHub Actions, CircleCI, Jenkins' },
@@ -159,7 +162,7 @@ function seedResearchFindings(db: BetterSqlite3Database, runId: string): void {
   ]
 
   for (const f of findings) {
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'research',
       category: 'findings',
@@ -193,14 +196,16 @@ function buildVisionStepWithResearch(): StepDefinition {
 
 describe('resolveContext() — decision: source with no matching entries (Task 3)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -208,21 +213,21 @@ describe('resolveContext() — decision: source with no matching entries (Task 3
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('returns empty string when decision store has no entries for the specified phase+category', () => {
+  it('returns empty string when decision store has no entries for the specified phase+category', async () => {
     const ref: ContextRef = { placeholder: 'research_findings', source: 'decision:research.findings' }
     const pack = makePack({})
     const { dispatcher } = makeCaptureDispatcher(makeDispatchResult())
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     // Decision store is empty — no research findings seeded
-    const result = resolveContext(ref, deps, runId, {}, new Map())
+    const result = await resolveContext(ref, deps, runId, {}, new Map())
 
     expect(result).toBe('')
   })
 
-  it('returns empty string when phase exists in store but category does not match', () => {
+  it('returns empty string when phase exists in store but category does not match', async () => {
     // Seed decisions under a different category
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'research',
       category: 'different-category',
@@ -233,22 +238,22 @@ describe('resolveContext() — decision: source with no matching entries (Task 3
     const ref: ContextRef = { placeholder: 'research_findings', source: 'decision:research.findings' }
     const pack = makePack({})
     const { dispatcher } = makeCaptureDispatcher(makeDispatchResult())
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
-    const result = resolveContext(ref, deps, runId, {}, new Map())
+    const result = await resolveContext(ref, deps, runId, {}, new Map())
 
     expect(result).toBe('')
   })
 
-  it('returns non-empty string when matching research findings entries exist', () => {
-    seedResearchFindings(db, runId)
+  it('returns non-empty string when matching research findings entries exist', async () => {
+    await seedResearchFindings(adapter, runId)
 
     const ref: ContextRef = { placeholder: 'research_findings', source: 'decision:research.findings' }
     const pack = makePack({})
     const { dispatcher } = makeCaptureDispatcher(makeDispatchResult())
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
-    const result = resolveContext(ref, deps, runId, {}, new Map())
+    const result = await resolveContext(ref, deps, runId, {}, new Map())
 
     expect(result).not.toBe('')
     expect(result).toContain('market_context')
@@ -261,14 +266,16 @@ describe('resolveContext() — decision: source with no matching entries (Task 3
 
 describe('analysis-step-1-vision — research-enabled path (Task 4)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -278,7 +285,7 @@ describe('analysis-step-1-vision — research-enabled path (Task 4)', () => {
 
   it('assembled prompt contains seeded research findings when decision store is populated', async () => {
     // Seed research findings into the decision store (simulating a completed research phase)
-    seedResearchFindings(db, runId)
+    await seedResearchFindings(adapter, runId)
 
     const promptTemplate =
       '# Vision Analysis\n\n### Project Concept\n{{concept}}\n\n### Research Context\n{{research_findings}}\n\n## Mission\nAnalyze and produce vision.'
@@ -286,7 +293,7 @@ describe('analysis-step-1-vision — research-enabled path (Task 4)', () => {
     const dispatchResult = makeDispatchResult()
     const { dispatcher, capturedPrompts } = makeCaptureDispatcher(dispatchResult)
     const pack = makePack({ 'analysis-step-1-vision': promptTemplate })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const steps = [buildVisionStepWithResearch()]
     const result = await runSteps(steps, deps, runId, 'analysis', {
@@ -312,14 +319,14 @@ describe('analysis-step-1-vision — research-enabled path (Task 4)', () => {
   })
 
   it('concept is also present in the assembled prompt alongside research findings', async () => {
-    seedResearchFindings(db, runId)
+    await seedResearchFindings(adapter, runId)
 
     const promptTemplate =
       '### Concept\n{{concept}}\n\n### Research\n{{research_findings}}'
 
     const { dispatcher, capturedPrompts } = makeCaptureDispatcher(makeDispatchResult())
     const pack = makePack({ 'analysis-step-1-vision': promptTemplate })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const concept = 'Build a next-generation CLI tool for developers'
     const steps = [buildVisionStepWithResearch()]
@@ -331,12 +338,12 @@ describe('analysis-step-1-vision — research-enabled path (Task 4)', () => {
   })
 
   it('all five research finding categories appear in the assembled prompt', async () => {
-    seedResearchFindings(db, runId)
+    await seedResearchFindings(adapter, runId)
 
     const promptTemplate = '{{concept}}\n{{research_findings}}'
     const { dispatcher, capturedPrompts } = makeCaptureDispatcher(makeDispatchResult())
     const pack = makePack({ 'analysis-step-1-vision': promptTemplate })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const steps = [buildVisionStepWithResearch()]
     await runSteps(steps, deps, runId, 'analysis', { concept: 'Test concept' })
@@ -355,12 +362,12 @@ describe('analysis-step-1-vision — research-enabled path (Task 4)', () => {
   })
 
   it('step completes successfully with research findings in decision store', async () => {
-    seedResearchFindings(db, runId)
+    await seedResearchFindings(adapter, runId)
 
     const promptTemplate = '{{concept}}\n{{research_findings}}'
     const { dispatcher } = makeCaptureDispatcher(makeDispatchResult())
     const pack = makePack({ 'analysis-step-1-vision': promptTemplate })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const steps = [buildVisionStepWithResearch()]
     const result = await runSteps(steps, deps, runId, 'analysis', {
@@ -378,14 +385,16 @@ describe('analysis-step-1-vision — research-enabled path (Task 4)', () => {
 
 describe('analysis-step-1-vision — research-disabled path (Task 5)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -401,7 +410,7 @@ describe('analysis-step-1-vision — research-disabled path (Task 5)', () => {
 
     const { dispatcher, capturedPrompts } = makeCaptureDispatcher(makeDispatchResult())
     const pack = makePack({ 'analysis-step-1-vision': promptTemplate })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const steps = [buildVisionStepWithResearch()]
     const result = await runSteps(steps, deps, runId, 'analysis', {
@@ -426,7 +435,7 @@ describe('analysis-step-1-vision — research-disabled path (Task 5)', () => {
 
     const { dispatcher, capturedPrompts } = makeCaptureDispatcher(makeDispatchResult())
     const pack = makePack({ 'analysis-step-1-vision': promptTemplate })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const concept = 'Build a standalone developer CLI'
     const steps = [buildVisionStepWithResearch()]
@@ -440,7 +449,7 @@ describe('analysis-step-1-vision — research-disabled path (Task 5)', () => {
     const promptTemplate = '{{concept}}\n{{research_findings}}'
     const { dispatcher } = makeCaptureDispatcher(makeDispatchResult())
     const pack = makePack({ 'analysis-step-1-vision': promptTemplate })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const steps = [buildVisionStepWithResearch()]
     const result = await runSteps(steps, deps, runId, 'analysis', {
@@ -456,7 +465,7 @@ describe('analysis-step-1-vision — research-disabled path (Task 5)', () => {
 
     const { dispatcher, capturedPrompts } = makeCaptureDispatcher(makeDispatchResult())
     const pack = makePack({ 'analysis-step-1-vision': promptTemplate })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const steps = [buildVisionStepWithResearch()]
     await runSteps(steps, deps, runId, 'analysis', { concept: 'Test' })

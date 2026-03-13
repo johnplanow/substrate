@@ -16,6 +16,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../migrations/index.js'
+import { SqliteDatabaseAdapter } from '../sqlite-adapter.js'
 import {
   createDecision,
   upsertDecision,
@@ -161,8 +162,9 @@ describe('AC2: Decisions table CRUD', () => {
     db = openTestDb()
   })
 
-  it('createDecision inserts a row with auto-generated UUID', () => {
-    const decision = createDecision(db, {
+  it('createDecision inserts a row with auto-generated UUID', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const decision = await createDecision(adapter, {
       phase: 'analysis',
       category: 'tech-stack',
       key: 'database',
@@ -180,8 +182,9 @@ describe('AC2: Decisions table CRUD', () => {
     expect(decision.value).toBe('sqlite')
   })
 
-  it('createDecision stores created_at timestamp', () => {
-    const decision = createDecision(db, {
+  it('createDecision stores created_at timestamp', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const decision = await createDecision(adapter, {
       phase: 'planning',
       category: 'arch',
       key: 'pattern',
@@ -190,64 +193,71 @@ describe('AC2: Decisions table CRUD', () => {
     expect(decision.created_at).toBeDefined()
   })
 
-  it('getDecisionsByPhase returns all decisions for a phase', () => {
-    createDecision(db, { phase: 'analysis', category: 'a', key: 'k1', value: 'v1' })
-    createDecision(db, { phase: 'analysis', category: 'a', key: 'k2', value: 'v2' })
-    createDecision(db, { phase: 'planning', category: 'a', key: 'k3', value: 'v3' })
+  it('getDecisionsByPhase returns all decisions for a phase', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'k1', value: 'v1' })
+    await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'k2', value: 'v2' })
+    await createDecision(adapter, { phase: 'planning', category: 'a', key: 'k3', value: 'v3' })
 
-    const results = getDecisionsByPhase(db, 'analysis')
+    const results = await getDecisionsByPhase(adapter, 'analysis')
     expect(results).toHaveLength(2)
     expect(results.every((d) => d.phase === 'analysis')).toBe(true)
   })
 
-  it('getDecisionsByPhase returns empty array when no decisions for phase', () => {
-    const results = getDecisionsByPhase(db, 'nonexistent-phase')
+  it('getDecisionsByPhase returns empty array when no decisions for phase', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const results = await getDecisionsByPhase(adapter, 'nonexistent-phase')
     expect(results).toHaveLength(0)
   })
 
-  it('getDecisionByKey returns a single decision by phase+key', () => {
-    createDecision(db, { phase: 'analysis', category: 'a', key: 'mykey', value: 'myvalue' })
-    const result = getDecisionByKey(db, 'analysis', 'mykey')
+  it('getDecisionByKey returns a single decision by phase+key', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'mykey', value: 'myvalue' })
+    const result = await getDecisionByKey(adapter, 'analysis', 'mykey')
     expect(result).toBeDefined()
     expect(result?.key).toBe('mykey')
     expect(result?.value).toBe('myvalue')
   })
 
-  it('getDecisionByKey returns undefined for non-existent key', () => {
-    const result = getDecisionByKey(db, 'analysis', 'nokey')
+  it('getDecisionByKey returns undefined for non-existent key', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getDecisionByKey(adapter, 'analysis', 'nokey')
     expect(result).toBeUndefined()
   })
 
-  it('updateDecision updates value and sets updated_at', () => {
-    const decision = createDecision(db, {
+  it('updateDecision updates value and sets updated_at', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const decision = await createDecision(adapter, {
       phase: 'analysis',
       category: 'a',
       key: 'k',
       value: 'old',
     })
 
-    updateDecision(db, decision.id, { value: 'new', rationale: 'changed' })
+    await updateDecision(adapter, decision.id, { value: 'new', rationale: 'changed' })
 
-    const updated = getDecisionByKey(db, 'analysis', 'k')
+    const updated = await getDecisionByKey(adapter, 'analysis', 'k')
     expect(updated?.value).toBe('new')
     expect(updated?.rationale).toBe('changed')
   })
 
-  it('updateDecision is a no-op when no updates provided', () => {
-    const decision = createDecision(db, {
+  it('updateDecision is a no-op when no updates provided', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const decision = await createDecision(adapter, {
       phase: 'analysis',
       category: 'a',
       key: 'k',
       value: 'original',
     })
-    expect(() => updateDecision(db, decision.id, {})).not.toThrow()
-    const retrieved = getDecisionByKey(db, 'analysis', 'k')
+    await expect(updateDecision(adapter, decision.id, {})).resolves.not.toThrow()
+    const retrieved = await getDecisionByKey(adapter, 'analysis', 'k')
     expect(retrieved?.value).toBe('original')
   })
 
-  it('generates unique UUIDs for each decision', () => {
-    const d1 = createDecision(db, { phase: 'analysis', category: 'a', key: 'k1', value: 'v1' })
-    const d2 = createDecision(db, { phase: 'analysis', category: 'a', key: 'k2', value: 'v2' })
+  it('generates unique UUIDs for each decision', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const d1 = await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'k1', value: 'v1' })
+    const d2 = await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'k2', value: 'v2' })
     expect(d1.id).not.toBe(d2.id)
   })
 })
@@ -263,8 +273,9 @@ describe('AC3: Requirements table CRUD', () => {
     db = openTestDb()
   })
 
-  it('createRequirement inserts with status=active', () => {
-    const req = createRequirement(db, {
+  it('createRequirement inserts with status=active', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const req = await createRequirement(adapter, {
       source: 'user-interview',
       type: 'functional',
       description: 'The system must allow user login',
@@ -277,80 +288,85 @@ describe('AC3: Requirements table CRUD', () => {
     expect(req.priority).toBe('must')
   })
 
-  it('listRequirements returns all requirements without filter', () => {
-    createRequirement(db, {
+  it('listRequirements returns all requirements without filter', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await createRequirement(adapter, {
       source: 'spec',
       type: 'functional',
       description: 'Feature A',
       priority: 'must',
     })
-    createRequirement(db, {
+    await createRequirement(adapter, {
       source: 'spec',
       type: 'non_functional',
       description: 'Performance requirement',
       priority: 'should',
     })
 
-    const results = listRequirements(db)
+    const results = await listRequirements(adapter)
     expect(results.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('listRequirements filters by type', () => {
-    createRequirement(db, {
+  it('listRequirements filters by type', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await createRequirement(adapter, {
       source: 's',
       type: 'functional',
       description: 'Func req',
       priority: 'must',
     })
-    createRequirement(db, {
+    await createRequirement(adapter, {
       source: 's',
       type: 'non_functional',
       description: 'NFR',
       priority: 'should',
     })
 
-    const results = listRequirements(db, { type: 'functional' })
+    const results = await listRequirements(adapter, { type: 'functional' })
     expect(results).toHaveLength(1)
     expect(results[0].type).toBe('functional')
   })
 
-  it('listRequirements filters by priority', () => {
-    createRequirement(db, {
+  it('listRequirements filters by priority', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await createRequirement(adapter, {
       source: 's',
       type: 'functional',
       description: 'Must req',
       priority: 'must',
     })
-    createRequirement(db, {
+    await createRequirement(adapter, {
       source: 's',
       type: 'functional',
       description: 'Should req',
       priority: 'should',
     })
 
-    const results = listRequirements(db, { priority: 'must' })
+    const results = await listRequirements(adapter, { priority: 'must' })
     expect(results).toHaveLength(1)
     expect(results[0].priority).toBe('must')
   })
 
-  it('listRequirements filters by status', () => {
-    const req = createRequirement(db, {
+  it('listRequirements filters by status', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const req = await createRequirement(adapter, {
       source: 's',
       type: 'functional',
       description: 'Req',
       priority: 'must',
     })
-    updateRequirementStatus(db, req.id, 'done')
+    await updateRequirementStatus(adapter, req.id, 'done')
 
-    const active = listRequirements(db, { status: 'active' })
-    const done = listRequirements(db, { status: 'done' })
+    const active = await listRequirements(adapter, { status: 'active' })
+    const done = await listRequirements(adapter, { status: 'done' })
 
     expect(active.every((r) => r.status === 'active')).toBe(true)
     expect(done.every((r) => r.status === 'done')).toBe(true)
   })
 
-  it('updateRequirementStatus transitions status', () => {
-    const req = createRequirement(db, {
+  it('updateRequirementStatus transitions status', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const req = await createRequirement(adapter, {
       source: 's',
       type: 'functional',
       description: 'Req',
@@ -358,9 +374,9 @@ describe('AC3: Requirements table CRUD', () => {
     })
     expect(req.status).toBe('active')
 
-    updateRequirementStatus(db, req.id, 'done')
+    await updateRequirementStatus(adapter, req.id, 'done')
 
-    const updated = listRequirements(db, { status: 'done' })
+    const updated = await listRequirements(adapter, { status: 'done' })
     expect(updated.some((r) => r.id === req.id)).toBe(true)
   })
 })
@@ -376,8 +392,9 @@ describe('AC4: Constraints table CRUD', () => {
     db = openTestDb()
   })
 
-  it('createConstraint inserts a new row', () => {
-    const constraint = createConstraint(db, {
+  it('createConstraint inserts a new row', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const constraint = await createConstraint(adapter, {
       category: 'security',
       description: 'All data must be encrypted at rest',
       source: 'compliance-policy',
@@ -389,25 +406,28 @@ describe('AC4: Constraints table CRUD', () => {
     expect(constraint.source).toBe('compliance-policy')
   })
 
-  it('listConstraints returns all constraints without filter', () => {
-    createConstraint(db, { category: 'security', description: 'Encryption', source: 's' })
-    createConstraint(db, { category: 'performance', description: 'Latency limit', source: 's' })
+  it('listConstraints returns all constraints without filter', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await createConstraint(adapter, { category: 'security', description: 'Encryption', source: 's' })
+    await createConstraint(adapter, { category: 'performance', description: 'Latency limit', source: 's' })
 
-    const results = listConstraints(db)
+    const results = await listConstraints(adapter)
     expect(results.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('listConstraints filters by category', () => {
-    createConstraint(db, { category: 'security', description: 'Enc', source: 's' })
-    createConstraint(db, { category: 'performance', description: 'Lat', source: 's' })
+  it('listConstraints filters by category', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await createConstraint(adapter, { category: 'security', description: 'Enc', source: 's' })
+    await createConstraint(adapter, { category: 'performance', description: 'Lat', source: 's' })
 
-    const results = listConstraints(db, { category: 'security' })
+    const results = await listConstraints(adapter, { category: 'security' })
     expect(results).toHaveLength(1)
     expect(results[0].category).toBe('security')
   })
 
-  it('listConstraints returns empty array when no constraints match filter', () => {
-    const results = listConstraints(db, { category: 'nonexistent' })
+  it('listConstraints returns empty array when no constraints match filter', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const results = await listConstraints(adapter, { category: 'nonexistent' })
     expect(results).toHaveLength(0)
   })
 })
@@ -423,8 +443,9 @@ describe('AC5: Artifacts table CRUD', () => {
     db = openTestDb()
   })
 
-  it('registerArtifact inserts a new row', () => {
-    const artifact = registerArtifact(db, {
+  it('registerArtifact inserts a new row', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const artifact = await registerArtifact(adapter, {
       phase: 'analysis',
       type: 'requirements-doc',
       path: '/output/requirements.md',
@@ -439,41 +460,45 @@ describe('AC5: Artifacts table CRUD', () => {
     expect(artifact.content_hash).toBe('abc123')
   })
 
-  it('getArtifactsByPhase returns all artifacts for a phase', () => {
-    registerArtifact(db, { phase: 'analysis', type: 'doc1', path: '/a/1' })
-    registerArtifact(db, { phase: 'analysis', type: 'doc2', path: '/a/2' })
-    registerArtifact(db, { phase: 'planning', type: 'doc3', path: '/p/3' })
+  it('getArtifactsByPhase returns all artifacts for a phase', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await registerArtifact(adapter, { phase: 'analysis', type: 'doc1', path: '/a/1' })
+    await registerArtifact(adapter, { phase: 'analysis', type: 'doc2', path: '/a/2' })
+    await registerArtifact(adapter, { phase: 'planning', type: 'doc3', path: '/p/3' })
 
-    const results = getArtifactsByPhase(db, 'analysis')
+    const results = await getArtifactsByPhase(adapter, 'analysis')
     expect(results).toHaveLength(2)
     expect(results.every((a) => a.phase === 'analysis')).toBe(true)
   })
 
-  it('getArtifactsByPhase returns empty array for unknown phase', () => {
-    const results = getArtifactsByPhase(db, 'nonexistent')
+  it('getArtifactsByPhase returns empty array for unknown phase', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const results = await getArtifactsByPhase(adapter, 'nonexistent')
     expect(results).toHaveLength(0)
   })
 
-  it('getArtifactByType returns the latest artifact of that type', () => {
+  it('getArtifactByType returns the latest artifact of that type', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // Insert two artifacts of the same type; the second (later) should be returned
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       phase: 'analysis',
       type: 'requirements-doc',
       path: '/output/req-v1.md',
     })
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       phase: 'analysis',
       type: 'requirements-doc',
       path: '/output/req-v2.md',
     })
 
-    const latest = getArtifactByType(db, 'analysis', 'requirements-doc')
+    const latest = await getArtifactByType(adapter, 'analysis', 'requirements-doc')
     expect(latest).toBeDefined()
     expect(latest?.path).toBe('/output/req-v2.md')
   })
 
-  it('getArtifactByType returns undefined for non-existent type', () => {
-    const result = getArtifactByType(db, 'analysis', 'no-such-type')
+  it('getArtifactByType returns undefined for non-existent type', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getArtifactByType(adapter, 'analysis', 'no-such-type')
     expect(result).toBeUndefined()
   })
 })
@@ -489,8 +514,9 @@ describe('AC6: Pipeline runs table CRUD', () => {
     db = openTestDb()
   })
 
-  it('createPipelineRun inserts with status=running', () => {
-    const run = createPipelineRun(db, {
+  it('createPipelineRun inserts with status=running', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, {
       methodology: 'agile',
       start_phase: 'analysis',
     })
@@ -504,58 +530,65 @@ describe('AC6: Pipeline runs table CRUD', () => {
     expect(run.created_at).toBeDefined()
   })
 
-  it('updatePipelineRun updates phase and status', () => {
-    const run = createPipelineRun(db, { methodology: 'agile' })
-    updatePipelineRun(db, run.id, { current_phase: 'planning', status: 'paused' })
+  it('updatePipelineRun updates phase and status', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'agile' })
+    await updatePipelineRun(adapter, run.id, { current_phase: 'planning', status: 'paused' })
 
-    const updated = getLatestRun(db)
+    const updated = await getLatestRun(adapter)
     expect(updated?.current_phase).toBe('planning')
     expect(updated?.status).toBe('paused')
   })
 
-  it('updatePipelineRun updates token_usage_json', () => {
-    const run = createPipelineRun(db, { methodology: 'waterfall' })
+  it('updatePipelineRun updates token_usage_json', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'waterfall' })
     const usageJson = JSON.stringify({ total: 1000 })
-    updatePipelineRun(db, run.id, { token_usage_json: usageJson })
+    await updatePipelineRun(adapter, run.id, { token_usage_json: usageJson })
 
-    const updated = getLatestRun(db)
+    const updated = await getLatestRun(adapter)
     expect(updated?.token_usage_json).toBe(usageJson)
   })
 
-  it('updatePipelineRun is a no-op when no updates provided', () => {
-    const run = createPipelineRun(db, { methodology: 'agile' })
-    expect(() => updatePipelineRun(db, run.id, {})).not.toThrow()
+  it('updatePipelineRun is a no-op when no updates provided', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'agile' })
+    await expect(updatePipelineRun(adapter, run.id, {})).resolves.not.toThrow()
   })
 
-  it('getLatestRun returns the most recent pipeline run', () => {
-    createPipelineRun(db, { methodology: 'agile' })
-    const latest = createPipelineRun(db, { methodology: 'kanban' })
+  it('getLatestRun returns the most recent pipeline run', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await createPipelineRun(adapter, { methodology: 'agile' })
+    const latest = await createPipelineRun(adapter, { methodology: 'kanban' })
 
-    const result = getLatestRun(db)
+    const result = await getLatestRun(adapter)
     expect(result).toBeDefined()
     // The latest run should have been created after the first
     expect(result?.methodology).toBe('kanban')
     expect(result?.id).toBe(latest.id)
   })
 
-  it('getLatestRun returns undefined when no runs exist', () => {
-    const result = getLatestRun(db)
+  it('getLatestRun returns undefined when no runs exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getLatestRun(adapter)
     expect(result).toBeUndefined()
   })
 
-  it('pipeline run status transitions (running -> completed)', () => {
-    const run = createPipelineRun(db, { methodology: 'agile' })
-    updatePipelineRun(db, run.id, { status: 'completed' })
+  it('pipeline run status transitions (running -> completed)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'agile' })
+    await updatePipelineRun(adapter, run.id, { status: 'completed' })
 
-    const updated = getLatestRun(db)
+    const updated = await getLatestRun(adapter)
     expect(updated?.status).toBe('completed')
   })
 
-  it('pipeline run status transitions (running -> failed)', () => {
-    const run = createPipelineRun(db, { methodology: 'agile' })
-    updatePipelineRun(db, run.id, { status: 'failed' })
+  it('pipeline run status transitions (running -> failed)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'agile' })
+    await updatePipelineRun(adapter, run.id, { status: 'failed' })
 
-    const updated = getLatestRun(db)
+    const updated = await getLatestRun(adapter)
     expect(updated?.status).toBe('failed')
   })
 })
@@ -661,40 +694,43 @@ describe('AC8: Token usage tracking', () => {
   let db: BetterSqlite3Database
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = openTestDb()
-    const run = createPipelineRun(db, { methodology: 'agile' })
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'agile' })
     runId = run.id
   })
 
-  it('addTokenUsage inserts a usage record', () => {
-    expect(() =>
-      addTokenUsage(db, runId, {
+  it('addTokenUsage inserts a usage record', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await expect(
+      addTokenUsage(adapter, runId, {
         phase: 'analysis',
         agent: 'claude',
         input_tokens: 100,
         output_tokens: 200,
         cost_usd: 0.05,
       }),
-    ).not.toThrow()
+    ).resolves.not.toThrow()
   })
 
-  it('getTokenUsageSummary returns aggregated totals by phase and agent', () => {
-    addTokenUsage(db, runId, {
+  it('getTokenUsageSummary returns aggregated totals by phase and agent', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await addTokenUsage(adapter, runId, {
       phase: 'analysis',
       agent: 'claude',
       input_tokens: 100,
       output_tokens: 200,
       cost_usd: 0.05,
     })
-    addTokenUsage(db, runId, {
+    await addTokenUsage(adapter, runId, {
       phase: 'analysis',
       agent: 'claude',
       input_tokens: 50,
       output_tokens: 100,
       cost_usd: 0.02,
     })
-    addTokenUsage(db, runId, {
+    await addTokenUsage(adapter, runId, {
       phase: 'planning',
       agent: 'claude',
       input_tokens: 300,
@@ -702,7 +738,7 @@ describe('AC8: Token usage tracking', () => {
       cost_usd: 0.10,
     })
 
-    const summary = getTokenUsageSummary(db, runId)
+    const summary = await getTokenUsageSummary(adapter, runId)
     expect(summary).toHaveLength(2)
 
     const analysisSummary = summary.find((s) => s.phase === 'analysis')
@@ -717,20 +753,22 @@ describe('AC8: Token usage tracking', () => {
     expect(planningSummary?.total_output_tokens).toBe(400)
   })
 
-  it('getTokenUsageSummary returns empty array when no usage records exist', () => {
-    const summary = getTokenUsageSummary(db, runId)
+  it('getTokenUsageSummary returns empty array when no usage records exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const summary = await getTokenUsageSummary(adapter, runId)
     expect(summary).toHaveLength(0)
   })
 
-  it('getTokenUsageSummary aggregates by agent within phase', () => {
-    addTokenUsage(db, runId, {
+  it('getTokenUsageSummary aggregates by agent within phase', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await addTokenUsage(adapter, runId, {
       phase: 'analysis',
       agent: 'claude',
       input_tokens: 100,
       output_tokens: 200,
       cost_usd: 0.05,
     })
-    addTokenUsage(db, runId, {
+    await addTokenUsage(adapter, runId, {
       phase: 'analysis',
       agent: 'gpt-4',
       input_tokens: 50,
@@ -738,7 +776,7 @@ describe('AC8: Token usage tracking', () => {
       cost_usd: 0.03,
     })
 
-    const summary = getTokenUsageSummary(db, runId)
+    const summary = await getTokenUsageSummary(adapter, runId)
     expect(summary).toHaveLength(2)
 
     const claudeSummary = summary.find(
@@ -752,16 +790,17 @@ describe('AC8: Token usage tracking', () => {
     expect(gptSummary?.total_input_tokens).toBe(50)
   })
 
-  it('getTokenUsageSummary only includes records for the given runId', () => {
-    const run2 = createPipelineRun(db, { methodology: 'kanban' })
-    addTokenUsage(db, runId, {
+  it('getTokenUsageSummary only includes records for the given runId', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run2 = await createPipelineRun(adapter, { methodology: 'kanban' })
+    await addTokenUsage(adapter, runId, {
       phase: 'analysis',
       agent: 'claude',
       input_tokens: 100,
       output_tokens: 200,
       cost_usd: 0.05,
     })
-    addTokenUsage(db, run2.id, {
+    await addTokenUsage(adapter, run2.id, {
       phase: 'analysis',
       agent: 'claude',
       input_tokens: 999,
@@ -769,7 +808,7 @@ describe('AC8: Token usage tracking', () => {
       cost_usd: 9.99,
     })
 
-    const summary = getTokenUsageSummary(db, runId)
+    const summary = await getTokenUsageSummary(adapter, runId)
     expect(summary).toHaveLength(1)
     expect(summary[0].total_input_tokens).toBe(100)
   })
@@ -889,9 +928,10 @@ describe('upsertDecision — decision deduplication on retry', () => {
     db = openTestDb()
   })
 
-  it('inserts a new decision when no match exists', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
-    const result = upsertDecision(db, {
+  it('inserts a new decision when no match exists', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
+    const result = await upsertDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'solutioning',
       category: 'architecture',
@@ -901,13 +941,14 @@ describe('upsertDecision — decision deduplication on retry', () => {
     expect(result.key).toBe('language')
     expect(result.value).toBe('TypeScript')
 
-    const all = getDecisionsByPhase(db, 'solutioning')
+    const all = await getDecisionsByPhase(adapter, 'solutioning')
     expect(all).toHaveLength(1)
   })
 
-  it('updates existing decision with same pipeline_run_id + category + key', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
-    const original = upsertDecision(db, {
+  it('updates existing decision with same pipeline_run_id + category + key', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
+    const original = await upsertDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'solutioning',
       category: 'architecture',
@@ -916,7 +957,7 @@ describe('upsertDecision — decision deduplication on retry', () => {
       rationale: 'Original choice',
     })
 
-    const updated = upsertDecision(db, {
+    const updated = await upsertDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'solutioning',
       category: 'architecture',
@@ -929,20 +970,21 @@ describe('upsertDecision — decision deduplication on retry', () => {
     expect(updated.value).toBe('SQLite')
     expect(updated.rationale).toBe('Changed to embedded')
 
-    const all = getDecisionsByPhase(db, 'solutioning')
+    const all = await getDecisionsByPhase(adapter, 'solutioning')
     expect(all).toHaveLength(1)
   })
 
-  it('does not deduplicate decisions with different categories', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
-    upsertDecision(db, {
+  it('does not deduplicate decisions with different categories', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
+    await upsertDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'solutioning',
       category: 'architecture',
       key: 'key-1',
       value: 'value-a',
     })
-    upsertDecision(db, {
+    await upsertDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'solutioning',
       category: 'epics',
@@ -950,21 +992,22 @@ describe('upsertDecision — decision deduplication on retry', () => {
       value: 'value-b',
     })
 
-    const all = getDecisionsByPhase(db, 'solutioning')
+    const all = await getDecisionsByPhase(adapter, 'solutioning')
     expect(all).toHaveLength(2)
   })
 
-  it('does not deduplicate decisions with different pipeline_run_ids', () => {
-    const run1 = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
-    const run2 = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
-    upsertDecision(db, {
+  it('does not deduplicate decisions with different pipeline_run_ids', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run1 = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
+    const run2 = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
+    await upsertDecision(adapter, {
       pipeline_run_id: run1.id,
       phase: 'solutioning',
       category: 'architecture',
       key: 'database',
       value: 'SQLite',
     })
-    upsertDecision(db, {
+    await upsertDecision(adapter, {
       pipeline_run_id: run2.id,
       phase: 'solutioning',
       category: 'architecture',
@@ -972,14 +1015,15 @@ describe('upsertDecision — decision deduplication on retry', () => {
       value: 'PostgreSQL',
     })
 
-    const all = getDecisionsByPhase(db, 'solutioning')
+    const all = await getDecisionsByPhase(adapter, 'solutioning')
     expect(all).toHaveLength(2)
   })
 
-  it('count after N upserts equals count from single insert', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+  it('count after N upserts equals count from single insert', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     for (let i = 0; i < 5; i++) {
-      upsertDecision(db, {
+      await upsertDecision(adapter, {
         pipeline_run_id: run.id,
         phase: 'solutioning',
         category: 'architecture',
@@ -988,7 +1032,7 @@ describe('upsertDecision — decision deduplication on retry', () => {
       })
     }
 
-    const all = getDecisionsByPhase(db, 'solutioning')
+    const all = await getDecisionsByPhase(adapter, 'solutioning')
     expect(all).toHaveLength(1)
     expect(all[0].value).toBe('attempt-4')
   })

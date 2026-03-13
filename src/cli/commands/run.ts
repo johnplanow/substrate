@@ -403,6 +403,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
 
     const db = dbWrapper.db
+    const adapter = dbWrapper.adapter
 
     // Story 28-6: Create TelemetryPersistence early so it's available for routing and
     // repo-map telemetry injection. The IngestionServer stays near the orchestrator.
@@ -500,7 +501,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // Sweep stale "running" pipeline rows whose orchestrator process is dead.
     // Without this, zombie rows from crashed runs accumulate and confuse agents
     // that inspect pipeline_runs to determine if a run is in progress.
-    const staleRuns = getRunningPipelineRuns(db) ?? []
+    const staleRuns = (await getRunningPipelineRuns(adapter)) ?? []
     if (staleRuns.length > 0) {
       const processInfo = inspectProcessTree({ projectRoot })
       let swept = 0
@@ -510,7 +511,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         // we still mark all existing rows as failed since we're about to start a new one.
         // (The new run gets its own fresh row below.)
         if (processInfo.orchestrator_pid === null) {
-          updatePipelineRun(db, stale.id, { status: 'failed' })
+          await updatePipelineRun(adapter, stale.id, { status: 'failed' })
           swept++
         }
       }
@@ -520,7 +521,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
 
     // Create pipeline run record
-    const pipelineRun = createPipelineRun(db, {
+    const pipelineRun = await createPipelineRun(adapter, {
       methodology: pack.manifest.name,
       start_phase: 'implementation',
       config_json: JSON.stringify({ storyKeys, concurrency }),
@@ -691,13 +692,15 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           const { input, output } = result.tokenUsage
           // Estimate cost: $3/1M input + $15/1M output (Claude pricing)
           const costUsd = (input * 3 + output * 15) / 1_000_000
-          addTokenUsage(db, pipelineRun.id, {
+          addTokenUsage(adapter, pipelineRun.id, {
             phase: payload.phase,
             agent: 'claude-code',
             input_tokens: input,
             output_tokens: output,
             cost_usd: costUsd,
             metadata: JSON.stringify({ storyKey: payload.storyKey }),
+          }).catch((err) => {
+            logger.warn({ err }, 'Failed to record token usage for phase')
           })
         }
       } catch (err) {
@@ -1240,13 +1243,13 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     try {
       const runEndMs = Date.now()
       const runStartMs = parseDbTimestampAsUtc(pipelineRun.created_at ?? '').getTime()
-      const tokenAgg = aggregateTokenUsageForRun(db, pipelineRun.id)
-      const storyMetrics = getStoryMetricsForRun(db, pipelineRun.id)
+      const tokenAgg = await aggregateTokenUsageForRun(adapter, pipelineRun.id)
+      const storyMetrics = await getStoryMetricsForRun(adapter, pipelineRun.id)
       const totalReviewCycles = storyMetrics.reduce((sum, m) => sum + (m.review_cycles ?? 0), 0)
       const totalDispatches = storyMetrics.reduce((sum, m) => sum + (m.dispatches ?? 0), 0)
       // restarts is preserved automatically by writeRunMetrics (ON CONFLICT DO UPDATE keeps
       // the DB-side value), so there is no TOCTOU race from a concurrent incrementRunRestarts().
-      writeRunMetrics(db, {
+      await writeRunMetrics(adapter, {
         run_id: pipelineRun.id,
         methodology: pack.manifest.name,
         status: failedKeys.length > 0
@@ -1308,7 +1311,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
 
     // Record final token usage for the run
-    const tokenSummary = getTokenUsageSummary(db, pipelineRun.id)
+    const tokenSummary = await getTokenUsageSummary(adapter, pipelineRun.id)
 
     // Keep the process alive so the user can interact with the TUI (Story 15-5)
     // Wait for TUI to exit BEFORE writing any plain-text summary to stdout, so
@@ -1434,6 +1437,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     }
 
     const db = dbWrapper.db
+    const adapter = dbWrapper.adapter
 
     // Load methodology pack
     const packLoader = createPackLoader()
@@ -1485,7 +1489,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     // Mutate manifest in place to preserve the Pack class prototype (getPhases, etc.)
     pack.manifest.research = effectiveResearch
     pack.manifest.uxDesign = effectiveUxDesign
-    const phaseOrchestrator = createPhaseOrchestrator({ db, pack })
+    const phaseOrchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
     // Start the run
     const startedAt = Date.now()
@@ -1521,7 +1525,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd =
             (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
-          addTokenUsage(db, runId, {
+          await addTokenUsage(adapter, runId, {
             phase: 'analysis',
             agent: 'claude-code',
             input_tokens: result.tokenUsage.input,
@@ -1531,7 +1535,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         }
 
         if (result.result === 'failed') {
-          updatePipelineRun(db, runId, { status: 'failed' })
+          await updatePipelineRun(adapter, runId, { status: 'failed' })
           const errorMsg = `Analysis phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -1556,7 +1560,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd =
             (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
-          addTokenUsage(db, runId, {
+          await addTokenUsage(adapter, runId, {
             phase: 'planning',
             agent: 'claude-code',
             input_tokens: result.tokenUsage.input,
@@ -1566,7 +1570,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         }
 
         if (result.result === 'failed') {
-          updatePipelineRun(db, runId, { status: 'failed' })
+          await updatePipelineRun(adapter, runId, { status: 'failed' })
           const errorMsg = `Planning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -1591,7 +1595,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd =
             (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
-          addTokenUsage(db, runId, {
+          await addTokenUsage(adapter, runId, {
             phase: 'research',
             agent: 'claude-code',
             input_tokens: result.tokenUsage.input,
@@ -1601,7 +1605,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         }
 
         if (result.result === 'failed') {
-          updatePipelineRun(db, runId, { status: 'failed' })
+          await updatePipelineRun(adapter, runId, { status: 'failed' })
           const errorMsg = `Research phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -1626,7 +1630,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd =
             (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
-          addTokenUsage(db, runId, {
+          await addTokenUsage(adapter, runId, {
             phase: 'ux-design',
             agent: 'claude-code',
             input_tokens: result.tokenUsage.input,
@@ -1636,7 +1640,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         }
 
         if (result.result === 'failed') {
-          updatePipelineRun(db, runId, { status: 'failed' })
+          await updatePipelineRun(adapter, runId, { status: 'failed' })
           const errorMsg = `UX design phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -1661,7 +1665,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd =
             (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
-          addTokenUsage(db, runId, {
+          await addTokenUsage(adapter, runId, {
             phase: 'solutioning',
             agent: 'claude-code',
             input_tokens: result.tokenUsage.input,
@@ -1673,7 +1677,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         if (result.result === 'failed') {
           const errorMsg = `Solutioning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}`
           // Use markPhaseFailed to record failure in phase history AND update status to 'failed'
-          phaseOrchestrator.markPhaseFailed(runId, 'solutioning', errorMsg)
+          await phaseOrchestrator.markPhaseFailed(runId, 'solutioning', errorMsg)
           // Surface failure via NDJSON event stream when --events is active
           if (eventsFlag === true) {
             const ndjsonEmitter = createEventEmitter(process.stdout)
@@ -1738,12 +1742,14 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             if (result?.tokenUsage !== undefined) {
               const { input, output } = result.tokenUsage
               const costUsd = (input * 3 + output * 15) / 1_000_000
-              addTokenUsage(db, runId, {
+              addTokenUsage(adapter, runId, {
                 phase: payload.phase,
                 agent: 'claude-code',
                 input_tokens: input,
                 output_tokens: output,
                 cost_usd: costUsd,
+              }).catch((err) => {
+                logger.warn({ err }, 'Failed to record token usage for phase')
               })
             }
           } catch (err) {
@@ -1803,7 +1809,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
               .get(runId) as { cnt: number } | undefined)?.cnt ?? 0
 
           // Update run status to 'stopped' atomically before emitting summary (AC4)
-          updatePipelineRun(db, runId, { status: 'stopped' })
+          await updatePipelineRun(adapter, runId, { status: 'stopped' })
 
           // Emit phase completion summary (AC5)
           const phaseStartedAt = new Date(startedAt).toISOString()
@@ -1839,7 +1845,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     }
 
     // Get final token summary
-    const tokenSummary = getTokenUsageSummary(db, runId)
+    const tokenSummary = await getTokenUsageSummary(adapter, runId)
     const durationMs = Date.now() - startedAt
 
     // Count decisions and stories

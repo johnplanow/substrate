@@ -13,6 +13,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
   createPipelineRun,
   getDecisionsByPhaseForRun,
@@ -28,22 +30,23 @@ import { getProjectFindings } from '../../../implementation-orchestrator/project
 // Mock getProjectFindings so multi-step tests can control prior findings injection
 // Default: returns '' (no findings) — does not affect existing tests
 vi.mock('../../../implementation-orchestrator/project-findings.js', () => ({
-  getProjectFindings: vi.fn().mockReturnValue(''),
+  getProjectFindings: vi.fn().mockResolvedValue(''),
 }))
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'analysis-multistep-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
@@ -182,11 +185,11 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack: MethodologyPack,
 ): PhaseDeps {
-  return { db, pack, contextCompiler: makeContextCompiler(), dispatcher }
+  return { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
 
 /**
@@ -285,14 +288,16 @@ function makeMultiStepPackWithFindingsTemplate(): MethodologyPack {
 
 describe('runAnalysisPhase() multi-step path', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -303,7 +308,7 @@ describe('runAnalysisPhase() multi-step path', () => {
   it('uses multi-step path when manifest defines steps', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
 
     const result = await runAnalysisPhase(deps, params)
@@ -323,12 +328,12 @@ describe('runAnalysisPhase() multi-step path', () => {
   it('persists product brief decisions to the decision store', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
 
     await runAnalysisPhase(deps, params)
 
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
     // Step 1 persists: problem_statement, target_users
     // Step 2 persists: core_features, success_metrics, constraints
     expect(decisions.length).toBeGreaterThanOrEqual(5)
@@ -337,20 +342,20 @@ describe('runAnalysisPhase() multi-step path', () => {
   it('registers a product-brief artifact', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
 
     const result = await runAnalysisPhase(deps, params)
 
     expect(result.artifact_id).toBeDefined()
-    const artifact = getArtifactByTypeForRun(db, runId, 'analysis', 'product-brief')
+    const artifact = await getArtifactByTypeForRun(adapter, runId, 'analysis', 'product-brief')
     expect(artifact).toBeTruthy()
   })
 
   it('accumulates token usage across both steps', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
 
     const result = await runAnalysisPhase(deps, params)
@@ -386,7 +391,7 @@ describe('runAnalysisPhase() multi-step path', () => {
       getRunning: vi.fn().mockReturnValue(0),
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
 
     const result = await runAnalysisPhase(deps, params)
@@ -423,7 +428,7 @@ describe('runAnalysisPhase() multi-step path', () => {
       getRunning: vi.fn().mockReturnValue(0),
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = {
       runId,
       concept: 'Build a task manager',
@@ -452,7 +457,7 @@ describe('runAnalysisPhase() multi-step path', () => {
       getRunning: vi.fn().mockReturnValue(0),
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
 
     const result = await runAnalysisPhase(deps, params)
@@ -468,19 +473,21 @@ describe('runAnalysisPhase() multi-step path', () => {
 
 describe('runAnalysisPhase() multi-step path — prior findings injection', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'analysis-multistep-findings-'))
     const database = new Database(join(tmp, 'test.db'))
     runMigrations(database)
     db = database
+    adapter = new SqliteDatabaseAdapter(database)
     tmpDir = tmp
-    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     runId = run.id
     // Reset mock to default before each test
-    vi.mocked(getProjectFindings).mockReturnValue('')
+    vi.mocked(getProjectFindings).mockResolvedValue('')
   })
 
   afterEach(() => {
@@ -491,13 +498,13 @@ describe('runAnalysisPhase() multi-step path — prior findings injection', () =
 
   it('AC1: assembled step-1-vision prompt contains findings text when findings are present', async () => {
     const findingsText = '**Recurring patterns:** missing error handling\n**Prior stalls:** 2 stall event(s) recorded'
-    vi.mocked(getProjectFindings).mockReturnValue(findingsText)
+    vi.mocked(getProjectFindings).mockResolvedValue(findingsText)
 
     const pack = makeMultiStepPackWithFindingsTemplate()
     const visionResult = makeDispatchResult(VISION_OUTPUT, 0)
     const scopeResult = makeDispatchResult(SCOPE_OUTPUT, 1)
     const { dispatcher, capturedPrompts } = makeCaptureDispatcher([visionResult, scopeResult])
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
 
     const result = await runAnalysisPhase(deps, params)
@@ -509,13 +516,13 @@ describe('runAnalysisPhase() multi-step path — prior findings injection', () =
   })
 
   it('AC2: assembled step-1-vision prompt has no orphaned {{prior_findings}} when store is empty', async () => {
-    vi.mocked(getProjectFindings).mockReturnValue('')
+    vi.mocked(getProjectFindings).mockResolvedValue('')
 
     const pack = makeMultiStepPackWithFindingsTemplate()
     const visionResult = makeDispatchResult(VISION_OUTPUT, 0)
     const scopeResult = makeDispatchResult(SCOPE_OUTPUT, 1)
     const { dispatcher, capturedPrompts } = makeCaptureDispatcher([visionResult, scopeResult])
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
 
     const result = await runAnalysisPhase(deps, params)

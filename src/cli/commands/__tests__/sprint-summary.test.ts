@@ -16,6 +16,7 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 import {
   buildPipelineStatusOutput,
   formatPipelineStatusHuman,
@@ -31,11 +32,11 @@ function createTestDb(): BetterSqlite3Database {
   return db
 }
 
-function createTestRun(
+async function createTestRun(
   db: BetterSqlite3Database,
   overrides: { token_usage_json?: string | null; config_json?: string | null } = {},
-): PipelineRun {
-  const run = createPipelineRun(db, {
+): Promise<PipelineRun> {
+  const run = await createPipelineRun(new SqliteDatabaseAdapter(db), {
     methodology: 'bmad',
     start_phase: 'analysis',
     config_json: overrides.config_json ?? null,
@@ -70,9 +71,9 @@ function makeStoryState(
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC5+AC6: state deserialization', () => {
-  it('AC6: stories is undefined when token_usage_json is null', () => {
+  it('AC6: stories is undefined when token_usage_json is null', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, { token_usage_json: null })
+    const run = await createTestRun(db, { token_usage_json: null })
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
     expect(result.stories).toBeUndefined()
@@ -80,9 +81,9 @@ describe('buildPipelineStatusOutput — AC5+AC6: state deserialization', () => {
     db.close()
   })
 
-  it('AC6: stories is undefined when token_usage_json has no stories key', () => {
+  it('AC6: stories is undefined when token_usage_json has no stories key', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: JSON.stringify({ state: 'RUNNING', maxConcurrentActual: 1 }),
     })
     const result = buildPipelineStatusOutput(run, [], 0, 0)
@@ -92,9 +93,9 @@ describe('buildPipelineStatusOutput — AC5+AC6: state deserialization', () => {
     db.close()
   })
 
-  it('AC6: stories is undefined when stories map is empty', () => {
+  it('AC6: stories is undefined when stories map is empty', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: JSON.stringify({ state: 'RUNNING', stories: {} }),
     })
     const result = buildPipelineStatusOutput(run, [], 0, 0)
@@ -104,9 +105,9 @@ describe('buildPipelineStatusOutput — AC5+AC6: state deserialization', () => {
     db.close()
   })
 
-  it('AC6: gracefully handles malformed JSON in token_usage_json', () => {
+  it('AC6: gracefully handles malformed JSON in token_usage_json', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, { token_usage_json: 'NOT_VALID_JSON' })
+    const run = await createTestRun(db, { token_usage_json: 'NOT_VALID_JSON' })
 
     expect(() => buildPipelineStatusOutput(run, [], 0, 0)).not.toThrow()
     const result = buildPipelineStatusOutput(run, [], 0, 0)
@@ -115,9 +116,9 @@ describe('buildPipelineStatusOutput — AC5+AC6: state deserialization', () => {
     db.close()
   })
 
-  it('AC5: deserializes story state from token_usage_json without orchestrator in-process', () => {
+  it('AC5: deserializes story state from token_usage_json without orchestrator in-process', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'IN_DEV', reviewCycles: 0 },
@@ -139,9 +140,9 @@ describe('buildPipelineStatusOutput — AC5+AC6: state deserialization', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC1: per-story details', () => {
-  it('stories.details contains phase for each story', () => {
+  it('stories.details contains phase for each story', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'IN_DEV', reviewCycles: 0 },
@@ -158,9 +159,9 @@ describe('buildPipelineStatusOutput — AC1: per-story details', () => {
     db.close()
   })
 
-  it('stories.details contains review_cycles for each story', () => {
+  it('stories.details contains review_cycles for each story', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 2 },
         '22-2': { phase: 'NEEDS_FIXES', reviewCycles: 1 },
@@ -175,9 +176,9 @@ describe('buildPipelineStatusOutput — AC1: per-story details', () => {
     db.close()
   })
 
-  it('stories.details keys match story keys in state', () => {
+  it('stories.details keys match story keys in state', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '10-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '10-2': { phase: 'PENDING', reviewCycles: 0 },
@@ -200,9 +201,9 @@ describe('buildPipelineStatusOutput — AC1: per-story details', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
-  it('counts completed stories (COMPLETE phase)', () => {
+  it('counts completed stories (COMPLETE phase)', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'COMPLETE', reviewCycles: 0 },
@@ -217,9 +218,9 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
     db.close()
   })
 
-  it('counts in_progress stories (IN_* and NEEDS_FIXES phases)', () => {
+  it('counts in_progress stories (IN_* and NEEDS_FIXES phases)', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'IN_STORY_CREATION', reviewCycles: 0 },
         '22-2': { phase: 'IN_DEV', reviewCycles: 0 },
@@ -238,9 +239,9 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
     db.close()
   })
 
-  it('counts escalated stories (ESCALATED phase)', () => {
+  it('counts escalated stories (ESCALATED phase)', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'ESCALATED', reviewCycles: 3 },
         '22-2': { phase: 'ESCALATED', reviewCycles: 3 },
@@ -255,9 +256,9 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
     db.close()
   })
 
-  it('counts pending stories (PENDING phase)', () => {
+  it('counts pending stories (PENDING phase)', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'PENDING', reviewCycles: 0 },
         '22-2': { phase: 'PENDING', reviewCycles: 0 },
@@ -274,9 +275,9 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
     db.close()
   })
 
-  it('all four count fields are present even when some are zero', () => {
+  it('all four count fields are present even when some are zero', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
       }),
@@ -292,9 +293,9 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
     db.close()
   })
 
-  it('mixed state: completed + in_progress + escalated + pending all counted correctly', () => {
+  it('mixed state: completed + in_progress + escalated + pending all counted correctly', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'IN_DEV', reviewCycles: 0 },
@@ -320,10 +321,10 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
-  it('elapsed_seconds is positive for a story that started', () => {
+  it('elapsed_seconds is positive for a story that started', async () => {
     const db = createTestDb()
     const startedAt = new Date(Date.now() - 120_000).toISOString() // 120s ago
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'IN_DEV', reviewCycles: 0, startedAt },
       }),
@@ -339,9 +340,9 @@ describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
     db.close()
   })
 
-  it('elapsed_seconds is 0 for a story with no startedAt', () => {
+  it('elapsed_seconds is 0 for a story with no startedAt', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'PENDING', reviewCycles: 0 },
       }),
@@ -354,10 +355,10 @@ describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
     db.close()
   })
 
-  it('elapsed_seconds is non-negative even for future startedAt (clock skew)', () => {
+  it('elapsed_seconds is non-negative even for future startedAt (clock skew)', async () => {
     const db = createTestDb()
     const futureStartedAt = new Date(Date.now() + 60_000).toISOString()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'IN_DEV', reviewCycles: 0, startedAt: futureStartedAt },
       }),
@@ -370,10 +371,10 @@ describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
     db.close()
   })
 
-  it('elapsed_seconds for a completed story reflects total time when completedAt not used', () => {
+  it('elapsed_seconds for a completed story reflects total time when completedAt not used', async () => {
     const db = createTestDb()
     const startedAt = new Date(Date.now() - 300_000).toISOString() // 5 minutes ago
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': {
           phase: 'COMPLETE',
@@ -400,10 +401,10 @@ describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
-  it('shows sprint progress table when stories are present', () => {
+  it('shows sprint progress table when stories are present', async () => {
     const db = createTestDb()
     const startedAt = new Date(Date.now() - 60_000).toISOString()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1, startedAt },
         '22-2': { phase: 'IN_DEV', reviewCycles: 0, startedAt },
@@ -422,9 +423,9 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     db.close()
   })
 
-  it('shows each story key in the sprint table', () => {
+  it('shows each story key in the sprint table', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'PENDING', reviewCycles: 0 },
@@ -442,9 +443,9 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     db.close()
   })
 
-  it('shows phases in the sprint table', () => {
+  it('shows phases in the sprint table', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'IN_REVIEW', reviewCycles: 2 },
@@ -460,9 +461,9 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     db.close()
   })
 
-  it('shows review cycle count in the sprint table', () => {
+  it('shows review cycle count in the sprint table', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 3 },
       }),
@@ -476,10 +477,10 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     db.close()
   })
 
-  it('shows elapsed time for stories with startedAt', () => {
+  it('shows elapsed time for stories with startedAt', async () => {
     const db = createTestDb()
     const startedAt = new Date(Date.now() - 90_000).toISOString() // 90s ago
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'IN_DEV', reviewCycles: 0, startedAt },
       }),
@@ -494,9 +495,9 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     db.close()
   })
 
-  it('shows "-" for elapsed when story has no startedAt', () => {
+  it('shows "-" for elapsed when story has no startedAt', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'PENDING', reviewCycles: 0 },
       }),
@@ -510,9 +511,9 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     db.close()
   })
 
-  it('shows count summary line at the bottom of sprint table', () => {
+  it('shows count summary line at the bottom of sprint table', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'IN_DEV', reviewCycles: 0 },
@@ -532,9 +533,9 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     db.close()
   })
 
-  it('does not show sprint table when no story state is available', () => {
+  it('does not show sprint table when no story state is available', async () => {
     const db = createTestDb()
-    const run = createTestRun(db) // no token_usage_json
+    const run = await createTestRun(db) // no token_usage_json
 
     const status = buildPipelineStatusOutput(run, [], 0, 0)
     const output = formatPipelineStatusHuman(status)
@@ -545,9 +546,9 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     db.close()
   })
 
-  it('AC4: existing human output fields are still present alongside sprint table', () => {
+  it('AC4: existing human output fields are still present alongside sprint table', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
       }),
@@ -578,9 +579,9 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — active_dispatches backward compatibility', () => {
-  it('active_dispatches still counts non-terminal stories', () => {
+  it('active_dispatches still counts non-terminal stories', async () => {
     const db = createTestDb()
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'IN_DEV', reviewCycles: 0 },
         '22-2': { phase: 'IN_REVIEW', reviewCycles: 1 },

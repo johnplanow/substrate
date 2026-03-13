@@ -24,6 +24,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
   createPipelineRun,
   createDecision,
@@ -43,27 +45,28 @@ import type { TypedEventBus } from '../../../../core/event-bus.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'solutioning-retry-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
-function seedPlanningRequirements(db: BetterSqlite3Database, runId: string): void {
-  createDecision(db, {
+async function seedPlanningRequirements(adapter: DatabaseAdapter, runId: string): Promise<void> {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'planning',
     category: 'functional-requirements',
     key: 'FR-0',
     value: JSON.stringify({ description: 'User can create tasks with title and description', priority: 'must' }),
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'planning',
     category: 'functional-requirements',
@@ -264,13 +267,13 @@ function makeEventBus(): TypedEventBus {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
   eventBus?: TypedEventBus,
 ): PhaseDeps {
   return {
-    db,
+    db: adapter,
     pack: pack ?? makePack(),
     contextCompiler: makeContextCompiler(),
     dispatcher,
@@ -284,14 +287,16 @@ function makeDeps(
 
 describe('Retry flow: trigger conditions (AC6)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -300,13 +305,13 @@ describe('Retry flow: trigger conditions (AC6)', () => {
   })
 
   it('does NOT trigger retry when NEEDS_WORK has zero blockers (only 3 dispatches)', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NEEDS_WORK', 0), // no blockers → no retry
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -314,7 +319,7 @@ describe('Retry flow: trigger conditions (AC6)', () => {
   })
 
   it('triggers retry when NEEDS_WORK has 1 blocker (5 dispatches total)', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -322,7 +327,7 @@ describe('Retry flow: trigger conditions (AC6)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -331,7 +336,7 @@ describe('Retry flow: trigger conditions (AC6)', () => {
   })
 
   it('triggers retry when NEEDS_WORK has multiple blockers', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -339,7 +344,7 @@ describe('Retry flow: trigger conditions (AC6)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -347,13 +352,13 @@ describe('Retry flow: trigger conditions (AC6)', () => {
   })
 
   it('does NOT trigger retry for NOT_READY verdict (3 dispatches, immediate fail)', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 2),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -361,7 +366,7 @@ describe('Retry flow: trigger conditions (AC6)', () => {
   })
 
   it('does NOT trigger second retry — max 1 retry enforced (5 dispatches max)', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     // Even if retry readiness returns NEEDS_WORK again, no second retry
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
@@ -370,7 +375,7 @@ describe('Retry flow: trigger conditions (AC6)', () => {
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NEEDS_WORK', 1), // retry check: still NEEDS_WORK
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -385,14 +390,16 @@ describe('Retry flow: trigger conditions (AC6)', () => {
 
 describe('Retry flow: gap analysis prompt construction (AC6)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -401,7 +408,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
   })
 
   it('retry story dispatch contains gap analysis section header', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -409,7 +416,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -419,7 +426,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
   })
 
   it('retry story dispatch prompt includes blocker finding description', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const blockerDesc = 'FR-0 (User can create tasks) is not covered by any story'
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
@@ -428,7 +435,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -437,7 +444,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
   })
 
   it('retry story dispatch prompt includes all blocker finding descriptions', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const blocker1 = 'FR-0 not covered'
     const blocker2 = 'FR-1 not covered'
     const dispatcher = makeSequentialDispatcher([
@@ -447,7 +454,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -457,7 +464,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
   })
 
   it('retry story dispatch uses taskType=story-generation', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -465,7 +472,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -474,7 +481,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
   })
 
   it('retry story dispatch uses claude-code agent', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -482,7 +489,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -491,7 +498,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
   })
 
   it('retry prompt no longer contains gap_analysis placeholder (it was replaced)', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -499,7 +506,7 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -515,14 +522,16 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
 
 describe('Retry flow: decision store state (AC6, AC7)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -531,7 +540,7 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
   })
 
   it('stores NEEDS_WORK findings in decision store before retry', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -539,7 +548,7 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -556,7 +565,7 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
   })
 
   it('stored NEEDS_WORK findings have correct severity=blocker', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -564,7 +573,7 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -580,7 +589,7 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
   })
 
   it('emits NEEDS_WORK event before retry', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -589,7 +598,7 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
       makeReadinessDispatchResult('READY'),
     ])
     const eventBus = makeEventBus()
-    const deps = makeDeps(db, dispatcher, undefined, eventBus)
+    const deps = makeDeps(adapter, dispatcher, undefined, eventBus)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -610,14 +619,16 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
 
 describe('Retry flow: retry outcomes (AC6)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -626,7 +637,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
   })
 
   it('returns success with readiness_passed=true when retry readiness returns READY', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -634,7 +645,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -643,7 +654,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
   })
 
   it('returns 3 artifact IDs when retry succeeds (arch + orig-story + retry-story)', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -651,7 +662,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -660,7 +671,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
   })
 
   it('returns failure with error=readiness_check_failed when retry readiness returns NOT_READY', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -668,7 +679,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 1),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -678,7 +689,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
   })
 
   it('returns failure with error=readiness_check_failed when retry readiness returns NEEDS_WORK', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -686,7 +697,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NEEDS_WORK', 1), // retry check: still NEEDS_WORK
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -696,7 +707,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
   })
 
   it('details field of retry-failed result mentions the retry verdict and coverage', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -704,7 +715,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 1),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -712,7 +723,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
   })
 
   it('returns failure with error=story_generation_retry_failed when retry story dispatch fails', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -724,7 +735,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
         parseError: 'Retry story generation agent failed',
       }),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -734,7 +745,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
   })
 
   it('returns failure with readiness_check_error when retry readiness dispatch fails', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -748,7 +759,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
         parseError: 'Readiness agent failed on retry',
       }),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -757,7 +768,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
   })
 
   it('retry success includes epic and story counts from retry epics', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -765,7 +776,7 @@ describe('Retry flow: retry outcomes (AC6)', () => {
       makeStoryDispatchResult(IMPROVED_EPICS), // 1 epic, 2 stories
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -781,14 +792,16 @@ describe('Retry flow: retry outcomes (AC6)', () => {
 
 describe('Retry flow: token usage accumulation', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -797,7 +810,7 @@ describe('Retry flow: token usage accumulation', () => {
   })
 
   it('accumulates token usage from retry story generation dispatch', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const retryStoryResult = makeStoryDispatchResult(IMPROVED_EPICS, {
       tokenEstimate: { input: 750, output: 350 },
     })
@@ -812,7 +825,7 @@ describe('Retry flow: token usage accumulation', () => {
         tokenEstimate: { input: 180, output: 70 },
       }),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 

@@ -19,7 +19,7 @@ export interface ContextCompiler {
    *
    * @throws {Error} if no template is registered for `descriptor.taskType`
    */
-  compile(descriptor: TaskDescriptor): CompileResult
+  compile(descriptor: TaskDescriptor): Promise<CompileResult>
 
   /**
    * Register a context template for a given task type. Overwrites any

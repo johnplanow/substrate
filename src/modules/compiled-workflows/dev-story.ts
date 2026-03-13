@@ -164,7 +164,7 @@ export async function runDevStory(
 
   let testPatternsContent = ''
   try {
-    const solutioningDecisions = getDecisionsByPhase(deps.db, 'solutioning')
+    const solutioningDecisions = await getDecisionsByPhase(deps.db, 'solutioning')
     const testPatternDecisions = solutioningDecisions.filter(
       (d) => d.category === 'test-patterns',
     )
@@ -236,7 +236,7 @@ export async function runDevStory(
   // Query prior findings for learning loop injection (Story 22-1, AC2)
   let priorFindingsContent = ''
   try {
-    const findings = getProjectFindings(deps.db)
+    const findings = await getProjectFindings(deps.db)
     if (findings.length > 0) {
       priorFindingsContent = 'Previous pipeline runs encountered these issues — avoid repeating them:\n\n' + findings
       logger.debug({ storyKey, findingsLen: findings.length }, 'Injecting prior findings into dev-story prompt')
@@ -248,7 +248,7 @@ export async function runDevStory(
   // Query test plan from decision store for injection (Story 22-7, AC3)
   let testPlanContent = ''
   try {
-    const testPlanDecisions = getDecisionsByCategory(deps.db, 'test-plan')
+    const testPlanDecisions = await getDecisionsByCategory(deps.db, 'test-plan')
     const matchingPlan = testPlanDecisions.find((d) => d.key === storyKey)
     if (matchingPlan) {
       const plan = JSON.parse(matchingPlan.value) as {

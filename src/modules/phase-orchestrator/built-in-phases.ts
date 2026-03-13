@@ -10,7 +10,7 @@
  *   5. implementation — entry: architecture + stories exist + readiness check
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import { getArtifactByTypeForRun } from '../../persistence/queries/decisions.js'
 import type { GateCheck, PhaseDefinition } from './types.js'
 
@@ -33,8 +33,8 @@ function logPhase(message: string): void {
 function createArtifactExistsGate(phase: string, artifactType: string): GateCheck {
   return {
     name: `${phase}:${artifactType}-exists`,
-    check: async (db: BetterSqlite3Database, runId: string): Promise<boolean> => {
-      const artifact = getArtifactByTypeForRun(db, runId, phase, artifactType)
+    check: async (db: DatabaseAdapter, runId: string): Promise<boolean> => {
+      const artifact = await getArtifactByTypeForRun(db, runId, phase, artifactType)
       return artifact !== undefined
     },
     errorMessage: `Artifact '${artifactType}' from phase '${phase}' not found. The '${phase}' phase must complete and register this artifact first.`,
@@ -45,7 +45,7 @@ function createArtifactExistsGate(phase: string, artifactType: string): GateChec
 // No-op lifecycle callbacks (default for phases without custom behavior)
 // ---------------------------------------------------------------------------
 
-async function noOp(_db: BetterSqlite3Database, _runId: string): Promise<void> {
+async function noOp(_db: DatabaseAdapter, _runId: string): Promise<void> {
   // No default behavior — phase-specific implementations override this in stories 11.2-11.4
 }
 
@@ -69,11 +69,11 @@ export function createResearchPhaseDefinition(): PhaseDefinition {
       'Conduct pre-analysis research: market landscape, competitive analysis, technical feasibility, and synthesized findings.',
     entryGates: [],
     exitGates: [createArtifactExistsGate('research', 'research-findings')],
-    onEnter: async (_db: BetterSqlite3Database, runId: string): Promise<void> => {
+    onEnter: async (_db: DatabaseAdapter, runId: string): Promise<void> => {
       logPhase(`Research phase starting for run ${runId}`)
     },
-    onExit: async (db: BetterSqlite3Database, runId: string): Promise<void> => {
-      const artifact = getArtifactByTypeForRun(db, runId, 'research', 'research-findings')
+    onExit: async (db: DatabaseAdapter, runId: string): Promise<void> => {
+      const artifact = await getArtifactByTypeForRun(db, runId, 'research', 'research-findings')
       if (artifact === undefined) {
         logPhase(
           `Research phase exit WARNING: research-findings artifact not found for run ${runId}`,
@@ -108,11 +108,11 @@ export function createAnalysisPhaseDefinition(options?: { requiresResearch?: boo
       'Analyze the user concept and produce a product brief capturing requirements, constraints, and goals.',
     entryGates,
     exitGates: [createArtifactExistsGate('analysis', 'product-brief')],
-    onEnter: async (_db: BetterSqlite3Database, runId: string): Promise<void> => {
+    onEnter: async (_db: DatabaseAdapter, runId: string): Promise<void> => {
       logPhase(`Analysis phase starting for run ${runId}`)
     },
-    onExit: async (db: BetterSqlite3Database, runId: string): Promise<void> => {
-      const artifact = getArtifactByTypeForRun(db, runId, 'analysis', 'product-brief')
+    onExit: async (db: DatabaseAdapter, runId: string): Promise<void> => {
+      const artifact = await getArtifactByTypeForRun(db, runId, 'analysis', 'product-brief')
       if (artifact === undefined) {
         logPhase(
           `Analysis phase exit WARNING: product-brief artifact not found for run ${runId}`,
@@ -143,11 +143,11 @@ export function createPlanningPhaseDefinition(): PhaseDefinition {
       'Develop a Product Requirements Document (PRD) from the product brief, defining features and acceptance criteria.',
     entryGates: [createArtifactExistsGate('analysis', 'product-brief')],
     exitGates: [createArtifactExistsGate('planning', 'prd')],
-    onEnter: async (_db: BetterSqlite3Database, runId: string): Promise<void> => {
+    onEnter: async (_db: DatabaseAdapter, runId: string): Promise<void> => {
       logPhase(`Planning phase started for run ${runId}`)
     },
-    onExit: async (db: BetterSqlite3Database, runId: string): Promise<void> => {
-      const artifact = getArtifactByTypeForRun(db, runId, 'planning', 'prd')
+    onExit: async (db: DatabaseAdapter, runId: string): Promise<void> => {
+      const artifact = await getArtifactByTypeForRun(db, runId, 'planning', 'prd')
       if (artifact === undefined) {
         logPhase(`Planning phase exit WARNING: prd artifact not found for run ${runId}`)
       } else {
@@ -179,11 +179,11 @@ export function createUxDesignPhaseDefinition(): PhaseDefinition {
       'Design the user experience: personas, core experience vision, design system, visual foundation, user journeys, and accessibility guidelines.',
     entryGates: [createArtifactExistsGate('planning', 'prd')],
     exitGates: [createArtifactExistsGate('ux-design', 'ux-design')],
-    onEnter: async (_db: BetterSqlite3Database, runId: string): Promise<void> => {
+    onEnter: async (_db: DatabaseAdapter, runId: string): Promise<void> => {
       logPhase(`UX Design phase starting for run ${runId}`)
     },
-    onExit: async (db: BetterSqlite3Database, runId: string): Promise<void> => {
-      const artifact = getArtifactByTypeForRun(db, runId, 'ux-design', 'ux-design')
+    onExit: async (db: DatabaseAdapter, runId: string): Promise<void> => {
+      const artifact = await getArtifactByTypeForRun(db, runId, 'ux-design', 'ux-design')
       if (artifact === undefined) {
         logPhase(
           `UX Design phase exit WARNING: ux-design artifact not found for run ${runId}`,
@@ -232,9 +232,9 @@ export function createSolutioningPhaseDefinition(): PhaseDefinition {
  */
 const solutioningReadinessGate: GateCheck = {
   name: 'solutioning-readiness',
-  check: async (db: BetterSqlite3Database, runId: string): Promise<boolean> => {
-    const architecture = getArtifactByTypeForRun(db, runId, 'solutioning', 'architecture')
-    const stories = getArtifactByTypeForRun(db, runId, 'solutioning', 'stories')
+  check: async (db: DatabaseAdapter, runId: string): Promise<boolean> => {
+    const architecture = await getArtifactByTypeForRun(db, runId, 'solutioning', 'architecture')
+    const stories = await getArtifactByTypeForRun(db, runId, 'solutioning', 'stories')
     return architecture !== undefined && stories !== undefined
   },
   errorMessage:

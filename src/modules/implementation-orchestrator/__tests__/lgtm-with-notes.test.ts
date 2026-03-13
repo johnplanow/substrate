@@ -11,6 +11,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createDecision, getDecisionsByCategory } from '../../../persistence/queries/decisions.js'
 import { writeStoryMetrics } from '../../../persistence/queries/metrics.js'
 import { ADVISORY_NOTES } from '../../../persistence/schemas/operational.js'
@@ -20,7 +22,7 @@ import { getProjectFindings } from '../project-findings.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function openTestDb(): BetterSqlite3Database {
+function openTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new BetterSqlite3(':memory:')
   db.exec(`
     CREATE TABLE decisions (
@@ -54,7 +56,8 @@ function openTestDb(): BetterSqlite3Database {
       UNIQUE(run_id, story_key)
     )
   `)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 // ---------------------------------------------------------------------------
@@ -63,21 +66,24 @@ function openTestDb(): BetterSqlite3Database {
 
 describe('AC2: Advisory notes persisted on LGTM_WITH_NOTES', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openTestDb()
+    const setup = openTestDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('persists advisory notes to decision store with advisory-notes category', () => {
+  it('persists advisory notes to decision store with advisory-notes category', async () => {
     const storyKey = '25-3'
     const pipelineRunId = 'run-abc'
     const notes = 'Consider extracting helper to shared module — advisory only.'
 
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: pipelineRunId,
       phase: 'implementation',
       category: ADVISORY_NOTES,
@@ -86,7 +92,7 @@ describe('AC2: Advisory notes persisted on LGTM_WITH_NOTES', () => {
       rationale: `Advisory notes from LGTM_WITH_NOTES review of ${storyKey}`,
     })
 
-    const found = getDecisionsByCategory(db, ADVISORY_NOTES)
+    const found = await getDecisionsByCategory(adapter, ADVISORY_NOTES)
     expect(found).toHaveLength(1)
     expect(found[0].key).toBe('25-3:run-abc')
     expect(found[0].category).toBe('advisory-notes')
@@ -96,8 +102,8 @@ describe('AC2: Advisory notes persisted on LGTM_WITH_NOTES', () => {
     expect(parsed.notes).toBe(notes)
   })
 
-  it('stores advisory notes with correct key format {storyKey}:{runId}', () => {
-    createDecision(db, {
+  it('stores advisory notes with correct key format {storyKey}:{runId}', async () => {
+    await createDecision(adapter, {
       pipeline_run_id: 'run-123',
       phase: 'implementation',
       category: ADVISORY_NOTES,
@@ -105,7 +111,7 @@ describe('AC2: Advisory notes persisted on LGTM_WITH_NOTES', () => {
       value: JSON.stringify({ storyKey: '10-5', notes: 'Minor style suggestion.' }),
     })
 
-    const found = getDecisionsByCategory(db, ADVISORY_NOTES)
+    const found = await getDecisionsByCategory(adapter, ADVISORY_NOTES)
     expect(found[0].key).toMatch(/^10-5:run-123$/)
   })
 })
@@ -116,17 +122,20 @@ describe('AC2: Advisory notes persisted on LGTM_WITH_NOTES', () => {
 
 describe('AC4: Advisory notes in getProjectFindings output', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openTestDb()
+    const setup = openTestDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('includes advisory notes section when ADVISORY_NOTES decisions exist', () => {
-    createDecision(db, {
+  it('includes advisory notes section when ADVISORY_NOTES decisions exist', async () => {
+    await createDecision(adapter, {
       pipeline_run_id: 'run-1',
       phase: 'implementation',
       category: ADVISORY_NOTES,
@@ -137,20 +146,20 @@ describe('AC4: Advisory notes in getProjectFindings output', () => {
       }),
     })
 
-    const findings = getProjectFindings(db)
+    const findings = await getProjectFindings(adapter)
     expect(findings).toContain('Advisory notes from prior reviews')
     expect(findings).toContain('25-3')
     expect(findings).toContain('Consider using a Map instead of an object')
   })
 
-  it('returns empty string when only advisory notes exist and DB has no other findings', () => {
+  it('returns empty string when only advisory notes exist and DB has no other findings', async () => {
     // Empty DB — should return empty
-    const findings = getProjectFindings(db)
+    const findings = await getProjectFindings(adapter)
     expect(findings).toBe('')
   })
 
-  it('advisory notes appear alongside other findings', () => {
-    createDecision(db, {
+  it('advisory notes appear alongside other findings', async () => {
+    await createDecision(adapter, {
       pipeline_run_id: 'run-1',
       phase: 'implementation',
       category: ADVISORY_NOTES,
@@ -158,7 +167,7 @@ describe('AC4: Advisory notes in getProjectFindings output', () => {
       value: JSON.stringify({ storyKey: '25-3', notes: 'Minor refactor suggestion.' }),
     })
 
-    const findings = getProjectFindings(db)
+    const findings = await getProjectFindings(adapter)
     // Advisory section present
     expect(findings).toContain('LGTM_WITH_NOTES')
     // The story key is referenced
@@ -172,17 +181,20 @@ describe('AC4: Advisory notes in getProjectFindings output', () => {
 
 describe('AC5: LGTM_WITH_NOTES tracked distinctly in story_metrics', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openTestDb()
+    const setup = openTestDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('stores LGTM_WITH_NOTES as result string (distinct from SHIP_IT success)', () => {
-    writeStoryMetrics(db, {
+  it('stores LGTM_WITH_NOTES as result string (distinct from SHIP_IT success)', async () => {
+    await writeStoryMetrics(adapter, {
       run_id: 'run-1',
       story_key: '25-3',
       result: 'LGTM_WITH_NOTES',
@@ -194,8 +206,8 @@ describe('AC5: LGTM_WITH_NOTES tracked distinctly in story_metrics', () => {
     expect(row!.result).toBe('LGTM_WITH_NOTES')
   })
 
-  it('SHIP_IT verdict stores "SHIP_IT" as result (distinct from LGTM_WITH_NOTES)', () => {
-    writeStoryMetrics(db, {
+  it('SHIP_IT verdict stores "SHIP_IT" as result (distinct from LGTM_WITH_NOTES)', async () => {
+    await writeStoryMetrics(adapter, {
       run_id: 'run-1',
       story_key: '25-4',
       result: 'SHIP_IT',
@@ -208,10 +220,10 @@ describe('AC5: LGTM_WITH_NOTES tracked distinctly in story_metrics', () => {
     expect(row!.result).not.toBe('LGTM_WITH_NOTES')
   })
 
-  it('can distinguish LGTM_WITH_NOTES stories from SHIP_IT stories in a run', () => {
-    writeStoryMetrics(db, { run_id: 'run-1', story_key: '25-3', result: 'LGTM_WITH_NOTES', review_cycles: 1 })
-    writeStoryMetrics(db, { run_id: 'run-1', story_key: '25-4', result: 'SHIP_IT', review_cycles: 0 })
-    writeStoryMetrics(db, { run_id: 'run-1', story_key: '25-5', result: 'escalated', review_cycles: 2 })
+  it('can distinguish LGTM_WITH_NOTES stories from SHIP_IT stories in a run', async () => {
+    await writeStoryMetrics(adapter, { run_id: 'run-1', story_key: '25-3', result: 'LGTM_WITH_NOTES', review_cycles: 1 })
+    await writeStoryMetrics(adapter, { run_id: 'run-1', story_key: '25-4', result: 'SHIP_IT', review_cycles: 0 })
+    await writeStoryMetrics(adapter, { run_id: 'run-1', story_key: '25-5', result: 'escalated', review_cycles: 2 })
 
     const rows = db.prepare('SELECT story_key, result FROM story_metrics WHERE run_id = ?').all('run-1') as Array<{ story_key: string; result: string }>
     const lgtmRows = rows.filter((r) => r.result === 'LGTM_WITH_NOTES')

@@ -14,6 +14,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
   createPipelineRun,
   createDecision,
@@ -29,30 +31,31 @@ import type { Dispatcher, DispatchResult } from '../../../agent-dispatch/types.j
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'ux-design-phase-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
 /**
  * Seed the database with planning-phase decisions that UX phase context resolves.
  */
-function seedPlanningDecisions(db: BetterSqlite3Database, runId: string): void {
-  createDecision(db, {
+async function seedPlanningDecisions(adapter: DatabaseAdapter, runId: string): Promise<void> {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'analysis',
     category: 'product-brief',
     key: 'problem_statement',
     value: 'Users need a visual, intuitive task management experience.',
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'planning',
     category: 'functional-requirements',
@@ -159,12 +162,12 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
 ): PhaseDeps {
   return {
-    db,
+    db: adapter,
     pack: pack ?? makePack(),
     contextCompiler: makeContextCompiler(),
     dispatcher,
@@ -278,15 +281,17 @@ describe('buildUxDesignSteps - step definitions (AC6, T9)', () => {
 
 describe('runUxDesignPhase - execution (T9)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
-    runId = createTestRun(db)
-    seedPlanningDecisions(db, runId)
+    runId = await createTestRun(adapter)
+    await seedPlanningDecisions(adapter, runId)
   })
 
   afterEach(() => {
@@ -300,7 +305,7 @@ describe('runUxDesignPhase - execution (T9)', () => {
       UX_DESIGN_SYSTEM_OUTPUT,
       UX_JOURNEYS_OUTPUT,
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runUxDesignPhase(deps, { runId })
 
@@ -315,11 +320,11 @@ describe('runUxDesignPhase - execution (T9)', () => {
       UX_DESIGN_SYSTEM_OUTPUT,
       UX_JOURNEYS_OUTPUT,
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runUxDesignPhase(deps, { runId })
 
-    const artifact = getArtifactByTypeForRun(db, runId, 'ux-design', 'ux-design')
+    const artifact = await getArtifactByTypeForRun(adapter, runId, 'ux-design', 'ux-design')
     expect(artifact).toBeDefined()
     expect(artifact?.phase).toBe('ux-design')
     expect(artifact?.type).toBe('ux-design')
@@ -331,7 +336,7 @@ describe('runUxDesignPhase - execution (T9)', () => {
       UX_DESIGN_SYSTEM_OUTPUT,
       UX_JOURNEYS_OUTPUT,
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runUxDesignPhase(deps, { runId })
 
@@ -346,7 +351,7 @@ describe('runUxDesignPhase - execution (T9)', () => {
       UX_DESIGN_SYSTEM_OUTPUT,
       UX_JOURNEYS_OUTPUT,
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runUxDesignPhase(deps, { runId })
 
@@ -381,7 +386,7 @@ describe('runUxDesignPhase - execution (T9)', () => {
       getRunning: vi.fn().mockReturnValue(0),
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runUxDesignPhase(deps, { runId })
 
@@ -412,7 +417,7 @@ describe('runUxDesignPhase - execution (T9)', () => {
       getRunning: vi.fn().mockReturnValue(0),
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runUxDesignPhase(deps, { runId })
 
@@ -422,7 +427,7 @@ describe('runUxDesignPhase - execution (T9)', () => {
 
   it('returns tokenUsage with zeros on complete failure', async () => {
     const deps: PhaseDeps = {
-      db,
+      db: adapter,
       pack: {
         ...makePack(),
         getPrompt: vi.fn().mockRejectedValue(new Error('Pack not found')),

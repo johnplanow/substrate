@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../sqlite-adapter.js'
 import { createDecision } from '../decisions.js'
 import { getRetryableEscalations } from '../retry-escalated.js'
 import type { EscalationDiagnosis } from '../../../modules/implementation-orchestrator/escalation-diagnosis.js'
@@ -43,13 +44,13 @@ function makeDiagnosis(recommendedAction: EscalationDiagnosis['recommendedAction
   return JSON.stringify(diagnosis)
 }
 
-function insertDecision(
-  db: BetterSqlite3Database,
+async function insertDecision(
+  adapter: SqliteDatabaseAdapter,
   storyKey: string,
   runId: string,
   recommendedAction: EscalationDiagnosis['recommendedAction'],
-): void {
-  createDecision(db, {
+): Promise<void> {
+  await createDecision(adapter, {
     phase: 'implementation',
     category: 'escalation-diagnosis',
     key: `${storyKey}:${runId}`,
@@ -72,44 +73,49 @@ describe('getRetryableEscalations', () => {
     db.close()
   })
 
-  it('returns empty result when no escalation-diagnosis decisions exist', () => {
-    const result = getRetryableEscalations(db)
+  it('returns empty result when no escalation-diagnosis decisions exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getRetryableEscalations(adapter)
     expect(result.retryable).toEqual([])
     expect(result.skipped).toEqual([])
   })
 
-  it('AC1: returns retry-targeted stories as retryable', () => {
-    insertDecision(db, '22-1', 'run-abc', 'retry-targeted')
+  it('AC1: returns retry-targeted stories as retryable', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await insertDecision(adapter, '22-1', 'run-abc', 'retry-targeted')
 
-    const result = getRetryableEscalations(db)
+    const result = await getRetryableEscalations(adapter)
     expect(result.retryable).toContain('22-1')
     expect(result.skipped).toHaveLength(0)
   })
 
-  it('AC2: excludes human-intervention stories with correct reason', () => {
-    insertDecision(db, '22-2', 'run-abc', 'human-intervention')
+  it('AC2: excludes human-intervention stories with correct reason', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await insertDecision(adapter, '22-2', 'run-abc', 'human-intervention')
 
-    const result = getRetryableEscalations(db)
+    const result = await getRetryableEscalations(adapter)
     expect(result.retryable).toHaveLength(0)
     expect(result.skipped).toContainEqual({ key: '22-2', reason: 'needs human review' })
   })
 
-  it('AC2: excludes split-story stories with correct reason', () => {
-    insertDecision(db, '22-3', 'run-abc', 'split-story')
+  it('AC2: excludes split-story stories with correct reason', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await insertDecision(adapter, '22-3', 'run-abc', 'split-story')
 
-    const result = getRetryableEscalations(db)
+    const result = await getRetryableEscalations(adapter)
     expect(result.retryable).toHaveLength(0)
     expect(result.skipped).toContainEqual({ key: '22-3', reason: 'story should be split' })
   })
 
-  it('AC1/AC2: correctly classifies mixed results', () => {
+  it('AC1/AC2: correctly classifies mixed results', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     const runId = 'run-mixed'
-    insertDecision(db, '22-1', runId, 'retry-targeted')
-    insertDecision(db, '22-2', runId, 'human-intervention')
-    insertDecision(db, '22-3', runId, 'split-story')
-    insertDecision(db, '22-4', runId, 'retry-targeted')
+    await insertDecision(adapter, '22-1', runId, 'retry-targeted')
+    await insertDecision(adapter, '22-2', runId, 'human-intervention')
+    await insertDecision(adapter, '22-3', runId, 'split-story')
+    await insertDecision(adapter, '22-4', runId, 'retry-targeted')
 
-    const result = getRetryableEscalations(db)
+    const result = await getRetryableEscalations(adapter)
     expect(result.retryable).toEqual(expect.arrayContaining(['22-1', '22-4']))
     expect(result.retryable).toHaveLength(2)
     expect(result.skipped).toHaveLength(2)
@@ -117,68 +123,74 @@ describe('getRetryableEscalations', () => {
     expect(result.skipped).toContainEqual({ key: '22-3', reason: 'story should be split' })
   })
 
-  it('AC1: defaults to latest run when no runId provided', () => {
+  it('AC1: defaults to latest run when no runId provided', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // Insert decisions for two runs — only latest run's decisions should be returned
-    insertDecision(db, '22-1', 'run-old', 'retry-targeted')
-    insertDecision(db, '22-2', 'run-new', 'retry-targeted')
+    await insertDecision(adapter, '22-1', 'run-old', 'retry-targeted')
+    await insertDecision(adapter, '22-2', 'run-new', 'retry-targeted')
 
     // Latest run is 'run-new' (last inserted = last in created_at ASC order)
-    const result = getRetryableEscalations(db)
+    const result = await getRetryableEscalations(adapter)
     expect(result.retryable).toContain('22-2')
     expect(result.retryable).not.toContain('22-1')
   })
 
-  it('AC5: scopes to specified run-id when provided', () => {
-    insertDecision(db, '22-1', 'run-old', 'retry-targeted')
-    insertDecision(db, '22-2', 'run-new', 'retry-targeted')
+  it('AC5: scopes to specified run-id when provided', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await insertDecision(adapter, '22-1', 'run-old', 'retry-targeted')
+    await insertDecision(adapter, '22-2', 'run-new', 'retry-targeted')
 
     // Scope to old run
-    const result = getRetryableEscalations(db, 'run-old')
+    const result = await getRetryableEscalations(adapter, 'run-old')
     expect(result.retryable).toContain('22-1')
     expect(result.retryable).not.toContain('22-2')
   })
 
-  it('AC5: returns empty when specified runId has no matching decisions', () => {
-    insertDecision(db, '22-1', 'run-abc', 'retry-targeted')
+  it('AC5: returns empty when specified runId has no matching decisions', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await insertDecision(adapter, '22-1', 'run-abc', 'retry-targeted')
 
-    const result = getRetryableEscalations(db, 'run-nonexistent')
+    const result = await getRetryableEscalations(adapter, 'run-nonexistent')
     expect(result.retryable).toHaveLength(0)
     expect(result.skipped).toHaveLength(0)
   })
 
-  it('skips decisions with malformed keys (no colon)', () => {
-    createDecision(db, {
+  it('skips decisions with malformed keys (no colon)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await createDecision(adapter, {
       phase: 'implementation',
       category: 'escalation-diagnosis',
       key: 'malformed-no-colon',
       value: makeDiagnosis('retry-targeted'),
     })
 
-    const result = getRetryableEscalations(db)
+    const result = await getRetryableEscalations(adapter)
     expect(result.retryable).toHaveLength(0)
   })
 
-  it('skips decisions with malformed JSON values', () => {
-    createDecision(db, {
+  it('skips decisions with malformed JSON values', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await createDecision(adapter, {
       phase: 'implementation',
       category: 'escalation-diagnosis',
       key: '22-1:run-abc',
       value: 'not-valid-json',
     })
 
-    const result = getRetryableEscalations(db)
+    const result = await getRetryableEscalations(adapter)
     expect(result.retryable).toHaveLength(0)
   })
 
-  it('deduplicates: last decision per storyKey wins (created_at ASC order)', () => {
+  it('deduplicates: last decision per storyKey wins (created_at ASC order)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     const runId = 'run-dedup'
     // First insert: retry-targeted
-    insertDecision(db, '22-1', runId, 'retry-targeted')
+    await insertDecision(adapter, '22-1', runId, 'retry-targeted')
     // Second insert for same key: human-intervention (overwrites)
-    insertDecision(db, '22-1', runId, 'human-intervention')
+    await insertDecision(adapter, '22-1', runId, 'human-intervention')
 
     // Since created_at ASC, the last one (human-intervention) wins
-    const result = getRetryableEscalations(db, runId)
+    const result = await getRetryableEscalations(adapter, runId)
     expect(result.retryable).toHaveLength(0)
     expect(result.skipped).toContainEqual({ key: '22-1', reason: 'needs human review' })
   })

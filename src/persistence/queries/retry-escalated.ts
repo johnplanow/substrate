@@ -4,9 +4,12 @@
  * Reads escalation-diagnosis decisions from the decision store and classifies
  * each story as retryable (retry-targeted) or skipped (human-intervention /
  * split-story).
+ *
+ * All functions are async and accept a DatabaseAdapter, making them
+ * compatible with both the SqliteDatabaseAdapter and DoltDatabaseAdapter.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../adapter.js'
 import { getDecisionsByCategory } from './decisions.js'
 import { ESCALATION_DIAGNOSIS } from '../schemas/operational.js'
 import type { EscalationDiagnosis } from '../../modules/implementation-orchestrator/escalation-diagnosis.js'
@@ -40,14 +43,14 @@ export interface RetryableEscalationsResult {
  * - When `runId` is omitted, the runId of the last (most recently created)
  *   escalation-diagnosis decision is used as the default (AC1 defaulting).
  *
- * @param db    The SQLite database connection
- * @param runId Optional run ID to scope the query
+ * @param adapter  The database adapter
+ * @param runId    Optional run ID to scope the query
  */
-export function getRetryableEscalations(
-  db: BetterSqlite3Database,
+export async function getRetryableEscalations(
+  adapter: DatabaseAdapter,
   runId?: string,
-): RetryableEscalationsResult {
-  const decisions = getDecisionsByCategory(db, ESCALATION_DIAGNOSIS)
+): Promise<RetryableEscalationsResult> {
+  const decisions = await getDecisionsByCategory(adapter, ESCALATION_DIAGNOSIS)
   const result: RetryableEscalationsResult = { retryable: [], skipped: [] }
 
   if (decisions.length === 0) {

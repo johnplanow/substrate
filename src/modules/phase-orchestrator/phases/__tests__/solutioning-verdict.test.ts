@@ -17,6 +17,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
   createPipelineRun,
   createDecision,
@@ -36,19 +38,20 @@ import type { TypedEventBus } from '../../../../core/event-bus.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'solutioning-verdict-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
-function seedPlanningRequirements(db: BetterSqlite3Database, runId: string): void {
+async function seedPlanningRequirements(adapter: DatabaseAdapter, runId: string): Promise<void> {
   const frs = [
     {
       key: 'FR-0',
@@ -60,7 +63,7 @@ function seedPlanningRequirements(db: BetterSqlite3Database, runId: string): voi
     },
   ]
   for (const { key, value } of frs) {
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'planning',
       category: 'functional-requirements',
@@ -255,13 +258,13 @@ function makeEventBus(): TypedEventBus {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
   eventBus?: TypedEventBus,
 ): PhaseDeps {
   return {
-    db,
+    db: adapter,
     pack: pack ?? makePack(),
     contextCompiler: makeContextCompiler(),
     dispatcher,
@@ -275,14 +278,16 @@ function makeDeps(
 
 describe('Verdict handling: READY path (AC8)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -291,13 +296,13 @@ describe('Verdict handling: READY path (AC8)', () => {
   })
 
   it('returns result=success and readiness_passed=true when verdict is READY', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -306,14 +311,14 @@ describe('Verdict handling: READY path (AC8)', () => {
   })
 
   it('emits solutioning:readiness-check event with READY verdict when event bus is provided', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
     const eventBus = makeEventBus()
-    const deps = makeDeps(db, dispatcher, undefined, eventBus)
+    const deps = makeDeps(adapter, dispatcher, undefined, eventBus)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -324,14 +329,14 @@ describe('Verdict handling: READY path (AC8)', () => {
   })
 
   it('emits readiness-check event with correct coverageScore (100) for READY verdict', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
     const eventBus = makeEventBus()
-    const deps = makeDeps(db, dispatcher, undefined, eventBus)
+    const deps = makeDeps(adapter, dispatcher, undefined, eventBus)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -342,14 +347,14 @@ describe('Verdict handling: READY path (AC8)', () => {
   })
 
   it('does NOT emit solutioning:readiness-failed event for READY verdict', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
     const eventBus = makeEventBus()
-    const deps = makeDeps(db, dispatcher, undefined, eventBus)
+    const deps = makeDeps(adapter, dispatcher, undefined, eventBus)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -359,13 +364,13 @@ describe('Verdict handling: READY path (AC8)', () => {
   })
 
   it('proceeds without error when READY verdict has no findings', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY', 0, 0, 0),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -374,13 +379,13 @@ describe('Verdict handling: READY path (AC8)', () => {
   })
 
   it('proceeds and returns success even when READY verdict has minor findings', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY', 0, 0, 2), // 2 minor findings
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -390,14 +395,14 @@ describe('Verdict handling: READY path (AC8)', () => {
   })
 
   it('emits readiness-check event with correct findingCount for minor findings', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY', 0, 0, 2), // 2 minor findings
     ])
     const eventBus = makeEventBus()
-    const deps = makeDeps(db, dispatcher, undefined, eventBus)
+    const deps = makeDeps(adapter, dispatcher, undefined, eventBus)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -408,14 +413,14 @@ describe('Verdict handling: READY path (AC8)', () => {
   })
 
   it('does not emit event when eventBus is not provided', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
     // No eventBus in deps
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     // Should not throw when eventBus is undefined
     const result = await runSolutioningPhase(deps, { runId })
@@ -423,13 +428,13 @@ describe('Verdict handling: READY path (AC8)', () => {
   })
 
   it('returns artifact_ids with both arch and story artifacts', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -445,14 +450,16 @@ describe('Verdict handling: READY path (AC8)', () => {
 
 describe('Verdict handling: NOT_READY path (AC7)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -461,13 +468,13 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
   })
 
   it('returns result=failed and readiness_passed=false when verdict is NOT_READY', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 2),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -476,13 +483,13 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
   })
 
   it('returns error=readiness_not_ready when verdict is NOT_READY', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 2),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -490,13 +497,13 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
   })
 
   it('details field describes the failure with blocker count and coverage score', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 2), // 2 blockers, coverage 30%
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -505,13 +512,13 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
   })
 
   it('stores NOT_READY findings in decision store with category=readiness-findings', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 2), // 2 blocker findings
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -527,13 +534,13 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
   })
 
   it('stored NOT_READY findings are valid JSON with expected fields', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 1, 0, 0), // 1 blocker
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -555,14 +562,14 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
   })
 
   it('emits solutioning:readiness-check event with NOT_READY verdict', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 2),
     ])
     const eventBus = makeEventBus()
-    const deps = makeDeps(db, dispatcher, undefined, eventBus)
+    const deps = makeDeps(adapter, dispatcher, undefined, eventBus)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -573,14 +580,14 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
   })
 
   it('emits solutioning:readiness-failed event with findings when NOT_READY', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 1),
     ])
     const eventBus = makeEventBus()
-    const deps = makeDeps(db, dispatcher, undefined, eventBus)
+    const deps = makeDeps(adapter, dispatcher, undefined, eventBus)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -597,14 +604,14 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
   })
 
   it('readiness-check event has correct blockerCount for NOT_READY', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 3), // 3 blockers
     ])
     const eventBus = makeEventBus()
-    const deps = makeDeps(db, dispatcher, undefined, eventBus)
+    const deps = makeDeps(adapter, dispatcher, undefined, eventBus)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -615,13 +622,13 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
   })
 
   it('populates gaps from fr_coverage findings in NOT_READY result', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 1), // 1 blocker with fr_coverage category
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -631,13 +638,13 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
   })
 
   it('does not proceed to implementation when NOT_READY (dispatches only 3 times: arch, story, readiness)', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', 2),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -653,14 +660,16 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
 
 describe('Verdict handling: NEEDS_WORK without blockers path', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -669,13 +678,13 @@ describe('Verdict handling: NEEDS_WORK without blockers path', () => {
   })
 
   it('returns result=success when NEEDS_WORK has no blocker findings', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NEEDS_WORK', 0, 2, 0), // 2 major findings, no blockers
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -684,13 +693,13 @@ describe('Verdict handling: NEEDS_WORK without blockers path', () => {
   })
 
   it('does not trigger retry when NEEDS_WORK has no blockers (3 dispatches total)', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NEEDS_WORK', 0, 1, 1), // major + minor, no blockers
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -699,14 +708,14 @@ describe('Verdict handling: NEEDS_WORK without blockers path', () => {
   })
 
   it('emits solutioning:readiness-check event with NEEDS_WORK verdict and blockerCount=0', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NEEDS_WORK', 0, 1, 0), // 1 major, no blockers
     ])
     const eventBus = makeEventBus()
-    const deps = makeDeps(db, dispatcher, undefined, eventBus)
+    const deps = makeDeps(adapter, dispatcher, undefined, eventBus)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -717,14 +726,14 @@ describe('Verdict handling: NEEDS_WORK without blockers path', () => {
   })
 
   it('does NOT emit solutioning:readiness-failed event when NEEDS_WORK without blockers', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NEEDS_WORK', 0, 1, 0), // 1 major, no blockers
     ])
     const eventBus = makeEventBus()
-    const deps = makeDeps(db, dispatcher, undefined, eventBus)
+    const deps = makeDeps(adapter, dispatcher, undefined, eventBus)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -734,13 +743,13 @@ describe('Verdict handling: NEEDS_WORK without blockers path', () => {
   })
 
   it('does NOT store findings in decision store when NEEDS_WORK without blockers', async () => {
-    seedPlanningRequirements(db, runId)
+    await seedPlanningRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NEEDS_WORK', 0, 1, 0), // 1 major, no blockers
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 

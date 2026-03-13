@@ -231,7 +231,7 @@ async function runPlanningMultiStep(
 
   try {
     // Verify product brief exists
-    const allAnalysisDecisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+    const allAnalysisDecisions = await getDecisionsByPhaseForRun(db, runId, 'analysis')
     const productBriefDecisions = allAnalysisDecisions.filter((d) => d.category === 'product-brief')
     if (productBriefDecisions.length === 0) {
       return {
@@ -245,7 +245,7 @@ async function runPlanningMultiStep(
     // Retrieve original concept from pipeline run config_json so planning step 3
     // can see the user's unfiltered technology constraint language.
     let concept = ''
-    const run = getPipelineRunById(db, runId)
+    const run = await getPipelineRunById(db, runId)
     if (run?.config_json) {
       try {
         const config = JSON.parse(run.config_json) as { concept?: string }
@@ -309,7 +309,7 @@ async function runPlanningMultiStep(
         let correctedPrompt = step3Template
         const step3Def = steps[2]
         for (const ref of step3Def?.context ?? []) {
-          const value = resolveContext(ref, deps, runId, { concept }, stepOutputs)
+          const value = await resolveContext(ref, deps, runId, { concept }, stepOutputs)
           correctedPrompt = correctedPrompt.replace(`{{${ref.placeholder}}}`, value)
         }
         correctedPrompt = correctionPrefix + correctedPrompt
@@ -373,7 +373,7 @@ async function runPlanningMultiStep(
 
     // Create Requirement records for FRs
     for (const fr of frs) {
-      createRequirement(db, {
+      await createRequirement(db, {
         pipeline_run_id: params.runId,
         source: 'planning-phase',
         type: 'functional',
@@ -384,7 +384,7 @@ async function runPlanningMultiStep(
 
     // Create Requirement records for NFRs
     for (const nfr of nfrs) {
-      createRequirement(db, {
+      await createRequirement(db, {
         pipeline_run_id: params.runId,
         source: 'planning-phase',
         type: 'non_functional',
@@ -451,7 +451,7 @@ export async function runPlanningPhase(
     const template = await pack.getPrompt('planning')
 
     // Step 2: Get product brief decisions from analysis phase (scoped to current run)
-    const allAnalysisDecisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+    const allAnalysisDecisions = await getDecisionsByPhaseForRun(db, runId, 'analysis')
     const productBriefDecisions = allAnalysisDecisions.filter(
       (d) => d.category === 'product-brief',
     )
@@ -594,43 +594,44 @@ export async function runPlanningPhase(
     }
 
     // Step 9: Store functional requirements as decisions
-    output.functional_requirements.forEach((fr: FunctionalRequirement, index: number) => {
-      createDecision(db, {
+    for (let index = 0; index < output.functional_requirements.length; index++) {
+      const fr = output.functional_requirements[index]!
+      await createDecision(db, {
         pipeline_run_id: runId,
         phase: 'planning',
         category: 'functional-requirements',
         key: `FR-${index}`,
         value: JSON.stringify(fr),
       })
-    })
+    }
 
     // Step 10: Store non-functional requirements as decisions
-    output.non_functional_requirements.forEach(
-      (nfr: NonFunctionalRequirement, index: number) => {
-        createDecision(db, {
-          pipeline_run_id: runId,
-          phase: 'planning',
-          category: 'non-functional-requirements',
-          key: `NFR-${index}`,
-          value: JSON.stringify(nfr),
-        })
-      },
-    )
+    for (let index = 0; index < output.non_functional_requirements.length; index++) {
+      const nfr = output.non_functional_requirements[index]!
+      await createDecision(db, {
+        pipeline_run_id: runId,
+        phase: 'planning',
+        category: 'non-functional-requirements',
+        key: `NFR-${index}`,
+        value: JSON.stringify(nfr),
+      })
+    }
 
     // Step 11: Store user stories as decisions
-    output.user_stories.forEach((us, index: number) => {
-      createDecision(db, {
+    for (let index = 0; index < output.user_stories.length; index++) {
+      const us = output.user_stories[index]!
+      await createDecision(db, {
         pipeline_run_id: runId,
         phase: 'planning',
         category: 'user-stories',
         key: `US-${index}`,
         value: JSON.stringify(us),
       })
-    })
+    }
 
     // Step 12: Store tech stack as decisions (one per key)
     for (const [techKey, techValue] of Object.entries(output.tech_stack)) {
-      createDecision(db, {
+      await createDecision(db, {
         pipeline_run_id: runId,
         phase: 'planning',
         category: 'tech-stack',
@@ -640,7 +641,7 @@ export async function runPlanningPhase(
     }
 
     // Step 13: Store domain model as a single decision
-    createDecision(db, {
+    await createDecision(db, {
       pipeline_run_id: runId,
       phase: 'planning',
       category: 'domain-model',
@@ -650,7 +651,7 @@ export async function runPlanningPhase(
 
     // Step 14: Store out_of_scope as a single decision (if any)
     if (output.out_of_scope.length > 0) {
-      createDecision(db, {
+      await createDecision(db, {
         pipeline_run_id: runId,
         phase: 'planning',
         category: 'out-of-scope',
@@ -660,26 +661,26 @@ export async function runPlanningPhase(
     }
 
     // Step 15: Create Requirement records for functional requirements
-    output.functional_requirements.forEach((fr: FunctionalRequirement) => {
-      createRequirement(db, {
+    for (const fr of output.functional_requirements) {
+      await createRequirement(db, {
         pipeline_run_id: runId,
         source: 'planning-phase',
         type: 'functional',
         description: fr.description,
         priority: fr.priority,
       })
-    })
+    }
 
     // Step 16: Create Requirement records for non-functional requirements
-    output.non_functional_requirements.forEach((nfr: NonFunctionalRequirement) => {
-      createRequirement(db, {
+    for (const nfr of output.non_functional_requirements) {
+      await createRequirement(db, {
         pipeline_run_id: runId,
         source: 'planning-phase',
         type: 'non_functional',
         description: nfr.description,
         priority: 'should',
       })
-    })
+    }
 
     // Step 17: Register prd artifact
     const requirementsCount =
@@ -687,7 +688,7 @@ export async function runPlanningPhase(
     const userStoriesCount = output.user_stories.length
     const summary = `${output.functional_requirements.length} FRs, ${output.non_functional_requirements.length} NFRs, ${userStoriesCount} user stories`
 
-    const artifact = registerArtifact(db, {
+    const artifact = await registerArtifact(db, {
       pipeline_run_id: runId,
       phase: 'planning',
       type: 'prd',

@@ -12,6 +12,8 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { BaseService } from '../core/di.js'
 import { runMigrations } from './migrations/index.js'
 import { createLogger } from '../utils/logger.js'
+import { SqliteDatabaseAdapter } from './sqlite-adapter.js'
+import type { DatabaseAdapter } from './adapter.js'
 
 const logger = createLogger('persistence:database')
 
@@ -85,6 +87,15 @@ export class DatabaseWrapper {
   /** Whether the database is currently open */
   get isOpen(): boolean {
     return this._db !== null
+  }
+
+  /**
+   * Return a DatabaseAdapter wrapping the raw BetterSqlite3 instance.
+   * Use this when calling async query module functions.
+   * @throws {Error} if the database has not been opened yet.
+   */
+  get adapter(): DatabaseAdapter {
+    return new SqliteDatabaseAdapter(this.db)
   }
 }
 

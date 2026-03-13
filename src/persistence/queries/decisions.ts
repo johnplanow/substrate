@@ -1,11 +1,14 @@
 /**
- * Decision store query functions for the SQLite persistence layer.
+ * Decision store query functions for the persistence layer.
  *
  * Provides CRUD operations for the decision store tables:
  * decisions, requirements, constraints, artifacts, pipeline_runs, token_usage.
+ *
+ * All functions are async and accept a DatabaseAdapter, making them
+ * compatible with both the SqliteDatabaseAdapter and DoltDatabaseAdapter.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../adapter.js'
 import {
   CreateDecisionInputSchema,
   CreateRequirementInputSchema,
@@ -52,26 +55,26 @@ export type {
 /**
  * Insert a new decision record with a generated UUID.
  */
-export function createDecision(db: BetterSqlite3Database, input: CreateDecisionInput): Decision {
+export async function createDecision(adapter: DatabaseAdapter, input: CreateDecisionInput): Promise<Decision> {
   const validated = CreateDecisionInputSchema.parse(input)
   const id = crypto.randomUUID()
 
-  const stmt = db.prepare(`
-    INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, rationale)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `)
-  stmt.run(
-    id,
-    validated.pipeline_run_id ?? null,
-    validated.phase,
-    validated.category,
-    validated.key,
-    validated.value,
-    validated.rationale ?? null,
+  await adapter.query(
+    `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, rationale)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      validated.pipeline_run_id ?? null,
+      validated.phase,
+      validated.category,
+      validated.key,
+      validated.value,
+      validated.rationale ?? null,
+    ],
   )
 
-  const row = db.prepare('SELECT * FROM decisions WHERE id = ?').get(id) as Decision
-  return row
+  const rows = await adapter.query<Decision>('SELECT * FROM decisions WHERE id = ?', [id])
+  return rows[0]
 }
 
 /**
@@ -79,82 +82,86 @@ export function createDecision(db: BetterSqlite3Database, input: CreateDecisionI
  * If a decision with the same pipeline_run_id, category, and key already exists,
  * update its value and rationale. Otherwise, insert a new record.
  */
-export function upsertDecision(db: BetterSqlite3Database, input: CreateDecisionInput): Decision {
+export async function upsertDecision(adapter: DatabaseAdapter, input: CreateDecisionInput): Promise<Decision> {
   const validated = CreateDecisionInputSchema.parse(input)
 
   // Check for existing decision with same pipeline_run_id + category + key
-  const existing = db
-    .prepare(
-      'SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = ? AND key = ? LIMIT 1',
-    )
-    .get(validated.pipeline_run_id ?? null, validated.category, validated.key) as
-    | Decision
-    | undefined
+  const rows = await adapter.query<Decision>(
+    'SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = ? AND key = ? LIMIT 1',
+    [validated.pipeline_run_id ?? null, validated.category, validated.key],
+  )
+  const existing = rows[0]
 
   if (existing) {
-    updateDecision(db, existing.id, {
+    await updateDecision(adapter, existing.id, {
       value: validated.value,
       rationale: validated.rationale ?? undefined,
     })
-    return db.prepare('SELECT * FROM decisions WHERE id = ?').get(existing.id) as Decision
+    const updated = await adapter.query<Decision>('SELECT * FROM decisions WHERE id = ?', [existing.id])
+    return updated[0]
   }
 
-  return createDecision(db, input)
+  return createDecision(adapter, input)
 }
 
 /**
  * Get all decisions for a given phase, ordered by created_at ascending.
  */
-export function getDecisionsByPhase(db: BetterSqlite3Database, phase: string): Decision[] {
-  const stmt = db.prepare(
+export async function getDecisionsByPhase(adapter: DatabaseAdapter, phase: string): Promise<Decision[]> {
+  return adapter.query<Decision>(
     'SELECT * FROM decisions WHERE phase = ? ORDER BY created_at ASC',
+    [phase],
   )
-  return stmt.all(phase) as Decision[]
 }
 
 /**
  * Get all decisions for a given phase scoped to a specific pipeline run,
  * ordered by created_at ascending.
  */
-export function getDecisionsByPhaseForRun(
-  db: BetterSqlite3Database,
+export async function getDecisionsByPhaseForRun(
+  adapter: DatabaseAdapter,
   runId: string,
   phase: string,
-): Decision[] {
-  const stmt = db.prepare(
+): Promise<Decision[]> {
+  return adapter.query<Decision>(
     'SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = ? ORDER BY created_at ASC',
+    [runId, phase],
   )
-  return stmt.all(runId, phase) as Decision[]
 }
 
 /**
  * Get all decisions for a given category, ordered by created_at ascending.
  */
-export function getDecisionsByCategory(db: BetterSqlite3Database, category: string): Decision[] {
-  const stmt = db.prepare('SELECT * FROM decisions WHERE category = ? ORDER BY created_at ASC')
-  return stmt.all(category) as Decision[]
+export async function getDecisionsByCategory(adapter: DatabaseAdapter, category: string): Promise<Decision[]> {
+  return adapter.query<Decision>(
+    'SELECT * FROM decisions WHERE category = ? ORDER BY created_at ASC',
+    [category],
+  )
 }
 
 /**
  * Get a single decision by phase and key. Returns undefined if not found.
  */
-export function getDecisionByKey(
-  db: BetterSqlite3Database,
+export async function getDecisionByKey(
+  adapter: DatabaseAdapter,
   phase: string,
   key: string,
-): Decision | undefined {
-  const stmt = db.prepare('SELECT * FROM decisions WHERE phase = ? AND key = ? LIMIT 1')
-  return stmt.get(phase, key) as Decision | undefined
+): Promise<Decision | undefined> {
+  const rows = await adapter.query<Decision>(
+    'SELECT * FROM decisions WHERE phase = ? AND key = ? LIMIT 1',
+    [phase, key],
+  )
+  return rows[0]
 }
 
 /**
  * Update a decision's value and/or rationale and set updated_at.
  */
-export function updateDecision(
-  db: BetterSqlite3Database,
+export async function updateDecision(
+  adapter: DatabaseAdapter,
   id: string,
   updates: Partial<Pick<Decision, 'value' | 'rationale'>>,
-): void {
+): Promise<void> {
   const setClauses: string[] = []
   const values: unknown[] = []
 
@@ -172,8 +179,7 @@ export function updateDecision(
   setClauses.push("updated_at = datetime('now')")
   values.push(id)
 
-  const stmt = db.prepare(`UPDATE decisions SET ${setClauses.join(', ')} WHERE id = ?`)
-  stmt.run(...values)
+  await adapter.query(`UPDATE decisions SET ${setClauses.join(', ')} WHERE id = ?`, values)
 }
 
 // ---------------------------------------------------------------------------
@@ -183,37 +189,37 @@ export function updateDecision(
 /**
  * Insert a new requirement with status = 'active'.
  */
-export function createRequirement(
-  db: BetterSqlite3Database,
+export async function createRequirement(
+  adapter: DatabaseAdapter,
   input: CreateRequirementInput,
-): Requirement {
+): Promise<Requirement> {
   const validated = CreateRequirementInputSchema.parse(input)
   const id = crypto.randomUUID()
 
-  const stmt = db.prepare(`
-    INSERT INTO requirements (id, pipeline_run_id, source, type, description, priority, status)
-    VALUES (?, ?, ?, ?, ?, ?, 'active')
-  `)
-  stmt.run(
-    id,
-    validated.pipeline_run_id ?? null,
-    validated.source,
-    validated.type,
-    validated.description,
-    validated.priority,
+  await adapter.query(
+    `INSERT INTO requirements (id, pipeline_run_id, source, type, description, priority, status)
+     VALUES (?, ?, ?, ?, ?, ?, 'active')`,
+    [
+      id,
+      validated.pipeline_run_id ?? null,
+      validated.source,
+      validated.type,
+      validated.description,
+      validated.priority,
+    ],
   )
 
-  const row = db.prepare('SELECT * FROM requirements WHERE id = ?').get(id) as Requirement
-  return row
+  const rows = await adapter.query<Requirement>('SELECT * FROM requirements WHERE id = ?', [id])
+  return rows[0]
 }
 
 /**
  * List requirements with optional filtering by type, priority, and status.
  */
-export function listRequirements(
-  db: BetterSqlite3Database,
+export async function listRequirements(
+  adapter: DatabaseAdapter,
   filters?: { type?: string; priority?: string; status?: string },
-): Requirement[] {
+): Promise<Requirement[]> {
   const conditions: string[] = []
   const values: unknown[] = []
 
@@ -231,20 +237,21 @@ export function listRequirements(
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
-  const stmt = db.prepare(`SELECT * FROM requirements ${where} ORDER BY created_at ASC`)
-  return stmt.all(...values) as Requirement[]
+  return adapter.query<Requirement>(
+    `SELECT * FROM requirements ${where} ORDER BY created_at ASC`,
+    values,
+  )
 }
 
 /**
  * Transition a requirement's status.
  */
-export function updateRequirementStatus(
-  db: BetterSqlite3Database,
+export async function updateRequirementStatus(
+  adapter: DatabaseAdapter,
   id: string,
   status: string,
-): void {
-  const stmt = db.prepare('UPDATE requirements SET status = ? WHERE id = ?')
-  stmt.run(status, id)
+): Promise<void> {
+  await adapter.query('UPDATE requirements SET status = ? WHERE id = ?', [status, id])
 }
 
 // ---------------------------------------------------------------------------
@@ -254,44 +261,43 @@ export function updateRequirementStatus(
 /**
  * Insert a new constraint record.
  */
-export function createConstraint(
-  db: BetterSqlite3Database,
+export async function createConstraint(
+  adapter: DatabaseAdapter,
   input: CreateConstraintInput,
-): Constraint {
+): Promise<Constraint> {
   const validated = CreateConstraintInputSchema.parse(input)
   const id = crypto.randomUUID()
 
-  const stmt = db.prepare(`
-    INSERT INTO constraints (id, pipeline_run_id, category, description, source)
-    VALUES (?, ?, ?, ?, ?)
-  `)
-  stmt.run(
-    id,
-    validated.pipeline_run_id ?? null,
-    validated.category,
-    validated.description,
-    validated.source,
+  await adapter.query(
+    `INSERT INTO constraints (id, pipeline_run_id, category, description, source)
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      id,
+      validated.pipeline_run_id ?? null,
+      validated.category,
+      validated.description,
+      validated.source,
+    ],
   )
 
-  const row = db.prepare('SELECT * FROM constraints WHERE id = ?').get(id) as Constraint
-  return row
+  const rows = await adapter.query<Constraint>('SELECT * FROM constraints WHERE id = ?', [id])
+  return rows[0]
 }
 
 /**
  * List constraints with optional category filtering.
  */
-export function listConstraints(
-  db: BetterSqlite3Database,
+export async function listConstraints(
+  adapter: DatabaseAdapter,
   filters?: { category?: string },
-): Constraint[] {
+): Promise<Constraint[]> {
   if (filters?.category !== undefined) {
-    const stmt = db.prepare(
+    return adapter.query<Constraint>(
       'SELECT * FROM constraints WHERE category = ? ORDER BY created_at ASC',
+      [filters.category],
     )
-    return stmt.all(filters.category) as Constraint[]
   }
-  const stmt = db.prepare('SELECT * FROM constraints ORDER BY created_at ASC')
-  return stmt.all() as Constraint[]
+  return adapter.query<Constraint>('SELECT * FROM constraints ORDER BY created_at ASC')
 }
 
 // ---------------------------------------------------------------------------
@@ -301,54 +307,55 @@ export function listConstraints(
 /**
  * Register a new artifact record.
  */
-export function registerArtifact(
-  db: BetterSqlite3Database,
+export async function registerArtifact(
+  adapter: DatabaseAdapter,
   input: RegisterArtifactInput,
-): Artifact {
+): Promise<Artifact> {
   const validated = RegisterArtifactInputSchema.parse(input)
   const id = crypto.randomUUID()
 
-  const stmt = db.prepare(`
-    INSERT INTO artifacts (id, pipeline_run_id, phase, type, path, content_hash, summary)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `)
-  stmt.run(
-    id,
-    validated.pipeline_run_id ?? null,
-    validated.phase,
-    validated.type,
-    validated.path,
-    validated.content_hash ?? null,
-    validated.summary ?? null,
+  await adapter.query(
+    `INSERT INTO artifacts (id, pipeline_run_id, phase, type, path, content_hash, summary)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      validated.pipeline_run_id ?? null,
+      validated.phase,
+      validated.type,
+      validated.path,
+      validated.content_hash ?? null,
+      validated.summary ?? null,
+    ],
   )
 
-  const row = db.prepare('SELECT * FROM artifacts WHERE id = ?').get(id) as Artifact
-  return row
+  const rows = await adapter.query<Artifact>('SELECT * FROM artifacts WHERE id = ?', [id])
+  return rows[0]
 }
 
 /**
  * Get all artifacts for a given phase, ordered by created_at ascending.
  */
-export function getArtifactsByPhase(db: BetterSqlite3Database, phase: string): Artifact[] {
-  const stmt = db.prepare(
+export async function getArtifactsByPhase(adapter: DatabaseAdapter, phase: string): Promise<Artifact[]> {
+  return adapter.query<Artifact>(
     'SELECT * FROM artifacts WHERE phase = ? ORDER BY created_at ASC',
+    [phase],
   )
-  return stmt.all(phase) as Artifact[]
 }
 
 /**
  * Get the latest artifact of a given type for a given phase.
  * Returns undefined if none found.
  */
-export function getArtifactByType(
-  db: BetterSqlite3Database,
+export async function getArtifactByType(
+  adapter: DatabaseAdapter,
   phase: string,
   type: string,
-): Artifact | undefined {
-  const stmt = db.prepare(
+): Promise<Artifact | undefined> {
+  const rows = await adapter.query<Artifact>(
     'SELECT * FROM artifacts WHERE phase = ? AND type = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
+    [phase, type],
   )
-  return stmt.get(phase, type) as Artifact | undefined
+  return rows[0]
 }
 
 /**
@@ -356,51 +363,52 @@ export function getArtifactByType(
  * Filters by pipeline_run_id, phase, and type.
  * Returns undefined if none found.
  */
-export function getArtifactByTypeForRun(
-  db: BetterSqlite3Database,
+export async function getArtifactByTypeForRun(
+  adapter: DatabaseAdapter,
   runId: string,
   phase: string,
   type: string,
-): Artifact | undefined {
-  const stmt = db.prepare(
+): Promise<Artifact | undefined> {
+  const rows = await adapter.query<Artifact>(
     'SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = ? AND type = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
+    [runId, phase, type],
   )
-  return stmt.get(runId, phase, type) as Artifact | undefined
+  return rows[0]
 }
 
 /**
  * Get all artifacts registered for a specific pipeline run, ordered by created_at ascending.
  */
-export function getArtifactsByRun(db: BetterSqlite3Database, runId: string): Artifact[] {
-  const stmt = db.prepare(
+export async function getArtifactsByRun(adapter: DatabaseAdapter, runId: string): Promise<Artifact[]> {
+  return adapter.query<Artifact>(
     'SELECT * FROM artifacts WHERE pipeline_run_id = ? ORDER BY created_at ASC',
+    [runId],
   )
-  return stmt.all(runId) as Artifact[]
 }
 
 /**
  * Get a pipeline run by its ID. Returns undefined if not found.
  */
-export function getPipelineRunById(
-  db: BetterSqlite3Database,
+export async function getPipelineRunById(
+  adapter: DatabaseAdapter,
   id: string,
-): PipelineRun | undefined {
-  const stmt = db.prepare('SELECT * FROM pipeline_runs WHERE id = ?')
-  return stmt.get(id) as PipelineRun | undefined
+): Promise<PipelineRun | undefined> {
+  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [id])
+  return rows[0]
 }
 
 /**
  * Update a pipeline run's config_json field.
  */
-export function updatePipelineRunConfig(
-  db: BetterSqlite3Database,
+export async function updatePipelineRunConfig(
+  adapter: DatabaseAdapter,
   id: string,
   configJson: string,
-): void {
-  const stmt = db.prepare(
+): Promise<void> {
+  await adapter.query(
     "UPDATE pipeline_runs SET config_json = ?, updated_at = datetime('now') WHERE id = ?",
+    [configJson, id],
   )
-  stmt.run(configJson, id)
 }
 
 // ---------------------------------------------------------------------------
@@ -410,36 +418,36 @@ export function updatePipelineRunConfig(
 /**
  * Create a new pipeline run with status = 'running'.
  */
-export function createPipelineRun(
-  db: BetterSqlite3Database,
+export async function createPipelineRun(
+  adapter: DatabaseAdapter,
   input: CreatePipelineRunInput,
-): PipelineRun {
+): Promise<PipelineRun> {
   const validated = CreatePipelineRunInputSchema.parse(input)
   const id = crypto.randomUUID()
 
-  const stmt = db.prepare(`
-    INSERT INTO pipeline_runs (id, methodology, current_phase, status, config_json)
-    VALUES (?, ?, ?, 'running', ?)
-  `)
-  stmt.run(
-    id,
-    validated.methodology,
-    validated.start_phase ?? null,
-    validated.config_json ?? null,
+  await adapter.query(
+    `INSERT INTO pipeline_runs (id, methodology, current_phase, status, config_json)
+     VALUES (?, ?, ?, 'running', ?)`,
+    [
+      id,
+      validated.methodology,
+      validated.start_phase ?? null,
+      validated.config_json ?? null,
+    ],
   )
 
-  const row = db.prepare('SELECT * FROM pipeline_runs WHERE id = ?').get(id) as PipelineRun
-  return row
+  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [id])
+  return rows[0]
 }
 
 /**
  * Update a pipeline run's current_phase, status, and/or token_usage_json.
  */
-export function updatePipelineRun(
-  db: BetterSqlite3Database,
+export async function updatePipelineRun(
+  adapter: DatabaseAdapter,
   id: string,
   updates: Partial<Pick<PipelineRun, 'current_phase' | 'status' | 'token_usage_json'>>,
-): void {
+): Promise<void> {
   const setClauses: string[] = []
   const values: unknown[] = []
 
@@ -461,26 +469,24 @@ export function updatePipelineRun(
   setClauses.push("updated_at = datetime('now')")
   values.push(id)
 
-  const stmt = db.prepare(`UPDATE pipeline_runs SET ${setClauses.join(', ')} WHERE id = ?`)
-  stmt.run(...values)
+  await adapter.query(`UPDATE pipeline_runs SET ${setClauses.join(', ')} WHERE id = ?`, values)
 }
 
 /**
  * Get all pipeline runs with status = 'running'.
  */
-export function getRunningPipelineRuns(db: BetterSqlite3Database): PipelineRun[] {
-  const stmt = db.prepare("SELECT * FROM pipeline_runs WHERE status = 'running'")
-  return stmt.all() as PipelineRun[]
+export async function getRunningPipelineRuns(adapter: DatabaseAdapter): Promise<PipelineRun[]> {
+  return adapter.query<PipelineRun>("SELECT * FROM pipeline_runs WHERE status = 'running'")
 }
 
 /**
  * Get the most recently created pipeline run. Returns undefined if none found.
  */
-export function getLatestRun(db: BetterSqlite3Database): PipelineRun | undefined {
-  const stmt = db.prepare(
+export async function getLatestRun(adapter: DatabaseAdapter): Promise<PipelineRun | undefined> {
+  const rows = await adapter.query<PipelineRun>(
     'SELECT * FROM pipeline_runs ORDER BY created_at DESC, rowid DESC LIMIT 1',
   )
-  return stmt.get() as PipelineRun | undefined
+  return rows[0]
 }
 
 // ---------------------------------------------------------------------------
@@ -490,25 +496,25 @@ export function getLatestRun(db: BetterSqlite3Database): PipelineRun | undefined
 /**
  * Append a token usage record for a pipeline run.
  */
-export function addTokenUsage(
-  db: BetterSqlite3Database,
+export async function addTokenUsage(
+  adapter: DatabaseAdapter,
   runId: string,
   usage: AddTokenUsageInput,
-): void {
+): Promise<void> {
   const validated = AddTokenUsageInputSchema.parse(usage)
 
-  const stmt = db.prepare(`
-    INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd, metadata)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `)
-  stmt.run(
-    runId,
-    validated.phase,
-    validated.agent,
-    validated.input_tokens,
-    validated.output_tokens,
-    validated.cost_usd,
-    validated.metadata ?? null,
+  await adapter.query(
+    `INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      runId,
+      validated.phase,
+      validated.agent,
+      validated.input_tokens,
+      validated.output_tokens,
+      validated.cost_usd,
+      validated.metadata ?? null,
+    ],
   )
 }
 
@@ -527,12 +533,12 @@ export interface TokenUsageSummary {
 /**
  * Aggregate token usage by phase and agent for a given pipeline run.
  */
-export function getTokenUsageSummary(
-  db: BetterSqlite3Database,
+export async function getTokenUsageSummary(
+  adapter: DatabaseAdapter,
   runId: string,
-): TokenUsageSummary[] {
-  const stmt = db.prepare(`
-    SELECT
+): Promise<TokenUsageSummary[]> {
+  return adapter.query<TokenUsageSummary>(
+    `SELECT
       phase,
       agent,
       SUM(input_tokens)  AS total_input_tokens,
@@ -541,7 +547,7 @@ export function getTokenUsageSummary(
     FROM token_usage
     WHERE pipeline_run_id = ?
     GROUP BY phase, agent
-    ORDER BY phase ASC, agent ASC
-  `)
-  return stmt.all(runId) as TokenUsageSummary[]
+    ORDER BY phase ASC, agent ASC`,
+    [runId],
+  )
 }

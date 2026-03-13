@@ -74,9 +74,10 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     dbWrapper.open()
     runMigrations(dbWrapper.db)
     const db = dbWrapper.db
+    const adapter = dbWrapper.adapter
 
     // Query retryable escalations from the decision store
-    const { retryable, skipped } = getRetryableEscalations(db, runId)
+    const { retryable, skipped } = await getRetryableEscalations(adapter, runId)
 
     // AC4: No retryable escalations → output message and exit 0
     if (retryable.length === 0) {
@@ -136,7 +137,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     }
 
     // Create a new pipeline run for this retry (AC6: start_phase = 'implementation')
-    const pipelineRun = createPipelineRun(db, {
+    const pipelineRun = await createPipelineRun(adapter, {
       methodology: pack.manifest.name,
       start_phase: 'implementation',
       config_json: JSON.stringify({ storyKeys: retryable, concurrency, retryRun: true }),
@@ -170,12 +171,14 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
         if (result?.tokenUsage !== undefined) {
           const { input, output } = result.tokenUsage
           const costUsd = (input * 3 + output * 15) / 1_000_000
-          addTokenUsage(db, pipelineRun.id, {
+          addTokenUsage(adapter, pipelineRun.id, {
             phase: payload.phase,
             agent: 'claude-code',
             input_tokens: input,
             output_tokens: output,
             cost_usd: costUsd,
+          }).catch((err) => {
+            logger.warn({ err }, 'Failed to record token usage')
           })
         }
       } catch (err) {

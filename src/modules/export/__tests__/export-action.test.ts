@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 import {
   createDecision,
   createPipelineRun,
@@ -39,7 +40,7 @@ describe('T13: runExportAction --output-format json', () => {
   let stdoutOutput: string[]
   let originalWrite: typeof process.stdout.write
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Create a real temp project root with a .substrate directory
     tempProjectRoot = join(tmpdir(), `substrate-export-json-test-${randomUUID()}`)
     const substrateDir = join(tempProjectRoot, '.substrate')
@@ -50,12 +51,13 @@ describe('T13: runExportAction --output-format json', () => {
     const db = new BetterSqlite3(dbPath)
     db.pragma('foreign_keys = ON')
     runMigrations(db)
+    const adapter = new SqliteDatabaseAdapter(db)
 
-    const run = createPipelineRun(db, { methodology: 'bmad' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     runId = run.id
 
     // Insert decisions for all three phases so all 5 files are written
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'analysis',
       category: 'product-brief',
@@ -63,7 +65,7 @@ describe('T13: runExportAction --output-format json', () => {
       value: 'Test problem statement for JSON export',
       rationale: null,
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'planning',
       category: 'classification',
@@ -71,7 +73,7 @@ describe('T13: runExportAction --output-format json', () => {
       value: 'saas-product',
       rationale: null,
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
@@ -79,7 +81,7 @@ describe('T13: runExportAction --output-format json', () => {
       value: 'TypeScript',
       rationale: null,
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'epics',
@@ -87,7 +89,7 @@ describe('T13: runExportAction --output-format json', () => {
       value: JSON.stringify({ title: 'Core', description: 'Core functionality' }),
       rationale: null,
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'stories',
@@ -101,7 +103,7 @@ describe('T13: runExportAction --output-format json', () => {
       }),
       rationale: null,
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'readiness-findings',
@@ -198,8 +200,9 @@ describe('T13: runExportAction --output-format json', () => {
     const dbPathLocal = join(substrateDir, 'substrate.db')
     const db = new BetterSqlite3(dbPathLocal)
     db.pragma('foreign_keys = ON')
+    const adapter = new SqliteDatabaseAdapter(db)
 
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'supervisor',
       category: 'operational-finding',
@@ -212,7 +215,7 @@ describe('T13: runExportAction --output-format json', () => {
       }),
       rationale: 'Stall recovery test',
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'supervisor',
       category: 'operational-finding',
@@ -228,7 +231,7 @@ describe('T13: runExportAction --output-format json', () => {
       }),
       rationale: 'Run summary test',
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'supervisor',
       category: 'experiment-result',

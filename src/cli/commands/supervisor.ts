@@ -141,7 +141,7 @@ function defaultSupervisorDeps(): SupervisorDeps {
             const dbPath = join(dbRoot, '.substrate', 'substrate.db')
             cachedDbWrapper = new DatabaseWrapper(dbPath)
           }
-          incrementRunRestarts(cachedDbWrapper.db, runId)
+          await incrementRunRestarts(cachedDbWrapper.adapter, runId)
         } catch {
           // Best-effort — never block the supervisor
           try { cachedDbWrapper?.close() } catch { /* ignore close errors */ }
@@ -157,7 +157,7 @@ function defaultSupervisorDeps(): SupervisorDeps {
         const dbWrapper = new DatabaseWrapper(dbPath)
         try {
           dbWrapper.open()
-          const agg = aggregateTokenUsageForRun(dbWrapper.db, runId)
+          const agg = await aggregateTokenUsageForRun(dbWrapper.adapter, runId)
           return { input: agg.input, output: agg.output, cost_usd: agg.cost }
         } finally {
           try { dbWrapper.close() } catch { /* ignore */ }
@@ -186,13 +186,13 @@ function defaultSupervisorDeps(): SupervisorDeps {
         const dbWrapper = new DatabaseWrapper(dbPath)
         try {
           dbWrapper.open()
-          const db = dbWrapper.db
+          const stAdapter = dbWrapper.adapter
           const activeStories = Object.entries(opts.storyDetails).filter(
             ([, s]) => s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED',
           )
           const now = Date.now()
           for (const [storyKey, storyState] of activeStories) {
-            createDecision(db, {
+            await createDecision(stAdapter, {
               pipeline_run_id: opts.runId ?? null,
               phase: 'supervisor',
               category: OPERATIONAL_FINDING,
@@ -225,10 +225,10 @@ function defaultSupervisorDeps(): SupervisorDeps {
         const dbWrapper = new DatabaseWrapper(dbPath)
         try {
           dbWrapper.open()
-          const db = dbWrapper.db
+          const rsAdapter = dbWrapper.adapter
           // Query token totals directly from DB
-          const tokenAgg = aggregateTokenUsageForRun(db, opts.runId)
-          createDecision(db, {
+          const tokenAgg = await aggregateTokenUsageForRun(rsAdapter, opts.runId)
+          await createDecision(rsAdapter, {
             pipeline_run_id: opts.runId,
             phase: 'supervisor',
             category: OPERATIONAL_FINDING,
@@ -259,13 +259,13 @@ function defaultSupervisorDeps(): SupervisorDeps {
       try {
         dbWrapper.open()
         runMigrations(dbWrapper.db)
-        const db = dbWrapper.db
-        const run = getRunMetrics(db, runId)
+        const raAdapter = dbWrapper.adapter
+        const run = await getRunMetrics(raAdapter, runId)
         if (!run) return
-        const stories = getStoryMetricsForRun(db, runId)
-        const baseline = getBaselineRunMetrics(db)
+        const stories = await getStoryMetricsForRun(raAdapter, runId)
+        const baseline = await getBaselineRunMetrics(raAdapter)
         const baselineStories = baseline && baseline.run_id !== runId
-          ? getStoryMetricsForRun(db, baseline.run_id)
+          ? await getStoryMetricsForRun(raAdapter, baseline.run_id)
           : []
         const analysisPath = '../../modules/supervisor/analysis.js'
         const { generateAnalysisReport, writeAnalysisReport } = await import(/* @vite-ignore */ analysisPath)
@@ -625,6 +625,7 @@ export async function runSupervisorAction(
                 expDbWrapper.open()
                 runMigrations(expDbWrapper.db)
                 const expDb = expDbWrapper.db
+                const expAdapter = expDbWrapper.adapter
 
                 const { runRunAction: runPipeline } = await import(/* @vite-ignore */ './run.js')
                 const runStoryFn = async (opts: { stories: string; projectRoot: string; pack: string }) => {
@@ -635,7 +636,7 @@ export async function runSupervisorAction(
                     outputFormat: 'json',
                     projectRoot: opts.projectRoot,
                   })
-                  const latestRun = getLatest(expDb)
+                  const latestRun = await getLatest(expAdapter)
                   const newRunId = latestRun?.id ?? `experiment-${Date.now()}`
                   return { runId: newRunId, exitCode }
                 }

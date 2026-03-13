@@ -527,10 +527,11 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     dbWrapper.open()
     runMigrations(dbWrapper.db)
     const db = dbWrapper.db
+    const adapter = dbWrapper.adapter
 
     // Tag-baseline mode (AC4)
     if (tagBaseline !== undefined) {
-      const row = getRunMetrics(db, tagBaseline)
+      const row = await getRunMetrics(adapter, tagBaseline)
       if (!row) {
         const msg = `Run '${tagBaseline}' not found in run_metrics.`
         if (outputFormat === 'json') {
@@ -540,7 +541,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
         }
         return 1
       }
-      tagRunAsBaseline(db, tagBaseline)
+      await tagRunAsBaseline(adapter, tagBaseline)
       if (outputFormat === 'json') {
         process.stdout.write(formatOutput({ tagged_baseline: tagBaseline }, 'json', true) + '\n')
       } else {
@@ -552,7 +553,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     // Compare mode
     if (compare !== undefined) {
       const [idA, idB] = compare
-      const delta = compareRunMetrics(db, idA, idB)
+      const delta = await compareRunMetrics(adapter, idA, idB)
       if (delta === null) {
         const msg = `One or both run IDs not found in metrics: ${idA}, ${idB}`
         if (outputFormat === 'json') {
@@ -579,7 +580,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     }
 
     // List mode
-    const runs: RunMetricsRow[] = listRunMetrics(db, limit)
+    const runs: RunMetricsRow[] = await listRunMetrics(adapter, limit)
 
     // AC3/AC4/AC5 of Story 26-5: query StateStore if Dolt is present AND filter flags are used
     // Only activate the Dolt path when at least one new filter flag is provided or --aggregate is set.
@@ -605,7 +606,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     }
 
     // AC6 of Story 21-1: query story-metrics decisions for per-story efficiency data
-    const storyMetricDecisions = getDecisionsByCategory(db, STORY_METRICS)
+    const storyMetricDecisions = await getDecisionsByCategory(adapter, STORY_METRICS)
     const storyMetrics: Array<{
       story_key: string
       run_id: string

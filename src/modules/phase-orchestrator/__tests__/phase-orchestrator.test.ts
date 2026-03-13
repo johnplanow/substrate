@@ -13,6 +13,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { registerArtifact, getPipelineRunById } from '../../../persistence/queries/decisions.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import { createPhaseOrchestrator } from '../phase-orchestrator-impl.js'
@@ -23,11 +25,12 @@ import { runGates, serializePhaseHistory, deserializePhaseHistory, parseConfigJs
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'phase-orch-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
 function createMockPack(name = 'test-pack'): MethodologyPack {
@@ -60,8 +63,8 @@ function createNoGatePhase(name: string): PhaseDefinition {
 }
 
 // Register a product-brief artifact for a run (simulates analysis completing)
-function registerProductBriefArtifact(db: BetterSqlite3Database, runId: string): void {
-  registerArtifact(db, {
+async function registerProductBriefArtifact(adapter: DatabaseAdapter, runId: string): Promise<void> {
+  await registerArtifact(adapter, {
     pipeline_run_id: runId,
     phase: 'analysis',
     type: 'product-brief',
@@ -70,8 +73,8 @@ function registerProductBriefArtifact(db: BetterSqlite3Database, runId: string):
   })
 }
 
-function registerPrdArtifact(db: BetterSqlite3Database, runId: string): void {
-  registerArtifact(db, {
+async function registerPrdArtifact(adapter: DatabaseAdapter, runId: string): Promise<void> {
+  await registerArtifact(adapter, {
     pipeline_run_id: runId,
     phase: 'planning',
     type: 'prd',
@@ -80,8 +83,8 @@ function registerPrdArtifact(db: BetterSqlite3Database, runId: string): void {
   })
 }
 
-function registerArchitectureArtifact(db: BetterSqlite3Database, runId: string): void {
-  registerArtifact(db, {
+async function registerArchitectureArtifact(adapter: DatabaseAdapter, runId: string): Promise<void> {
+  await registerArtifact(adapter, {
     pipeline_run_id: runId,
     phase: 'solutioning',
     type: 'architecture',
@@ -90,8 +93,8 @@ function registerArchitectureArtifact(db: BetterSqlite3Database, runId: string):
   })
 }
 
-function registerStoriesArtifact(db: BetterSqlite3Database, runId: string): void {
-  registerArtifact(db, {
+async function registerStoriesArtifact(adapter: DatabaseAdapter, runId: string): Promise<void> {
+  await registerArtifact(adapter, {
     pipeline_run_id: runId,
     phase: 'solutioning',
     type: 'stories',
@@ -106,11 +109,13 @@ function registerStoriesArtifact(db: BetterSqlite3Database, runId: string): void
 
 describe('PhaseOrchestrator — core', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const result = createTestDb()
     db = result.db
+    adapter = result.adapter
     tmpDir = result.tmpDir
   })
 
@@ -126,7 +131,7 @@ describe('PhaseOrchestrator — core', () => {
   describe('AC1: Phase registration and ordering', () => {
     it('registers four built-in phases in the correct order', () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const phases = orchestrator.getPhases()
       expect(phases).toHaveLength(4)
@@ -138,7 +143,7 @@ describe('PhaseOrchestrator — core', () => {
 
     it('each built-in phase has required PhaseDefinition fields', () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       for (const phase of orchestrator.getPhases()) {
         expect(typeof phase.name).toBe('string')
@@ -152,7 +157,7 @@ describe('PhaseOrchestrator — core', () => {
 
     it('registerPhase adds a custom phase to the sequence', () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const customPhase = createNoGatePhase('custom-phase')
       orchestrator.registerPhase(customPhase)
@@ -170,7 +175,7 @@ describe('PhaseOrchestrator — core', () => {
   describe('AC4: Pipeline run lifecycle', () => {
     it('startRun creates a pipeline_run record with status running', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
 
@@ -179,7 +184,7 @@ describe('PhaseOrchestrator — core', () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
       )
 
-      const run = getPipelineRunById(db, runId)
+      const run = await getPipelineRunById(adapter, runId)
       expect(run).toBeDefined()
       expect(run!.status).toBe('running')
       expect(run!.current_phase).toBe('analysis')
@@ -187,20 +192,20 @@ describe('PhaseOrchestrator — core', () => {
 
     it('startRun sets the specified startPhase as current_phase', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept', 'planning')
 
-      const run = getPipelineRunById(db, runId)
+      const run = await getPipelineRunById(adapter, runId)
       expect(run!.current_phase).toBe('planning')
     })
 
     it('getRunStatus returns current phase, completed phases, and artifacts', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
-      registerProductBriefArtifact(db, runId)
+      await registerProductBriefArtifact(adapter, runId)
 
       const status = await orchestrator.getRunStatus(runId)
 
@@ -215,7 +220,7 @@ describe('PhaseOrchestrator — core', () => {
 
     it('getRunStatus throws for unknown runId', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       await expect(
         orchestrator.getRunStatus('00000000-0000-0000-0000-000000000000'),
@@ -230,7 +235,7 @@ describe('PhaseOrchestrator — core', () => {
   describe('AC2: Entry gate enforcement', () => {
     it('blocks advance to planning if product-brief artifact is missing', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
       // Don't register product-brief — advance should fail
@@ -246,10 +251,10 @@ describe('PhaseOrchestrator — core', () => {
 
     it('allows advance to planning when product-brief artifact exists', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
-      registerProductBriefArtifact(db, runId)
+      await registerProductBriefArtifact(adapter, runId)
 
       const result = await orchestrator.advancePhase(runId)
 
@@ -259,10 +264,10 @@ describe('PhaseOrchestrator — core', () => {
 
     it('blocks advance to solutioning if prd artifact is missing', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
-      registerProductBriefArtifact(db, runId)
+      await registerProductBriefArtifact(adapter, runId)
       await orchestrator.advancePhase(runId) // analysis → planning
 
       // Don't register prd
@@ -275,16 +280,16 @@ describe('PhaseOrchestrator — core', () => {
 
     it('blocks advance to implementation if architecture or stories missing', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
-      registerProductBriefArtifact(db, runId)
+      await registerProductBriefArtifact(adapter, runId)
       await orchestrator.advancePhase(runId) // → planning
-      registerPrdArtifact(db, runId)
+      await registerPrdArtifact(adapter, runId)
       await orchestrator.advancePhase(runId) // → solutioning
 
       // Register only architecture, not stories
-      registerArchitectureArtifact(db, runId)
+      await registerArchitectureArtifact(adapter, runId)
 
       const result = await orchestrator.advancePhase(runId)
 
@@ -300,7 +305,7 @@ describe('PhaseOrchestrator — core', () => {
   describe('AC3: Exit gate enforcement', () => {
     it('blocks phase advance when exit gates fail', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
       // No product-brief — analysis exit gate fails
@@ -314,10 +319,10 @@ describe('PhaseOrchestrator — core', () => {
 
     it('passes exit gates and advances when required artifacts exist', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
-      registerProductBriefArtifact(db, runId)
+      await registerProductBriefArtifact(adapter, runId)
 
       const result = await orchestrator.advancePhase(runId)
 
@@ -333,31 +338,31 @@ describe('PhaseOrchestrator — core', () => {
   describe('Full pipeline: analysis → planning → solutioning → implementation', () => {
     it('progresses through all four phases when gates are satisfied', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
 
       // analysis → planning
-      registerProductBriefArtifact(db, runId)
+      await registerProductBriefArtifact(adapter, runId)
       const r1 = await orchestrator.advancePhase(runId)
       expect(r1.advanced).toBe(true)
       expect(r1.phase).toBe('planning')
 
       // planning → solutioning
-      registerPrdArtifact(db, runId)
+      await registerPrdArtifact(adapter, runId)
       const r2 = await orchestrator.advancePhase(runId)
       expect(r2.advanced).toBe(true)
       expect(r2.phase).toBe('solutioning')
 
       // solutioning → implementation
-      registerArchitectureArtifact(db, runId)
-      registerStoriesArtifact(db, runId)
+      await registerArchitectureArtifact(adapter, runId)
+      await registerStoriesArtifact(adapter, runId)
       const r3 = await orchestrator.advancePhase(runId)
       expect(r3.advanced).toBe(true)
       expect(r3.phase).toBe('implementation')
 
       // Verify DB state
-      const run = getPipelineRunById(db, runId)
+      const run = await getPipelineRunById(adapter, runId)
       expect(run!.current_phase).toBe('implementation')
     })
   })
@@ -369,7 +374,7 @@ describe('PhaseOrchestrator — core', () => {
   describe('AC5: Resume capability', () => {
     it('resumeRun throws for unknown runId', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       await expect(
         orchestrator.resumeRun('00000000-0000-0000-0000-000000000000'),
@@ -378,7 +383,7 @@ describe('PhaseOrchestrator — core', () => {
 
     it('resumeRun with no completed exit gates resumes at analysis', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
       // No artifacts registered — analysis exit gate won't pass
@@ -393,13 +398,13 @@ describe('PhaseOrchestrator — core', () => {
 
     it('resumeRun with product-brief artifact resumes at planning', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
-      registerProductBriefArtifact(db, runId)
+      await registerProductBriefArtifact(adapter, runId)
       // Manually set current_phase to analysis to simulate interrupted run
       const { updatePipelineRun } = await import('../../../persistence/queries/decisions.js')
-      updatePipelineRun(db, runId, { current_phase: 'analysis', status: 'paused' })
+      await updatePipelineRun(adapter, runId, { current_phase: 'analysis', status: 'paused' })
 
       const status = await orchestrator.resumeRun(runId)
 
@@ -410,15 +415,15 @@ describe('PhaseOrchestrator — core', () => {
 
     it('resumeRun updates status back to running', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
       const { updatePipelineRun } = await import('../../../persistence/queries/decisions.js')
-      updatePipelineRun(db, runId, { status: 'paused' })
+      await updatePipelineRun(adapter, runId, { status: 'paused' })
 
       await orchestrator.resumeRun(runId)
 
-      const run = getPipelineRunById(db, runId)
+      const run = await getPipelineRunById(adapter, runId)
       expect(run!.status).toBe('running')
     })
   })
@@ -430,25 +435,25 @@ describe('PhaseOrchestrator — core', () => {
   describe('AC6: Phase state persistence', () => {
     it('updates current_phase in pipeline_runs after each advance', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
-      registerProductBriefArtifact(db, runId)
+      await registerProductBriefArtifact(adapter, runId)
       await orchestrator.advancePhase(runId)
 
-      const run = getPipelineRunById(db, runId)
+      const run = await getPipelineRunById(adapter, runId)
       expect(run!.current_phase).toBe('planning')
     })
 
     it('stores phase history in config_json after phase transition', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
-      registerProductBriefArtifact(db, runId)
+      await registerProductBriefArtifact(adapter, runId)
       await orchestrator.advancePhase(runId)
 
-      const run = getPipelineRunById(db, runId)
+      const run = await getPipelineRunById(adapter, runId)
       expect(run!.config_json).toBeTruthy()
 
       const config = JSON.parse(run!.config_json!) as { phaseHistory: unknown[] }
@@ -458,11 +463,11 @@ describe('PhaseOrchestrator — core', () => {
 
     it('config_json contains concept from startRun', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('My test concept')
 
-      const run = getPipelineRunById(db, runId)
+      const run = await getPipelineRunById(adapter, runId)
       const config = JSON.parse(run!.config_json!) as { concept: string }
       expect(config.concept).toBe('My test concept')
     })
@@ -475,11 +480,11 @@ describe('PhaseOrchestrator — core', () => {
   describe('AC7: Artifact querying in getRunStatus', () => {
     it('getRunStatus includes all artifacts for the run', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
-      registerProductBriefArtifact(db, runId)
-      registerArtifact(db, {
+      await registerProductBriefArtifact(adapter, runId)
+      await registerArtifact(adapter, {
         pipeline_run_id: runId,
         phase: 'analysis',
         type: 'constraints',
@@ -496,10 +501,10 @@ describe('PhaseOrchestrator — core', () => {
 
     it('getRunStatus artifacts include type, phase, and id fields', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept')
-      registerProductBriefArtifact(db, runId)
+      await registerProductBriefArtifact(adapter, runId)
 
       const status = await orchestrator.getRunStatus(runId)
 
@@ -511,11 +516,11 @@ describe('PhaseOrchestrator — core', () => {
 
     it('artifacts from different runs do not appear in each other\'s status', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId1 = await orchestrator.startRun('Concept 1')
       const runId2 = await orchestrator.startRun('Concept 2')
-      registerProductBriefArtifact(db, runId1)
+      await registerProductBriefArtifact(adapter, runId1)
 
       const status2 = await orchestrator.getRunStatus(runId2)
       expect(status2.artifacts).toHaveLength(0)
@@ -529,7 +534,7 @@ describe('PhaseOrchestrator — core', () => {
   describe('AC8: Custom phase registration', () => {
     it('custom phase is processed like built-in phases', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const onEnterMock = vi.fn().mockResolvedValue(undefined)
       const onExitMock = vi.fn().mockResolvedValue(undefined)
@@ -550,7 +555,7 @@ describe('PhaseOrchestrator — core', () => {
 
     it('custom phase can define its own entry and exit gates', () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const customGate = {
         name: 'custom-gate',
@@ -585,7 +590,7 @@ describe('PhaseOrchestrator — core', () => {
         { name: 'gate2', check: vi.fn().mockResolvedValue(true), errorMessage: 'Gate 2 failed' },
       ]
 
-      const result = await runGates(gates, db, 'test-run-id')
+      const result = await runGates(gates, adapter, 'test-run-id')
 
       expect(result.passed).toBe(true)
       expect(result.failures).toHaveLength(0)
@@ -598,7 +603,7 @@ describe('PhaseOrchestrator — core', () => {
         { name: 'gate3', check: vi.fn().mockResolvedValue(true), errorMessage: 'Gate 3 failed' },
       ]
 
-      const result = await runGates(gates, db, 'test-run-id')
+      const result = await runGates(gates, adapter, 'test-run-id')
 
       expect(result.passed).toBe(false)
       expect(result.failures).toHaveLength(2)
@@ -614,7 +619,7 @@ describe('PhaseOrchestrator — core', () => {
         { name: 'gate2', check: gate2Check, errorMessage: 'Gate 2 failed' },
       ]
 
-      await runGates(gates, db, 'test-run-id')
+      await runGates(gates, adapter, 'test-run-id')
 
       // Both gate checks should be called (no short-circuit)
       expect(gate1Check).toHaveBeenCalledOnce()
@@ -630,7 +635,7 @@ describe('PhaseOrchestrator — core', () => {
         },
       ]
 
-      const result = await runGates(gates, db, 'test-run-id')
+      const result = await runGates(gates, adapter, 'test-run-id')
 
       expect(result.passed).toBe(false)
       expect(result.failures[0].gate).toBe('error-gate')
@@ -638,7 +643,7 @@ describe('PhaseOrchestrator — core', () => {
     })
 
     it('returns passed=true for empty gates array', async () => {
-      const result = await runGates([], db, 'test-run-id')
+      const result = await runGates([], adapter, 'test-run-id')
 
       expect(result.passed).toBe(true)
       expect(result.failures).toHaveLength(0)
@@ -696,30 +701,30 @@ describe('PhaseOrchestrator — core', () => {
   describe('markPhaseFailed()', () => {
     it('sets pipeline run status to "failed"', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept', 'solutioning')
 
       // Verify initial status is 'running'
-      const runBefore = getPipelineRunById(db, runId)
+      const runBefore = await getPipelineRunById(adapter, runId)
       expect(runBefore?.status).toBe('running')
 
-      orchestrator.markPhaseFailed(runId, 'solutioning', 'Architecture agent timed out')
+      await orchestrator.markPhaseFailed(runId, 'solutioning', 'Architecture agent timed out')
 
-      const runAfter = getPipelineRunById(db, runId)
+      const runAfter = await getPipelineRunById(adapter, runId)
       expect(runAfter?.status).toBe('failed')
     })
 
     it('records failure reason in phase history', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept', 'solutioning')
 
       const failureReason = 'Solutioning phase failed: architecture_generation_failed — prompt too long'
-      orchestrator.markPhaseFailed(runId, 'solutioning', failureReason)
+      await orchestrator.markPhaseFailed(runId, 'solutioning', failureReason)
 
-      const runAfter = getPipelineRunById(db, runId)
+      const runAfter = await getPipelineRunById(adapter, runId)
       const config = parseConfigJson(runAfter?.config_json)
       const solutioningEntry = config.phaseHistory.find((h) => h.phase === 'solutioning')
 
@@ -732,11 +737,11 @@ describe('PhaseOrchestrator — core', () => {
 
     it('pipeline run is not left in "running" state after failure', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       const runId = await orchestrator.startRun('Test concept', 'solutioning')
 
-      orchestrator.markPhaseFailed(runId, 'solutioning', 'Story generation dispatch failed')
+      await orchestrator.markPhaseFailed(runId, 'solutioning', 'Story generation dispatch failed')
 
       const status = await orchestrator.getRunStatus(runId)
       expect(status.status).toBe('failed')
@@ -744,25 +749,25 @@ describe('PhaseOrchestrator — core', () => {
       expect(status.status).not.toBe('running')
     })
 
-    it('handles non-existent runId gracefully (no throw)', () => {
+    it('handles non-existent runId gracefully (no throw)', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
-      expect(() => {
+      await expect(
         orchestrator.markPhaseFailed('non-existent-run-id', 'solutioning', 'some error')
-      }).not.toThrow()
+      ).resolves.not.toThrow()
     })
 
     it('creates phase history entry when phase has no in-progress entry', async () => {
       const pack = createMockPack()
-      const orchestrator = createPhaseOrchestrator({ db, pack })
+      const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       // Start run with analysis but then mark solutioning (skipped phase) as failed
       const runId = await orchestrator.startRun('Test concept', 'analysis')
 
-      orchestrator.markPhaseFailed(runId, 'solutioning', 'Unexpected solutioning failure')
+      await orchestrator.markPhaseFailed(runId, 'solutioning', 'Unexpected solutioning failure')
 
-      const runAfter = getPipelineRunById(db, runId)
+      const runAfter = await getPipelineRunById(adapter, runId)
       const config = parseConfigJson(runAfter?.config_json)
       const solutioningEntry = config.phaseHistory.find((h) => h.phase === 'solutioning')
 

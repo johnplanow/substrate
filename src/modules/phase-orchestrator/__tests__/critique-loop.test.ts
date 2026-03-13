@@ -18,6 +18,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   createPipelineRun,
   getDecisionsByPhaseForRun,
@@ -33,15 +35,16 @@ import type { Dispatcher, DispatchResult } from '../../agent-dispatch/types.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'critique-loop-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'solutioning' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'solutioning' })
   return run.id
 }
 
@@ -110,12 +113,12 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
 ): PhaseDeps {
   return {
-    db,
+    db: adapter,
     pack: pack ?? makePack(),
     contextCompiler: makeContextCompiler(),
     dispatcher,
@@ -128,14 +131,16 @@ function makeDeps(
 
 describe('runCritiqueLoop', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -155,7 +160,7 @@ describe('runCritiqueLoop', () => {
     })
 
     const dispatcher = makeDispatcher([critiqueResult])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runCritiqueLoop('artifact content', 'solutioning', runId, 'solutioning', deps)
 
@@ -173,7 +178,7 @@ describe('runCritiqueLoop', () => {
     })
 
     const dispatcher = makeDispatcher([critiqueResult])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps)
 
@@ -214,7 +219,7 @@ describe('runCritiqueLoop', () => {
 
     // Dispatch order: critique1, refine, critique2
     const dispatcher = makeDispatcher([critiqueResult, refineResult, critiqueResult2])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runCritiqueLoop(
       'artifact content',
@@ -253,7 +258,7 @@ describe('runCritiqueLoop', () => {
     })
 
     const dispatcher = makeDispatcher([critiqueResult, refineResult, critiqueResult2])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runCritiqueLoop('artifact', 'analysis', runId, 'analysis', deps, { maxIterations: 2 })
 
@@ -283,7 +288,7 @@ describe('runCritiqueLoop', () => {
     })
 
     const dispatcher = makeDispatcher([critiqueResult])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps, { maxIterations: 1 })
 
@@ -312,7 +317,7 @@ describe('runCritiqueLoop', () => {
 
     // Both iterations return needs_work
     const dispatcher = makeDispatcher([needsWorkResult, refineResult, needsWorkResult])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runCritiqueLoop('artifact', 'planning', runId, 'planning', deps, { maxIterations: 2 })
 
@@ -332,7 +337,7 @@ describe('runCritiqueLoop', () => {
     })
 
     const dispatcher = makeDispatcher([critiqueResult])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps)
 
@@ -367,11 +372,11 @@ describe('runCritiqueLoop', () => {
     })
 
     const dispatcher = makeDispatcher([critiqueResult, refineResult, critiqueResult2])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps, { maxIterations: 2 })
 
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
     const critiqueDecisions = decisions.filter((d) => d.category === 'critique')
 
     // Should have at least verdict and issue_count for iteration 1
@@ -390,11 +395,11 @@ describe('runCritiqueLoop', () => {
     })
 
     const dispatcher = makeDispatcher([critiqueResult])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps, { maxIterations: 1 })
 
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
     const critiqueDecisions = decisions.filter((d) => d.category === 'critique')
     const issuesDecision = critiqueDecisions.find((d) => d.key.includes('issues'))
 
@@ -411,7 +416,7 @@ describe('runCritiqueLoop', () => {
     vi.mocked(pack.getPrompt).mockRejectedValue(new Error('Template not found'))
 
     const dispatcher = makeDispatcher([])
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const result = await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps)
 
@@ -431,7 +436,7 @@ describe('runCritiqueLoop', () => {
     })
 
     const dispatcher = makeDispatcher([failedResult])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps)
 
@@ -446,7 +451,7 @@ describe('runCritiqueLoop', () => {
     })
 
     const dispatcher = makeDispatcher([timeoutResult])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps)
 
@@ -467,7 +472,7 @@ describe('runCritiqueLoop', () => {
     const pack = makePack({
       'critique-architecture': 'Architecture critique: {{artifact_content}}',
     })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps)
 
@@ -483,7 +488,7 @@ describe('runCritiqueLoop', () => {
     const pack = makePack({
       'critique-analysis': 'Analysis critique: {{artifact_content}}',
     })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     await runCritiqueLoop('artifact', 'analysis', runId, 'analysis', deps)
 
@@ -499,7 +504,7 @@ describe('runCritiqueLoop', () => {
     const pack = makePack({
       'critique-planning': 'Planning critique: {{artifact_content}}',
     })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     await runCritiqueLoop('artifact', 'planning', runId, 'planning', deps)
 

@@ -103,6 +103,7 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
   try {
     dbWrapper.open()
     const db = dbWrapper.db
+    const adapter = dbWrapper.adapter
 
     // Load methodology pack
     const packLoader = createPackLoader()
@@ -127,7 +128,7 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
         .prepare('SELECT * FROM pipeline_runs WHERE id = ?')
         .get(specifiedRunId) as PipelineRun | undefined
     } else {
-      run = getLatestRun(db)
+      run = await getLatestRun(adapter)
     }
 
     if (run === undefined) {
@@ -150,7 +151,7 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
     }
 
     // Create PhaseOrchestrator and determine resume point
-    const phaseOrchestrator = createPhaseOrchestrator({ db, pack })
+    const phaseOrchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runStatus = await phaseOrchestrator.resumeRun(runId)
 
     const resumePhase = runStatus.currentPhase as PhaseName | null
@@ -258,6 +259,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     dbWrapper.open()
     runMigrations(dbWrapper.db)
     const db = dbWrapper.db
+    const adapter = dbWrapper.adapter
 
     const packLoader = createPackLoader()
     let pack
@@ -282,7 +284,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
     const phaseDeps = { db, pack, contextCompiler, dispatcher }
 
-    const phaseOrchestrator = createPhaseOrchestrator({ db, pack })
+    const phaseOrchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
     const startedAt = Date.now()
     let runId: string
@@ -307,7 +309,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
         const result = await runAnalysisPhase(phaseDeps, { runId, concept })
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
-          addTokenUsage(db, runId, {
+          await addTokenUsage(adapter, runId, {
             phase: 'analysis',
             agent: 'claude-code',
             input_tokens: result.tokenUsage.input,
@@ -316,7 +318,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           })
         }
         if (result.result === 'failed') {
-          updatePipelineRun(db, runId, { status: 'failed' })
+          await updatePipelineRun(adapter, runId, { status: 'failed' })
           const errorMsg = `Analysis phase failed: ${result.error ?? 'unknown error'}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -332,7 +334,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
         const result = await runPlanningPhase(phaseDeps, { runId })
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
-          addTokenUsage(db, runId, {
+          await addTokenUsage(adapter, runId, {
             phase: 'planning',
             agent: 'claude-code',
             input_tokens: result.tokenUsage.input,
@@ -341,7 +343,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           })
         }
         if (result.result === 'failed') {
-          updatePipelineRun(db, runId, { status: 'failed' })
+          await updatePipelineRun(adapter, runId, { status: 'failed' })
           const errorMsg = `Planning phase failed: ${result.error ?? 'unknown error'}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -357,7 +359,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
         const result = await runSolutioningPhase(phaseDeps, { runId })
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
-          addTokenUsage(db, runId, {
+          await addTokenUsage(adapter, runId, {
             phase: 'solutioning',
             agent: 'claude-code',
             input_tokens: result.tokenUsage.input,
@@ -366,7 +368,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           })
         }
         if (result.result === 'failed') {
-          updatePipelineRun(db, runId, { status: 'failed' })
+          await updatePipelineRun(adapter, runId, { status: 'failed' })
           const errorMsg = `Solutioning phase failed: ${result.error ?? 'unknown error'}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -423,12 +425,14 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
             if (result?.tokenUsage !== undefined) {
               const { input, output } = result.tokenUsage
               const costUsd = (input * 3 + output * 15) / 1_000_000
-              addTokenUsage(db, runId, {
+              addTokenUsage(adapter, runId, {
                 phase: payload.phase,
                 agent: 'claude-code',
                 input_tokens: input,
                 output_tokens: output,
                 cost_usd: costUsd,
+              }).catch((err) => {
+                logger.warn({ err }, 'Failed to record token usage')
               })
             }
           } catch (err) {
@@ -465,7 +469,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
               .get(runId) as { cnt: number } | undefined)?.cnt ?? 0
 
           // Update run status to 'stopped' atomically before emitting summary (AC4)
-          updatePipelineRun(db, runId, { status: 'stopped' })
+          await updatePipelineRun(adapter, runId, { status: 'stopped' })
 
           // Emit phase completion summary (AC5)
           const phaseStartedAt = new Date(startedAt).toISOString()
@@ -502,7 +506,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     }
 
     // Final summary
-    const tokenSummary = getTokenUsageSummary(db, runId)
+    const tokenSummary = await getTokenUsageSummary(adapter, runId)
     const durationMs = Date.now() - startedAt
 
     const decisionsCount =

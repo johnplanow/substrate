@@ -25,7 +25,7 @@ import { getRunMetrics, getStoryMetricsForRun } from '../../persistence/queries/
 import type { RunMetricsRow, StoryMetricsRow } from '../../persistence/queries/metrics.js'
 import { createDecision } from '../../persistence/queries/decisions.js'
 import { EXPERIMENT_RESULT } from '../../persistence/schemas/operational.js'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Generic spawn helper (for gh CLI)
@@ -223,8 +223,8 @@ export interface ExperimenterDeps {
   /** Generic process spawner used for `gh pr create` and similar CLI tools. */
   spawn: SpawnFn
   runStory: RunStoryFn
-  getRunMetrics: (db: BetterSqlite3Database, runId: string) => RunMetricsRow | undefined
-  getStoryMetrics: (db: BetterSqlite3Database, runId: string) => StoryMetricsRow[]
+  getRunMetrics: (db: DatabaseAdapter, runId: string) => RunMetricsRow | undefined
+  getStoryMetrics: (db: DatabaseAdapter, runId: string) => StoryMetricsRow[]
   readFile: (path: string) => Promise<string>
   writeFile: (path: string, content: string) => Promise<void>
   /** Create directory (recursive). Used to ensure audit log directories exist. */
@@ -246,7 +246,7 @@ export interface Experimenter {
    * @returns Results for each experiment that was attempted
    */
   runExperiments(
-    db: BetterSqlite3Database,
+    db: DatabaseAdapter,
     recommendations: SupervisorRecommendation[],
     baselineRunId: string,
   ): Promise<ExperimentResult[]>
@@ -704,7 +704,7 @@ export function createExperimenter(
    * Returns true (within budget) if the cap is satisfied or metrics are unavailable.
    */
   function isWithinTokenBudget(
-    db: BetterSqlite3Database,
+    db: DatabaseAdapter,
     storyKey: string,
     baselineRunId: string,
     experimentRunId: string,
@@ -742,7 +742,7 @@ export function createExperimenter(
   // ---------------------------------------------------------------------------
 
   async function runOneExperiment(
-    db: BetterSqlite3Database,
+    db: DatabaseAdapter,
     rec: SupervisorRecommendation,
     baselineRunId: string,
   ): Promise<ExperimentResult> {
@@ -875,7 +875,7 @@ export function createExperimenter(
             ? (deltas.review_cycles_pct !== null ? Math.round(targetMetricValue * (1 + deltas.review_cycles_pct / 100)) : targetMetricValue)
             : (deltas.wall_clock_pct !== null ? Math.round(targetMetricValue * (1 + deltas.wall_clock_pct / 100)) : targetMetricValue)
 
-      createDecision(db, {
+      await createDecision(db, {
         pipeline_run_id: baselineRunId,
         phase: 'supervisor',
         category: EXPERIMENT_RESULT,
@@ -902,7 +902,7 @@ export function createExperimenter(
 
   return {
     async runExperiments(
-      db: BetterSqlite3Database,
+      db: DatabaseAdapter,
       recommendations: SupervisorRecommendation[],
       baselineRunId: string,
     ): Promise<ExperimentResult[]> {

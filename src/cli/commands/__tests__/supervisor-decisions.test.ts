@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createDecision, getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 import { OPERATIONAL_FINDING } from '../../../persistence/schemas/operational.js'
 import {
   handleStallRecovery,
@@ -71,9 +72,9 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
     db = openTestDb()
   })
 
-  it('writeStallFindings inserts operational-finding decisions for active stories', () => {
+  it('writeStallFindings inserts operational-finding decisions for active stories', async () => {
     // Simulate what defaultSupervisorDeps.writeStallFindings does, but directly
-    const run = createPipelineRun(db, { methodology: 'bmad' })
+    const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
     const storyDetails: Record<string, { phase: string; review_cycles: number }> = {
       '1-1': { phase: 'IN_DEV', review_cycles: 0 },
       '1-2': { phase: 'COMPLETE', review_cycles: 1 },
@@ -87,7 +88,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
     )
 
     for (const [storyKey, storyState] of activeStories) {
-      createDecision(db, {
+      await createDecision(new SqliteDatabaseAdapter(db), {
         pipeline_run_id: run.id,
         phase: 'supervisor',
         category: OPERATIONAL_FINDING,
@@ -102,7 +103,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
       })
     }
 
-    const decisions = getDecisionsByCategory(db, OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(new SqliteDatabaseAdapter(db),OPERATIONAL_FINDING)
     // Only active stories should have findings (1-1 and 1-3, not 1-2 which is COMPLETE)
     expect(decisions).toHaveLength(2)
 
@@ -119,9 +120,9 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
     expect(firstValue).toHaveProperty('outcome', 'recovered')
   })
 
-  it('max-restarts-escalated outcome is persisted correctly', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    createDecision(db, {
+  it('max-restarts-escalated outcome is persisted correctly', async () => {
+    const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
+    await createDecision(new SqliteDatabaseAdapter(db), {
       pipeline_run_id: run.id,
       phase: 'supervisor',
       category: OPERATIONAL_FINDING,
@@ -134,7 +135,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
       }),
     })
 
-    const decisions = getDecisionsByCategory(db, OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(new SqliteDatabaseAdapter(db),OPERATIONAL_FINDING)
     expect(decisions).toHaveLength(1)
     const val = JSON.parse(decisions[0]!.value)
     expect(val.outcome).toBe('max-restarts-escalated')
@@ -222,9 +223,9 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
     db = openTestDb()
   })
 
-  it('writeRunSummary inserts operational-finding decision with correct key and value', () => {
+  it('writeRunSummary inserts operational-finding decision with correct key and value', async () => {
     // Simulate the writeRunSummary logic directly against in-memory DB
-    const run = createPipelineRun(db, { methodology: 'bmad' })
+    const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
     const opts = {
       runId: run.id,
       succeeded: ['1-1', '1-2'],
@@ -234,7 +235,7 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
       elapsed_seconds: 450,
     }
 
-    createDecision(db, {
+    await createDecision(new SqliteDatabaseAdapter(db), {
       pipeline_run_id: opts.runId,
       phase: 'supervisor',
       category: OPERATIONAL_FINDING,
@@ -251,7 +252,7 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
       rationale: `Run summary: ${opts.succeeded.length} succeeded, ${opts.failed.length} failed.`,
     })
 
-    const decisions = getDecisionsByCategory(db, OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(new SqliteDatabaseAdapter(db),OPERATIONAL_FINDING)
     expect(decisions).toHaveLength(1)
     expect(decisions[0]!.key).toBe(`run-summary:${run.id}`)
     expect(decisions[0]!.category).toBe('operational-finding')
@@ -266,13 +267,13 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
     expect(val.total_output_tokens).toBe(10000)
   })
 
-  it('guard: no decision inserted when no stories exist', () => {
+  it('guard: no decision inserted when no stories exist', async () => {
     // The writeRunSummary implementation should check total stories > 0
     const totalStories = 0
     if (totalStories === 0) {
       // writeRunSummary would return early
     } else {
-      createDecision(db, {
+      await createDecision(new SqliteDatabaseAdapter(db), {
         pipeline_run_id: 'run-empty',
         phase: 'supervisor',
         category: OPERATIONAL_FINDING,
@@ -281,7 +282,7 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
       })
     }
 
-    const decisions = getDecisionsByCategory(db, OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(new SqliteDatabaseAdapter(db),OPERATIONAL_FINDING)
     expect(decisions).toHaveLength(0)
   })
 })
@@ -330,7 +331,7 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
     const db = new BetterSqlite3(dbPath)
     db.pragma('foreign_keys = ON')
     runMigrations(db)
-    const run = createPipelineRun(db, { methodology: 'bmad' })
+    const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
     runId = run.id
     db.close()
 
@@ -406,7 +407,7 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
     // Now verify the decisions landed in the real DB
     const db = new BetterSqlite3(dbPath, { readonly: true })
     try {
-      const decisions = getDecisionsByCategory(db, OPERATIONAL_FINDING)
+      const decisions = await getDecisionsByCategory(new SqliteDatabaseAdapter(db),OPERATIONAL_FINDING)
 
       // Should have at least one stall finding for story 1-1
       const stallFindings = decisions.filter((d) => d.key.startsWith('stall:'))

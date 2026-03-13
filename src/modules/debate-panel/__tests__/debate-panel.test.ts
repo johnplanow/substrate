@@ -13,6 +13,8 @@ import type { PerspectiveGeneratorFn } from '../debate-panel-impl.js'
 import type { Perspective, DecisionRequest } from '../types.js'
 import type { Dispatcher } from '../../agent-dispatch/types.js'
 import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -339,16 +341,18 @@ describe('DebatePanel — Architectural tier (AC6)', () => {
 
 describe('DebatePanel — Decision Persistence (AC7)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
     db = new BetterSqlite3(':memory:')
     runMigrations(db)
+    adapter = new SqliteDatabaseAdapter(db)
   })
 
   it('persists routine decision to database', async () => {
     const panel = createDebatePanel({
       dispatcher: createMockDispatcher(),
-      db,
+      db: adapter,
       perspectiveGenerator: createFixedGenerator({
         recommendation: 'Use TypeScript',
         confidence: 0.9,
@@ -366,7 +370,7 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
   it('stores perspectives and tier in rationale as JSON', async () => {
     const panel = createDebatePanel({
       dispatcher: createMockDispatcher(),
-      db,
+      db: adapter,
       perspectiveGenerator: createFixedGenerator({
         recommendation: 'Adopt',
         confidence: 0.9,
@@ -384,7 +388,7 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
   it('uses provided key for the decision record', async () => {
     const panel = createDebatePanel({
       dispatcher: createMockDispatcher(),
-      db,
+      db: adapter,
       perspectiveGenerator: createFixedGenerator({
         recommendation: 'Yes',
         confidence: 1.0,
@@ -400,7 +404,7 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
   it('uses provided phase for the decision record', async () => {
     const panel = createDebatePanel({
       dispatcher: createMockDispatcher(),
-      db,
+      db: adapter,
       perspectiveGenerator: createFixedGenerator({
         recommendation: 'Yes',
         confidence: 1.0,
@@ -436,7 +440,7 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
     })
     const panel = createDebatePanel({
       dispatcher: createMockDispatcher(),
-      db,
+      db: adapter,
       perspectiveGenerator: generator,
     })
     await panel.decide({ ...BASE_REQUEST, tier: 'significant' })

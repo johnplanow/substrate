@@ -19,6 +19,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import { createPipelineRun } from '../../../../persistence/queries/decisions.js'
 import { runAnalysisPhase } from '../analysis.js'
 import type { PhaseDeps, AnalysisPhaseParams, ProductBrief } from '../types.js'
@@ -30,22 +32,23 @@ import { getProjectFindings } from '../../../implementation-orchestrator/project
 // Mock getProjectFindings so tests can control what findings are returned
 // Default: returns '' (no findings) — does not affect existing tests
 vi.mock('../../../implementation-orchestrator/project-findings.js', () => ({
-  getProjectFindings: vi.fn().mockReturnValue(''),
+  getProjectFindings: vi.fn().mockResolvedValue(''),
 }))
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'analysis-phase-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
@@ -119,12 +122,12 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
 ): PhaseDeps {
   return {
-    db,
+    db: adapter,
     pack: pack ?? makePack(),
     contextCompiler: makeContextCompiler(),
     dispatcher,
@@ -137,14 +140,16 @@ function makeDeps(
 
 describe('runAnalysisPhase()', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -160,7 +165,7 @@ describe('runAnalysisPhase()', () => {
     it('calls pack.getPrompt("analysis") to retrieve the template', async () => {
       const pack = makePack()
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       await runAnalysisPhase(deps, params)
@@ -171,7 +176,7 @@ describe('runAnalysisPhase()', () => {
 
     it('dispatches to claude-code agent with taskType analysis', async () => {
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       await runAnalysisPhase(deps, params)
@@ -193,7 +198,7 @@ describe('runAnalysisPhase()', () => {
     it('injects the concept into the {{concept}} placeholder', async () => {
       const pack = makePack('Analyze: {{concept}}')
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
       const concept = 'Build a task manager app'
       const params: AnalysisPhaseParams = { runId, concept }
 
@@ -208,7 +213,7 @@ describe('runAnalysisPhase()', () => {
     it('includes the full concept text without truncation for short concepts', async () => {
       const shortConcept = 'A short concept'
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: shortConcept }
 
       await runAnalysisPhase(deps, params)
@@ -225,7 +230,7 @@ describe('runAnalysisPhase()', () => {
   describe('AC3: Product brief generation', () => {
     it('returns success with a structured product brief containing all required fields', async () => {
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -241,7 +246,7 @@ describe('runAnalysisPhase()', () => {
 
     it('returns an artifact_id on success', async () => {
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -259,7 +264,7 @@ describe('runAnalysisPhase()', () => {
   describe('AC4: Decision store persistence', () => {
     it('stores each product brief field as a separate decision record', async () => {
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       await runAnalysisPhase(deps, params)
@@ -284,7 +289,7 @@ describe('runAnalysisPhase()', () => {
 
     it('stores array values as JSON-serialized strings', async () => {
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       await runAnalysisPhase(deps, params)
@@ -303,7 +308,7 @@ describe('runAnalysisPhase()', () => {
 
     it('stores all decisions with phase=analysis and category=product-brief', async () => {
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       await runAnalysisPhase(deps, params)
@@ -321,7 +326,7 @@ describe('runAnalysisPhase()', () => {
     it('does NOT store decisions when dispatch fails', async () => {
       const failResult = makeDispatchResult({ status: 'failed', parsed: null, parseError: 'error' })
       const dispatcher = makeDispatcher(failResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       await runAnalysisPhase(deps, params)
@@ -341,7 +346,7 @@ describe('runAnalysisPhase()', () => {
   describe('AC5: Artifact registration', () => {
     it('registers a product-brief artifact with correct phase and type', async () => {
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -361,7 +366,7 @@ describe('runAnalysisPhase()', () => {
 
     it('sets artifact summary from problem_statement (first 100 chars)', async () => {
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       await runAnalysisPhase(deps, params)
@@ -377,19 +382,19 @@ describe('runAnalysisPhase()', () => {
     it('artifact can be retrieved by getArtifactByType after success', async () => {
       const { getArtifactByTypeForRun } = await import('../../../../persistence/queries/decisions.js')
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       await runAnalysisPhase(deps, params)
 
-      const artifact = getArtifactByTypeForRun(db, runId, 'analysis', 'product-brief')
+      const artifact = await getArtifactByTypeForRun(adapter, runId, 'analysis', 'product-brief')
       expect(artifact).toBeDefined()
     })
 
     it('does NOT register artifact when dispatch fails', async () => {
       const failResult = makeDispatchResult({ status: 'failed', parsed: null, parseError: 'bad yaml' })
       const dispatcher = makeDispatcher(failResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       await runAnalysisPhase(deps, params)
@@ -415,7 +420,7 @@ describe('runAnalysisPhase()', () => {
         parseError: 'agent error',
       })
       const dispatcher = makeDispatcher(failResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -433,7 +438,7 @@ describe('runAnalysisPhase()', () => {
         durationMs: 300_001,
       })
       const dispatcher = makeDispatcher(timeoutResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -449,7 +454,7 @@ describe('runAnalysisPhase()', () => {
         parseError: 'YAML parse error',
       })
       const dispatcher = makeDispatcher(nullResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -465,7 +470,7 @@ describe('runAnalysisPhase()', () => {
         parseError: 'Subprocess exited with code 1',
       })
       const dispatcher = makeDispatcher(failResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -479,7 +484,7 @@ describe('runAnalysisPhase()', () => {
         parsed: { result: 'failed', product_brief: SAMPLE_BRIEF },
       })
       const dispatcher = makeDispatcher(agentFailResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -491,7 +496,7 @@ describe('runAnalysisPhase()', () => {
       const pack = makePack()
       vi.mocked(pack.getPrompt).mockRejectedValue(new Error('Prompt file not found'))
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -509,7 +514,7 @@ describe('runAnalysisPhase()', () => {
     it('truncates concept over 500 tokens (2000 chars) with "..." suffix', async () => {
       const longConcept = 'x'.repeat(2001) // 2001 chars > 2000 char limit
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: longConcept }
 
       await runAnalysisPhase(deps, params)
@@ -522,7 +527,7 @@ describe('runAnalysisPhase()', () => {
     it('does NOT truncate concept under 500 tokens (2000 chars)', async () => {
       const shortConcept = 'x'.repeat(1999) // Under limit
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: shortConcept }
 
       await runAnalysisPhase(deps, params)
@@ -537,7 +542,7 @@ describe('runAnalysisPhase()', () => {
       // Template is ~50 chars, concept is ~100 chars — well within budget
       const concept = 'Build a task manager'.repeat(5) // ~100 chars
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept }
 
       const result = await runAnalysisPhase(deps, params)
@@ -551,7 +556,7 @@ describe('runAnalysisPhase()', () => {
       const hugTemplate = 'A'.repeat(10_001 * 4) + ' {{concept}}'
       const pack = makePack(hugTemplate)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
       const params: AnalysisPhaseParams = { runId, concept: 'small concept' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -568,7 +573,7 @@ describe('runAnalysisPhase()', () => {
   describe('AC8: Output schema validation', () => {
     it('returns typed AnalysisResult with all required fields on valid output', async () => {
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -587,7 +592,7 @@ describe('runAnalysisPhase()', () => {
         parseError: 'Missing required field: product_brief',
       })
       const dispatcher = makeDispatcher(invalidResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -602,7 +607,7 @@ describe('runAnalysisPhase()', () => {
         tokenEstimate: { input: 450, output: 120 },
       })
       const dispatcher = makeDispatcher(dispatchResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -615,7 +620,7 @@ describe('runAnalysisPhase()', () => {
       const pack = makePack()
       vi.mocked(pack.getPrompt).mockRejectedValue(new Error('file missing'))
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       const result = await runAnalysisPhase(deps, params)
@@ -633,22 +638,21 @@ describe('runAnalysisPhase()', () => {
 
 describe('runAnalysisPhase() — single-dispatch: prior findings injection', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
-    const setup = (() => {
-      const tmp = mkdtempSync(join(tmpdir(), 'analysis-findings-test-'))
-      const database = new Database(join(tmp, 'test.db'))
-      runMigrations(database)
-      return { db: database, tmpDir: tmp }
-    })()
-    db = setup.db
-    tmpDir = setup.tmpDir
-    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+  beforeEach(async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'analysis-findings-test-'))
+    const database = new Database(join(tmp, 'test.db'))
+    runMigrations(database)
+    db = database
+    adapter = new SqliteDatabaseAdapter(database)
+    tmpDir = tmp
+    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     runId = run.id
     // Reset mock to default (no findings) before each test
-    vi.mocked(getProjectFindings).mockReturnValue('')
+    vi.mocked(getProjectFindings).mockResolvedValue('')
   })
 
   afterEach(() => {
@@ -658,11 +662,11 @@ describe('runAnalysisPhase() — single-dispatch: prior findings injection', () 
   })
 
   it('AC3: prompt includes findings framing block when findings are available', async () => {
-    vi.mocked(getProjectFindings).mockReturnValue('**Recurring patterns:** missing error handling')
+    vi.mocked(getProjectFindings).mockResolvedValue('**Recurring patterns:** missing error handling')
 
     const pack = makePack('Analyze: {{concept}}')
     const dispatcher = makeDispatcher(makeDispatchResult())
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
 
     await runAnalysisPhase(deps, params)
@@ -673,11 +677,11 @@ describe('runAnalysisPhase() — single-dispatch: prior findings injection', () 
   })
 
   it('AC4: prompt does NOT include findings block when findings are empty', async () => {
-    vi.mocked(getProjectFindings).mockReturnValue('')
+    vi.mocked(getProjectFindings).mockResolvedValue('')
 
     const pack = makePack('Analyze: {{concept}}')
     const dispatcher = makeDispatcher(makeDispatchResult())
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
 
     await runAnalysisPhase(deps, params)
@@ -691,11 +695,11 @@ describe('runAnalysisPhase() — single-dispatch: prior findings injection', () 
     // Available for findings ≈ 10000 - 9801 - framingLen - TRUNCATED_MARKER.length ≈ 126 chars.
     // Findings are 300 chars → truncated + [TRUNCATED] marker appended.
     const bigTemplate = 'T'.repeat(9800) + ' {{concept}}'
-    vi.mocked(getProjectFindings).mockReturnValue('F'.repeat(300))
+    vi.mocked(getProjectFindings).mockResolvedValue('F'.repeat(300))
 
     const pack = makePack(bigTemplate)
     const dispatcher = makeDispatcher(makeDispatchResult())
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = { runId, concept: 'x' }
 
     const result = await runAnalysisPhase(deps, params)
@@ -714,7 +718,7 @@ describe('runAnalysisPhase() — single-dispatch: prior findings injection', () 
 
     const pack = makePack('Analyze: {{concept}}')
     const dispatcher = makeDispatcher(makeDispatchResult())
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager' }
 
     const result = await runAnalysisPhase(deps, params)

@@ -19,6 +19,7 @@ import { runMigrations } from '../../../persistence/migrations/index.js'
 import { writeRunMetrics, writeStoryMetrics } from '../../../persistence/queries/metrics.js'
 import { runMetricsAction } from '../metrics.js'
 import type { MetricsOptions } from '../metrics.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,8 +70,8 @@ function createTempProject(): { projectRoot: string; db: BetterSqlite3Database }
   return { projectRoot, db }
 }
 
-function seedRun(db: BetterSqlite3Database, runId: string, overrides: Record<string, unknown> = {}): void {
-  writeRunMetrics(db, {
+async function seedRun(db: BetterSqlite3Database, runId: string, overrides: Record<string, unknown> = {}): Promise<void> {
+  await writeRunMetrics(new SqliteDatabaseAdapter(db), {
     run_id: runId,
     methodology: 'bmad',
     status: 'completed',
@@ -111,8 +112,8 @@ describe('runMetricsAction — AC3: list mode', () => {
   })
 
   it('lists recent runs in human format', async () => {
-    seedRun(db, 'run-001')
-    seedRun(db, 'run-002', { started_at: '2026-01-16T00:00:00.000Z' })
+    await seedRun(db,'run-001')
+    await seedRun(db,'run-002', { started_at: '2026-01-16T00:00:00.000Z' })
     db.close()
 
     const exitCode = await runMetricsAction({ outputFormat: 'human', projectRoot })
@@ -125,7 +126,7 @@ describe('runMetricsAction — AC3: list mode', () => {
   })
 
   it('lists runs in JSON format', async () => {
-    seedRun(db, 'run-001')
+    await seedRun(db,'run-001')
     db.close()
 
     const exitCode = await runMetricsAction({ outputFormat: 'json', projectRoot })
@@ -139,9 +140,9 @@ describe('runMetricsAction — AC3: list mode', () => {
   })
 
   it('respects --limit option', async () => {
-    seedRun(db, 'run-001')
-    seedRun(db, 'run-002', { started_at: '2026-01-16T00:00:00.000Z' })
-    seedRun(db, 'run-003', { started_at: '2026-01-17T00:00:00.000Z' })
+    await seedRun(db,'run-001')
+    await seedRun(db,'run-002', { started_at: '2026-01-16T00:00:00.000Z' })
+    await seedRun(db,'run-003', { started_at: '2026-01-17T00:00:00.000Z' })
     db.close()
 
     const exitCode = await runMetricsAction({ outputFormat: 'json', projectRoot, limit: 2 })
@@ -187,8 +188,8 @@ describe('runMetricsAction — AC3: compare mode', () => {
   })
 
   it('compares two runs in human format', async () => {
-    seedRun(db, 'run-001', { total_input_tokens: 5000, total_cost_usd: 0.05 })
-    seedRun(db, 'run-002', { total_input_tokens: 8000, total_cost_usd: 0.08 })
+    await seedRun(db,'run-001', { total_input_tokens: 5000, total_cost_usd: 0.05 })
+    await seedRun(db,'run-002', { total_input_tokens: 8000, total_cost_usd: 0.08 })
     db.close()
 
     const exitCode = await runMetricsAction({
@@ -204,8 +205,8 @@ describe('runMetricsAction — AC3: compare mode', () => {
   })
 
   it('compares two runs in JSON format', async () => {
-    seedRun(db, 'run-001', { total_input_tokens: 5000, wall_clock_seconds: 600 })
-    seedRun(db, 'run-002', { total_input_tokens: 7500, wall_clock_seconds: 900 })
+    await seedRun(db,'run-001', { total_input_tokens: 5000, wall_clock_seconds: 600 })
+    await seedRun(db,'run-002', { total_input_tokens: 7500, wall_clock_seconds: 900 })
     db.close()
 
     const exitCode = await runMetricsAction({
@@ -222,7 +223,7 @@ describe('runMetricsAction — AC3: compare mode', () => {
   })
 
   it('returns error for missing run IDs', async () => {
-    seedRun(db, 'run-001')
+    await seedRun(db,'run-001')
     db.close()
 
     const exitCode = await runMetricsAction({
@@ -260,7 +261,7 @@ describe('runMetricsAction — AC4: tag baseline', () => {
   })
 
   it('tags a run as baseline', async () => {
-    seedRun(db, 'run-001')
+    await seedRun(db,'run-001')
     db.close()
 
     const exitCode = await runMetricsAction({
@@ -273,7 +274,7 @@ describe('runMetricsAction — AC4: tag baseline', () => {
   })
 
   it('tags baseline in JSON format', async () => {
-    seedRun(db, 'run-001')
+    await seedRun(db,'run-001')
     db.close()
 
     const exitCode = await runMetricsAction({

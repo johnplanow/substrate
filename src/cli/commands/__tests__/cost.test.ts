@@ -23,12 +23,17 @@ const mockOpen = vi.fn()
 const mockClose = vi.fn()
 let mockDb: Record<string, unknown> = { fake: true }
 
+const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+
 vi.mock('../../../persistence/database.js', () => ({
   DatabaseWrapper: vi.fn().mockImplementation(() => ({
     open: mockOpen,
     close: mockClose,
     get db() {
       return mockDb
+    },
+    get adapter() {
+      return mockAdapter
     },
   })),
 }))
@@ -233,10 +238,10 @@ beforeEach(() => {
   // Default: latest session found
   mockGetLatestSessionId.mockReturnValue('session-abc123')
   // Default: return a valid summary
-  mockGetSessionCostSummary.mockReturnValue(createMockSummary())
-  mockGetSessionCostSummaryFiltered.mockReturnValue(createMockSummary())
-  mockGetAllCostEntriesFiltered.mockReturnValue(createMockEntries())
-  mockGetPlanningCostTotal.mockReturnValue(0.05)
+  mockGetSessionCostSummary.mockResolvedValue(createMockSummary())
+  mockGetSessionCostSummaryFiltered.mockResolvedValue(createMockSummary())
+  mockGetAllCostEntriesFiltered.mockResolvedValue(createMockEntries())
+  mockGetPlanningCostTotal.mockResolvedValue(0.05)
   // Reset db mock
   mockDb = { fake: true }
   // Re-apply DatabaseWrapper mock implementation in case vi.restoreAllMocks() cleared it
@@ -245,6 +250,9 @@ beforeEach(() => {
     close: mockClose,
     get db() {
       return mockDb
+    },
+    get adapter() {
+      return mockAdapter
     },
   }) as unknown as InstanceType<typeof DatabaseWrapper>)
 })
@@ -334,7 +342,7 @@ describe('AC2: substrate cost --session <id>', () => {
 
   it('displays output for specified session', async () => {
     const customSummary = createMockSummary({ session_id: 'custom-sess' })
-    mockGetSessionCostSummaryFiltered.mockReturnValue(customSummary)
+    mockGetSessionCostSummaryFiltered.mockResolvedValue(customSummary)
 
     const exitCode = await runCostAction(defaultOptions({ sessionId: 'custom-sess' }))
 
@@ -455,8 +463,8 @@ describe('AC4: substrate cost --output-format json', () => {
 describe('AC5: planning costs shown separately', () => {
   it('default view (includePlanning=false) shows planning costs as excluded line', async () => {
     const filteredSummary = createMockSummary({ total_cost_usd: 0.30 })
-    mockGetSessionCostSummaryFiltered.mockReturnValue(filteredSummary)
-    mockGetPlanningCostTotal.mockReturnValue(0.12)
+    mockGetSessionCostSummaryFiltered.mockResolvedValue(filteredSummary)
+    mockGetPlanningCostTotal.mockResolvedValue(0.12)
 
     const exitCode = await runCostAction(defaultOptions({ includePlanning: false }))
 
@@ -468,7 +476,7 @@ describe('AC5: planning costs shown separately', () => {
 
   it('--include-planning includes planning costs in totals (no separate line)', async () => {
     const fullSummary = createMockSummary({ total_cost_usd: 0.42 })
-    mockGetSessionCostSummary.mockReturnValue(fullSummary)
+    mockGetSessionCostSummary.mockResolvedValue(fullSummary)
 
     const exitCode = await runCostAction(defaultOptions({ includePlanning: true }))
 
@@ -500,8 +508,8 @@ describe('AC5: planning costs shown separately', () => {
 
   it('does not show planning line when planning cost is zero', async () => {
     const filteredSummary = createMockSummary({ total_cost_usd: 0.42 })
-    mockGetSessionCostSummaryFiltered.mockReturnValue(filteredSummary)
-    mockGetPlanningCostTotal.mockReturnValue(0)
+    mockGetSessionCostSummaryFiltered.mockResolvedValue(filteredSummary)
+    mockGetPlanningCostTotal.mockResolvedValue(0)
 
     const exitCode = await runCostAction(defaultOptions({ includePlanning: false }))
 
@@ -551,8 +559,8 @@ describe('AC6: substrate cost --output-format csv', () => {
 describe('AC7: budget status display', () => {
   it('shows budget cap when budget is set', async () => {
     const summaryWithBudget = createMockSummaryWithBudget()
-    mockGetSessionCostSummaryFiltered.mockReturnValue(summaryWithBudget)
-    mockGetSessionCostSummary.mockReturnValue(summaryWithBudget)
+    mockGetSessionCostSummaryFiltered.mockResolvedValue(summaryWithBudget)
+    mockGetSessionCostSummary.mockResolvedValue(summaryWithBudget)
 
     const exitCode = await runCostAction(defaultOptions())
 
@@ -563,8 +571,8 @@ describe('AC7: budget status display', () => {
 
   it('shows remaining budget amount', async () => {
     const summaryWithBudget = createMockSummaryWithBudget()
-    mockGetSessionCostSummaryFiltered.mockReturnValue(summaryWithBudget)
-    mockGetSessionCostSummary.mockReturnValue(summaryWithBudget)
+    mockGetSessionCostSummaryFiltered.mockResolvedValue(summaryWithBudget)
+    mockGetSessionCostSummary.mockResolvedValue(summaryWithBudget)
 
     await runCostAction(defaultOptions())
 
@@ -574,8 +582,8 @@ describe('AC7: budget status display', () => {
 
   it('shows percentage used', async () => {
     const summaryWithBudget = createMockSummaryWithBudget()
-    mockGetSessionCostSummaryFiltered.mockReturnValue(summaryWithBudget)
-    mockGetSessionCostSummary.mockReturnValue(summaryWithBudget)
+    mockGetSessionCostSummaryFiltered.mockResolvedValue(summaryWithBudget)
+    mockGetSessionCostSummary.mockResolvedValue(summaryWithBudget)
 
     await runCostAction(defaultOptions())
 
@@ -585,8 +593,8 @@ describe('AC7: budget status display', () => {
 
   it('shows budget status', async () => {
     const summaryWithBudget = createMockSummaryWithBudget()
-    mockGetSessionCostSummaryFiltered.mockReturnValue(summaryWithBudget)
-    mockGetSessionCostSummary.mockReturnValue(summaryWithBudget)
+    mockGetSessionCostSummaryFiltered.mockResolvedValue(summaryWithBudget)
+    mockGetSessionCostSummary.mockResolvedValue(summaryWithBudget)
 
     await runCostAction(defaultOptions())
 
@@ -606,8 +614,8 @@ describe('AC7: budget status display', () => {
 
   it('shows budget info in JSON output', async () => {
     const summaryWithBudget = createMockSummaryWithBudget()
-    mockGetSessionCostSummaryFiltered.mockReturnValue(summaryWithBudget)
-    mockGetSessionCostSummary.mockReturnValue(summaryWithBudget)
+    mockGetSessionCostSummaryFiltered.mockResolvedValue(summaryWithBudget)
+    mockGetSessionCostSummary.mockResolvedValue(summaryWithBudget)
 
     await runCostAction(defaultOptions({ outputFormat: 'json' }))
 
@@ -656,8 +664,8 @@ describe('AC8: error handling', () => {
   })
 
   it('returns success with "No cost data found" when session has no entries (task_count=0)', async () => {
-    mockGetSessionCostSummaryFiltered.mockReturnValue(createEmptySummary())
-    mockGetSessionCostSummary.mockReturnValue(createEmptySummary())
+    mockGetSessionCostSummaryFiltered.mockResolvedValue(createEmptySummary())
+    mockGetSessionCostSummary.mockResolvedValue(createEmptySummary())
 
     const exitCode = await runCostAction(defaultOptions())
 

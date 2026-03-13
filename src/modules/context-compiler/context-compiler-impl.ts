@@ -10,7 +10,7 @@
  *  5. Returning a CompileResult with the full prompt and per-section reports
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import type { ContextCompiler } from './context-compiler.js'
 import type {
   TaskDescriptor,
@@ -42,7 +42,7 @@ const OPTIONAL_BUDGET_THRESHOLD = 0.3
 /**
  * Execute a StoreQuery against the SQLite database and return the raw rows.
  */
-function executeQuery(db: BetterSqlite3Database, query: StoreQuery): unknown[] {
+async function executeQuery(db: DatabaseAdapter, query: StoreQuery): Promise<unknown[]> {
   const { table, filters } = query
   const conditions: string[] = []
   const values: unknown[] = []
@@ -61,8 +61,7 @@ function executeQuery(db: BetterSqlite3Database, query: StoreQuery): unknown[] {
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
   const sql = `SELECT * FROM ${table} ${where} ORDER BY created_at ASC`
-  const stmt = db.prepare(sql)
-  return stmt.all(...values) as unknown[]
+  return db.query<unknown>(sql, values)
 }
 
 // ---------------------------------------------------------------------------
@@ -75,11 +74,11 @@ function executeQuery(db: BetterSqlite3Database, query: StoreQuery): unknown[] {
  *  - Format the results
  *  - Return the text and token count
  */
-function processSection(
-  db: BetterSqlite3Database,
+async function processSection(
+  db: DatabaseAdapter,
   section: TemplateSection,
-): { text: string; tokens: number } {
-  const rows = executeQuery(db, section.query)
+): Promise<{ text: string; tokens: number }> {
+  const rows = await executeQuery(db, section.query)
   const text = section.format(rows)
   const tokens = countTokens(text)
   return { text, tokens }
@@ -90,10 +89,10 @@ function processSection(
 // ---------------------------------------------------------------------------
 
 export class ContextCompilerImpl implements ContextCompiler {
-  private readonly _db: BetterSqlite3Database
+  private readonly _db: DatabaseAdapter
   private readonly _templates: Map<string, ContextTemplate>
 
-  constructor(options: { db: BetterSqlite3Database; templates?: Map<string, ContextTemplate> }) {
+  constructor(options: { db: DatabaseAdapter; templates?: Map<string, ContextTemplate> }) {
     this._db = options.db
     this._templates = options.templates ? new Map(options.templates) : new Map()
   }
@@ -114,7 +113,7 @@ export class ContextCompilerImpl implements ContextCompiler {
   // compile
   // -------------------------------------------------------------------------
 
-  compile(descriptor: TaskDescriptor): CompileResult {
+  async compile(descriptor: TaskDescriptor): Promise<CompileResult> {
     const template = this._templates.get(descriptor.taskType)
     if (template === undefined) {
       throw new Error(
@@ -133,7 +132,7 @@ export class ContextCompilerImpl implements ContextCompiler {
     const ordered = sortByPriority(template.sections)
 
     for (const section of ordered) {
-      const { text, tokens } = processSection(this._db, section)
+      const { text, tokens } = await processSection(this._db, section)
 
       if (section.priority === 'required') {
         // Required sections are always included; never truncated
@@ -260,7 +259,7 @@ function sortByPriority(sections: TemplateSection[]): TemplateSection[] {
 // ---------------------------------------------------------------------------
 
 export interface ContextCompilerOptions {
-  db: BetterSqlite3Database
+  db: DatabaseAdapter
   templates?: Map<string, ContextTemplate>
 }
 

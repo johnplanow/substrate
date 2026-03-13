@@ -22,6 +22,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { randomUUID } from 'crypto'
+import { SqliteDatabaseAdapter } from '../../src/persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../src/persistence/adapter.js'
 
 import { runMigrations } from '../../src/persistence/migrations/index.js'
 import {
@@ -49,12 +51,13 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function openMigratedDb(): BetterSqlite3Database {
+function openMigratedDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new Database(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   runMigrations(db)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 // ---------------------------------------------------------------------------
@@ -64,20 +67,23 @@ function openMigratedDb(): BetterSqlite3Database {
 
 describe('Gap 1: stopped status — decisions.ts API + DB + Zod schema round-trip', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('updatePipelineRun with status=stopped persists and passes PipelineRunSchema.parse()', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    updatePipelineRun(db, run.id, { status: 'stopped' })
+  it('updatePipelineRun with status=stopped persists and passes PipelineRunSchema.parse()', async () => {
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await updatePipelineRun(adapter, run.id, { status: 'stopped' })
 
-    const retrieved = getLatestRun(db)
+    const retrieved = await getLatestRun(adapter)
     expect(retrieved).toBeDefined()
     expect(retrieved!.status).toBe('stopped')
 
@@ -106,11 +112,11 @@ describe('Gap 1: stopped status — decisions.ts API + DB + Zod schema round-tri
     }
   })
 
-  it('status=stopped run returned by getLatestRun has parent_run_id field (null) in result', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    updatePipelineRun(db, run.id, { status: 'stopped' })
+  it('status=stopped run returned by getLatestRun has parent_run_id field (null) in result', async () => {
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await updatePipelineRun(adapter, run.id, { status: 'stopped' })
 
-    const retrieved = getLatestRun(db)
+    const retrieved = await getLatestRun(adapter)
     // After migration 008 (12-5), all rows have parent_run_id column
     // PipelineRunSchema (12-6) must accept null for parent_run_id
     const parsed = PipelineRunSchema.safeParse(retrieved)
@@ -129,20 +135,23 @@ describe('Gap 1: stopped status — decisions.ts API + DB + Zod schema round-tri
 
 describe('Gap 2: createDecision (decisions.ts) interoperates with loadParentRunDecisions (amendments.ts)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('decisions written via createDecision are returned by loadParentRunDecisions', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    updatePipelineRun(db, run.id, { status: 'completed' })
+  it('decisions written via createDecision are returned by loadParentRunDecisions', async () => {
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await updatePipelineRun(adapter, run.id, { status: 'completed' })
 
-    const d1 = createDecision(db, {
+    const d1 = await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'analysis',
       category: 'architecture',
@@ -150,7 +159,7 @@ describe('Gap 2: createDecision (decisions.ts) interoperates with loadParentRunD
       value: 'SQLite',
       rationale: 'Embedded, zero-config',
     })
-    const d2 = createDecision(db, {
+    const d2 = await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'planning',
       category: 'scope',
@@ -158,25 +167,25 @@ describe('Gap 2: createDecision (decisions.ts) interoperates with loadParentRunD
       value: 'Q2 2026',
     })
 
-    const loaded = loadParentRunDecisions(db, run.id)
+    const loaded = await loadParentRunDecisions(adapter, run.id)
     const ids = loaded.map((d) => d.id)
     expect(ids).toContain(d1.id)
     expect(ids).toContain(d2.id)
     expect(loaded).toHaveLength(2)
   })
 
-  it('decisions returned by loadParentRunDecisions all pass DecisionSchema.parse() (12-6 schema update)', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    updatePipelineRun(db, run.id, { status: 'completed' })
+  it('decisions returned by loadParentRunDecisions all pass DecisionSchema.parse() (12-6 schema update)', async () => {
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await updatePipelineRun(adapter, run.id, { status: 'completed' })
 
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'analysis',
       category: 'architecture',
       key: 'db-engine',
       value: 'SQLite',
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'planning',
       category: 'scope',
@@ -184,7 +193,7 @@ describe('Gap 2: createDecision (decisions.ts) interoperates with loadParentRunD
       value: 'Q2 2026',
     })
 
-    const loaded = loadParentRunDecisions(db, run.id)
+    const loaded = await loadParentRunDecisions(adapter, run.id)
     for (const decision of loaded) {
       const result = DecisionSchema.safeParse(decision)
       expect(result.success).toBe(true)
@@ -195,9 +204,9 @@ describe('Gap 2: createDecision (decisions.ts) interoperates with loadParentRunD
     }
   })
 
-  it('createDecision result itself passes DecisionSchema.parse() with new superseded_by field', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    const decision = createDecision(db, {
+  it('createDecision result itself passes DecisionSchema.parse() with new superseded_by field', async () => {
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    const decision = await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'analysis',
       category: 'architecture',
@@ -218,18 +227,21 @@ describe('Gap 2: createDecision (decisions.ts) interoperates with loadParentRunD
 
 describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filtered) divergence', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let runId: string
   let originalDecId: string
   let supersedingDecId: string
 
-  beforeEach(() => {
-    db = openMigratedDb()
+  beforeEach(async () => {
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
 
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    updatePipelineRun(db, run.id, { status: 'completed' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await updatePipelineRun(adapter, run.id, { status: 'completed' })
     runId = run.id
 
-    const original = createDecision(db, {
+    const original = await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'analysis',
       category: 'architecture',
@@ -237,7 +249,7 @@ describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filt
       value: 'MySQL',
       rationale: 'Originally chosen',
     })
-    const superseding = createDecision(db, {
+    const superseding = await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'analysis',
       category: 'architecture',
@@ -249,15 +261,15 @@ describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filt
     supersedingDecId = superseding.id
 
     // Supersede the original decision
-    supersedeDecision(db, originalDecId, supersedingDecId)
+    await supersedeDecision(adapter, originalDecId, supersedingDecId)
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('getDecisionsByPhase returns ALL decisions including superseded ones', () => {
-    const byPhase = getDecisionsByPhase(db, 'analysis')
+  it('getDecisionsByPhase returns ALL decisions including superseded ones', async () => {
+    const byPhase = await getDecisionsByPhase(adapter, 'analysis')
     const ids = byPhase.map((d) => d.id)
     // getDecisionsByPhase does NOT filter superseded — both should be present
     expect(ids).toContain(originalDecId)
@@ -265,8 +277,8 @@ describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filt
     expect(byPhase).toHaveLength(2)
   })
 
-  it('loadParentRunDecisions returns ONLY non-superseded decisions', () => {
-    const loaded = loadParentRunDecisions(db, runId)
+  it('loadParentRunDecisions returns ONLY non-superseded decisions', async () => {
+    const loaded = await loadParentRunDecisions(adapter, runId)
     const ids = loaded.map((d) => d.id)
     // loadParentRunDecisions filters WHERE superseded_by IS NULL
     expect(ids).not.toContain(originalDecId)
@@ -274,8 +286,8 @@ describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filt
     expect(loaded).toHaveLength(1)
   })
 
-  it('getActiveDecisions also filters out superseded (consistent with loadParentRunDecisions)', () => {
-    const active = getActiveDecisions(db, { pipeline_run_id: runId })
+  it('getActiveDecisions also filters out superseded (consistent with loadParentRunDecisions)', async () => {
+    const active = await getActiveDecisions(adapter, { pipeline_run_id: runId })
     const ids = active.map((d) => d.id)
     expect(ids).not.toContain(originalDecId)
     expect(ids).toContain(supersedingDecId)
@@ -301,39 +313,42 @@ describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filt
 
 describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + amendments.ts)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('full amendment lifecycle: create run, add decisions, complete, amend, supersede, verify active', () => {
+  it('full amendment lifecycle: create run, add decisions, complete, amend, supersede, verify active', async () => {
     // Step 1: Create and complete a parent run via decisions.ts high-level API
-    const parentRun = createPipelineRun(db, {
+    const parentRun = await createPipelineRun(adapter, {
       methodology: 'bmad',
       start_phase: 'analysis',
     })
     expect(parentRun.status).toBe('running')
 
     // Step 2: Add decisions to the parent run
-    const dec1 = createDecision(db, {
+    const dec1 = await createDecision(adapter, {
       pipeline_run_id: parentRun.id,
       phase: 'analysis',
       category: 'architecture',
       key: 'database',
       value: 'PostgreSQL',
     })
-    const dec2 = createDecision(db, {
+    const dec2 = await createDecision(adapter, {
       pipeline_run_id: parentRun.id,
       phase: 'analysis',
       category: 'stack',
       key: 'language',
       value: 'TypeScript',
     })
-    const dec3 = createDecision(db, {
+    const dec3 = await createDecision(adapter, {
       pipeline_run_id: parentRun.id,
       phase: 'planning',
       category: 'scope',
@@ -342,11 +357,11 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
     })
 
     // Step 3: Mark parent run as completed
-    updatePipelineRun(db, parentRun.id, { status: 'completed' })
+    await updatePipelineRun(adapter, parentRun.id, { status: 'completed' })
 
     // Step 4: Create amendment run via amendments.ts (12-7)
     const amendRunId = randomUUID()
-    const returnedId = createAmendmentRun(db, {
+    const returnedId = await createAmendmentRun(adapter, {
       id: amendRunId,
       parentRunId: parentRun.id,
       methodology: 'bmad',
@@ -354,11 +369,11 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
     expect(returnedId).toBe(amendRunId)
 
     // Step 5: Load parent decisions to seed amendment context
-    const parentDecisions = loadParentRunDecisions(db, parentRun.id)
+    const parentDecisions = await loadParentRunDecisions(adapter, parentRun.id)
     expect(parentDecisions).toHaveLength(3)
 
     // Step 6: Create a new decision in amendment run that supersedes dec1
-    const newDec = createDecision(db, {
+    const newDec = await createDecision(adapter, {
       pipeline_run_id: amendRunId,
       phase: 'analysis',
       category: 'architecture',
@@ -368,21 +383,21 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
     })
 
     // Step 7: Supersede the original database decision
-    supersedeDecision(db, dec1.id, newDec.id)
+    await supersedeDecision(adapter, dec1.id, newDec.id)
 
     // Step 8: Verify active decisions across all runs
-    const activeFromParent = getActiveDecisions(db, { pipeline_run_id: parentRun.id })
+    const activeFromParent = await getActiveDecisions(adapter, { pipeline_run_id: parentRun.id })
     const parentIds = activeFromParent.map((d) => d.id)
     expect(parentIds).not.toContain(dec1.id)  // superseded
     expect(parentIds).toContain(dec2.id)       // still active
     expect(parentIds).toContain(dec3.id)       // still active
 
-    const activeFromAmend = getActiveDecisions(db, { pipeline_run_id: amendRunId })
+    const activeFromAmend = await getActiveDecisions(adapter, { pipeline_run_id: amendRunId })
     const amendIds = activeFromAmend.map((d) => d.id)
     expect(amendIds).toContain(newDec.id)      // the new superseding decision
 
     // Step 9: Verify amendment chain
-    const chain = getAmendmentRunChain(db, amendRunId)
+    const chain = await getAmendmentRunChain(adapter, amendRunId)
     expect(chain).toHaveLength(2)
     expect(chain[0].runId).toBe(parentRun.id)
     expect(chain[0].depth).toBe(0)
@@ -401,26 +416,26 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
     }
   })
 
-  it('amendment run inserted by createAmendmentRun is retrievable by getLatestCompletedRun after completion', () => {
-    const parentRun = createPipelineRun(db, { methodology: 'bmad' })
-    updatePipelineRun(db, parentRun.id, { status: 'completed' })
+  it('amendment run inserted by createAmendmentRun is retrievable by getLatestCompletedRun after completion', async () => {
+    const parentRun = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await updatePipelineRun(adapter, parentRun.id, { status: 'completed' })
 
     const amendRunId = randomUUID()
-    createAmendmentRun(db, {
+    await createAmendmentRun(adapter, {
       id: amendRunId,
       parentRunId: parentRun.id,
       methodology: 'bmad',
     })
 
     // Amendment run starts as 'running' — not yet visible to getLatestCompletedRun
-    const beforeCompletion = getLatestCompletedRun(db)
+    const beforeCompletion = await getLatestCompletedRun(adapter)
     expect(beforeCompletion?.id).toBe(parentRun.id)
 
     // Mark amendment run as completed
-    updatePipelineRun(db, amendRunId, { status: 'completed' })
+    await updatePipelineRun(adapter, amendRunId, { status: 'completed' })
 
     // Now amendment run is the latest completed
-    const afterCompletion = getLatestCompletedRun(db)
+    const afterCompletion = await getLatestCompletedRun(adapter)
     expect(afterCompletion?.id).toBe(amendRunId)
 
     // And it has parent_run_id set (validates 12-5 schema + 12-6 Zod update)
@@ -439,16 +454,19 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
 
 describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_id populated', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('getLatestCompletedRun returns amendment run with parent_run_id — passes PipelineRunSchema', () => {
+  it('getLatestCompletedRun returns amendment run with parent_run_id — passes PipelineRunSchema', async () => {
     const parentId = randomUUID()
     const amendId = randomUUID()
     db.prepare(`
@@ -460,7 +478,7 @@ describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_
       VALUES (?, 'bmad', 'completed', ?, '2024-06-01T00:00:00', '2024-06-01T00:00:00')
     `).run(amendId, parentId)
 
-    const latest = getLatestCompletedRun(db)
+    const latest = await getLatestCompletedRun(adapter)
     expect(latest).toBeDefined()
     expect(latest?.id).toBe(amendId)
 
@@ -473,14 +491,14 @@ describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_
     }
   })
 
-  it('getLatestCompletedRun returns top-level run (parent_run_id=null) — passes PipelineRunSchema', () => {
+  it('getLatestCompletedRun returns top-level run (parent_run_id=null) — passes PipelineRunSchema', async () => {
     const runId = randomUUID()
     db.prepare(`
       INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
       VALUES (?, 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')
     `).run(runId)
 
-    const latest = getLatestCompletedRun(db)
+    const latest = await getLatestCompletedRun(adapter)
     expect(latest).toBeDefined()
 
     const result = PipelineRunSchema.safeParse(latest)
@@ -498,18 +516,21 @@ describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_
 
 describe('Gap 6: decisions.ts query functions return migration 008 columns correctly', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('getLatestRun returns a row with parent_run_id field (null) after migration 008', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    const retrieved = getLatestRun(db)
+  it('getLatestRun returns a row with parent_run_id field (null) after migration 008', async () => {
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    const retrieved = await getLatestRun(adapter)
 
     expect(retrieved).toBeDefined()
     // parent_run_id is a new column from 12-5 — should be null for non-amendment runs
@@ -521,9 +542,9 @@ describe('Gap 6: decisions.ts query functions return migration 008 columns corre
     }
   })
 
-  it('createDecision returns a Decision with superseded_by field (null) after migration 008', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    const decision = createDecision(db, {
+  it('createDecision returns a Decision with superseded_by field (null) after migration 008', async () => {
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    const decision = await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'analysis',
       category: 'arch',
@@ -541,18 +562,18 @@ describe('Gap 6: decisions.ts query functions return migration 008 columns corre
     }
   })
 
-  it('decisions.ts and amendments.ts both see same data after createDecision + supersedeDecision', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    updatePipelineRun(db, run.id, { status: 'completed' })
+  it('decisions.ts and amendments.ts both see same data after createDecision + supersedeDecision', async () => {
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await updatePipelineRun(adapter, run.id, { status: 'completed' })
 
-    const dec1 = createDecision(db, {
+    const dec1 = await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'analysis',
       category: 'arch',
       key: 'db',
       value: 'mysql',
     })
-    const dec2 = createDecision(db, {
+    const dec2 = await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'analysis',
       category: 'arch',
@@ -561,14 +582,14 @@ describe('Gap 6: decisions.ts query functions return migration 008 columns corre
     })
 
     // Supersede via amendments.ts
-    supersedeDecision(db, dec1.id, dec2.id)
+    await supersedeDecision(adapter, dec1.id, dec2.id)
 
     // decisions.ts:getDecisionsByPhase should see BOTH (no supersession filter)
-    const byPhase = getDecisionsByPhase(db, 'analysis')
+    const byPhase = await getDecisionsByPhase(adapter, 'analysis')
     expect(byPhase.length).toBe(2)
 
     // amendments.ts:loadParentRunDecisions should see ONLY dec2 (superseded filter)
-    const parentDecisions = loadParentRunDecisions(db, run.id)
+    const parentDecisions = await loadParentRunDecisions(adapter, run.id)
     expect(parentDecisions.length).toBe(1)
     expect(parentDecisions[0].id).toBe(dec2.id)
 

@@ -20,6 +20,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
   createPipelineRun,
   createDecision,
@@ -40,29 +42,30 @@ import type { Dispatcher, DispatchHandle, DispatchResult } from '../../../agent-
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'solutioning-phase-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
 /**
  * Seed the database with planning-phase functional requirement decisions.
  */
-function seedPlanningRequirements(db: BetterSqlite3Database, runId: string): void {
+async function seedPlanningRequirements(adapter: DatabaseAdapter, runId: string): Promise<void> {
   const frs = [
     { key: 'FR-0', value: JSON.stringify({ description: 'User can create tasks with title and description', priority: 'must' }) },
     { key: 'FR-1', value: JSON.stringify({ description: 'User can assign tasks to team members', priority: 'must' }) },
     { key: 'FR-2', value: JSON.stringify({ description: 'User can set task due dates', priority: 'should' }) },
   ]
   for (const { key, value } of frs) {
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'planning',
       category: 'functional-requirements',
@@ -269,12 +272,12 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
 ): PhaseDeps {
   return {
-    db,
+    db: adapter,
     pack: pack ?? makePack(),
     contextCompiler: makeContextCompiler(),
     dispatcher,
@@ -287,14 +290,16 @@ function makeDeps(
 
 describe('runSolutioningPhase()', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -308,10 +313,10 @@ describe('runSolutioningPhase()', () => {
 
   describe('AC1: Architecture generation sub-phase', () => {
     it('calls pack.getPrompt("architecture") to retrieve the template', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const pack = makePack()
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -319,9 +324,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('dispatches with taskType="architecture" to claude-code agent', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -335,9 +340,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('injects requirements into architecture prompt', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -354,10 +359,10 @@ describe('runSolutioningPhase()', () => {
 
   describe('AC2: Epic/story generation sub-phase', () => {
     it('calls pack.getPrompt("story-generation") to retrieve the template', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const pack = makePack()
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -365,9 +370,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('dispatches with taskType="story-generation" to claude-code agent', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -381,9 +386,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('injects both requirements and architecture decisions into story prompt', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -396,9 +401,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('returns success result with epics and stories count', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -414,9 +419,9 @@ describe('runSolutioningPhase()', () => {
 
   describe('AC3: Architecture artifact registration', () => {
     it('registers architecture artifact with correct phase, type, and path', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -433,20 +438,20 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('architecture artifact is retrievable via getArtifactByTypeForRun', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
-      const artifact = getArtifactByTypeForRun(db, runId, 'solutioning', 'architecture')
+      const artifact = await getArtifactByTypeForRun(adapter, runId, 'solutioning', 'architecture')
       expect(artifact).toBeDefined()
     })
 
     it('artifact_ids in result includes the architecture artifact ID', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -454,7 +459,7 @@ describe('runSolutioningPhase()', () => {
       expect(result.artifact_ids).toBeDefined()
       expect(result.artifact_ids!.length).toBeGreaterThanOrEqual(2)
 
-      const artifact = getArtifactByTypeForRun(db, runId, 'solutioning', 'architecture')
+      const artifact = await getArtifactByTypeForRun(adapter, runId, 'solutioning', 'architecture')
       expect(result.artifact_ids).toContain(artifact!.id)
     })
   })
@@ -465,9 +470,9 @@ describe('runSolutioningPhase()', () => {
 
   describe('AC4: Stories artifact registration', () => {
     it('registers stories artifact with correct phase, type, and path', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -484,9 +489,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('stories artifact summary contains epic and story counts', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -500,13 +505,13 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('stories artifact is retrievable via getArtifactByTypeForRun', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
-      const artifact = getArtifactByTypeForRun(db, runId, 'solutioning', 'stories')
+      const artifact = await getArtifactByTypeForRun(adapter, runId, 'solutioning', 'stories')
       expect(artifact).toBeDefined()
     })
   })
@@ -517,9 +522,9 @@ describe('runSolutioningPhase()', () => {
 
   describe('AC5: Readiness check via QualityGate', () => {
     it('returns readiness_passed=true when all FRs are covered by stories', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -529,7 +534,7 @@ describe('runSolutioningPhase()', () => {
 
     it('returns failure with gaps when readiness check returns NOT_READY', async () => {
       // Seed planning requirements
-      createDecision(db, {
+      await createDecision(adapter, {
         pipeline_run_id: runId,
         phase: 'planning',
         category: 'functional-requirements',
@@ -567,7 +572,7 @@ describe('runSolutioningPhase()', () => {
         makeStoryDispatchResult({ parsed: { result: 'success', epics: noMatchEpics } }),
         makeReadinessDispatchResult('NOT_READY', 1),
       ])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -583,7 +588,7 @@ describe('runSolutioningPhase()', () => {
   describe('AC6: Retry on readiness failure', () => {
     it('dispatches story generation a second time with gap analysis when readiness returns NEEDS_WORK', async () => {
       // Seed a unique FR that won't be covered initially
-      createDecision(db, {
+      await createDecision(adapter, {
         pipeline_run_id: runId,
         phase: 'planning',
         category: 'functional-requirements',
@@ -618,7 +623,7 @@ describe('runSolutioningPhase()', () => {
         makeStoryDispatchResult({ parsed: { result: 'success', epics: noMatchEpics } }),
         makeReadinessDispatchResult('NEEDS_WORK', 1),
       ])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -628,7 +633,7 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('gap analysis prompt includes uncovered requirements (blocker findings)', async () => {
-      createDecision(db, {
+      await createDecision(adapter, {
         pipeline_run_id: runId,
         phase: 'planning',
         category: 'functional-requirements',
@@ -663,7 +668,7 @@ describe('runSolutioningPhase()', () => {
         makeStoryDispatchResult({ parsed: { result: 'success', epics: noMatchEpics } }),
         makeReadinessDispatchResult('NEEDS_WORK', 1),
       ])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -674,7 +679,7 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('returns failure with readiness_passed=false when retry readiness also fails', async () => {
-      createDecision(db, {
+      await createDecision(adapter, {
         pipeline_run_id: runId,
         phase: 'planning',
         category: 'functional-requirements',
@@ -709,7 +714,7 @@ describe('runSolutioningPhase()', () => {
         makeStoryDispatchResult({ parsed: { result: 'success', epics: noMatchEpics } }),
         makeReadinessDispatchResult('NEEDS_WORK', 1),
       ])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -718,7 +723,7 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('returns success with readiness_passed=true when retry readiness returns READY', async () => {
-      createDecision(db, {
+      await createDecision(adapter, {
         pipeline_run_id: runId,
         phase: 'planning',
         category: 'functional-requirements',
@@ -771,7 +776,7 @@ describe('runSolutioningPhase()', () => {
         makeStoryDispatchResult({ parsed: { result: 'success', epics: matchingEpics } }),
         makeReadinessDispatchResult('READY'),
       ])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -786,9 +791,9 @@ describe('runSolutioningPhase()', () => {
 
   describe('AC7: Decision store persistence', () => {
     it('stores architecture decisions with phase=solutioning, category=architecture', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -804,9 +809,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('stores epic decisions with phase=solutioning, category=epics', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -823,9 +828,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('stores story decisions with phase=solutioning, category=stories, using story_key as key', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -846,9 +851,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('creates Requirement records for each story with type=functional', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -863,9 +868,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('returns architecture_decisions count matching stored decisions', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -880,9 +885,9 @@ describe('runSolutioningPhase()', () => {
 
   describe('AC8: Token budget compliance', () => {
     it('architecture prompt succeeds within 3,000 token budget with typical requirements', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -891,12 +896,12 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('returns failure when architecture prompt exceeds 3,000 token budget', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       // Template that's way over budget
       const hugeTemplate = 'A'.repeat(12_001 * 4) + ' {{requirements}}'
       const pack = makePack(hugeTemplate)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -906,9 +911,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('story generation prompt succeeds within 4,000 token budget with typical context', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -916,12 +921,12 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('returns failure when story prompt exceeds 4,000 token budget', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       // Story template that's over budget
       const hugeStoryTemplate = 'B'.repeat(16_001 * 4) + ' {{requirements}} {{architecture_decisions}}'
       const pack = makePack(undefined, hugeStoryTemplate)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -931,9 +936,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('passes ArchitectureOutputSchema to architecture dispatch', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -942,9 +947,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('passes StoryGenerationOutputSchema to story dispatch', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -959,7 +964,7 @@ describe('runSolutioningPhase()', () => {
 
   describe('AC9: Failure handling', () => {
     it('returns failure when architecture dispatch fails', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const archFail = makeArchDispatchResult({
         status: 'failed',
         exitCode: 1,
@@ -967,7 +972,7 @@ describe('runSolutioningPhase()', () => {
         parseError: 'architecture agent error',
       })
       const dispatcher = makeSequentialDispatcher([archFail])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -976,7 +981,7 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('does NOT attempt story generation when architecture fails', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const archFail = makeArchDispatchResult({
         status: 'failed',
         exitCode: 1,
@@ -984,7 +989,7 @@ describe('runSolutioningPhase()', () => {
         parseError: 'arch error',
       })
       const dispatcher = makeSequentialDispatcher([archFail, makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -993,7 +998,7 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('returns partial failure when story generation fails but architecture succeeds', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const storyFail = makeStoryDispatchResult({
         status: 'failed',
         exitCode: 1,
@@ -1001,7 +1006,7 @@ describe('runSolutioningPhase()', () => {
         parseError: 'story agent error',
       })
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), storyFail])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -1013,7 +1018,7 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('preserves architecture artifact when only story generation fails', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const storyFail = makeStoryDispatchResult({
         status: 'failed',
         exitCode: 1,
@@ -1021,17 +1026,17 @@ describe('runSolutioningPhase()', () => {
         parseError: 'story fail',
       })
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), storyFail])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
       // Architecture artifact should exist in DB even though story generation failed
-      const archArtifact = getArtifactByTypeForRun(db, runId, 'solutioning', 'architecture')
+      const archArtifact = await getArtifactByTypeForRun(adapter, runId, 'solutioning', 'architecture')
       expect(archArtifact).toBeDefined()
     })
 
     it('returns failure when architecture dispatch times out', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const archTimeout = makeArchDispatchResult({
         status: 'timeout',
         exitCode: -1,
@@ -1040,7 +1045,7 @@ describe('runSolutioningPhase()', () => {
         durationMs: 300_001,
       })
       const dispatcher = makeSequentialDispatcher([archTimeout])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -1050,7 +1055,7 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('returns failure when story dispatch times out', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const storyTimeout = makeStoryDispatchResult({
         status: 'timeout',
         exitCode: -1,
@@ -1059,7 +1064,7 @@ describe('runSolutioningPhase()', () => {
         durationMs: 300_001,
       })
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), storyTimeout])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -1069,11 +1074,11 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('handles pack.getPrompt throwing an error gracefully', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const pack = makePack()
       vi.mocked(pack.getPrompt).mockRejectedValue(new Error('Prompt file not found'))
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -1082,7 +1087,7 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('returns tokenUsage from dispatch results', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const archResult = makeArchDispatchResult({
         tokenEstimate: { input: 400, output: 150 },
       })
@@ -1091,7 +1096,7 @@ describe('runSolutioningPhase()', () => {
       })
       // Readiness check uses tokenEstimate: { input: 0, output: 0 } by default
       const dispatcher = makeSequentialDispatcher([archResult, storyResult, makeReadinessDispatchResult('READY')])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -1101,11 +1106,11 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('returns tokenUsage { input: 0, output: 0 } when pack.getPrompt throws', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const pack = makePack()
       vi.mocked(pack.getPrompt).mockRejectedValue(new Error('file missing'))
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -1115,14 +1120,14 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('returns failure with schema_validation_failed when architecture parsed is null', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const archNullParse = makeArchDispatchResult({
         status: 'completed',
         parsed: null,
         parseError: 'YAML parse error',
       })
       const dispatcher = makeSequentialDispatcher([archNullParse])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -1138,9 +1143,9 @@ describe('runSolutioningPhase()', () => {
 
   describe('Integration: full successful flow', () => {
     it('runs complete flow and returns all expected fields', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       const result = await runSolutioningPhase(deps, { runId })
 
@@ -1157,13 +1162,13 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('dispatches exactly 3 times (architecture, story generation, readiness check) in happy path', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([
         makeArchDispatchResult(),
         makeStoryDispatchResult(),
         makeReadinessDispatchResult('READY'),
       ])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -1171,9 +1176,9 @@ describe('runSolutioningPhase()', () => {
     })
 
     it('architecture dispatch happens before story generation dispatch', async () => {
-      seedPlanningRequirements(db, runId)
+      await seedPlanningRequirements(adapter, runId)
       const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
 
       await runSolutioningPhase(deps, { runId })
 
@@ -1253,15 +1258,17 @@ describe('Story 16-1: summarizeDecisions', () => {
 
 describe('Story 16-1: Architecture skip on retry (AC3)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const testDb = createTestDb()
     db = testDb.db
+    adapter = testDb.adapter
     tmpDir = testDb.tmpDir
-    runId = createTestRun(db)
-    seedPlanningRequirements(db, runId)
+    runId = await createTestRun(adapter)
+    await seedPlanningRequirements(adapter, runId)
   })
 
   afterEach(() => {
@@ -1272,7 +1279,7 @@ describe('Story 16-1: Architecture skip on retry (AC3)', () => {
   it('skips architecture dispatch when architecture artifact already exists', async () => {
     // Pre-seed architecture decisions and artifact
     for (const decision of SAMPLE_ARCHITECTURE_DECISIONS) {
-      createDecision(db, {
+      await createDecision(adapter, {
         pipeline_run_id: runId,
         phase: 'solutioning',
         category: 'architecture',
@@ -1281,7 +1288,7 @@ describe('Story 16-1: Architecture skip on retry (AC3)', () => {
         rationale: decision.rationale,
       })
     }
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       type: 'architecture',
@@ -1292,7 +1299,7 @@ describe('Story 16-1: Architecture skip on retry (AC3)', () => {
     // Dispatcher has story-generation + readiness-check results (no architecture result needed)
     const storyResult = makeStoryDispatchResult()
     const dispatcher = makeSequentialDispatcher([storyResult, makeReadinessDispatchResult('READY')])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -1308,7 +1315,7 @@ describe('Story 16-1: Architecture skip on retry (AC3)', () => {
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -1320,15 +1327,17 @@ describe('Story 16-1: Architecture skip on retry (AC3)', () => {
 
 describe('Story 16-1: Decision deduplication in solutioning (AC4)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const testDb = createTestDb()
     db = testDb.db
+    adapter = testDb.adapter
     tmpDir = testDb.tmpDir
-    runId = createTestRun(db)
-    seedPlanningRequirements(db, runId)
+    runId = await createTestRun(adapter)
+    await seedPlanningRequirements(adapter, runId)
   })
 
   afterEach(() => {
@@ -1338,14 +1347,14 @@ describe('Story 16-1: Decision deduplication in solutioning (AC4)', () => {
 
   it('does not duplicate architecture decisions on multiple runs', async () => {
     const dispatcher = makeSequentialDispatcher([makeArchDispatchResult(), makeStoryDispatchResult()])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     // Run solutioning twice
     await runSolutioningPhase(deps, { runId })
 
     // Count architecture decisions — should match single run count
-    const archDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-      .filter((d) => d.category === 'architecture')
+    const allDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
+    const archDecisions = allDecisions.filter((d) => d.category === 'architecture')
     expect(archDecisions).toHaveLength(SAMPLE_ARCHITECTURE_DECISIONS.length)
   })
 })

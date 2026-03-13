@@ -15,6 +15,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { randomUUID } from 'crypto'
+import { SqliteDatabaseAdapter } from '../../src/persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../src/persistence/adapter.js'
 
 import { runMigrations } from '../../src/persistence/migrations/index.js'
 import {
@@ -40,12 +42,13 @@ import type { Dispatcher, DispatchHandle, DispatchResult } from '../../src/modul
 // Helpers
 // ---------------------------------------------------------------------------
 
-function openMigratedDb(): BetterSqlite3Database {
+function openMigratedDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new Database(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   runMigrations(db)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 function insertRun(
@@ -162,7 +165,7 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  db: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
 ): PhaseDeps {
@@ -182,16 +185,19 @@ function makeDeps(
 
 describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('supersedes parent decisions when amendment decisions share the same (phase, category, key)', () => {
+  it('supersedes parent decisions when amendment decisions share the same (phase, category, key)', async () => {
     // Setup parent run with decisions
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
@@ -215,8 +221,8 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     })
 
     // Create handler and run supersession detection
-    const handler = createAmendmentContextHandler(db, parentRunId)
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     // Verify parent decision is now superseded in DB
     const parentRow = db
@@ -226,7 +232,7 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     expect(parentRow.superseded_by).toBe(amendmentDecId)
   })
 
-  it('logs supersession entry in handler in-memory log after detection', () => {
+  it('logs supersession entry in handler in-memory log after detection', async () => {
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
     insertRun(db, parentRunId, 'completed')
@@ -247,10 +253,10 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
       value: 'small businesses',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
     expect(handler.getSupersessionLog()).toHaveLength(0)
 
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     const log = handler.getSupersessionLog()
     expect(log).toHaveLength(1)
@@ -260,7 +266,7 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     expect(log[0].key).toBe('target_users')
   })
 
-  it('does not supersede when amendment decision is in a different phase', () => {
+  it('does not supersede when amendment decision is in a different phase', async () => {
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
     insertRun(db, parentRunId, 'completed')
@@ -282,9 +288,9 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
       value: 'small businesses',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
     // Run detection for analysis phase â€” should not match the planning amendment decision
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     const log = handler.getSupersessionLog()
     expect(log).toHaveLength(0)
@@ -295,7 +301,7 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     expect(parentRow.superseded_by).toBeNull()
   })
 
-  it('does not supersede when keys differ between parent and amendment decisions', () => {
+  it('does not supersede when keys differ between parent and amendment decisions', async () => {
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
     insertRun(db, parentRunId, 'completed')
@@ -317,14 +323,14 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
       value: 'Redis',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     const log = handler.getSupersessionLog()
     expect(log).toHaveLength(0)
   })
 
-  it('supersedes multiple decisions in a single phase detection pass', () => {
+  it('supersedes multiple decisions in a single phase detection pass', async () => {
     const parentRunId = randomUUID()
     const parentDecId1 = randomUUID()
     const parentDecId2 = randomUUID()
@@ -359,8 +365,8 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
       value: 'Q4 2026',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     const log = handler.getSupersessionLog()
     expect(log).toHaveLength(2)
@@ -375,7 +381,7 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     expect(parentRow2.superseded_by).toBe(amendDecId2)
   })
 
-  it('does not include already-superseded decisions in parent snapshot loaded by handler', () => {
+  it('does not include already-superseded decisions in parent snapshot loaded by handler', async () => {
     // This tests that the handler snapshot (AC5 of 12-8) only contains non-superseded decisions,
     // so runPostPhaseSupersessionDetection can never attempt to re-supersede an already-superseded decision.
     const parentRunId = randomUUID()
@@ -398,10 +404,10 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
       value: 'large enterprises',
     })
     // Pre-supersede parentDecId
-    supersedeDecision(db, parentDecId, supersedingInParentId)
+    await supersedeDecision(adapter, parentDecId, supersedingInParentId)
 
     // Handler is created AFTER the supersession â€” it should not load parentDecId
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
     const parentDecisions = handler.getParentDecisions()
     const parentDecIds = parentDecisions.map((d) => d.id)
 
@@ -422,15 +428,13 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     })
 
     // Running detection should not throw and should not match parentDecId (not in snapshot)
-    expect(() => {
-      runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
-    }).not.toThrow()
+    await expect(runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)).resolves.not.toThrow()
 
     // No match was found because parentDecId is not in the handler's parent decisions
     expect(handler.getSupersessionLog()).toHaveLength(0)
   })
 
-  it('is idempotent across multiple calls for different phases', () => {
+  it('is idempotent across multiple calls for different phases', async () => {
     const parentRunId = randomUUID()
     const analysisDecId = randomUUID()
     const planningDecId = randomUUID()
@@ -465,10 +469,10 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
       value: 'PostgreSQL',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'planning', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'planning', handler)
 
     const log = handler.getSupersessionLog()
     expect(log).toHaveLength(2)
@@ -484,9 +488,12 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
 
 describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
@@ -504,7 +511,7 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
       rationale: 'Market research',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId, {
+    const handler = await createAmendmentContextHandler(adapter, parentRunId, {
       framingConcept: 'Add Redis caching',
     })
     const amendmentContext = handler.loadContextForPhase('analysis')
@@ -545,7 +552,7 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps = makeDeps(db, mockDispatcher)
+    const deps = makeDeps(adapter, mockDispatcher)
     const result = await runAnalysisPhase(deps, {
       runId: amendmentRunId,
       concept: 'Add Redis caching layer',
@@ -582,7 +589,7 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps = makeDeps(db, mockDispatcher)
+    const deps = makeDeps(adapter, mockDispatcher)
     const result = await runAnalysisPhase(deps, {
       runId,
       concept: 'Build task manager',
@@ -617,7 +624,7 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps = makeDeps(db, mockDispatcher)
+    const deps = makeDeps(adapter, mockDispatcher)
     const result = await runAnalysisPhase(deps, {
       runId,
       concept: 'Build task manager',
@@ -635,9 +642,12 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
 
 describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
@@ -654,7 +664,7 @@ describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11
       value: 'SQLite',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId, {
+    const handler = await createAmendmentContextHandler(adapter, parentRunId, {
       framingConcept: 'Migrate to PostgreSQL',
     })
     const amendmentContext = handler.loadContextForPhase('planning')
@@ -707,7 +717,7 @@ describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps = makeDeps(db, mockDispatcher)
+    const deps = makeDeps(adapter, mockDispatcher)
     const result = await runPlanningPhase(deps, {
       runId: amendmentRunId,
       amendmentContext,
@@ -764,7 +774,7 @@ describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps = makeDeps(db, mockDispatcher)
+    const deps = makeDeps(adapter, mockDispatcher)
     const result = await runPlanningPhase(deps, { runId })
 
     expect(result.result).toBe('success')
@@ -779,9 +789,12 @@ describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11
 
 describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†’ active decisions (12-8 + 12-11 + 12-12)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
@@ -805,7 +818,7 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
     insertRun(db, amendmentRunId, 'running', parentRunId)
 
     // Step 3: Create handler and load context
-    const handler = createAmendmentContextHandler(db, parentRunId, {
+    const handler = await createAmendmentContextHandler(adapter, parentRunId, {
       framingConcept: 'New feature',
     })
     const amendmentContext = handler.loadContextForPhase('analysis')
@@ -829,7 +842,7 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps = makeDeps(db, mockDispatcher)
+    const deps = makeDeps(adapter, mockDispatcher)
     const analysisResult = await runAnalysisPhase(deps, {
       runId: amendmentRunId,
       concept: 'New feature concept',
@@ -839,7 +852,7 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
     expect(analysisResult.result).toBe('success')
 
     // Step 5: Run supersession detection â€” the analysis phase creates a new product-brief/problem_statement decision
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     // Step 6: Verify supersession state
     // The parent's problem_statement decision should now be superseded
@@ -850,12 +863,12 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
     expect(parentRow.superseded_by).not.toBeNull()
 
     // Active decisions for parent run should NOT include the superseded one
-    const activeParentDecisions = getActiveDecisions(db, { pipeline_run_id: parentRunId })
+    const activeParentDecisions = await getActiveDecisions(adapter,{ pipeline_run_id: parentRunId })
     const activeParentIds = activeParentDecisions.map((d) => d.id)
     expect(activeParentIds).not.toContain(parentDecId)
 
     // Active decisions for amendment run should include the new problem_statement
-    const activeAmendDecisions = getActiveDecisions(db, {
+    const activeAmendDecisions = await getActiveDecisions(adapter,{
       pipeline_run_id: amendmentRunId,
       phase: 'analysis',
       category: 'product-brief',
@@ -872,7 +885,7 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
     expect(problemStatementEntry?.phase).toBe('analysis')
   })
 
-  it('loadParentRunDecisions excludes decisions superseded by amendment writeback', () => {
+  it('loadParentRunDecisions excludes decisions superseded by amendment writeback', async () => {
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
     insertRun(db, parentRunId, 'completed')
@@ -893,15 +906,15 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
       value: 'updated',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     // After supersession writeback, loadParentRunDecisions should exclude the superseded one
-    const freshParentDecisions = loadParentRunDecisions(db, parentRunId)
+    const freshParentDecisions = await loadParentRunDecisions(adapter,parentRunId)
     const freshIds = freshParentDecisions.map((d) => d.id)
     expect(freshIds).not.toContain(parentDecId)
     // But the amendment decision (in amendment run) should be accessible
-    const amendActive = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const amendActive = await getActiveDecisions(adapter,{ pipeline_run_id: amendmentRunId })
     expect(amendActive.map((d) => d.id)).toContain(amendDecId)
   })
 })
@@ -913,16 +926,19 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
 
 describe('Gap 5: Phase context isolation in handler with real DB decisions (12-8)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('analysis context does not contain planning decisions, planning context does not contain analysis decisions', () => {
+  it('analysis context does not contain planning decisions, planning context does not contain analysis decisions', async () => {
     const parentRunId = randomUUID()
     insertRun(db, parentRunId, 'completed')
 
@@ -950,7 +966,7 @@ describe('Gap 5: Phase context isolation in handler with real DB decisions (12-8
       value: 'JWT',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
     const analysisCtx = handler.loadContextForPhase('analysis')
     const planningCtx = handler.loadContextForPhase('planning')
@@ -972,7 +988,7 @@ describe('Gap 5: Phase context isolation in handler with real DB decisions (12-8
     expect(solutioningCtx).not.toContain('storage')
   })
 
-  it('phaseFilter limits available decisions across all loadContextForPhase calls', () => {
+  it('phaseFilter limits available decisions across all loadContextForPhase calls', async () => {
     const parentRunId = randomUUID()
     insertRun(db, parentRunId, 'completed')
 
@@ -990,7 +1006,7 @@ describe('Gap 5: Phase context isolation in handler with real DB decisions (12-8
     })
 
     // Create handler filtered to analysis only
-    const handler = createAmendmentContextHandler(db, parentRunId, {
+    const handler = await createAmendmentContextHandler(adapter, parentRunId, {
       phaseFilter: ['analysis'],
     })
 
@@ -1013,16 +1029,19 @@ describe('Gap 5: Phase context isolation in handler with real DB decisions (12-8
 
 describe('Gap 6: Handler snapshot vs. live DB state consistency (12-8 + 12-12)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('handler getParentDecisions reflects decisions at creation time, not after supersession', () => {
+  it('handler getParentDecisions reflects decisions at creation time, not after supersession', async () => {
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
     insertRun(db, parentRunId, 'completed')
@@ -1034,7 +1053,7 @@ describe('Gap 6: Handler snapshot vs. live DB state consistency (12-8 + 12-12)',
     })
 
     // Create handler (eager load at construction time)
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
     // Before supersession: handler has the decision
     expect(handler.getParentDecisions().map((d) => d.id)).toContain(parentDecId)
@@ -1049,7 +1068,7 @@ describe('Gap 6: Handler snapshot vs. live DB state consistency (12-8 + 12-12)',
       key: 'target',
       value: 'updated',
     })
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     // After supersession: handler STILL returns the snapshot (not re-queried)
     // This is the documented behavior (AC5 of 12-8: cached at construction time)
@@ -1067,7 +1086,7 @@ describe('Gap 6: Handler snapshot vs. live DB state consistency (12-8 + 12-12)',
     expect(log.map((e) => e.originalDecisionId)).toContain(parentDecId)
   })
 
-  it('supersession log accurately tracks all supersessions across multiple detection calls', () => {
+  it('supersession log accurately tracks all supersessions across multiple detection calls', async () => {
     const parentRunId = randomUUID()
     insertRun(db, parentRunId, 'completed')
 
@@ -1104,11 +1123,11 @@ describe('Gap 6: Handler snapshot vs. live DB state consistency (12-8 + 12-12)',
       value: 'PostgreSQL',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
     // Simulate the amendment phase loop running supersession for each phase
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'planning', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'planning', handler)
 
     const log = handler.getSupersessionLog()
     expect(log).toHaveLength(2)

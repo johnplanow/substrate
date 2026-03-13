@@ -17,6 +17,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createDecision, createRequirement, createConstraint } from '../../../persistence/queries/decisions.js'
 import { createContextCompiler } from '../context-compiler-impl.js'
 import { countTokens, truncateToTokens } from '../token-counter.js'
@@ -26,11 +28,12 @@ import type { ContextTemplate, ContextCompiler, TaskDescriptor } from '../types.
 // Test database setup
 // ---------------------------------------------------------------------------
 
-function openTestDb(): BetterSqlite3Database {
+function openTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new BetterSqlite3(':memory:')
   db.pragma('foreign_keys = ON')
   runMigrations(db)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 // ---------------------------------------------------------------------------
@@ -139,26 +142,29 @@ describe('truncateToTokens', () => {
 
 describe('AC1: Core compile interface', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let compiler: ContextCompiler
 
-  beforeEach(() => {
-    db = openTestDb()
-    compiler = createContextCompiler({ db })
+  beforeEach(async () => {
+    const setup = openTestDb()
+    db = setup.db
+    adapter = setup.adapter
+    compiler = createContextCompiler({ db: adapter })
   })
 
-  it('throws when no template is registered for task type', () => {
+  it('throws when no template is registered for task type', async () => {
     const descriptor: TaskDescriptor = {
       taskType: 'unknown-task',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
     }
-    expect(() => compiler.compile(descriptor)).toThrow(
+    await expect(compiler.compile(descriptor)).rejects.toThrow(
       /no template registered for task type "unknown-task"/,
     )
   })
 
-  it('returns a CompileResult with prompt, tokenCount, sections, and truncated flag', () => {
-    createDecision(db, {
+  it('returns a CompileResult with prompt, tokenCount, sections, and truncated flag', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'architecture',
       key: 'pattern',
@@ -174,7 +180,7 @@ describe('AC1: Core compile interface', () => {
       tokenBudget: 1000,
     }
 
-    const result = compiler.compile(descriptor)
+    const result = await compiler.compile(descriptor)
 
     expect(result).toHaveProperty('prompt')
     expect(result).toHaveProperty('tokenCount')
@@ -186,8 +192,8 @@ describe('AC1: Core compile interface', () => {
     expect(typeof result.truncated).toBe('boolean')
   })
 
-  it('produces a prompt containing decision data', () => {
-    createDecision(db, {
+  it('produces a prompt containing decision data', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'architecture',
       key: 'pattern',
@@ -196,7 +202,7 @@ describe('AC1: Core compile interface', () => {
 
     compiler.registerTemplate(makeDecisionsTemplate())
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'test-task',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
@@ -206,10 +212,10 @@ describe('AC1: Core compile interface', () => {
     expect(result.prompt).toContain('modular-monolith')
   })
 
-  it('produces a prompt within the token budget', () => {
+  it('produces a prompt within the token budget', async () => {
     // Add many decisions to fill up context
     for (let i = 0; i < 20; i++) {
-      createDecision(db, {
+      await createDecision(adapter, {
         phase: 'solutioning',
         category: 'architecture',
         key: `key-${i}`,
@@ -220,7 +226,7 @@ describe('AC1: Core compile interface', () => {
     compiler.registerTemplate(makeDecisionsTemplate())
 
     const tokenBudget = 50
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'test-task',
       pipelineRunId: 'run-1',
       tokenBudget,
@@ -239,15 +245,18 @@ describe('AC1: Core compile interface', () => {
 
 describe('AC2: Token budget enforcement', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let compiler: ContextCompiler
 
-  beforeEach(() => {
-    db = openTestDb()
-    compiler = createContextCompiler({ db })
+  beforeEach(async () => {
+    const setup = openTestDb()
+    db = setup.db
+    adapter = setup.adapter
+    compiler = createContextCompiler({ db: adapter })
   })
 
-  it('keeps prompt within budget when sections are trimmed', () => {
-    createDecision(db, {
+  it('keeps prompt within budget when sections are trimmed', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'architecture',
       key: 'info',
@@ -271,7 +280,7 @@ describe('AC2: Token budget enforcement', () => {
     compiler.registerTemplate(template)
 
     const tokenBudget = 20
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'budget-test',
       pipelineRunId: 'run-1',
       tokenBudget,
@@ -281,8 +290,8 @@ describe('AC2: Token budget enforcement', () => {
     expect(result.truncated).toBe(true)
   })
 
-  it('marks truncated=false when all sections fit within budget', () => {
-    createDecision(db, {
+  it('marks truncated=false when all sections fit within budget', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'arch',
       key: 'k',
@@ -291,7 +300,7 @@ describe('AC2: Token budget enforcement', () => {
 
     compiler.registerTemplate(makeDecisionsTemplate())
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'test-task',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
@@ -300,15 +309,15 @@ describe('AC2: Token budget enforcement', () => {
     expect(result.truncated).toBe(false)
   })
 
-  it('omits important section entirely when no budget remains', () => {
+  it('omits important section entirely when no budget remains', async () => {
     // Create content that fills up the budget with required sections
-    createDecision(db, {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'arch',
       key: 'required-data',
       value: 'x'.repeat(2000), // ~500 tokens
     })
-    createRequirement(db, {
+    await createRequirement(adapter, {
       source: 'spec',
       type: 'functional',
       description: 'y'.repeat(200), // ~50 tokens
@@ -340,7 +349,7 @@ describe('AC2: Token budget enforcement', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'omit-test',
       pipelineRunId: 'run-1',
       tokenBudget: 20, // tiny budget — required section alone will exceed it
@@ -358,15 +367,18 @@ describe('AC2: Token budget enforcement', () => {
 
 describe('AC3: Section priority system', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let compiler: ContextCompiler
 
-  beforeEach(() => {
-    db = openTestDb()
-    compiler = createContextCompiler({ db })
+  beforeEach(async () => {
+    const setup = openTestDb()
+    db = setup.db
+    adapter = setup.adapter
+    compiler = createContextCompiler({ db: adapter })
   })
 
-  it('always includes required sections', () => {
-    createDecision(db, {
+  it('always includes required sections', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'arch',
       key: 'pattern',
@@ -386,7 +398,7 @@ describe('AC3: Section priority system', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'priority-test',
       pipelineRunId: 'run-1',
       tokenBudget: 5, // very small budget
@@ -397,14 +409,14 @@ describe('AC3: Section priority system', () => {
     expect(report?.truncated).toBe(false)
   })
 
-  it('drops optional sections when budget < 30% remaining after required+important', () => {
-    createDecision(db, {
+  it('drops optional sections when budget < 30% remaining after required+important', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'arch',
       key: 'required',
       value: 'x'.repeat(280), // ~70 tokens (70% of a 100-token budget)
     })
-    createConstraint(db, {
+    await createConstraint(adapter, {
       category: 'tech',
       description: 'optional constraint that should be dropped',
       source: 'manual',
@@ -430,7 +442,7 @@ describe('AC3: Section priority system', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'optional-test',
       pipelineRunId: 'run-1',
       tokenBudget: 100,
@@ -442,14 +454,14 @@ describe('AC3: Section priority system', () => {
     expect(optionalReport?.included).toBe(false)
   })
 
-  it('includes optional sections when >30% budget remains', () => {
-    createDecision(db, {
+  it('includes optional sections when >30% budget remains', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'arch',
       key: 'small',
       value: 'tiny', // ~1 token
     })
-    createConstraint(db, {
+    await createConstraint(adapter, {
       category: 'tech',
       description: 'optional content',
       source: 'manual',
@@ -475,7 +487,7 @@ describe('AC3: Section priority system', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'optional-include-test',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
@@ -485,8 +497,8 @@ describe('AC3: Section priority system', () => {
     expect(optionalReport?.included).toBe(true)
   })
 
-  it('processes sections in priority order: required before important before optional', () => {
-    createDecision(db, {
+  it('processes sections in priority order: required before important before optional', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'arch',
       key: 'k',
@@ -521,7 +533,7 @@ describe('AC3: Section priority system', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'order-test',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
@@ -542,11 +554,14 @@ describe('AC3: Section priority system', () => {
 
 describe('AC4: Template registration', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let compiler: ContextCompiler
 
-  beforeEach(() => {
-    db = openTestDb()
-    compiler = createContextCompiler({ db })
+  beforeEach(async () => {
+    const setup = openTestDb()
+    db = setup.db
+    adapter = setup.adapter
+    compiler = createContextCompiler({ db: adapter })
   })
 
   it('registers a template and retrieves it by task type', () => {
@@ -607,7 +622,7 @@ describe('AC4: Template registration', () => {
     templates.set('dev-story', makeDecisionsTemplate('dev-story'))
     templates.set('code-review', makeDecisionsTemplate('code-review'))
 
-    const compiler2 = createContextCompiler({ db, templates })
+    const compiler2 = createContextCompiler({ db: adapter, templates })
     expect(compiler2.getTemplate('dev-story')).toBeDefined()
     expect(compiler2.getTemplate('code-review')).toBeDefined()
     expect(compiler2.getTemplate('create-story')).toBeUndefined()
@@ -620,21 +635,24 @@ describe('AC4: Template registration', () => {
 
 describe('AC5: Selective decision store queries', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let compiler: ContextCompiler
 
-  beforeEach(() => {
-    db = openTestDb()
-    compiler = createContextCompiler({ db })
+  beforeEach(async () => {
+    const setup = openTestDb()
+    db = setup.db
+    adapter = setup.adapter
+    compiler = createContextCompiler({ db: adapter })
   })
 
-  it('only includes decisions matching the template phase filter', () => {
-    createDecision(db, {
+  it('only includes decisions matching the template phase filter', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'architecture',
       key: 'arch-decision',
       value: 'should-appear',
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       phase: 'planning',
       category: 'scope',
       key: 'scope-decision',
@@ -657,7 +675,7 @@ describe('AC5: Selective decision store queries', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'selective-test',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
@@ -667,14 +685,14 @@ describe('AC5: Selective decision store queries', () => {
     expect(result.prompt).not.toContain('should-not-appear')
   })
 
-  it('filters decisions by category when specified', () => {
-    createDecision(db, {
+  it('filters decisions by category when specified', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'architecture',
       key: 'arch-key',
       value: 'arch-value',
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'tech-stack',
       key: 'tech-key',
@@ -697,7 +715,7 @@ describe('AC5: Selective decision store queries', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'category-filter-test',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
@@ -707,14 +725,14 @@ describe('AC5: Selective decision store queries', () => {
     expect(result.prompt).not.toContain('tech-key=tech-value')
   })
 
-  it('filters requirements by type', () => {
-    createRequirement(db, {
+  it('filters requirements by type', async () => {
+    await createRequirement(adapter, {
       source: 'spec',
       type: 'functional',
       description: 'functional requirement',
       priority: 'must',
     })
-    createRequirement(db, {
+    await createRequirement(adapter, {
       source: 'spec',
       type: 'non_functional',
       description: 'non-functional requirement',
@@ -737,7 +755,7 @@ describe('AC5: Selective decision store queries', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'req-filter-test',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
@@ -747,13 +765,13 @@ describe('AC5: Selective decision store queries', () => {
     expect(result.prompt).not.toContain('non-functional requirement')
   })
 
-  it('filters constraints by category', () => {
-    createConstraint(db, {
+  it('filters constraints by category', async () => {
+    await createConstraint(adapter, {
       category: 'security',
       description: 'security constraint',
       source: 'policy',
     })
-    createConstraint(db, {
+    await createConstraint(adapter, {
       category: 'performance',
       description: 'performance constraint',
       source: 'spec',
@@ -775,7 +793,7 @@ describe('AC5: Selective decision store queries', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'constraint-filter-test',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
@@ -785,7 +803,7 @@ describe('AC5: Selective decision store queries', () => {
     expect(result.prompt).not.toContain('performance constraint')
   })
 
-  it('produces empty sections when query returns no results', () => {
+  it('produces empty sections when query returns no results', async () => {
     // No decisions in DB at all
 
     const template: ContextTemplate = {
@@ -804,7 +822,7 @@ describe('AC5: Selective decision store queries', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'empty-test',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
@@ -821,15 +839,18 @@ describe('AC5: Selective decision store queries', () => {
 
 describe('AC7: CompileResult format', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let compiler: ContextCompiler
 
-  beforeEach(() => {
-    db = openTestDb()
-    compiler = createContextCompiler({ db })
+  beforeEach(async () => {
+    const setup = openTestDb()
+    db = setup.db
+    adapter = setup.adapter
+    compiler = createContextCompiler({ db: adapter })
   })
 
-  it('returns SectionReport with name, priority, tokens, included, truncated', () => {
-    createDecision(db, {
+  it('returns SectionReport with name, priority, tokens, included, truncated', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'arch',
       key: 'k',
@@ -838,7 +859,7 @@ describe('AC7: CompileResult format', () => {
 
     compiler.registerTemplate(makeDecisionsTemplate())
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'test-task',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
@@ -858,8 +879,8 @@ describe('AC7: CompileResult format', () => {
     expect(typeof section.truncated).toBe('boolean')
   })
 
-  it('tokenCount matches countTokens of the returned prompt', () => {
-    createDecision(db, {
+  it('tokenCount matches countTokens of the returned prompt', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'arch',
       key: 'key',
@@ -868,7 +889,7 @@ describe('AC7: CompileResult format', () => {
 
     compiler.registerTemplate(makeDecisionsTemplate())
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'test-task',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
@@ -877,7 +898,7 @@ describe('AC7: CompileResult format', () => {
     expect(result.tokenCount).toBe(countTokens(result.prompt))
   })
 
-  it('includes one SectionReport per template section', () => {
+  it('includes one SectionReport per template section', async () => {
     const template: ContextTemplate = {
       taskType: 'multi-report-test',
       sections: [
@@ -903,7 +924,7 @@ describe('AC7: CompileResult format', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'multi-report-test',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,
@@ -916,15 +937,15 @@ describe('AC7: CompileResult format', () => {
     expect(names).toContain('Section C')
   })
 
-  it('section tokens are 0 for omitted sections', () => {
+  it('section tokens are 0 for omitted sections', async () => {
     // Required section takes up all budget
-    createDecision(db, {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'arch',
       key: 'large',
       value: 'x'.repeat(2000),
     })
-    createRequirement(db, {
+    await createRequirement(adapter, {
       source: 'spec',
       type: 'functional',
       description: 'requirement',
@@ -951,7 +972,7 @@ describe('AC7: CompileResult format', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'omit-tokens-test',
       pipelineRunId: 'run-1',
       tokenBudget: 5, // tiny budget
@@ -969,9 +990,9 @@ describe('AC7: CompileResult format', () => {
 // ---------------------------------------------------------------------------
 
 describe('Empty decision store', () => {
-  it('produces a prompt with empty sections when store is empty', () => {
-    const db = openTestDb()
-    const compiler = createContextCompiler({ db })
+  it('produces a prompt with empty sections when store is empty', async () => {
+    const { adapter } = openTestDb()
+    const compiler = createContextCompiler({ db: adapter })
 
     const template: ContextTemplate = {
       taskType: 'empty-store-test',
@@ -1000,7 +1021,7 @@ describe('Empty decision store', () => {
     }
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'empty-store-test',
       pipelineRunId: 'run-1',
       tokenBudget: 1000,

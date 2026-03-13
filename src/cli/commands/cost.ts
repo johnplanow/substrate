@@ -29,10 +29,11 @@ import {
   getSessionCostSummaryFiltered,
   getPlanningCostTotal,
 } from '../../persistence/queries/cost.js'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 // getLatestSessionId removed — sessions table is no longer populated by the auto pipeline.
 // The cost command will report "No cost data found" since cost_entries is also dead.
 // Use `substrate metrics` for pipeline cost information instead.
-function getLatestSessionId(_db: import('better-sqlite3').Database): string | null {
+function getLatestSessionId(_adapter: DatabaseAdapter): string | null {
   return null
 }
 import { formatTable, buildJsonOutput } from '../utils/formatting.js'
@@ -300,6 +301,7 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
     wrapper = new DatabaseWrapper(dbPath)
     wrapper.open()
     const db = wrapper.db
+    const adapter = wrapper.adapter
 
     // Null guard on db (FIX 5)
     if (!db) {
@@ -313,7 +315,7 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
     // Resolve session ID
     let sessionId: string | null = explicitSessionId ?? null
     if (!sessionId) {
-      sessionId = getLatestSessionId(db)
+      sessionId = getLatestSessionId(adapter)
     }
 
     if (!sessionId) {
@@ -328,12 +330,12 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
 
     // Get cost data — when includePlanning=false, use the filtered variant
     const summary = includePlanning
-      ? getSessionCostSummary(db, sessionId)
-      : getSessionCostSummaryFiltered(db, sessionId, false)
+      ? await getSessionCostSummary(adapter, sessionId)
+      : await getSessionCostSummaryFiltered(adapter, sessionId, false)
 
     // Compute planning cost separately for display when excluded (AC5)
     // Uses a targeted single-query function to avoid a second full summary round-trip.
-    const planningCostUsd = includePlanning ? 0 : getPlanningCostTotal(db, sessionId)
+    const planningCostUsd = includePlanning ? 0 : await getPlanningCostTotal(adapter, sessionId)
 
     // Check for empty data (AC8)
     if (summary.task_count === 0) {
@@ -351,8 +353,8 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
 
     // Helper: get cost entries filtered by includePlanning flag (FIX 3)
     // Uses getAllCostEntriesFiltered from queries which applies SQL-level category filter
-    const getFilteredEntries = (): CostEntry[] =>
-      getAllCostEntriesFiltered(db, sessionId as string, includePlanning)
+    const getFilteredEntries = (): Promise<CostEntry[]> =>
+      getAllCostEntriesFiltered(adapter, sessionId as string, includePlanning)
 
     // Handle JSON output (AC6)
     if (outputFormat === 'json') {
@@ -362,7 +364,7 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
       }
 
       if (byTask) {
-        jsonData.tasks = getFilteredEntries()
+        jsonData.tasks = await getFilteredEntries()
       }
 
       if (byAgent) {
@@ -376,7 +378,7 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
 
     // Handle CSV output (AC6)
     if (outputFormat === 'csv') {
-      const csvOutput = formatCostCsv(summary, byTask ? getFilteredEntries() : undefined)
+      const csvOutput = formatCostCsv(summary, byTask ? await getFilteredEntries() : undefined)
       process.stdout.write(csvOutput + '\n')
       return COST_EXIT_SUCCESS
     }
@@ -384,7 +386,7 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
     // Handle human-readable table output
     if (byTask) {
       // AC2: per-task breakdown (FIX 3: respects includePlanning filter)
-      const entries = getFilteredEntries()
+      const entries = await getFilteredEntries()
       process.stdout.write(formatByTaskTable(entries) + '\n')
     } else if (byAgent) {
       // AC3: per-agent breakdown

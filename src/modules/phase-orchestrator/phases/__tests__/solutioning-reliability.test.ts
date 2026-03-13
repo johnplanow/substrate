@@ -15,6 +15,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
   createPipelineRun,
   createDecision,
@@ -38,27 +40,28 @@ import type { Dispatcher, DispatchResult } from '../../../agent-dispatch/types.j
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'solutioning-reliability-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
-function seedPlanningDecisions(db: BetterSqlite3Database, runId: string): void {
-  createDecision(db, {
+async function seedPlanningDecisions(adapter: DatabaseAdapter, runId: string): Promise<void> {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'planning',
     category: 'functional-requirements',
     key: 'FR-0',
     value: JSON.stringify({ description: 'Users can create tasks', priority: 'must' }),
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'planning',
     category: 'functional-requirements',
@@ -115,11 +118,11 @@ function makeSingleDispatchPack(): MethodologyPack {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack: MethodologyPack,
 ): PhaseDeps {
-  return { db, pack, contextCompiler: makeContextCompiler(), dispatcher }
+  return { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
 
 // ---------------------------------------------------------------------------
@@ -128,14 +131,16 @@ function makeDeps(
 
 describe('AC4: Decision deduplication on retry', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -143,9 +148,9 @@ describe('AC4: Decision deduplication on retry', () => {
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('upsert updates existing decisions with same category and key', () => {
+  it('upsert updates existing decisions with same category and key', async () => {
     // First write
-    upsertDecision(db, {
+    await upsertDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
@@ -155,14 +160,14 @@ describe('AC4: Decision deduplication on retry', () => {
     })
 
     // Verify first write
-    let decisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-      .filter((d) => d.category === 'architecture')
+    const allDecisions1 = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
+    let decisions = allDecisions1.filter((d) => d.category === 'architecture')
     expect(decisions).toHaveLength(1)
     expect(decisions[0]!.value).toBe('MySQL')
     expect(decisions[0]!.rationale).toBe('Initial choice')
 
     // Upsert same category+key with different value
-    upsertDecision(db, {
+    await upsertDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
@@ -172,22 +177,22 @@ describe('AC4: Decision deduplication on retry', () => {
     })
 
     // Verify upsert updated instead of inserting
-    decisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-      .filter((d) => d.category === 'architecture')
+    const allDecisions2 = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
+    decisions = allDecisions2.filter((d) => d.category === 'architecture')
     expect(decisions).toHaveLength(1)
     expect(decisions[0]!.value).toBe('SQLite')
     expect(decisions[0]!.rationale).toBe('Updated after retry')
   })
 
-  it('upsert creates new decision for different key in same category', () => {
-    upsertDecision(db, {
+  it('upsert creates new decision for different key in same category', async () => {
+    await upsertDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
       key: 'database',
       value: 'SQLite',
     })
-    upsertDecision(db, {
+    await upsertDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
@@ -195,13 +200,13 @@ describe('AC4: Decision deduplication on retry', () => {
       value: 'REST',
     })
 
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-      .filter((d) => d.category === 'architecture')
+    const allDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
+    const decisions = allDecisions.filter((d) => d.category === 'architecture')
     expect(decisions).toHaveLength(2)
     expect(decisions.map((d) => d.key).sort()).toEqual(['api-style', 'database'])
   })
 
-  it('decision count after N retries equals count from single run', () => {
+  it('decision count after N retries equals count from single run', async () => {
     const archDecisions: ArchitectureDecision[] = [
       { category: 'backend', key: 'database', value: 'SQLite', rationale: 'Fast' },
       { category: 'backend', key: 'api-style', value: 'REST', rationale: 'Standard' },
@@ -211,7 +216,7 @@ describe('AC4: Decision deduplication on retry', () => {
     // Simulate 3 retries, each persisting the same decisions
     for (let retry = 0; retry < 3; retry++) {
       for (const decision of archDecisions) {
-        upsertDecision(db, {
+        await upsertDecision(adapter, {
           pipeline_run_id: runId,
           phase: 'solutioning',
           category: 'architecture',
@@ -223,8 +228,8 @@ describe('AC4: Decision deduplication on retry', () => {
     }
 
     // After 3 retries, should still have only 3 decisions (not 9)
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-      .filter((d) => d.category === 'architecture')
+    const allDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
+    const decisions = allDecisions.filter((d) => d.category === 'architecture')
     expect(decisions).toHaveLength(3)
 
     // Values should reflect the last retry
@@ -232,17 +237,17 @@ describe('AC4: Decision deduplication on retry', () => {
     expect(dbDecision?.value).toBe('SQLite (retry 2)')
   })
 
-  it('upsert scopes deduplication by pipeline_run_id', () => {
-    const runId2 = createTestRun(db)
+  it('upsert scopes deduplication by pipeline_run_id', async () => {
+    const runId2 = await createTestRun(adapter)
 
-    upsertDecision(db, {
+    await upsertDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
       key: 'database',
       value: 'SQLite',
     })
-    upsertDecision(db, {
+    await upsertDecision(adapter, {
       pipeline_run_id: runId2,
       phase: 'solutioning',
       category: 'architecture',
@@ -250,10 +255,10 @@ describe('AC4: Decision deduplication on retry', () => {
       value: 'PostgreSQL',
     })
 
-    const run1Decisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-      .filter((d) => d.category === 'architecture')
-    const run2Decisions = getDecisionsByPhaseForRun(db, runId2, 'solutioning')
-      .filter((d) => d.category === 'architecture')
+    const allRun1 = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
+    const run1Decisions = allRun1.filter((d) => d.category === 'architecture')
+    const allRun2 = await getDecisionsByPhaseForRun(adapter, runId2, 'solutioning')
+    const run2Decisions = allRun2.filter((d) => d.category === 'architecture')
 
     expect(run1Decisions).toHaveLength(1)
     expect(run1Decisions[0]!.value).toBe('SQLite')
@@ -268,15 +273,17 @@ describe('AC4: Decision deduplication on retry', () => {
 
 describe('AC3: Architecture-to-stories phase transition', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
-    seedPlanningDecisions(db, runId)
+    runId = await createTestRun(adapter)
+    await seedPlanningDecisions(adapter, runId)
   })
 
   afterEach(() => {
@@ -286,7 +293,7 @@ describe('AC3: Architecture-to-stories phase transition', () => {
 
   it('skips architecture when artifact already exists and proceeds to story generation', async () => {
     // Pre-register architecture artifact (simulating a prior successful arch run)
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       type: 'architecture',
@@ -295,7 +302,7 @@ describe('AC3: Architecture-to-stories phase transition', () => {
     })
 
     // Pre-seed architecture decisions
-    upsertDecision(db, {
+    await upsertDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
@@ -303,7 +310,7 @@ describe('AC3: Architecture-to-stories phase transition', () => {
       value: 'SQLite',
       rationale: 'Fast and simple',
     })
-    upsertDecision(db, {
+    await upsertDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
@@ -352,7 +359,7 @@ describe('AC3: Architecture-to-stories phase transition', () => {
     }
 
     const pack = makeSingleDispatchPack()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: SolutioningPhaseParams = { runId }
 
     const result = await runSolutioningPhase(deps, params)
@@ -412,7 +419,7 @@ describe('AC3: Architecture-to-stories phase transition', () => {
     }
 
     const pack = makeSingleDispatchPack()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: SolutioningPhaseParams = { runId }
 
     const result = await runSolutioningPhase(deps, params)
@@ -466,20 +473,20 @@ describe('AC3: Architecture-to-stories phase transition', () => {
     }
 
     const pack = makeSingleDispatchPack()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: SolutioningPhaseParams = { runId }
 
     await runSolutioningPhase(deps, params)
 
     // Architecture artifact should be registered
-    const archArtifact = getArtifactByTypeForRun(db, runId, 'solutioning', 'architecture')
+    const archArtifact = await getArtifactByTypeForRun(adapter, runId, 'solutioning', 'architecture')
     expect(archArtifact).toBeTruthy()
     expect(archArtifact!.summary).toContain('architecture decision')
   })
 
   it('preserves existing architecture decisions when skipping architecture', async () => {
     // Register architecture artifact
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       type: 'architecture',
@@ -488,14 +495,14 @@ describe('AC3: Architecture-to-stories phase transition', () => {
     })
 
     // Seed specific decisions
-    upsertDecision(db, {
+    await upsertDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
       key: 'database',
       value: 'SQLite',
     })
-    upsertDecision(db, {
+    await upsertDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
@@ -531,14 +538,14 @@ describe('AC3: Architecture-to-stories phase transition', () => {
     }
 
     const pack = makeSingleDispatchPack()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: SolutioningPhaseParams = { runId }
 
     const result = await runSolutioningPhase(deps, params)
 
     // Existing decisions should be preserved
-    const archDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
-      .filter((d) => d.category === 'architecture')
+    const allDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
+    const archDecisions = allDecisions.filter((d) => d.category === 'architecture')
     expect(archDecisions).toHaveLength(2)
     expect(archDecisions.find((d) => d.key === 'database')?.value).toBe('SQLite')
     expect(archDecisions.find((d) => d.key === 'framework')?.value).toBe('Express')
@@ -552,15 +559,17 @@ describe('AC3: Architecture-to-stories phase transition', () => {
 
 describe('AC2: Dynamic prompt token budget in single-dispatch story generation', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
-    seedPlanningDecisions(db, runId)
+    runId = await createTestRun(adapter)
+    await seedPlanningDecisions(adapter, runId)
   })
 
   afterEach(() => {
@@ -571,7 +580,7 @@ describe('AC2: Dynamic prompt token budget in single-dispatch story generation',
   it('scales story generation budget based on architecture decision count', async () => {
     // Seed many architecture decisions to test dynamic budget
     for (let i = 0; i < 20; i++) {
-      upsertDecision(db, {
+      await upsertDecision(adapter, {
         pipeline_run_id: runId,
         phase: 'solutioning',
         category: 'architecture',
@@ -581,7 +590,7 @@ describe('AC2: Dynamic prompt token budget in single-dispatch story generation',
     }
 
     // Register architecture artifact to skip architecture generation
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       type: 'architecture',
@@ -617,7 +626,7 @@ describe('AC2: Dynamic prompt token budget in single-dispatch story generation',
     }
 
     const pack = makeSingleDispatchPack()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: SolutioningPhaseParams = { runId }
 
     const result = await runSolutioningPhase(deps, params)

@@ -12,6 +12,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
 import type { Database as DB } from 'better-sqlite3'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createHash } from 'node:crypto'
 
 // ---------------------------------------------------------------------------
@@ -63,10 +65,11 @@ const CREATE_DECISIONS_TABLE = `
   )
 `
 
-function createTestDb(): DB {
+function createTestDb(): { db: DB; adapter: DatabaseAdapter } {
   const db = new Database(':memory:')
   db.exec(CREATE_DECISIONS_TABLE)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 // ---------------------------------------------------------------------------
@@ -161,19 +164,22 @@ function setupEpicsFile(content: string): void {
 
 describe('AC4: Relaxed Heading Regex — parseEpicShards()', () => {
   let db: DB
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = createTestDb()
+    const setup = createTestDb()
+    db = setup.db
+    adapter = setup.adapter
   })
   afterEach(() => {
     db.close()
   })
 
-  it('parses ## (h2) epic headings and produces correct shard count', () => {
+  it('parses ## (h2) epic headings and produces correct shard count', async () => {
     setupEpicsFile(EPICS_H2)
-    const result = seedMethodologyContext(db, MOCK_PROJECT_ROOT)
+    const result = await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
     // Should seed 2 epic shards (Epic 1 and Epic 2)
-    const decisions = getDecisionsByPhase(db, 'implementation')
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
     const shards = decisions.filter((d) => d.category === 'epic-shard')
     expect(shards).toHaveLength(2)
     expect(shards.map((s) => s.key)).toContain('1')
@@ -181,10 +187,10 @@ describe('AC4: Relaxed Heading Regex — parseEpicShards()', () => {
     expect(result.decisionsCreated).toBeGreaterThanOrEqual(2)
   })
 
-  it('parses ### (h3) epic headings and produces correct shard count', () => {
+  it('parses ### (h3) epic headings and produces correct shard count', async () => {
     setupEpicsFile(EPICS_H3)
-    const result = seedMethodologyContext(db, MOCK_PROJECT_ROOT)
-    const decisions = getDecisionsByPhase(db, 'implementation')
+    const result = await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
     const shards = decisions.filter((d) => d.category === 'epic-shard')
     expect(shards).toHaveLength(2)
     expect(shards.map((s) => s.key)).toContain('1')
@@ -192,10 +198,10 @@ describe('AC4: Relaxed Heading Regex — parseEpicShards()', () => {
     expect(result.decisionsCreated).toBeGreaterThanOrEqual(2)
   })
 
-  it('parses #### (h4) epic headings and produces correct shard count', () => {
+  it('parses #### (h4) epic headings and produces correct shard count', async () => {
     setupEpicsFile(EPICS_H4)
-    const result = seedMethodologyContext(db, MOCK_PROJECT_ROOT)
-    const decisions = getDecisionsByPhase(db, 'implementation')
+    const result = await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
     const shards = decisions.filter((d) => d.category === 'epic-shard')
     expect(shards).toHaveLength(2)
     expect(shards.map((s) => s.key)).toContain('1')
@@ -203,10 +209,10 @@ describe('AC4: Relaxed Heading Regex — parseEpicShards()', () => {
     expect(result.decisionsCreated).toBeGreaterThanOrEqual(2)
   })
 
-  it('parses mixed heading depths (h2/h3/h4) correctly', () => {
+  it('parses mixed heading depths (h2/h3/h4) correctly', async () => {
     setupEpicsFile(EPICS_MIXED_DEPTH)
-    seedMethodologyContext(db, MOCK_PROJECT_ROOT)
-    const decisions = getDecisionsByPhase(db, 'implementation')
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
     const shards = decisions.filter((d) => d.category === 'epic-shard')
     expect(shards).toHaveLength(3)
     expect(shards.map((s) => s.key)).toContain('1')
@@ -214,10 +220,10 @@ describe('AC4: Relaxed Heading Regex — parseEpicShards()', () => {
     expect(shards.map((s) => s.key)).toContain('3')
   })
 
-  it('shard content contains the section text', () => {
+  it('shard content contains the section text', async () => {
     setupEpicsFile(EPICS_H3)
-    seedMethodologyContext(db, MOCK_PROJECT_ROOT)
-    const decisions = getDecisionsByPhase(db, 'implementation')
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
     const shard1 = decisions.find((d) => d.category === 'epic-shard' && d.key === '1')
     expect(shard1?.value).toContain('Foundation')
     expect(shard1?.value).toContain('Story 1-1')
@@ -230,19 +236,22 @@ describe('AC4: Relaxed Heading Regex — parseEpicShards()', () => {
 
 describe('AC7: MAX_EPIC_SHARD_CHARS = 12,000', () => {
   let db: DB
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = createTestDb()
+    const setup = createTestDb()
+    db = setup.db
+    adapter = setup.adapter
   })
   afterEach(() => {
     db.close()
   })
 
-  it('does not truncate content shorter than 12,000 chars', () => {
+  it('does not truncate content shorter than 12,000 chars', async () => {
     const longContent = '## Epic 1: Long Epic\n' + 'x'.repeat(11_000) + '\n\n## Epic 2: Short\nContent\n'
     setupEpicsFile(longContent)
-    seedMethodologyContext(db, MOCK_PROJECT_ROOT)
-    const decisions = getDecisionsByPhase(db, 'implementation')
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
     const shard1 = decisions.find((d) => d.category === 'epic-shard' && d.key === '1')
     // The shard should contain the full 11,000 char content (not truncated at 4,000)
     expect(shard1?.value.length).toBeGreaterThan(4_000)
@@ -256,20 +265,23 @@ describe('AC7: MAX_EPIC_SHARD_CHARS = 12,000', () => {
 
 describe('AC1/AC2/AC6: Content-hash comparison in seedEpicShards()', () => {
   let db: DB
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = createTestDb()
+    const setup = createTestDb()
+    db = setup.db
+    adapter = setup.adapter
   })
   afterEach(() => {
     db.close()
   })
 
-  it('AC6: seeds shards and stores hash when no epic-shard-hash exists (first run)', () => {
+  it('AC6: seeds shards and stores hash when no epic-shard-hash exists (first run)', async () => {
     setupEpicsFile(EPICS_H2)
-    const result = seedMethodologyContext(db, MOCK_PROJECT_ROOT)
+    const result = await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
 
     // Should have created epic-shard decisions
-    const decisions = getDecisionsByPhase(db, 'implementation')
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
     const shards = decisions.filter((d) => d.category === 'epic-shard')
     expect(shards.length).toBeGreaterThan(0)
 
@@ -285,30 +297,30 @@ describe('AC1/AC2/AC6: Content-hash comparison in seedEpicShards()', () => {
     expect(result.skippedCategories).not.toContain('epic-shard')
   })
 
-  it('AC2: skips re-seeding when hash matches (file unchanged)', () => {
+  it('AC2: skips re-seeding when hash matches (file unchanged)', async () => {
     setupEpicsFile(EPICS_H2)
     // First run — seeds everything
-    seedMethodologyContext(db, MOCK_PROJECT_ROOT)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
 
-    const decisionsAfterFirst = getDecisionsByPhase(db, 'implementation')
+    const decisionsAfterFirst = await getDecisionsByPhase(adapter, 'implementation')
     const shardCountAfterFirst = decisionsAfterFirst.filter((d) => d.category === 'epic-shard').length
 
     // Second run — same file content
-    const result2 = seedMethodologyContext(db, MOCK_PROJECT_ROOT)
+    const result2 = await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
 
     // Should be skipped (returns -1 internally → skippedCategories includes 'epic-shard')
     expect(result2.skippedCategories).toContain('epic-shard')
 
     // No new shards should have been added
-    const decisionsAfterSecond = getDecisionsByPhase(db, 'implementation')
+    const decisionsAfterSecond = await getDecisionsByPhase(adapter, 'implementation')
     const shardCountAfterSecond = decisionsAfterSecond.filter((d) => d.category === 'epic-shard').length
     expect(shardCountAfterSecond).toBe(shardCountAfterFirst)
   })
 
-  it('AC1: deletes stale shards and re-seeds when hash differs (file changed)', () => {
+  it('AC1: deletes stale shards and re-seeds when hash differs (file changed)', async () => {
     setupEpicsFile(EPICS_H2)
     // First run — seeds EPICS_H2 (2 epics)
-    seedMethodologyContext(db, MOCK_PROJECT_ROOT)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
 
     const THREE_EPIC_CONTENT = `
 ## Epic 1: Foundation
@@ -324,11 +336,11 @@ Story 3-1: New
     setupEpicsFile(THREE_EPIC_CONTENT)
 
     // Second run — different file content
-    const result2 = seedMethodologyContext(db, MOCK_PROJECT_ROOT)
+    const result2 = await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
     expect(result2.skippedCategories).not.toContain('epic-shard')
 
     // Should now have 3 shards (stale 2 were deleted and 3 new were seeded)
-    const decisions = getDecisionsByPhase(db, 'implementation')
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
     const shards = decisions.filter((d) => d.category === 'epic-shard')
     expect(shards).toHaveLength(3)
 
@@ -339,18 +351,18 @@ Story 3-1: New
     expect(hashDecision?.value).toBe(sha256(THREE_EPIC_CONTENT))
   })
 
-  it('AC1: stores updated hash after re-seeding', () => {
+  it('AC1: stores updated hash after re-seeding', async () => {
     // First: seed with original content
     setupEpicsFile(EPICS_H2)
-    seedMethodologyContext(db, MOCK_PROJECT_ROOT)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
 
     const MODIFIED_CONTENT = EPICS_H2 + '\n## Epic 3: Extra\nStory 3-1: Extra\n'
     setupEpicsFile(MODIFIED_CONTENT)
 
     // Second: re-seed with modified content
-    seedMethodologyContext(db, MOCK_PROJECT_ROOT)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
 
-    const decisions = getDecisionsByPhase(db, 'implementation')
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
     const hashDecision = decisions.find(
       (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file',
     )
@@ -364,20 +376,23 @@ Story 3-1: New
 
 describe('Integration: h3 headings, full seed-modify-re-seed flow', () => {
   let db: DB
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = createTestDb()
+    const setup = createTestDb()
+    db = setup.db
+    adapter = setup.adapter
   })
   afterEach(() => {
     db.close()
   })
 
-  it('seeds with h3 headings, verifies count, modifies, re-seeds and verifies updated content', () => {
+  it('seeds with h3 headings, verifies count, modifies, re-seeds and verifies updated content', async () => {
     // Step 1: seed with h3 headings (2 epics)
     setupEpicsFile(EPICS_H3)
-    seedMethodologyContext(db, MOCK_PROJECT_ROOT)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
 
-    let decisions = getDecisionsByPhase(db, 'implementation')
+    let decisions = await getDecisionsByPhase(adapter, 'implementation')
     let shards = decisions.filter((d) => d.category === 'epic-shard')
     expect(shards).toHaveLength(2)
     const shard1 = shards.find((s) => s.key === '1')
@@ -388,10 +403,10 @@ describe('Integration: h3 headings, full seed-modify-re-seed flow', () => {
     setupEpicsFile(MODIFIED_H3)
 
     // Step 3: re-seed
-    seedMethodologyContext(db, MOCK_PROJECT_ROOT)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
 
     // Step 4: verify updated content
-    decisions = getDecisionsByPhase(db, 'implementation')
+    decisions = await getDecisionsByPhase(adapter, 'implementation')
     shards = decisions.filter((d) => d.category === 'epic-shard')
     expect(shards).toHaveLength(3)
     const shard3 = shards.find((s) => s.key === '3')
@@ -404,13 +419,13 @@ describe('Integration: h3 headings, full seed-modify-re-seed flow', () => {
     expect(hashDecision?.value).toBe(sha256(MODIFIED_H3))
   })
 
-  it('returns correct per-story section for a known story key (AC3 integration)', () => {
+  it('returns correct per-story section for a known story key (AC3 integration)', async () => {
     // The per-story extraction is tested directly in create-story tests,
     // but verify that the shard content seeded contains story sections
     setupEpicsFile(EPICS_WITH_STORY_SECTIONS)
-    seedMethodologyContext(db, MOCK_PROJECT_ROOT)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
 
-    const decisions = getDecisionsByPhase(db, 'implementation')
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
     const shard23 = decisions.find((d) => d.category === 'epic-shard' && d.key === '23')
     expect(shard23?.value).toContain('Story 23-1')
     expect(shard23?.value).toContain('Story 23-2')

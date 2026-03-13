@@ -6,7 +6,7 @@
  * them as a markdown summary for prompt injection.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import { getDecisionsByCategory } from '../../persistence/queries/decisions.js'
 import { OPERATIONAL_FINDING, STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME, ADVISORY_NOTES } from '../../persistence/schemas/operational.js'
 import { createLogger } from '../../utils/logger.js'
@@ -22,13 +22,13 @@ const MAX_CHARS = 2000
  *
  * Returns an empty string if no findings exist (AC5: graceful fallback).
  */
-export function getProjectFindings(db: BetterSqlite3Database): string {
+export async function getProjectFindings(db: DatabaseAdapter): Promise<string> {
   try {
-    const outcomes = getDecisionsByCategory(db, STORY_OUTCOME)
-    const operational = getDecisionsByCategory(db, OPERATIONAL_FINDING)
-    const metrics = getDecisionsByCategory(db, STORY_METRICS)
-    const diagnoses = getDecisionsByCategory(db, ESCALATION_DIAGNOSIS)
-    const advisoryNotes = getDecisionsByCategory(db, ADVISORY_NOTES)
+    const outcomes = await getDecisionsByCategory(db, STORY_OUTCOME)
+    const operational = await getDecisionsByCategory(db, OPERATIONAL_FINDING)
+    const metrics = await getDecisionsByCategory(db, STORY_METRICS)
+    const diagnoses = await getDecisionsByCategory(db, ESCALATION_DIAGNOSIS)
+    const advisoryNotes = await getDecisionsByCategory(db, ADVISORY_NOTES)
 
     // No findings at all — return empty (AC5)
     if (outcomes.length === 0 && operational.length === 0 && metrics.length === 0 && diagnoses.length === 0 && advisoryNotes.length === 0) {

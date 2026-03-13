@@ -199,7 +199,7 @@ export async function runCritiqueLoop(
     // 3. Store critique result in decision store (AC7)
     // ------------------------------------------------------------------
     try {
-      upsertDecision(deps.db, {
+      await upsertDecision(deps.db, {
         pipeline_run_id: runId,
         phase,
         category: 'critique',
@@ -208,7 +208,7 @@ export async function runCritiqueLoop(
         rationale: `Critique loop iteration ${i + 1} of ${maxIterations}`,
       })
 
-      upsertDecision(deps.db, {
+      await upsertDecision(deps.db, {
         pipeline_run_id: runId,
         phase,
         category: 'critique',
@@ -217,7 +217,7 @@ export async function runCritiqueLoop(
       })
 
       if (critiqueOutput.issues.length > 0) {
-        upsertDecision(deps.db, {
+        await upsertDecision(deps.db, {
           pipeline_run_id: runId,
           phase,
           category: 'critique',

@@ -208,13 +208,13 @@ export function formatDecisionsForInjection(
  * @param stepOutputs - Map of step name → raw parsed output from prior steps
  * @returns Resolved string value
  */
-export function resolveContext(
+export async function resolveContext(
   ref: ContextRef,
   deps: PhaseDeps,
   runId: string,
   params: Record<string, string>,
   stepOutputs: Map<string, Record<string, unknown>>,
-): string {
+): Promise<string> {
   const { source } = ref
 
   // param:key — read from runtime params
@@ -229,7 +229,7 @@ export function resolveContext(
     const [phase, category] = path.split('.')
     if (!phase || !category) return ''
 
-    const decisions = getDecisionsByPhaseForRun(deps.db, runId, phase)
+    const decisions = await getDecisionsByPhaseForRun(deps.db, runId, phase)
     const filtered = decisions.filter((d) => d.category === category)
 
     return formatDecisionsForInjection(
@@ -309,12 +309,12 @@ export async function runSteps(
       // 2. Resolve context references and inject into template
       let prompt = template
       for (const ref of step.context) {
-        const value = resolveContext(ref, deps, runId, params, stepOutputs)
+        const value = await resolveContext(ref, deps, runId, params, stepOutputs)
         prompt = prompt.replace(`{{${ref.placeholder}}}`, value)
       }
 
       // 3. Validate token budget (use dynamic budget based on decision count)
-      const allDecisions = getDecisionsByPhaseForRun(deps.db, runId, phase)
+      const allDecisions = await getDecisionsByPhaseForRun(deps.db, runId, phase)
       const budgetTokens = calculateDynamicBudget(4_000, allDecisions.length)
       let estimatedTokens = Math.ceil(prompt.length / 4)
 
@@ -337,7 +337,7 @@ export async function runSteps(
               const path = ref.source.slice('decision:'.length)
               const [decPhase, decCategory] = path.split('.')
               if (decPhase && decCategory) {
-                const decisions = getDecisionsByPhaseForRun(deps.db, runId, decPhase)
+                const decisions = await getDecisionsByPhaseForRun(deps.db, runId, decPhase)
                 const filtered = decisions.filter((d) => d.category === decCategory)
                 const budgetChars = budgetTokens * 4
                 const availableChars = Math.max(200, Math.floor(budgetChars / decisionRefs.length))
@@ -346,10 +346,10 @@ export async function runSteps(
                   availableChars,
                 )
               } else {
-                value = resolveContext(ref, deps, runId, params, stepOutputs)
+                value = await resolveContext(ref, deps, runId, params, stepOutputs)
               }
             } else {
-              value = resolveContext(ref, deps, runId, params, stepOutputs)
+              value = await resolveContext(ref, deps, runId, params, stepOutputs)
             }
             summarizedPrompt = summarizedPrompt.replace(`{{${ref.placeholder}}}`, value)
           }
@@ -441,7 +441,7 @@ export async function runSteps(
           // Persist each array element with step-name-prefixed keys to avoid
           // key collisions when multiple steps persist to the same category.
           for (const [index, item] of fieldValue.entries()) {
-            upsertDecision(deps.db, {
+            await upsertDecision(deps.db, {
               pipeline_run_id: runId,
               phase,
               category: mapping.category,
@@ -450,7 +450,7 @@ export async function runSteps(
             })
           }
         } else if (typeof fieldValue === 'object' && fieldValue !== null) {
-          upsertDecision(deps.db, {
+          await upsertDecision(deps.db, {
             pipeline_run_id: runId,
             phase,
             category: mapping.category,
@@ -458,7 +458,7 @@ export async function runSteps(
             value: JSON.stringify(fieldValue),
           })
         } else {
-          upsertDecision(deps.db, {
+          await upsertDecision(deps.db, {
             pipeline_run_id: runId,
             phase,
             category: mapping.category,
@@ -471,7 +471,7 @@ export async function runSteps(
       // 9. Register artifact if configured
       let artifactId: string | undefined
       if (step.registerArtifact) {
-        const artifact = registerArtifact(deps.db, {
+        const artifact = await registerArtifact(deps.db, {
           pipeline_run_id: runId,
           phase,
           type: step.registerArtifact.type,
@@ -571,7 +571,7 @@ export async function runSteps(
                 const elicitParsed = elicitResult.parsed as { result: string; insights: string }
                 if (elicitParsed.result === 'success' && elicitParsed.insights) {
                   // Store method name
-                  upsertDecision(deps.db, {
+                  await upsertDecision(deps.db, {
                     pipeline_run_id: runId,
                     phase,
                     category: 'elicitation',
@@ -579,7 +579,7 @@ export async function runSteps(
                     value: method.name,
                   })
                   // Store insights
-                  upsertDecision(deps.db, {
+                  await upsertDecision(deps.db, {
                     pipeline_run_id: runId,
                     phase,
                     category: 'elicitation',

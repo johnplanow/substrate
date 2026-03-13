@@ -166,7 +166,7 @@ export async function runUxDesignPhase(
     // If the artifact wasn't registered by the step runner (e.g., fallback path),
     // register it now using the decision store as the artifact path.
     if (!artifactId) {
-      const artifact = registerArtifact(deps.db, {
+      const artifact = await registerArtifact(deps.db, {
         pipeline_run_id: runId,
         phase: 'ux-design',
         type: 'ux-design',

@@ -6,7 +6,7 @@
  * execution, pause/resume control, and SQLite state persistence.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import type { MethodologyPack } from '../methodology-pack/types.js'
 import type { ContextCompiler } from '../context-compiler/context-compiler.js'
 import type { Dispatcher } from '../agent-dispatch/types.js'
@@ -67,8 +67,8 @@ import type { RepoMapInjector } from '../context-compiler/index.js'
  * Dependency injection container for the implementation orchestrator.
  */
 export interface OrchestratorDeps {
-  /** Better-SQLite3 database instance */
-  db: BetterSqlite3Database
+  /** Database adapter instance */
+  db: DatabaseAdapter
   /** Loaded methodology pack */
   pack: MethodologyPack
   /** Context compiler for assembling decision-store context */
@@ -242,7 +242,7 @@ export function createImplementationOrchestrator(
     return JSON.stringify(durations)
   }
 
-  function writeStoryMetricsBestEffort(storyKey: string, result: string, reviewCycles: number): void {
+  async function writeStoryMetricsBestEffort(storyKey: string, result: string, reviewCycles: number): Promise<void> {
     if (config.pipelineRunId === undefined) return
     try {
       const storyState = _stories.get(storyKey)
@@ -255,10 +255,10 @@ export function createImplementationOrchestrator(
       const wallClockMs = startedAt
         ? new Date(completedAt).getTime() - new Date(startedAt).getTime()
         : 0
-      const tokenAgg = aggregateTokenUsageForStory(db, config.pipelineRunId, storyKey)
+      const tokenAgg = await aggregateTokenUsageForStory(db, config.pipelineRunId, storyKey)
       // Capture phase durations JSON once so it can be reused for the event payload
       const phaseDurationsJson = buildPhaseDurationsJson(storyKey)
-      writeStoryMetrics(db, {
+      await writeStoryMetrics(db, {
         run_id: config.pipelineRunId,
         story_key: storyKey,
         result,
@@ -295,7 +295,7 @@ export function createImplementationOrchestrator(
       // AC4 of Story 21-1: also write story-metrics decision for queryable insight
       try {
         const runId = config.pipelineRunId ?? 'unknown'
-        createDecision(db, {
+        await createDecision(db, {
           pipeline_run_id: config.pipelineRunId,
           phase: 'implementation',
           category: STORY_METRICS,
@@ -347,15 +347,15 @@ export function createImplementationOrchestrator(
    * Records outcome, review cycles, and any recurring issue patterns for
    * future prompt injection via the learning loop.
    */
-  function writeStoryOutcomeBestEffort(
+  async function writeStoryOutcomeBestEffort(
     storyKey: string,
     outcome: 'complete' | 'escalated',
     reviewCycles: number,
     issuePatterns?: string[],
-  ): void {
+  ): Promise<void> {
     if (config.pipelineRunId === undefined) return
     try {
-      createDecision(db, {
+      await createDecision(db, {
         pipeline_run_id: config.pipelineRunId,
         phase: 'implementation',
         category: STORY_OUTCOME,
@@ -377,12 +377,12 @@ export function createImplementationOrchestrator(
    * Emit an escalation event with structured diagnosis and persist the
    * diagnosis to the decision store (Story 22-3).
    */
-  function emitEscalation(payload: {
+  async function emitEscalation(payload: {
     storyKey: string
     lastVerdict: string
     reviewCycles: number
     issues: unknown[]
-  }): void {
+  }): Promise<void> {
     const diagnosis = generateEscalationDiagnosis(
       payload.issues,
       payload.reviewCycles,
@@ -397,7 +397,7 @@ export function createImplementationOrchestrator(
     // Persist diagnosis to decision store (Story 22-3, AC3)
     if (config.pipelineRunId !== undefined) {
       try {
-        createDecision(db, {
+        await createDecision(db, {
           pipeline_run_id: config.pipelineRunId,
           phase: 'implementation',
           category: ESCALATION_DIAGNOSIS,
@@ -412,7 +412,7 @@ export function createImplementationOrchestrator(
 
     // Persist story outcome for learning loop (Story 22-1, AC4)
     const issuePatterns = extractIssuePatterns(payload.issues)
-    writeStoryOutcomeBestEffort(payload.storyKey, 'escalated', payload.reviewCycles, issuePatterns)
+    await writeStoryOutcomeBestEffort(payload.storyKey, 'escalated', payload.reviewCycles, issuePatterns)
   }
 
   /**
@@ -528,12 +528,12 @@ export function createImplementationOrchestrator(
     }
   }
 
-  function persistState(): void {
+  async function persistState(): Promise<void> {
     if (config.pipelineRunId === undefined) return
     recordProgress()
     try {
       const serialized = JSON.stringify(getStatus())
-      updatePipelineRun(db, config.pipelineRunId, {
+      await updatePipelineRun(db, config.pipelineRunId, {
         current_phase: 'implementation',
         token_usage_json: serialized,
       })
@@ -717,8 +717,8 @@ export function createImplementationOrchestrator(
         persistStoryState(storyKey, memPressureState).catch((err) =>
           logger.warn({ err, storyKey }, 'StateStore write failed after memory-pressure escalation'),
         )
-        writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
-        emitEscalation({
+        await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+        await emitEscalation({
           storyKey,
           lastVerdict: 'memory_pressure_exhausted',
           reviewCycles: 0,
@@ -726,7 +726,7 @@ export function createImplementationOrchestrator(
             `Memory pressure exhausted after ${MEMORY_PRESSURE_BACKOFF_MS.length} backoff attempts`,
           ],
         })
-        persistState()
+        await persistState()
         return
       }
     }
@@ -775,7 +775,7 @@ export function createImplementationOrchestrator(
               phase: 'IN_STORY_CREATION',
               result: { result: 'success', story_file: storyFilePath, story_key: storyKey },
             })
-            persistState()
+            await persistState()
           }
         }
       } catch {
@@ -814,7 +814,7 @@ export function createImplementationOrchestrator(
         }
       }
 
-      persistState()
+      await persistState()
 
       if (createResult.result === 'failed') {
         const errMsg = createResult.error ?? 'create-story failed'
@@ -823,14 +823,14 @@ export function createImplementationOrchestrator(
           error: errMsg,
           completedAt: new Date().toISOString(),
         })
-        writeStoryMetricsBestEffort(storyKey, 'failed', 0)
-        emitEscalation({
+        await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+        await emitEscalation({
           storyKey,
           lastVerdict: 'create-story-failed',
           reviewCycles: 0,
           issues: [errMsg],
         })
-        persistState()
+        await persistState()
         return
       }
 
@@ -841,14 +841,14 @@ export function createImplementationOrchestrator(
           error: errMsg,
           completedAt: new Date().toISOString(),
         })
-        writeStoryMetricsBestEffort(storyKey, 'failed', 0)
-        emitEscalation({
+        await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+        await emitEscalation({
           storyKey,
           lastVerdict: 'create-story-no-file',
           reviewCycles: 0,
           issues: [errMsg],
         })
-        persistState()
+        await persistState()
         return
       }
 
@@ -861,14 +861,14 @@ export function createImplementationOrchestrator(
         error: errMsg,
         completedAt: new Date().toISOString(),
       })
-      writeStoryMetricsBestEffort(storyKey, 'failed', 0)
-      emitEscalation({
+      await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+      await emitEscalation({
         storyKey,
         lastVerdict: 'create-story-exception',
         reviewCycles: 0,
         issues: [errMsg],
       })
-      persistState()
+      await persistState()
       return
     }
     } // end if (storyFilePath === undefined)
@@ -895,7 +895,7 @@ export function createImplementationOrchestrator(
           } else {
             // Fallback: use decision store when StateStore is not available.
             for (const contract of contracts) {
-              createDecision(db, {
+              await createDecision(db, {
                 pipeline_run_id: config.pipelineRunId ?? null,
                 phase: 'implementation',
                 category: 'interface-contract',
@@ -930,7 +930,7 @@ export function createImplementationOrchestrator(
 
     startPhase(storyKey, 'test-plan')
     updateStory(storyKey, { phase: 'IN_TEST_PLANNING' as StoryPhase })
-    persistState()
+    await persistState()
 
     let testPlanPhaseResult: 'success' | 'failed' = 'failed'
     let testPlanTokenUsage: { input: number; output: number } | undefined
@@ -981,7 +981,7 @@ export function createImplementationOrchestrator(
 
     startPhase(storyKey, 'dev-story')
     updateStory(storyKey, { phase: 'IN_DEV' as StoryPhase })
-    persistState()
+    await persistState()
 
     let devFilesModified: string[] = []
     // Per-batch file tracking for batched review (empty when single dispatch)
@@ -1128,7 +1128,7 @@ export function createImplementationOrchestrator(
             phase: 'IN_DEV',
             result: batchResult,
           })
-          persistState()
+          await persistState()
         }
 
         devFilesModified = Array.from(allFilesModified)
@@ -1167,7 +1167,7 @@ export function createImplementationOrchestrator(
           phase: 'IN_DEV',
           result: devResult,
         })
-        persistState()
+        await persistState()
 
         if (devResult.result === 'success') {
           devStoryWasSuccess = true
@@ -1190,14 +1190,14 @@ export function createImplementationOrchestrator(
         error: errMsg,
         completedAt: new Date().toISOString(),
       })
-      writeStoryMetricsBestEffort(storyKey, 'failed', 0)
-      emitEscalation({
+      await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+      await emitEscalation({
         storyKey,
         lastVerdict: 'dev-story-exception',
         reviewCycles: 0,
         issues: [errMsg],
       })
-      persistState()
+      await persistState()
       return
     }
 
@@ -1225,14 +1225,14 @@ export function createImplementationOrchestrator(
           error: 'zero-diff-on-complete',
           completedAt: new Date().toISOString(),
         })
-        writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
-        emitEscalation({
+        await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+        await emitEscalation({
           storyKey,
           lastVerdict: 'zero-diff-on-complete',
           reviewCycles: 0,
           issues: ['dev-story completed with COMPLETE verdict but no file changes detected in git diff'],
         })
-        persistState()
+        await persistState()
         return
       }
     }
@@ -1277,14 +1277,14 @@ export function createImplementationOrchestrator(
           error: reason,
           completedAt: new Date().toISOString(),
         })
-        writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
-        emitEscalation({
+        await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+        await emitEscalation({
           storyKey,
           lastVerdict: reason,
           reviewCycles: 0,
           issues: [truncatedOutput],
         })
-        persistState()
+        await persistState()
         return
       }
       // status === 'skipped': gate disabled — proceed directly to code-review
@@ -1501,7 +1501,7 @@ export function createImplementationOrchestrator(
             : reviewResult.rawOutput
               ? `raw:${reviewResult.rawOutput.slice(0, 500)}`
               : undefined
-          registerArtifact(db, {
+          await registerArtifact(db, {
             pipeline_run_id: config.pipelineRunId,
             phase: 'code-review',
             type: 'review-result',
@@ -1514,7 +1514,7 @@ export function createImplementationOrchestrator(
         }
 
         updateStory(storyKey, { lastVerdict: verdict })
-        persistState()
+        await persistState()
 
         // AC3 + AC4: Emit pipeline summary log line with decomposition and verdict info
         {
@@ -1548,14 +1548,14 @@ export function createImplementationOrchestrator(
           error: errMsg,
           completedAt: new Date().toISOString(),
         })
-        writeStoryMetricsBestEffort(storyKey, 'failed', reviewCycles)
-        emitEscalation({
+        await writeStoryMetricsBestEffort(storyKey, 'failed', reviewCycles)
+        await emitEscalation({
           storyKey,
           lastVerdict: 'code-review-exception',
           reviewCycles,
           issues: [errMsg],
         })
-        persistState()
+        await persistState()
         return
       }
 
@@ -1565,15 +1565,15 @@ export function createImplementationOrchestrator(
           phase: 'COMPLETE' as StoryPhase,
           completedAt: new Date().toISOString(),
         })
-        writeStoryMetricsBestEffort(storyKey, verdict, reviewCycles + 1)
-        writeStoryOutcomeBestEffort(storyKey, 'complete', reviewCycles + 1)
+        await writeStoryMetricsBestEffort(storyKey, verdict, reviewCycles + 1)
+        await writeStoryOutcomeBestEffort(storyKey, 'complete', reviewCycles + 1)
         eventBus.emit('orchestrator:story-complete', { storyKey, reviewCycles })
-        persistState()
+        await persistState()
 
         // LGTM_WITH_NOTES: persist advisory notes to decision store for learning loop
         if (verdict === 'LGTM_WITH_NOTES' && reviewResult.notes && config.pipelineRunId) {
           try {
-            createDecision(db, {
+            await createDecision(db, {
               pipeline_run_id: config.pipelineRunId,
               phase: 'implementation',
               category: ADVISORY_NOTES,
@@ -1669,7 +1669,7 @@ export function createImplementationOrchestrator(
             },
             'Test expansion analysis complete',
           )
-          createDecision(db, {
+          await createDecision(db, {
             pipeline_run_id: config.pipelineRunId ?? 'unknown',
             phase: 'implementation',
             category: TEST_EXPANSION_FINDING,
@@ -1699,14 +1699,14 @@ export function createImplementationOrchestrator(
             reviewCycles: finalReviewCycles,
             completedAt: new Date().toISOString(),
           })
-          writeStoryMetricsBestEffort(storyKey, 'escalated', finalReviewCycles)
-          emitEscalation({
+          await writeStoryMetricsBestEffort(storyKey, 'escalated', finalReviewCycles)
+          await emitEscalation({
             storyKey,
             lastVerdict: verdict,
             reviewCycles: finalReviewCycles,
             issues: issueList,
           })
-          persistState()
+          await persistState()
           return
         }
 
@@ -1747,7 +1747,7 @@ export function createImplementationOrchestrator(
             }
             let archConstraints = ''
             try {
-              const decisions = getDecisionsByPhase(db, 'solutioning')
+              const decisions = await getDecisionsByPhase(db, 'solutioning')
               const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
               archConstraints = constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
             } catch { /* arch constraints are optional */ }
@@ -1800,13 +1800,13 @@ export function createImplementationOrchestrator(
           reviewCycles: finalReviewCycles,
           completedAt: new Date().toISOString(),
         })
-        writeStoryMetricsBestEffort(storyKey, verdict, finalReviewCycles)
-        writeStoryOutcomeBestEffort(storyKey, 'complete', finalReviewCycles)
+        await writeStoryMetricsBestEffort(storyKey, verdict, finalReviewCycles)
+        await writeStoryOutcomeBestEffort(storyKey, 'complete', finalReviewCycles)
         eventBus.emit('orchestrator:story-complete', {
           storyKey,
           reviewCycles: finalReviewCycles,
         })
-        persistState()
+        await persistState()
         keepReviewing = false
         return
       }
@@ -1877,7 +1877,7 @@ export function createImplementationOrchestrator(
           // Query arch constraints from decision store
           let archConstraints = ''
           try {
-            const decisions = getDecisionsByPhase(db, 'solutioning')
+            const decisions = await getDecisionsByPhase(db, 'solutioning')
             const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
             archConstraints = constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
           } catch { /* arch constraints are optional */ }
@@ -1949,14 +1949,14 @@ export function createImplementationOrchestrator(
             error: `fix-dispatch-timeout (${taskType})`,
             completedAt: new Date().toISOString(),
           })
-          writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
-          emitEscalation({
+          await writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
+          await emitEscalation({
             storyKey,
             lastVerdict: verdict,
             reviewCycles: reviewCycles + 1,
             issues: issueList,
           })
-          persistState()
+          await persistState()
           return
         }
 
@@ -1970,14 +1970,14 @@ export function createImplementationOrchestrator(
               error: 'major-rework-dispatch-failed',
               completedAt: new Date().toISOString(),
             })
-            writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
-            emitEscalation({
+            await writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
+            await emitEscalation({
               storyKey,
               lastVerdict: verdict,
               reviewCycles: reviewCycles + 1,
               issues: issueList,
             })
-            persistState()
+            await persistState()
             return
           }
           logger.warn({ storyKey, taskType, exitCode: fixResult.exitCode }, 'Fix dispatch failed')
@@ -2085,7 +2085,7 @@ export function createImplementationOrchestrator(
       storyKeys,
       pipelineRunId: config.pipelineRunId,
     })
-    persistState()
+    await persistState()
     recordProgress()
     // Only start heartbeat/watchdog when --events mode is active (AC1, Issue 5)
     if (config.enableHeartbeat) {
@@ -2096,7 +2096,7 @@ export function createImplementationOrchestrator(
     const _startupTimings: Record<string, number> = {}
     if (projectRoot !== undefined) {
       const seedStart = Date.now()
-      const seedResult = seedMethodologyContext(db, projectRoot)
+      const seedResult = await seedMethodologyContext(db, projectRoot)
       _startupTimings.seedMethodologyMs = Date.now() - seedStart
       if (seedResult.decisionsCreated > 0) {
         logger.info(
@@ -2197,7 +2197,7 @@ export function createImplementationOrchestrator(
         }))
       } else {
         // Fallback: use decision store when StateStore is not available.
-        const interfaceContractDecisions = getDecisionsByCategory(db, 'interface-contract')
+        const interfaceContractDecisions = await getDecisionsByCategory(db, 'interface-contract')
         contractDeclarations = interfaceContractDecisions
           .map((d) => {
             try {
@@ -2273,7 +2273,7 @@ export function createImplementationOrchestrator(
 
           _state = 'FAILED'
           _completedAt = new Date().toISOString()
-          persistState()
+          await persistState()
           return getStatus()
         }
 
@@ -2295,7 +2295,7 @@ export function createImplementationOrchestrator(
         stopHeartbeat()
         _state = 'FAILED'
         _completedAt = new Date().toISOString()
-        persistState()
+        await persistState()
         logger.error({ err }, 'Orchestrator failed with unhandled error')
         return getStatus()
       }
@@ -2425,7 +2425,7 @@ export function createImplementationOrchestrator(
         escalated,
         failed,
       })
-      persistState()
+      await persistState()
 
       return getStatus()
     } finally {

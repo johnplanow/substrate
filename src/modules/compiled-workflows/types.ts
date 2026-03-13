@@ -5,7 +5,7 @@
  * result types for each compiled workflow function.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import type { MethodologyPack } from '../methodology-pack/types.js'
 import type { ContextCompiler } from '../context-compiler/context-compiler.js'
 import type { Dispatcher } from '../agent-dispatch/types.js'
@@ -21,8 +21,8 @@ import type { RepoMapInjector } from '../context-compiler/index.js'
  * All services are injected — no direct imports of implementation files.
  */
 export interface WorkflowDeps {
-  /** Better-SQLite3 database instance (ADR-003: SQLite WAL) */
-  db: BetterSqlite3Database
+  /** Database adapter instance (ADR-003) */
+  db: DatabaseAdapter
   /** Loaded methodology pack providing compiled prompt templates */
   pack: MethodologyPack
   /** Context compiler for assembling decision-store context */

@@ -30,6 +30,8 @@ const mockPrepare = vi.fn()
 
 let mockDb: Record<string, unknown>
 
+const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+
 vi.mock('../../../persistence/database.js', () => ({
   DatabaseWrapper: vi.fn().mockImplementation(() => ({
     open: mockOpen,
@@ -39,6 +41,9 @@ vi.mock('../../../persistence/database.js', () => ({
     },
     get isOpen() {
       return true
+    },
+    get adapter() {
+      return mockAdapter
     },
   })),
 }))
@@ -69,15 +74,15 @@ vi.mock('crypto', () => ({
 }))
 
 // Mock amendment query functions (Story 12-7)
-const mockCreateAmendmentRun = vi.fn().mockReturnValue('test-amendment-run-id')
+const mockCreateAmendmentRun = vi.fn().mockResolvedValue('test-amendment-run-id')
 const mockGetLatestCompletedRun = vi.fn()
-const mockGetActiveDecisions = vi.fn().mockReturnValue([])
+const mockGetActiveDecisions = vi.fn().mockResolvedValue([])
 
 vi.mock('../../../persistence/queries/amendments.js', () => ({
   createAmendmentRun: (...args: unknown[]) => mockCreateAmendmentRun(...args),
   getLatestCompletedRun: (...args: unknown[]) => mockGetLatestCompletedRun(...args),
   getActiveDecisions: (...args: unknown[]) => mockGetActiveDecisions(...args),
-  loadParentRunDecisions: vi.fn().mockReturnValue([]),
+  loadParentRunDecisions: vi.fn().mockResolvedValue([]),
 }))
 
 // Mock amendment context handler (Story 12-8)
@@ -124,13 +129,13 @@ vi.mock('../../../modules/methodology-pack/pack-loader.js', () => ({
 
 // Mock decisions queries (needed by other parts of the module)
 vi.mock('../../../persistence/queries/decisions.js', () => ({
-  createPipelineRun: vi.fn().mockReturnValue({ id: 'test-run-id' }),
-  createDecision: vi.fn().mockReturnValue({ id: 'mock-decision-id' }),
-  getLatestRun: vi.fn(),
-  getDecisionsByPhaseForRun: vi.fn().mockReturnValue([]),
-  addTokenUsage: vi.fn(),
-  getTokenUsageSummary: vi.fn().mockReturnValue([]),
-  updatePipelineRun: vi.fn(),
+  createPipelineRun: vi.fn().mockResolvedValue({ id: 'test-run-id' }),
+  createDecision: vi.fn().mockResolvedValue({ id: 'mock-decision-id' }),
+  getLatestRun: vi.fn().mockResolvedValue(undefined),
+  getDecisionsByPhaseForRun: vi.fn().mockResolvedValue([]),
+  addTokenUsage: vi.fn().mockResolvedValue(undefined),
+  getTokenUsageSummary: vi.fn().mockResolvedValue([]),
+  updatePipelineRun: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Mock other modules (needed to import auto.ts)
@@ -227,7 +232,7 @@ beforeEach(() => {
   mockCreateAmendmentContextHandler.mockReturnValue(makeHandler())
 
   // Default: getLatestCompletedRun returns a completed run
-  mockGetLatestCompletedRun.mockReturnValue({ id: 'parent-run-id', status: 'completed' })
+  mockGetLatestCompletedRun.mockResolvedValue({ id: 'parent-run-id', status: 'completed' })
 
   // Default: stop-after gate
   mockCreateStopAfterGate.mockReturnValue({ shouldHalt: mockShouldHalt, isStopPhase: mockIsStopPhase })
@@ -440,7 +445,7 @@ describe('AC4: getLatestCompletedRun() when --run-id not provided', () => {
   })
 
   it('exits 1 with error message when no completed run found', async () => {
-    mockGetLatestCompletedRun.mockReturnValueOnce(undefined)
+    mockGetLatestCompletedRun.mockResolvedValueOnce(undefined)
 
     const result = await runAmendAction({ ...baseOptions })
 
@@ -456,7 +461,7 @@ describe('AC4: getLatestCompletedRun() when --run-id not provided', () => {
   })
 
   it('uses the ID from the latest completed run', async () => {
-    mockGetLatestCompletedRun.mockReturnValueOnce({ id: 'latest-completed-id', status: 'completed' })
+    mockGetLatestCompletedRun.mockResolvedValueOnce({ id: 'latest-completed-id', status: 'completed' })
 
     await runAmendAction({ ...baseOptions })
 

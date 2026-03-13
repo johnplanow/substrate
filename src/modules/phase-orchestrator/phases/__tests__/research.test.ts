@@ -18,6 +18,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
   createPipelineRun,
   getArtifactByTypeForRun,
@@ -33,15 +35,16 @@ import type { Dispatcher, DispatchResult } from '../../../agent-dispatch/types.j
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'research-phase-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'research' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'research' })
   return run.id
 }
 
@@ -135,12 +138,12 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
 ): PhaseDeps {
   return {
-    db,
+    db: adapter,
     pack: pack ?? makePack(),
     contextCompiler: makeContextCompiler(),
     dispatcher,
@@ -263,14 +266,16 @@ describe('buildResearchSteps - step definitions (AC1, AC2, AC3)', () => {
 
 describe('runResearchPhase - execution (AC6, AC7)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -283,7 +288,7 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       RESEARCH_DISCOVERY_OUTPUT,
       RESEARCH_SYNTHESIS_OUTPUT,
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
     const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
 
     const result = await runResearchPhase(deps, params)
@@ -298,12 +303,12 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       RESEARCH_DISCOVERY_OUTPUT,
       RESEARCH_SYNTHESIS_OUTPUT,
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
     const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
 
     await runResearchPhase(deps, params)
 
-    const artifact = getArtifactByTypeForRun(db, runId, 'research', 'research-findings')
+    const artifact = await getArtifactByTypeForRun(adapter, runId, 'research', 'research-findings')
     expect(artifact).toBeDefined()
     expect(artifact?.phase).toBe('research')
     expect(artifact?.type).toBe('research-findings')
@@ -314,7 +319,7 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       RESEARCH_DISCOVERY_OUTPUT,
       RESEARCH_SYNTHESIS_OUTPUT,
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
     const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
 
     const result = await runResearchPhase(deps, params)
@@ -329,7 +334,7 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       RESEARCH_DISCOVERY_OUTPUT,
       RESEARCH_SYNTHESIS_OUTPUT,
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
     const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
 
     const result = await runResearchPhase(deps, params)
@@ -343,12 +348,12 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       RESEARCH_DISCOVERY_OUTPUT,
       RESEARCH_SYNTHESIS_OUTPUT,
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
     const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
 
     await runResearchPhase(deps, params)
 
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'research')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'research')
     // Verify decisions are stored under the 'research' category
     const researchDecisions = decisions.filter((d) => d.category === 'research')
     expect(researchDecisions.length).toBeGreaterThan(0)
@@ -383,7 +388,7 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       getRunning: vi.fn().mockReturnValue(0),
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
     const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
 
     const result = await runResearchPhase(deps, params)
@@ -416,7 +421,7 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       getRunning: vi.fn().mockReturnValue(0),
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
     const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
 
     await runResearchPhase(deps, params)
@@ -427,7 +432,7 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
 
   it('returns tokenUsage with zeros on complete failure (AC7)', async () => {
     const deps: PhaseDeps = {
-      db,
+      db: adapter,
       pack: {
         ...makePack(),
         getPrompt: vi.fn().mockRejectedValue(new Error('Pack not found')),
@@ -450,7 +455,7 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       RESEARCH_DISCOVERY_OUTPUT,
       RESEARCH_SYNTHESIS_OUTPUT,
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
     const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
 
     const result = await runResearchPhase(deps, params)

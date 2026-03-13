@@ -14,6 +14,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
   createPipelineRun,
   createDecision,
@@ -30,48 +32,49 @@ import type { Dispatcher, DispatchResult } from '../../../agent-dispatch/types.j
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'planning-multistep-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
-function seedAnalysisDecisions(db: BetterSqlite3Database, runId: string): void {
-  createDecision(db, {
+async function seedAnalysisDecisions(adapter: DatabaseAdapter, runId: string): Promise<void> {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'analysis',
     category: 'product-brief',
     key: 'problem_statement',
     value: 'Users struggle with fragmented task management across distributed teams.',
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'analysis',
     category: 'product-brief',
     key: 'target_users',
     value: JSON.stringify(['project managers', 'software developers']),
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'analysis',
     category: 'product-brief',
     key: 'core_features',
     value: JSON.stringify(['task board', 'assignment', 'progress tracking']),
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'analysis',
     category: 'product-brief',
     key: 'success_metrics',
     value: JSON.stringify(['50% reduction in missed deadlines']),
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'analysis',
     category: 'product-brief',
@@ -250,11 +253,11 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack: MethodologyPack,
 ): PhaseDeps {
-  return { db, pack, contextCompiler: makeContextCompiler(), dispatcher }
+  return { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
 
 // ---------------------------------------------------------------------------
@@ -263,15 +266,17 @@ function makeDeps(
 
 describe('runPlanningPhase() multi-step path', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
-    seedAnalysisDecisions(db, runId)
+    runId = await createTestRun(adapter)
+    await seedAnalysisDecisions(adapter, runId)
   })
 
   afterEach(() => {
@@ -282,7 +287,7 @@ describe('runPlanningPhase() multi-step path', () => {
   it('uses 3-step path when manifest defines steps', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: PlanningPhaseParams = { runId }
 
     const result = await runPlanningPhase(deps, params)
@@ -295,12 +300,12 @@ describe('runPlanningPhase() multi-step path', () => {
   it('persists classification, FR, and NFR decisions', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: PlanningPhaseParams = { runId }
 
     await runPlanningPhase(deps, params)
 
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'planning')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'planning')
 
     // classification: project_type, vision, key_goals
     const classDecisions = decisions.filter((d) => d.category === 'classification')
@@ -318,20 +323,20 @@ describe('runPlanningPhase() multi-step path', () => {
   it('registers a prd artifact', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: PlanningPhaseParams = { runId }
 
     const result = await runPlanningPhase(deps, params)
 
     expect(result.artifact_id).toBeDefined()
-    const artifact = getArtifactByTypeForRun(db, runId, 'planning', 'prd')
+    const artifact = await getArtifactByTypeForRun(adapter, runId, 'planning', 'prd')
     expect(artifact).toBeTruthy()
   })
 
   it('accumulates token usage across all 3 steps', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: PlanningPhaseParams = { runId }
 
     const result = await runPlanningPhase(deps, params)
@@ -344,7 +349,7 @@ describe('runPlanningPhase() multi-step path', () => {
   it('returns correct requirement counts', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: PlanningPhaseParams = { runId }
 
     const result = await runPlanningPhase(deps, params)
@@ -388,7 +393,7 @@ describe('runPlanningPhase() multi-step path', () => {
       getRunning: vi.fn().mockReturnValue(0),
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: PlanningPhaseParams = { runId }
 
     const result = await runPlanningPhase(deps, params)
@@ -430,7 +435,7 @@ describe('runPlanningPhase() multi-step path', () => {
       getRunning: vi.fn().mockReturnValue(0),
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: PlanningPhaseParams = {
       runId,
       amendmentContext: 'Amendment context from parent run',
@@ -457,7 +462,7 @@ describe('runPlanningPhase() multi-step path', () => {
       getRunning: vi.fn().mockReturnValue(0),
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     const params: PlanningPhaseParams = { runId }
 
     const result = await runPlanningPhase(deps, params)
@@ -469,9 +474,9 @@ describe('runPlanningPhase() multi-step path', () => {
   it('returns failure when no product brief exists', async () => {
     const pack = makeMultiStepPack()
     const dispatcher = makeMultiStepDispatcher()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
     // Create a new run WITHOUT seeding analysis decisions
-    const emptyRun = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    const emptyRun = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     const params: PlanningPhaseParams = { runId: emptyRun.id }
 
     const result = await runPlanningPhase(deps, params)

@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // Mock the amendments query module before importing the handler
 vi.mock('../../../persistence/queries/amendments.js', () => ({
@@ -87,7 +87,7 @@ const ALL_DECISIONS = [
 ]
 
 // Mock DB — never used directly (mocked at module level)
-const mockDb = {} as Database
+const mockDb = {} as DatabaseAdapter
 
 const mockLoadParentRunDecisions = vi.mocked(loadParentRunDecisions)
 
@@ -97,7 +97,7 @@ const mockLoadParentRunDecisions = vi.mocked(loadParentRunDecisions)
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockLoadParentRunDecisions.mockReturnValue(ALL_DECISIONS)
+  mockLoadParentRunDecisions.mockResolvedValue(ALL_DECISIONS)
 })
 
 // ---------------------------------------------------------------------------
@@ -105,8 +105,8 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('createAmendmentContextHandler()', () => {
-  it('returns an object with all 4 required methods', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('returns an object with all 4 required methods', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
 
     expect(handler).toHaveProperty('loadContextForPhase')
     expect(handler).toHaveProperty('logSupersession')
@@ -119,14 +119,14 @@ describe('createAmendmentContextHandler()', () => {
     expect(typeof handler.getParentDecisions).toBe('function')
   })
 
-  it('calls loadParentRunDecisions eagerly at construction time', () => {
-    createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('calls loadParentRunDecisions eagerly at construction time', async () => {
+    await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     expect(mockLoadParentRunDecisions).toHaveBeenCalledTimes(1)
     expect(mockLoadParentRunDecisions).toHaveBeenCalledWith(mockDb, PARENT_RUN_ID)
   })
 
-  it('does not call loadParentRunDecisions again when handler methods are called', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('does not call loadParentRunDecisions again when handler methods are called', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
 
     handler.loadContextForPhase('analysis')
     handler.getParentDecisions()
@@ -136,22 +136,22 @@ describe('createAmendmentContextHandler()', () => {
     expect(mockLoadParentRunDecisions).toHaveBeenCalledTimes(1)
   })
 
-  it('propagates errors thrown by loadParentRunDecisions', () => {
-    mockLoadParentRunDecisions.mockImplementation(() => {
-      throw new Error('Parent run not found: nonexistent-id')
-    })
+  it('propagates errors thrown by loadParentRunDecisions', async () => {
+    mockLoadParentRunDecisions.mockRejectedValue(
+      new Error('Parent run not found: nonexistent-id'),
+    )
 
-    expect(() => createAmendmentContextHandler(mockDb, 'nonexistent-id')).toThrow(
+    await expect(createAmendmentContextHandler(mockDb, 'nonexistent-id')).rejects.toThrow(
       'Parent run not found: nonexistent-id',
     )
   })
 
-  it('accepts options parameter without error', () => {
+  it('accepts options parameter without error', async () => {
     const options: Partial<AmendmentPhaseRunOptions> = {
       framingConcept: 'Add dark mode support',
       phaseFilter: ['analysis', 'planning'],
     }
-    expect(() => createAmendmentContextHandler(mockDb, PARENT_RUN_ID, options)).not.toThrow()
+    await expect(createAmendmentContextHandler(mockDb, PARENT_RUN_ID, options)).resolves.toBeDefined()
   })
 })
 
@@ -160,8 +160,8 @@ describe('createAmendmentContextHandler()', () => {
 // ---------------------------------------------------------------------------
 
 describe('loadContextForPhase()', () => {
-  it('returns a string containing the amendment context framing header', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('returns a string containing the amendment context framing header', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     const context = handler.loadContextForPhase('analysis')
 
     expect(typeof context).toBe('string')
@@ -169,24 +169,24 @@ describe('loadContextForPhase()', () => {
     expect(context).toContain('This is an amendment run.')
   })
 
-  it('returns a string containing the framing footer', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('returns a string containing the framing footer', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     const context = handler.loadContextForPhase('analysis')
 
     expect(context).toContain('=== END AMENDMENT CONTEXT ===')
     expect(context).toContain('When generating new decisions, explicitly note')
   })
 
-  it('includes decisions filtered to the specified phase', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('includes decisions filtered to the specified phase', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     const context = handler.loadContextForPhase('analysis')
 
     expect(context).toContain('scope/target_users: enterprise customers')
     expect(context).toContain('constraints/timeline: Q3 2026')
   })
 
-  it('does NOT include decisions from other phases', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('does NOT include decisions from other phases', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     const context = handler.loadContextForPhase('analysis')
 
     // Planning and solutioning decisions should not appear
@@ -194,23 +194,23 @@ describe('loadContextForPhase()', () => {
     expect(context).not.toContain('api/auth_method: JWT')
   })
 
-  it('includes rationale when present', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('includes rationale when present', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     const context = handler.loadContextForPhase('analysis')
 
     expect(context).toContain('Rationale: Based on market research')
     expect(context).toContain('Rationale: Board deadline')
   })
 
-  it('includes phase label in the output', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('includes phase label in the output', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     const context = handler.loadContextForPhase('planning')
 
     expect(context).toContain('[Phase: planning]')
   })
 
-  it('includes the concept statement when framingConcept is provided', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID, {
+  it('includes the concept statement when framingConcept is provided', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID, {
       framingConcept: 'Add dark mode support',
     })
     const context = handler.loadContextForPhase('analysis')
@@ -218,15 +218,15 @@ describe('loadContextForPhase()', () => {
     expect(context).toContain('Concept being explored: Add dark mode support')
   })
 
-  it('does NOT include concept statement when framingConcept is not provided', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('does NOT include concept statement when framingConcept is not provided', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     const context = handler.loadContextForPhase('analysis')
 
     expect(context).not.toContain('Concept being explored:')
   })
 
-  it('returns graceful framing message when no decisions exist for the phase', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('returns graceful framing message when no decisions exist for the phase', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
 
     // 'implementation' phase has no decisions in ALL_DECISIONS
     const context = handler.loadContextForPhase('implementation')
@@ -238,8 +238,8 @@ describe('loadContextForPhase()', () => {
     expect(context).toContain('=== END AMENDMENT CONTEXT ===')
   })
 
-  it('each phase call is independent and does not affect others', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('each phase call is independent and does not affect others', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
 
     const analysisContext = handler.loadContextForPhase('analysis')
     const planningContext = handler.loadContextForPhase('planning')
@@ -256,10 +256,10 @@ describe('loadContextForPhase()', () => {
 // ---------------------------------------------------------------------------
 
 describe('loadContextForPhase() with phaseFilter option', () => {
-  it('limits available decisions to the filtered phases', () => {
-    mockLoadParentRunDecisions.mockReturnValue(ALL_DECISIONS)
+  it('limits available decisions to the filtered phases', async () => {
+    mockLoadParentRunDecisions.mockResolvedValue(ALL_DECISIONS)
 
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID, {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID, {
       phaseFilter: ['analysis'],
     })
 
@@ -268,10 +268,10 @@ describe('loadContextForPhase() with phaseFilter option', () => {
     expect(planningContext).toContain('No prior decisions recorded for this phase')
   })
 
-  it('does not filter when phaseFilter is empty array', () => {
-    mockLoadParentRunDecisions.mockReturnValue(ALL_DECISIONS)
+  it('does not filter when phaseFilter is empty array', async () => {
+    mockLoadParentRunDecisions.mockResolvedValue(ALL_DECISIONS)
 
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID, {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID, {
       phaseFilter: [],
     })
 
@@ -297,8 +297,8 @@ describe('logSupersession()', () => {
     }
   }
 
-  it('accumulates entries in insertion order', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('accumulates entries in insertion order', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
 
     handler.logSupersession(makeEntry(1))
     handler.logSupersession(makeEntry(2))
@@ -311,13 +311,13 @@ describe('logSupersession()', () => {
     expect(log[2].originalDecisionId).toBe('orig-3')
   })
 
-  it('starts with an empty log before any logSupersession calls', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('starts with an empty log before any logSupersession calls', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     expect(handler.getSupersessionLog()).toHaveLength(0)
   })
 
-  it('accumulates exactly N entries after N calls', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('accumulates exactly N entries after N calls', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
 
     handler.logSupersession(makeEntry(1))
     expect(handler.getSupersessionLog()).toHaveLength(1)
@@ -329,8 +329,8 @@ describe('logSupersession()', () => {
     expect(handler.getSupersessionLog()).toHaveLength(3)
   })
 
-  it('preserves all fields of each SupersessionLogEntry', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('preserves all fields of each SupersessionLogEntry', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     const entry: SupersessionLogEntry = {
       originalDecisionId: 'old-dec-uuid',
       supersedingDecisionId: 'new-dec-uuid',
@@ -352,16 +352,16 @@ describe('logSupersession()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getSupersessionLog()', () => {
-  it('returns an empty array when no supersessions have been logged', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('returns an empty array when no supersessions have been logged', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     const log = handler.getSupersessionLog()
 
     expect(Array.isArray(log)).toBe(true)
     expect(log).toHaveLength(0)
   })
 
-  it('returns a defensive copy — mutations do not affect the internal log', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('returns a defensive copy — mutations do not affect the internal log', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
 
     handler.logSupersession({
       originalDecisionId: 'orig-1',
@@ -384,8 +384,8 @@ describe('getSupersessionLog()', () => {
     expect(log2).toHaveLength(1)
   })
 
-  it('accumulates entries across multiple phase invocations (AC6)', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('accumulates entries across multiple phase invocations (AC6)', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
 
     // Simulate different phases logging supersessions
     handler.logSupersession({
@@ -424,26 +424,26 @@ describe('getSupersessionLog()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getParentDecisions()', () => {
-  it('returns all decisions loaded at construction time', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('returns all decisions loaded at construction time', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     const decisions = handler.getParentDecisions()
 
     expect(decisions).toHaveLength(ALL_DECISIONS.length)
     expect(decisions).toEqual(ALL_DECISIONS)
   })
 
-  it('returns empty array when parent run has zero active decisions', () => {
-    mockLoadParentRunDecisions.mockReturnValue([])
+  it('returns empty array when parent run has zero active decisions', async () => {
+    mockLoadParentRunDecisions.mockResolvedValue([])
 
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     const decisions = handler.getParentDecisions()
 
     expect(Array.isArray(decisions)).toBe(true)
     expect(decisions).toHaveLength(0)
   })
 
-  it('does not re-query the database on subsequent calls', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('does not re-query the database on subsequent calls', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
 
     handler.getParentDecisions()
     handler.getParentDecisions()
@@ -453,8 +453,8 @@ describe('getParentDecisions()', () => {
     expect(mockLoadParentRunDecisions).toHaveBeenCalledTimes(1)
   })
 
-  it('returns decisions filtered by phaseFilter when provided', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID, {
+  it('returns decisions filtered by phaseFilter when provided', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID, {
       phaseFilter: ['analysis'],
     })
 
@@ -469,8 +469,8 @@ describe('getParentDecisions()', () => {
 // ---------------------------------------------------------------------------
 
 describe('Handler usability across all pipeline phases', () => {
-  it('each phase can call loadContextForPhase() independently', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('each phase can call loadContextForPhase() independently', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
 
     const phases = ['analysis', 'planning', 'solutioning', 'implementation'] as const
 
@@ -482,8 +482,8 @@ describe('Handler usability across all pipeline phases', () => {
     }
   })
 
-  it('shared handler accumulates supersession log across all phases', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('shared handler accumulates supersession log across all phases', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
 
     const phases = ['analysis', 'planning', 'solutioning', 'implementation'] as const
 
@@ -531,8 +531,8 @@ describe('Exported types', () => {
     expect(entry.originalDecisionId).toBe('orig')
   })
 
-  it('AmendmentContextHandler is an interface (handler satisfies it)', () => {
-    const handler: AmendmentContextHandler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('AmendmentContextHandler is an interface (handler satisfies it)', async () => {
+    const handler: AmendmentContextHandler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     expect(handler).toBeDefined()
   })
 })
@@ -542,16 +542,16 @@ describe('Exported types', () => {
 // ---------------------------------------------------------------------------
 
 describe('No direct database writes', () => {
-  it('loadContextForPhase() does not call any DB method', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('loadContextForPhase() does not call any DB method', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
     // If this doesn't throw when mockDb has no write methods, we're good
     expect(() => handler.loadContextForPhase('analysis')).not.toThrow()
     // loadParentRunDecisions was called only once at construction
     expect(mockLoadParentRunDecisions).toHaveBeenCalledTimes(1)
   })
 
-  it('logSupersession() does not interact with the database', () => {
-    const handler = createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+  it('logSupersession() does not interact with the database', async () => {
+    const handler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
 
     expect(() =>
       handler.logSupersession({

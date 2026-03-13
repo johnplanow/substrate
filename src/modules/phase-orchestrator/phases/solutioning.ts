@@ -28,6 +28,7 @@
  *  4. Returns a typed SolutioningResult with decision/epic/story counts and readiness status
  */
 
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   upsertDecision,
   createRequirement,
@@ -114,11 +115,11 @@ export { calculateDynamicBudget, summarizeDecisions } from '../budget-utils.js'
  * @param runId - Pipeline run ID to scope the query
  * @returns Formatted requirements string for prompt injection
  */
-function formatRequirements(
-  db: import('better-sqlite3').Database,
+async function formatRequirements(
+  db: DatabaseAdapter,
   runId: string,
-): string {
-  const decisions = getDecisionsByPhaseForRun(db, runId, 'planning')
+): Promise<string> {
+  const decisions = await getDecisionsByPhaseForRun(db, runId, 'planning')
   const frDecisions = decisions.filter((d) => d.category === 'functional-requirements')
   const nfrDecisions = decisions.filter((d) => d.category === 'non-functional-requirements')
 
@@ -166,11 +167,11 @@ function formatRequirements(
  * @param runId - Pipeline run ID to scope the query
  * @returns Formatted architecture decisions string for prompt injection
  */
-function formatArchitectureDecisions(
-  db: import('better-sqlite3').Database,
+async function formatArchitectureDecisions(
+  db: DatabaseAdapter,
   runId: string,
-): string {
-  const decisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+): Promise<string> {
+  const decisions = await getDecisionsByPhaseForRun(db, runId, 'solutioning')
   const archDecisions = decisions.filter((d) => d.category === 'architecture')
 
   const parts: string[] = ['## Architecture Decisions']
@@ -221,7 +222,7 @@ async function runArchitectureGeneration(
   const template = await pack.getPrompt('architecture')
 
   // Step 2: Format requirements from decision store
-  const formattedRequirements = formatRequirements(db, runId)
+  const formattedRequirements = await formatRequirements(db, runId)
 
   // Step 3: Assemble prompt with dynamic token budget
   let prompt = template.replace(REQUIREMENTS_PLACEHOLDER, formattedRequirements)
@@ -300,7 +301,7 @@ async function runArchitectureGeneration(
 
   // Step 5: Persist each decision to the decision store (upsert to deduplicate on retry)
   for (const decision of decisions) {
-    upsertDecision(db, {
+    await upsertDecision(db, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
@@ -311,7 +312,7 @@ async function runArchitectureGeneration(
   }
 
   // Step 6: Register architecture artifact
-  const artifact = registerArtifact(db, {
+  const artifact = await registerArtifact(db, {
     pipeline_run_id: runId,
     phase: 'solutioning',
     type: 'architecture',
@@ -367,8 +368,8 @@ async function runStoryGeneration(
   const template = await pack.getPrompt('story-generation')
 
   // Step 2: Format requirements AND architecture decisions
-  const formattedRequirements = formatRequirements(db, runId)
-  const archDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning').filter(
+  const formattedRequirements = await formatRequirements(db, runId)
+  const archDecisions = (await getDecisionsByPhaseForRun(db, runId, 'solutioning')).filter(
     (d) => d.category === 'architecture',
   )
 
@@ -376,7 +377,7 @@ async function runStoryGeneration(
   const dynamicBudgetTokens = calculateDynamicBudget(BASE_STORY_PROMPT_TOKENS, archDecisions.length)
   const dynamicBudgetChars = dynamicBudgetTokens * 4
 
-  let formattedArchitecture = formatArchitectureDecisions(db, runId)
+  let formattedArchitecture = await formatArchitectureDecisions(db, runId)
 
   // Step 3: Assemble prompt with dynamic token budget
   let prompt = template
@@ -475,7 +476,7 @@ async function runStoryGeneration(
 
   // Step 5: Store epics as decisions (upsert to deduplicate on retry)
   for (const [epicIndex, epic] of epics.entries()) {
-    upsertDecision(db, {
+    await upsertDecision(db, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'epics',
@@ -485,7 +486,7 @@ async function runStoryGeneration(
 
     // Step 5b: Store each story as a decision
     for (const story of epic.stories) {
-      upsertDecision(db, {
+      await upsertDecision(db, {
         pipeline_run_id: runId,
         phase: 'solutioning',
         category: 'stories',
@@ -504,7 +505,7 @@ async function runStoryGeneration(
   // Step 6: Create Requirement records for each story
   for (const epic of epics) {
     for (const story of epic.stories) {
-      createRequirement(db, {
+      await createRequirement(db, {
         pipeline_run_id: runId,
         source: 'solutioning-phase',
         type: 'functional',
@@ -516,7 +517,7 @@ async function runStoryGeneration(
 
   // Step 7: Register stories artifact
   const totalStories = epics.reduce((sum, epic) => sum + epic.stories.length, 0)
-  const artifact = registerArtifact(db, {
+  const artifact = await registerArtifact(db, {
     pipeline_run_id: runId,
     phase: 'solutioning',
     type: 'stories',
@@ -602,8 +603,8 @@ function formatNFRsForReadiness(planningDecisions: Array<{ category: string; key
 /**
  * Format all stories from solutioning phase for prompt injection.
  */
-function formatStoriesForReadiness(db: import('better-sqlite3').Database, runId: string): string {
-  const solutioningDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+async function formatStoriesForReadiness(db: DatabaseAdapter, runId: string): Promise<string> {
+  const solutioningDecisions = await getDecisionsByPhaseForRun(db, runId, 'solutioning')
   const storyDecisions = solutioningDecisions.filter((d) => d.category === 'stories')
 
   if (storyDecisions.length === 0) {
@@ -643,8 +644,8 @@ function formatStoriesForReadiness(db: import('better-sqlite3').Database, runId:
 /**
  * Format UX decisions from the UX design phase (if any) for prompt injection.
  */
-function formatUxDecisionsForReadiness(db: import('better-sqlite3').Database, runId: string): string {
-  const uxDecisions = getDecisionsByPhaseForRun(db, runId, 'ux-design')
+async function formatUxDecisionsForReadiness(db: DatabaseAdapter, runId: string): Promise<string> {
+  const uxDecisions = await getDecisionsByPhaseForRun(db, runId, 'ux-design')
 
   if (uxDecisions.length === 0) {
     return ''
@@ -686,12 +687,12 @@ async function runReadinessCheck(
 
   // Step 2: Assemble context from decision store
   // Fetch planning decisions once and share between FR and NFR formatters (avoids duplicate DB query)
-  const planningDecisions = getDecisionsByPhaseForRun(db, runId, 'planning')
+  const planningDecisions = await getDecisionsByPhaseForRun(db, runId, 'planning')
   const formattedFRs = formatFRsForReadiness(planningDecisions)
   const formattedNFRs = formatNFRsForReadiness(planningDecisions)
-  const formattedArchitecture = formatArchitectureDecisions(db, runId)
-  const formattedStories = formatStoriesForReadiness(db, runId)
-  const formattedUx = formatUxDecisionsForReadiness(db, runId)
+  const formattedArchitecture = await formatArchitectureDecisions(db, runId)
+  const formattedStories = await formatStoriesForReadiness(db, runId)
+  const formattedUx = await formatUxDecisionsForReadiness(db, runId)
 
   // Step 3: Build prompt — inject all context into placeholders
   let prompt = template
@@ -827,7 +828,7 @@ async function runArchitectureGenerationMultiStep(
   }
 
   // Collect all architecture decisions from the decision store (accumulated across steps)
-  const allDecisions = getDecisionsByPhaseForRun(deps.db, params.runId, 'solutioning')
+  const allDecisions = (await getDecisionsByPhaseForRun(deps.db, params.runId, 'solutioning'))
     .filter((d) => d.category === 'architecture')
 
   const decisions: ArchitectureDecision[] = allDecisions.map((d) => {
@@ -933,7 +934,7 @@ async function runStoryGenerationMultiStep(
 
   // Persist epics and stories (same logic as single-dispatch path)
   for (const [epicIndex, epic] of epics.entries()) {
-    upsertDecision(deps.db, {
+    await upsertDecision(deps.db, {
       pipeline_run_id: params.runId,
       phase: 'solutioning',
       category: 'epics',
@@ -942,7 +943,7 @@ async function runStoryGenerationMultiStep(
     })
 
     for (const story of epic.stories) {
-      upsertDecision(deps.db, {
+      await upsertDecision(deps.db, {
         pipeline_run_id: params.runId,
         phase: 'solutioning',
         category: 'stories',
@@ -961,7 +962,7 @@ async function runStoryGenerationMultiStep(
   // Create Requirement records for each story
   for (const epic of epics) {
     for (const story of epic.stories) {
-      createRequirement(deps.db, {
+      await createRequirement(deps.db, {
         pipeline_run_id: params.runId,
         source: 'solutioning-phase',
         type: 'functional',
@@ -1012,12 +1013,12 @@ export async function runSolutioningPhase(
     const hasSteps = solutioningPhase?.steps && solutioningPhase.steps.length > 0 && !params.amendmentContext
 
     // Step 1: Check if architecture artifact already exists (skip on retry)
-    const existingArchArtifact = getArtifactByTypeForRun(deps.db, params.runId, 'solutioning', 'architecture')
+    const existingArchArtifact = await getArtifactByTypeForRun(deps.db, params.runId, 'solutioning', 'architecture')
     let archResult: ArchitectureGenerationSuccess | ArchitectureGenerationFailure
 
     if (existingArchArtifact) {
       // Architecture already completed — reuse existing decisions
-      const existingDecisions = getDecisionsByPhaseForRun(deps.db, params.runId, 'solutioning')
+      const existingDecisions = (await getDecisionsByPhaseForRun(deps.db, params.runId, 'solutioning'))
         .filter((d) => d.category === 'architecture')
       logger.info(
         { runId: params.runId, artifactId: existingArchArtifact.id, decisionCount: existingDecisions.length },
@@ -1110,7 +1111,7 @@ export async function runSolutioningPhase(
 
       // Store findings in decision store (AC7)
       for (const [i, finding] of readinessResult.findings.entries()) {
-        upsertDecision(deps.db, {
+        await upsertDecision(deps.db, {
           pipeline_run_id: params.runId,
           phase: 'solutioning',
           category: 'readiness-findings',
@@ -1172,7 +1173,7 @@ export async function runSolutioningPhase(
       if (blockers.length > 0) {
         // Store NEEDS_WORK findings in decision store (T8)
         for (const [i, finding] of readinessResult.findings.entries()) {
-          upsertDecision(deps.db, {
+          await upsertDecision(deps.db, {
             pipeline_run_id: params.runId,
             phase: 'solutioning',
             category: 'readiness-findings',

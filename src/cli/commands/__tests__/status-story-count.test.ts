@@ -13,6 +13,7 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 import {
   buildPipelineStatusOutput,
 } from '../pipeline-shared.js'
@@ -28,7 +29,7 @@ function createTestDb(): BetterSqlite3Database {
   return db
 }
 
-function createTestRun(
+async function createTestRun(
   db: BetterSqlite3Database,
   overrides: {
     status?: string
@@ -36,8 +37,8 @@ function createTestRun(
     token_usage_json?: string | null
     updated_at?: string
   } = {},
-): PipelineRun {
-  const run = createPipelineRun(db, {
+): Promise<PipelineRun> {
+  const run = await createPipelineRun(new SqliteDatabaseAdapter(db), {
     methodology: 'bmad',
     start_phase: 'implementation',
     config_json: null,
@@ -68,7 +69,7 @@ function makeOrchestratorState(
 // ---------------------------------------------------------------------------
 
 describe('AC1: stories_count from token_usage_json (not requirements table)', () => {
-  it('stories_count equals total stories in token_usage_json when present', () => {
+  it('stories_count equals total stories in token_usage_json when present', async () => {
     const db = createTestDb()
     // No rows in requirements table → old code returned 0
     // But token_usage_json has 3 stories
@@ -77,7 +78,7 @@ describe('AC1: stories_count from token_usage_json (not requirements table)', ()
       '23-2': { phase: 'IN_DEV', reviewCycles: 0 },
       '23-3': { phase: 'PENDING', reviewCycles: 0 },
     })
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
@@ -91,7 +92,7 @@ describe('AC1: stories_count from token_usage_json (not requirements table)', ()
     db.close()
   })
 
-  it('stories_count is 4 when 4 stories exist with mixed phases', () => {
+  it('stories_count is 4 when 4 stories exist with mixed phases', async () => {
     const db = createTestDb()
     const storyState = makeOrchestratorState({
       '10-1': { phase: 'COMPLETE', reviewCycles: 2 },
@@ -99,7 +100,7 @@ describe('AC1: stories_count from token_usage_json (not requirements table)', ()
       '10-3': { phase: 'IN_REVIEW', reviewCycles: 1 },
       '10-4': { phase: 'PENDING', reviewCycles: 0 },
     })
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       status: 'running',
       token_usage_json: storyState,
     })
@@ -111,10 +112,10 @@ describe('AC1: stories_count from token_usage_json (not requirements table)', ()
     db.close()
   })
 
-  it('stories_count falls back to passed parameter when no token_usage_json', () => {
+  it('stories_count falls back to passed parameter when no token_usage_json', async () => {
     const db = createTestDb()
     // No token_usage_json — legacy behavior: use the passed storiesCount param
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
 
     const result = buildPipelineStatusOutput(run, [], 0, 7)
 
@@ -123,9 +124,9 @@ describe('AC1: stories_count from token_usage_json (not requirements table)', ()
     db.close()
   })
 
-  it('stories_count is 0 when no token_usage_json and param is 0', () => {
+  it('stories_count is 0 when no token_usage_json and param is 0', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
 
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
@@ -134,7 +135,7 @@ describe('AC1: stories_count from token_usage_json (not requirements table)', ()
     db.close()
   })
 
-  it('stories_completed equals number of COMPLETE stories', () => {
+  it('stories_completed equals number of COMPLETE stories', async () => {
     const db = createTestDb()
     const storyState = makeOrchestratorState({
       '23-1': { phase: 'COMPLETE', reviewCycles: 1 },
@@ -142,7 +143,7 @@ describe('AC1: stories_count from token_usage_json (not requirements table)', ()
       '23-3': { phase: 'IN_DEV', reviewCycles: 0 },
       '23-4': { phase: 'PENDING', reviewCycles: 0 },
     })
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       status: 'running',
       token_usage_json: storyState,
     })
@@ -154,13 +155,13 @@ describe('AC1: stories_count from token_usage_json (not requirements table)', ()
     db.close()
   })
 
-  it('stories_completed is 0 when no COMPLETE stories', () => {
+  it('stories_completed is 0 when no COMPLETE stories', async () => {
     const db = createTestDb()
     const storyState = makeOrchestratorState({
       '23-1': { phase: 'IN_DEV', reviewCycles: 0 },
       '23-2': { phase: 'PENDING', reviewCycles: 0 },
     })
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       status: 'running',
       token_usage_json: storyState,
     })
@@ -172,9 +173,9 @@ describe('AC1: stories_count from token_usage_json (not requirements table)', ()
     db.close()
   })
 
-  it('stories_completed is 0 when no token_usage_json', () => {
+  it('stories_completed is 0 when no token_usage_json', async () => {
     const db = createTestDb()
-    const run = createTestRun(db)
+    const run = await createTestRun(db)
 
     const result = buildPipelineStatusOutput(run, [], 0, 5)
 
@@ -189,7 +190,8 @@ describe('AC1: stories_count from token_usage_json (not requirements table)', ()
 // ---------------------------------------------------------------------------
 
 // Mock filesystem/DB for health command integration
-vi.mock('../../../persistence/database.js', () => {
+vi.mock('../../../persistence/database.js', async () => {
+  const { SqliteDatabaseAdapter } = await import('../../../persistence/sqlite-adapter.js')
   let mockDb: BetterSqlite3Database | null = null
   return {
     DatabaseWrapper: class {
@@ -199,6 +201,9 @@ vi.mock('../../../persistence/database.js', () => {
       }
       open() { /* noop */ }
       close() { /* noop */ }
+      get adapter() {
+        return new SqliteDatabaseAdapter(this.db)
+      }
     },
     __setMockDb: (db: BetterSqlite3Database) => { mockDb = db },
   }
@@ -238,7 +243,7 @@ describe('AC2: Status and Health story completion counts agree', () => {
       '23-3': { phase: 'ESCALATED', reviewCycles: 2 },
       '23-4': { phase: 'PENDING', reviewCycles: 0 },
     })
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
@@ -271,7 +276,7 @@ describe('AC2: Status and Health story completion counts agree', () => {
       '23-2': { phase: 'COMPLETE', reviewCycles: 2 },
       '23-3': { phase: 'IN_DEV', reviewCycles: 0 },
     })
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
@@ -296,7 +301,7 @@ describe('AC2: Status and Health story completion counts agree', () => {
       '23-1': { phase: 'IN_DEV', reviewCycles: 0 },
       '23-2': { phase: 'PENDING', reviewCycles: 0 },
     })
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
@@ -319,7 +324,7 @@ describe('AC2: Status and Health story completion counts agree', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC3: Status count updates after story completion', () => {
-  it('stories_completed increases when a story transitions to COMPLETE', () => {
+  it('stories_completed increases when a story transitions to COMPLETE', async () => {
     const db = createTestDb()
 
     // Initial state: 1 story IN_DEV, 1 PENDING
@@ -327,7 +332,7 @@ describe('AC3: Status count updates after story completion', () => {
       '23-1': { phase: 'IN_DEV', reviewCycles: 0 },
       '23-2': { phase: 'PENDING', reviewCycles: 0 },
     })
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       status: 'running',
       token_usage_json: initialState,
     })
@@ -353,7 +358,7 @@ describe('AC3: Status count updates after story completion', () => {
     db.close()
   })
 
-  it('stories_count is stable as stories progress through phases', () => {
+  it('stories_count is stable as stories progress through phases', async () => {
     const db = createTestDb()
 
     const storyState = makeOrchestratorState({
@@ -361,7 +366,7 @@ describe('AC3: Status count updates after story completion', () => {
       '23-2': { phase: 'IN_DEV', reviewCycles: 0 },
       '23-3': { phase: 'IN_REVIEW', reviewCycles: 1 },
     })
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       status: 'running',
       token_usage_json: storyState,
     })
@@ -374,7 +379,7 @@ describe('AC3: Status count updates after story completion', () => {
     db.close()
   })
 
-  it('all stories_completed when all are COMPLETE', () => {
+  it('all stories_completed when all are COMPLETE', async () => {
     const db = createTestDb()
 
     const storyState = makeOrchestratorState({
@@ -382,7 +387,7 @@ describe('AC3: Status count updates after story completion', () => {
       '23-2': { phase: 'COMPLETE', reviewCycles: 2 },
       '23-3': { phase: 'COMPLETE', reviewCycles: 1 },
     })
-    const run = createTestRun(db, {
+    const run = await createTestRun(db, {
       status: 'completed',
       token_usage_json: storyState,
     })

@@ -12,6 +12,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { registerArtifact, createPipelineRun } from '../../../persistence/queries/decisions.js'
 import {
   createAnalysisPhaseDefinition,
@@ -29,25 +31,26 @@ import type { MethodologyPack } from '../../methodology-pack/types.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'built-in-phases-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'test', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'test', start_phase: 'analysis' })
   return run.id
 }
 
-function registerArtifactForRun(
-  db: BetterSqlite3Database,
+async function registerArtifactForRun(
+  adapter: DatabaseAdapter,
   runId: string,
   phase: string,
   type: string,
-): void {
-  registerArtifact(db, {
+): Promise<void> {
+  await registerArtifact(adapter, {
     pipeline_run_id: runId,
     phase,
     type,
@@ -62,14 +65,16 @@ function registerArtifactForRun(
 
 describe('Built-in Phase Definitions', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const result = createTestDb()
     db = result.db
+    adapter = result.adapter
     tmpDir = result.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -96,7 +101,7 @@ describe('Built-in Phase Definitions', () => {
 
     it('exit gate fails when product-brief artifact is missing', async () => {
       const phase = createAnalysisPhaseDefinition()
-      const result = await runGates(phase.exitGates, db, runId)
+      const result = await runGates(phase.exitGates, adapter, runId)
 
       expect(result.passed).toBe(false)
       expect(result.failures).toHaveLength(1)
@@ -104,10 +109,10 @@ describe('Built-in Phase Definitions', () => {
     })
 
     it('exit gate passes when product-brief artifact exists for this run', async () => {
-      registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+      await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
 
       const phase = createAnalysisPhaseDefinition()
-      const result = await runGates(phase.exitGates, db, runId)
+      const result = await runGates(phase.exitGates, adapter, runId)
 
       expect(result.passed).toBe(true)
       expect(result.failures).toHaveLength(0)
@@ -115,12 +120,12 @@ describe('Built-in Phase Definitions', () => {
 
     it('exit gate fails for a different run ID even when artifact exists for another run', async () => {
       // Create a separate run and register the artifact for that run
-      const otherRunId = createTestRun(db)
-      registerArtifactForRun(db, otherRunId, 'analysis', 'product-brief')
+      const otherRunId = await createTestRun(adapter)
+      await registerArtifactForRun(adapter, otherRunId, 'analysis', 'product-brief')
 
       const phase = createAnalysisPhaseDefinition()
       // Check gates for OUR run (not the other run)
-      const result = await runGates(phase.exitGates, db, runId)
+      const result = await runGates(phase.exitGates, adapter, runId)
 
       // Should fail because the artifact belongs to a different run
       expect(result.passed).toBe(false)
@@ -153,34 +158,34 @@ describe('Built-in Phase Definitions', () => {
 
     it('entry gate fails when product-brief is missing', async () => {
       const phase = createPlanningPhaseDefinition()
-      const result = await runGates(phase.entryGates, db, runId)
+      const result = await runGates(phase.entryGates, adapter, runId)
 
       expect(result.passed).toBe(false)
       expect(result.failures[0].gate).toContain('product-brief')
     })
 
     it('entry gate passes when product-brief exists for this run', async () => {
-      registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+      await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
 
       const phase = createPlanningPhaseDefinition()
-      const result = await runGates(phase.entryGates, db, runId)
+      const result = await runGates(phase.entryGates, adapter, runId)
 
       expect(result.passed).toBe(true)
     })
 
     it('exit gate fails when prd is missing', async () => {
       const phase = createPlanningPhaseDefinition()
-      const result = await runGates(phase.exitGates, db, runId)
+      const result = await runGates(phase.exitGates, adapter, runId)
 
       expect(result.passed).toBe(false)
       expect(result.failures[0].gate).toContain('prd')
     })
 
     it('exit gate passes when prd artifact exists for this run', async () => {
-      registerArtifactForRun(db, runId, 'planning', 'prd')
+      await registerArtifactForRun(adapter, runId, 'planning', 'prd')
 
       const phase = createPlanningPhaseDefinition()
-      const result = await runGates(phase.exitGates, db, runId)
+      const result = await runGates(phase.exitGates, adapter, runId)
 
       expect(result.passed).toBe(true)
     })
@@ -209,33 +214,33 @@ describe('Built-in Phase Definitions', () => {
 
     it('entry gate fails when prd is missing', async () => {
       const phase = createSolutioningPhaseDefinition()
-      const result = await runGates(phase.entryGates, db, runId)
+      const result = await runGates(phase.entryGates, adapter, runId)
 
       expect(result.passed).toBe(false)
     })
 
     it('entry gate passes when prd exists for this run', async () => {
-      registerArtifactForRun(db, runId, 'planning', 'prd')
+      await registerArtifactForRun(adapter, runId, 'planning', 'prd')
 
       const phase = createSolutioningPhaseDefinition()
-      const result = await runGates(phase.entryGates, db, runId)
+      const result = await runGates(phase.entryGates, adapter, runId)
 
       expect(result.passed).toBe(true)
     })
 
     it('exit gates fail when neither architecture nor stories exist', async () => {
       const phase = createSolutioningPhaseDefinition()
-      const result = await runGates(phase.exitGates, db, runId)
+      const result = await runGates(phase.exitGates, adapter, runId)
 
       expect(result.passed).toBe(false)
       expect(result.failures).toHaveLength(2)
     })
 
     it('exit gates fail when only architecture exists (stories missing)', async () => {
-      registerArtifactForRun(db, runId, 'solutioning', 'architecture')
+      await registerArtifactForRun(adapter, runId, 'solutioning', 'architecture')
 
       const phase = createSolutioningPhaseDefinition()
-      const result = await runGates(phase.exitGates, db, runId)
+      const result = await runGates(phase.exitGates, adapter, runId)
 
       expect(result.passed).toBe(false)
       expect(result.failures).toHaveLength(1)
@@ -243,10 +248,10 @@ describe('Built-in Phase Definitions', () => {
     })
 
     it('exit gates fail when only stories exists (architecture missing)', async () => {
-      registerArtifactForRun(db, runId, 'solutioning', 'stories')
+      await registerArtifactForRun(adapter, runId, 'solutioning', 'stories')
 
       const phase = createSolutioningPhaseDefinition()
-      const result = await runGates(phase.exitGates, db, runId)
+      const result = await runGates(phase.exitGates, adapter, runId)
 
       expect(result.passed).toBe(false)
       expect(result.failures).toHaveLength(1)
@@ -254,11 +259,11 @@ describe('Built-in Phase Definitions', () => {
     })
 
     it('exit gates pass when both architecture and stories exist', async () => {
-      registerArtifactForRun(db, runId, 'solutioning', 'architecture')
-      registerArtifactForRun(db, runId, 'solutioning', 'stories')
+      await registerArtifactForRun(adapter, runId, 'solutioning', 'architecture')
+      await registerArtifactForRun(adapter, runId, 'solutioning', 'stories')
 
       const phase = createSolutioningPhaseDefinition()
-      const result = await runGates(phase.exitGates, db, runId)
+      const result = await runGates(phase.exitGates, adapter, runId)
 
       expect(result.passed).toBe(true)
     })
@@ -282,27 +287,27 @@ describe('Built-in Phase Definitions', () => {
 
     it('entry gates fail when architecture and stories are missing', async () => {
       const phase = createImplementationPhaseDefinition()
-      const result = await runGates(phase.entryGates, db, runId)
+      const result = await runGates(phase.entryGates, adapter, runId)
 
       expect(result.passed).toBe(false)
       expect(result.failures.length).toBeGreaterThanOrEqual(2)
     })
 
     it('entry gates fail when only architecture exists (stories missing)', async () => {
-      registerArtifactForRun(db, runId, 'solutioning', 'architecture')
+      await registerArtifactForRun(adapter, runId, 'solutioning', 'architecture')
 
       const phase = createImplementationPhaseDefinition()
-      const result = await runGates(phase.entryGates, db, runId)
+      const result = await runGates(phase.entryGates, adapter, runId)
 
       expect(result.passed).toBe(false)
     })
 
     it('entry gates pass when both architecture and stories exist', async () => {
-      registerArtifactForRun(db, runId, 'solutioning', 'architecture')
-      registerArtifactForRun(db, runId, 'solutioning', 'stories')
+      await registerArtifactForRun(adapter, runId, 'solutioning', 'architecture')
+      await registerArtifactForRun(adapter, runId, 'solutioning', 'stories')
 
       const phase = createImplementationPhaseDefinition()
-      const result = await runGates(phase.entryGates, db, runId)
+      const result = await runGates(phase.entryGates, adapter, runId)
 
       expect(result.passed).toBe(true)
     })
@@ -315,16 +320,16 @@ describe('Built-in Phase Definitions', () => {
 
     it('exit gate fails when implementation-complete artifact is missing', async () => {
       const phase = createImplementationPhaseDefinition()
-      const result = await runGates(phase.exitGates, db, runId)
+      const result = await runGates(phase.exitGates, adapter, runId)
 
       expect(result.passed).toBe(false)
     })
 
     it('exit gate passes when implementation-complete artifact exists', async () => {
-      registerArtifactForRun(db, runId, 'implementation', 'implementation-complete')
+      await registerArtifactForRun(adapter, runId, 'implementation', 'implementation-complete')
 
       const phase = createImplementationPhaseDefinition()
-      const result = await runGates(phase.exitGates, db, runId)
+      const result = await runGates(phase.exitGates, adapter, runId)
 
       expect(result.passed).toBe(true)
     })
@@ -408,14 +413,16 @@ describe('createBuiltInPhases - conditional UX design registration (T8)', () => 
 
 describe('createUxDesignPhaseDefinition (T8)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const result = createTestDb()
     db = result.db
+    adapter = result.adapter
     tmpDir = result.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -442,29 +449,29 @@ describe('createUxDesignPhaseDefinition (T8)', () => {
 
   it('entry gate fails when prd artifact is missing', async () => {
     const phase = createUxDesignPhaseDefinition()
-    const result = await runGates(phase.entryGates, db, runId)
+    const result = await runGates(phase.entryGates, adapter, runId)
     expect(result.passed).toBe(false)
     expect(result.failures[0].gate).toContain('prd')
   })
 
   it('entry gate passes when prd artifact exists', async () => {
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     const phase = createUxDesignPhaseDefinition()
-    const result = await runGates(phase.entryGates, db, runId)
+    const result = await runGates(phase.entryGates, adapter, runId)
     expect(result.passed).toBe(true)
   })
 
   it('exit gate fails when ux-design artifact is missing', async () => {
     const phase = createUxDesignPhaseDefinition()
-    const result = await runGates(phase.exitGates, db, runId)
+    const result = await runGates(phase.exitGates, adapter, runId)
     expect(result.passed).toBe(false)
     expect(result.failures[0].gate).toContain('ux-design')
   })
 
   it('exit gate passes when ux-design artifact exists', async () => {
-    registerArtifactForRun(db, runId, 'ux-design', 'ux-design')
+    await registerArtifactForRun(adapter, runId, 'ux-design', 'ux-design')
     const phase = createUxDesignPhaseDefinition()
-    const result = await runGates(phase.exitGates, db, runId)
+    const result = await runGates(phase.exitGates, adapter, runId)
     expect(result.passed).toBe(true)
   })
 
@@ -477,11 +484,13 @@ describe('createUxDesignPhaseDefinition (T8)', () => {
 
 describe('PhaseOrchestrator - conditional UX design registration (T8)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const result = createTestDb()
     db = result.db
+    adapter = result.adapter
     tmpDir = result.tmpDir
   })
 
@@ -492,40 +501,40 @@ describe('PhaseOrchestrator - conditional UX design registration (T8)', () => {
 
   it('registers 4 phases when pack manifest has uxDesign: false', () => {
     const pack = makeMockPackWithUxDesign(false)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     expect(orchestrator.getPhases()).toHaveLength(4)
   })
 
   it('registers 5 phases when pack manifest has uxDesign: true', () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     expect(orchestrator.getPhases()).toHaveLength(5)
   })
 
   it('does NOT include ux-design when pack manifest has uxDesign: false', () => {
     const pack = makeMockPackWithUxDesign(false)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const names = orchestrator.getPhases().map((p) => p.name)
     expect(names).not.toContain('ux-design')
   })
 
   it('includes ux-design when pack manifest has uxDesign: true', () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const names = orchestrator.getPhases().map((p) => p.name)
     expect(names).toContain('ux-design')
   })
 
   it('does NOT include ux-design when pack manifest has no uxDesign field', () => {
     const pack = makeMockPackWithUxDesign(undefined)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const names = orchestrator.getPhases().map((p) => p.name)
     expect(names).not.toContain('ux-design')
   })
 
   it('ux-design is between planning and solutioning when uxDesign: true', () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const names = orchestrator.getPhases().map((p) => p.name)
     const uxIdx = names.indexOf('ux-design')
     const planningIdx = names.indexOf('planning')
@@ -536,15 +545,15 @@ describe('PhaseOrchestrator - conditional UX design registration (T8)', () => {
 
   it('can advance from planning to ux-design when prd artifact exists and uxDesign enabled', async () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Test concept')
 
     // Complete analysis
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     await orchestrator.advancePhase(runId)
 
     // Complete planning
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     const result = await orchestrator.advancePhase(runId)
 
     expect(result.advanced).toBe(true)
@@ -553,19 +562,19 @@ describe('PhaseOrchestrator - conditional UX design registration (T8)', () => {
 
   it('can advance from ux-design to solutioning when ux-design artifact exists', async () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Test concept')
 
     // Complete analysis
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     await orchestrator.advancePhase(runId)
 
     // Complete planning
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     await orchestrator.advancePhase(runId)
 
     // Complete ux-design
-    registerArtifactForRun(db, runId, 'ux-design', 'ux-design')
+    await registerArtifactForRun(adapter, runId, 'ux-design', 'ux-design')
     const result = await orchestrator.advancePhase(runId)
 
     expect(result.advanced).toBe(true)
@@ -579,14 +588,16 @@ describe('PhaseOrchestrator - conditional UX design registration (T8)', () => {
 
 describe('createResearchPhaseDefinition (Story 20.1)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const result = createTestDb()
     db = result.db
+    adapter = result.adapter
     tmpDir = result.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -612,15 +623,15 @@ describe('createResearchPhaseDefinition (Story 20.1)', () => {
 
   it('exit gate fails when research-findings artifact is missing', async () => {
     const phase = createResearchPhaseDefinition()
-    const result = await runGates(phase.exitGates, db, runId)
+    const result = await runGates(phase.exitGates, adapter, runId)
     expect(result.passed).toBe(false)
     expect(result.failures[0].gate).toContain('research-findings')
   })
 
   it('exit gate passes when research-findings artifact exists', async () => {
-    registerArtifactForRun(db, runId, 'research', 'research-findings')
+    await registerArtifactForRun(adapter, runId, 'research', 'research-findings')
     const phase = createResearchPhaseDefinition()
-    const result = await runGates(phase.exitGates, db, runId)
+    const result = await runGates(phase.exitGates, adapter, runId)
     expect(result.passed).toBe(true)
   })
 
@@ -705,14 +716,16 @@ describe('createBuiltInPhases - conditional research registration (Story 20.1)',
 
 describe('createAnalysisPhaseDefinition - conditional research entry gate (Story 20.1)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const result = createTestDb()
     db = result.db
+    adapter = result.adapter
     tmpDir = result.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -738,26 +751,28 @@ describe('createAnalysisPhaseDefinition - conditional research entry gate (Story
 
   it('entry gate fails when research-findings artifact is missing (requiresResearch: true)', async () => {
     const phase = createAnalysisPhaseDefinition({ requiresResearch: true })
-    const result = await runGates(phase.entryGates, db, runId)
+    const result = await runGates(phase.entryGates, adapter, runId)
     expect(result.passed).toBe(false)
     expect(result.failures[0].gate).toContain('research-findings')
   })
 
   it('entry gate passes when research-findings artifact exists (requiresResearch: true)', async () => {
-    registerArtifactForRun(db, runId, 'research', 'research-findings')
+    await registerArtifactForRun(adapter, runId, 'research', 'research-findings')
     const phase = createAnalysisPhaseDefinition({ requiresResearch: true })
-    const result = await runGates(phase.entryGates, db, runId)
+    const result = await runGates(phase.entryGates, adapter, runId)
     expect(result.passed).toBe(true)
   })
 })
 
 describe('PhaseOrchestrator - conditional research registration (Story 20.1)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const result = createTestDb()
     db = result.db
+    adapter = result.adapter
     tmpDir = result.tmpDir
   })
 
@@ -769,7 +784,7 @@ describe('PhaseOrchestrator - conditional research registration (Story 20.1)', (
   it('registers 4 phases when pack manifest has research: false', () => {
     const pack = makeMockPackWithUxDesign(false)
     const orchestrator = createPhaseOrchestrator({
-      db,
+      db: adapter,
       pack: { ...pack, manifest: { ...pack.manifest, research: false } },
     })
     expect(orchestrator.getPhases()).toHaveLength(4)
@@ -778,7 +793,7 @@ describe('PhaseOrchestrator - conditional research registration (Story 20.1)', (
   it('registers 5 phases when pack manifest has research: true', () => {
     const pack = makeMockPackWithUxDesign(false)
     const orchestrator = createPhaseOrchestrator({
-      db,
+      db: adapter,
       pack: { ...pack, manifest: { ...pack.manifest, research: true } },
     })
     expect(orchestrator.getPhases()).toHaveLength(5)
@@ -787,7 +802,7 @@ describe('PhaseOrchestrator - conditional research registration (Story 20.1)', (
   it('does NOT include research when pack manifest has research: false', () => {
     const pack = makeMockPackWithUxDesign(false)
     const orchestrator = createPhaseOrchestrator({
-      db,
+      db: adapter,
       pack: { ...pack, manifest: { ...pack.manifest, research: false } },
     })
     const names = orchestrator.getPhases().map((p) => p.name)
@@ -797,7 +812,7 @@ describe('PhaseOrchestrator - conditional research registration (Story 20.1)', (
   it('includes research when pack manifest has research: true', () => {
     const pack = makeMockPackWithUxDesign(false)
     const orchestrator = createPhaseOrchestrator({
-      db,
+      db: adapter,
       pack: { ...pack, manifest: { ...pack.manifest, research: true } },
     })
     const names = orchestrator.getPhases().map((p) => p.name)
@@ -807,7 +822,7 @@ describe('PhaseOrchestrator - conditional research registration (Story 20.1)', (
   it('research is the first phase (before analysis) when research: true', () => {
     const pack = makeMockPackWithUxDesign(false)
     const orchestrator = createPhaseOrchestrator({
-      db,
+      db: adapter,
       pack: { ...pack, manifest: { ...pack.manifest, research: true } },
     })
     const names = orchestrator.getPhases().map((p) => p.name)

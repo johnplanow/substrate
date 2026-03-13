@@ -105,6 +105,7 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
     dbWrapper = new DatabaseWrapper(dbPath)
     dbWrapper.open()
     const db = dbWrapper.db
+    const adapter = dbWrapper.adapter
 
     // Find the pipeline run to export
     let run: PipelineRun | undefined
@@ -113,7 +114,7 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
         .prepare('SELECT * FROM pipeline_runs WHERE id = ?')
         .get(runId) as PipelineRun | undefined
     } else {
-      run = getLatestRun(db)
+      run = await getLatestRun(adapter)
     }
 
     if (run === undefined) {
@@ -145,7 +146,7 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
     // -------------------------------------------------------------------------
     // Export product-brief.md (AC2)
     // -------------------------------------------------------------------------
-    const analysisDecisions = getDecisionsByPhaseForRun(db, activeRunId, 'analysis')
+    const analysisDecisions = await getDecisionsByPhaseForRun(adapter, activeRunId, 'analysis')
     if (analysisDecisions.length > 0) {
       const content = renderProductBrief(analysisDecisions)
       if (content !== '') {
@@ -162,10 +163,10 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
     // -------------------------------------------------------------------------
     // Export prd.md (AC3)
     // -------------------------------------------------------------------------
-    const planningDecisions = getDecisionsByPhaseForRun(db, activeRunId, 'planning')
+    const planningDecisions = await getDecisionsByPhaseForRun(adapter, activeRunId, 'planning')
     if (planningDecisions.length > 0) {
       // Also fetch requirements from the requirements table for this run
-      const requirements = listRequirements(db).filter(
+      const requirements = (await listRequirements(adapter)).filter(
         (r) => r.pipeline_run_id === activeRunId,
       )
       const content = renderPrd(planningDecisions, requirements)
@@ -185,7 +186,7 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
     // -------------------------------------------------------------------------
     // Export architecture.md (AC4)
     // -------------------------------------------------------------------------
-    const solutioningDecisions = getDecisionsByPhaseForRun(db, activeRunId, 'solutioning')
+    const solutioningDecisions = await getDecisionsByPhaseForRun(adapter, activeRunId, 'solutioning')
     if (solutioningDecisions.length > 0) {
       const archContent = renderArchitecture(solutioningDecisions)
       if (archContent !== '') {
@@ -236,7 +237,7 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
     // -------------------------------------------------------------------------
     // Export operational-findings.md (Story 21-1 AC5)
     // -------------------------------------------------------------------------
-    const operationalDecisions = getDecisionsByCategory(db, OPERATIONAL_FINDING)
+    const operationalDecisions = await getDecisionsByCategory(adapter, OPERATIONAL_FINDING)
     if (operationalDecisions.length > 0) {
       const operationalContent = renderOperationalFindings(operationalDecisions)
       if (operationalContent !== '') {
@@ -255,7 +256,7 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
     // -------------------------------------------------------------------------
     // Export experiments.md (Story 21-1 AC5)
     // -------------------------------------------------------------------------
-    const experimentDecisions = getDecisionsByCategory(db, EXPERIMENT_RESULT)
+    const experimentDecisions = await getDecisionsByCategory(adapter, EXPERIMENT_RESULT)
     if (experimentDecisions.length > 0) {
       const experimentsContent = renderExperiments(experimentDecisions)
       if (experimentsContent !== '') {

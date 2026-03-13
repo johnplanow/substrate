@@ -11,6 +11,7 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createDecision, getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
 import { STORY_METRICS } from '../../../persistence/schemas/operational.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -21,6 +22,10 @@ function openTestDb(): BetterSqlite3Database {
   db.pragma('foreign_keys = ON')
   runMigrations(db)
   return db
+}
+
+function toAdapter(db: BetterSqlite3Database) {
+  return new SqliteDatabaseAdapter(db)
 }
 
 // ---------------------------------------------------------------------------
@@ -34,9 +39,10 @@ describe('AC6: metrics command includes story-level data from decisions', () => 
     db = openTestDb()
   })
 
-  it('story-metrics decisions are queryable by category', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    createDecision(db, {
+  it('story-metrics decisions are queryable by category', async () => {
+    const adapter = toAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'implementation',
       category: STORY_METRICS,
@@ -49,7 +55,7 @@ describe('AC6: metrics command includes story-level data from decisions', () => 
         stalled: false,
       }),
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'implementation',
       category: STORY_METRICS,
@@ -63,13 +69,14 @@ describe('AC6: metrics command includes story-level data from decisions', () => 
       }),
     })
 
-    const decisions = getDecisionsByCategory(db, STORY_METRICS)
+    const decisions = await getDecisionsByCategory(adapter, STORY_METRICS)
     expect(decisions).toHaveLength(2)
   })
 
-  it('story-metrics decision keys can be parsed to extract story_key and run_id', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    createDecision(db, {
+  it('story-metrics decision keys can be parsed to extract story_key and run_id', async () => {
+    const adapter = toAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'implementation',
       category: STORY_METRICS,
@@ -83,7 +90,7 @@ describe('AC6: metrics command includes story-level data from decisions', () => 
       }),
     })
 
-    const decisions = getDecisionsByCategory(db, STORY_METRICS)
+    const decisions = await getDecisionsByCategory(adapter, STORY_METRICS)
     expect(decisions).toHaveLength(1)
 
     const d = decisions[0]!
@@ -95,9 +102,10 @@ describe('AC6: metrics command includes story-level data from decisions', () => 
     expect(runId).toBe(run.id)
   })
 
-  it('story-metrics JSON values parse correctly with all fields', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    createDecision(db, {
+  it('story-metrics JSON values parse correctly with all fields', async () => {
+    const adapter = toAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'implementation',
       category: STORY_METRICS,
@@ -111,7 +119,7 @@ describe('AC6: metrics command includes story-level data from decisions', () => 
       }),
     })
 
-    const decisions = getDecisionsByCategory(db, STORY_METRICS)
+    const decisions = await getDecisionsByCategory(adapter, STORY_METRICS)
     const d = decisions[0]!
     const val = JSON.parse(d.value) as {
       wall_clock_seconds?: number
@@ -128,9 +136,10 @@ describe('AC6: metrics command includes story-level data from decisions', () => 
     expect(val.stalled).toBe(false)
   })
 
-  it('cost_usd is omitted from output when zero (subscription plans)', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad' })
-    createDecision(db, {
+  it('cost_usd is omitted from output when zero (subscription plans)', async () => {
+    const adapter = toAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'implementation',
       category: STORY_METRICS,
@@ -144,7 +153,7 @@ describe('AC6: metrics command includes story-level data from decisions', () => 
       }),
     })
 
-    const decisions = getDecisionsByCategory(db, STORY_METRICS)
+    const decisions = await getDecisionsByCategory(adapter, STORY_METRICS)
     const d = decisions[0]!
     const val = JSON.parse(d.value) as Record<string, unknown>
 

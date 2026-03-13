@@ -52,7 +52,7 @@ import type { WorkflowDeps, TestExpansionParams } from '../types.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -77,7 +77,7 @@ const DEFAULT_TEMPLATE = '## Mission\n{{story_content}}\n\n## Git Changes\n{{git
 function makeMockDeps(overrides: {
   getPrompt?: ReturnType<typeof vi.fn>
   dispatch?: ReturnType<typeof vi.fn>
-  db?: Partial<BetterSqlite3Database>
+  db?: Partial<DatabaseAdapter>
 } = {}): WorkflowDeps {
   const mockPack: MethodologyPack = {
     manifest: {
@@ -96,13 +96,12 @@ function makeMockDeps(overrides: {
   }
 
   const mockDb = {
-    prepare: vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-      run: vi.fn(),
-    }),
+    query: vi.fn().mockResolvedValue([]),
+    exec: vi.fn().mockResolvedValue(undefined),
+    transaction: vi.fn().mockImplementation((fn: (adapter: DatabaseAdapter) => Promise<unknown>) => fn(mockDb as unknown as DatabaseAdapter)),
+    close: vi.fn().mockResolvedValue(undefined),
     ...(overrides.db ?? {}),
-  } as unknown as BetterSqlite3Database
+  } as unknown as DatabaseAdapter
 
   const defaultDispatchFn = vi.fn().mockReturnValue({
     id: 'test-id',
@@ -474,11 +473,7 @@ describe('runTestExpansion', () => {
     ]
 
     const dbOverride = {
-      prepare: vi.fn().mockReturnValue({
-        all: vi.fn().mockReturnValue(archDecisions),
-        get: vi.fn().mockReturnValue(undefined),
-        run: vi.fn(),
-      }),
+      query: vi.fn().mockResolvedValue(archDecisions),
     }
 
     const dispatchFn = vi.fn().mockReturnValue({
@@ -490,7 +485,7 @@ describe('runTestExpansion', () => {
       })),
     })
 
-    const deps = makeMockDeps({ dispatch: dispatchFn, db: dbOverride as Partial<BetterSqlite3Database> })
+    const deps = makeMockDeps({ dispatch: dispatchFn, db: dbOverride as Partial<DatabaseAdapter> })
     await runTestExpansion(deps, DEFAULT_PARAMS)
 
     const callArgs = dispatchFn.mock.calls[0][0] as { prompt: string }

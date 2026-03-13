@@ -15,7 +15,7 @@
  *  - Token rates in USD per 1M tokens (AC3)
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import type { TypedEventBus } from '../../core/event-bus.js'
 import type { CostEntry, TaskCostSummary, SessionCostSummary } from './types.js'
 import { TOKEN_RATES, getTokenRate, estimateCostSafe } from './token-rates.js'
@@ -61,18 +61,18 @@ export interface CostTracker {
     tokensInput: number,
     tokensOutput: number,
     billingMode: 'subscription' | 'api',
-  ): CostEntry
+  ): Promise<CostEntry>
 
   /**
    * Retrieve aggregated cost data for a single task.
    */
-  getTaskCost(taskId: string): TaskCostSummary
+  getTaskCost(taskId: string): Promise<TaskCostSummary>
 
   /**
    * Retrieve the full session cost summary with breakdown by billing mode
    * and per-agent totals (FR26, FR28).
    */
-  getSessionCost(sessionId: string): SessionCostSummary
+  getSessionCost(sessionId: string): Promise<SessionCostSummary>
 
   /**
    * Retrieve cost breakdown for a specific agent within a session.
@@ -80,12 +80,12 @@ export interface CostTracker {
   getAgentCostBreakdown(
     sessionId: string,
     agent: string,
-  ): { cost_usd: number; task_count: number; billing_breakdown: { subscription: number; api: number } }
+  ): Promise<{ cost_usd: number; task_count: number; billing_breakdown: { subscription: number; api: number } }>
 
   /**
    * Retrieve all cost entries for a session, optionally paginated.
    */
-  getAllCosts(sessionId: string, limit?: number): CostEntry[]
+  getAllCosts(sessionId: string, limit?: number): Promise<CostEntry[]>
 }
 
 // ---------------------------------------------------------------------------
@@ -93,17 +93,17 @@ export interface CostTracker {
 // ---------------------------------------------------------------------------
 
 export class CostTrackerImpl implements CostTracker {
-  private readonly _db: BetterSqlite3Database
+  private readonly _db: DatabaseAdapter
   private readonly _eventBus: TypedEventBus
   private readonly _tokenRates: TokenRates
 
-  constructor(db: BetterSqlite3Database, eventBus: TypedEventBus, tokenRates: TokenRates) {
+  constructor(db: DatabaseAdapter, eventBus: TypedEventBus, tokenRates: TokenRates) {
     this._db = db
     this._eventBus = eventBus
     this._tokenRates = tokenRates
   }
 
-  recordTaskCost(
+  async recordTaskCost(
     sessionId: string,
     taskId: string,
     agentUsed: string,
@@ -112,7 +112,7 @@ export class CostTrackerImpl implements CostTracker {
     tokensInput: number,
     tokensOutput: number,
     billingMode: 'subscription' | 'api',
-  ): CostEntry {
+  ): Promise<CostEntry> {
     // Calculate the equivalent API cost regardless of billing mode
     // This is used for savings calculation when billing_mode = 'subscription'
     // Uses the injected tokenRates so custom rates actually affect cost estimation
@@ -124,8 +124,8 @@ export class CostTrackerImpl implements CostTracker {
     const savingsUsd = billingMode === 'subscription' ? equivalentApiCost : 0
 
     // Write cost entry and update task cost atomically; return DB-assigned id
-    const insertAndUpdate = this._db.transaction(() => {
-      const newId = recordCostEntry(this._db, {
+    const insertedId = await this._db.transaction(async () => {
+      const newId = await recordCostEntry(this._db, {
         session_id: sessionId,
         task_id: taskId,
         agent: agentUsed,
@@ -139,19 +139,17 @@ export class CostTrackerImpl implements CostTracker {
       })
 
       // Atomically increment the task's cumulative cost
-      incrementTaskCost(this._db, taskId, costUsd)
+      await incrementTaskCost(this._db, taskId, costUsd)
 
       return newId
     })
-
-    const insertedId = insertAndUpdate()
 
     if (!insertedId) {
       throw new Error(`Cost entry insert failed: transaction returned id=${insertedId}`)
     }
 
     // Retrieve the full record with the DB-assigned id and timestamp
-    const entry = getCostEntryById(this._db, insertedId)
+    const entry = await getCostEntryById(this._db, insertedId)
     if (!entry) {
       throw new Error(`Cost entry not found after insert: id=${insertedId}`)
     }
@@ -173,19 +171,19 @@ export class CostTrackerImpl implements CostTracker {
     return entry
   }
 
-  getTaskCost(taskId: string): TaskCostSummary {
+  async getTaskCost(taskId: string): Promise<TaskCostSummary> {
     return getTaskCostSummary(this._db, taskId)
   }
 
-  getSessionCost(sessionId: string): SessionCostSummary {
+  async getSessionCost(sessionId: string): Promise<SessionCostSummary> {
     return getSessionCostSummary(this._db, sessionId)
   }
 
-  getAgentCostBreakdown(
+  async getAgentCostBreakdown(
     sessionId: string,
     agent: string,
-  ): { cost_usd: number; task_count: number; billing_breakdown: { subscription: number; api: number } } {
-    const breakdown = getAgentCostBreakdown(this._db, sessionId, agent)
+  ): Promise<{ cost_usd: number; task_count: number; billing_breakdown: { subscription: number; api: number } }> {
+    const breakdown = await getAgentCostBreakdown(this._db, sessionId, agent)
     return {
       cost_usd: breakdown.cost_usd,
       task_count: breakdown.task_count,
@@ -196,7 +194,7 @@ export class CostTrackerImpl implements CostTracker {
     }
   }
 
-  getAllCosts(sessionId: string, limit?: number): CostEntry[] {
+  async getAllCosts(sessionId: string, limit?: number): Promise<CostEntry[]> {
     return getAllCostEntries(this._db, sessionId, limit)
   }
 
@@ -214,7 +212,7 @@ export class CostTrackerImpl implements CostTracker {
 // ---------------------------------------------------------------------------
 
 export interface CostTrackerOptions {
-  db: BetterSqlite3Database
+  db: DatabaseAdapter
   eventBus: TypedEventBus
   tokenRates?: TokenRates
 }

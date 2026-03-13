@@ -158,7 +158,7 @@ async function runAnalysisMultiStep(
     // Query prior run findings for injection into step-1-vision (AC1, AC2, AC6)
     let priorFindings = ''
     try {
-      priorFindings = getProjectFindings(deps.db)
+      priorFindings = await getProjectFindings(deps.db)
     } catch {
       // Graceful fallback — empty string (AC2)
     }
@@ -202,14 +202,14 @@ async function runAnalysisMultiStep(
     // Post-process: reclassify technology items that the model put in constraints
     reclassifyTechnologyConstraints(brief)
     if (brief.technology_constraints.length > 0) {
-      upsertDecision(deps.db, {
+      await upsertDecision(deps.db, {
         pipeline_run_id: params.runId,
         phase: 'analysis',
         category: 'product-brief',
         key: 'constraints',
         value: JSON.stringify(brief.constraints),
       })
-      upsertDecision(deps.db, {
+      await upsertDecision(deps.db, {
         pipeline_run_id: params.runId,
         phase: 'analysis',
         category: 'technology-constraints',
@@ -283,7 +283,7 @@ export async function runAnalysisPhase(
 
     // Step 3.5: Inject prior run findings if available (AC3, AC4, AC5, AC6)
     try {
-      const priorFindings = getProjectFindings(db)
+      const priorFindings = await getProjectFindings(db)
       if (priorFindings !== '') {
         const maxPromptChars = MAX_PROMPT_TOKENS * 4
         const framingLen = PRIOR_FINDINGS_HEADER.length + PRIOR_FINDINGS_FOOTER.length
@@ -394,7 +394,7 @@ export async function runAnalysisPhase(
     // Step 9: Store each field as a separate decision record
     for (const field of BRIEF_FIELDS) {
       const value = brief[field]
-      createDecision(db, {
+      await createDecision(db, {
         pipeline_run_id: runId,
         phase: 'analysis',
         category: 'product-brief',
@@ -404,7 +404,7 @@ export async function runAnalysisPhase(
     }
 
     // Step 10: Register product-brief artifact
-    const artifact = registerArtifact(db, {
+    const artifact = await registerArtifact(db, {
       pipeline_run_id: runId,
       phase: 'analysis',
       type: 'product-brief',

@@ -29,6 +29,8 @@ import { CostTrackerSubscriber, createCostTrackerSubscriber } from '../cost-trac
 import { TOKEN_RATES, getTokenRate, estimateCost, estimateCostSafe } from '../token-rates.js'
 import type { CostEntry, SessionCostSummary, TaskCostSummary } from '../types.js'
 import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   recordCostEntry,
   getCostEntryById,
@@ -42,12 +44,13 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): BetterSqlite3Database {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new Database(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   runMigrations(db)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 function createTestSession(db: BetterSqlite3Database, sessionId: string = 'session-1'): void {
@@ -173,9 +176,12 @@ describe('Token Rates (AC3)', () => {
 
 describe('Cost Persistence Queries', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = createTestDb()
+    const setup = createTestDb()
+    db = setup.db
+    adapter = setup.adapter
     createTestSession(db)
     createTestTask(db, 'task-1')
     createTestTask(db, 'task-2')
@@ -186,8 +192,8 @@ describe('Cost Persistence Queries', () => {
   })
 
   describe('recordCostEntry', () => {
-    it('inserts a cost entry and returns DB-assigned integer id (Fix #2)', () => {
-      const id = recordCostEntry(db, {
+    it('inserts a cost entry and returns DB-assigned integer id (Fix #2)', async () => {
+      const id = await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-1',
         agent: 'claude',
@@ -204,8 +210,8 @@ describe('Cost Persistence Queries', () => {
       expect(id).toBeGreaterThan(0)
     })
 
-    it('auto-increments ids for multiple entries', () => {
-      const id1 = recordCostEntry(db, {
+    it('auto-increments ids for multiple entries', async () => {
+      const id1 = await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-1',
         agent: 'claude',
@@ -217,7 +223,7 @@ describe('Cost Persistence Queries', () => {
         cost_usd: 0.001,
         savings_usd: 0,
       })
-      const id2 = recordCostEntry(db, {
+      const id2 = await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-2',
         agent: 'codex',
@@ -235,8 +241,8 @@ describe('Cost Persistence Queries', () => {
   })
 
   describe('getCostEntryById', () => {
-    it('retrieves entry by DB-assigned id with correct type mapping', () => {
-      const id = recordCostEntry(db, {
+    it('retrieves entry by DB-assigned id with correct type mapping', async () => {
+      const id = await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-1',
         agent: 'claude',
@@ -249,7 +255,7 @@ describe('Cost Persistence Queries', () => {
         savings_usd: 0,
       })
 
-      const entry = getCostEntryById(db, id)
+      const entry = await getCostEntryById(adapter, id)
 
       expect(entry.id).toBe(id)
       expect(typeof entry.id).toBe('number')
@@ -268,8 +274,8 @@ describe('Cost Persistence Queries', () => {
   })
 
   describe('getTaskCostSummary (AC1)', () => {
-    it('returns aggregated cost for a task with single entry', () => {
-      recordCostEntry(db, {
+    it('returns aggregated cost for a task with single entry', async () => {
+      await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-1',
         agent: 'claude',
@@ -282,7 +288,7 @@ describe('Cost Persistence Queries', () => {
         savings_usd: 0,
       })
 
-      const summary = getTaskCostSummary(db, 'task-1')
+      const summary = await getTaskCostSummary(adapter, 'task-1')
 
       expect(summary.task_id).toBe('task-1')
       expect(summary.cost_usd).toBeCloseTo(0.0105)
@@ -293,8 +299,8 @@ describe('Cost Persistence Queries', () => {
       expect(summary.savings_usd).toBe(0)
     })
 
-    it('returns zero-cost summary for task with no cost entries', () => {
-      const summary = getTaskCostSummary(db, 'task-1')
+    it('returns zero-cost summary for task with no cost entries', async () => {
+      const summary = await getTaskCostSummary(adapter, 'task-1')
 
       expect(summary.task_id).toBe('task-1')
       expect(summary.cost_usd).toBe(0)
@@ -304,8 +310,8 @@ describe('Cost Persistence Queries', () => {
   })
 
   describe('getSessionCostSummary (AC2)', () => {
-    it('returns aggregated session cost with breakdown', () => {
-      recordCostEntry(db, {
+    it('returns aggregated session cost with breakdown', async () => {
+      await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-1',
         agent: 'claude',
@@ -317,7 +323,7 @@ describe('Cost Persistence Queries', () => {
         cost_usd: 0.05,
         savings_usd: 0,
       })
-      recordCostEntry(db, {
+      await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-2',
         agent: 'claude',
@@ -330,7 +336,7 @@ describe('Cost Persistence Queries', () => {
         savings_usd: 0.021,
       })
 
-      const summary = getSessionCostSummary(db, 'session-1')
+      const summary = await getSessionCostSummary(adapter, 'session-1')
 
       expect(summary.session_id).toBe('session-1')
       expect(summary.total_cost_usd).toBeCloseTo(0.05)
@@ -342,8 +348,8 @@ describe('Cost Persistence Queries', () => {
       expect(summary.api_task_count).toBe(1)
     })
 
-    it('returns per-agent breakdown (AC2 FR26)', () => {
-      recordCostEntry(db, {
+    it('returns per-agent breakdown (AC2 FR26)', async () => {
+      await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-1',
         agent: 'claude',
@@ -355,7 +361,7 @@ describe('Cost Persistence Queries', () => {
         cost_usd: 0.05,
         savings_usd: 0,
       })
-      recordCostEntry(db, {
+      await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-2',
         agent: 'codex',
@@ -368,7 +374,7 @@ describe('Cost Persistence Queries', () => {
         savings_usd: 0,
       })
 
-      const summary = getSessionCostSummary(db, 'session-1')
+      const summary = await getSessionCostSummary(adapter, 'session-1')
 
       expect(summary.per_agent_breakdown.length).toBe(2)
       const claudeBreakdown = summary.per_agent_breakdown.find((a) => a.agent === 'claude')
@@ -377,8 +383,8 @@ describe('Cost Persistence Queries', () => {
       expect(claudeBreakdown!.cost_usd).toBeCloseTo(0.05)
     })
 
-    it('returns actual earliest recorded_at, not synthetic timestamp (Fix #8)', () => {
-      recordCostEntry(db, {
+    it('returns actual earliest recorded_at, not synthetic timestamp (Fix #8)', async () => {
+      await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-1',
         agent: 'claude',
@@ -391,7 +397,7 @@ describe('Cost Persistence Queries', () => {
         savings_usd: 0,
       })
 
-      const summary = getSessionCostSummary(db, 'session-1')
+      const summary = await getSessionCostSummary(adapter, 'session-1')
 
       // The created_at should NOT be a fresh timestamp — it should come from the DB
       // Verify it's a valid date string from the DB, not a brand-new Date()
@@ -403,8 +409,8 @@ describe('Cost Persistence Queries', () => {
       expect(timestamp.getTime()).not.toBeNaN()
     })
 
-    it('returns empty summary for session with no cost entries', () => {
-      const summary = getSessionCostSummary(db, 'session-1')
+    it('returns empty summary for session with no cost entries', async () => {
+      const summary = await getSessionCostSummary(adapter, 'session-1')
 
       expect(summary.total_cost_usd).toBe(0)
       expect(summary.task_count).toBe(0)
@@ -413,8 +419,8 @@ describe('Cost Persistence Queries', () => {
   })
 
   describe('getAgentCostBreakdown (AC5)', () => {
-    it('returns cost breakdown for a specific agent', () => {
-      recordCostEntry(db, {
+    it('returns cost breakdown for a specific agent', async () => {
+      await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-1',
         agent: 'claude',
@@ -426,7 +432,7 @@ describe('Cost Persistence Queries', () => {
         cost_usd: 0.05,
         savings_usd: 0,
       })
-      recordCostEntry(db, {
+      await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-2',
         agent: 'claude',
@@ -439,7 +445,7 @@ describe('Cost Persistence Queries', () => {
         savings_usd: 0.021,
       })
 
-      const breakdown = getAgentCostBreakdown(db, 'session-1', 'claude')
+      const breakdown = await getAgentCostBreakdown(adapter, 'session-1', 'claude')
 
       expect(breakdown.agent).toBe('claude')
       expect(breakdown.task_count).toBe(2)
@@ -451,8 +457,8 @@ describe('Cost Persistence Queries', () => {
   })
 
   describe('getAllCostEntries', () => {
-    it('returns all entries for a session ordered by timestamp DESC', () => {
-      recordCostEntry(db, {
+    it('returns all entries for a session ordered by timestamp DESC', async () => {
+      await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-1',
         agent: 'claude',
@@ -464,7 +470,7 @@ describe('Cost Persistence Queries', () => {
         cost_usd: 0.01,
         savings_usd: 0,
       })
-      recordCostEntry(db, {
+      await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-2',
         agent: 'codex',
@@ -477,7 +483,7 @@ describe('Cost Persistence Queries', () => {
         savings_usd: 0.005,
       })
 
-      const entries = getAllCostEntries(db, 'session-1')
+      const entries = await getAllCostEntries(adapter, 'session-1')
 
       expect(entries).toHaveLength(2)
       // Verify id is a number, not a string (Fix #2)
@@ -485,8 +491,8 @@ describe('Cost Persistence Queries', () => {
       expect(typeof entries[1]!.id).toBe('number')
     })
 
-    it('respects limit parameter', () => {
-      recordCostEntry(db, {
+    it('respects limit parameter', async () => {
+      await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-1',
         agent: 'claude',
@@ -498,7 +504,7 @@ describe('Cost Persistence Queries', () => {
         cost_usd: 0.01,
         savings_usd: 0,
       })
-      recordCostEntry(db, {
+      await recordCostEntry(adapter, {
         session_id: 'session-1',
         task_id: 'task-2',
         agent: 'codex',
@@ -511,7 +517,7 @@ describe('Cost Persistence Queries', () => {
         savings_usd: 0,
       })
 
-      const entries = getAllCostEntries(db, 'session-1', 1)
+      const entries = await getAllCostEntries(adapter, 'session-1', 1)
       expect(entries).toHaveLength(1)
     })
   })
@@ -573,13 +579,16 @@ describe('Cost Persistence Queries', () => {
 
 describe('CostTrackerImpl', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let eventBus: TypedEventBus
   let tracker: CostTracker
 
   beforeEach(() => {
-    db = createTestDb()
+    const setup = createTestDb()
+    db = setup.db
+    adapter = setup.adapter
     eventBus = new TypedEventBusImpl()
-    tracker = createCostTracker({ db, eventBus })
+    tracker = createCostTracker({ db: adapter, eventBus })
     createTestSession(db)
     createTestTask(db, 'task-1')
     createTestTask(db, 'task-2')
@@ -591,8 +600,8 @@ describe('CostTrackerImpl', () => {
   })
 
   describe('recordTaskCost (AC1)', () => {
-    it('records API billing cost correctly', () => {
-      const entry = tracker.recordTaskCost(
+    it('records API billing cost correctly', async () => {
+      const entry = await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -612,8 +621,8 @@ describe('CostTrackerImpl', () => {
       expect(entry.tokens_output).toBe(500)
     })
 
-    it('records subscription billing with zero cost and savings (AC4)', () => {
-      const entry = tracker.recordTaskCost(
+    it('records subscription billing with zero cost and savings (AC4)', async () => {
+      const entry = await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -633,11 +642,11 @@ describe('CostTrackerImpl', () => {
       expect(entry.savings_usd).toBeCloseTo(expectedApiCost)
     })
 
-    it('emits cost:recorded event', () => {
+    it('emits cost:recorded event', async () => {
       const handler = vi.fn()
       eventBus.on('cost:recorded', handler)
 
-      tracker.recordTaskCost(
+      await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -658,8 +667,8 @@ describe('CostTrackerImpl', () => {
       )
     })
 
-    it('updates task cumulative cost_usd', () => {
-      tracker.recordTaskCost(
+    it('updates task cumulative cost_usd', async () => {
+      await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -676,8 +685,8 @@ describe('CostTrackerImpl', () => {
       expect(row.cost_usd).toBeGreaterThan(0)
     })
 
-    it('accumulates cost_usd across multiple recordings', () => {
-      tracker.recordTaskCost(
+    it('accumulates cost_usd across multiple recordings', async () => {
+      await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -693,7 +702,7 @@ describe('CostTrackerImpl', () => {
         }
       ).cost_usd
 
-      tracker.recordTaskCost(
+      await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -712,8 +721,8 @@ describe('CostTrackerImpl', () => {
       expect(secondCost).toBeGreaterThan(firstCost)
     })
 
-    it('returns CostEntry with DB-assigned id (not constructed string) (Fix #2)', () => {
-      const entry = tracker.recordTaskCost(
+    it('returns CostEntry with DB-assigned id (not constructed string) (Fix #2)', async () => {
+      const entry = await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -732,8 +741,8 @@ describe('CostTrackerImpl', () => {
   })
 
   describe('getTaskCost (AC1)', () => {
-    it('returns task cost summary', () => {
-      tracker.recordTaskCost(
+    it('returns task cost summary', async () => {
+      await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -744,7 +753,7 @@ describe('CostTrackerImpl', () => {
         'api',
       )
 
-      const summary = tracker.getTaskCost('task-1')
+      const summary = await tracker.getTaskCost('task-1')
 
       expect(summary.task_id).toBe('task-1')
       expect(summary.cost_usd).toBeGreaterThan(0)
@@ -753,8 +762,8 @@ describe('CostTrackerImpl', () => {
       expect(summary.billing_mode).toBe('api')
     })
 
-    it('returns mixed billing_mode when task has both types', () => {
-      tracker.recordTaskCost(
+    it('returns mixed billing_mode when task has both types', async () => {
+      await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -764,7 +773,7 @@ describe('CostTrackerImpl', () => {
         500,
         'api',
       )
-      tracker.recordTaskCost(
+      await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -775,14 +784,14 @@ describe('CostTrackerImpl', () => {
         'subscription',
       )
 
-      const summary = tracker.getTaskCost('task-1')
+      const summary = await tracker.getTaskCost('task-1')
       expect(summary.billing_mode).toBe('mixed')
     })
   })
 
   describe('getSessionCost (AC2, AC5)', () => {
-    it('returns full session cost summary with all fields', () => {
-      tracker.recordTaskCost(
+    it('returns full session cost summary with all fields', async () => {
+      await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -792,7 +801,7 @@ describe('CostTrackerImpl', () => {
         500,
         'api',
       )
-      tracker.recordTaskCost(
+      await tracker.recordTaskCost(
         'session-1',
         'task-2',
         'claude',
@@ -803,7 +812,7 @@ describe('CostTrackerImpl', () => {
         'subscription',
       )
 
-      const summary = tracker.getSessionCost('session-1')
+      const summary = await tracker.getSessionCost('session-1')
 
       expect(summary.session_id).toBe('session-1')
       expect(summary.total_cost_usd).toBeGreaterThan(0)
@@ -817,9 +826,9 @@ describe('CostTrackerImpl', () => {
       expect(summary.per_agent_breakdown[0]!.agent).toBe('claude')
     })
 
-    it('provides savings_usd showing savings from subscription routing (AC4, AC5, FR26, FR28)', () => {
+    it('provides savings_usd showing savings from subscription routing (AC4, AC5, FR26, FR28)', async () => {
       // Record a subscription task
-      tracker.recordTaskCost(
+      await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -830,7 +839,7 @@ describe('CostTrackerImpl', () => {
         'subscription',
       )
 
-      const summary = tracker.getSessionCost('session-1')
+      const summary = await tracker.getSessionCost('session-1')
 
       // Savings should be the equivalent API cost of the subscription-routed task
       const expectedSavings = (10000 * 3.0) / 1_000_000 + (5000 * 15.0) / 1_000_000
@@ -838,8 +847,8 @@ describe('CostTrackerImpl', () => {
       expect(summary.total_cost_usd).toBe(0)
     })
 
-    it('returns savingsSummary string when subscription savings exist (AC5, Fix #6)', () => {
-      tracker.recordTaskCost(
+    it('returns savingsSummary string when subscription savings exist (AC5, Fix #6)', async () => {
+      await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -850,13 +859,13 @@ describe('CostTrackerImpl', () => {
         'subscription',
       )
 
-      const summary = tracker.getSessionCost('session-1')
+      const summary = await tracker.getSessionCost('session-1')
 
       expect(summary.savingsSummary).toMatch(/^Saved ~\$[\d.]+ by routing \d+ tasks? through subscriptions vs\. equivalent API pricing$/)
     })
 
-    it('returns savingsSummary "no savings" message when no subscription tasks (AC5, Fix #6)', () => {
-      tracker.recordTaskCost(
+    it('returns savingsSummary "no savings" message when no subscription tasks (AC5, Fix #6)', async () => {
+      await tracker.recordTaskCost(
         'session-1',
         'task-1',
         'claude',
@@ -867,23 +876,23 @@ describe('CostTrackerImpl', () => {
         'api',
       )
 
-      const summary = tracker.getSessionCost('session-1')
+      const summary = await tracker.getSessionCost('session-1')
 
       expect(summary.savingsSummary).toBe('No subscription savings recorded this session')
     })
 
-    it('returns savingsSummary "no savings" for empty session (AC5, Fix #6)', () => {
-      const summary = tracker.getSessionCost('session-1')
+    it('returns savingsSummary "no savings" for empty session (AC5, Fix #6)', async () => {
+      const summary = await tracker.getSessionCost('session-1')
       expect(summary.savingsSummary).toBe('No subscription savings recorded this session')
     })
   })
 
   describe('getAgentCostBreakdown', () => {
-    it('returns breakdown with billing_breakdown', () => {
-      tracker.recordTaskCost('session-1', 'task-1', 'claude', 'anthropic', 'claude-3-sonnet', 1000, 500, 'api')
-      tracker.recordTaskCost('session-1', 'task-2', 'claude', 'anthropic', 'claude-3-sonnet', 500, 200, 'subscription')
+    it('returns breakdown with billing_breakdown', async () => {
+      await tracker.recordTaskCost('session-1', 'task-1', 'claude', 'anthropic', 'claude-3-sonnet', 1000, 500, 'api')
+      await tracker.recordTaskCost('session-1', 'task-2', 'claude', 'anthropic', 'claude-3-sonnet', 500, 200, 'subscription')
 
-      const breakdown = tracker.getAgentCostBreakdown('session-1', 'claude')
+      const breakdown = await tracker.getAgentCostBreakdown('session-1', 'claude')
 
       expect(breakdown.task_count).toBe(2)
       expect(breakdown.billing_breakdown.api).toBe(1)
@@ -893,20 +902,20 @@ describe('CostTrackerImpl', () => {
   })
 
   describe('getAllCosts', () => {
-    it('returns all cost entries for a session', () => {
-      tracker.recordTaskCost('session-1', 'task-1', 'claude', 'anthropic', 'claude-3-sonnet', 100, 50, 'api')
-      tracker.recordTaskCost('session-1', 'task-2', 'codex', 'openai', 'gpt-4o', 200, 100, 'api')
+    it('returns all cost entries for a session', async () => {
+      await tracker.recordTaskCost('session-1', 'task-1', 'claude', 'anthropic', 'claude-3-sonnet', 100, 50, 'api')
+      await tracker.recordTaskCost('session-1', 'task-2', 'codex', 'openai', 'gpt-4o', 200, 100, 'api')
 
-      const entries = tracker.getAllCosts('session-1')
+      const entries = await tracker.getAllCosts('session-1')
 
       expect(entries).toHaveLength(2)
     })
 
-    it('supports limit parameter', () => {
-      tracker.recordTaskCost('session-1', 'task-1', 'claude', 'anthropic', 'claude-3-sonnet', 100, 50, 'api')
-      tracker.recordTaskCost('session-1', 'task-2', 'codex', 'openai', 'gpt-4o', 200, 100, 'api')
+    it('supports limit parameter', async () => {
+      await tracker.recordTaskCost('session-1', 'task-1', 'claude', 'anthropic', 'claude-3-sonnet', 100, 50, 'api')
+      await tracker.recordTaskCost('session-1', 'task-2', 'codex', 'openai', 'gpt-4o', 200, 100, 'api')
 
-      const entries = tracker.getAllCosts('session-1', 1)
+      const entries = await tracker.getAllCosts('session-1', 1)
 
       expect(entries).toHaveLength(1)
     })
@@ -919,14 +928,17 @@ describe('CostTrackerImpl', () => {
 
 describe('CostTrackerSubscriber', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let eventBus: TypedEventBus
   let costTracker: CostTracker
   let subscriber: CostTrackerSubscriber
 
   beforeEach(async () => {
-    db = createTestDb()
+    const setup = createTestDb()
+    db = setup.db
+    adapter = setup.adapter
     eventBus = new TypedEventBusImpl()
-    costTracker = createCostTracker({ db, eventBus })
+    costTracker = createCostTracker({ db: adapter, eventBus })
     createTestSession(db)
     createTestTask(db, 'task-1')
     createTestTask(db, 'task-2')
@@ -941,10 +953,12 @@ describe('CostTrackerSubscriber', () => {
 
   afterEach(async () => {
     await subscriber.shutdown()
+    // Let pending async event handlers drain before closing
+    await new Promise((r) => setTimeout(r, 10))
     db.close()
   })
 
-  it('records cost when task:routed then task:complete events fire', () => {
+  it('records cost when task:routed then task:complete events fire', async () => {
     eventBus.emit('task:routed', {
       taskId: 'task-1',
       decision: {
@@ -961,13 +975,13 @@ describe('CostTrackerSubscriber', () => {
       result: { tokensUsed: 1000, exitCode: 0 },
     })
 
-    const entries = getAllCostEntries(db, 'session-1')
+    const entries = await getAllCostEntries(adapter, 'session-1')
     expect(entries).toHaveLength(1)
     expect(entries[0]!.task_id).toBe('task-1')
     expect(entries[0]!.billing_mode).toBe('api')
   })
 
-  it('uses the sessionId passed to constructor (Fix #4)', () => {
+  it('uses the sessionId passed to constructor (Fix #4)', async () => {
     eventBus.emit('task:routed', {
       taskId: 'task-1',
       decision: {
@@ -984,12 +998,12 @@ describe('CostTrackerSubscriber', () => {
       result: { tokensUsed: 100, exitCode: 0 },
     })
 
-    const entries = getAllCostEntries(db, 'session-1')
+    const entries = await getAllCostEntries(adapter, 'session-1')
     expect(entries).toHaveLength(1)
     expect(entries[0]!.session_id).toBe('session-1')
   })
 
-  it('splits tokensUsed proportionally between input and output (Fix #5)', () => {
+  it('splits tokensUsed proportionally between input and output (Fix #5)', async () => {
     eventBus.emit('task:routed', {
       taskId: 'task-1',
       decision: {
@@ -1006,7 +1020,7 @@ describe('CostTrackerSubscriber', () => {
       result: { tokensUsed: 1000, exitCode: 0 },
     })
 
-    const entries = getAllCostEntries(db, 'session-1')
+    const entries = await getAllCostEntries(adapter, 'session-1')
     expect(entries).toHaveLength(1)
 
     // 25% input, 75% output heuristic
@@ -1016,7 +1030,7 @@ describe('CostTrackerSubscriber', () => {
     expect(entries[0]!.tokens_input + entries[0]!.tokens_output).toBe(1000)
   })
 
-  it('skips cost recording when billingMode is "unavailable" (Fix #6)', () => {
+  it('skips cost recording when billingMode is "unavailable" (Fix #6)', async () => {
     eventBus.emit('task:routed', {
       taskId: 'task-1',
       decision: {
@@ -1034,11 +1048,11 @@ describe('CostTrackerSubscriber', () => {
       result: { tokensUsed: 0, exitCode: 0 },
     })
 
-    const entries = getAllCostEntries(db, 'session-1')
+    const entries = await getAllCostEntries(adapter, 'session-1')
     expect(entries).toHaveLength(0)
   })
 
-  it('records zero-cost entry for failed tasks', () => {
+  it('records zero-cost entry for failed tasks', async () => {
     eventBus.emit('task:routed', {
       taskId: 'task-1',
       decision: {
@@ -1055,24 +1069,24 @@ describe('CostTrackerSubscriber', () => {
       error: { message: 'something went wrong' },
     })
 
-    const entries = getAllCostEntries(db, 'session-1')
+    const entries = await getAllCostEntries(adapter, 'session-1')
     expect(entries).toHaveLength(1)
     expect(entries[0]!.tokens_input).toBe(0)
     expect(entries[0]!.tokens_output).toBe(0)
   })
 
-  it('skips cost recording when no routing context is cached', () => {
+  it('skips cost recording when no routing context is cached', async () => {
     // Emit task:complete without a prior task:routed
     eventBus.emit('task:complete', {
       taskId: 'task-1',
       result: { tokensUsed: 100, exitCode: 0 },
     })
 
-    const entries = getAllCostEntries(db, 'session-1')
+    const entries = await getAllCostEntries(adapter, 'session-1')
     expect(entries).toHaveLength(0)
   })
 
-  it('clears routing cache after task completion', () => {
+  it('clears routing cache after task completion', async () => {
     eventBus.emit('task:routed', {
       taskId: 'task-1',
       decision: {
@@ -1095,11 +1109,11 @@ describe('CostTrackerSubscriber', () => {
       result: { tokensUsed: 100, exitCode: 0 },
     })
 
-    const entries = getAllCostEntries(db, 'session-1')
+    const entries = await getAllCostEntries(adapter, 'session-1')
     expect(entries).toHaveLength(1)
   })
 
-  it('setDefaultSessionId updates the session used for subsequent recordings', () => {
+  it('setDefaultSessionId updates the session used for subsequent recordings', async () => {
     createTestSession(db, 'session-2')
 
     subscriber.setDefaultSessionId('session-2')
@@ -1120,12 +1134,12 @@ describe('CostTrackerSubscriber', () => {
       result: { tokensUsed: 100, exitCode: 0 },
     })
 
-    const entries = getAllCostEntries(db, 'session-2')
+    const entries = await getAllCostEntries(adapter, 'session-2')
     expect(entries).toHaveLength(1)
     expect(entries[0]!.session_id).toBe('session-2')
   })
 
-  it('handles subscription billing correctly via events', () => {
+  it('handles subscription billing correctly via events', async () => {
     eventBus.emit('task:routed', {
       taskId: 'task-1',
       decision: {
@@ -1142,7 +1156,7 @@ describe('CostTrackerSubscriber', () => {
       result: { tokensUsed: 1000, exitCode: 0 },
     })
 
-    const entries = getAllCostEntries(db, 'session-1')
+    const entries = await getAllCostEntries(adapter, 'session-1')
     expect(entries).toHaveLength(1)
     expect(entries[0]!.billing_mode).toBe('subscription')
     expect(entries[0]!.cost_usd).toBe(0)
@@ -1168,7 +1182,7 @@ describe('CostTrackerSubscriber', () => {
       result: { tokensUsed: 100, exitCode: 0 },
     })
 
-    const entries = getAllCostEntries(db, 'session-1')
+    const entries = await getAllCostEntries(adapter, 'session-1')
     expect(entries).toHaveLength(0)
   })
 })
@@ -1178,15 +1192,15 @@ describe('CostTrackerSubscriber', () => {
 // ---------------------------------------------------------------------------
 
 describe('createCostTracker', () => {
-  it('creates a working CostTracker with default token rates', () => {
-    const db = createTestDb()
+  it('creates a working CostTracker with default token rates', async () => {
+    const { db, adapter } = createTestDb()
     const eventBus = new TypedEventBusImpl()
-    const tracker = createCostTracker({ db, eventBus })
+    const tracker = createCostTracker({ db: adapter, eventBus })
 
     createTestSession(db)
     createTestTask(db, 'task-1')
 
-    const entry = tracker.recordTaskCost(
+    const entry = await tracker.recordTaskCost(
       'session-1',
       'task-1',
       'claude',
@@ -1201,8 +1215,8 @@ describe('createCostTracker', () => {
     db.close()
   })
 
-  it('creates a CostTracker with custom token rates that are actually used', () => {
-    const db = createTestDb()
+  it('creates a CostTracker with custom token rates that are actually used', async () => {
+    const { db, adapter } = createTestDb()
     const eventBus = new TypedEventBusImpl()
     // Override anthropic/claude-3-sonnet with a very high rate to prove injection works
     const customRates = {
@@ -1210,12 +1224,12 @@ describe('createCostTracker', () => {
         'claude-3-sonnet': { input_rate: 1000.0, output_rate: 2000.0 },
       },
     }
-    const tracker = createCostTracker({ db, eventBus, tokenRates: customRates })
+    const tracker = createCostTracker({ db: adapter, eventBus, tokenRates: customRates })
 
     createTestSession(db)
     createTestTask(db, 'task-1')
 
-    const entry = tracker.recordTaskCost(
+    const entry = await tracker.recordTaskCost(
       'session-1',
       'task-1',
       'claude',

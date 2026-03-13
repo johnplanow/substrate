@@ -1,10 +1,13 @@
 /**
- * Metrics query functions for the SQLite persistence layer.
+ * Metrics query functions for the persistence layer.
  *
  * Provides CRUD operations for run_metrics and story_metrics tables (Story 17-2).
+ *
+ * All functions are async and accept a DatabaseAdapter, making them
+ * compatible with both the SqliteDatabaseAdapter and DoltDatabaseAdapter.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../adapter.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,12 +77,12 @@ export interface TokenAggregate {
  * the DB (so any `incrementRunRestarts()` calls made by the supervisor between
  * the caller's read and this write are not silently overwritten).
  */
-export function writeRunMetrics(
-  db: BetterSqlite3Database,
+export async function writeRunMetrics(
+  adapter: DatabaseAdapter,
   input: RunMetricsInput,
-): void {
-  const stmt = db.prepare(`
-    INSERT INTO run_metrics (
+): Promise<void> {
+  await adapter.query(
+    `INSERT INTO run_metrics (
       run_id, methodology, status, started_at, completed_at,
       wall_clock_seconds, total_input_tokens, total_output_tokens, total_cost_usd,
       stories_attempted, stories_succeeded, stories_failed, stories_escalated,
@@ -104,73 +107,81 @@ export function writeRunMetrics(
       concurrency_setting = excluded.concurrency_setting,
       max_concurrent_actual = excluded.max_concurrent_actual,
       restarts = run_metrics.restarts,
-      is_baseline = run_metrics.is_baseline
-  `)
-  stmt.run(
-    input.run_id,
-    input.methodology,
-    input.status,
-    input.started_at,
-    input.completed_at ?? null,
-    input.wall_clock_seconds ?? 0,
-    input.total_input_tokens ?? 0,
-    input.total_output_tokens ?? 0,
-    input.total_cost_usd ?? 0,
-    input.stories_attempted ?? 0,
-    input.stories_succeeded ?? 0,
-    input.stories_failed ?? 0,
-    input.stories_escalated ?? 0,
-    input.total_review_cycles ?? 0,
-    input.total_dispatches ?? 0,
-    input.concurrency_setting ?? 1,
-    input.max_concurrent_actual ?? 1,
-    input.restarts ?? 0,
-    input.is_baseline ?? 0,
+      is_baseline = run_metrics.is_baseline`,
+    [
+      input.run_id,
+      input.methodology,
+      input.status,
+      input.started_at,
+      input.completed_at ?? null,
+      input.wall_clock_seconds ?? 0,
+      input.total_input_tokens ?? 0,
+      input.total_output_tokens ?? 0,
+      input.total_cost_usd ?? 0,
+      input.stories_attempted ?? 0,
+      input.stories_succeeded ?? 0,
+      input.stories_failed ?? 0,
+      input.stories_escalated ?? 0,
+      input.total_review_cycles ?? 0,
+      input.total_dispatches ?? 0,
+      input.concurrency_setting ?? 1,
+      input.max_concurrent_actual ?? 1,
+      input.restarts ?? 0,
+      input.is_baseline ?? 0,
+    ],
   )
 }
 
 /**
  * Get run metrics for a specific run.
  */
-export function getRunMetrics(
-  db: BetterSqlite3Database,
+export async function getRunMetrics(
+  adapter: DatabaseAdapter,
   runId: string,
-): RunMetricsRow | undefined {
-  return db.prepare('SELECT * FROM run_metrics WHERE run_id = ?').get(runId) as RunMetricsRow | undefined
+): Promise<RunMetricsRow | undefined> {
+  const rows = await adapter.query<RunMetricsRow>(
+    'SELECT * FROM run_metrics WHERE run_id = ?',
+    [runId],
+  )
+  return rows[0]
 }
 
 /**
  * List the most recent N run metrics rows, newest first.
  */
-export function listRunMetrics(
-  db: BetterSqlite3Database,
+export async function listRunMetrics(
+  adapter: DatabaseAdapter,
   limit = 10,
-): RunMetricsRow[] {
-  return db.prepare(
+): Promise<RunMetricsRow[]> {
+  return adapter.query<RunMetricsRow>(
     'SELECT * FROM run_metrics ORDER BY started_at DESC LIMIT ?',
-  ).all(limit) as RunMetricsRow[]
+    [limit],
+  )
 }
 
 /**
  * Tag a run as the baseline (clears any existing baseline first).
  */
-export function tagRunAsBaseline(
-  db: BetterSqlite3Database,
+export async function tagRunAsBaseline(
+  adapter: DatabaseAdapter,
   runId: string,
-): void {
-  db.transaction(() => {
-    db.prepare('UPDATE run_metrics SET is_baseline = 0').run()
-    db.prepare('UPDATE run_metrics SET is_baseline = 1 WHERE run_id = ?').run(runId)
-  })()
+): Promise<void> {
+  await adapter.transaction(async (tx) => {
+    await tx.query('UPDATE run_metrics SET is_baseline = 0')
+    await tx.query('UPDATE run_metrics SET is_baseline = 1 WHERE run_id = ?', [runId])
+  })
 }
 
 /**
  * Get the current baseline run metrics (if any).
  */
-export function getBaselineRunMetrics(
-  db: BetterSqlite3Database,
-): RunMetricsRow | undefined {
-  return db.prepare('SELECT * FROM run_metrics WHERE is_baseline = 1 LIMIT 1').get() as RunMetricsRow | undefined
+export async function getBaselineRunMetrics(
+  adapter: DatabaseAdapter,
+): Promise<RunMetricsRow | undefined> {
+  const rows = await adapter.query<RunMetricsRow>(
+    'SELECT * FROM run_metrics WHERE is_baseline = 1 LIMIT 1',
+  )
+  return rows[0]
 }
 
 /**
@@ -180,15 +191,16 @@ export function getBaselineRunMetrics(
  * inserted so the restart count is not lost — writeRunMetrics will overwrite
  * all other fields when the run reaches a terminal state.
  */
-export function incrementRunRestarts(
-  db: BetterSqlite3Database,
+export async function incrementRunRestarts(
+  adapter: DatabaseAdapter,
   runId: string,
-): void {
-  db.prepare(`
-    INSERT INTO run_metrics (run_id, methodology, status, started_at, restarts)
-    VALUES (?, 'unknown', 'running', datetime('now'), 1)
-    ON CONFLICT(run_id) DO UPDATE SET restarts = run_metrics.restarts + 1
-  `).run(runId)
+): Promise<void> {
+  await adapter.query(
+    `INSERT INTO run_metrics (run_id, methodology, status, started_at, restarts)
+     VALUES (?, 'unknown', 'running', datetime('now'), 1)
+     ON CONFLICT(run_id) DO UPDATE SET restarts = run_metrics.restarts + 1`,
+    [runId],
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -198,12 +210,12 @@ export function incrementRunRestarts(
 /**
  * Write or update story-level metrics.
  */
-export function writeStoryMetrics(
-  db: BetterSqlite3Database,
+export async function writeStoryMetrics(
+  adapter: DatabaseAdapter,
   input: StoryMetricsInput,
-): void {
-  const stmt = db.prepare(`
-    INSERT INTO story_metrics (
+): Promise<void> {
+  await adapter.query(
+    `INSERT INTO story_metrics (
       run_id, story_key, result, phase_durations_json, started_at, completed_at,
       wall_clock_seconds, input_tokens, output_tokens, cost_usd,
       review_cycles, dispatches
@@ -218,34 +230,35 @@ export function writeStoryMetrics(
       output_tokens = excluded.output_tokens,
       cost_usd = excluded.cost_usd,
       review_cycles = excluded.review_cycles,
-      dispatches = excluded.dispatches
-  `)
-  stmt.run(
-    input.run_id,
-    input.story_key,
-    input.result,
-    input.phase_durations_json ?? null,
-    input.started_at ?? null,
-    input.completed_at ?? null,
-    input.wall_clock_seconds ?? 0,
-    input.input_tokens ?? 0,
-    input.output_tokens ?? 0,
-    input.cost_usd ?? 0,
-    input.review_cycles ?? 0,
-    input.dispatches ?? 0,
+      dispatches = excluded.dispatches`,
+    [
+      input.run_id,
+      input.story_key,
+      input.result,
+      input.phase_durations_json ?? null,
+      input.started_at ?? null,
+      input.completed_at ?? null,
+      input.wall_clock_seconds ?? 0,
+      input.input_tokens ?? 0,
+      input.output_tokens ?? 0,
+      input.cost_usd ?? 0,
+      input.review_cycles ?? 0,
+      input.dispatches ?? 0,
+    ],
   )
 }
 
 /**
  * Get all story metrics for a given run.
  */
-export function getStoryMetricsForRun(
-  db: BetterSqlite3Database,
+export async function getStoryMetricsForRun(
+  adapter: DatabaseAdapter,
   runId: string,
-): StoryMetricsRow[] {
-  return db.prepare(
+): Promise<StoryMetricsRow[]> {
+  return adapter.query<StoryMetricsRow>(
     'SELECT * FROM story_metrics WHERE run_id = ? ORDER BY id ASC',
-  ).all(runId) as StoryMetricsRow[]
+    [runId],
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -277,13 +290,13 @@ export interface RunMetricsDelta {
  * Positive deltas mean run B is larger/longer than run A.
  * Returns null if either run does not exist.
  */
-export function compareRunMetrics(
-  db: BetterSqlite3Database,
+export async function compareRunMetrics(
+  adapter: DatabaseAdapter,
   runIdA: string,
   runIdB: string,
-): RunMetricsDelta | null {
-  const a = getRunMetrics(db, runIdA)
-  const b = getRunMetrics(db, runIdB)
+): Promise<RunMetricsDelta | null> {
+  const a = await getRunMetrics(adapter, runIdA)
+  const b = await getRunMetrics(adapter, runIdB)
   if (!a || !b) return null
 
   const pct = (base: number, diff: number): number | null =>
@@ -327,15 +340,15 @@ export interface RunSummaryForSupervisor {
  * Fetch a full run summary for consumption by the supervisor agent (AC5).
  * Includes per-story metrics and baseline delta percentages.
  */
-export function getRunSummaryForSupervisor(
-  db: BetterSqlite3Database,
+export async function getRunSummaryForSupervisor(
+  adapter: DatabaseAdapter,
   runId: string,
-): RunSummaryForSupervisor | null {
-  const run = getRunMetrics(db, runId)
+): Promise<RunSummaryForSupervisor | null> {
+  const run = await getRunMetrics(adapter, runId)
   if (!run) return null
 
-  const stories = getStoryMetricsForRun(db, runId)
-  const baseline = getBaselineRunMetrics(db)
+  const stories = await getStoryMetricsForRun(adapter, runId)
+  const baseline = await getBaselineRunMetrics(adapter)
 
   let token_vs_baseline_pct: number | null = null
   let review_cycles_vs_baseline_pct: number | null = null
@@ -363,41 +376,41 @@ export function getRunSummaryForSupervisor(
 /**
  * Aggregate token usage from the token_usage table for a pipeline run.
  */
-export function aggregateTokenUsageForRun(
-  db: BetterSqlite3Database,
+export async function aggregateTokenUsageForRun(
+  adapter: DatabaseAdapter,
   runId: string,
-): TokenAggregate {
-  const row = db.prepare(`
-    SELECT
+): Promise<TokenAggregate> {
+  const rows = await adapter.query<TokenAggregate>(
+    `SELECT
       COALESCE(SUM(input_tokens), 0) as input,
       COALESCE(SUM(output_tokens), 0) as output,
       COALESCE(SUM(cost_usd), 0) as cost
     FROM token_usage
-    WHERE pipeline_run_id = ?
-  `).get(runId) as TokenAggregate | undefined
-
-  return row ?? { input: 0, output: 0, cost: 0 }
+    WHERE pipeline_run_id = ?`,
+    [runId],
+  )
+  return rows[0] ?? { input: 0, output: 0, cost: 0 }
 }
 
 /**
  * Aggregate token usage for a specific story within a pipeline run.
  * Matches rows where the metadata JSON contains the given storyKey.
  */
-export function aggregateTokenUsageForStory(
-  db: BetterSqlite3Database,
+export async function aggregateTokenUsageForStory(
+  adapter: DatabaseAdapter,
   runId: string,
   storyKey: string,
-): TokenAggregate {
-  const row = db.prepare(`
-    SELECT
+): Promise<TokenAggregate> {
+  const rows = await adapter.query<TokenAggregate>(
+    `SELECT
       COALESCE(SUM(input_tokens), 0) as input,
       COALESCE(SUM(output_tokens), 0) as output,
       COALESCE(SUM(cost_usd), 0) as cost
     FROM token_usage
     WHERE pipeline_run_id = ?
       AND metadata IS NOT NULL
-      AND json_extract(metadata, '$.storyKey') = ?
-  `).get(runId, storyKey) as TokenAggregate | undefined
-
-  return row ?? { input: 0, output: 0, cost: 0 }
+      AND json_extract(metadata, '$.storyKey') = ?`,
+    [runId, storyKey],
+  )
+  return rows[0] ?? { input: 0, output: 0, cost: 0 }
 }

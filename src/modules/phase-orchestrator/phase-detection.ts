@@ -8,7 +8,7 @@
  * right phase instead of always jumping to implementation.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import { resolveStoryKeys } from '../implementation-orchestrator/story-discovery.js'
 
 // Phase artifact types produced by each phase on successful completion.
@@ -39,14 +39,14 @@ export interface PhaseDetectionResult {
  * 4. The first required phase WITHOUT an artifact is where we start
  * 5. If nothing exists → analysis (needs concept)
  */
-export function detectStartPhase(
-  db: BetterSqlite3Database,
+export async function detectStartPhase(
+  db: DatabaseAdapter,
   projectRoot: string,
   epicNumber?: number,
-): PhaseDetectionResult {
+): Promise<PhaseDetectionResult> {
   // Fast path: if stories are discoverable, go straight to implementation
   try {
-    const storyKeys = resolveStoryKeys(db, projectRoot, { epicNumber })
+    const storyKeys = await resolveStoryKeys(db, projectRoot, { epicNumber })
     if (storyKeys.length > 0) {
       const scopeLabel = epicNumber !== undefined ? ` (epic ${epicNumber})` : ''
       return {
@@ -64,9 +64,11 @@ export function detectStartPhase(
 
   try {
     for (const entry of PHASE_ARTIFACTS) {
-      const row = db
-        .prepare('SELECT id FROM artifacts WHERE phase = ? AND type = ? LIMIT 1')
-        .get(entry.phase, entry.type) as { id: string } | undefined
+      const rows = await db.query<{ id: string }>(
+        'SELECT id FROM artifacts WHERE phase = ? AND type = ? LIMIT 1',
+        [entry.phase, entry.type],
+      )
+      const row = rows[0]
 
       if (row !== undefined) {
         lastCompletedPhase = entry.phase

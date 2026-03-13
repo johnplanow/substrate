@@ -19,6 +19,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import { createPipelineRun, createDecision, getArtifactByTypeForRun } from '../../../../persistence/queries/decisions.js'
 import { runPlanningPhase } from '../planning.js'
 import type { PhaseDeps, PlanningPhaseParams, PlanningOutput } from '../types.js'
@@ -30,22 +32,23 @@ import type { Dispatcher, DispatchHandle, DispatchResult } from '../../../agent-
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'planning-phase-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
 /**
  * Seed the database with analysis-phase product brief decisions.
  */
-function seedProductBrief(db: BetterSqlite3Database, runId: string): void {
+async function seedProductBrief(adapter: DatabaseAdapter, runId: string): Promise<void> {
   const fields = [
     { key: 'problem_statement', value: 'Users need a way to manage their tasks efficiently.' },
     { key: 'target_users', value: JSON.stringify(['developers', 'teams']) },
@@ -54,7 +57,7 @@ function seedProductBrief(db: BetterSqlite3Database, runId: string): void {
     { key: 'constraints', value: JSON.stringify(['must run on web browsers', 'GDPR compliant']) },
   ]
   for (const { key, value } of fields) {
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'analysis',
       category: 'product-brief',
@@ -148,12 +151,12 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
 ): PhaseDeps {
   return {
-    db,
+    db: adapter,
     pack: pack ?? makePack(),
     contextCompiler: makeContextCompiler(),
     dispatcher,
@@ -166,14 +169,16 @@ function makeDeps(
 
 describe('runPlanningPhase()', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -187,10 +192,10 @@ describe('runPlanningPhase()', () => {
 
   describe('AC1: Compiled planning prompt retrieval', () => {
     it('calls pack.getPrompt("planning") to retrieve the template', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const pack = makePack()
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -200,9 +205,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('dispatches to claude-code agent with taskType planning', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -222,9 +227,9 @@ describe('runPlanningPhase()', () => {
 
   describe('AC2: Product brief context injection', () => {
     it('injects product brief into the {{product_brief}} placeholder', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -235,9 +240,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('includes all five product brief fields in the formatted brief', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -251,9 +256,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('includes problem_statement content in the assembled prompt', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -269,9 +274,9 @@ describe('runPlanningPhase()', () => {
 
   describe('AC3: Requirements generation', () => {
     it('returns success with requirements_count and user_stories_count', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -282,9 +287,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('returns an artifact_id on success', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -295,9 +300,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('returns correct requirements_count matching functional + non-functional', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -316,9 +321,9 @@ describe('runPlanningPhase()', () => {
 
   describe('AC4: Decision store persistence', () => {
     it('stores functional requirements as decisions with category=functional-requirements', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -340,9 +345,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('stores non-functional requirements as decisions with category=non-functional-requirements', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -363,9 +368,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('stores tech stack decisions with category=tech-stack', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -383,9 +388,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('stores user stories as decisions with category=user-stories', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -403,9 +408,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('stores domain model as a decision with category=domain-model', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -422,10 +427,10 @@ describe('runPlanningPhase()', () => {
     })
 
     it('does NOT store decisions when dispatch fails', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const failResult = makeDispatchResult({ status: 'failed', parsed: null, parseError: 'error' })
       const dispatcher = makeDispatcher(failResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -444,9 +449,9 @@ describe('runPlanningPhase()', () => {
 
   describe('AC5: Requirements table population', () => {
     it('creates Requirement records for each functional requirement', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -464,9 +469,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('creates Requirement records for each non-functional requirement with priority=should', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -483,9 +488,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('total requirement count matches functional + non-functional counts', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -505,9 +510,9 @@ describe('runPlanningPhase()', () => {
 
   describe('AC6: Artifact registration', () => {
     it('registers a prd artifact with correct phase and type', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -526,9 +531,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('artifact summary contains requirement counts', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -544,22 +549,22 @@ describe('runPlanningPhase()', () => {
     })
 
     it('artifact can be retrieved by getArtifactByTypeForRun after success', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
 
-      const artifact = getArtifactByTypeForRun(db, runId, 'planning', 'prd')
+      const artifact = await getArtifactByTypeForRun(adapter, runId, 'planning', 'prd')
       expect(artifact).toBeDefined()
     })
 
     it('does NOT register artifact when dispatch fails', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const failResult = makeDispatchResult({ status: 'failed', parsed: null, parseError: 'bad yaml' })
       const dispatcher = makeDispatcher(failResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -578,9 +583,9 @@ describe('runPlanningPhase()', () => {
 
   describe('AC7: Token budget compliance', () => {
     it('assembled prompt (with brief product brief) is within 3500 token budget', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -590,12 +595,12 @@ describe('runPlanningPhase()', () => {
     })
 
     it('returns failed with prompt_too_long when assembled prompt exceeds 3500 tokens', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       // Template is enormous — way over budget even after brief injection
       const hugTemplate = 'A'.repeat(14_001 * 4) + ' {{product_brief}}'
       const pack = makePack(hugTemplate)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -605,9 +610,9 @@ describe('runPlanningPhase()', () => {
     })
 
     it('passes PlanningOutputSchema to the dispatcher', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -626,7 +631,7 @@ describe('runPlanningPhase()', () => {
 
   describe('AC8: Failure handling', () => {
     it('returns { result: "failed" } when dispatch status is failed', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const failResult = makeDispatchResult({
         status: 'failed',
         exitCode: 1,
@@ -634,7 +639,7 @@ describe('runPlanningPhase()', () => {
         parseError: 'agent error',
       })
       const dispatcher = makeDispatcher(failResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -644,7 +649,7 @@ describe('runPlanningPhase()', () => {
     })
 
     it('returns { result: "failed" } when dispatch status is timeout', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const timeoutResult = makeDispatchResult({
         status: 'timeout',
         exitCode: -1,
@@ -653,7 +658,7 @@ describe('runPlanningPhase()', () => {
         durationMs: 300_001,
       })
       const dispatcher = makeDispatcher(timeoutResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -663,14 +668,14 @@ describe('runPlanningPhase()', () => {
     })
 
     it('returns { result: "failed" } with schema_validation_failed when parsed is null', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const nullResult = makeDispatchResult({
         status: 'completed',
         parsed: null,
         parseError: 'YAML parse error',
       })
       const dispatcher = makeDispatcher(nullResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -680,7 +685,7 @@ describe('runPlanningPhase()', () => {
     })
 
     it('returns failed when agent reports result: failed in output', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const agentFailResult = makeDispatchResult({
         parsed: {
           ...SAMPLE_PLANNING_OUTPUT,
@@ -688,7 +693,7 @@ describe('runPlanningPhase()', () => {
         },
       })
       const dispatcher = makeDispatcher(agentFailResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -698,11 +703,11 @@ describe('runPlanningPhase()', () => {
     })
 
     it('handles pack.getPrompt throwing an error gracefully', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const pack = makePack()
       vi.mocked(pack.getPrompt).mockRejectedValue(new Error('Prompt file not found'))
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -714,7 +719,7 @@ describe('runPlanningPhase()', () => {
     it('returns failed with descriptive error when no product brief decisions exist', async () => {
       // No seedProductBrief call — empty analysis phase
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -727,7 +732,7 @@ describe('runPlanningPhase()', () => {
     it('does not store decisions when missing product brief', async () => {
       // No seedProductBrief call
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       await runPlanningPhase(deps, params)
@@ -740,11 +745,11 @@ describe('runPlanningPhase()', () => {
     })
 
     it('returns tokenUsage { input: 0, output: 0 } when pack.getPrompt throws', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const pack = makePack()
       vi.mocked(pack.getPrompt).mockRejectedValue(new Error('file missing'))
       const dispatcher = makeDispatcher(makeDispatchResult())
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -755,12 +760,12 @@ describe('runPlanningPhase()', () => {
     })
 
     it('populates tokenUsage from dispatch result tokenEstimate', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const dispatchResult = makeDispatchResult({
         tokenEstimate: { input: 750, output: 300 },
       })
       const dispatcher = makeDispatcher(dispatchResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)
@@ -770,14 +775,14 @@ describe('runPlanningPhase()', () => {
     })
 
     it('includes descriptive error details on schema validation failure', async () => {
-      seedProductBrief(db, runId)
+      await seedProductBrief(adapter, runId)
       const invalidResult = makeDispatchResult({
         status: 'completed',
         parsed: null,
         parseError: 'Missing required field: functional_requirements',
       })
       const dispatcher = makeDispatcher(invalidResult)
-      const deps = makeDeps(db, dispatcher)
+      const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
 
       const result = await runPlanningPhase(deps, params)

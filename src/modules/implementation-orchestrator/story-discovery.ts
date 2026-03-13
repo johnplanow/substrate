@@ -17,7 +17,7 @@
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -46,11 +46,11 @@ export interface ResolveStoryKeysOptions {
  *
  * @returns Sorted, deduplicated array of story keys in "N-M" format
  */
-export function resolveStoryKeys(
-  db: BetterSqlite3Database,
+export async function resolveStoryKeys(
+  db: DatabaseAdapter,
   projectRoot: string,
   opts?: ResolveStoryKeysOptions,
-): string[] {
+): Promise<string[]> {
   // Level 1: Explicit --stories flag
   if (opts?.explicit !== undefined && opts.explicit.length > 0) {
     return opts.explicit
@@ -61,12 +61,12 @@ export function resolveStoryKeys(
   // Level 2: Decisions table — category='stories', phase='solutioning'
   // This is where solutioning.ts stores each story with its key directly.
   try {
-    const query = opts?.pipelineRunId !== undefined
+    const sql = opts?.pipelineRunId !== undefined
       ? `SELECT key FROM decisions WHERE phase = 'solutioning' AND category = 'stories' AND pipeline_run_id = ? ORDER BY created_at ASC`
       : `SELECT key FROM decisions WHERE phase = 'solutioning' AND category = 'stories' ORDER BY created_at ASC`
 
     const params = opts?.pipelineRunId !== undefined ? [opts.pipelineRunId] : []
-    const rows = db.prepare(query).all(...params) as Array<{ key: string }>
+    const rows = await db.query<{ key: string }>(sql, params)
 
     for (const row of rows) {
       if (/^\d+-\d+/.test(row.key)) {
@@ -82,12 +82,12 @@ export function resolveStoryKeys(
   // Level 3: Epic shard decisions — parse story keys from the shard markdown content
   if (keys.length === 0) {
     try {
-      const query = opts?.pipelineRunId !== undefined
+      const sql = opts?.pipelineRunId !== undefined
         ? `SELECT value FROM decisions WHERE category = 'epic-shard' AND pipeline_run_id = ? ORDER BY created_at ASC`
         : `SELECT value FROM decisions WHERE category = 'epic-shard' ORDER BY created_at ASC`
 
       const params = opts?.pipelineRunId !== undefined ? [opts.pipelineRunId] : []
-      const shardRows = db.prepare(query).all(...params) as Array<{ value: string }>
+      const shardRows = await db.query<{ value: string }>(sql, params)
 
       const allContent = shardRows.map((r) => r.value).join('\n')
       if (allContent.length > 0) {
@@ -111,7 +111,7 @@ export function resolveStoryKeys(
 
   // Optional: filter out completed stories
   if (opts?.filterCompleted === true && keys.length > 0) {
-    const completedKeys = getCompletedStoryKeys(db)
+    const completedKeys = await getCompletedStoryKeys(db)
     keys = keys.filter((k) => !completedKeys.has(k))
   }
 
@@ -322,14 +322,12 @@ function collectExistingStoryKeys(projectRoot: string): Set<string> {
  * Scans pipeline_runs with status='completed' and extracts story keys
  * with phase='COMPLETE' from their token_usage_json state.
  */
-function getCompletedStoryKeys(db: BetterSqlite3Database): Set<string> {
+async function getCompletedStoryKeys(db: DatabaseAdapter): Promise<Set<string>> {
   const completed = new Set<string>()
   try {
-    const rows = db
-      .prepare(
-        `SELECT token_usage_json FROM pipeline_runs WHERE status = 'completed' AND token_usage_json IS NOT NULL`,
-      )
-      .all() as Array<{ token_usage_json: string }>
+    const rows = await db.query<{ token_usage_json: string }>(
+      `SELECT token_usage_json FROM pipeline_runs WHERE status = 'completed' AND token_usage_json IS NOT NULL`,
+    )
 
     for (const row of rows) {
       try {

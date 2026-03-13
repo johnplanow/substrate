@@ -36,6 +36,8 @@ import type {
 import type { RunMetricsRow, StoryMetricsRow } from '../../../persistence/queries/metrics.js'
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
 import { EXPERIMENT_RESULT } from '../../../persistence/schemas/operational.js'
@@ -1146,8 +1148,9 @@ describe('Story 21-1 AC3: experiment result written to decision store', () => {
     const db: BetterSqlite3Database = new BetterSqlite3(':memory:')
     db.pragma('foreign_keys = ON')
     runMigrations(db)
+    const adapter = new SqliteDatabaseAdapter(db)
 
-    const run = createPipelineRun(db, { methodology: 'bmad' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     const baselineRunId = run.id
 
     const mockGit = vi.fn().mockImplementation((args: string[]) => {
@@ -1176,10 +1179,10 @@ describe('Story 21-1 AC3: experiment result written to decision store', () => {
     const experimenter = createExperimenter(experimentConfig, experimentDeps)
     const rec = makeRecommendation({ tokens_actual: 8200, tokens_baseline: 5100, delta_pct: 61 })
 
-    await experimenter.runExperiments(db, [rec], baselineRunId)
+    await experimenter.runExperiments(adapter, [rec], baselineRunId)
 
     // Verify the experiment-result decision was persisted
-    const decisions = getDecisionsByCategory(db, EXPERIMENT_RESULT)
+    const decisions = await getDecisionsByCategory(adapter, EXPERIMENT_RESULT)
     expect(decisions).toHaveLength(1)
 
     const d = decisions[0]!

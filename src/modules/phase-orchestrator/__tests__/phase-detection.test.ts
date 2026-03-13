@@ -4,6 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Database from 'better-sqlite3'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { detectStartPhase } from '../phase-detection.js'
 
 // Mock node:fs for discoverPendingStoryKeys fallback
@@ -21,7 +23,7 @@ vi.mock('node:fs', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): InstanceType<typeof Database> {
+function createTestDb(): { db: InstanceType<typeof Database>; adapter: DatabaseAdapter } {
   const db = new Database(':memory:')
   db.exec(`
     CREATE TABLE decisions (
@@ -56,7 +58,8 @@ function createTestDb(): InstanceType<typeof Database> {
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 function insertArtifact(
@@ -86,109 +89,112 @@ function insertStoryDecision(
 
 describe('detectStartPhase', () => {
   let db: InstanceType<typeof Database>
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
     vi.clearAllMocks()
     mockExistsSync.mockReturnValue(false)
-    db = createTestDb()
+    const setup = createTestDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
-  it('returns analysis with needsConcept when DB is empty', () => {
-    const result = detectStartPhase(db, '/project')
+  it('returns analysis with needsConcept when DB is empty', async () => {
+    const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('analysis')
     expect(result.needsConcept).toBe(true)
     expect(result.reason).toContain('No pipeline state found')
   })
 
-  it('returns implementation when stories exist in decisions table', () => {
+  it('returns implementation when stories exist in decisions table', async () => {
     insertStoryDecision(db, '1-1')
     insertStoryDecision(db, '1-2')
 
-    const result = detectStartPhase(db, '/project')
+    const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('implementation')
     expect(result.needsConcept).toBe(false)
     expect(result.reason).toContain('2 stories')
   })
 
-  it('returns implementation when stories discoverable from epics.md', () => {
+  it('returns implementation when stories discoverable from epics.md', async () => {
     mockExistsSync.mockImplementation((p: string) => {
       if (p.endsWith('epics.md')) return true
       return false
     })
     mockReadFileSync.mockReturnValue('**Story key:** `3-1-feature`\n**Story key:** `3-2-config`')
 
-    const result = detectStartPhase(db, '/project')
+    const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('implementation')
     expect(result.needsConcept).toBe(false)
     expect(result.reason).toContain('2 stories')
   })
 
-  it('returns planning when analysis is complete', () => {
+  it('returns planning when analysis is complete', async () => {
     insertArtifact(db, 'analysis', 'product-brief')
 
-    const result = detectStartPhase(db, '/project')
+    const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('planning')
     expect(result.needsConcept).toBe(false)
     expect(result.reason).toContain('analysis')
     expect(result.reason).toContain('planning')
   })
 
-  it('returns solutioning when planning is complete', () => {
+  it('returns solutioning when planning is complete', async () => {
     insertArtifact(db, 'analysis', 'product-brief')
     insertArtifact(db, 'planning', 'prd')
 
-    const result = detectStartPhase(db, '/project')
+    const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('solutioning')
     expect(result.needsConcept).toBe(false)
     expect(result.reason).toContain('planning')
     expect(result.reason).toContain('solutioning')
   })
 
-  it('returns implementation when solutioning is complete (with stories)', () => {
+  it('returns implementation when solutioning is complete (with stories)', async () => {
     insertArtifact(db, 'analysis', 'product-brief')
     insertArtifact(db, 'planning', 'prd')
     insertArtifact(db, 'solutioning', 'stories')
     insertStoryDecision(db, '1-1')
 
-    const result = detectStartPhase(db, '/project')
+    const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('implementation')
     expect(result.needsConcept).toBe(false)
   })
 
-  it('returns solutioning when all phases done but no stories found', () => {
+  it('returns solutioning when all phases done but no stories found', async () => {
     insertArtifact(db, 'analysis', 'product-brief')
     insertArtifact(db, 'planning', 'prd')
     insertArtifact(db, 'solutioning', 'stories')
     // No actual story decisions — solutioning "completed" but produced nothing usable
 
-    const result = detectStartPhase(db, '/project')
+    const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('solutioning')
     expect(result.reason).toContain('re-running solutioning')
   })
 
-  it('returns analysis when research is complete', () => {
+  it('returns analysis when research is complete', async () => {
     insertArtifact(db, 'research', 'research-findings')
 
-    const result = detectStartPhase(db, '/project')
+    const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('analysis')
     expect(result.needsConcept).toBe(true)
     expect(result.reason).toContain('research')
     expect(result.reason).toContain('analysis')
   })
 
-  it('skips gaps in phase chain (analysis missing but planning present)', () => {
+  it('skips gaps in phase chain (analysis missing but planning present)', async () => {
     // Only planning artifact exists (analysis was skipped or artifact missing)
     // Detection walks forward — analysis has no artifact, so it stops there
     insertArtifact(db, 'planning', 'prd')
 
-    const result = detectStartPhase(db, '/project')
+    const result = await detectStartPhase(adapter, '/project')
     // Should detect analysis is missing (no product-brief artifact)
     // and recommend starting from analysis
     expect(result.phase).toBe('analysis')
     expect(result.needsConcept).toBe(true)
   })
 
-  it('handles DB without artifacts table gracefully', () => {
+  it('handles DB without artifacts table gracefully', async () => {
     const brokenDb = new Database(':memory:')
     // Only create decisions table (no artifacts)
     brokenDb.exec(`
@@ -202,8 +208,9 @@ describe('detectStartPhase', () => {
         created_at TEXT, updated_at TEXT
       );
     `)
+    const brokenAdapter = new SqliteDatabaseAdapter(brokenDb)
 
-    const result = detectStartPhase(brokenDb, '/project')
+    const result = await detectStartPhase(brokenAdapter, '/project')
     expect(result.phase).toBe('analysis')
     expect(result.needsConcept).toBe(true)
     brokenDb.close()

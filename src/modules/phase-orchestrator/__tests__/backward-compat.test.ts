@@ -18,6 +18,8 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   createPipelineRun,
   createDecision,
@@ -33,11 +35,12 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'compat-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
 /**
@@ -46,38 +49,38 @@ function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
  * registers a product-brief artifact — replicating what analysis.ts
  * did before multi-step decomposition was introduced.
  */
-function writeSingleDispatchAnalysis(db: BetterSqlite3Database, runId: string) {
+async function writeSingleDispatchAnalysis(adapter: DatabaseAdapter, runId: string) {
   const phase = 'analysis'
 
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase,
     category: 'product-brief',
     key: 'problem_statement',
     value: 'Users struggle with fragmented task management across distributed teams.',
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase,
     category: 'product-brief',
     key: 'target_users',
     value: JSON.stringify(['project managers', 'software developers']),
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase,
     category: 'product-brief',
     key: 'core_features',
     value: JSON.stringify(['task board', 'assignment', 'progress tracking']),
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase,
     category: 'product-brief',
     key: 'success_metrics',
     value: JSON.stringify(['50% reduction in missed deadlines']),
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase,
     category: 'product-brief',
@@ -85,7 +88,7 @@ function writeSingleDispatchAnalysis(db: BetterSqlite3Database, runId: string) {
     value: JSON.stringify(['web-only', 'GDPR compliant']),
   })
 
-  registerArtifact(db, {
+  await registerArtifact(adapter, {
     pipeline_run_id: runId,
     phase,
     type: 'product-brief',
@@ -98,7 +101,7 @@ function writeSingleDispatchAnalysis(db: BetterSqlite3Database, runId: string) {
  * Simulate the OLD single-dispatch architecture write pattern.
  * Writes architecture decisions with key+value (not indexed like the new multi-step path).
  */
-function writeSingleDispatchArchitecture(db: BetterSqlite3Database, runId: string) {
+async function writeSingleDispatchArchitecture(adapter: DatabaseAdapter, runId: string) {
   const archDecisions = [
     { key: 'language', value: 'TypeScript', category: 'backend', rationale: 'Type safety' },
     { key: 'database', value: 'SQLite', category: 'backend', rationale: 'Embedded, fast' },
@@ -106,7 +109,7 @@ function writeSingleDispatchArchitecture(db: BetterSqlite3Database, runId: strin
   ]
 
   for (const d of archDecisions) {
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
@@ -116,7 +119,7 @@ function writeSingleDispatchArchitecture(db: BetterSqlite3Database, runId: strin
     })
   }
 
-  registerArtifact(db, {
+  await registerArtifact(adapter, {
     pipeline_run_id: runId,
     phase: 'solutioning',
     type: 'architecture',
@@ -128,15 +131,15 @@ function writeSingleDispatchArchitecture(db: BetterSqlite3Database, runId: strin
 /**
  * Simulate the OLD single-dispatch story write pattern.
  */
-function writeSingleDispatchStories(db: BetterSqlite3Database, runId: string) {
-  createDecision(db, {
+async function writeSingleDispatchStories(adapter: DatabaseAdapter, runId: string) {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'solutioning',
     category: 'epics',
     key: 'epic-1',
     value: JSON.stringify({ title: 'Task Management', description: 'Core task features' }),
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'solutioning',
     category: 'stories',
@@ -149,7 +152,7 @@ function writeSingleDispatchStories(db: BetterSqlite3Database, runId: string) {
       priority: 'must',
     }),
   })
-  createDecision(db, {
+  await createDecision(adapter, {
     pipeline_run_id: runId,
     phase: 'solutioning',
     category: 'stories',
@@ -163,7 +166,7 @@ function writeSingleDispatchStories(db: BetterSqlite3Database, runId: string) {
     }),
   })
 
-  registerArtifact(db, {
+  await registerArtifact(adapter, {
     pipeline_run_id: runId,
     phase: 'solutioning',
     type: 'stories',
@@ -185,6 +188,7 @@ describe('AC7: Database schema backward compatibility', () => {
     db = setup.db
     tmpDir = setup.tmpDir
   })
+  // Note: this block only uses raw db.prepare() for PRAGMA — no adapter needed
 
   afterEach(() => {
     db.close()
@@ -265,20 +269,22 @@ describe('AC7: Database schema backward compatibility', () => {
 
 describe('AC7: Single-dispatch decisions readable by multi-step query functions', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     runId = run.id
 
     // Write using the OLD single-dispatch patterns
-    writeSingleDispatchAnalysis(db, runId)
-    writeSingleDispatchArchitecture(db, runId)
-    writeSingleDispatchStories(db, runId)
+    await writeSingleDispatchAnalysis(adapter, runId)
+    await writeSingleDispatchArchitecture(adapter, runId)
+    await writeSingleDispatchStories(adapter, runId)
   })
 
   afterEach(() => {
@@ -286,8 +292,8 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('getDecisionsByPhaseForRun reads all single-dispatch analysis decisions', () => {
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+  it('getDecisionsByPhaseForRun reads all single-dispatch analysis decisions', async () => {
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
 
     // Should have 5 product-brief fields written by single-dispatch analysis
     expect(decisions).toHaveLength(5)
@@ -299,8 +305,8 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
     expect(keys).toContain('constraints')
   })
 
-  it('getDecisionsByPhaseForRun reads all single-dispatch architecture decisions', () => {
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+  it('getDecisionsByPhaseForRun reads all single-dispatch architecture decisions', async () => {
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
     const archDecisions = decisions.filter((d) => d.category === 'architecture')
 
     expect(archDecisions).toHaveLength(3)
@@ -310,8 +316,8 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
     expect(keys).toContain('api')
   })
 
-  it('getDecisionsByPhaseForRun reads single-dispatch story decisions', () => {
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+  it('getDecisionsByPhaseForRun reads single-dispatch story decisions', async () => {
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
     const storyDecisions = decisions.filter((d) => d.category === 'stories')
 
     expect(storyDecisions).toHaveLength(2)
@@ -319,8 +325,8 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
     expect(storyDecisions.map((d) => d.key)).toContain('1-2')
   })
 
-  it('getArtifactByTypeForRun retrieves product-brief artifact from single-dispatch run', () => {
-    const artifact = getArtifactByTypeForRun(db, runId, 'analysis', 'product-brief')
+  it('getArtifactByTypeForRun retrieves product-brief artifact from single-dispatch run', async () => {
+    const artifact = await getArtifactByTypeForRun(adapter, runId, 'analysis', 'product-brief')
 
     expect(artifact).toBeDefined()
     expect(artifact!.type).toBe('product-brief')
@@ -329,8 +335,8 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
     expect(artifact!.path).toBe('decision-store://analysis/product-brief')
   })
 
-  it('getArtifactByTypeForRun retrieves architecture artifact from single-dispatch run', () => {
-    const artifact = getArtifactByTypeForRun(db, runId, 'solutioning', 'architecture')
+  it('getArtifactByTypeForRun retrieves architecture artifact from single-dispatch run', async () => {
+    const artifact = await getArtifactByTypeForRun(adapter, runId, 'solutioning', 'architecture')
 
     expect(artifact).toBeDefined()
     expect(artifact!.type).toBe('architecture')
@@ -338,8 +344,8 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
     expect(artifact!.pipeline_run_id).toBe(runId)
   })
 
-  it('getArtifactsByRun returns all single-dispatch artifacts for the run', () => {
-    const artifacts = getArtifactsByRun(db, runId)
+  it('getArtifactsByRun returns all single-dispatch artifacts for the run', async () => {
+    const artifacts = await getArtifactsByRun(adapter, runId)
 
     // 3 artifacts: product-brief, architecture, stories
     expect(artifacts).toHaveLength(3)
@@ -349,10 +355,10 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
     expect(types).toContain('stories')
   })
 
-  it('decisions are scoped to runId — other runs do not interfere', () => {
+  it('decisions are scoped to runId — other runs do not interfere', async () => {
     // Create a second run with different decisions
-    const run2 = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
-    createDecision(db, {
+    const run2 = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
+    await createDecision(adapter, {
       pipeline_run_id: run2.id,
       phase: 'analysis',
       category: 'product-brief',
@@ -361,20 +367,20 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
     })
 
     // Original run's decisions should be unchanged
-    const run1Decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+    const run1Decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
     expect(run1Decisions).toHaveLength(5)
 
     const run1ProblemStatement = run1Decisions.find((d) => d.key === 'problem_statement')
     expect(run1ProblemStatement!.value).toContain('fragmented task management')
 
     // Run 2 should only have its own decision
-    const run2Decisions = getDecisionsByPhaseForRun(db, run2.id, 'analysis')
+    const run2Decisions = await getDecisionsByPhaseForRun(adapter, run2.id, 'analysis')
     expect(run2Decisions).toHaveLength(1)
     expect(run2Decisions[0]!.value).toContain('Completely different problem')
   })
 
-  it('single-dispatch decision values are valid JSON where expected', () => {
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+  it('single-dispatch decision values are valid JSON where expected', async () => {
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
 
     const targetUsersDecision = decisions.find((d) => d.key === 'target_users')
     expect(targetUsersDecision).toBeDefined()
@@ -385,11 +391,11 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
     expect(parsed).toContain('project managers')
   })
 
-  it('pipeline run status transitions work correctly on single-dispatch runs', () => {
+  it('pipeline run status transitions work correctly on single-dispatch runs', async () => {
     // Simulate completing a legacy run
-    updatePipelineRun(db, runId, { status: 'completed', current_phase: 'implementation' })
+    await updatePipelineRun(adapter, runId, { status: 'completed', current_phase: 'implementation' })
 
-    const run = getPipelineRunById(db, runId)
+    const run = await getPipelineRunById(adapter, runId)
     expect(run).toBeDefined()
     expect(run!.status).toBe('completed')
     expect(run!.current_phase).toBe('implementation')
@@ -402,11 +408,13 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
 
 describe('AC7: auto status output schema unchanged', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
   })
 
@@ -419,7 +427,7 @@ describe('AC7: auto status output schema unchanged', () => {
     // Import the function that produces the JSON status used by agents
     const { buildPipelineStatusOutput } = await import('../../../cli/commands/pipeline-shared.js')
 
-    const run = createPipelineRun(db, {
+    const run = await createPipelineRun(adapter, {
       methodology: 'bmad',
       start_phase: 'analysis',
       config_json: JSON.stringify({
@@ -466,11 +474,11 @@ describe('AC7: auto status output schema unchanged', () => {
     // double-close errors that break subsequent tests in this describe block.
   }, 30_000)
 
-  it('single-dispatch run status reflects correct counts from decisions written before multi-step', () => {
-    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
-    writeSingleDispatchAnalysis(db, run.id)
-    writeSingleDispatchArchitecture(db, run.id)
-    writeSingleDispatchStories(db, run.id)
+  it('single-dispatch run status reflects correct counts from decisions written before multi-step', async () => {
+    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
+    await writeSingleDispatchAnalysis(adapter, run.id)
+    await writeSingleDispatchArchitecture(adapter, run.id)
+    await writeSingleDispatchStories(adapter, run.id)
 
     // Query counts the same way auto status does
     const allDecisions = db

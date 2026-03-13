@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
@@ -153,8 +153,13 @@ function makeContextCompiler(): ContextCompiler {
 /**
  * Build a mock SQLite database
  */
-function makeDb(): BetterSqlite3Database {
-  return {} as BetterSqlite3Database
+function makeDb(): DatabaseAdapter {
+  return {
+    query: vi.fn().mockResolvedValue([]),
+    exec: vi.fn().mockResolvedValue(undefined),
+    transaction: vi.fn().mockImplementation((fn: (adapter: DatabaseAdapter) => Promise<unknown>) => fn({} as DatabaseAdapter)),
+    close: vi.fn().mockResolvedValue(undefined),
+  } as unknown as DatabaseAdapter
 }
 
 /**
@@ -769,7 +774,7 @@ describe('AC8: Essential Logic Preservation', () => {
 
 describe('Decision store fallback behavior', () => {
   it('proceeds with empty context when decision store queries return no results', async () => {
-    mockGetDecisionsByPhase.mockReturnValue([])
+    mockGetDecisionsByPhase.mockResolvedValue([])
 
     const result = await runCreateStory(makeDeps(), defaultParams)
 
@@ -839,7 +844,7 @@ describe('File-based fallback for empty decisions table', () => {
 
   it('falls back to epics.md when decisions table has no epic-shard rows', async () => {
     // Empty decisions table
-    mockGetDecisionsByPhase.mockReturnValue([])
+    mockGetDecisionsByPhase.mockResolvedValue([])
 
     // Mock epics.md file
     const epicsContent = `# Epics
@@ -889,7 +894,7 @@ Implement mode selection landing screen, variant configuration, and setup execut
 
   it('falls back to architecture.md when solutioning decisions are empty', async () => {
     // Empty decisions table
-    mockGetDecisionsByPhase.mockReturnValue([])
+    mockGetDecisionsByPhase.mockResolvedValue([])
 
     const archContent = '# Architecture\n\nModular monolith with XState state machines.\n\n## Key Decisions\n\nADR-001: Use Zustand for state management.'
 
@@ -928,7 +933,7 @@ Implement mode selection landing screen, variant configuration, and setup execut
   })
 
   it('returns empty string gracefully when fallback files do not exist', async () => {
-    mockGetDecisionsByPhase.mockReturnValue([])
+    mockGetDecisionsByPhase.mockResolvedValue([])
     mockExistsSync.mockReturnValue(false)
 
     const result = await runCreateStory(
@@ -941,7 +946,7 @@ Implement mode selection landing screen, variant configuration, and setup execut
   })
 
   it('does not attempt file fallback when projectRoot is not provided', async () => {
-    mockGetDecisionsByPhase.mockReturnValue([])
+    mockGetDecisionsByPhase.mockResolvedValue([])
 
     await runCreateStory(makeDeps(), defaultParams)
 
@@ -952,7 +957,7 @@ Implement mode selection landing screen, variant configuration, and setup execut
   })
 
   it('falls back to epics.md with h3 headings (readEpicShardFromFile h3 coverage)', async () => {
-    mockGetDecisionsByPhase.mockReturnValue([])
+    mockGetDecisionsByPhase.mockResolvedValue([])
 
     const epicsH3Content = `# Epics
 
@@ -1001,7 +1006,7 @@ Other epic content.
   })
 
   it('falls back to epics.md with h4 headings (readEpicShardFromFile h4 coverage)', async () => {
-    mockGetDecisionsByPhase.mockReturnValue([])
+    mockGetDecisionsByPhase.mockResolvedValue([])
 
     const epicsH4Content = `# Epics
 

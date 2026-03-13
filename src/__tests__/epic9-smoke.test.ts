@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import Database from 'better-sqlite3';
+import { SqliteDatabaseAdapter } from '../persistence/sqlite-adapter.js';
+import type { DatabaseAdapter } from '../persistence/adapter.js';
 import { runMigrations } from '../persistence/migrations/index.js';
 import { createContextCompiler } from '../modules/context-compiler/index.js';
 import { createDecision } from '../persistence/queries/decisions.js';
@@ -13,10 +15,12 @@ import { fileURLToPath } from 'url';
 const DB_PATH = '/tmp/smoke-epic9.db';
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 let db: ReturnType<typeof Database>;
+let adapter: DatabaseAdapter;
 
 beforeAll(() => {
   db = new Database(DB_PATH);
   runMigrations(db);
+  adapter = new SqliteDatabaseAdapter(db);
 });
 
 afterAll(() => {
@@ -27,10 +31,10 @@ afterAll(() => {
 // Item 4: Context compiler
 describe('Item 4: Context Compiler', () => {
   it('compiles context from decision store without errors', async () => {
-    createDecision(db, { phase: 'planning', category: 'architecture', key: 'db-choice', value: 'SQLite', rationale: 'lightweight' });
-    createDecision(db, { phase: 'planning', category: 'architecture', key: 'lang', value: 'TypeScript', rationale: 'type safety' });
+    await createDecision(adapter, { phase: 'planning', category: 'architecture', key: 'db-choice', value: 'SQLite', rationale: 'lightweight' });
+    await createDecision(adapter, { phase: 'planning', category: 'architecture', key: 'lang', value: 'TypeScript', rationale: 'type safety' });
 
-    const compiler = createContextCompiler({ db });
+    const compiler = createContextCompiler({ db: adapter });
 
     // Register a simple template for 'dev-story'
     compiler.registerTemplate({
@@ -108,7 +112,7 @@ describe('Item 6: Debate Panel DB write', () => {
       getRunning: () => 0,
     } as any;
 
-    const panel = createDebatePanel({ dispatcher: mockDispatcher, db, perspectiveGenerator: mockGenerator });
+    const panel = createDebatePanel({ dispatcher: mockDispatcher, db: adapter, perspectiveGenerator: mockGenerator });
 
     await panel.decide({
       key: 'smoke-db-decision',

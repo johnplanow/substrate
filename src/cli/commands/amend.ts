@@ -15,7 +15,7 @@
  */
 
 import type { Command } from 'commander'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
@@ -75,13 +75,13 @@ const logger = createLogger('amend-cmd')
  * Errors in individual supersession calls are logged as warnings but do not
  * fail the phase (AC7: atomic with phase completion, non-blocking on error).
  */
-export function runPostPhaseSupersessionDetection(
-  db: BetterSqlite3Database,
+export async function runPostPhaseSupersessionDetection(
+  adapter: DatabaseAdapter,
   amendmentRunId: string,
   currentPhase: string,
   handler: AmendmentContextHandler,
-): void {
-  const newDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId, phase: currentPhase })
+): Promise<void> {
+  const newDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId, phase: currentPhase })
   const parentDecisions = handler.getParentDecisions()
 
   for (const newDec of newDecisions) {
@@ -90,7 +90,7 @@ export function runPostPhaseSupersessionDetection(
     )
     if (parentMatch) {
       try {
-        supersedeDecision(db, parentMatch.id, newDec.id)
+        await supersedeDecision(adapter, parentMatch.id, newDec.id)
         handler.logSupersession({
           originalDecisionId: parentMatch.id,
           supersedingDecisionId: newDec.id,
@@ -179,13 +179,14 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
     dbWrapper.open()
     runMigrations(dbWrapper.db)
     const db = dbWrapper.db
+    const adapter = dbWrapper.adapter
 
     // AC4: Resolve parentRunId: use --run-id or getLatestCompletedRun()
     let parentRunId: string
     if (specifiedRunId !== undefined && specifiedRunId !== '') {
       parentRunId = specifiedRunId
     } else {
-      const latestCompleted = getLatestCompletedRun(db)
+      const latestCompleted = await getLatestCompletedRun(adapter)
       if (latestCompleted === undefined) {
         process.stderr.write("No completed pipeline run found. Run 'substrate run' first.\n")
         return 1
@@ -205,7 +206,7 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
     }
 
     try {
-      createAmendmentRun(db, {
+      await createAmendmentRun(adapter, {
         id: amendmentRunId,
         parentRunId,
         methodology,
@@ -247,9 +248,9 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
     if (startIdx > 0) {
       const phasesToCopy = phaseOrder.slice(0, startIdx)
       for (const phase of phasesToCopy) {
-        const parentDecisions = getDecisionsByPhaseForRun(db, parentRunId, phase)
+        const parentDecisions = await getDecisionsByPhaseForRun(adapter, parentRunId, phase)
         for (const d of parentDecisions) {
-          createDecision(db, {
+          await createDecision(adapter, {
             pipeline_run_id: amendmentRunId,
             phase: d.phase,
             category: d.category,
@@ -282,7 +283,7 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
         const result = await runAnalysisPhase(phaseDeps, { runId: amendmentRunId, concept, amendmentContext })
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
-          addTokenUsage(db, amendmentRunId, {
+          await addTokenUsage(adapter, amendmentRunId, {
             phase: 'analysis',
             agent: 'claude-code',
             input_tokens: result.tokenUsage.input,
@@ -291,18 +292,18 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
           })
         }
         if (result.result === 'failed') {
-          updatePipelineRun(db, amendmentRunId, { status: 'failed' })
+          await updatePipelineRun(adapter, amendmentRunId, { status: 'failed' })
           process.stderr.write(`Error: Analysis phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`)
           return 1
         }
         // AC1 (Story 12-12): Post-phase supersession detection
-        runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+        await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
         process.stdout.write(`[AMENDMENT:ANALYSIS] Complete\n`)
       } else if (currentPhase === 'planning') {
         const result = await runPlanningPhase(phaseDeps, { runId: amendmentRunId, amendmentContext })
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
-          addTokenUsage(db, amendmentRunId, {
+          await addTokenUsage(adapter, amendmentRunId, {
             phase: 'planning',
             agent: 'claude-code',
             input_tokens: result.tokenUsage.input,
@@ -311,18 +312,18 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
           })
         }
         if (result.result === 'failed') {
-          updatePipelineRun(db, amendmentRunId, { status: 'failed' })
+          await updatePipelineRun(adapter, amendmentRunId, { status: 'failed' })
           process.stderr.write(`Error: Planning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`)
           return 1
         }
         // AC1 (Story 12-12): Post-phase supersession detection
-        runPostPhaseSupersessionDetection(db, amendmentRunId, 'planning', handler)
+        await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'planning', handler)
         process.stdout.write(`[AMENDMENT:PLANNING] Complete\n`)
       } else if (currentPhase === 'solutioning') {
         const result = await runSolutioningPhase(phaseDeps, { runId: amendmentRunId, amendmentContext })
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
-          addTokenUsage(db, amendmentRunId, {
+          await addTokenUsage(adapter, amendmentRunId, {
             phase: 'solutioning',
             agent: 'claude-code',
             input_tokens: result.tokenUsage.input,
@@ -331,12 +332,12 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
           })
         }
         if (result.result === 'failed') {
-          updatePipelineRun(db, amendmentRunId, { status: 'failed' })
+          await updatePipelineRun(adapter, amendmentRunId, { status: 'failed' })
           process.stderr.write(`Error: Solutioning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`)
           return 1
         }
         // AC1 (Story 12-12): Post-phase supersession detection
-        runPostPhaseSupersessionDetection(db, amendmentRunId, 'solutioning', handler)
+        await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'solutioning', handler)
         process.stdout.write(`[AMENDMENT:SOLUTIONING] Complete\n`)
       } else if (currentPhase === 'implementation') {
         // Implementation phase: context injection only (implementation is story-based, not re-run on amend)
@@ -352,7 +353,7 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
               .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
               .get(amendmentRunId) as { cnt: number } | undefined)?.cnt ?? 0
 
-          updatePipelineRun(db, amendmentRunId, { status: 'stopped' })
+          await updatePipelineRun(adapter, amendmentRunId, { status: 'stopped' })
 
           const phaseStartedAt = new Date(startedAt).toISOString()
           const phaseCompletedAt = new Date().toISOString()
@@ -373,11 +374,11 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
 
     // AC8: generateDeltaDocument() on completion
     if (!stopped) {
-      updatePipelineRun(db, amendmentRunId, { status: 'completed' })
+      await updatePipelineRun(adapter, amendmentRunId, { status: 'completed' })
     }
 
     // Query amendment decisions and superseded decisions from DB
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
     const parentDecisions = handler.getParentDecisions()
     const supersessionLog = handler.getSupersessionLog()
 

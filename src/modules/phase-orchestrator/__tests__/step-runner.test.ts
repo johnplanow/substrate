@@ -18,6 +18,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod'
 import { runMigrations } from '../../../persistence/migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   createPipelineRun,
   createDecision,
@@ -44,15 +46,16 @@ import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dis
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'step-runner-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
@@ -124,12 +127,12 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
 ): PhaseDeps {
   return {
-    db,
+    db: adapter,
     pack: pack ?? makePack(),
     contextCompiler: makeContextCompiler(),
     dispatcher,
@@ -142,14 +145,16 @@ function makeDeps(
 
 describe('step-runner', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -193,22 +198,22 @@ describe('step-runner', () => {
   // -------------------------------------------------------------------------
 
   describe('resolveContext()', () => {
-    it('resolves param: references from params map', () => {
+    it('resolves param: references from params map', async () => {
       const ref: ContextRef = { placeholder: 'concept', source: 'param:concept' }
-      const deps = makeDeps(db, makeDispatcher([]))
-      const result = resolveContext(ref, deps, runId, { concept: 'Build a CLI tool' }, new Map())
+      const deps = makeDeps(adapter, makeDispatcher([]))
+      const result = await resolveContext(ref, deps, runId, { concept: 'Build a CLI tool' }, new Map())
       expect(result).toBe('Build a CLI tool')
     })
 
-    it('returns empty string for missing param', () => {
+    it('returns empty string for missing param', async () => {
       const ref: ContextRef = { placeholder: 'concept', source: 'param:missing' }
-      const deps = makeDeps(db, makeDispatcher([]))
-      const result = resolveContext(ref, deps, runId, {}, new Map())
+      const deps = makeDeps(adapter, makeDispatcher([]))
+      const result = await resolveContext(ref, deps, runId, {}, new Map())
       expect(result).toBe('')
     })
 
-    it('resolves decision: references from the decision store', () => {
-      createDecision(db, {
+    it('resolves decision: references from the decision store', async () => {
+      await createDecision(adapter, {
         pipeline_run_id: runId,
         phase: 'analysis',
         category: 'product-brief',
@@ -217,27 +222,27 @@ describe('step-runner', () => {
       })
 
       const ref: ContextRef = { placeholder: 'brief', source: 'decision:analysis.product-brief' }
-      const deps = makeDeps(db, makeDispatcher([]))
-      const result = resolveContext(ref, deps, runId, {}, new Map())
+      const deps = makeDeps(adapter, makeDispatcher([]))
+      const result = await resolveContext(ref, deps, runId, {}, new Map())
       expect(result).toContain('problem_statement')
       expect(result).toContain('Users need better tools')
     })
 
-    it('resolves step: references from prior step outputs', () => {
+    it('resolves step: references from prior step outputs', async () => {
       const stepOutputs = new Map<string, Record<string, unknown>>()
       stepOutputs.set('step-1', { result: 'success', problem_statement: 'A big problem' })
 
       const ref: ContextRef = { placeholder: 'vision', source: 'step:step-1' }
-      const deps = makeDeps(db, makeDispatcher([]))
-      const result = resolveContext(ref, deps, runId, {}, stepOutputs)
+      const deps = makeDeps(adapter, makeDispatcher([]))
+      const result = await resolveContext(ref, deps, runId, {}, stepOutputs)
       expect(result).toContain('A big problem')
       expect(result).not.toContain('result') // 'result' key is skipped
     })
 
-    it('returns empty string for unknown source prefix', () => {
+    it('returns empty string for unknown source prefix', async () => {
       const ref: ContextRef = { placeholder: 'x', source: 'unknown:foo' }
-      const deps = makeDeps(db, makeDispatcher([]))
-      const result = resolveContext(ref, deps, runId, {}, new Map())
+      const deps = makeDeps(adapter, makeDispatcher([]))
+      const result = await resolveContext(ref, deps, runId, {}, new Map())
       expect(result).toBe('')
     })
   })
@@ -265,7 +270,7 @@ describe('step-runner', () => {
       })
 
       const dispatcher = makeDispatcher([dispatchResult1, dispatchResult2])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [
         {
@@ -297,7 +302,7 @@ describe('step-runner', () => {
       expect(result.tokenUsage.output).toBe(130)
 
       // Verify decisions were persisted
-      const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+      const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
       expect(decisions).toHaveLength(2)
     })
 
@@ -313,7 +318,7 @@ describe('step-runner', () => {
       })
 
       const dispatcher = makeDispatcher([failedResult])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [
         {
@@ -355,7 +360,7 @@ describe('step-runner', () => {
       })
 
       const dispatcher = makeDispatcher([timeoutResult])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -380,7 +385,7 @@ describe('step-runner', () => {
       })
 
       const dispatcher = makeDispatcher([agentFailure])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -405,7 +410,7 @@ describe('step-runner', () => {
       })
 
       const dispatcher = makeDispatcher([schemaFail])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -429,7 +434,7 @@ describe('step-runner', () => {
       })
 
       const dispatcher = makeDispatcher([dispResult])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -442,7 +447,7 @@ describe('step-runner', () => {
       const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
       expect(result.success).toBe(true)
 
-      const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+      const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
       expect(decisions).toHaveLength(2)
       // Keys use step name prefix to avoid collisions across steps
       expect(decisions[0]!.key).toBe('step-1-0')
@@ -457,7 +462,7 @@ describe('step-runner', () => {
       })
 
       const dispatcher = makeDispatcher([dispResult])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -476,7 +481,7 @@ describe('step-runner', () => {
       expect(result.success).toBe(true)
       expect(result.steps[0]!.artifactId).toBeDefined()
 
-      const artifact = getArtifactByTypeForRun(db, runId, 'analysis', 'product-brief')
+      const artifact = await getArtifactByTypeForRun(adapter, runId, 'analysis', 'product-brief')
       expect(artifact).toBeTruthy()
       expect(artifact!.summary).toBe('Test artifact')
     })
@@ -484,7 +489,7 @@ describe('step-runner', () => {
     it('attempts decision summarization when prompt exceeds budget', async () => {
       // Create a very long decision to push the prompt over budget
       const longValue = 'x'.repeat(10_000)
-      createDecision(db, {
+      await createDecision(adapter, {
         pipeline_run_id: runId,
         phase: 'analysis',
         category: 'product-brief',
@@ -501,7 +506,7 @@ describe('step-runner', () => {
         parsed: { result: 'success', value: 'output' },
       })
       const dispatcher = makeDispatcher([dispResult])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -529,7 +534,7 @@ describe('step-runner', () => {
       vi.mocked(pack.getPrompt).mockRejectedValue(new Error('File not found'))
 
       const dispatcher = makeDispatcher([])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -576,7 +581,7 @@ describe('step-runner', () => {
       })
 
       const dispatcher = makeDispatcher([stepDispatchResult, elicitResult1, elicitResult2])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -607,7 +612,7 @@ describe('step-runner', () => {
       expect(dispatcher.dispatch).toHaveBeenCalledTimes(3)
 
       // Elicitation results stored in decision store
-      const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+      const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
       const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
       expect(elicitDecisions.length).toBe(4) // 2 methods × (method + insights)
       expect(elicitDecisions.find((d) => d.key === 'analysis-round-1-method')).toBeDefined()
@@ -623,7 +628,7 @@ describe('step-runner', () => {
         parsed: { result: 'success', value: 'test' },
       })
       const dispatcher = makeDispatcher([dispResult])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -666,7 +671,7 @@ describe('step-runner', () => {
       }
 
       const dispatcher = makeDispatcher([stepResult, failedElicit, failedElicit])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -684,7 +689,7 @@ describe('step-runner', () => {
       expect(result.steps[0]!.success).toBe(true)
 
       // No elicitation decisions stored on failure
-      const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+      const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
       const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
       expect(elicitDecisions.length).toBe(0)
     })
@@ -701,7 +706,7 @@ describe('step-runner', () => {
         parsed: { result: 'success', value: 'output' },
       })
       const dispatcher = makeDispatcher([dispResult])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -737,7 +742,7 @@ describe('step-runner', () => {
       })
 
       const dispatcher = makeDispatcher([stepResult, elicitResult, elicitResult])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -778,7 +783,7 @@ describe('step-runner', () => {
       })
 
       const dispatcher = makeDispatcher([stepResult, elicitResult, elicitResult])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [{
         name: 'step-1',
@@ -826,7 +831,7 @@ describe('step-runner', () => {
         stepResult1, elicitResult, elicitResult,
         stepResult2, elicitResult, elicitResult,
       ])
-      const deps = makeDeps(db, dispatcher, pack)
+      const deps = makeDeps(adapter, dispatcher, pack)
 
       const steps: StepDefinition[] = [
         {
@@ -861,7 +866,7 @@ describe('step-runner', () => {
       expect(result.elicitationTokenUsage.output).toBeGreaterThan(0)
 
       // Decision store should have elicitation entries from both steps
-      const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+      const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
       const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
       expect(elicitDecisions.length).toBeGreaterThanOrEqual(4) // at least 2 methods × 2 (method + insights)
     })

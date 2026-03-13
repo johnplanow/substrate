@@ -99,7 +99,7 @@ export async function runTestExpansion(
   }
 
   // Step 3: Query architecture constraints from decision store
-  const archConstraintsContent = getArchConstraints(deps)
+  const archConstraintsContent = await getArchConstraints(deps)
 
   // Step 4: Capture scoped git diff (files modified by dev-story) with stat-only fallback
   let gitDiffContent = ''
@@ -236,9 +236,9 @@ export async function runTestExpansion(
  * Retrieve architecture constraints from the decision store.
  * Looks for decisions with phase='solutioning', category='architecture'.
  */
-function getArchConstraints(deps: WorkflowDeps): string {
+async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
   try {
-    const decisions = getDecisionsByPhase(deps.db, 'solutioning')
+    const decisions = await getDecisionsByPhase(deps.db, 'solutioning')
     const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
     if (constraints.length === 0) return ''
     return constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')

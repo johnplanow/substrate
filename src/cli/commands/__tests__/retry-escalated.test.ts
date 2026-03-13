@@ -22,6 +22,8 @@ const mockOpen = vi.fn()
 const mockClose = vi.fn()
 const mockDb = {}
 
+const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+
 vi.mock('../../../persistence/database.js', () => ({
   DatabaseWrapper: vi.fn().mockImplementation(() => ({
     open: mockOpen,
@@ -31,6 +33,9 @@ vi.mock('../../../persistence/database.js', () => ({
     },
     get isOpen() {
       return true
+    },
+    get adapter() {
+      return mockAdapter
     },
   })),
 }))
@@ -174,7 +179,7 @@ describe('runRetryEscalatedAction', () => {
     vi.clearAllMocks()
     mockExistsSync.mockReturnValue(true)
     mockPackLoad.mockResolvedValue(mockPack())
-    mockCreatePipelineRun.mockReturnValue(mockPipelineRun())
+    mockCreatePipelineRun.mockResolvedValue(mockPipelineRun())
     mockOrchestratorRun.mockResolvedValue(undefined)
   })
 
@@ -183,7 +188,7 @@ describe('runRetryEscalatedAction', () => {
   // -------------------------------------------------------------------------
 
   it('AC4: outputs message and returns 0 when no retryable escalations exist (human)', async () => {
-    mockGetRetryableEscalations.mockReturnValue({ retryable: [], skipped: [] })
+    mockGetRetryableEscalations.mockResolvedValue({ retryable: [], skipped: [] })
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     const exitCode = await runRetryEscalatedAction({
@@ -202,7 +207,7 @@ describe('runRetryEscalatedAction', () => {
   })
 
   it('AC4+AC7: outputs JSON envelope with empty lists when no retryable escalations (json)', async () => {
-    mockGetRetryableEscalations.mockReturnValue({
+    mockGetRetryableEscalations.mockResolvedValue({
       retryable: [],
       skipped: [{ key: '22-1', reason: 'needs human review' }],
     })
@@ -233,7 +238,7 @@ describe('runRetryEscalatedAction', () => {
   // -------------------------------------------------------------------------
 
   it('AC3: dry-run exits 0 and does not invoke orchestrator (human)', async () => {
-    mockGetRetryableEscalations.mockReturnValue({
+    mockGetRetryableEscalations.mockResolvedValue({
       retryable: ['22-1', '22-2'],
       skipped: [{ key: '22-3', reason: 'needs human review' }],
     })
@@ -258,7 +263,7 @@ describe('runRetryEscalatedAction', () => {
   })
 
   it('AC3+AC7: dry-run with --output-format json produces JSON envelope', async () => {
-    mockGetRetryableEscalations.mockReturnValue({
+    mockGetRetryableEscalations.mockResolvedValue({
       retryable: ['22-1'],
       skipped: [{ key: '22-2', reason: 'story should be split' }],
     })
@@ -293,7 +298,7 @@ describe('runRetryEscalatedAction', () => {
   // -------------------------------------------------------------------------
 
   it('AC1: passes retryable story keys to orchestrator', async () => {
-    mockGetRetryableEscalations.mockReturnValue({
+    mockGetRetryableEscalations.mockResolvedValue({
       retryable: ['22-1', '22-4'],
       skipped: [],
     })
@@ -314,7 +319,7 @@ describe('runRetryEscalatedAction', () => {
   })
 
   it('AC2: human-intervention and split-story stories appear in skipped output', async () => {
-    mockGetRetryableEscalations.mockReturnValue({
+    mockGetRetryableEscalations.mockResolvedValue({
       retryable: ['22-1'],
       skipped: [
         { key: '22-2', reason: 'needs human review' },
@@ -344,7 +349,7 @@ describe('runRetryEscalatedAction', () => {
   // -------------------------------------------------------------------------
 
   it('AC5: passes runId to getRetryableEscalations when --run-id is provided', async () => {
-    mockGetRetryableEscalations.mockReturnValue({ retryable: [], skipped: [] })
+    mockGetRetryableEscalations.mockResolvedValue({ retryable: [], skipped: [] })
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     await runRetryEscalatedAction({
@@ -357,12 +362,12 @@ describe('runRetryEscalatedAction', () => {
       registry: mockRegistry,
     })
 
-    expect(mockGetRetryableEscalations).toHaveBeenCalledWith(mockDb, 'my-run-123')
+    expect(mockGetRetryableEscalations).toHaveBeenCalledWith(mockAdapter, 'my-run-123')
     stdoutWrite.mockRestore()
   })
 
   it('AC5: passes undefined runId when --run-id is not provided', async () => {
-    mockGetRetryableEscalations.mockReturnValue({ retryable: [], skipped: [] })
+    mockGetRetryableEscalations.mockResolvedValue({ retryable: [], skipped: [] })
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     await runRetryEscalatedAction({
@@ -374,7 +379,7 @@ describe('runRetryEscalatedAction', () => {
       registry: mockRegistry,
     })
 
-    expect(mockGetRetryableEscalations).toHaveBeenCalledWith(mockDb, undefined)
+    expect(mockGetRetryableEscalations).toHaveBeenCalledWith(mockAdapter, undefined)
     stdoutWrite.mockRestore()
   })
 
@@ -383,7 +388,7 @@ describe('runRetryEscalatedAction', () => {
   // -------------------------------------------------------------------------
 
   it('AC6: invokes orchestrator with retryable keys in live mode', async () => {
-    mockGetRetryableEscalations.mockReturnValue({
+    mockGetRetryableEscalations.mockResolvedValue({
       retryable: ['22-3'],
       skipped: [],
     })
@@ -401,7 +406,7 @@ describe('runRetryEscalatedAction', () => {
     expect(exitCode).toBe(0)
     expect(mockOrchestratorRun).toHaveBeenCalledWith(['22-3'])
     expect(mockCreatePipelineRun).toHaveBeenCalledWith(
-      mockDb,
+      mockAdapter,
       expect.objectContaining({ start_phase: 'implementation' }),
     )
     stdoutWrite.mockRestore()
@@ -412,7 +417,7 @@ describe('runRetryEscalatedAction', () => {
   // -------------------------------------------------------------------------
 
   it('AC7: json output after live run contains retryKeys and skippedKeys', async () => {
-    mockGetRetryableEscalations.mockReturnValue({
+    mockGetRetryableEscalations.mockResolvedValue({
       retryable: ['22-1'],
       skipped: [{ key: '22-2', reason: 'needs human review' }],
     })
@@ -487,7 +492,7 @@ describe('runRetryEscalatedAction', () => {
   })
 
   it('returns 1 when pack cannot be loaded', async () => {
-    mockGetRetryableEscalations.mockReturnValue({ retryable: ['22-1'], skipped: [] })
+    mockGetRetryableEscalations.mockResolvedValue({ retryable: ['22-1'], skipped: [] })
     mockPackLoad.mockRejectedValue(new Error('pack not found'))
 
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)

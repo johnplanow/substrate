@@ -17,6 +17,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../migrations/index.js'
+import { SqliteDatabaseAdapter } from '../../sqlite-adapter.js'
 import {
   createAmendmentRun,
   loadParentRunDecisions,
@@ -103,64 +104,70 @@ describe('createAmendmentRun()', () => {
     db.close()
   })
 
-  it('AC1: throws "Parent run not found" when parentRunId does not exist', () => {
+  it('AC1: throws "Parent run not found" when parentRunId does not exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     const input: CreateAmendmentRunInput = {
       id: crypto.randomUUID(),
       parentRunId: 'nonexistent-run-id',
       methodology: 'bmad',
     }
-    expect(() => createAmendmentRun(db, input)).toThrow('Parent run not found: nonexistent-run-id')
+    await expect(createAmendmentRun(adapter, input)).rejects.toThrow('Parent run not found: nonexistent-run-id')
   })
 
-  it('AC1: throws when parent run status is "running" (not completed)', () => {
+  it('AC1: throws when parent run status is "running" (not completed)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'run-running', 'running')
     const input: CreateAmendmentRunInput = {
       id: crypto.randomUUID(),
       parentRunId: 'run-running',
       methodology: 'bmad',
     }
-    expect(() => createAmendmentRun(db, input)).toThrow(
+    await expect(createAmendmentRun(adapter, input)).rejects.toThrow(
       'Parent run is not completed (status: running). Only completed runs can be amended.',
     )
   })
 
-  it('AC1: throws when parent run status is "failed" (not completed)', () => {
+  it('AC1: throws when parent run status is "failed" (not completed)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'run-failed', 'failed')
     const input: CreateAmendmentRunInput = {
       id: crypto.randomUUID(),
       parentRunId: 'run-failed',
       methodology: 'bmad',
     }
-    expect(() => createAmendmentRun(db, input)).toThrow(
+    await expect(createAmendmentRun(adapter, input)).rejects.toThrow(
       'Parent run is not completed (status: failed). Only completed runs can be amended.',
     )
   })
 
-  it('AC1: throws when parent run status is "paused" (not completed)', () => {
+  it('AC1: throws when parent run status is "paused" (not completed)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'run-paused', 'paused')
     const input: CreateAmendmentRunInput = {
       id: crypto.randomUUID(),
       parentRunId: 'run-paused',
       methodology: 'bmad',
     }
-    expect(() => createAmendmentRun(db, input)).toThrow(
+    await expect(createAmendmentRun(adapter, input)).rejects.toThrow(
       'Parent run is not completed (status: paused). Only completed runs can be amended.',
     )
   })
 
-  it('AC1: throws when parent run status is "stopped" (not completed)', () => {
+  it('AC1: throws when parent run status is "stopped" (not completed)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'run-stopped', 'stopped')
     const input: CreateAmendmentRunInput = {
       id: crypto.randomUUID(),
       parentRunId: 'run-stopped',
       methodology: 'bmad',
     }
-    expect(() => createAmendmentRun(db, input)).toThrow(
+    await expect(createAmendmentRun(adapter, input)).rejects.toThrow(
       'Parent run is not completed (status: stopped). Only completed runs can be amended.',
     )
   })
 
-  it('AC1: returns new run ID when parent is completed', () => {
+  it('AC1: returns new run ID when parent is completed', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'run-completed', 'completed')
     const newId = crypto.randomUUID()
     const input: CreateAmendmentRunInput = {
@@ -168,11 +175,12 @@ describe('createAmendmentRun()', () => {
       parentRunId: 'run-completed',
       methodology: 'bmad',
     }
-    const result = createAmendmentRun(db, input)
+    const result = await createAmendmentRun(adapter, input)
     expect(result).toBe(newId)
   })
 
-  it('AC1: inserts new run with correct parent_run_id and status = running', () => {
+  it('AC1: inserts new run with correct parent_run_id and status = running', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'run-completed', 'completed')
     const newId = crypto.randomUUID()
     const input: CreateAmendmentRunInput = {
@@ -180,7 +188,7 @@ describe('createAmendmentRun()', () => {
       parentRunId: 'run-completed',
       methodology: 'bmad',
     }
-    createAmendmentRun(db, input)
+    await createAmendmentRun(adapter, input)
 
     const row = db.prepare('SELECT * FROM pipeline_runs WHERE id = ?').get(newId) as
       | {
@@ -198,7 +206,8 @@ describe('createAmendmentRun()', () => {
     expect(row?.config_json).toBeNull()
   })
 
-  it('AC1: stores configJson when provided', () => {
+  it('AC1: stores configJson when provided', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'run-completed-cfg', 'completed')
     const newId = crypto.randomUUID()
     const input: CreateAmendmentRunInput = {
@@ -207,7 +216,7 @@ describe('createAmendmentRun()', () => {
       methodology: 'bmad',
       configJson: '{"key":"value"}',
     }
-    createAmendmentRun(db, input)
+    await createAmendmentRun(adapter, input)
 
     const row = db.prepare('SELECT config_json FROM pipeline_runs WHERE id = ?').get(newId) as
       | { config_json: string }
@@ -232,12 +241,14 @@ describe('loadParentRunDecisions()', () => {
     db.close()
   })
 
-  it('AC2: returns empty array when no decisions exist for the run', () => {
-    const result = loadParentRunDecisions(db, 'parent-run')
+  it('AC2: returns empty array when no decisions exist for the run', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await loadParentRunDecisions(adapter, 'parent-run')
     expect(result).toEqual([])
   })
 
-  it('AC2: returns only non-superseded decisions (superseded_by IS NULL)', () => {
+  it('AC2: returns only non-superseded decisions (superseded_by IS NULL)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertDecision(db, 'dec-active-1', 'parent-run', { key: 'k1' })
     insertDecision(db, 'dec-active-2', 'parent-run', { key: 'k2' })
     insertDecision(db, 'dec-superseder', 'parent-run', { key: 'k3' })
@@ -246,7 +257,7 @@ describe('loadParentRunDecisions()', () => {
       supersededBy: 'dec-superseder',
     })
 
-    const result = loadParentRunDecisions(db, 'parent-run')
+    const result = await loadParentRunDecisions(adapter, 'parent-run')
     const ids = result.map((d) => d.id)
     expect(ids).toContain('dec-active-1')
     expect(ids).toContain('dec-active-2')
@@ -255,32 +266,35 @@ describe('loadParentRunDecisions()', () => {
     expect(result).toHaveLength(3)
   })
 
-  it('AC2: superseded decision is excluded, non-superseded superseder is included', () => {
+  it('AC2: superseded decision is excluded, non-superseded superseder is included', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // dec-new supersedes dec-old
     // dec-old should be excluded (superseded_by is set)
     // dec-new should be included (superseded_by is NULL — it supersedes dec-old but is not itself superseded)
     insertDecision(db, 'dec-new', 'parent-run', { key: 'k-new' })
     insertDecision(db, 'dec-old', 'parent-run', { key: 'k-old', supersededBy: 'dec-new' })
 
-    const result = loadParentRunDecisions(db, 'parent-run')
+    const result = await loadParentRunDecisions(adapter, 'parent-run')
     const ids = result.map((d) => d.id)
     expect(ids).not.toContain('dec-old')
     expect(ids).toContain('dec-new') // dec-new supersedes dec-old but is not itself superseded
     expect(result).toHaveLength(1)
   })
 
-  it('AC2: does not return decisions from other runs', () => {
+  it('AC2: does not return decisions from other runs', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'other-run', 'completed')
     insertDecision(db, 'dec-mine', 'parent-run', { key: 'mine' })
     insertDecision(db, 'dec-theirs', 'other-run', { key: 'theirs' })
 
-    const result = loadParentRunDecisions(db, 'parent-run')
+    const result = await loadParentRunDecisions(adapter, 'parent-run')
     const ids = result.map((d) => d.id)
     expect(ids).toContain('dec-mine')
     expect(ids).not.toContain('dec-theirs')
   })
 
-  it('AC2: returns decisions in created_at ASC order', () => {
+  it('AC2: returns decisions in created_at ASC order', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // Insert with explicit timestamps to ensure ordering
     db.prepare(`
       INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, superseded_by, created_at, updated_at)
@@ -295,7 +309,7 @@ describe('loadParentRunDecisions()', () => {
       VALUES ('dec-m', 'parent-run', 'analysis', 'cat', 'm', 'v', NULL, '2024-01-02T00:00:00', '2024-01-02T00:00:00')
     `).run()
 
-    const result = loadParentRunDecisions(db, 'parent-run')
+    const result = await loadParentRunDecisions(adapter, 'parent-run')
     expect(result.map((d) => d.id)).toEqual(['dec-a', 'dec-m', 'dec-z'])
   })
 })
@@ -318,31 +332,35 @@ describe('supersedeDecision()', () => {
     db.close()
   })
 
-  it('AC3: throws "Decision not found" when originalDecisionId does not exist', () => {
-    expect(() =>
-      supersedeDecision(db, 'does-not-exist', 'superseding-dec'),
-    ).toThrow('Decision not found: does-not-exist')
+  it('AC3: throws "Decision not found" when originalDecisionId does not exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await expect(
+      supersedeDecision(adapter, 'does-not-exist', 'superseding-dec'),
+    ).rejects.toThrow('Decision not found: does-not-exist')
   })
 
-  it('AC3: throws "Superseding decision not found" when supersedingDecisionId does not exist', () => {
-    expect(() =>
-      supersedeDecision(db, 'original-dec', 'does-not-exist'),
-    ).toThrow('Superseding decision not found: does-not-exist')
+  it('AC3: throws "Superseding decision not found" when supersedingDecisionId does not exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await expect(
+      supersedeDecision(adapter, 'original-dec', 'does-not-exist'),
+    ).rejects.toThrow('Superseding decision not found: does-not-exist')
   })
 
-  it('AC3: throws "Decision is already superseded" when originalDecisionId already has superseded_by set', () => {
+  it('AC3: throws "Decision is already superseded" when originalDecisionId already has superseded_by set', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // First supersession should succeed
-    supersedeDecision(db, 'original-dec', 'superseding-dec')
+    await supersedeDecision(adapter, 'original-dec', 'superseding-dec')
 
     // Create another superseder to attempt a second supersession
     insertDecision(db, 'another-superseder', 'run-for-supersede', { key: 'another' })
-    expect(() =>
-      supersedeDecision(db, 'original-dec', 'another-superseder'),
-    ).toThrow('Decision original-dec is already superseded')
+    await expect(
+      supersedeDecision(adapter, 'original-dec', 'another-superseder'),
+    ).rejects.toThrow('Decision original-dec is already superseded')
   })
 
-  it('AC3: successfully updates superseded_by on the original decision', () => {
-    supersedeDecision(db, 'original-dec', 'superseding-dec')
+  it('AC3: successfully updates superseded_by on the original decision', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await supersedeDecision(adapter, 'original-dec', 'superseding-dec')
 
     const row = db
       .prepare('SELECT superseded_by FROM decisions WHERE id = ?')
@@ -350,13 +368,15 @@ describe('supersedeDecision()', () => {
     expect(row.superseded_by).toBe('superseding-dec')
   })
 
-  it('AC3: returns void on success', () => {
-    const result = supersedeDecision(db, 'original-dec', 'superseding-dec')
+  it('AC3: returns void on success', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await supersedeDecision(adapter, 'original-dec', 'superseding-dec')
     expect(result).toBeUndefined()
   })
 
-  it('AC3: superseding decision itself is not affected', () => {
-    supersedeDecision(db, 'original-dec', 'superseding-dec')
+  it('AC3: superseding decision itself is not affected', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    await supersedeDecision(adapter, 'original-dec', 'superseding-dec')
 
     const row = db
       .prepare('SELECT superseded_by FROM decisions WHERE id = ?')
@@ -392,8 +412,9 @@ describe('getActiveDecisions()', () => {
     db.close()
   })
 
-  it('AC4: returns all active decisions when no filter provided', () => {
-    const result = getActiveDecisions(db)
+  it('AC4: returns all active decisions when no filter provided', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getActiveDecisions(adapter)
     const ids = result.map((d) => d.id)
     // dec-a1 is superseded, all others should be active
     expect(ids).not.toContain('dec-a1')
@@ -404,8 +425,9 @@ describe('getActiveDecisions()', () => {
     expect(result).toHaveLength(4)
   })
 
-  it('AC4: filters by pipeline_run_id', () => {
-    const result = getActiveDecisions(db, { pipeline_run_id: 'run-a' })
+  it('AC4: filters by pipeline_run_id', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getActiveDecisions(adapter, { pipeline_run_id: 'run-a' })
     const ids = result.map((d) => d.id)
     expect(ids).not.toContain('dec-a1')
     expect(ids).toContain('dec-a2')
@@ -415,8 +437,9 @@ describe('getActiveDecisions()', () => {
     expect(result).toHaveLength(3)
   })
 
-  it('AC4: filters by phase', () => {
-    const result = getActiveDecisions(db, { phase: 'analysis' })
+  it('AC4: filters by phase', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getActiveDecisions(adapter, { phase: 'analysis' })
     const ids = result.map((d) => d.id)
     expect(ids).not.toContain('dec-a1') // superseded
     expect(ids).toContain('dec-a3')
@@ -425,8 +448,9 @@ describe('getActiveDecisions()', () => {
     expect(ids).not.toContain('dec-a2') // planning phase
   })
 
-  it('AC4: filters by category', () => {
-    const result = getActiveDecisions(db, { category: 'tech' })
+  it('AC4: filters by category', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getActiveDecisions(adapter, { category: 'tech' })
     const ids = result.map((d) => d.id)
     expect(ids).toContain('dec-a2')
     expect(ids).not.toContain('dec-a3') // arch category
@@ -434,15 +458,17 @@ describe('getActiveDecisions()', () => {
     expect(result).toHaveLength(1)
   })
 
-  it('AC4: filters by key', () => {
-    const result = getActiveDecisions(db, { key: 'key2' })
+  it('AC4: filters by key', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getActiveDecisions(adapter, { key: 'key2' })
     const ids = result.map((d) => d.id)
     expect(ids).toContain('dec-a2')
     expect(result).toHaveLength(1)
   })
 
-  it('AC4: supports combined filters (pipeline_run_id + phase)', () => {
-    const result = getActiveDecisions(db, { pipeline_run_id: 'run-a', phase: 'analysis' })
+  it('AC4: supports combined filters (pipeline_run_id + phase)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getActiveDecisions(adapter, { pipeline_run_id: 'run-a', phase: 'analysis' })
     const ids = result.map((d) => d.id)
     expect(ids).not.toContain('dec-a1') // superseded
     expect(ids).toContain('dec-a3')
@@ -452,12 +478,14 @@ describe('getActiveDecisions()', () => {
     expect(result).toHaveLength(2)
   })
 
-  it('AC4: returns empty array when filter matches no active decisions', () => {
-    const result = getActiveDecisions(db, { phase: 'implementation' })
+  it('AC4: returns empty array when filter matches no active decisions', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getActiveDecisions(adapter, { phase: 'implementation' })
     expect(result).toEqual([])
   })
 
-  it('AC4: results are ordered by created_at ASC', () => {
+  it('AC4: results are ordered by created_at ASC', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // Insert with explicit timestamps
     insertRun(db, 'run-ordered', 'running')
     db.prepare(`
@@ -473,7 +501,7 @@ describe('getActiveDecisions()', () => {
       VALUES ('ord-m', 'run-ordered', 'analysis', 'cat', 'm', 'v', NULL, '2024-02-01T00:00:00', '2024-02-01T00:00:00')
     `).run()
 
-    const result = getActiveDecisions(db, { pipeline_run_id: 'run-ordered' })
+    const result = await getActiveDecisions(adapter, { pipeline_run_id: 'run-ordered' })
     expect(result.map((d) => d.id)).toEqual(['ord-a', 'ord-m', 'ord-z'])
   })
 })
@@ -493,20 +521,22 @@ describe('getAmendmentRunChain()', () => {
     db.close()
   })
 
-  it('AC5: returns single entry for a run with no parent (top-level run)', () => {
+  it('AC5: returns single entry for a run with no parent (top-level run)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'root-run', 'completed')
-    const chain = getAmendmentRunChain(db, 'root-run')
+    const chain = await getAmendmentRunChain(adapter, 'root-run')
     expect(chain).toHaveLength(1)
     expect(chain[0].runId).toBe('root-run')
     expect(chain[0].parentRunId).toBeNull()
     expect(chain[0].depth).toBe(0)
   })
 
-  it('AC5: returns root → child for a 2-level chain', () => {
+  it('AC5: returns root → child for a 2-level chain', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'root', 'completed')
     insertRun(db, 'amend-1', 'running', 'root')
 
-    const chain = getAmendmentRunChain(db, 'amend-1')
+    const chain = await getAmendmentRunChain(adapter, 'amend-1')
     expect(chain).toHaveLength(2)
     expect(chain[0].runId).toBe('root')
     expect(chain[0].depth).toBe(0)
@@ -516,12 +546,13 @@ describe('getAmendmentRunChain()', () => {
     expect(chain[1].parentRunId).toBe('root')
   })
 
-  it('AC5: returns correct order for a 3-level chain (root → amend1 → amend2)', () => {
+  it('AC5: returns correct order for a 3-level chain (root → amend1 → amend2)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'r0', 'completed')
     insertRun(db, 'r1', 'completed', 'r0')
     insertRun(db, 'r2', 'running', 'r1')
 
-    const chain = getAmendmentRunChain(db, 'r2')
+    const chain = await getAmendmentRunChain(adapter, 'r2')
     expect(chain).toHaveLength(3)
     expect(chain[0].runId).toBe('r0')
     expect(chain[0].depth).toBe(0)
@@ -531,18 +562,20 @@ describe('getAmendmentRunChain()', () => {
     expect(chain[2].depth).toBe(2)
   })
 
-  it('AC5: throws "Amendment chain depth exceeded maxDepth" when chain exceeds maxDepth', () => {
+  it('AC5: throws "Amendment chain depth exceeded maxDepth" when chain exceeds maxDepth', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // Create a chain of 3 runs but set maxDepth to 1
     insertRun(db, 'depth-r0', 'completed')
     insertRun(db, 'depth-r1', 'completed', 'depth-r0')
     insertRun(db, 'depth-r2', 'running', 'depth-r1')
 
-    expect(() => getAmendmentRunChain(db, 'depth-r2', 1)).toThrow(
+    await expect(getAmendmentRunChain(adapter, 'depth-r2', 1)).rejects.toThrow(
       'Amendment chain depth exceeded maxDepth (1). Possible circular reference.',
     )
   })
 
-  it('AC5: uses default maxDepth of 10 (does not throw for chain of 5)', () => {
+  it('AC5: uses default maxDepth of 10 (does not throw for chain of 5)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // Build a chain of 5 levels
     insertRun(db, 'chain-0', 'completed')
     insertRun(db, 'chain-1', 'completed', 'chain-0')
@@ -550,19 +583,21 @@ describe('getAmendmentRunChain()', () => {
     insertRun(db, 'chain-3', 'completed', 'chain-2')
     insertRun(db, 'chain-4', 'running', 'chain-3')
 
-    expect(() => getAmendmentRunChain(db, 'chain-4')).not.toThrow()
-    const chain = getAmendmentRunChain(db, 'chain-4')
+    await expect(getAmendmentRunChain(adapter, 'chain-4')).resolves.not.toThrow()
+    const chain = await getAmendmentRunChain(adapter, 'chain-4')
     expect(chain).toHaveLength(5)
   })
 
-  it('AC5: returns empty array for a runId that does not exist', () => {
-    const chain = getAmendmentRunChain(db, 'does-not-exist')
+  it('AC5: returns empty array for a runId that does not exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const chain = await getAmendmentRunChain(adapter, 'does-not-exist')
     expect(chain).toEqual([])
   })
 
-  it('AC5: AmendmentChainEntry has all required fields', () => {
+  it('AC5: AmendmentChainEntry has all required fields', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'entry-run', 'completed')
-    const chain = getAmendmentRunChain(db, 'entry-run')
+    const chain = await getAmendmentRunChain(adapter, 'entry-run')
     expect(chain).toHaveLength(1)
 
     const entry: AmendmentChainEntry = chain[0]
@@ -574,14 +609,15 @@ describe('getAmendmentRunChain()', () => {
     expect(entry.status).toBe('completed')
   })
 
-  it('AC5: throws at exactly maxDepth + 1 levels', () => {
+  it('AC5: throws at exactly maxDepth + 1 levels', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     // maxDepth = 2, chain = 4 levels (0,1,2,3): should throw when traversing beyond 2
     insertRun(db, 'md-0', 'completed')
     insertRun(db, 'md-1', 'completed', 'md-0')
     insertRun(db, 'md-2', 'completed', 'md-1')
     insertRun(db, 'md-3', 'running', 'md-2')
 
-    expect(() => getAmendmentRunChain(db, 'md-3', 2)).toThrow(
+    await expect(getAmendmentRunChain(adapter, 'md-3', 2)).rejects.toThrow(
       'Amendment chain depth exceeded maxDepth (2). Possible circular reference.',
     )
   })
@@ -602,28 +638,32 @@ describe('getLatestCompletedRun()', () => {
     db.close()
   })
 
-  it('AC6: returns undefined when no runs exist', () => {
-    const result = getLatestCompletedRun(db)
+  it('AC6: returns undefined when no runs exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getLatestCompletedRun(adapter)
     expect(result).toBeUndefined()
   })
 
-  it('AC6: returns undefined when only non-completed runs exist', () => {
+  it('AC6: returns undefined when only non-completed runs exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'running-run', 'running')
     insertRun(db, 'failed-run', 'failed')
     insertRun(db, 'stopped-run', 'stopped')
-    const result = getLatestCompletedRun(db)
+    const result = await getLatestCompletedRun(adapter)
     expect(result).toBeUndefined()
   })
 
-  it('AC6: returns the single completed run', () => {
+  it('AC6: returns the single completed run', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'only-completed', 'completed')
-    const result = getLatestCompletedRun(db)
+    const result = await getLatestCompletedRun(adapter)
     expect(result).toBeDefined()
     expect(result?.id).toBe('only-completed')
     expect(result?.status).toBe('completed')
   })
 
-  it('AC6: returns the most recently created completed run when multiple exist', () => {
+  it('AC6: returns the most recently created completed run when multiple exist', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     db.prepare(`
       INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
       VALUES ('old-completed', 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')
@@ -637,11 +677,12 @@ describe('getLatestCompletedRun()', () => {
       VALUES ('mid-completed', 'bmad', 'completed', '2024-03-01T00:00:00', '2024-03-01T00:00:00')
     `).run()
 
-    const result = getLatestCompletedRun(db)
+    const result = await getLatestCompletedRun(adapter)
     expect(result?.id).toBe('new-completed')
   })
 
-  it('AC6: ignores non-completed runs when selecting most recent', () => {
+  it('AC6: ignores non-completed runs when selecting most recent', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     db.prepare(`
       INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
       VALUES ('completed-1', 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')
@@ -651,14 +692,15 @@ describe('getLatestCompletedRun()', () => {
       VALUES ('running-newer', 'bmad', 'running', '2024-12-01T00:00:00', '2024-12-01T00:00:00')
     `).run()
 
-    const result = getLatestCompletedRun(db)
+    const result = await getLatestCompletedRun(adapter)
     expect(result?.id).toBe('completed-1')
     expect(result?.status).toBe('completed')
   })
 
-  it('AC6: return type has PipelineRun fields', () => {
+  it('AC6: return type has PipelineRun fields', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'type-check-run', 'completed')
-    const result = getLatestCompletedRun(db)
+    const result = await getLatestCompletedRun(adapter)
     expect(result).toBeDefined()
     expect(result).toHaveProperty('id')
     expect(result).toHaveProperty('methodology')
@@ -683,30 +725,33 @@ describe('AC7: Parameterized query safety', () => {
     db.close()
   })
 
-  it('createAmendmentRun() handles special characters in IDs safely', () => {
+  it('createAmendmentRun() handles special characters in IDs safely', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     insertRun(db, 'safe-parent-run', 'completed')
     const newId = "safe'; DROP TABLE pipeline_runs; --"
     // This should throw due to UUID format or FK constraint — not SQL injection
-    expect(() =>
-      createAmendmentRun(db, {
+    await expect(
+      createAmendmentRun(adapter, {
         id: newId,
         parentRunId: 'safe-parent-run',
         methodology: 'bmad',
       }),
-    ).not.toThrow() // SQLite TEXT can store this string; no injection risk
+    ).resolves.not.toThrow() // SQLite TEXT can store this string; no injection risk
     // Verify the table still exists
     const count = db.prepare('SELECT COUNT(*) as cnt FROM pipeline_runs').get() as { cnt: number }
     expect(count.cnt).toBeGreaterThanOrEqual(1)
   })
 
-  it('loadParentRunDecisions() with SQL injection attempt returns empty array (not error)', () => {
+  it('loadParentRunDecisions() with SQL injection attempt returns empty array (not error)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
     const maliciousId = "' OR '1'='1"
-    const result = loadParentRunDecisions(db, maliciousId)
+    const result = await loadParentRunDecisions(adapter, maliciousId)
     expect(result).toEqual([])
   })
 
-  it('getActiveDecisions() with SQL injection filter returns empty results (not error)', () => {
-    const result = getActiveDecisions(db, { phase: "'; DROP TABLE decisions; --" })
+  it('getActiveDecisions() with SQL injection filter returns empty results (not error)', async () => {
+    const adapter = new SqliteDatabaseAdapter(db)
+    const result = await getActiveDecisions(adapter, { phase: "'; DROP TABLE decisions; --" })
     expect(result).toEqual([])
     // decisions table still exists
     const count = db.prepare('SELECT COUNT(*) as cnt FROM decisions').get() as { cnt: number }

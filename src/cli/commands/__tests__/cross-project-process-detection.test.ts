@@ -15,6 +15,7 @@ import { join } from 'path'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 import {
   inspectProcessTree,
   getAutoHealthData,
@@ -24,7 +25,8 @@ import {
 // Module mocks
 // ---------------------------------------------------------------------------
 
-vi.mock('../../../persistence/database.js', () => {
+vi.mock('../../../persistence/database.js', async () => {
+  const { SqliteDatabaseAdapter } = await import('../../../persistence/sqlite-adapter.js')
   let mockDb: BetterSqlite3Database | null = null
   return {
     DatabaseWrapper: class {
@@ -34,6 +36,9 @@ vi.mock('../../../persistence/database.js', () => {
       }
       open() { /* noop */ }
       close() { /* noop */ }
+      get adapter() {
+        return new SqliteDatabaseAdapter(this.db)
+      }
     },
     __setMockDb: (db: BetterSqlite3Database) => { mockDb = db },
   }
@@ -61,7 +66,7 @@ function createTestDb(): BetterSqlite3Database {
   return db
 }
 
-function createTestRun(
+async function createTestRun(
   db: BetterSqlite3Database,
   overrides: {
     status?: string
@@ -69,8 +74,8 @@ function createTestRun(
     token_usage_json?: string
     updated_at?: string
   } = {},
-): PipelineRun {
-  const run = createPipelineRun(db, {
+): Promise<PipelineRun> {
+  const run = await createPipelineRun(new SqliteDatabaseAdapter(db), {
     methodology: 'bmad',
     start_phase: 'implementation',
     config_json: null,
@@ -331,7 +336,7 @@ describe('getAutoHealthData — AC4: verdict correctness for running pipeline', 
         '4-2': { phase: 'PENDING', reviewCycles: 0 },
       },
     })
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
@@ -354,7 +359,7 @@ describe('getAutoHealthData — AC4: verdict correctness for running pipeline', 
         '4-2': { phase: 'COMPLETE', reviewCycles: 0 },
       },
     })
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
@@ -368,7 +373,7 @@ describe('getAutoHealthData — AC4: verdict correctness for running pipeline', 
   })
 
   it('returns NO_PIPELINE_RUNNING correctly when run.status=completed', async () => {
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'completed',
       current_phase: 'implementation',
     })
@@ -378,7 +383,7 @@ describe('getAutoHealthData — AC4: verdict correctness for running pipeline', 
   })
 
   it('returns NO_PIPELINE_RUNNING correctly when run.status=failed', async () => {
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'failed',
       current_phase: 'implementation',
     })
@@ -389,7 +394,7 @@ describe('getAutoHealthData — AC4: verdict correctness for running pipeline', 
 
   it('returns STALLED when run is stale and no active processes found (AC4 compatible)', async () => {
     const staleTime = new Date(Date.now() - 700_000).toISOString()  // 11+ minutes ago
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       updated_at: staleTime,
@@ -404,7 +409,7 @@ describe('getAutoHealthData — AC4: verdict correctness for running pipeline', 
 
   it('returns HEALTHY when pipeline is running with fresh DB update and no processes found', async () => {
     // Fresh pipeline, no stale detection, no process found in test env → HEALTHY
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       updated_at: new Date().toISOString(),

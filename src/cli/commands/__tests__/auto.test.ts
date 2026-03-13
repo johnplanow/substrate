@@ -24,6 +24,8 @@ const mockOpen = vi.fn()
 const mockClose = vi.fn()
 let mockDb: Record<string, unknown> = {}
 
+const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+
 vi.mock('../../../persistence/database.js', () => ({
   DatabaseWrapper: vi.fn().mockImplementation(() => ({
     open: mockOpen,
@@ -33,6 +35,9 @@ vi.mock('../../../persistence/database.js', () => ({
     },
     get isOpen() {
       return true
+    },
+    get adapter() {
+      return mockAdapter
     },
   })),
 }))
@@ -114,8 +119,8 @@ vi.mock('../../../persistence/queries/decisions.js', () => ({
   getLatestRun: (...args: unknown[]) => mockGetLatestRun(...args),
   addTokenUsage: (...args: unknown[]) => mockAddTokenUsage(...args),
   getTokenUsageSummary: (...args: unknown[]) => mockGetTokenUsageSummary(...args),
-  getRunningPipelineRuns: vi.fn().mockReturnValue([]),
-  updatePipelineRun: vi.fn(),
+  getRunningPipelineRuns: vi.fn().mockResolvedValue([]),
+  updatePipelineRun: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../health.js', () => ({
@@ -677,9 +682,9 @@ describe('runRunAction', () => {
     mockExistsSync.mockReturnValue(true)
     mockPackLoad.mockResolvedValue(mockPack())
     mockDiscoverAndRegister.mockResolvedValue(undefined)
-    mockCreatePipelineRun.mockReturnValue(mockPipelineRun())
+    mockCreatePipelineRun.mockResolvedValue(mockPipelineRun())
     mockOrchestratorRun.mockResolvedValue(defaultStatus)
-    mockGetTokenUsageSummary.mockReturnValue([])
+    mockGetTokenUsageSummary.mockResolvedValue([])
     mockDiscoverPendingStoryKeys.mockReturnValue([])
 
     // Setup mock db.prepare for story discovery
@@ -931,7 +936,7 @@ describe('runRunAction', () => {
         total_cost_usd: 0.0054,
       },
     ]
-    mockGetTokenUsageSummary.mockReturnValue(tokenSummary)
+    mockGetTokenUsageSummary.mockResolvedValue(tokenSummary)
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
@@ -1016,12 +1021,12 @@ describe('runStatusAction', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockExistsSync.mockReturnValue(true)
-    mockGetTokenUsageSummary.mockReturnValue([])
+    mockGetTokenUsageSummary.mockResolvedValue([])
   })
 
   it('AC3: queries latest run and formats output (human)', async () => {
     const run = mockPipelineRun()
-    mockGetLatestRun.mockReturnValue(run)
+    mockGetLatestRun.mockResolvedValue(run)
     const mockPrepare = vi.fn().mockReturnValue({
       get: vi.fn().mockReturnValue(run),
     })
@@ -1065,8 +1070,8 @@ describe('runStatusAction', () => {
 
   it('AC4: outputs JSON format with { success, data } containing run_id and phases', async () => {
     const run = mockPipelineRun()
-    mockGetLatestRun.mockReturnValue(run)
-    mockGetTokenUsageSummary.mockReturnValue([])
+    mockGetLatestRun.mockResolvedValue(run)
+    mockGetTokenUsageSummary.mockResolvedValue([])
     mockDb = {
       prepare: vi.fn().mockReturnValue({
         get: vi.fn().mockReturnValue({ cnt: 0 }),
@@ -1110,7 +1115,7 @@ describe('runStatusAction', () => {
   })
 
   it('no runs found outputs error and exits 1', async () => {
-    mockGetLatestRun.mockReturnValue(undefined)
+    mockGetLatestRun.mockResolvedValue(undefined)
     mockDb = {
       prepare: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue(undefined) }),
     }
@@ -1131,11 +1136,11 @@ describe('runStatusAction', () => {
 
   it('AC5: displays token telemetry in human format', async () => {
     const run = mockPipelineRun()
-    mockGetLatestRun.mockReturnValue(run)
+    mockGetLatestRun.mockResolvedValue(run)
     mockDb = {
       prepare: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue(run) }),
     }
-    mockGetTokenUsageSummary.mockReturnValue([
+    mockGetTokenUsageSummary.mockResolvedValue([
       {
         phase: 'implementation',
         agent: 'claude-code',
@@ -1170,7 +1175,7 @@ describe('runStatusAction', () => {
     const run = mockPipelineRun({
       token_usage_json: JSON.stringify(storyState),
     })
-    mockGetLatestRun.mockReturnValue(run)
+    mockGetLatestRun.mockResolvedValue(run)
     mockDb = {
       prepare: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue(run) }),
     }

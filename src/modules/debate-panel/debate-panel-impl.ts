@@ -12,7 +12,7 @@
  * AC7: Persists finalized decisions to the decision store.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import type { Dispatcher } from '../agent-dispatch/types.js'
 import { createDecision } from '../../persistence/queries/decisions.js'
 import type { DebatePanel } from './debate-panel.js'
@@ -46,7 +46,7 @@ export interface DebatePanelOptions {
   /** Dispatcher for spawning perspective-generation sub-agents */
   dispatcher: Dispatcher
   /** Optional database for decision persistence (AC7) */
-  db?: BetterSqlite3Database
+  db?: DatabaseAdapter
   /**
    * Optional function to generate a perspective from a viewpoint prompt.
    * Defaults to using the dispatcher with agent 'claude-code'.
@@ -161,7 +161,7 @@ function computeSupermajority(perspectives: Perspective[], winner: string): numb
 
 export class DebatePanelImpl implements DebatePanel {
   private readonly _dispatcher: Dispatcher
-  private readonly _db: BetterSqlite3Database | undefined
+  private readonly _db: DatabaseAdapter | undefined
   private readonly _generatePerspective: PerspectiveGeneratorFn
 
   constructor(options: DebatePanelOptions) {
@@ -205,7 +205,7 @@ export class DebatePanelImpl implements DebatePanel {
         tier: result.tier,
         escalated: result.escalated,
       })
-      createDecision(this._db, {
+      await createDecision(this._db, {
         phase,
         category: 'debate-panel',
         key,

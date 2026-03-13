@@ -5,7 +5,7 @@
  * run status, and phase history used throughout the multi-phase pipeline.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // GateCheck
@@ -20,11 +20,11 @@ export interface GateCheck {
   name: string
   /**
    * Async function that evaluates the gate condition.
-   * @param db - SQLite database instance
+   * @param adapter - Database adapter instance
    * @param runId - The pipeline run ID being evaluated
    * @returns true if the gate passes, false if it fails
    */
-  check: (db: BetterSqlite3Database, runId: string) => Promise<boolean>
+  check: (adapter: DatabaseAdapter, runId: string) => Promise<boolean>
   /** Error message to display when this gate fails */
   errorMessage: string
 }
@@ -49,12 +49,12 @@ export interface PhaseDefinition {
    * Called when the phase is entered (after entry gates pass).
    * Used for setup, logging, or initializing phase-specific resources.
    */
-  onEnter: (db: BetterSqlite3Database, runId: string) => Promise<void>
+  onEnter: (adapter: DatabaseAdapter, runId: string) => Promise<void>
   /**
    * Called when the phase exits (after exit gates pass).
    * Used for cleanup, artifact registration, or finalizing phase results.
    */
-  onExit: (db: BetterSqlite3Database, runId: string) => Promise<void>
+  onExit: (adapter: DatabaseAdapter, runId: string) => Promise<void>
 }
 
 // ---------------------------------------------------------------------------

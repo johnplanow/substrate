@@ -16,6 +16,7 @@ import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
 import { runHealthAction } from '../health.js'
 import { buildPipelineStatusOutput } from '../pipeline-shared.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -27,7 +28,7 @@ function createTestDb(): BetterSqlite3Database {
   return db
 }
 
-function createTestRun(
+async function createTestRun(
   db: BetterSqlite3Database,
   overrides: {
     status?: string
@@ -35,8 +36,8 @@ function createTestRun(
     token_usage_json?: string
     updated_at?: string
   } = {},
-): PipelineRun {
-  const run = createPipelineRun(db, {
+): Promise<PipelineRun> {
+  const run = await createPipelineRun(new SqliteDatabaseAdapter(db), {
     methodology: 'bmad',
     start_phase: 'implementation',
     config_json: null,
@@ -57,7 +58,8 @@ function createTestRun(
 }
 
 // Mock the DB opening and process tree inspection
-vi.mock('../../../persistence/database.js', () => {
+vi.mock('../../../persistence/database.js', async () => {
+  const { SqliteDatabaseAdapter } = await import('../../../persistence/sqlite-adapter.js')
   let mockDb: BetterSqlite3Database | null = null
   return {
     DatabaseWrapper: class {
@@ -67,6 +69,9 @@ vi.mock('../../../persistence/database.js', () => {
       }
       open() { /* noop */ }
       close() { /* noop */ }
+      get adapter() {
+        return new SqliteDatabaseAdapter(this.db)
+      }
     },
     __setMockDb: (db: BetterSqlite3Database) => { mockDb = db },
   }
@@ -132,7 +137,7 @@ describe('runHealthAction', () => {
   })
 
   it('returns NO_PIPELINE_RUNNING when latest run is completed (JSON)', async () => {
-    createTestRun(db, { status: 'completed', current_phase: 'implementation' })
+    await createTestRun(db,{ status: 'completed', current_phase: 'implementation' })
     const exitCode = await runHealthAction({
       outputFormat: 'json',
       projectRoot: '/tmp/test-project',
@@ -151,7 +156,7 @@ describe('runHealthAction', () => {
         '16-2': { phase: 'PENDING', reviewCycles: 0 },
       },
     })
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
@@ -174,7 +179,7 @@ describe('runHealthAction', () => {
 
   it('returns STALLED for a pipeline with stale updated_at (JSON)', async () => {
     const staleTime = new Date(Date.now() - 700_000).toISOString() // 11+ minutes ago
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       updated_at: staleTime,
@@ -199,7 +204,7 @@ describe('runHealthAction', () => {
         '7-3': { phase: 'ESCALATED', reviewCycles: 3 },
       },
     })
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
@@ -225,7 +230,7 @@ describe('runHealthAction', () => {
   })
 
   it('produces human-readable output', async () => {
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'completed',
       current_phase: 'implementation',
     })
@@ -241,7 +246,7 @@ describe('runHealthAction', () => {
 
   it('includes staleness_seconds in output', async () => {
     const fiveMinAgo = new Date(Date.now() - 300_000).toISOString()
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       updated_at: fiveMinAgo,
@@ -315,7 +320,7 @@ describe('runHealthAction — JSON schema completeness (T11)', () => {
   }
 
   it('JSON output includes all required top-level fields', async () => {
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       updated_at: new Date().toISOString(),
@@ -334,7 +339,7 @@ describe('runHealthAction — JSON schema completeness (T11)', () => {
   })
 
   it('JSON output includes nested process fields: orchestrator_pid, child_pids, zombies', async () => {
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       updated_at: new Date().toISOString(),
@@ -359,7 +364,7 @@ describe('runHealthAction — JSON schema completeness (T11)', () => {
         '16-4': { phase: 'PENDING', reviewCycles: 0 },
       },
     })
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
@@ -388,7 +393,7 @@ describe('runHealthAction — JSON schema completeness (T11)', () => {
   })
 
   it('JSON output: run_id matches the DB run id when run exists', async () => {
-    const run = createTestRun(db, { status: 'running', updated_at: new Date().toISOString() })
+    const run = await createTestRun(db,{ status: 'running', updated_at: new Date().toISOString() })
     await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
     const data = getJsonData()
     expect(data.run_id).toBe(run.id)
@@ -401,7 +406,7 @@ describe('runHealthAction — JSON schema completeness (T11)', () => {
   })
 
   it('JSON output: current_phase matches the DB value for running pipeline', async () => {
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'solutioning',
       updated_at: new Date().toISOString(),
@@ -412,7 +417,7 @@ describe('runHealthAction — JSON schema completeness (T11)', () => {
   })
 
   it('JSON output: staleness_seconds is non-negative', async () => {
-    createTestRun(db, { status: 'running', updated_at: new Date().toISOString() })
+    await createTestRun(db,{ status: 'running', updated_at: new Date().toISOString() })
     await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
     const data = getJsonData()
     expect(data.staleness_seconds as number).toBeGreaterThanOrEqual(0)
@@ -452,14 +457,14 @@ describe('runHealthAction — human output format (T11)', () => {
 
   it('human output shows "Pipeline Health: STALLED" for stale pipeline', async () => {
     const staleTime = new Date(Date.now() - 700_000).toISOString()
-    createTestRun(db, { status: 'running', updated_at: staleTime })
+    await createTestRun(db,{ status: 'running', updated_at: staleTime })
     await runHealthAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
     const output = getStdout()
     expect(output).toContain('Pipeline Health: STALLED')
   })
 
   it('human output shows run id and status fields', async () => {
-    const run = createTestRun(db, {
+    const run = await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       updated_at: new Date().toISOString(),
@@ -473,7 +478,7 @@ describe('runHealthAction — human output format (T11)', () => {
   })
 
   it('human output shows "Last Active:" with staleness info', async () => {
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       updated_at: new Date().toISOString(),
@@ -485,7 +490,7 @@ describe('runHealthAction — human output format (T11)', () => {
 
   it('human output shows "Orchestrator: not running" when no process found', async () => {
     // No actual orchestrator process running during tests
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       updated_at: new Date().toISOString(),
@@ -503,7 +508,7 @@ describe('runHealthAction — human output format (T11)', () => {
         '16-2': { phase: 'COMPLETE', reviewCycles: 1 },
       },
     })
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
@@ -527,7 +532,7 @@ describe('runHealthAction — human output format (T11)', () => {
         '16-3': { phase: 'ESCALATED', reviewCycles: 2 },
       },
     })
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
@@ -542,7 +547,7 @@ describe('runHealthAction — human output format (T11)', () => {
   })
 
   it('human output omits stories section when no story details', async () => {
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       updated_at: new Date().toISOString(),
@@ -560,7 +565,7 @@ describe('runHealthAction — human output format (T11)', () => {
         '16-5': { phase: 'IN_REVIEW', reviewCycles: 3 },
       },
     })
-    createTestRun(db, {
+    await createTestRun(db,{
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
@@ -573,7 +578,7 @@ describe('runHealthAction — human output format (T11)', () => {
   })
 
   it('runHealthAction returns exitCode 0 on success', async () => {
-    createTestRun(db, { status: 'running', updated_at: new Date().toISOString() })
+    await createTestRun(db,{ status: 'running', updated_at: new Date().toISOString() })
     const exitCode = await runHealthAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
     expect(exitCode).toBe(0)
   })

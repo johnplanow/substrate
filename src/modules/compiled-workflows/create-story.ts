@@ -76,7 +76,7 @@ export async function runCreateStory(
 
   // Step 2: Query epic shard from decision store
   // Cache the implementation-phase decisions to avoid querying twice (issues #5)
-  const implementationDecisions = getImplementationDecisions(deps)
+  const implementationDecisions = await getImplementationDecisions(deps)
   // Pass storyKey for per-story extraction (AC3)
   const epicShardContent = getEpicShard(implementationDecisions, epicId, deps.projectRoot, storyKey)
 
@@ -84,7 +84,7 @@ export async function runCreateStory(
   const prevDevNotesContent = getPrevDevNotes(implementationDecisions, epicId)
 
   // Step 4: Query architecture constraints
-  const archConstraintsContent = getArchConstraints(deps)
+  const archConstraintsContent = await getArchConstraints(deps)
 
   // Step 4b: Retrieve story template from pack
   const storyTemplateContent = await getStoryTemplate(deps)
@@ -230,9 +230,9 @@ export async function runCreateStory(
  * Retrieve and cache all decisions for the implementation phase.
  * Returns an empty array and logs a warning if the query fails.
  */
-function getImplementationDecisions(deps: WorkflowDeps): Decision[] {
+async function getImplementationDecisions(deps: WorkflowDeps): Promise<Decision[]> {
   try {
-    return getDecisionsByPhase(deps.db, 'implementation')
+    return await getDecisionsByPhase(deps.db, 'implementation')
   } catch (err) {
     logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to retrieve implementation decisions')
     return []
@@ -358,9 +358,9 @@ function getPrevDevNotes(decisions: Decision[], epicId: string): string {
  * Looks for decisions with phase='solutioning', category='architecture'.
  * Falls back to reading _bmad-output/architecture/architecture.md on disk if decisions are empty.
  */
-function getArchConstraints(deps: WorkflowDeps): string {
+async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
   try {
-    const decisions = getDecisionsByPhase(deps.db, 'solutioning')
+    const decisions = await getDecisionsByPhase(deps.db, 'solutioning')
     const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
     if (constraints.length > 0) return constraints.map((d: Decision) => d.value).join('\n\n')
 
