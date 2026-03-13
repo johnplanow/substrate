@@ -2,6 +2,12 @@
 
 ## [Unreleased] — v0.4.x
 
+### Changed: better-sqlite3 moved to devDependencies (Epic 29, Story 29-8)
+
+`better-sqlite3` and `@types/better-sqlite3` have been moved from production `dependencies` to `devDependencies`. Production installs (`npm install substrate-ai`) no longer require native C++ compilation. A self-referential `substrate-ai` transitive dependency has also been removed.
+
+`sql.js` (WASM SQLite) has been added to `devDependencies` for future test migration work.
+
 ### Breaking: FileStateStore no longer persists metrics to SQLite (Epic 29)
 
 `FileStateStore` has been updated to be a pure in-memory TypeScript implementation with no `better-sqlite3` dependency. The `db?` option on `FileStateStoreOptions` has been removed — the constructor now only accepts `basePath?: string`.
