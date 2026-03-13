@@ -38,7 +38,7 @@ import { RoutingRecommender } from '../../modules/routing/index.js'
 import { createLogger } from '../../utils/logger.js'
 import type { OutputFormat } from './pipeline-shared.js'
 import { formatOutput } from './pipeline-shared.js'
-import { TelemetryPersistence } from '../../modules/telemetry/index.js'
+import { AdapterTelemetryPersistence } from '../../modules/telemetry/index.js'
 import type { EfficiencyScore, Recommendation, TurnAnalysis, CategoryStats, ConsumerStats } from '../../modules/telemetry/index.js'
 
 const logger = createLogger('metrics-cmd')
@@ -87,15 +87,15 @@ export interface MetricsOptions {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Telemetry helper: open SQLite DB for telemetry queries
+// Telemetry helper: open adapter-backed DB for telemetry queries
 // ---------------------------------------------------------------------------
 
-async function openTelemetryDb(dbPath: string): Promise<any | null> {
+async function openTelemetryAdapter(dbPath: string): Promise<{ persistence: AdapterTelemetryPersistence; close: () => Promise<void> } | null> {
   if (!existsSync(dbPath)) return null
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const BetterSqlite3 = require('better-sqlite3')
-    return new BetterSqlite3(dbPath, { readonly: true })
+    const adapter = createDatabaseAdapter({ backend: 'sqlite', databasePath: dbPath })
+    const persistence = new AdapterTelemetryPersistence(adapter)
+    return { persistence, close: () => adapter.close() }
   } catch {
     return null
   }
@@ -237,8 +237,8 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       return 0
     }
 
-    const sqliteDb = await openTelemetryDb(dbPath)
-    if (sqliteDb === null) {
+    const telemetryHandle = await openTelemetryAdapter(dbPath)
+    if (telemetryHandle === null) {
       const msg = 'No telemetry data yet — run a pipeline with `telemetry.enabled: true`'
       if (turns !== undefined || consumers !== undefined) {
         process.stderr.write(`Error: ${msg}\n`)
@@ -252,8 +252,8 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       return 0
     }
 
+    const telemetryPersistence = telemetryHandle.persistence
     try {
-      const telemetryPersistence = new TelemetryPersistence(sqliteDb)
 
       // -- efficiency mode --
       if (efficiency === true) {
@@ -378,7 +378,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
         return 0
       }
     } finally {
-      try { sqliteDb.close() } catch { /* ignore */ }
+      try { await telemetryHandle.close() } catch { /* ignore */ }
     }
   }
 

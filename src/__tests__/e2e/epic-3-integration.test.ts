@@ -32,8 +32,8 @@ import { EventEmitter } from 'node:events'
 import { Command } from 'commander'
 import * as path from 'node:path'
 import type { TypedEventBus } from '../../core/event-bus.js'
-import type { DatabaseService } from '../../persistence/database.js'
 import { GitWorktreeManagerImpl } from '../../modules/git-worktree/git-worktree-manager-impl.js'
+import type { LegacyDbLike } from '../../modules/git-worktree/git-worktree-manager-impl.js'
 import {
   mergeAll,
   MERGE_EXIT_SUCCESS,
@@ -118,9 +118,9 @@ function createRealEventBus(): TypedEventBus & {
 }
 
 /**
- * Create a minimal mock DatabaseService.
+ * Create a minimal mock db (legacy interface, unused by current implementation).
  */
-function createMockDb(): DatabaseService {
+function createMockDb(): LegacyDbLike {
   const db = {
     prepare: vi.fn(() => ({
       get: vi.fn(() => undefined),
@@ -132,7 +132,7 @@ function createMockDb(): DatabaseService {
     initialize: vi.fn(async () => {}),
     shutdown: vi.fn(async () => {}),
     isOpen: true,
-    db: db as unknown as DatabaseService['db'],
+    db,
   }
 }
 

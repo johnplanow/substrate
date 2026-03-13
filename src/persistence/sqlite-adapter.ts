@@ -1,29 +1,37 @@
 /**
- * SqliteDatabaseAdapter — wraps a better-sqlite3 Database instance and
- * exposes it through the unified async DatabaseAdapter interface.
+ * SqliteDatabaseAdapter — wraps a better-sqlite3-compatible Database instance
+ * and exposes it through the unified async DatabaseAdapter interface.
+ *
+ * The `db` parameter is typed as `any` so this adapter works with both the
+ * real better-sqlite3 module and the WASM mock (sql.js) used in tests via the
+ * vitest `resolve.alias` redirect. This removes the compile-time dependency on
+ * `@types/better-sqlite3` while preserving the same runtime behaviour.
  *
  * All better-sqlite3 operations are synchronous; this adapter wraps each
  * call in `Promise.resolve()` so callers can use the async interface
  * uniformly alongside the Dolt and in-memory adapters.
  */
 
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { DatabaseAdapter } from './adapter.js'
 
 export class SqliteDatabaseAdapter implements DatabaseAdapter {
-  private readonly _db: BetterSqlite3Database
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private readonly _db: any
 
   /**
    * Create a SqliteDatabaseAdapter wrapping the supplied better-sqlite3
-   * Database instance.  The caller is responsible for opening the database
-   * and running any required migrations before passing it here.
+   * (or compatible WASM mock) Database instance.  The caller is responsible
+   * for opening the database and running any required migrations before
+   * passing it here.
    */
-  constructor(db: BetterSqlite3Database) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  constructor(db: any) {
     this._db = db
   }
 
   private get _isOpen(): boolean {
-    return this._db.open
+    // better-sqlite3 exposes db.open; WASM mock also sets this property.
+    return this._db.open ?? true
   }
 
   /**

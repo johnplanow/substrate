@@ -18,8 +18,8 @@ import { PassThrough } from 'node:stream'
 import * as path from 'node:path'
 import type { ChildProcess } from 'node:child_process'
 import { GitWorktreeManagerImpl } from '../git-worktree-manager-impl.js'
+import type { LegacyDbLike } from '../git-worktree-manager-impl.js'
 import type { TypedEventBus } from '../../../core/event-bus.js'
-import type { DatabaseService } from '../../../persistence/database.js'
 
 // ---------------------------------------------------------------------------
 // Mock git-utils
@@ -111,7 +111,7 @@ function createRealEventBus(): TypedEventBus & {
   }
 }
 
-function createMockDb(taskStatus?: string): DatabaseService {
+function createMockDb(taskStatus?: string): LegacyDbLike {
   const db = {
     prepare: vi.fn(() => ({
       get: vi.fn(() =>
@@ -127,7 +127,7 @@ function createMockDb(taskStatus?: string): DatabaseService {
     initialize: vi.fn(async () => {}),
     shutdown: vi.fn(async () => {}),
     isOpen: true,
-    db: db as unknown as DatabaseService['db'],
+    db,
   }
 }
 

@@ -124,6 +124,7 @@ const mockTelemetryPersistence = {
 
 vi.mock('../../../modules/telemetry/index.js', () => ({
   TelemetryPersistence: vi.fn().mockImplementation(() => mockTelemetryPersistence),
+  AdapterTelemetryPersistence: vi.fn().mockImplementation(() => mockTelemetryPersistence),
 }))
 
 // Mock better-sqlite3 so the `require('better-sqlite3')` call in openTelemetryDb

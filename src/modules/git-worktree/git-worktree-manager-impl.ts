@@ -14,10 +14,20 @@
 import * as path from 'node:path'
 import { access } from 'node:fs/promises'
 import type { TypedEventBus } from '../../core/event-bus.js'
-import type { DatabaseService } from '../../persistence/database.js'
 import { createLogger } from '../../utils/logger.js'
 import type { GitWorktreeManager, WorktreeInfo, ConflictReport, MergeResult } from './git-worktree-manager.js'
 import * as gitUtils from './git-utils.js'
+
+/**
+ * Minimal interface for the legacy db parameter (unused in current implementation,
+ * kept for backward compatibility with call sites that pass a db instance).
+ */
+export interface LegacyDbLike {
+  readonly isOpen?: boolean
+  readonly db?: Record<string, unknown>
+  initialize?(): Promise<void>
+  shutdown?(): Promise<void>
+}
 
 const logger = createLogger('git-worktree')
 
@@ -35,7 +45,7 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
   private readonly _eventBus: TypedEventBus
   private readonly _projectRoot: string
   private readonly _baseDirectory: string
-  private readonly _db: DatabaseService | null
+  private readonly _db: LegacyDbLike | null
 
   /** Bound listener references for cleanup in shutdown() */
   private readonly _onTaskReady: (payload: { taskId: string }) => void
@@ -46,7 +56,7 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     eventBus: TypedEventBus,
     projectRoot: string,
     baseDirectory: string = DEFAULT_WORKTREE_BASE,
-    db: DatabaseService | null = null,
+    db: LegacyDbLike | null = null,
   ) {
     this._eventBus = eventBus
     this._projectRoot = projectRoot
@@ -426,7 +436,7 @@ export interface GitWorktreeManagerOptions {
   eventBus: TypedEventBus
   projectRoot: string
   baseDirectory?: string
-  db?: DatabaseService | null
+  db?: LegacyDbLike | null
 }
 
 export function createGitWorktreeManager(options: GitWorktreeManagerOptions): GitWorktreeManager {
