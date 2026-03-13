@@ -40,17 +40,20 @@ import {
   VALID_PHASES,
 } from '../../src/modules/stop-after/index.js'
 import { registerBrainstormCommand } from '../../src/cli/commands/brainstorm.js'
+import { SqliteDatabaseAdapter } from '../../src/persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../src/persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function openMigratedDb(): BetterSqlite3Database {
+function openMigratedDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new Database(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   runMigrations(db)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 /** Insert a pipeline_run using a real UUID for id, for Zod schema compatibility. */
@@ -101,9 +104,12 @@ function insertDecision(
 
 describe('Data Layer Integration: Migration 008 + Zod schemas + amendment queries', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
@@ -152,14 +158,14 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
     }
   })
 
-  it('DecisionSchema validates a row with superseded_by (Migration 008 column)', () => {
+  it('DecisionSchema validates a row with superseded_by (Migration 008 column)', async () => {
     const runId = randomUUID()
     const decOrigId = randomUUID()
     const decNewId = randomUUID()
     insertRun(db, runId, 'completed')
     insertDecision(db, decOrigId, runId, { key: 'k-orig' })
     insertDecision(db, decNewId, runId, { key: 'k-new' })
-    supersedeDecision(db, decOrigId, decNewId)
+    await supersedeDecision(adapter, decOrigId, decNewId)
 
     const row = db
       .prepare('SELECT * FROM decisions WHERE id = ?')
@@ -189,11 +195,11 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
     }
   })
 
-  it('createAmendmentRun creates a row that passes PipelineRunSchema validation', () => {
+  it('createAmendmentRun creates a row that passes PipelineRunSchema validation', async () => {
     const parentId = randomUUID()
     const newId = randomUUID()
     insertRun(db, parentId, 'completed')
-    const returnedId = createAmendmentRun(db, {
+    const returnedId = await createAmendmentRun(adapter, {
       id: newId,
       parentRunId: parentId,
       methodology: 'bmad',
@@ -211,7 +217,7 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
     }
   })
 
-  it('getActiveDecisions returns results that all pass DecisionSchema validation', () => {
+  it('getActiveDecisions returns results that all pass DecisionSchema validation', async () => {
     const runId = randomUUID()
     const d1 = randomUUID()
     const d2 = randomUUID()
@@ -223,9 +229,9 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
     insertDecision(db, d3, runId, { phase: 'analysis', key: 'k3', value: 'v3' })
     insertDecision(db, d4, runId, { phase: 'analysis', key: 'k4', value: 'v4' })
     // Supersede d1
-    supersedeDecision(db, d1, d4)
+    await supersedeDecision(adapter, d1, d4)
 
-    const active = getActiveDecisions(db, { pipeline_run_id: runId })
+    const active = await getActiveDecisions(adapter, { pipeline_run_id: runId })
 
     expect(active.length).toBeGreaterThan(0)
     for (const d of active) {
@@ -239,18 +245,18 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
     expect(ids).toContain(d2)
   })
 
-  it('getLatestCompletedRun result passes PipelineRunSchema validation', () => {
+  it('getLatestCompletedRun result passes PipelineRunSchema validation', async () => {
     const runId = randomUUID()
     insertRun(db, runId, 'completed')
 
-    const run = getLatestCompletedRun(db)
+    const run = await getLatestCompletedRun(adapter)
     expect(run).toBeDefined()
 
     const result = PipelineRunSchema.safeParse(run)
     expect(result.success).toBe(true)
   })
 
-  it('getAmendmentRunChain entries all reference real rows — chain depth matches parent_run_id links', () => {
+  it('getAmendmentRunChain entries all reference real rows — chain depth matches parent_run_id links', async () => {
     const r0 = randomUUID()
     const r1 = randomUUID()
     const r2 = randomUUID()
@@ -258,7 +264,7 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
     insertRun(db, r1, 'completed', r0)
     insertRun(db, r2, 'running', r1)
 
-    const chain = getAmendmentRunChain(db, r2)
+    const chain = await getAmendmentRunChain(adapter, r2)
     expect(chain).toHaveLength(3)
 
     // Verify each entry's parent_run_id matches the previous entry's runId
@@ -278,16 +284,19 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
 
 describe('Amendment Pipeline Integration: queries + context handler + delta document', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('context handler loads real parent decisions from DB and formats phase context', () => {
+  it('context handler loads real parent decisions from DB and formats phase context', async () => {
     // Setup: completed parent run with decisions (using real UUIDs for IDs)
     const parentRunId = randomUUID()
     const d1 = randomUUID()
@@ -314,7 +323,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
       value: 'Q2 2026',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId, {
+    const handler = await createAmendmentContextHandler(adapter, parentRunId, {
       framingConcept: 'Add Redis caching layer',
     })
 
@@ -335,7 +344,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     expect(analysisContext).toContain('Add Redis caching layer')
   })
 
-  it('context handler excludes superseded decisions loaded from DB', () => {
+  it('context handler excludes superseded decisions loaded from DB', async () => {
     const parentRunId = randomUUID()
     const supD1 = randomUUID()
     const supD2 = randomUUID()
@@ -353,9 +362,9 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
       value: 'PostgreSQL',
     })
     // Supersede d1 with d2
-    supersedeDecision(db, supD1, supD2)
+    await supersedeDecision(adapter, supD1, supD2)
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
     const decisions = handler.getParentDecisions()
     const ids = decisions.map((d) => d.id)
@@ -364,14 +373,14 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     expect(ids).toContain(supD2)
   })
 
-  it('context handler supersession log is independent of DB state', () => {
+  it('context handler supersession log is independent of DB state', async () => {
     const parentRunId = randomUUID()
     const logD1 = randomUUID()
     const logD2 = randomUUID()
     insertRun(db, parentRunId, 'completed')
     insertDecision(db, logD1, parentRunId, { phase: 'analysis', key: 'k1', value: 'v1' })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
     // Initial log should be empty
     expect(handler.getSupersessionLog()).toHaveLength(0)
@@ -424,7 +433,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     })
 
     // Create amendment run
-    const amendmentId = createAmendmentRun(db, {
+    const amendmentId = await createAmendmentRun(adapter, {
       id: randomUUID(),
       parentRunId,
       methodology: 'bmad',
@@ -438,7 +447,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
       value: 'PostgreSQL',
     })
     // Supersede the parent decision
-    supersedeDecision(db, deltaPd1, deltaAd1)
+    await supersedeDecision(adapter, deltaPd1, deltaAd1)
 
     // Load ALL parent decisions first (before the supersession is reflected in loadParentRunDecisions)
     // Note: loadParentRunDecisions returns only non-superseded decisions.
@@ -448,8 +457,8 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
       .get(deltaPd1) as Parameters<typeof generateDeltaDocument>[0]['supersededDecisions'][0]
 
     // Load current active parent decisions (deltaPd1 is now excluded; deltaPd2 is active)
-    const parentDecisions = loadParentRunDecisions(db, parentRunId)
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentId })
+    const parentDecisions = await loadParentRunDecisions(adapter, parentRunId)
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentId })
     const supersededDecisions = [supersededRow]
 
     const doc = await generateDeltaDocument(
@@ -506,9 +515,9 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
       key: 'pattern-new',
       value: 'microservices',
     })
-    supersedeDecision(db, fmtPd1, fmtAd1)
+    await supersedeDecision(adapter, fmtPd1, fmtAd1)
 
-    const parentDecisions = loadParentRunDecisions(db, fmtParentId)
+    const parentDecisions = await loadParentRunDecisions(adapter, fmtParentId)
     const supersededRow = db
       .prepare('SELECT * FROM decisions WHERE id = ?')
       .get(fmtPd1) as Parameters<typeof generateDeltaDocument>[0]['supersededDecisions'][0]
@@ -574,7 +583,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     })
 
     // Step 2: Create amendment run
-    const amendId = createAmendmentRun(db, {
+    const amendId = await createAmendmentRun(adapter, {
       id: randomUUID(),
       parentRunId: fullParentId,
       methodology: 'bmad',
@@ -582,7 +591,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     })
 
     // Step 3: Create context handler (reads from DB)
-    const handler = createAmendmentContextHandler(db, fullParentId, {
+    const handler = await createAmendmentContextHandler(adapter, fullParentId, {
       framingConcept: 'Switch to session-based auth',
     })
 
@@ -600,7 +609,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
       value: 'session',
       rationale: 'Better user experience',
     })
-    supersedeDecision(db, ffD1, ffAmendD1)
+    await supersedeDecision(adapter, ffD1, ffAmendD1)
 
     // Step 6: Log the supersession in the handler
     handler.logSupersession({
@@ -614,8 +623,8 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     expect(handler.getSupersessionLog()).toHaveLength(1)
 
     // Step 7: Generate delta document
-    const parentDecisions = loadParentRunDecisions(db, fullParentId)
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendId })
+    const parentDecisions = await loadParentRunDecisions(adapter, fullParentId)
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendId })
 
     // ff-d1 is now superseded, so parentDecisions won't include it
     const supersededDecisions = [
@@ -638,7 +647,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     expect(doc.newDecisions.some((d) => d.id === ffAmendD1)).toBe(true)
 
     // Verify chain is correct
-    const chain = getAmendmentRunChain(db, amendId)
+    const chain = await getAmendmentRunChain(adapter, amendId)
     expect(chain).toHaveLength(2)
     expect(chain[0].runId).toBe(fullParentId)
     expect(chain[1].runId).toBe(amendId)

@@ -32,28 +32,31 @@ import {
 } from '../../src/modules/stop-after/index.js'
 import type { PhaseName } from '../../src/modules/stop-after/index.js'
 import { createPhaseOrchestrator } from '../../src/modules/phase-orchestrator/index.js'
+import { SqliteDatabaseAdapter } from '../../src/persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../src/persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // In-memory DB helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): BetterSqlite3Database {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new Database(':memory:')
   runMigrations(db)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
-function createTestRun(
-  db: BetterSqlite3Database,
+async function createTestRun(
+  adapter: DatabaseAdapter,
   overrides: { start_phase?: string; config_json?: string; status?: string } = {},
-): { id: string; status: string } {
-  const run = createPipelineRun(db, {
+): Promise<{ id: string; status: string }> {
+  const run = await createPipelineRun(adapter, {
     methodology: 'bmad',
     start_phase: overrides.start_phase ?? 'analysis',
     config_json: overrides.config_json,
   })
   if (overrides.status !== undefined && overrides.status !== 'running') {
-    updatePipelineRun(db, run.id, { status: overrides.status as PhaseName })
+    await updatePipelineRun(adapter, run.id, { status: overrides.status as PhaseName })
   }
   return run
 }
@@ -80,32 +83,32 @@ function makeMockPack() {
 // ---------------------------------------------------------------------------
 
 describe('Integration: DB status transitions on stop-after', () => {
-  it('updatePipelineRun sets status to "stopped" and persists it (AC4)', () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+  it('updatePipelineRun sets status to "stopped" and persists it (AC4)', async () => {
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
     // Simulate what auto.ts does after gate.shouldHalt() returns true
-    updatePipelineRun(db, run.id, { status: 'stopped' })
+    await updatePipelineRun(adapter, run.id, { status: 'stopped' })
 
-    const updated = getPipelineRunById(db, run.id)
+    const updated = await getPipelineRunById(adapter, run.id)
     expect(updated).toBeDefined()
     expect(updated!.status).toBe('stopped')
 
     db.close()
   })
 
-  it('status transitions: running -> stopped (not completed or failed) (AC4)', () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+  it('status transitions: running -> stopped (not completed or failed) (AC4)', async () => {
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
     // Before halt: status should be 'running'
-    const before = getPipelineRunById(db, run.id)
+    const before = await getPipelineRunById(adapter, run.id)
     expect(before!.status).toBe('running')
 
     // After halt
-    updatePipelineRun(db, run.id, { status: 'stopped' })
+    await updatePipelineRun(adapter, run.id, { status: 'stopped' })
 
-    const after = getPipelineRunById(db, run.id)
+    const after = await getPipelineRunById(adapter, run.id)
     expect(after!.status).toBe('stopped')
     expect(after!.status).not.toBe('completed')
     expect(after!.status).not.toBe('failed')
@@ -113,17 +116,17 @@ describe('Integration: DB status transitions on stop-after', () => {
     db.close()
   })
 
-  it('stopped status is preserved for all four stop phases (AC4)', () => {
+  it('stopped status is preserved for all four stop phases (AC4)', async () => {
     for (const stopPhase of VALID_PHASES) {
-      const db = createTestDb()
-      const run = createTestRun(db, { start_phase: stopPhase })
+      const { db, adapter } = createTestDb()
+      const run = await createTestRun(adapter, { start_phase: stopPhase })
 
       const gate = createStopAfterGate(stopPhase)
       if (gate.shouldHalt()) {
-        updatePipelineRun(db, run.id, { status: 'stopped' })
+        await updatePipelineRun(adapter, run.id, { status: 'stopped' })
       }
 
-      const result = getPipelineRunById(db, run.id)
+      const result = await getPipelineRunById(adapter, run.id)
       expect(result!.status).toBe('stopped')
 
       db.close()
@@ -137,14 +140,14 @@ describe('Integration: DB status transitions on stop-after', () => {
 
 describe('Integration: resumeRun() tolerates "stopped" status (AC6)', () => {
   it('resumeRun() does not throw when run status is "stopped"', async () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
     // Put run in 'stopped' state (simulating stop-after analysis)
-    updatePipelineRun(db, run.id, { status: 'stopped' })
+    await updatePipelineRun(adapter, run.id, { status: 'stopped' })
 
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack: pack as never })
 
     // resumeRun should not reject/throw on a 'stopped' run
     await expect(orchestrator.resumeRun(run.id)).resolves.not.toThrow()
@@ -153,11 +156,11 @@ describe('Integration: resumeRun() tolerates "stopped" status (AC6)', () => {
   })
 
   it('resumeRun() resumes from next phase after a stopped run with analysis artifact (AC6)', async () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
     // Register product-brief artifact (analysis is complete)
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       pipeline_run_id: run.id,
       phase: 'analysis',
       type: 'product-brief',
@@ -165,13 +168,13 @@ describe('Integration: resumeRun() tolerates "stopped" status (AC6)', () => {
     })
 
     // Simulate pipeline was stopped after analysis
-    updatePipelineRun(db, run.id, { status: 'stopped' })
+    await updatePipelineRun(adapter, run.id, { status: 'stopped' })
 
-    const before = getPipelineRunById(db, run.id)
+    const before = await getPipelineRunById(adapter, run.id)
     expect(before!.status).toBe('stopped')
 
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack: pack as never })
 
     const runStatus = await orchestrator.resumeRun(run.id)
 
@@ -179,23 +182,23 @@ describe('Integration: resumeRun() tolerates "stopped" status (AC6)', () => {
     expect(runStatus.currentPhase).toBe('planning')
 
     // Status transitions from 'stopped' to 'running'
-    const after = getPipelineRunById(db, run.id)
+    const after = await getPipelineRunById(adapter, run.id)
     expect(after!.status).toBe('running')
 
     db.close()
   })
 
   it('resumeRun() resumes from solutioning after stopped run with analysis+planning artifacts (AC6)', async () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       pipeline_run_id: run.id,
       phase: 'analysis',
       type: 'product-brief',
       path: 'decision-store://analysis/product-brief',
     })
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       pipeline_run_id: run.id,
       phase: 'planning',
       type: 'prd',
@@ -203,10 +206,10 @@ describe('Integration: resumeRun() tolerates "stopped" status (AC6)', () => {
     })
 
     // Stopped after planning
-    updatePipelineRun(db, run.id, { status: 'stopped' })
+    await updatePipelineRun(adapter, run.id, { status: 'stopped' })
 
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack: pack as never })
 
     const runStatus = await orchestrator.resumeRun(run.id)
 
@@ -216,25 +219,25 @@ describe('Integration: resumeRun() tolerates "stopped" status (AC6)', () => {
   })
 
   it('resumeRun() transitions run status from stopped to running (AC6)', async () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
     // Register artifact to allow resumption
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       pipeline_run_id: run.id,
       phase: 'analysis',
       type: 'product-brief',
       path: 'decision-store://analysis/product-brief',
     })
 
-    updatePipelineRun(db, run.id, { status: 'stopped' })
+    await updatePipelineRun(adapter, run.id, { status: 'stopped' })
 
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack: pack as never })
 
     await orchestrator.resumeRun(run.id)
 
-    const afterResume = getPipelineRunById(db, run.id)
+    const afterResume = await getPipelineRunById(adapter, run.id)
     expect(afterResume!.status).toBe('running')
 
     db.close()
@@ -375,9 +378,9 @@ describe('Integration: gate evaluation semantics (AC8 of Story 12-2)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Integration: phase completion summary content (AC5 of Story 12-2)', () => {
-  it('summary contains the resume command with the correct run ID', () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+  it('summary contains the resume command with the correct run ID', async () => {
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
     const startedAt = new Date(Date.now() - 30000).toISOString()
     const completedAt = new Date().toISOString()
@@ -396,9 +399,9 @@ describe('Integration: phase completion summary content (AC5 of Story 12-2)', ()
     db.close()
   })
 
-  it('summary word count is within 50–500 for a typical stop-after scenario', () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+  it('summary word count is within 50–500 for a typical stop-after scenario', async () => {
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
     const summary = formatPhaseCompletionSummary({
       phaseName: 'planning',
@@ -419,9 +422,9 @@ describe('Integration: phase completion summary content (AC5 of Story 12-2)', ()
     db.close()
   })
 
-  it('summary contains phase name and "completed" for each valid stop phase (AC5)', () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+  it('summary contains phase name and "completed" for each valid stop phase (AC5)', async () => {
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
     for (const phase of VALID_PHASES) {
       const summary = formatPhaseCompletionSummary({
@@ -440,9 +443,9 @@ describe('Integration: phase completion summary content (AC5 of Story 12-2)', ()
     db.close()
   })
 
-  it('summary does not contain ANSI escape codes (no terminal color sequences) (AC5)', () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+  it('summary does not contain ANSI escape codes (no terminal color sequences) (AC5)', async () => {
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
     const summary = formatPhaseCompletionSummary({
       phaseName: 'analysis',
@@ -464,9 +467,9 @@ describe('Integration: phase completion summary content (AC5 of Story 12-2)', ()
 // ---------------------------------------------------------------------------
 
 describe('Integration: full stop-after gate+DB interaction', () => {
-  it('gate evaluates true, DB is updated to stopped, summary is produced (AC4+AC5)', () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+  it('gate evaluates true, DB is updated to stopped, summary is produced (AC4+AC5)', async () => {
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
     const stopAfterPhase: PhaseName = 'analysis'
     const startedAt = new Date(Date.now() - 45000).toISOString()
@@ -478,10 +481,10 @@ describe('Integration: full stop-after gate+DB interaction', () => {
 
     const decisionsCount = 3
     // Update run status (AC4: atomically before summary)
-    updatePipelineRun(db, run.id, { status: 'stopped' })
+    await updatePipelineRun(adapter, run.id, { status: 'stopped' })
 
     // Verify DB state is persisted before summary
-    const dbState = getPipelineRunById(db, run.id)
+    const dbState = await getPipelineRunById(adapter, run.id)
     expect(dbState!.status).toBe('stopped')
 
     // Emit summary (AC5)
@@ -501,9 +504,9 @@ describe('Integration: full stop-after gate+DB interaction', () => {
     db.close()
   })
 
-  it('stop-after at implementation phase: DB stopped, pipeline does not continue (AC4+AC8)', () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+  it('stop-after at implementation phase: DB stopped, pipeline does not continue (AC4+AC8)', async () => {
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
     const stopAfterPhase: PhaseName = 'implementation'
     const phases: PhaseName[] = ['analysis', 'planning', 'solutioning', 'implementation']
@@ -517,7 +520,7 @@ describe('Integration: full stop-after gate+DB interaction', () => {
       if (currentPhase === stopAfterPhase) {
         const gate = createStopAfterGate(stopAfterPhase)
         if (gate.shouldHalt()) {
-          updatePipelineRun(db, run.id, { status: 'stopped' })
+          await updatePipelineRun(adapter, run.id, { status: 'stopped' })
           dbUpdated = true
           break
         }
@@ -529,15 +532,15 @@ describe('Integration: full stop-after gate+DB interaction', () => {
     expect(phasesExecuted[3]).toBe('implementation')
     expect(dbUpdated).toBe(true)
 
-    const dbState = getPipelineRunById(db, run.id)
+    const dbState = await getPipelineRunById(adapter, run.id)
     expect(dbState!.status).toBe('stopped')
 
     db.close()
   })
 
-  it('stop-after at analysis phase: only analysis runs, phases 2-4 are not executed (AC8)', () => {
-    const db = createTestDb()
-    const run = createTestRun(db)
+  it('stop-after at analysis phase: only analysis runs, phases 2-4 are not executed (AC8)', async () => {
+    const { db, adapter } = createTestDb()
+    const run = await createTestRun(adapter)
 
     const stopAfterPhase: PhaseName = 'analysis'
     const phases: PhaseName[] = ['analysis', 'planning', 'solutioning', 'implementation']
@@ -551,7 +554,7 @@ describe('Integration: full stop-after gate+DB interaction', () => {
       if (currentPhase === stopAfterPhase) {
         const gate = createStopAfterGate(stopAfterPhase)
         if (gate.shouldHalt()) {
-          updatePipelineRun(db, run.id, { status: 'stopped' })
+          await updatePipelineRun(adapter, run.id, { status: 'stopped' })
           halted = true
           break
         }
@@ -563,7 +566,7 @@ describe('Integration: full stop-after gate+DB interaction', () => {
     expect(phasesExecuted[0]).toBe('analysis')
     expect(halted).toBe(true)
 
-    const dbState = getPipelineRunById(db, run.id)
+    const dbState = await getPipelineRunById(adapter, run.id)
     expect(dbState!.status).toBe('stopped')
 
     db.close()
@@ -575,26 +578,26 @@ describe('Integration: full stop-after gate+DB interaction', () => {
 // ---------------------------------------------------------------------------
 
 describe('Integration: gate statelessness with concurrent DB runs (AC7)', () => {
-  it('multiple concurrent gates each update their respective run independently', () => {
-    const db = createTestDb()
+  it('multiple concurrent gates each update their respective run independently', async () => {
+    const { db, adapter } = createTestDb()
 
     // Simulate two concurrent pipeline executions
-    const run1 = createTestRun(db, { start_phase: 'analysis' })
-    const run2 = createTestRun(db, { start_phase: 'planning' })
+    const run1 = await createTestRun(adapter, { start_phase: 'analysis' })
+    const run2 = await createTestRun(adapter, { start_phase: 'planning' })
 
     const gate1 = createStopAfterGate('analysis')
     const gate2 = createStopAfterGate('planning')
 
     // Both gates halt independently
     if (gate1.shouldHalt()) {
-      updatePipelineRun(db, run1.id, { status: 'stopped' })
+      await updatePipelineRun(adapter, run1.id, { status: 'stopped' })
     }
     if (gate2.shouldHalt()) {
-      updatePipelineRun(db, run2.id, { status: 'stopped' })
+      await updatePipelineRun(adapter, run2.id, { status: 'stopped' })
     }
 
-    const r1 = getPipelineRunById(db, run1.id)
-    const r2 = getPipelineRunById(db, run2.id)
+    const r1 = await getPipelineRunById(adapter, run1.id)
+    const r2 = await getPipelineRunById(adapter, run2.id)
 
     expect(r1!.status).toBe('stopped')
     expect(r2!.status).toBe('stopped')

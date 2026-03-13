@@ -43,27 +43,30 @@ import type { MethodologyPack } from '../../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../../agent-dispatch/types.js'
 import type { TypedEventBus } from '../../../../core/event-bus.js'
+import { SqliteDatabaseAdapter } from '../../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'solutioning-readiness-integration-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
 /**
  * Seed realistic functional requirements across multiple priorities.
  */
-function seedFunctionalRequirements(db: BetterSqlite3Database, runId: string): void {
+async function seedFunctionalRequirements(adapter: DatabaseAdapter, runId: string): Promise<void> {
   const frs = [
     { key: 'FR-1', value: JSON.stringify({ description: 'User can register an account with email and password', priority: 'must' }) },
     { key: 'FR-2', value: JSON.stringify({ description: 'User can log in with email and password', priority: 'must' }) },
@@ -74,7 +77,7 @@ function seedFunctionalRequirements(db: BetterSqlite3Database, runId: string): v
     { key: 'FR-7', value: JSON.stringify({ description: 'User receives email notifications for task assignments', priority: 'could' }) },
   ]
   for (const { key, value } of frs) {
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'planning',
       category: 'functional-requirements',
@@ -87,14 +90,14 @@ function seedFunctionalRequirements(db: BetterSqlite3Database, runId: string): v
 /**
  * Seed non-functional requirements.
  */
-function seedNonFunctionalRequirements(db: BetterSqlite3Database, runId: string): void {
+async function seedNonFunctionalRequirements(adapter: DatabaseAdapter, runId: string): Promise<void> {
   const nfrs = [
     { key: 'NFR-1', value: JSON.stringify({ description: 'API response time under 200ms for 95th percentile', category: 'performance' }) },
     { key: 'NFR-2', value: JSON.stringify({ description: 'System supports 10,000 concurrent users', category: 'scalability' }) },
     { key: 'NFR-3', value: JSON.stringify({ description: 'All user data encrypted at rest using AES-256', category: 'security' }) },
   ]
   for (const { key, value } of nfrs) {
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'planning',
       category: 'non-functional-requirements',
@@ -107,14 +110,14 @@ function seedNonFunctionalRequirements(db: BetterSqlite3Database, runId: string)
 /**
  * Seed UX design decisions (simulating a ux-design phase having run).
  */
-function seedUxDecisions(db: BetterSqlite3Database, runId: string): void {
+async function seedUxDecisions(adapter: DatabaseAdapter, runId: string): Promise<void> {
   const uxDecisions = [
     { key: 'ux-component-library', value: 'Tailwind UI components with shadcn/ui', category: 'component-library' },
     { key: 'ux-accessibility', value: 'WCAG 2.1 AA compliance required for all interactive elements', category: 'accessibility' },
     { key: 'ux-navigation', value: 'Sidebar navigation with collapsible menu for mobile', category: 'navigation' },
   ]
   for (const { key, value, category } of uxDecisions) {
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'ux-design',
       category,
@@ -390,13 +393,13 @@ function makeEventBus(): TypedEventBus {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
   eventBus?: TypedEventBus,
 ): PhaseDeps {
   return {
-    db,
+    db: adapter,
     pack: pack ?? makePack(),
     contextCompiler: makeContextCompiler(),
     dispatcher,
@@ -410,14 +413,16 @@ function makeDeps(
 
 describe('Readiness check integration: context assembly (AC1)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -426,13 +431,13 @@ describe('Readiness check integration: context assembly (AC1)', () => {
   })
 
   it('readiness dispatch prompt contains functional requirements from planning phase', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -444,14 +449,14 @@ describe('Readiness check integration: context assembly (AC1)', () => {
   })
 
   it('readiness dispatch prompt contains NFR context from planning phase', async () => {
-    seedFunctionalRequirements(db, runId)
-    seedNonFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
+    await seedNonFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -463,13 +468,13 @@ describe('Readiness check integration: context assembly (AC1)', () => {
   })
 
   it('readiness dispatch prompt contains architecture decisions', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -481,13 +486,13 @@ describe('Readiness check integration: context assembly (AC1)', () => {
   })
 
   it('readiness dispatch prompt contains story titles from all epics', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -500,13 +505,13 @@ describe('Readiness check integration: context assembly (AC1)', () => {
   })
 
   it('readiness dispatch prompt contains acceptance criteria from stories', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -517,13 +522,13 @@ describe('Readiness check integration: context assembly (AC1)', () => {
   })
 
   it('readiness dispatch uses taskType=readiness-check', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -532,13 +537,13 @@ describe('Readiness check integration: context assembly (AC1)', () => {
   })
 
   it('readiness dispatch uses agent=claude-code', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -547,13 +552,13 @@ describe('Readiness check integration: context assembly (AC1)', () => {
   })
 
   it('readiness dispatch is the 3rd dispatch (after arch and story)', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -568,14 +573,16 @@ describe('Readiness check integration: context assembly (AC1)', () => {
 
 describe('Readiness check integration: UX alignment (AC9)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -584,14 +591,14 @@ describe('Readiness check integration: UX alignment (AC9)', () => {
   })
 
   it('includes UX decisions in readiness prompt when ux-design phase decisions exist', async () => {
-    seedFunctionalRequirements(db, runId)
-    seedUxDecisions(db, runId) // Seed UX decisions into the ux-design phase
+    await seedFunctionalRequirements(adapter, runId)
+    await seedUxDecisions(adapter, runId) // Seed UX decisions into the ux-design phase
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -603,14 +610,14 @@ describe('Readiness check integration: UX alignment (AC9)', () => {
   })
 
   it('omits UX section from readiness prompt when no ux-design decisions exist', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     // Do NOT seed UX decisions — simulates ux-design phase skipped
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -621,7 +628,7 @@ describe('Readiness check integration: UX alignment (AC9)', () => {
   })
 
   it('pipeline succeeds regardless of UX decisions presence', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
 
     // Test without UX decisions
     const dispatcher1 = makeSequentialDispatcher([
@@ -629,7 +636,7 @@ describe('Readiness check integration: UX alignment (AC9)', () => {
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const result1 = await runSolutioningPhase(makeDeps(db, dispatcher1), { runId })
+    const result1 = await runSolutioningPhase(makeDeps(adapter, dispatcher1), { runId })
     expect(result1.result).toBe('success')
 
     // Cleanup and re-run with UX decisions
@@ -637,17 +644,18 @@ describe('Readiness check integration: UX alignment (AC9)', () => {
     rmSync(tmpDir, { recursive: true, force: true })
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    const newRunId = createTestRun(db)
-    seedFunctionalRequirements(db, newRunId)
-    seedUxDecisions(db, newRunId)
+    const newRunId = await createTestRun(adapter)
+    await seedFunctionalRequirements(adapter, newRunId)
+    await seedUxDecisions(adapter, newRunId)
 
     const dispatcher2 = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const result2 = await runSolutioningPhase(makeDeps(db, dispatcher2), { runId: newRunId })
+    const result2 = await runSolutioningPhase(makeDeps(adapter, dispatcher2), { runId: newRunId })
     expect(result2.result).toBe('success')
   })
 })
@@ -658,14 +666,16 @@ describe('Readiness check integration: UX alignment (AC9)', () => {
 
 describe('Readiness check integration: full pipeline with realistic mock data', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -674,14 +684,14 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   })
 
   it('full pipeline with 3 epics and 7 stories returns success when READY', async () => {
-    seedFunctionalRequirements(db, runId)
-    seedNonFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
+    await seedNonFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(COMPREHENSIVE_EPICS),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -692,13 +702,13 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   })
 
   it('correct architecture decision count in result', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -707,14 +717,14 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   })
 
   it('emits readiness-check event with correct data for READY verdict', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY', []),
     ])
     const eventBus = makeEventBus()
-    const deps = makeDeps(db, dispatcher, undefined, eventBus)
+    const deps = makeDeps(adapter, dispatcher, undefined, eventBus)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -731,7 +741,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   })
 
   it('READY verdict with mixed findings (major + minor) stores no findings in decision store', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const readinessFindings = [
       { category: 'story_quality', severity: 'major', description: 'Story 2-2 ACs not testable', affected_items: ['2-2'] },
       { category: 'ux_alignment', severity: 'minor', description: 'Story 1-1 missing accessibility reference', affected_items: ['1-1'] },
@@ -741,7 +751,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY', readinessFindings),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -754,7 +764,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   })
 
   it('NOT_READY verdict stores all findings (blockers + major + minor) in decision store', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const readinessFindings = [
       { category: 'fr_coverage', severity: 'blocker', description: 'FR-7 notifications not covered', affected_items: ['FR-7'] },
       { category: 'architecture_compliance', severity: 'blocker', description: 'Story 1-2 uses session auth, not JWT', affected_items: ['1-2', 'auth'] },
@@ -766,7 +776,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', readinessFindings),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -785,7 +795,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   })
 
   it('NOT_READY stored findings contain correct category and severity', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const readinessFindings = [
       { category: 'fr_coverage', severity: 'blocker', description: 'FR-7 notifications not covered', affected_items: ['FR-7'] },
       { category: 'story_quality', severity: 'major', description: 'Story quality issue', affected_items: ['2-1'] },
@@ -795,7 +805,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', readinessFindings),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -819,13 +829,13 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   })
 
   it('total token usage accumulates from all 3 dispatches in READY path', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult({ tokenEstimate: { input: 800, output: 250 } }),
       makeStoryDispatchResult(COMPREHENSIVE_EPICS, { tokenEstimate: { input: 1200, output: 600 } }),
       makeReadinessDispatchResult('READY', [], { tokenEstimate: { input: 400, output: 150 } }),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -837,13 +847,13 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   })
 
   it('artifact_ids contains arch and story artifact IDs on READY success', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -858,7 +868,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   })
 
   it('NOT_READY result includes gaps from fr_coverage blocker findings', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const readinessFindings = [
       { category: 'fr_coverage', severity: 'blocker', description: 'FR-7 (email notifications) not covered by any story', affected_items: ['FR-7'] },
       { category: 'fr_coverage', severity: 'blocker', description: 'FR-4 (invite team members) not traceable to story ACs', affected_items: ['FR-4'] },
@@ -869,7 +879,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NOT_READY', readinessFindings),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -881,7 +891,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   })
 
   it('NEEDS_WORK with blockers triggers retry that includes all blocker descriptions', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const blockerDesc1 = 'FR-6 (task due dates) is not covered by any story'
     const blockerDesc2 = 'FR-7 (email notifications) is not covered by any story'
     const readinessFindings = [
@@ -913,7 +923,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
       makeStoryDispatchResult(improvedEpics),
       makeReadinessDispatchResult('READY', []),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -924,7 +934,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   })
 
   it('pipeline emits solutioning:readiness-failed event with detailed findings on NOT_READY', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const readinessFindings = [
       { category: 'fr_coverage', severity: 'blocker', description: 'FR-1 not covered', affected_items: ['FR-1'] },
       { category: 'architecture_compliance', severity: 'blocker', description: 'Story uses REST', affected_items: ['1-1', 'api-style'] },
@@ -935,7 +945,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
       makeReadinessDispatchResult('NOT_READY', readinessFindings),
     ])
     const eventBus = makeEventBus()
-    const deps = makeDeps(db, dispatcher, undefined, eventBus)
+    const deps = makeDeps(adapter, dispatcher, undefined, eventBus)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -959,14 +969,16 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
 
 describe('Readiness check integration: edge cases', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -975,14 +987,14 @@ describe('Readiness check integration: edge cases', () => {
   })
 
   it('pipeline succeeds when no NFRs are present', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     // No NFRs seeded
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -990,14 +1002,14 @@ describe('Readiness check integration: edge cases', () => {
   })
 
   it('readiness prompt contains "No non-functional requirements found" when no NFRs', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     // No NFRs seeded
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -1006,14 +1018,14 @@ describe('Readiness check integration: edge cases', () => {
   })
 
   it('readiness prompt does not contain raw {{placeholders}} after context injection', async () => {
-    seedFunctionalRequirements(db, runId)
-    seedNonFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
+    await seedNonFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 
@@ -1027,7 +1039,7 @@ describe('Readiness check integration: edge cases', () => {
   })
 
   it('NEEDS_WORK without blockers proceeds successfully with warning (no retry)', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const readinessFindings = [
       { category: 'story_quality', severity: 'major', description: 'Story 3-2 ACs are vague', affected_items: ['3-2'] },
       { category: 'ux_alignment', severity: 'minor', description: 'Story missing accessibility reference', affected_items: ['1-1'] },
@@ -1038,7 +1050,7 @@ describe('Readiness check integration: edge cases', () => {
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('NEEDS_WORK', readinessFindings),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -1049,7 +1061,7 @@ describe('Readiness check integration: edge cases', () => {
   })
 
   it('readiness check error (dispatch failed) returns readiness_check_error', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
@@ -1060,7 +1072,7 @@ describe('Readiness check integration: edge cases', () => {
         parseError: 'Readiness agent process crashed',
       }),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     const result = await runSolutioningPhase(deps, { runId })
 
@@ -1070,13 +1082,13 @@ describe('Readiness check integration: edge cases', () => {
   })
 
   it('readiness dispatch is the 3rd dispatch and receives outputSchema', async () => {
-    seedFunctionalRequirements(db, runId)
+    await seedFunctionalRequirements(adapter, runId)
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
       makeStoryDispatchResult(),
       makeReadinessDispatchResult('READY'),
     ])
-    const deps = makeDeps(db, dispatcher)
+    const deps = makeDeps(adapter, dispatcher)
 
     await runSolutioningPhase(deps, { runId })
 

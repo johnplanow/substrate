@@ -37,20 +37,23 @@ import type { PhaseDeps } from '../phases/types.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchResult } from '../../agent-dispatch/types.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers — test DB setup
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'elicitation-integration-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
   return run.id
 }
 
@@ -144,11 +147,11 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack: MethodologyPack,
 ): PhaseDeps {
-  return { db, pack, contextCompiler: makeContextCompiler(), dispatcher }
+  return { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
 
 // ---------------------------------------------------------------------------
@@ -175,22 +178,22 @@ function fillElicitationPrompt(
 // in the key itself (e.g., "analysis-round-1-method").
 // ---------------------------------------------------------------------------
 
-function storeElicitationResult(
-  db: BetterSqlite3Database,
+async function storeElicitationResult(
+  adapter: DatabaseAdapter,
   runId: string,
   phase: string,
   roundIndex: number,
   methodName: string,
   insights: string,
-): void {
-  upsertDecision(db, {
+): Promise<void> {
+  await upsertDecision(adapter, {
     pipeline_run_id: runId,
     phase,
     category: 'elicitation',
     key: `${phase}-round-${roundIndex}-method`,
     value: methodName,
   })
-  upsertDecision(db, {
+  await upsertDecision(adapter, {
     pipeline_run_id: runId,
     phase,
     category: 'elicitation',
@@ -504,14 +507,16 @@ describe('Integration: Elicitation prompt template loading and filling (AC3)', (
 
 describe('Integration: Elicitation results stored in decision store (AC4)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -519,15 +524,15 @@ describe('Integration: Elicitation results stored in decision store (AC4)', () =
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('stores elicitation method name and insights for round 1', () => {
+  it('stores elicitation method name and insights for round 1', async () => {
     const methods = loadElicitationMethods()
     const ctx: ElicitationContext = { content_type: 'brief' }
     const selected = selectMethods(ctx, [], methods)
     const method = selected[0]!
 
-    storeElicitationResult(db, runId, 'analysis', 1, method.name, 'Insight 1: Users need X.')
+    await storeElicitationResult(adapter, runId, 'analysis', 1, method.name, 'Insight 1: Users need X.')
 
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
     const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
 
     expect(elicitDecisions.length).toBe(2)
@@ -540,7 +545,7 @@ describe('Integration: Elicitation results stored in decision store (AC4)', () =
     expect(insightDecision!.value).toBe('Insight 1: Users need X.')
   })
 
-  it('stores multiple rounds of elicitation results', () => {
+  it('stores multiple rounds of elicitation results', async () => {
     const methods = loadElicitationMethods()
     const usedMethods: string[] = []
 
@@ -551,8 +556,8 @@ describe('Integration: Elicitation results stored in decision store (AC4)', () =
       const method = selected[0]!
       usedMethods.push(method.name)
 
-      storeElicitationResult(
-        db,
+      await storeElicitationResult(
+        adapter,
         runId,
         'analysis',
         round,
@@ -561,7 +566,7 @@ describe('Integration: Elicitation results stored in decision store (AC4)', () =
       )
     }
 
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
     const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
 
     // 3 rounds × 2 keys each = 6 decisions
@@ -574,15 +579,15 @@ describe('Integration: Elicitation results stored in decision store (AC4)', () =
     }
   })
 
-  it('stored method names in decision store match the selected methods', () => {
+  it('stored method names in decision store match the selected methods', async () => {
     const methods = loadElicitationMethods()
     const ctx: ElicitationContext = { content_type: 'prd' }
     const selected = selectMethods(ctx, [], methods)
 
     // Store both selected methods
     for (let i = 0; i < selected.length; i++) {
-      storeElicitationResult(
-        db,
+      await storeElicitationResult(
+        adapter,
         runId,
         'planning',
         i + 1,
@@ -591,7 +596,7 @@ describe('Integration: Elicitation results stored in decision store (AC4)', () =
       )
     }
 
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'planning')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'planning')
     const methodDecisions = decisions.filter(
       (d) => d.category === 'elicitation' && d.key.endsWith('-method'),
     )
@@ -604,14 +609,14 @@ describe('Integration: Elicitation results stored in decision store (AC4)', () =
     }
   })
 
-  it('upserts overwrite previous elicitation data for the same round', () => {
+  it('upserts overwrite previous elicitation data for the same round', async () => {
     // Store initial elicitation result
-    storeElicitationResult(db, runId, 'analysis', 1, 'Old Method', 'Old insights.')
+    await storeElicitationResult(adapter, runId, 'analysis', 1, 'Old Method', 'Old insights.')
 
     // Overwrite with updated data (same phase, same round)
-    storeElicitationResult(db, runId, 'analysis', 1, 'New Method', 'New insights.')
+    await storeElicitationResult(adapter, runId, 'analysis', 1, 'New Method', 'New insights.')
 
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
     const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
 
     // Should still be only 2 records (upsert, not insert)
@@ -707,14 +712,16 @@ describe('Integration: elicitate: true steps in phase definitions (AC5)', () => 
 
 describe('Integration: End-to-end elicitation round', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -769,11 +776,11 @@ describe('Integration: End-to-end elicitation round', () => {
     expect(parsed.insights).toBeTruthy()
 
     // 6. Store results in decision store (AC4)
-    storeElicitationResult(db, runId, 'analysis', 1, method.name, parsed.insights)
+    await storeElicitationResult(adapter, runId, 'analysis', 1, method.name, parsed.insights)
     usedMethods.push(method.name)
 
     // 7. Verify stored (AC4)
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
     const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
     expect(elicitDecisions.length).toBe(2)
     expect(elicitDecisions.find((d) => d.key === 'analysis-round-1-method')!.value).toBe(method.name)
@@ -799,8 +806,8 @@ describe('Integration: End-to-end elicitation round', () => {
     usedMethods.push(...analysisSelected.map((m) => m.name))
 
     // Store analysis elicitation results
-    storeElicitationResult(
-      db,
+    await storeElicitationResult(
+      adapter,
       runId,
       'analysis',
       1,
@@ -819,8 +826,8 @@ describe('Integration: End-to-end elicitation round', () => {
     usedMethods.push(...planningSelected.map((m) => m.name))
 
     // Store planning elicitation results (using phase-prefixed keys to avoid collision)
-    storeElicitationResult(
-      db,
+    await storeElicitationResult(
+      adapter,
       runId,
       'planning',
       1,
@@ -834,10 +841,10 @@ describe('Integration: End-to-end elicitation round', () => {
     expect(uniqueNames.size).toBe(allSelected.length)
 
     // Verify: decision store has elicitation records for both phases
-    const analysisDecisions = getDecisionsByPhaseForRun(db, runId, 'analysis').filter(
+    const analysisDecisions = (await getDecisionsByPhaseForRun(adapter, runId, 'analysis')).filter(
       (d) => d.category === 'elicitation',
     )
-    const planningDecisions = getDecisionsByPhaseForRun(db, runId, 'planning').filter(
+    const planningDecisions = (await getDecisionsByPhaseForRun(adapter, runId, 'planning')).filter(
       (d) => d.category === 'elicitation',
     )
     expect(analysisDecisions.length).toBeGreaterThan(0)
@@ -886,7 +893,7 @@ describe('Integration: End-to-end elicitation round', () => {
     expect(result.status).toBe('failed')
 
     // No elicitation decisions should be stored on failure
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
     const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
     expect(elicitDecisions.length).toBe(0)
   })

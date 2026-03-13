@@ -41,17 +41,20 @@ import {
   formatDeltaDocument,
 } from '../../src/modules/delta-document/index.js'
 import { runPostPhaseSupersessionDetection } from '../../src/cli/commands/amend.js'
+import { SqliteDatabaseAdapter } from '../../src/persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../src/persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function openMigratedDb(): BetterSqlite3Database {
+function openMigratedDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new Database(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   runMigrations(db)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 function insertRun(
@@ -97,9 +100,12 @@ function insertDecision(
 
 describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 12-10)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
@@ -128,7 +134,7 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
 
     // Create amendment run
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, {
+    await createAmendmentRun(adapter, {
       id: amendmentRunId,
       parentRunId,
       methodology: 'bmad',
@@ -145,12 +151,12 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
     })
 
     // Create context handler
-    const handler = createAmendmentContextHandler(db, parentRunId, {
+    const handler = await createAmendmentContextHandler(adapter, parentRunId, {
       framingConcept: 'Upgrade database',
     })
 
     // Run supersession detection (as runAmendCommand does after each phase)
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     // Verify in-memory supersession log was updated
     const log = handler.getSupersessionLog()
@@ -165,7 +171,7 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
     expect(parentD1Row.superseded_by).toBe(amendD1)
 
     // Build delta document inputs as runAmendCommand does
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
     const parentDecisions = handler.getParentDecisions()
     const supersessionLog = handler.getSupersessionLog()
     const supersededDecisionIds = new Set(supersessionLog.map((s) => s.originalDecisionId))
@@ -204,7 +210,7 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
     insertDecision(db, pD3, parentRunId, { phase: 'solutioning', category: 'api', key: 'protocol', value: 'REST' })
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
+    await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     // Amendment decisions that supersede parent decisions
     const aD1 = randomUUID()
@@ -214,12 +220,12 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
     insertDecision(db, aD2, amendmentRunId, { phase: 'planning', category: 'scope', key: 'deadline', value: 'Q2' })
     insertDecision(db, aD3, amendmentRunId, { phase: 'solutioning', category: 'api', key: 'protocol', value: 'GraphQL' })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
     // Simulate post-phase supersession detection for each phase
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'planning', handler)
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'solutioning', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'planning', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'solutioning', handler)
 
     // All 3 original decisions should be superseded
     const log = handler.getSupersessionLog()
@@ -231,7 +237,7 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
     expect(logOriginalIds).toContain(pD3)
 
     // Build delta doc
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
     const parentDecisions = handler.getParentDecisions()
     const supersededDecisionIds = new Set(log.map((s) => s.originalDecisionId))
     const supersededDecisions = parentDecisions.filter((d) => supersededDecisionIds.has(d.id))
@@ -262,19 +268,19 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
     insertDecision(db, pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'SQLite' })
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
+    await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     // Amendment adds a new decision (different key — no supersession)
     const aD1 = randomUUID()
     insertDecision(db, aD1, amendmentRunId, { phase: 'analysis', category: 'cache', key: 'provider', value: 'Redis' })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     // No supersession should have occurred (different key)
     expect(handler.getSupersessionLog()).toHaveLength(0)
 
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
     const parentDecisions = handler.getParentDecisions()
 
     const doc = await generateDeltaDocument({
@@ -303,9 +309,12 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
 
 describe('Context Handler → Delta Document: handler feeds generateDeltaDocument correctly', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
@@ -321,15 +330,15 @@ describe('Context Handler → Delta Document: handler feeds generateDeltaDocumen
     insertDecision(db, pD2, parentRunId, { phase: 'planning', category: 'scope', key: 'size', value: 'small' })
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
+    await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     // Amendment adds a new decision and carries over pD2 (same ID)
     const aD1 = randomUUID()
     insertDecision(db, aD1, amendmentRunId, { phase: 'analysis', category: 'cache', key: 'redis', value: 'yes' })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
     const parentDecisions = handler.getParentDecisions()
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
 
     const doc = await generateDeltaDocument({
       amendmentRunId,
@@ -356,14 +365,14 @@ describe('Context Handler → Delta Document: handler feeds generateDeltaDocumen
     insertDecision(db, pD2, parentRunId, { phase: 'planning', category: 'scope', key: 'size', value: 'medium' })
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
+    await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     const aD1 = randomUUID()
     insertDecision(db, aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
     // Manually log a supersession (as runPostPhaseSupersessionDetection would)
-    supersedeDecision(db, pD1, aD1)
+    await supersedeDecision(adapter, pD1, aD1)
     handler.logSupersession({
       originalDecisionId: pD1,
       supersedingDecisionId: aD1,
@@ -385,7 +394,7 @@ describe('Context Handler → Delta Document: handler feeds generateDeltaDocumen
     // pD2 should NOT be in supersededDecisions
     expect(supersededDecisions.some((d) => d.id === pD2)).toBe(false)
 
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
 
     const doc = await generateDeltaDocument({
       amendmentRunId,
@@ -409,7 +418,7 @@ describe('Context Handler → Delta Document: handler feeds generateDeltaDocumen
     insertDecision(db, pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'k1', value: 'v1' })
 
     // Create handler before pD2 is inserted
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
     // Insert pD2 AFTER handler creation
     insertDecision(db, pD2, parentRunId, { phase: 'analysis', category: 'arch', key: 'k2', value: 'v2' })
@@ -428,9 +437,12 @@ describe('Context Handler → Delta Document: handler feeds generateDeltaDocumen
 
 describe('Full Amendment Pipeline: amendment run → delta doc → validation', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
@@ -457,7 +469,7 @@ describe('Full Amendment Pipeline: amendment run → delta doc → validation', 
     })
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, {
+    await createAmendmentRun(adapter, {
       id: amendmentRunId,
       parentRunId,
       methodology: 'bmad',
@@ -473,16 +485,16 @@ describe('Full Amendment Pipeline: amendment run → delta doc → validation', 
       rationale: 'Better JSON support and performance',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId, {
+    const handler = await createAmendmentContextHandler(adapter, parentRunId, {
       framingConcept: 'Migrate to PostgreSQL',
     })
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     const parentDecisions = handler.getParentDecisions()
     const supersessionLog = handler.getSupersessionLog()
     const supersededDecisionIds = new Set(supersessionLog.map((s) => s.originalDecisionId))
     const supersededDecisions = parentDecisions.filter((d) => supersededDecisionIds.has(d.id))
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
 
     const doc = await generateDeltaDocument({
       amendmentRunId,
@@ -513,19 +525,19 @@ describe('Full Amendment Pipeline: amendment run → delta doc → validation', 
     insertDecision(db, pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'old-value' })
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
+    await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     const aD1 = randomUUID()
     insertDecision(db, aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'new-value' })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     const parentDecisions = handler.getParentDecisions()
     const supersessionLog = handler.getSupersessionLog()
     const supersededDecisionIds = new Set(supersessionLog.map((s) => s.originalDecisionId))
     const supersededDecisions = parentDecisions.filter((d) => supersededDecisionIds.has(d.id))
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
 
     const doc = await generateDeltaDocument({
       amendmentRunId,
@@ -552,9 +564,12 @@ describe('Full Amendment Pipeline: amendment run → delta doc → validation', 
 
 describe('formatDeltaDocument: Markdown output is well-formed with real DB data', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
@@ -574,7 +589,7 @@ describe('formatDeltaDocument: Markdown output is well-formed with real DB data'
     })
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
+    await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     const aD1 = randomUUID()
     insertDecision(db, aD1, amendmentRunId, {
@@ -585,14 +600,14 @@ describe('formatDeltaDocument: Markdown output is well-formed with real DB data'
       rationale: 'Production scale',
     })
 
-    const handler = createAmendmentContextHandler(db, parentRunId, { framingConcept: 'Scale up' })
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId, { framingConcept: 'Scale up' })
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     const parentDecisions = handler.getParentDecisions()
     const supersessionLog = handler.getSupersessionLog()
     const supersededDecisionIds = new Set(supersessionLog.map((s) => s.originalDecisionId))
     const supersededDecisions = parentDecisions.filter((d) => supersededDecisionIds.has(d.id))
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
 
     const doc = await generateDeltaDocument({
       amendmentRunId,
@@ -640,12 +655,12 @@ describe('formatDeltaDocument: Markdown output is well-formed with real DB data'
     // No decisions — empty parent run
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
+    await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
     // No amendment decisions either
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
     const parentDecisions = handler.getParentDecisions()
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
 
     const doc = await generateDeltaDocument({
       amendmentRunId,
@@ -676,13 +691,13 @@ describe('formatDeltaDocument: Markdown output is well-formed with real DB data'
     insertRun(db, parentRunId, 'completed')
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
+    await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     const aD1 = randomUUID()
     insertDecision(db, aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'k', value: 'v' })
 
     const parentDecisions: Parameters<typeof generateDeltaDocument>[0]['parentDecisions'] = []
-    const amendmentDecisions = getActiveDecisions(db, { pipeline_run_id: amendmentRunId })
+    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
 
     // Mock dispatch that returns known impact findings
     const mockDispatch = async (_prompt: string): Promise<string> => {
@@ -719,16 +734,19 @@ describe('formatDeltaDocument: Markdown output is well-formed with real DB data'
 
 describe('runPostPhaseSupersessionDetection: real DB + handler state integration', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openMigratedDb()
+    const setup = openMigratedDb()
+    db = setup.db
+    adapter = setup.adapter
   })
 
   afterEach(() => {
     db.close()
   })
 
-  it('correctly identifies matching decisions by phase + category + key tuple', () => {
+  it('correctly identifies matching decisions by phase + category + key tuple', async () => {
     const parentRunId = randomUUID()
     const pMatchD = randomUUID() // matches by phase/category/key
     const pNoMatchD = randomUUID() // different key — should not supersede
@@ -737,14 +755,14 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     insertDecision(db, pNoMatchD, parentRunId, { phase: 'analysis', category: 'arch', key: 'cache', value: 'Redis' })
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
+    await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     // Amendment decision matches pMatchD by phase/category/key
     const aMatchD = randomUUID()
     insertDecision(db, aMatchD, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     const log = handler.getSupersessionLog()
     expect(log).toHaveLength(1) // Only pMatchD was superseded
@@ -758,7 +776,7 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     expect(pNoMatchRow.superseded_by).toBeNull()
   })
 
-  it('only processes decisions from the specified phase — cross-phase decisions are not superseded', () => {
+  it('only processes decisions from the specified phase — cross-phase decisions are not superseded', async () => {
     const parentRunId = randomUUID()
     const pAnalysisD = randomUUID()
     const pPlanningD = randomUUID()
@@ -767,16 +785,16 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     insertDecision(db, pPlanningD, parentRunId, { phase: 'planning', category: 'arch', key: 'db', value: 'MySQL' })
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
+    await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     // Amendment has an analysis decision with matching key
     const aD = randomUUID()
     insertDecision(db, aD, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
     // Run supersession detection ONLY for 'analysis' phase
-    runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     const log = handler.getSupersessionLog()
     expect(log).toHaveLength(1) // Only analysis-phase decision superseded
@@ -788,7 +806,7 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     expect(pPlanningRow.superseded_by).toBeNull()
   })
 
-  it('errors in individual supersedeDecision() calls do not halt the detection loop', () => {
+  it('errors in individual supersedeDecision() calls do not halt the detection loop', async () => {
     const parentRunId = randomUUID()
     const pD1 = randomUUID()
     const pD2 = randomUUID()
@@ -797,7 +815,7 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     insertDecision(db, pD2, parentRunId, { phase: 'analysis', category: 'stack', key: 'lang', value: 'JS' })
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
+    await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     // Amendment decisions that supersede both parent decisions
     const aD1 = randomUUID()
@@ -806,12 +824,12 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     insertDecision(db, aD2, amendmentRunId, { phase: 'analysis', category: 'stack', key: 'lang', value: 'TS' })
 
     // Pre-supersede pD1 to trigger an error on the second call to supersedeDecision for pD1
-    supersedeDecision(db, pD1, aD1)
+    await supersedeDecision(adapter, pD1, aD1)
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
     // This should NOT throw even though pD1 is already superseded
-    expect(() => runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)).not.toThrow()
+    await expect(runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)).resolves.not.toThrow()
 
     // pD2 should still have been superseded despite the error for pD1
     const pD2Row = db
@@ -820,7 +838,7 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     expect(pD2Row.superseded_by).toBe(aD2)
   })
 
-  it('returns void and handler state updates correctly across multiple phase calls', () => {
+  it('returns void and handler state updates correctly across multiple phase calls', async () => {
     const parentRunId = randomUUID()
     const pA = randomUUID() // analysis
     const pB = randomUUID() // planning
@@ -829,20 +847,20 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     insertDecision(db, pB, parentRunId, { phase: 'planning', category: 'scope', key: 'deadline', value: 'Q1' })
 
     const amendmentRunId = randomUUID()
-    createAmendmentRun(db, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
+    await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     const aA = randomUUID()
     const aB = randomUUID()
     insertDecision(db, aA, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
     insertDecision(db, aB, amendmentRunId, { phase: 'planning', category: 'scope', key: 'deadline', value: 'Q2' })
 
-    const handler = createAmendmentContextHandler(db, parentRunId)
+    const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
-    const result1 = runPostPhaseSupersessionDetection(db, amendmentRunId, 'analysis', handler)
+    const result1 = await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
     expect(result1).toBeUndefined()
     expect(handler.getSupersessionLog()).toHaveLength(1)
 
-    const result2 = runPostPhaseSupersessionDetection(db, amendmentRunId, 'planning', handler)
+    const result2 = await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'planning', handler)
     expect(result2).toBeUndefined()
     expect(handler.getSupersessionLog()).toHaveLength(2)
   })

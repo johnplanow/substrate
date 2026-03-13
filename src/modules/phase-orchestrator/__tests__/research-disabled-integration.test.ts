@@ -26,25 +26,28 @@ import {
 } from '../built-in-phases.js'
 import { runGates } from '../phase-orchestrator-impl.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'research-disabled-integration-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function registerArtifactForRun(
-  db: BetterSqlite3Database,
+async function registerArtifactForRun(
+  adapter: DatabaseAdapter,
   runId: string,
   phase: string,
   type: string,
-): void {
-  registerArtifact(db, {
+): Promise<void> {
+  await registerArtifact(adapter, {
     pipeline_run_id: runId,
     phase,
     type,
@@ -105,11 +108,13 @@ describe('createBuiltInPhases - research disabled (default)', () => {
 
 describe('PhaseOrchestrator - phase list without research', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
@@ -120,14 +125,14 @@ describe('PhaseOrchestrator - phase list without research', () => {
 
   it('registers exactly 4 phases when pack has no research config', () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const phases = orchestrator.getPhases()
     expect(phases).toHaveLength(4)
   })
 
   it('phase list does NOT include research', () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const phases = orchestrator.getPhases()
     const names = phases.map((p) => p.name)
     expect(names).not.toContain('research')
@@ -135,7 +140,7 @@ describe('PhaseOrchestrator - phase list without research', () => {
 
   it('phase list is [analysis, planning, solutioning, implementation]', () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const phases = orchestrator.getPhases()
     const names = phases.map((p) => p.name)
     expect(names).toEqual(['analysis', 'planning', 'solutioning', 'implementation'])
@@ -148,14 +153,16 @@ describe('PhaseOrchestrator - phase list without research', () => {
 
 describe('Analysis entry gate - no research gate when research disabled', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
-    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     runId = run.id
   })
 
@@ -178,7 +185,7 @@ describe('Analysis entry gate - no research gate when research disabled', () => 
   it('analysis entry gates pass with no artifacts (no research requirement)', async () => {
     // No artifacts registered
     const phase = createAnalysisPhaseDefinition()
-    const result = await runGates(phase.entryGates, db, runId)
+    const result = await runGates(phase.entryGates, adapter, runId)
     expect(result.passed).toBe(true)
     expect(result.failures).toHaveLength(0)
   })
@@ -190,7 +197,7 @@ describe('Analysis entry gate - no research gate when research disabled', () => 
     // Confirm research is not in the gate names
     expect(gateNames.every((n) => !n.includes('research'))).toBe(true)
 
-    const result = await runGates(phase.entryGates, db, runId)
+    const result = await runGates(phase.entryGates, adapter, runId)
     expect(result.passed).toBe(true)
   })
 })
@@ -201,11 +208,13 @@ describe('Analysis entry gate - no research gate when research disabled', () => 
 
 describe('Full pipeline advance without research', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
@@ -216,7 +225,7 @@ describe('Full pipeline advance without research', () => {
 
   it('starts at analysis phase (not research) when research is disabled', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager')
 
     const status = await orchestrator.getRunStatus(runId)
@@ -226,10 +235,10 @@ describe('Full pipeline advance without research', () => {
 
   it('can advance analysis to planning when product-brief artifact registered', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager')
 
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     const result = await orchestrator.advancePhase(runId)
 
     expect(result.advanced).toBe(true)
@@ -238,15 +247,15 @@ describe('Full pipeline advance without research', () => {
 
   it('can advance planning to solutioning with prd artifact (no research-findings needed)', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager')
 
     // Complete analysis
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     await orchestrator.advancePhase(runId)
 
     // Complete planning, advance directly to solutioning (no research step)
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     const result = await orchestrator.advancePhase(runId)
 
     expect(result.advanced).toBe(true)
@@ -255,7 +264,7 @@ describe('Full pipeline advance without research', () => {
 
   it('next phase after starting is analysis (not research)', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager')
 
     const status = await orchestrator.getRunStatus(runId)
@@ -264,10 +273,10 @@ describe('Full pipeline advance without research', () => {
 
   it('pipeline status shows phase history without research when research skipped', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager')
 
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     await orchestrator.advancePhase(runId)
 
     const status = await orchestrator.getRunStatus(runId)
@@ -280,17 +289,17 @@ describe('Full pipeline advance without research', () => {
 
   it('pipeline can complete analysis, planning, and solutioning phases without any research involvement', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager')
 
     // Phase 1: analysis
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     const planningResult = await orchestrator.advancePhase(runId)
     expect(planningResult.advanced).toBe(true)
     expect(planningResult.phase).toBe('planning')
 
     // Phase 2: planning -> solutioning (skipping research)
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     const solutioningResult = await orchestrator.advancePhase(runId)
     expect(solutioningResult.advanced).toBe(true)
     expect(solutioningResult.phase).toBe('solutioning')
@@ -306,7 +315,7 @@ describe('Full pipeline advance without research', () => {
 
   it('analysis cannot advance without product-brief artifact (gate still enforced)', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager')
 
     // Try to advance from analysis without product-brief

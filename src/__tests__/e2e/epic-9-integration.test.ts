@@ -26,6 +26,8 @@ import {
   createConstraint,
   createPipelineRun,
 } from '../../persistence/queries/decisions.js'
+import { SqliteDatabaseAdapter } from '../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 
 // Context Compiler (9-2)
 import { createContextCompiler } from '../../modules/context-compiler/context-compiler-impl.js'
@@ -57,11 +59,12 @@ import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function openDb(): BetterSqlite3Database {
+function openDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new BetterSqlite3(':memory:')
   db.pragma('foreign_keys = ON')
   runMigrations(db)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 function mockDispatcher(): Dispatcher {
@@ -92,32 +95,35 @@ function fixedPerspectiveGenerator(
 
 describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openDb()
+    const r = openDb()
+    db = r.db
+    adapter = r.adapter
   })
 
-  it('decisions written to the store are immediately readable by the context compiler', () => {
+  it('decisions written to the store are immediately readable by the context compiler', async () => {
     // Write several decisions across tables
-    createDecision(db, {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'architecture',
       key: 'pattern',
       value: 'modular-monolith',
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'tech-stack',
       key: 'language',
       value: 'TypeScript',
     })
-    createRequirement(db, {
+    await createRequirement(adapter, {
       source: 'spec',
       type: 'functional',
       description: 'user-auth-required',
       priority: 'must',
     })
-    createConstraint(db, {
+    await createConstraint(adapter, {
       category: 'security',
       description: 'no-plaintext-passwords',
       source: 'policy',
@@ -159,10 +165,10 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
       ],
     }
 
-    const compiler = createContextCompiler({ db })
+    const compiler = createContextCompiler({ db: adapter })
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'dev-story',
       pipelineRunId: 'run-1',
       tokenBudget: 10000,
@@ -177,10 +183,10 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
     expect(result.sections.every((s) => s.included)).toBe(true)
   })
 
-  it('token budget prevents overflow when multiple tables contribute content', () => {
+  it('token budget prevents overflow when multiple tables contribute content', async () => {
     // Insert enough data across all tables that the budget is exceeded
     for (let i = 0; i < 10; i++) {
-      createDecision(db, {
+      await createDecision(adapter, {
         phase: 'solutioning',
         category: 'arch',
         key: `decision-${String(i)}`,
@@ -188,7 +194,7 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
       })
     }
     for (let i = 0; i < 5; i++) {
-      createRequirement(db, {
+      await createRequirement(adapter, {
         source: 'spec',
         type: 'functional',
         description: 'y'.repeat(200),
@@ -216,11 +222,11 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
       ],
     }
 
-    const compiler = createContextCompiler({ db })
+    const compiler = createContextCompiler({ db: adapter })
     compiler.registerTemplate(template)
 
     const tokenBudget = 100
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'budget-overflow-test',
       pipelineRunId: 'run-1',
       tokenBudget,
@@ -234,20 +240,20 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
     expect(reqSection?.included).toBe(true)
   })
 
-  it('compiling from an IN-filter query matches multiple decision phase values', () => {
-    createDecision(db, {
+  it('compiling from an IN-filter query matches multiple decision phase values', async () => {
+    await createDecision(adapter, {
       phase: 'planning',
       category: 'scope',
       key: 'scope-decision',
       value: 'planning-value',
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'arch',
       key: 'arch-decision',
       value: 'solutioning-value',
     })
-    createDecision(db, {
+    await createDecision(adapter, {
       phase: 'analysis',
       category: 'risk',
       key: 'risk-decision',
@@ -271,10 +277,10 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
       ],
     }
 
-    const compiler = createContextCompiler({ db })
+    const compiler = createContextCompiler({ db: adapter })
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'multi-phase-test',
       pipelineRunId: 'run-1',
       tokenBudget: 10000,
@@ -285,8 +291,8 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
     expect(result.prompt).not.toContain('analysis-value')
   })
 
-  it('section report tokenCount matches countTokens of the compiled prompt', () => {
-    createDecision(db, {
+  it('section report tokenCount matches countTokens of the compiled prompt', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'arch',
       key: 'k1',
@@ -306,10 +312,10 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
       ],
     }
 
-    const compiler = createContextCompiler({ db })
+    const compiler = createContextCompiler({ db: adapter })
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'token-consistency-test',
       pipelineRunId: 'run-1',
       tokenBudget: 10000,
@@ -327,16 +333,19 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
 
 describe('Integration: Debate Panel → Decision Store → Context Compiler (9-1 + 9-2 + 9-4)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openDb()
+    const r = openDb()
+    db = r.db
+    adapter = r.adapter
   })
 
   it('a debate panel decision is immediately queryable via the context compiler', async () => {
     // Run a routine debate panel decision that persists to the DB
     const panel = createDebatePanel({
       dispatcher: mockDispatcher(),
-      db,
+      db: adapter,
       perspectiveGenerator: fixedPerspectiveGenerator('use-postgres', 0.9),
     })
 
@@ -365,10 +374,10 @@ describe('Integration: Debate Panel → Decision Store → Context Compiler (9-1
       ],
     }
 
-    const compiler = createContextCompiler({ db })
+    const compiler = createContextCompiler({ db: adapter })
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'review-task',
       pipelineRunId: 'run-1',
       tokenBudget: 10000,
@@ -381,7 +390,7 @@ describe('Integration: Debate Panel → Decision Store → Context Compiler (9-1
   it('multiple debate decisions across tiers all appear in compiled context', async () => {
     const panel = createDebatePanel({
       dispatcher: mockDispatcher(),
-      db,
+      db: adapter,
       perspectiveGenerator: fixedPerspectiveGenerator('adopt', 0.9),
     })
 
@@ -419,10 +428,10 @@ describe('Integration: Debate Panel → Decision Store → Context Compiler (9-1
       ],
     }
 
-    const compiler = createContextCompiler({ db })
+    const compiler = createContextCompiler({ db: adapter })
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'multi-decision-task',
       pipelineRunId: 'run-1',
       tokenBudget: 10000,
@@ -449,7 +458,7 @@ describe('Integration: Debate Panel → Decision Store → Context Compiler (9-1
 
     const panel = createDebatePanel({
       dispatcher: mockDispatcher(),
-      db,
+      db: adapter,
       perspectiveGenerator: splitGenerator,
     })
 
@@ -620,9 +629,12 @@ describe('Integration: YAML Parser → Quality Gates (9-3 + 9-4)', () => {
 
 describe('Integration: Methodology Pack → Context Compiler (9-2 + 9-5)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openDb()
+    const r = openDb()
+    db = r.db
+    adapter = r.adapter
   })
 
   it('BMAD pack create-story prompt can be used as a context compiler section format', async () => {
@@ -647,10 +659,10 @@ describe('Integration: Methodology Pack → Context Compiler (9-2 + 9-5)', () =>
       ],
     }
 
-    const compiler = createContextCompiler({ db })
+    const compiler = createContextCompiler({ db: adapter })
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'bmad-create-story',
       pipelineRunId: 'run-1',
       tokenBudget: 10000,
@@ -720,11 +732,11 @@ describe('Integration: Methodology Pack → Context Compiler (9-2 + 9-5)', () =>
     expect(phaseNames).toContain('implementation')
 
     // Decisions can be stored using any of these phase names
-    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: phaseNames[0] })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: phaseNames[0] })
     expect(run.id).toBeDefined()
 
     for (const phaseName of phaseNames) {
-      createDecision(db, {
+      await createDecision(adapter, {
         phase: phaseName,
         category: 'test',
         key: `decision-in-${phaseName}`,
@@ -745,10 +757,10 @@ describe('Integration: Methodology Pack → Context Compiler (9-2 + 9-5)', () =>
       })),
     }
 
-    const compiler = createContextCompiler({ db })
+    const compiler = createContextCompiler({ db: adapter })
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'all-phases-test',
       pipelineRunId: run.id,
       tokenBudget: 10000,
@@ -766,16 +778,19 @@ describe('Integration: Methodology Pack → Context Compiler (9-2 + 9-5)', () =>
 
 describe('Integration: Full Epic 9 pipeline (9-1 + 9-2 + 9-4)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(() => {
-    db = openDb()
+    const r = openDb()
+    db = r.db
+    adapter = r.adapter
   })
 
   it('decisions from debate panel inform compiled context which is then gate-evaluated', async () => {
     // Step 1: Run debate panel to make a decision, persisting to DB
     const panel = createDebatePanel({
       dispatcher: mockDispatcher(),
-      db,
+      db: adapter,
       perspectiveGenerator: fixedPerspectiveGenerator('microservices', 0.85),
     })
 
@@ -803,10 +818,10 @@ describe('Integration: Full Epic 9 pipeline (9-1 + 9-2 + 9-4)', () => {
       ],
     }
 
-    const compiler = createContextCompiler({ db })
+    const compiler = createContextCompiler({ db: adapter })
     compiler.registerTemplate(template)
 
-    const compileResult = compiler.compile({
+    const compileResult = await compiler.compile({
       taskType: 'dev-story',
       pipelineRunId: 'run-1',
       tokenBudget: 10000,
@@ -860,14 +875,14 @@ describe('Integration: Full Epic 9 pipeline (9-1 + 9-2 + 9-4)', () => {
     expect(secondResult.action).toBe('proceed')
   })
 
-  it('context compiler sections use correct token counts relative to full prompt', () => {
-    createDecision(db, {
+  it('context compiler sections use correct token counts relative to full prompt', async () => {
+    await createDecision(adapter, {
       phase: 'solutioning',
       category: 'arch',
       key: 'decision-A',
       value: 'value-A',
     })
-    createRequirement(db, {
+    await createRequirement(adapter, {
       source: 'spec',
       type: 'functional',
       description: 'requirement-B',
@@ -894,10 +909,10 @@ describe('Integration: Full Epic 9 pipeline (9-1 + 9-2 + 9-4)', () => {
       ],
     }
 
-    const compiler = createContextCompiler({ db })
+    const compiler = createContextCompiler({ db: adapter })
     compiler.registerTemplate(template)
 
-    const result = compiler.compile({
+    const result = await compiler.compile({
       taskType: 'token-test',
       pipelineRunId: 'run-1',
       tokenBudget: 10000,
@@ -918,7 +933,7 @@ describe('Integration: Full Epic 9 pipeline (9-1 + 9-2 + 9-4)', () => {
   it('debate panel with database records multiple decisions that are all findable by phase', async () => {
     const panel = createDebatePanel({
       dispatcher: mockDispatcher(),
-      db,
+      db: adapter,
       perspectiveGenerator: fixedPerspectiveGenerator('chosen-option', 0.9),
     })
 

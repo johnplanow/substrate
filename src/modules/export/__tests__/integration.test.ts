@@ -27,6 +27,8 @@ import {
   getDecisionsByPhaseForRun,
   getDecisionsByPhase,
 } from '../../../persistence/queries/decisions.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   renderProductBrief,
   renderPrd,
@@ -42,32 +44,33 @@ import { runExportAction } from '../../../cli/commands/export.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function openTestDb(): BetterSqlite3Database {
+function openTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new BetterSqlite3(':memory:')
   db.pragma('foreign_keys = ON')
   runMigrations(db)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
 /**
  * Create a pipeline run and return its auto-generated ID.
  * Note: createPipelineRun always generates its own UUID internally.
  */
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad' })
   return run.id
 }
 
-function insertDecision(
-  db: BetterSqlite3Database,
+async function insertDecision(
+  adapter: DatabaseAdapter,
   runId: string,
   phase: string,
   category: string,
   key: string,
   value: string,
   rationale?: string,
-): Decision {
-  return createDecision(db, {
+): Promise<Decision> {
+  return createDecision(adapter, {
     pipeline_run_id: runId,
     phase,
     category,
@@ -83,12 +86,15 @@ function insertDecision(
 
 describe('T11: write decisions → export → verify markdown output', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let runId: string
   let tempDir: string
 
-  beforeEach(() => {
-    db = openTestDb()
-    runId = createTestRun(db)
+  beforeEach(async () => {
+    const r = openTestDb()
+    db = r.db
+    adapter = r.adapter
+    runId = await createTestRun(adapter)
     tempDir = join(tmpdir(), `substrate-export-test-${randomUUID()}`)
     mkdirSync(tempDir, { recursive: true })
   })
@@ -100,23 +106,23 @@ describe('T11: write decisions → export → verify markdown output', () => {
     }
   })
 
-  it('T11a: exports product-brief.md from analysis decisions', () => {
+  it('T11a: exports product-brief.md from analysis decisions', async () => {
     // Insert analysis phase decisions
-    insertDecision(db, runId, 'analysis', 'product-brief', 'problem_statement',
+    await insertDecision(adapter, runId, 'analysis', 'product-brief', 'problem_statement',
       'Teams waste hours searching for relevant docs in sprawling wikis.')
-    insertDecision(db, runId, 'analysis', 'product-brief', 'target_users',
+    await insertDecision(adapter, runId, 'analysis', 'product-brief', 'target_users',
       JSON.stringify(['Software engineers', 'Product managers', 'Technical writers']))
-    insertDecision(db, runId, 'analysis', 'product-brief', 'core_features',
+    await insertDecision(adapter, runId, 'analysis', 'product-brief', 'core_features',
       JSON.stringify(['Semantic search', 'Auto-tagging', 'Slack integration']))
-    insertDecision(db, runId, 'analysis', 'product-brief', 'success_metrics',
+    await insertDecision(adapter, runId, 'analysis', 'product-brief', 'success_metrics',
       JSON.stringify(['P50 search latency < 500 ms', 'DAU/MAU ratio > 0.4']))
-    insertDecision(db, runId, 'analysis', 'product-brief', 'constraints',
+    await insertDecision(adapter, runId, 'analysis', 'product-brief', 'constraints',
       JSON.stringify(['Must run on GCP', 'No PII storage']))
-    insertDecision(db, runId, 'analysis', 'technology-constraints', 'tc-1',
+    await insertDecision(adapter, runId, 'analysis', 'technology-constraints', 'tc-1',
       'Backend must use Kotlin/JVM for concurrency requirements')
 
     // Fetch decisions and render
-    const analysisDecisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
+    const analysisDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
     const content = renderProductBrief(analysisDecisions)
 
     // Write to temp dir
@@ -142,28 +148,28 @@ describe('T11: write decisions → export → verify markdown output', () => {
     expect(written).toContain('Kotlin/JVM')
   })
 
-  it('T11b: exports prd.md from planning decisions', () => {
+  it('T11b: exports prd.md from planning decisions', async () => {
     // Insert planning phase decisions
-    insertDecision(db, runId, 'planning', 'classification', 'type', 'saas-product')
-    insertDecision(db, runId, 'planning', 'classification', 'vision',
+    await insertDecision(adapter, runId, 'planning', 'classification', 'type', 'saas-product')
+    await insertDecision(adapter, runId, 'planning', 'classification', 'vision',
       'A smart document discovery platform for engineering teams')
-    insertDecision(db, runId, 'planning', 'functional-requirements', 'FR-1',
+    await insertDecision(adapter, runId, 'planning', 'functional-requirements', 'FR-1',
       JSON.stringify({ id: 'FR-1', description: 'Full-text search across all documents', priority: 'must' }))
-    insertDecision(db, runId, 'planning', 'functional-requirements', 'FR-2',
+    await insertDecision(adapter, runId, 'planning', 'functional-requirements', 'FR-2',
       JSON.stringify({ id: 'FR-2', description: 'Tag-based document filtering', priority: 'should' }))
-    insertDecision(db, runId, 'planning', 'non-functional-requirements', 'NFR-1',
+    await insertDecision(adapter, runId, 'planning', 'non-functional-requirements', 'NFR-1',
       JSON.stringify({ id: 'NFR-1', description: 'Search results in under 500ms', category: 'performance' }))
-    insertDecision(db, runId, 'planning', 'tech-stack', 'tech_stack',
+    await insertDecision(adapter, runId, 'planning', 'tech-stack', 'tech_stack',
       JSON.stringify({ language: 'Kotlin', framework: 'Ktor', database: 'PostgreSQL' }))
-    insertDecision(db, runId, 'planning', 'out-of-scope', 'exclusions',
+    await insertDecision(adapter, runId, 'planning', 'out-of-scope', 'exclusions',
       JSON.stringify(['Multi-tenant billing', 'Mobile native apps']))
-    insertDecision(db, runId, 'planning', 'user-stories', 'us-1',
+    await insertDecision(adapter, runId, 'planning', 'user-stories', 'us-1',
       JSON.stringify({ title: 'Search for documents', description: 'As a user, I want to search docs quickly' }))
-    insertDecision(db, runId, 'planning', 'domain-model', 'entities',
+    await insertDecision(adapter, runId, 'planning', 'domain-model', 'entities',
       'Document, Tag, User, SearchIndex')
 
     // Fetch decisions and render
-    const planningDecisions = getDecisionsByPhaseForRun(db, runId, 'planning')
+    const planningDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'planning')
     const content = renderPrd(planningDecisions, [])
 
     // Write to temp dir
@@ -193,19 +199,19 @@ describe('T11: write decisions → export → verify markdown output', () => {
     expect(written).toContain('Document, Tag, User')
   })
 
-  it('T11c: exports architecture.md from solutioning decisions', () => {
+  it('T11c: exports architecture.md from solutioning decisions', async () => {
     // Insert solutioning architecture decisions
-    insertDecision(db, runId, 'solutioning', 'architecture', 'language',
+    await insertDecision(adapter, runId, 'solutioning', 'architecture', 'language',
       'Kotlin', 'JVM ecosystem, strong concurrency model')
-    insertDecision(db, runId, 'solutioning', 'architecture', 'web-framework',
+    await insertDecision(adapter, runId, 'solutioning', 'architecture', 'web-framework',
       'Ktor', 'Lightweight, coroutine-native')
-    insertDecision(db, runId, 'solutioning', 'architecture', 'database',
+    await insertDecision(adapter, runId, 'solutioning', 'architecture', 'database',
       'PostgreSQL + pgvector', 'Supports vector similarity search natively')
-    insertDecision(db, runId, 'solutioning', 'architecture', 'deployment',
+    await insertDecision(adapter, runId, 'solutioning', 'architecture', 'deployment',
       JSON.stringify({ platform: 'GCP Cloud Run', region: 'us-central1' }))
 
     // Fetch decisions and render
-    const solutioningDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+    const solutioningDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
     const content = renderArchitecture(solutioningDecisions)
 
     // Write to temp dir
@@ -227,15 +233,15 @@ describe('T11: write decisions → export → verify markdown output', () => {
     expect(written).toContain('GCP Cloud Run')
   })
 
-  it('T11d: exports epics.md from solutioning decisions', () => {
+  it('T11d: exports epics.md from solutioning decisions', async () => {
     // Insert epic decisions
-    insertDecision(db, runId, 'solutioning', 'epics', 'epic-1',
+    await insertDecision(adapter, runId, 'solutioning', 'epics', 'epic-1',
       JSON.stringify({ title: 'Document Ingestion', description: 'Ingest and index documents from multiple sources' }))
-    insertDecision(db, runId, 'solutioning', 'epics', 'epic-2',
+    await insertDecision(adapter, runId, 'solutioning', 'epics', 'epic-2',
       JSON.stringify({ title: 'Search & Discovery', description: 'Full-text and semantic search capabilities' }))
 
     // Insert story decisions
-    insertDecision(db, runId, 'solutioning', 'stories', '1-1',
+    await insertDecision(adapter, runId, 'solutioning', 'stories', '1-1',
       JSON.stringify({
         key: '1-1',
         title: 'Upload documents via REST API',
@@ -243,7 +249,7 @@ describe('T11: write decisions → export → verify markdown output', () => {
         acceptance_criteria: ['API accepts PDF, DOCX, MD', 'Returns document ID on success'],
         priority: 'must',
       }))
-    insertDecision(db, runId, 'solutioning', 'stories', '1-2',
+    await insertDecision(adapter, runId, 'solutioning', 'stories', '1-2',
       JSON.stringify({
         key: '1-2',
         title: 'Auto-tag uploaded documents',
@@ -251,7 +257,7 @@ describe('T11: write decisions → export → verify markdown output', () => {
         acceptance_criteria: ['Tags extracted using NLP', 'Stored in tags table'],
         priority: 'should',
       }))
-    insertDecision(db, runId, 'solutioning', 'stories', '2-1',
+    await insertDecision(adapter, runId, 'solutioning', 'stories', '2-1',
       JSON.stringify({
         key: '2-1',
         title: 'Full-text search endpoint',
@@ -261,7 +267,7 @@ describe('T11: write decisions → export → verify markdown output', () => {
       }))
 
     // Fetch decisions and render
-    const solutioningDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+    const solutioningDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
     const content = renderEpics(solutioningDecisions)
 
     // Write to temp dir
@@ -284,16 +290,16 @@ describe('T11: write decisions → export → verify markdown output', () => {
     expect(written).toContain('**Priority**: must')
   })
 
-  it('T11e: exports readiness-report.md from solutioning decisions', () => {
+  it('T11e: exports readiness-report.md from solutioning decisions', async () => {
     // Insert readiness-findings decisions
-    insertDecision(db, runId, 'solutioning', 'readiness-findings', 'finding-1',
+    await insertDecision(adapter, runId, 'solutioning', 'readiness-findings', 'finding-1',
       JSON.stringify({
         category: 'fr_coverage',
         severity: 'minor',
         description: 'FR-3 (Batch upload) not addressed in stories',
         affected_items: ['FR-3', 'Story 1-1'],
       }))
-    insertDecision(db, runId, 'solutioning', 'readiness-findings', 'finding-2',
+    await insertDecision(adapter, runId, 'solutioning', 'readiness-findings', 'finding-2',
       JSON.stringify({
         category: 'architecture_compliance',
         severity: 'major',
@@ -302,7 +308,7 @@ describe('T11: write decisions → export → verify markdown output', () => {
       }))
 
     // Fetch decisions and render
-    const solutioningDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+    const solutioningDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
     const content = renderReadinessReport(solutioningDecisions)
 
     // Write to temp dir
@@ -323,25 +329,25 @@ describe('T11: write decisions → export → verify markdown output', () => {
     expect(written).toContain('FR-3, Story 1-1')
   })
 
-  it('T11f: all phases exported in a single run — all expected files written', () => {
+  it('T11f: all phases exported in a single run — all expected files written', async () => {
     // Analysis
-    insertDecision(db, runId, 'analysis', 'product-brief', 'problem_statement', 'Test problem')
+    await insertDecision(adapter, runId, 'analysis', 'product-brief', 'problem_statement', 'Test problem')
     // Planning
-    insertDecision(db, runId, 'planning', 'classification', 'type', 'saas')
+    await insertDecision(adapter, runId, 'planning', 'classification', 'type', 'saas')
     // Solutioning — architecture
-    insertDecision(db, runId, 'solutioning', 'architecture', 'language', 'Kotlin')
+    await insertDecision(adapter, runId, 'solutioning', 'architecture', 'language', 'Kotlin')
     // Solutioning — epics
-    insertDecision(db, runId, 'solutioning', 'epics', 'epic-1',
+    await insertDecision(adapter, runId, 'solutioning', 'epics', 'epic-1',
       JSON.stringify({ title: 'Epic One', description: 'Desc' }))
-    insertDecision(db, runId, 'solutioning', 'stories', '1-1',
+    await insertDecision(adapter, runId, 'solutioning', 'stories', '1-1',
       JSON.stringify({ key: '1-1', title: 'Story One', description: 'Desc', acceptance_criteria: [], priority: 'must' }))
     // Solutioning — readiness
-    insertDecision(db, runId, 'solutioning', 'readiness-findings', 'f-1',
+    await insertDecision(adapter, runId, 'solutioning', 'readiness-findings', 'f-1',
       JSON.stringify({ category: 'general', severity: 'minor', description: 'All good', affected_items: [] }))
 
-    const analysisDecisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
-    const planningDecisions = getDecisionsByPhaseForRun(db, runId, 'planning')
-    const solutioningDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+    const analysisDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
+    const planningDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'planning')
+    const solutioningDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
 
     const files: Record<string, string> = {
       'product-brief.md': renderProductBrief(analysisDecisions),
@@ -373,11 +379,12 @@ describe('T11: write decisions → export → verify markdown output', () => {
     const fileDb = new BetterSqlite3(dbPath)
     fileDb.pragma('foreign_keys = ON')
     runMigrations(fileDb)
+    const fileAdapter = new SqliteDatabaseAdapter(fileDb)
 
-    const fileRun = createPipelineRun(fileDb, { methodology: 'bmad' })
+    const fileRun = await createPipelineRun(fileAdapter, { methodology: 'bmad' })
     const fileRunId = fileRun.id
 
-    createDecision(fileDb, {
+    await createDecision(fileAdapter, {
       pipeline_run_id: fileRunId,
       phase: 'analysis',
       category: 'product-brief',
@@ -409,7 +416,8 @@ describe('T11: write decisions → export → verify markdown output', () => {
     // Using a distinct key ('target_users') avoids relying on SQLite insertion-order
     // for duplicate-key deduplication via Object.fromEntries.
     const fileDb2 = new BetterSqlite3(dbPath)
-    createDecision(fileDb2, {
+    const fileAdapter2 = new SqliteDatabaseAdapter(fileDb2)
+    await createDecision(fileAdapter2, {
       pipeline_run_id: fileRunId,
       phase: 'analysis',
       category: 'product-brief',
@@ -439,13 +447,13 @@ describe('T11: write decisions → export → verify markdown output', () => {
     expect(secondContent.length).not.toBe(firstContent.length + secondContent.length)
   })
 
-  it('T11h: missing phases gracefully produce no files', () => {
+  it('T11h: missing phases gracefully produce no files', async () => {
     // Only insert analysis decisions — no planning or solutioning
-    insertDecision(db, runId, 'analysis', 'product-brief', 'problem_statement', 'Problem')
+    await insertDecision(adapter, runId, 'analysis', 'product-brief', 'problem_statement', 'Problem')
 
-    const analysisDecisions = getDecisionsByPhaseForRun(db, runId, 'analysis')
-    const planningDecisions = getDecisionsByPhaseForRun(db, runId, 'planning')
-    const solutioningDecisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+    const analysisDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
+    const planningDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'planning')
+    const solutioningDecisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
 
     const archContent = renderArchitecture(solutioningDecisions)
     const epicsContent = renderEpics(solutioningDecisions)
@@ -471,14 +479,20 @@ describe('T11: write decisions → export → verify markdown output', () => {
 
 describe('T12: export → seedMethodologyContext round-trip', () => {
   let sourceDb: BetterSqlite3Database
+  let sourceAdapter: DatabaseAdapter
   let seedDb: BetterSqlite3Database
+  let seedAdapter: DatabaseAdapter
   let runId: string
   let tempProjectRoot: string
 
-  beforeEach(() => {
-    sourceDb = openTestDb()
-    seedDb = openTestDb()
-    runId = createTestRun(sourceDb)
+  beforeEach(async () => {
+    const r1 = openTestDb()
+    sourceDb = r1.db
+    sourceAdapter = r1.adapter
+    const r2 = openTestDb()
+    seedDb = r2.db
+    seedAdapter = r2.adapter
+    runId = await createTestRun(sourceAdapter)
 
     // Create temp project root with the expected directory structure
     tempProjectRoot = join(tmpdir(), `substrate-roundtrip-test-${randomUUID()}`)
@@ -494,17 +508,17 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
     }
   })
 
-  it('T12a: exported architecture.md is parseable by seedMethodologyContext', () => {
+  it('T12a: exported architecture.md is parseable by seedMethodologyContext', async () => {
     // Seed realistic architecture decisions into source DB
-    insertDecision(sourceDb, runId, 'solutioning', 'architecture', 'language',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'architecture', 'language',
       'Kotlin', 'JVM ecosystem for concurrency')
-    insertDecision(sourceDb, runId, 'solutioning', 'architecture', 'web-framework',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'architecture', 'web-framework',
       'Ktor', 'Lightweight coroutine-native framework')
-    insertDecision(sourceDb, runId, 'solutioning', 'architecture', 'database',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'architecture', 'database',
       'PostgreSQL', 'ACID-compliant relational database')
 
     // Export architecture.md
-    const solutioningDecisions = getDecisionsByPhaseForRun(sourceDb, runId, 'solutioning')
+    const solutioningDecisions = await getDecisionsByPhaseForRun(sourceAdapter, runId, 'solutioning')
     const archContent = renderArchitecture(solutioningDecisions)
     const archPath = join(tempProjectRoot, '_bmad-output', 'planning-artifacts', 'architecture.md')
     writeFileSync(archPath, archContent, 'utf-8')
@@ -513,14 +527,14 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
     expect(archContent).toContain('## Architecture Decisions')
 
     // Round-trip: seedMethodologyContext reads architecture.md and creates decisions
-    const result = seedMethodologyContext(seedDb, tempProjectRoot)
+    const result = await seedMethodologyContext(seedAdapter, tempProjectRoot)
 
     // Should have seeded at least one architecture decision
     expect(result.decisionsCreated).toBeGreaterThan(0)
     expect(result.skippedCategories).not.toContain('architecture')
 
     // Verify architecture decisions were created in seedDb
-    const seededArchDecisions = getDecisionsByPhase(seedDb, 'solutioning').filter(
+    const seededArchDecisions = (await getDecisionsByPhase(seedAdapter, 'solutioning')).filter(
       (d) => d.category === 'architecture',
     )
     expect(seededArchDecisions.length).toBeGreaterThan(0)
@@ -530,13 +544,13 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
     expect(combinedSeededValue).toContain('Architecture Decisions')
   })
 
-  it('T12b: exported epics.md is parseable by seedMethodologyContext', () => {
+  it('T12b: exported epics.md is parseable by seedMethodologyContext', async () => {
     // Seed realistic epic and story decisions into source DB
-    insertDecision(sourceDb, runId, 'solutioning', 'epics', 'epic-1',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'epics', 'epic-1',
       JSON.stringify({ title: 'Foundation', description: 'Core infrastructure setup' }))
-    insertDecision(sourceDb, runId, 'solutioning', 'epics', 'epic-2',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'epics', 'epic-2',
       JSON.stringify({ title: 'API Layer', description: 'REST API endpoints' }))
-    insertDecision(sourceDb, runId, 'solutioning', 'stories', '1-1',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'stories', '1-1',
       JSON.stringify({
         key: '1-1',
         title: 'Database setup',
@@ -544,7 +558,7 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
         acceptance_criteria: ['Schema migrations applied', 'Tests pass'],
         priority: 'must',
       }))
-    insertDecision(sourceDb, runId, 'solutioning', 'stories', '2-1',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'stories', '2-1',
       JSON.stringify({
         key: '2-1',
         title: 'Search endpoint',
@@ -554,7 +568,7 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
       }))
 
     // Export epics.md
-    const solutioningDecisions = getDecisionsByPhaseForRun(sourceDb, runId, 'solutioning')
+    const solutioningDecisions = await getDecisionsByPhaseForRun(sourceAdapter, runId, 'solutioning')
     const epicsContent = renderEpics(solutioningDecisions)
     const epicsPath = join(tempProjectRoot, '_bmad-output', 'planning-artifacts', 'epics.md')
     writeFileSync(epicsPath, epicsContent, 'utf-8')
@@ -564,14 +578,14 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
     expect(epicsContent).toContain('## Epic 2:')
 
     // Round-trip: seedMethodologyContext reads epics.md and creates epic-shard decisions
-    const result = seedMethodologyContext(seedDb, tempProjectRoot)
+    const result = await seedMethodologyContext(seedAdapter, tempProjectRoot)
 
     // Should have created epic-shard decisions (one per epic)
     expect(result.decisionsCreated).toBeGreaterThan(0)
     expect(result.skippedCategories).not.toContain('epic-shard')
 
     // Verify epic-shard decisions were created in seedDb
-    const epicShards = getDecisionsByPhase(seedDb, 'implementation').filter(
+    const epicShards = (await getDecisionsByPhase(seedAdapter, 'implementation')).filter(
       (d) => d.category === 'epic-shard',
     )
     expect(epicShards.length).toBe(2) // one shard per epic
@@ -592,13 +606,13 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
     expect(shard2!.value).toContain('API Layer')
   })
 
-  it('T12c: full round-trip — both architecture.md and epics.md seeded correctly', () => {
+  it('T12c: full round-trip — both architecture.md and epics.md seeded correctly', async () => {
     // Seed both architecture and epics/stories
-    insertDecision(sourceDb, runId, 'solutioning', 'architecture', 'language', 'Kotlin')
-    insertDecision(sourceDb, runId, 'solutioning', 'architecture', 'runtime', 'JVM 21')
-    insertDecision(sourceDb, runId, 'solutioning', 'epics', 'epic-1',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'architecture', 'language', 'Kotlin')
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'architecture', 'runtime', 'JVM 21')
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'epics', 'epic-1',
       JSON.stringify({ title: 'Bootstrap', description: 'Initial project setup' }))
-    insertDecision(sourceDb, runId, 'solutioning', 'stories', '1-1',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'stories', '1-1',
       JSON.stringify({
         key: '1-1',
         title: 'Project scaffold',
@@ -607,7 +621,7 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
         priority: 'must',
       }))
 
-    const solutioningDecisions = getDecisionsByPhaseForRun(sourceDb, runId, 'solutioning')
+    const solutioningDecisions = await getDecisionsByPhaseForRun(sourceAdapter, runId, 'solutioning')
 
     // Export both files
     const archContent = renderArchitecture(solutioningDecisions)
@@ -617,19 +631,19 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
     writeFileSync(join(artifactsDir, 'epics.md'), epicsContent, 'utf-8')
 
     // Full round-trip via seedMethodologyContext
-    const result = seedMethodologyContext(seedDb, tempProjectRoot)
+    const result = await seedMethodologyContext(seedAdapter, tempProjectRoot)
 
     // Should have seeded decisions from both files
     expect(result.decisionsCreated).toBeGreaterThan(0)
 
     // Architecture decisions should exist
-    const archDecisions = getDecisionsByPhase(seedDb, 'solutioning').filter(
+    const archDecisions = (await getDecisionsByPhase(seedAdapter, 'solutioning')).filter(
       (d) => d.category === 'architecture',
     )
     expect(archDecisions.length).toBeGreaterThan(0)
 
     // Epic shard decisions should exist
-    const epicShards = getDecisionsByPhase(seedDb, 'implementation').filter(
+    const epicShards = (await getDecisionsByPhase(seedAdapter, 'implementation')).filter(
       (d) => d.category === 'epic-shard',
     )
     expect(epicShards.length).toBe(1)
@@ -638,11 +652,11 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
     expect(epicShards[0]!.value).toContain('Project scaffold')
   })
 
-  it('T12d: seedMethodologyContext is idempotent — re-seeding after initial seed skips', () => {
-    insertDecision(sourceDb, runId, 'solutioning', 'architecture', 'language', 'Kotlin')
-    insertDecision(sourceDb, runId, 'solutioning', 'epics', 'epic-1',
+  it('T12d: seedMethodologyContext is idempotent — re-seeding after initial seed skips', async () => {
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'architecture', 'language', 'Kotlin')
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'epics', 'epic-1',
       JSON.stringify({ title: 'Core', description: 'Core functionality' }))
-    insertDecision(sourceDb, runId, 'solutioning', 'stories', '1-1',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'stories', '1-1',
       JSON.stringify({
         key: '1-1',
         title: 'Init',
@@ -651,46 +665,46 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
         priority: 'must',
       }))
 
-    const solutioningDecisions = getDecisionsByPhaseForRun(sourceDb, runId, 'solutioning')
+    const solutioningDecisions = await getDecisionsByPhaseForRun(sourceAdapter, runId, 'solutioning')
     const artifactsDir = join(tempProjectRoot, '_bmad-output', 'planning-artifacts')
     writeFileSync(join(artifactsDir, 'architecture.md'), renderArchitecture(solutioningDecisions), 'utf-8')
     writeFileSync(join(artifactsDir, 'epics.md'), renderEpics(solutioningDecisions), 'utf-8')
 
     // First seed
-    const result1 = seedMethodologyContext(seedDb, tempProjectRoot)
+    const result1 = await seedMethodologyContext(seedAdapter, tempProjectRoot)
     expect(result1.decisionsCreated).toBeGreaterThan(0)
 
     // Second seed — should skip categories already seeded
-    const result2 = seedMethodologyContext(seedDb, tempProjectRoot)
+    const result2 = await seedMethodologyContext(seedAdapter, tempProjectRoot)
     expect(result2.decisionsCreated).toBe(0)
     expect(result2.skippedCategories).toContain('architecture')
     expect(result2.skippedCategories).toContain('epic-shard')
   })
 
-  it('T12e: stories under each epic appear in the correct epic shard', () => {
+  it('T12e: stories under each epic appear in the correct epic shard', async () => {
     // Two epics with two stories each
-    insertDecision(sourceDb, runId, 'solutioning', 'epics', 'epic-1',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'epics', 'epic-1',
       JSON.stringify({ title: 'Ingestion', description: 'Document ingestion pipeline' }))
-    insertDecision(sourceDb, runId, 'solutioning', 'epics', 'epic-2',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'epics', 'epic-2',
       JSON.stringify({ title: 'Search', description: 'Search API' }))
-    insertDecision(sourceDb, runId, 'solutioning', 'stories', '1-1',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'stories', '1-1',
       JSON.stringify({ key: '1-1', title: 'Upload endpoint', description: 'POST /upload', acceptance_criteria: ['Accepts PDF'], priority: 'must' }))
-    insertDecision(sourceDb, runId, 'solutioning', 'stories', '1-2',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'stories', '1-2',
       JSON.stringify({ key: '1-2', title: 'Indexing job', description: 'Background indexer', acceptance_criteria: ['Async processing'], priority: 'should' }))
-    insertDecision(sourceDb, runId, 'solutioning', 'stories', '2-1',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'stories', '2-1',
       JSON.stringify({ key: '2-1', title: 'Search API', description: 'GET /search', acceptance_criteria: ['Returns results'], priority: 'must' }))
-    insertDecision(sourceDb, runId, 'solutioning', 'stories', '2-2',
+    await insertDecision(sourceAdapter, runId, 'solutioning', 'stories', '2-2',
       JSON.stringify({ key: '2-2', title: 'Result ranking', description: 'Rank by relevance', acceptance_criteria: ['Ordered correctly'], priority: 'must' }))
 
-    const solutioningDecisions = getDecisionsByPhaseForRun(sourceDb, runId, 'solutioning')
+    const solutioningDecisions = await getDecisionsByPhaseForRun(sourceAdapter, runId, 'solutioning')
     const epicsContent = renderEpics(solutioningDecisions)
     const artifactsDir = join(tempProjectRoot, '_bmad-output', 'planning-artifacts')
     writeFileSync(join(artifactsDir, 'epics.md'), epicsContent, 'utf-8')
 
     // Seed into fresh DB
-    const result = seedMethodologyContext(seedDb, tempProjectRoot)
+    const result = await seedMethodologyContext(seedAdapter, tempProjectRoot)
 
-    const epicShards = getDecisionsByPhase(seedDb, 'implementation').filter(
+    const epicShards = (await getDecisionsByPhase(seedAdapter, 'implementation')).filter(
       (d) => d.category === 'epic-shard',
     )
     expect(epicShards.length).toBe(2)

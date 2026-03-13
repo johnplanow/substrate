@@ -27,25 +27,28 @@ import {
 } from '../built-in-phases.js'
 import { runGates } from '../phase-orchestrator-impl.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'ux-enabled-integration-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function registerArtifactForRun(
-  db: BetterSqlite3Database,
+async function registerArtifactForRun(
+  adapter: DatabaseAdapter,
   runId: string,
   phase: string,
   type: string,
-): void {
-  registerArtifact(db, {
+): Promise<void> {
+  await registerArtifact(adapter, {
     pipeline_run_id: runId,
     phase,
     type,
@@ -116,11 +119,13 @@ describe('createBuiltInPhases - UX design enabled (T10)', () => {
 
 describe('PhaseOrchestrator - UX design enabled (T10)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
@@ -131,20 +136,20 @@ describe('PhaseOrchestrator - UX design enabled (T10)', () => {
 
   it('registers 5 phases when pack has uxDesign: true', () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     expect(orchestrator.getPhases()).toHaveLength(5)
   })
 
   it('phase list includes ux-design when uxDesign: true', () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const names = orchestrator.getPhases().map((p) => p.name)
     expect(names).toContain('ux-design')
   })
 
   it('phase list is [analysis, planning, ux-design, solutioning, implementation]', () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const names = orchestrator.getPhases().map((p) => p.name)
     expect(names).toEqual(['analysis', 'planning', 'ux-design', 'solutioning', 'implementation'])
   })
@@ -156,14 +161,16 @@ describe('PhaseOrchestrator - UX design enabled (T10)', () => {
 
 describe('UX design gate enforcement (T10)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
-    const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     runId = run.id
   })
 
@@ -174,29 +181,29 @@ describe('UX design gate enforcement (T10)', () => {
 
   it('ux-design entry gate requires prd artifact', async () => {
     const phase = createUxDesignPhaseDefinition()
-    const result = await runGates(phase.entryGates, db, runId)
+    const result = await runGates(phase.entryGates, adapter, runId)
     expect(result.passed).toBe(false)
     expect(result.failures.some((f) => f.gate.includes('prd'))).toBe(true)
   })
 
   it('ux-design entry gate passes with prd artifact', async () => {
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     const phase = createUxDesignPhaseDefinition()
-    const result = await runGates(phase.entryGates, db, runId)
+    const result = await runGates(phase.entryGates, adapter, runId)
     expect(result.passed).toBe(true)
   })
 
   it('ux-design exit gate requires ux-design artifact', async () => {
     const phase = createUxDesignPhaseDefinition()
-    const result = await runGates(phase.exitGates, db, runId)
+    const result = await runGates(phase.exitGates, adapter, runId)
     expect(result.passed).toBe(false)
     expect(result.failures.some((f) => f.gate.includes('ux-design'))).toBe(true)
   })
 
   it('ux-design exit gate passes with ux-design artifact', async () => {
-    registerArtifactForRun(db, runId, 'ux-design', 'ux-design')
+    await registerArtifactForRun(adapter, runId, 'ux-design', 'ux-design')
     const phase = createUxDesignPhaseDefinition()
-    const result = await runGates(phase.exitGates, db, runId)
+    const result = await runGates(phase.exitGates, adapter, runId)
     expect(result.passed).toBe(true)
   })
 })
@@ -207,11 +214,13 @@ describe('UX design gate enforcement (T10)', () => {
 
 describe('Full pipeline advance with UX design enabled (T10)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
@@ -222,10 +231,10 @@ describe('Full pipeline advance with UX design enabled (T10)', () => {
 
   it('advances from analysis to planning', async () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a UI-rich web app')
 
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     const result = await orchestrator.advancePhase(runId)
 
     expect(result.advanced).toBe(true)
@@ -234,15 +243,15 @@ describe('Full pipeline advance with UX design enabled (T10)', () => {
 
   it('advances from planning to ux-design (not solutioning) when UX enabled (AC1)', async () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a UI-rich web app')
 
     // Complete analysis
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     await orchestrator.advancePhase(runId)
 
     // Complete planning
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     const result = await orchestrator.advancePhase(runId)
 
     expect(result.advanced).toBe(true)
@@ -252,19 +261,19 @@ describe('Full pipeline advance with UX design enabled (T10)', () => {
 
   it('advances from ux-design to solutioning', async () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a UI-rich web app')
 
     // Complete analysis
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     await orchestrator.advancePhase(runId)
 
     // Complete planning
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     await orchestrator.advancePhase(runId)
 
     // Complete ux-design
-    registerArtifactForRun(db, runId, 'ux-design', 'ux-design')
+    await registerArtifactForRun(adapter, runId, 'ux-design', 'ux-design')
     const result = await orchestrator.advancePhase(runId)
 
     expect(result.advanced).toBe(true)
@@ -273,11 +282,11 @@ describe('Full pipeline advance with UX design enabled (T10)', () => {
 
   it('cannot advance from planning to ux-design without prd artifact', async () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a UI-rich web app')
 
     // Complete analysis only
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     await orchestrator.advancePhase(runId)
 
     // Try to advance from planning without prd
@@ -289,13 +298,13 @@ describe('Full pipeline advance with UX design enabled (T10)', () => {
 
   it('cannot advance from ux-design to solutioning without ux-design artifact', async () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a UI-rich web app')
 
     // Complete analysis and planning
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     await orchestrator.advancePhase(runId)
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     await orchestrator.advancePhase(runId)
 
     // Try to advance from ux-design without ux-design artifact
@@ -307,23 +316,23 @@ describe('Full pipeline advance with UX design enabled (T10)', () => {
 
   it('full pipeline completes analysis -> planning -> ux-design -> solutioning with all artifacts', async () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a UI-rich web app')
 
     // Phase 1: analysis
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     const r1 = await orchestrator.advancePhase(runId)
     expect(r1.advanced).toBe(true)
     expect(r1.phase).toBe('planning')
 
     // Phase 2: planning -> ux-design
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     const r2 = await orchestrator.advancePhase(runId)
     expect(r2.advanced).toBe(true)
     expect(r2.phase).toBe('ux-design')
 
     // Phase 3: ux-design -> solutioning
-    registerArtifactForRun(db, runId, 'ux-design', 'ux-design')
+    await registerArtifactForRun(adapter, runId, 'ux-design', 'ux-design')
     const r3 = await orchestrator.advancePhase(runId)
     expect(r3.advanced).toBe(true)
     expect(r3.phase).toBe('solutioning')
@@ -339,15 +348,15 @@ describe('Full pipeline advance with UX design enabled (T10)', () => {
 
   it('phase history includes ux-design when UX phase is traversed', async () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a UI-rich web app')
 
     // Run through analysis -> planning -> ux-design -> solutioning
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     await orchestrator.advancePhase(runId)
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     await orchestrator.advancePhase(runId)
-    registerArtifactForRun(db, runId, 'ux-design', 'ux-design')
+    await registerArtifactForRun(adapter, runId, 'ux-design', 'ux-design')
     await orchestrator.advancePhase(runId)
 
     const status = await orchestrator.getRunStatus(runId)
@@ -360,13 +369,13 @@ describe('Full pipeline advance with UX design enabled (T10)', () => {
 
   it('resumeRun resumes at ux-design when analysis and planning are complete', async () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a UI-rich web app')
 
     // Complete analysis and planning
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     await orchestrator.advancePhase(runId)
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     await orchestrator.advancePhase(runId)
 
     // Resume — should be at ux-design since planning prd exists but no ux-design artifact
@@ -376,15 +385,15 @@ describe('Full pipeline advance with UX design enabled (T10)', () => {
 
   it('resumeRun resumes at solutioning when analysis, planning, and ux-design are complete', async () => {
     const pack = makeMockPackWithUxDesign(true)
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a UI-rich web app')
 
     // Complete analysis, planning, ux-design
-    registerArtifactForRun(db, runId, 'analysis', 'product-brief')
+    await registerArtifactForRun(adapter, runId, 'analysis', 'product-brief')
     await orchestrator.advancePhase(runId)
-    registerArtifactForRun(db, runId, 'planning', 'prd')
+    await registerArtifactForRun(adapter, runId, 'planning', 'prd')
     await orchestrator.advancePhase(runId)
-    registerArtifactForRun(db, runId, 'ux-design', 'ux-design')
+    await registerArtifactForRun(adapter, runId, 'ux-design', 'ux-design')
     await orchestrator.advancePhase(runId)
 
     // Resume — should be at solutioning since all 3 previous phases complete

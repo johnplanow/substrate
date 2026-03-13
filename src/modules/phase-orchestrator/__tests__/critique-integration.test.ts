@@ -24,20 +24,23 @@ import type { PhaseDeps } from '../phases/types.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchResult } from '../../agent-dispatch/types.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'critique-integration-test-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: 'solutioning' })
+async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'solutioning' })
   return run.id
 }
 
@@ -112,12 +115,12 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
 ): PhaseDeps {
   return {
-    db,
+    db: adapter,
     pack: pack ?? makePack(),
     contextCompiler: makeContextCompiler(),
     dispatcher,
@@ -130,14 +133,16 @@ function makeDeps(
 
 describe('critique loop integration with step-runner', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const setup = createTestDb()
     db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
   afterEach(() => {
@@ -167,7 +172,7 @@ describe('critique loop integration with step-runner', () => {
     })
 
     const dispatcher = makeDispatcher([stepResult, critiqueResult])
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const steps: StepDefinition[] = [{
       name: 'arch-step',
@@ -201,7 +206,7 @@ describe('critique loop integration with step-runner', () => {
     })
 
     const dispatcher = makeDispatcher([stepResult])
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const steps: StepDefinition[] = [{
       name: 'arch-step',
@@ -238,7 +243,7 @@ describe('critique loop integration with step-runner', () => {
     })
 
     const dispatcher = makeDispatcher([stepResult, critiqueResult])
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const steps: StepDefinition[] = [{
       name: 'arch-step',
@@ -252,7 +257,7 @@ describe('critique loop integration with step-runner', () => {
     await runSteps(steps, deps, runId, 'solutioning', { concept: 'CLI' })
 
     // Verify critique decisions were stored
-    const decisions = getDecisionsByPhaseForRun(db, runId, 'solutioning')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
     const critiqueDecisions = decisions.filter((d) => d.category === 'critique')
     expect(critiqueDecisions.length).toBeGreaterThanOrEqual(1)
   })
@@ -279,7 +284,7 @@ describe('critique loop integration with step-runner', () => {
     })
 
     const dispatcher = makeDispatcher([stepResult])
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const steps: StepDefinition[] = [{
       name: 'arch-step',

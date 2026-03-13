@@ -14,6 +14,8 @@ import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createPipelineRun, getDecisionsByCategory } from '../../../persistence/queries/decisions.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { STORY_METRICS } from '../../../persistence/schemas/operational.js'
 
 // ---------------------------------------------------------------------------
@@ -115,13 +117,15 @@ function createMockEventBus(): TypedEventBus {
 
 describe('Smoke: orchestrator writes story-metrics decision through real DB', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let runId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = new BetterSqlite3(':memory:')
     db.pragma('foreign_keys = ON')
     runMigrations(db)
-    const run = createPipelineRun(db, { methodology: 'bmad' })
+    adapter = new SqliteDatabaseAdapter(db)
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     runId = run.id
 
     vi.clearAllMocks()
@@ -154,7 +158,7 @@ describe('Smoke: orchestrator writes story-metrics decision through real DB', ()
     } as any)
 
     const orchestrator = createImplementationOrchestrator({
-      db,
+      db: adapter,
       pack: createMockPack(),
       contextCompiler: createMockContextCompiler(),
       dispatcher: createMockDispatcher(),
@@ -165,7 +169,7 @@ describe('Smoke: orchestrator writes story-metrics decision through real DB', ()
     await orchestrator.run(['1-1'])
 
     // Verify a story-metrics decision was written to the real DB
-    const decisions = getDecisionsByCategory(db, STORY_METRICS)
+    const decisions = await getDecisionsByCategory(adapter, STORY_METRICS)
     expect(decisions.length).toBeGreaterThanOrEqual(1)
 
     const d = decisions.find((dec) => dec.key.startsWith('1-1:'))
@@ -189,7 +193,7 @@ describe('Smoke: orchestrator writes story-metrics decision through real DB', ()
     mockRunCreateStory.mockRejectedValue(new Error('Simulated create-story failure'))
 
     const orchestrator = createImplementationOrchestrator({
-      db,
+      db: adapter,
       pack: createMockPack(),
       contextCompiler: createMockContextCompiler(),
       dispatcher: createMockDispatcher(),
@@ -199,7 +203,7 @@ describe('Smoke: orchestrator writes story-metrics decision through real DB', ()
 
     await orchestrator.run(['2-1'])
 
-    const decisions = getDecisionsByCategory(db, STORY_METRICS)
+    const decisions = await getDecisionsByCategory(adapter, STORY_METRICS)
     const d = decisions.find((dec) => dec.key.startsWith('2-1:'))
     expect(d).toBeDefined()
 

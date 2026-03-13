@@ -41,20 +41,23 @@ import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; tmpDir: string } {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string } {
   const tmpDir = mkdtempSync(join(tmpdir(), 'epic11-integration-'))
   const db = new Database(join(tmpDir, 'test.db'))
   runMigrations(db)
-  return { db, tmpDir }
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter, tmpDir }
 }
 
-function createTestRun(db: BetterSqlite3Database, startPhase = 'analysis'): string {
-  const run = createPipelineRun(db, { methodology: 'bmad', start_phase: startPhase })
+async function createTestRun(adapter: DatabaseAdapter, startPhase = 'analysis'): Promise<string> {
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: startPhase })
   return run.id
 }
 
@@ -206,11 +209,13 @@ const STORY_GENERATION_OUTPUT = {
 
 describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
@@ -221,12 +226,12 @@ describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
 
   it('planning prompt contains product brief text written by analysis phase', async () => {
     const pack = makeMockPack()
-    const runId = createTestRun(db)
+    const runId = await createTestRun(adapter)
 
     // Step 1: Run analysis phase — writes product-brief decisions to DB
     const analysisDispatcher = makeDispatcher({ analysis: ANALYSIS_OUTPUT })
     const analysisDeps: PhaseDeps = {
-      db,
+      db: adapter,
       pack,
       contextCompiler: makeContextCompiler(),
       dispatcher: analysisDispatcher,
@@ -253,7 +258,7 @@ describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
     }
 
     const planningDeps: PhaseDeps = {
-      db,
+      db: adapter,
       pack,
       contextCompiler: makeContextCompiler(),
       dispatcher: planningDispatcher,
@@ -272,12 +277,12 @@ describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
 
   it('planning phase fails when analysis phase has not run (missing product brief)', async () => {
     const pack = makeMockPack()
-    const runId = createTestRun(db)
+    const runId = await createTestRun(adapter)
 
     // Skip analysis — planning should fail with missing_product_brief
     const planningDispatcher = makeDispatcher({ planning: PLANNING_OUTPUT })
     const deps: PhaseDeps = {
-      db,
+      db: adapter,
       pack,
       contextCompiler: makeContextCompiler(),
       dispatcher: planningDispatcher,
@@ -290,13 +295,13 @@ describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
 
   it('planning decisions are scoped to the same run as analysis decisions', async () => {
     const pack = makeMockPack()
-    const runId1 = createTestRun(db)
-    const runId2 = createTestRun(db)
+    const runId1 = await createTestRun(adapter)
+    const runId2 = await createTestRun(adapter)
 
     // Seed product-brief for run1 only
     const fields = ['problem_statement', 'target_users', 'core_features', 'success_metrics', 'constraints']
     for (const field of fields) {
-      createDecision(db, {
+      await createDecision(adapter, {
         pipeline_run_id: runId1,
         phase: 'analysis',
         category: 'product-brief',
@@ -308,7 +313,7 @@ describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
     // Run planning for run2 — should NOT see run1's decisions
     const planningDispatcher = makeDispatcher({ planning: PLANNING_OUTPUT })
     const deps: PhaseDeps = {
-      db,
+      db: adapter,
       pack,
       contextCompiler: makeContextCompiler(),
       dispatcher: planningDispatcher,
@@ -327,11 +332,13 @@ describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
 
 describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
@@ -342,7 +349,7 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
 
   it('architecture prompt contains functional requirements written by planning phase', async () => {
     const pack = makeMockPack()
-    const runId = createTestRun(db)
+    const runId = await createTestRun(adapter)
 
     // Step 1: Seed planning decisions (as if planning phase ran)
     const planningFRs = [
@@ -350,7 +357,7 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
       { key: 'FR-1', value: JSON.stringify({ description: 'Users can assign tasks to team members', priority: 'must' }) },
     ]
     for (const fr of planningFRs) {
-      createDecision(db, {
+      await createDecision(adapter, {
         pipeline_run_id: runId,
         phase: 'planning',
         category: 'functional-requirements',
@@ -380,7 +387,7 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps: PhaseDeps = { db, pack, contextCompiler: makeContextCompiler(), dispatcher }
+    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
     const result = await runSolutioningPhase(deps, { runId })
 
     expect(result.result).toBe('success')
@@ -392,10 +399,10 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
 
   it('story generation prompt contains architecture decisions from the same run', async () => {
     const pack = makeMockPack()
-    const runId = createTestRun(db)
+    const runId = await createTestRun(adapter)
 
     // Seed planning decisions
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'planning',
       category: 'functional-requirements',
@@ -424,7 +431,7 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps: PhaseDeps = { db, pack, contextCompiler: makeContextCompiler(), dispatcher }
+    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
     await runSolutioningPhase(deps, { runId })
 
     // The story generation prompt should include arch decisions from the same run
@@ -435,11 +442,11 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
 
   it('solutioning decisions are scoped to the correct run', async () => {
     const pack = makeMockPack()
-    const runId1 = createTestRun(db)
-    const runId2 = createTestRun(db)
+    const runId1 = await createTestRun(adapter)
+    const runId2 = await createTestRun(adapter)
 
     // Seed planning decisions only for run1
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId1,
       phase: 'planning',
       category: 'functional-requirements',
@@ -451,7 +458,7 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
       architecture: ARCHITECTURE_OUTPUT,
       'story-generation': STORY_GENERATION_OUTPUT,
     })
-    const deps: PhaseDeps = { db, pack, contextCompiler: makeContextCompiler(), dispatcher }
+    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 
     // Run solutioning for run1
     const result1 = await runSolutioningPhase(deps, { runId: runId1 })
@@ -479,11 +486,13 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
 
 describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-1)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
@@ -494,17 +503,17 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
 
   it('orchestrator can advance after real analysis phase creates product-brief artifact', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager', 'analysis')
 
     // Run real analysis phase
     const dispatcher = makeDispatcher({ analysis: ANALYSIS_OUTPUT })
-    const deps: PhaseDeps = { db, pack, contextCompiler: makeContextCompiler(), dispatcher }
+    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
     const analysisResult = await runAnalysisPhase(deps, { runId, concept: 'Build a task manager' })
     expect(analysisResult.result).toBe('success')
 
     // Verify the artifact now exists
-    const artifact = getArtifactByTypeForRun(db, runId, 'analysis', 'product-brief')
+    const artifact = await getArtifactByTypeForRun(adapter, runId, 'analysis', 'product-brief')
     expect(artifact).toBeDefined()
 
     // Orchestrator should now be able to advance (exit gate: product-brief exists)
@@ -515,7 +524,7 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
 
   it('orchestrator cannot advance if analysis phase failed (no artifact created)', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager', 'analysis')
 
     // Run analysis with a failing dispatcher
@@ -542,12 +551,12 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps: PhaseDeps = { db, pack, contextCompiler: makeContextCompiler(), dispatcher: failDispatcher }
+    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: failDispatcher }
     const analysisResult = await runAnalysisPhase(deps, { runId, concept: 'Build a task manager' })
     expect(analysisResult.result).toBe('failed')
 
     // No artifact was created — orchestrator cannot advance
-    const artifact = getArtifactByTypeForRun(db, runId, 'analysis', 'product-brief')
+    const artifact = await getArtifactByTypeForRun(adapter, runId, 'analysis', 'product-brief')
     expect(artifact).toBeUndefined()
 
     const advanceResult = await orchestrator.advancePhase(runId)
@@ -557,13 +566,13 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
 
   it('orchestrator advances through analysis → planning → solutioning with real phase data', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager', 'analysis')
 
     // Run analysis
     const analysisDispatcher = makeDispatcher({ analysis: ANALYSIS_OUTPUT })
     await runAnalysisPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher: analysisDispatcher },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: analysisDispatcher },
       { runId, concept: 'Build a task manager' },
     )
 
@@ -575,7 +584,7 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
     // Run planning (reads analysis decisions written above)
     const planningDispatcher = makeDispatcher({ planning: PLANNING_OUTPUT })
     const planningResult = await runPlanningPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher: planningDispatcher },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: planningDispatcher },
       { runId },
     )
     expect(planningResult.result).toBe('success')
@@ -591,16 +600,16 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
       'story-generation': STORY_GENERATION_OUTPUT,
     })
     const solutioningResult = await runSolutioningPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher: solutioningDispatcher },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: solutioningDispatcher },
       { runId },
     )
     expect(solutioningResult.result).toBe('success')
 
     // Verify all three artifacts exist
-    expect(getArtifactByTypeForRun(db, runId, 'analysis', 'product-brief')).toBeDefined()
-    expect(getArtifactByTypeForRun(db, runId, 'planning', 'prd')).toBeDefined()
-    expect(getArtifactByTypeForRun(db, runId, 'solutioning', 'architecture')).toBeDefined()
-    expect(getArtifactByTypeForRun(db, runId, 'solutioning', 'stories')).toBeDefined()
+    expect(await getArtifactByTypeForRun(adapter, runId, 'analysis', 'product-brief')).toBeDefined()
+    expect(await getArtifactByTypeForRun(adapter, runId, 'planning', 'prd')).toBeDefined()
+    expect(await getArtifactByTypeForRun(adapter, runId, 'solutioning', 'architecture')).toBeDefined()
+    expect(await getArtifactByTypeForRun(adapter, runId, 'solutioning', 'stories')).toBeDefined()
 
     // Advance solutioning → implementation
     const advance3 = await orchestrator.advancePhase(runId)
@@ -616,11 +625,13 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
 
 describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11-4)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
@@ -631,22 +642,22 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
 
   it('decisions accumulate across all three phases in the same run', async () => {
     const pack = makeMockPack()
-    const runId = createTestRun(db)
+    const runId = await createTestRun(adapter)
 
     // Run all three phases in sequence
     await runAnalysisPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
       { runId, concept: 'Build a task manager' },
     )
 
     await runPlanningPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
       { runId },
     )
 
     await runSolutioningPhase(
       {
-        db,
+        db: adapter,
         pack,
         contextCompiler: makeContextCompiler(),
         dispatcher: makeDispatcher({
@@ -684,21 +695,21 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
 
   it('artifacts from all three phases are registered under the same run', async () => {
     const pack = makeMockPack()
-    const runId = createTestRun(db)
+    const runId = await createTestRun(adapter)
 
     await runAnalysisPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
       { runId, concept: 'Build a task manager' },
     )
 
     await runPlanningPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
       { runId },
     )
 
     await runSolutioningPhase(
       {
-        db,
+        db: adapter,
         pack,
         contextCompiler: makeContextCompiler(),
         dispatcher: makeDispatcher({
@@ -722,21 +733,21 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
 
   it('requirements table has entries from planning and solutioning phases', async () => {
     const pack = makeMockPack()
-    const runId = createTestRun(db)
+    const runId = await createTestRun(adapter)
 
     await runAnalysisPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
       { runId, concept: 'Build a task manager' },
     )
 
     await runPlanningPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
       { runId },
     )
 
     await runSolutioningPhase(
       {
-        db,
+        db: adapter,
         pack,
         contextCompiler: makeContextCompiler(),
         dispatcher: makeDispatcher({
@@ -768,11 +779,13 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
 
 describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
@@ -783,13 +796,13 @@ describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
 
   it('resumes at planning after analysis completed (product-brief artifact exists)', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager', 'analysis')
 
     // Simulate analysis completing: run real analysis phase
     const dispatcher = makeDispatcher({ analysis: ANALYSIS_OUTPUT })
     await runAnalysisPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher },
       { runId, concept: 'Build a task manager' },
     )
 
@@ -803,12 +816,12 @@ describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
 
   it('resumes at solutioning after analysis + planning completed', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager', 'analysis')
 
     // Run analysis
     await runAnalysisPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
       { runId, concept: 'Build a task manager' },
     )
 
@@ -817,7 +830,7 @@ describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
 
     // Run planning
     await runPlanningPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
       { runId },
     )
 
@@ -829,7 +842,7 @@ describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
 
   it('resumeRun with no completed phases stays at analysis', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager', 'analysis')
 
     // No phases ran — no artifacts — should stay at analysis
@@ -846,11 +859,13 @@ describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
 
 describe('Gap 6: parseConfigJson used by orchestrator lifecycle (11-1)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
@@ -885,12 +900,12 @@ describe('Gap 6: parseConfigJson used by orchestrator lifecycle (11-1)', () => {
 
   it('phase history is preserved across multiple advancePhase calls', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager')
 
     // Register artifacts and advance twice
     const { registerArtifact } = await import('../../../persistence/queries/decisions.js')
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       pipeline_run_id: runId,
       phase: 'analysis',
       type: 'product-brief',
@@ -898,7 +913,7 @@ describe('Gap 6: parseConfigJson used by orchestrator lifecycle (11-1)', () => {
     })
     await orchestrator.advancePhase(runId) // analysis → planning
 
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       pipeline_run_id: runId,
       phase: 'planning',
       type: 'prd',
@@ -907,7 +922,7 @@ describe('Gap 6: parseConfigJson used by orchestrator lifecycle (11-1)', () => {
     await orchestrator.advancePhase(runId) // planning → solutioning
 
     // Verify phase history in DB
-    const run = getPipelineRunById(db, runId)
+    const run = await getPipelineRunById(adapter, runId)
     const config = parseConfigJson(run!.config_json)
 
     // Should have history entries for analysis (completed) and planning (completed) and solutioning (started)
@@ -926,11 +941,11 @@ describe('Gap 6: parseConfigJson used by orchestrator lifecycle (11-1)', () => {
 
   it('getRunStatus reflects completed phases from phase history', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager')
 
     const { registerArtifact } = await import('../../../persistence/queries/decisions.js')
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       pipeline_run_id: runId,
       phase: 'analysis',
       type: 'product-brief',
@@ -952,11 +967,13 @@ describe('Gap 6: parseConfigJson used by orchestrator lifecycle (11-1)', () => {
 
 describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1 + 11-5)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
@@ -967,11 +984,11 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
 
   it('buildPipelineStatusOutput shows correct phases after real orchestrator progression', async () => {
     const pack = makeMockPack()
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     const runId = await orchestrator.startRun('Build a task manager')
 
     const { registerArtifact } = await import('../../../persistence/queries/decisions.js')
-    registerArtifact(db, {
+    await registerArtifact(adapter, {
       pipeline_run_id: runId,
       phase: 'analysis',
       type: 'product-brief',
@@ -980,7 +997,7 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
     await orchestrator.advancePhase(runId) // analysis → planning
 
     // Get run from DB for status builder
-    const run = getPipelineRunById(db, runId) as PipelineRun
+    const run = await getPipelineRunById(adapter, runId) as PipelineRun
 
     const statusOutput = buildPipelineStatusOutput(run, [], 5, 0)
 
@@ -994,26 +1011,26 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
 
   it('buildPipelineStatusOutput after full three-phase pipeline shows all complete', async () => {
     const pack = makeMockPack()
-    const runId = createTestRun(db)
+    const runId = await createTestRun(adapter)
 
     // Run all three phases
     await runAnalysisPhase(
-      { db, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
+      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
       { runId, concept: 'Build a task manager' },
     )
 
-    const orchestrator = createPhaseOrchestrator({ db, pack })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
     await orchestrator.startRun('Build a task manager', 'analysis')
 
     // We need to use the orchestrator that knows about this runId
     // Use another approach: run phases and use a fresh orchestrator with the existing runId
     const pack2 = makeMockPack()
-    const orch2 = createPhaseOrchestrator({ db, pack: pack2 })
+    const orch2 = createPhaseOrchestrator({ db: adapter, pack: pack2 })
     const runId2 = await orch2.startRun('Build a task manager', 'analysis')
 
     // Run analysis
     await runAnalysisPhase(
-      { db, pack: pack2, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
+      { db: adapter, pack: pack2, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
       { runId: runId2, concept: 'Build a task manager' },
     )
 
@@ -1023,7 +1040,7 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
 
     // Run planning
     await runPlanningPhase(
-      { db, pack: pack2, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
+      { db: adapter, pack: pack2, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
       { runId: runId2 },
     )
 
@@ -1038,11 +1055,12 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
     expect(status.currentPhase).toBe('solutioning')
   })
 
-  it('buildPipelineStatusOutput correctly sums token usage from multiple phases', () => {
+  it('buildPipelineStatusOutput correctly sums token usage from multiple phases', async () => {
     const db2 = new Database(':memory:')
     runMigrations(db2)
+    const adapter2 = new SqliteDatabaseAdapter(db2)
 
-    const run = createPipelineRun(db2, {
+    const run = await createPipelineRun(adapter2, {
       methodology: 'bmad',
       start_phase: 'analysis',
       config_json: JSON.stringify({
@@ -1083,11 +1101,13 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
 
 describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let tmpDir: string
 
   beforeEach(() => {
     const r = createTestDb()
     db = r.db
+    adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
@@ -1098,7 +1118,7 @@ describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () 
 
   it('readiness gate passes when stories cover all functional requirements', async () => {
     const pack = makeMockPack()
-    const runId = createTestRun(db)
+    const runId = await createTestRun(adapter)
 
     // Seed planning FRs
     const frs = [
@@ -1106,7 +1126,7 @@ describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () 
       { key: 'FR-1', value: JSON.stringify({ description: 'Users can assign tasks to team members', priority: 'must' }) },
     ]
     for (const fr of frs) {
-      createDecision(db, {
+      await createDecision(adapter, {
         pipeline_run_id: runId,
         phase: 'planning',
         category: 'functional-requirements',
@@ -1146,7 +1166,7 @@ describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () 
       architecture: ARCHITECTURE_OUTPUT,
       'story-generation': coveringStoryOutput,
     })
-    const deps: PhaseDeps = { db, pack, contextCompiler: makeContextCompiler(), dispatcher }
+    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
     const result = await runSolutioningPhase(deps, { runId })
 
     expect(result.result).toBe('success')
@@ -1155,9 +1175,9 @@ describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () 
 
   it('solutioning phase accumulates token usage across architecture + story-gen dispatches', async () => {
     const pack = makeMockPack()
-    const runId = createTestRun(db)
+    const runId = await createTestRun(adapter)
 
-    createDecision(db, {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'planning',
       category: 'functional-requirements',
@@ -1204,7 +1224,7 @@ describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () 
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps: PhaseDeps = { db, pack, contextCompiler: makeContextCompiler(), dispatcher: dispatcherWithTokens }
+    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: dispatcherWithTokens }
     const result = await runSolutioningPhase(deps, { runId })
 
     expect(result.result).toBe('success')

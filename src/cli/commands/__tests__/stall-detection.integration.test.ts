@@ -22,6 +22,8 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { runMigrations } from '../../../persistence/migrations/index.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
+import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { getAutoHealthData, DEFAULT_STALL_THRESHOLD_SECONDS } from '../health.js'
 import { runSupervisorAction } from '../supervisor.js'
 import type { SupervisorOptions, SupervisorDeps } from '../supervisor.js'
@@ -30,7 +32,8 @@ import type { SupervisorOptions, SupervisorDeps } from '../supervisor.js'
 // Module mocks (same pattern as other health tests)
 // ---------------------------------------------------------------------------
 
-vi.mock('../../../persistence/database.js', () => {
+vi.mock('../../../persistence/database.js', async () => {
+  const { SqliteDatabaseAdapter: Adapter } = await import('../../../persistence/sqlite-adapter.js')
   let mockDb: BetterSqlite3Database | null = null
   return {
     DatabaseWrapper: class {
@@ -40,6 +43,7 @@ vi.mock('../../../persistence/database.js', () => {
       }
       open() { /* noop */ }
       close() { /* noop */ }
+      get adapter() { return new Adapter(this.db) }
     },
     __setMockDb: (db: BetterSqlite3Database) => { mockDb = db },
   }
@@ -61,22 +65,24 @@ vi.mock('node:fs', async (importOriginal) => {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): BetterSqlite3Database {
+function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
   const db = new Database(':memory:')
   runMigrations(db)
-  return db
+  const adapter = new SqliteDatabaseAdapter(db)
+  return { db, adapter }
 }
 
-function createTestRun(
+async function createTestRun(
   db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   overrides: {
     status?: string
     current_phase?: string
     token_usage_json?: string
     updated_at?: string
   } = {},
-): PipelineRun {
-  const run = createPipelineRun(db, {
+): Promise<PipelineRun> {
+  const run = await createPipelineRun(adapter, {
     methodology: 'bmad',
     start_phase: 'implementation',
     config_json: null,
@@ -144,9 +150,12 @@ function captureStdout(): { chunks: string[]; restore: () => void } {
 
 describe('Stall detection integration — getAutoHealthData + runSupervisorAction', () => {
   let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(async () => {
-    db = createTestDb()
+    const r = createTestDb()
+    db = r.db
+    adapter = r.adapter
     const dbModule = await import('../../../persistence/database.js') as { __setMockDb: (db: BetterSqlite3Database) => void }
     dbModule.__setMockDb(db)
   })
@@ -161,7 +170,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   // -------------------------------------------------------------------------
 
   it('stale pipeline in DB: getAutoHealthData returns STALLED verdict', async () => {
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'running',
       current_phase: 'implementation',
       updated_at: staleTimestamp(),
@@ -175,7 +184,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   })
 
   it('stale pipeline: supervisor detects stall and emits supervisor:kill event', async () => {
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'running',
       current_phase: 'implementation',
       updated_at: staleTimestamp(),
@@ -257,7 +266,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   // -------------------------------------------------------------------------
 
   it('fresh pipeline in DB: getAutoHealthData does NOT return STALLED', async () => {
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'running',
       current_phase: 'implementation',
       updated_at: freshTimestamp(),
@@ -275,7 +284,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   })
 
   it('fresh pipeline: supervisor does NOT kill (staleness < threshold)', async () => {
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'running',
       current_phase: 'implementation',
       updated_at: freshTimestamp(),
@@ -323,7 +332,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   // -------------------------------------------------------------------------
 
   it('completed pipeline in DB: getAutoHealthData returns NO_PIPELINE_RUNNING', async () => {
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'completed',
       current_phase: 'implementation',
     })
@@ -335,7 +344,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   })
 
   it('completed pipeline: supervisor exits cleanly with exit code 0', async () => {
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'completed',
       current_phase: 'implementation',
     })
@@ -377,7 +386,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   // -------------------------------------------------------------------------
 
   it('stale pipeline in analysis phase → getAutoHealthData returns STALLED (AC7)', async () => {
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'running',
       current_phase: 'analysis',
       updated_at: staleTimestamp(),
@@ -391,7 +400,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   })
 
   it('stale pipeline in planning phase → getAutoHealthData returns STALLED (AC7)', async () => {
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'running',
       current_phase: 'planning',
       updated_at: staleTimestamp(),
@@ -404,7 +413,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   })
 
   it('stale pipeline in solutioning phase → getAutoHealthData returns STALLED (AC7)', async () => {
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'running',
       current_phase: 'solutioning',
       updated_at: staleTimestamp(),
@@ -417,7 +426,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   })
 
   it('stale analysis phase: supervisor detects stall and emits supervisor:kill', async () => {
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'running',
       current_phase: 'analysis',
       updated_at: staleTimestamp(),
@@ -479,7 +488,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   it('pipeline stale by 120s but custom stallThreshold = 300s → NOT killed', async () => {
     // Pipeline is 120s stale — below DEFAULT (600s) but also below custom (300s)
     const mildlyStaleTime = new Date(Date.now() - 120_000).toISOString()
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'running',
       current_phase: 'implementation',
       updated_at: mildlyStaleTime,
@@ -526,7 +535,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   it('pipeline stale by 700s but custom stallThreshold = 900s → NOT killed', async () => {
     // Pipeline is 700s stale — exceeds default (600s) but below custom threshold (900s)
     const stale700s = new Date(Date.now() - 700_000).toISOString()
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'running',
       current_phase: 'implementation',
       updated_at: stale700s,
@@ -571,7 +580,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   // -------------------------------------------------------------------------
 
   it('failed pipeline in DB → getAutoHealthData returns NO_PIPELINE_RUNNING', async () => {
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'failed',
       current_phase: 'implementation',
     })
@@ -583,7 +592,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   })
 
   it('stopped pipeline in DB → getAutoHealthData returns NO_PIPELINE_RUNNING', async () => {
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'stopped',
       current_phase: 'implementation',
     })
@@ -599,7 +608,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   // -------------------------------------------------------------------------
 
   it('supervisor emits supervisor:poll event on each poll cycle', async () => {
-    createTestRun(db, { status: 'completed', current_phase: 'implementation' })
+    await createTestRun(db, adapter, { status: 'completed', current_phase: 'implementation' })
 
     const captured = captureStdout()
 
@@ -646,7 +655,7 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
       .replace('T', ' ')
       .replace(/\.\d{3}Z$/, '') // "2026-03-05 15:30:00"
 
-    createTestRun(db, {
+    await createTestRun(db, adapter, {
       status: 'running',
       current_phase: 'implementation',
       updated_at: sqliteFormat,
