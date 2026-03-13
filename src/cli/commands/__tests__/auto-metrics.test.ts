@@ -67,6 +67,10 @@ function createTempProject(): { projectRoot: string; db: BetterSqlite3Database }
   db.pragma('foreign_keys = ON')
   runMigrations(db)
 
+  // Create placeholder file so existsSync(dbPath) passes in metrics.ts.
+  // The WASM mock uses in-memory storage with path caching, not real files.
+  writeFileSync(dbPath, '')
+
   return { projectRoot, db }
 }
 

@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { mkdirSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
@@ -333,6 +333,10 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
     runMigrations(db)
     const run = await createPipelineRun(new SqliteDatabaseAdapter(db),{ methodology: 'bmad' })
     runId = run.id
+
+    // Create a placeholder file so supervisor.ts's existsSync(dbPath) check passes.
+    // DatabaseWrapper will use the WASM mock's path-cached database (same seeded data).
+    writeFileSync(dbPath, '')
     db.close()
 
     stdoutChunks = []

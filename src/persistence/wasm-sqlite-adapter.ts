@@ -1,13 +1,14 @@
 /**
- * WasmSqliteDatabaseAdapter — wraps sql.js (SQLite compiled to WASM) with
+ * WASM SQLite adapters — wraps sql.js (SQLite compiled to WASM) with
  * the DatabaseAdapter interface.
  *
- * Used exclusively in tests as a drop-in replacement for the removed
- * better-sqlite3-backed SqliteDatabaseAdapter. Provides full SQLite SQL
- * compatibility (JOINs, VIEWs, aggregates, AUTOINCREMENT, etc.) without
- * any native C++ compilation.
+ * Provides full SQLite SQL compatibility (JOINs, VIEWs, aggregates,
+ * AUTOINCREMENT, etc.) without any native C++ compilation.
  *
- * Production code uses DoltDatabaseAdapter or InMemoryDatabaseAdapter.
+ * Two adapters:
+ *   - WasmSqliteDatabaseAdapter: wraps a raw sql.js database instance
+ *   - SyncDatabaseAdapter: wraps any better-sqlite3-API-compatible object
+ *     (e.g. the WASM mock in src/__mocks__/better-sqlite3.ts)
  */
 
 import type { DatabaseAdapter } from './adapter.js'
@@ -109,4 +110,82 @@ export async function createWasmSqliteAdapter(): Promise<DatabaseAdapter> {
   db.run('PRAGMA journal_mode = WAL')
   db.run('PRAGMA foreign_keys = ON')
   return new WasmSqliteDatabaseAdapter(db)
+}
+
+// ---------------------------------------------------------------------------
+// SyncDatabaseAdapter — wraps any better-sqlite3 API-compatible object
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal interface matching the better-sqlite3 Database API surface
+ * (prepare, exec, close). Used to accept both real better-sqlite3 and
+ * the WASM mock without importing either module directly.
+ */
+interface SyncDatabaseLike {
+  prepare(sql: string): { reader: boolean; all(...params: unknown[]): unknown[]; run(...params: unknown[]): unknown }
+  exec(sql: string): void
+}
+
+/**
+ * DatabaseAdapter that wraps any object implementing the better-sqlite3
+ * synchronous API (prepare/exec). Does NOT own the database lifecycle —
+ * close() is a no-op; the caller manages open/close.
+ *
+ * This replaces SqliteDatabaseAdapter for use with the WASM mock.
+ */
+export class SyncDatabaseAdapter implements DatabaseAdapter {
+  private readonly _db: SyncDatabaseLike
+
+  constructor(db: SyncDatabaseLike) {
+    this._db = db
+  }
+
+  async query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
+    const stmt = this._db.prepare(sql)
+    if (stmt.reader) {
+      return (params && params.length > 0 ? stmt.all(...params) : stmt.all()) as T[]
+    }
+    if (params && params.length > 0) {
+      stmt.run(...params)
+    } else {
+      stmt.run()
+    }
+    return []
+  }
+
+  async exec(sql: string): Promise<void> {
+    this._db.exec(sql)
+  }
+
+  async transaction<T>(fn: (adapter: DatabaseAdapter) => Promise<T>): Promise<T> {
+    this._db.exec('BEGIN')
+    try {
+      const result = await fn(this)
+      this._db.exec('COMMIT')
+      return result
+    } catch (err) {
+      try {
+        this._db.exec('ROLLBACK')
+      } catch {
+        // Already closed or rolled back
+      }
+      throw err
+    }
+  }
+
+  async close(): Promise<void> {
+    // No-op — caller manages database lifecycle
+  }
+}
+
+/**
+ * Create a DatabaseAdapter wrapping a better-sqlite3-API-compatible database.
+ *
+ * The adapter delegates prepare/exec calls to the underlying database.
+ * close() is a no-op — the caller remains responsible for closing the database.
+ *
+ * @param db - Any object with prepare() and exec() methods (e.g. WASM mock Database)
+ */
+export function createAdapterFromSyncDb(db: SyncDatabaseLike): DatabaseAdapter {
+  return new SyncDatabaseAdapter(db)
 }

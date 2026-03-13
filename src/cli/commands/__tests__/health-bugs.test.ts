@@ -9,12 +9,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { runMigrations } from '../../../persistence/migrations/index.js'
+import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
-import { SqliteDatabaseAdapter } from '../../../persistence/sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { getAutoHealthData, inspectProcessTree, isOrchestratorProcessLine, getAllDescendantPids, DEFAULT_STALL_THRESHOLD_SECONDS } from '../health.js'
 import { runSupervisorAction } from '../supervisor.js'
 import type { SupervisorDeps, SupervisorOptions } from '../supervisor.js'
@@ -24,14 +23,14 @@ import type { PipelineHealthOutput } from '../health.js'
 // Test DB helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): BetterSqlite3Database {
-  const db = new Database(':memory:')
-  runMigrations(db)
-  return db
+async function createTestDb(): Promise<DatabaseAdapter> {
+  const adapter = await createWasmSqliteAdapter()
+  await initSchema(adapter)
+  return adapter
 }
 
 async function createTestRun(
-  db: BetterSqlite3Database,
+  adapter: DatabaseAdapter,
   overrides: {
     status?: string
     current_phase?: string
@@ -39,46 +38,43 @@ async function createTestRun(
     updated_at?: string
   } = {},
 ): Promise<PipelineRun> {
-  const run = await createPipelineRun(new SqliteDatabaseAdapter(db), {
+  const run = await createPipelineRun(adapter, {
     methodology: 'bmad',
     start_phase: 'implementation',
     config_json: null,
   })
   if (overrides.status !== undefined) {
-    db.prepare(`UPDATE pipeline_runs SET status = ? WHERE id = ?`).run(overrides.status, run.id)
+    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [overrides.status, run.id])
   }
   if (overrides.current_phase !== undefined) {
-    db.prepare(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`).run(overrides.current_phase, run.id)
+    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [overrides.current_phase, run.id])
   }
   if (overrides.token_usage_json !== undefined) {
-    db.prepare(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`).run(overrides.token_usage_json, run.id)
+    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [overrides.token_usage_json, run.id])
   }
   if (overrides.updated_at !== undefined) {
-    db.prepare(`UPDATE pipeline_runs SET updated_at = ? WHERE id = ?`).run(overrides.updated_at, run.id)
+    await adapter.query(`UPDATE pipeline_runs SET updated_at = ? WHERE id = ?`, [overrides.updated_at, run.id])
   }
-  return db.prepare('SELECT * FROM pipeline_runs WHERE id = ?').get(run.id) as PipelineRun
+  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])
+  return rows[0]!
 }
 
 // ---------------------------------------------------------------------------
 // Module mocks (same pattern as auto-health.test.ts)
 // ---------------------------------------------------------------------------
 
-vi.mock('../../../persistence/database.js', async () => {
-  const { SqliteDatabaseAdapter } = await import('../../../persistence/sqlite-adapter.js')
-  let mockDb: BetterSqlite3Database | null = null
+vi.mock('../../../persistence/database.js', () => {
+  let mockAdapter: DatabaseAdapter | null = null
   return {
     DatabaseWrapper: class {
-      db: BetterSqlite3Database
-      constructor() {
-        this.db = mockDb!
-      }
       open() { /* noop */ }
       close() { /* noop */ }
       get adapter() {
-        return new SqliteDatabaseAdapter(this.db)
+        return mockAdapter!
       }
+      get isOpen() { return true }
     },
-    __setMockDb: (db: BetterSqlite3Database) => { mockDb = db },
+    __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
   }
 })
 
@@ -99,16 +95,16 @@ vi.mock('node:fs', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(async () => {
-    db = createTestDb()
-    const dbModule = await import('../../../persistence/database.js') as { __setMockDb: (db: BetterSqlite3Database) => void }
-    dbModule.__setMockDb(db)
+    adapter = await createTestDb()
+    const dbModule = await import('../../../persistence/database.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    dbModule.__setMockAdapter(adapter)
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('staleness is non-negative for UTC timestamp without Z suffix (SQLite format)', async () => {
@@ -118,7 +114,7 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
       .replace('T', ' ')
       .replace(/\.\d{3}Z$/, '') // "2026-03-02 04:01:56"
 
-    await createTestRun(db,{
+    await createTestRun(adapter, {
       status: 'running',
       updated_at: sqliteFormat,
     })
@@ -137,7 +133,7 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
       .replace('T', ' ')
       .replace(/\.\d{3}Z$/, '')
 
-    await createTestRun(db,{
+    await createTestRun(adapter, {
       status: 'running',
       updated_at: sqliteFormat,
     })
@@ -155,7 +151,7 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
       .replace('T', ' ')
       .replace(/\.\d{3}Z$/, '')
 
-    await createTestRun(db,{
+    await createTestRun(adapter, {
       status: 'running',
       updated_at: sqliteFormat,
     })
@@ -169,7 +165,7 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
   it('also works for ISO timestamps with Z suffix (existing format)', async () => {
     const isoWithZ = new Date(Date.now() - 300_000).toISOString() // already has Z
 
-    await createTestRun(db,{
+    await createTestRun(adapter, {
       status: 'running',
       updated_at: isoWithZ,
     })
@@ -435,23 +431,23 @@ describe('DEFAULT_STALL_THRESHOLD_SECONDS constant (AC5)', () => {
 // ---------------------------------------------------------------------------
 
 describe('getAutoHealthData — AC7: health detection across all phases', () => {
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(async () => {
-    db = createTestDb()
-    const dbModule = await import('../../../persistence/database.js') as { __setMockDb: (db: BetterSqlite3Database) => void }
-    dbModule.__setMockDb(db)
+    adapter = await createTestDb()
+    const dbModule = await import('../../../persistence/database.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    dbModule.__setMockAdapter(adapter)
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   const runningPhases = ['research', 'analysis', 'planning', 'solutioning', 'implementation']
 
   for (const phase of runningPhases) {
     it(`returns HEALTHY verdict for a running pipeline in ${phase} phase (recent activity)`, async () => {
-      await createTestRun(db,{
+      await createTestRun(adapter, {
         status: 'running',
         current_phase: phase,
         updated_at: new Date().toISOString(), // fresh — not stale
@@ -469,7 +465,7 @@ describe('getAutoHealthData — AC7: health detection across all phases', () => 
 
   it('verdict is derived from run.status, not current_phase', async () => {
     // A completed run in any phase must be NO_PIPELINE_RUNNING
-    await createTestRun(db,{
+    await createTestRun(adapter, {
       status: 'completed',
       current_phase: 'implementation',
     })
@@ -481,7 +477,7 @@ describe('getAutoHealthData — AC7: health detection across all phases', () => 
 
   it('a stale pipeline in analysis phase is detected as STALLED', async () => {
     const elevenMinAgo = new Date(Date.now() - 700_000).toISOString()
-    await createTestRun(db,{
+    await createTestRun(adapter, {
       status: 'running',
       current_phase: 'analysis',
       updated_at: elevenMinAgo,
@@ -494,7 +490,7 @@ describe('getAutoHealthData — AC7: health detection across all phases', () => 
 
   it('a stale pipeline in planning phase is detected as STALLED', async () => {
     const elevenMinAgo = new Date(Date.now() - 700_000).toISOString()
-    await createTestRun(db,{
+    await createTestRun(adapter, {
       status: 'running',
       current_phase: 'planning',
       updated_at: elevenMinAgo,
@@ -807,22 +803,22 @@ describe('inspectProcessTree — project-scoped orchestrator selection', () => {
 // ---------------------------------------------------------------------------
 
 describe('getAutoHealthData — child liveness prevents false STALLED', () => {
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
 
   beforeEach(async () => {
-    db = createTestDb()
-    const dbModule = await import('../../../persistence/database.js') as { __setMockDb: (db: BetterSqlite3Database) => void }
-    dbModule.__setMockDb(db)
+    adapter = await createTestDb()
+    const dbModule = await import('../../../persistence/database.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    dbModule.__setMockAdapter(adapter)
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns HEALTHY when stale but orchestrator has live non-zombie children', async () => {
     // Pipeline is 12 minutes stale (> 600s threshold) but children are alive
     const twelveMinAgo = new Date(Date.now() - 720_000).toISOString()
-    await createTestRun(db,{
+    await createTestRun(adapter, {
       status: 'running',
       current_phase: 'implementation',
       updated_at: twelveMinAgo,

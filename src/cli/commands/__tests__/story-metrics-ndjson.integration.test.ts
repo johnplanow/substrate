@@ -30,10 +30,6 @@ vi.mock('../../../persistence/database.js', () => ({
   })),
 }))
 
-vi.mock('../../../persistence/migrations/index.js', () => ({
-  runMigrations: vi.fn(),
-}))
-
 // Mock phase detection — default to implementation (legacy behavior)
 const mockDetectStartPhase = vi.fn().mockReturnValue({
   phase: 'implementation',

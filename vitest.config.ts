@@ -50,6 +50,9 @@ export default defineConfig({
       '@engine': resolve(__dirname, 'src/engine'),
       '@utils': resolve(__dirname, 'src/utils'),
       '@cli': resolve(__dirname, 'src/cli'),
+      // Redirect better-sqlite3 to the WASM-backed mock for all tests.
+      // This ensures no native C++ module is loaded during test runs.
+      'better-sqlite3': resolve(__dirname, 'src/__mocks__/better-sqlite3.ts'),
     },
   },
 })

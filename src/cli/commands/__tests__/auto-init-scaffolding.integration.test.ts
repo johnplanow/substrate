@@ -37,10 +37,6 @@ vi.mock('../../../persistence/database.js', () => ({
   })),
 }))
 
-vi.mock('../../../persistence/migrations/index.js', () => ({
-  runMigrations: vi.fn(),
-}))
-
 // Mock PackLoader — simulate successful pack load
 const mockPackLoad = vi.fn()
 vi.mock('../../../modules/methodology-pack/pack-loader.js', () => ({

@@ -39,10 +39,6 @@ vi.mock('../../../persistence/database.js', () => ({
   })),
 }))
 
-vi.mock('../../../persistence/migrations/index.js', () => ({
-  runMigrations: vi.fn(),
-}))
-
 vi.mock('../../../persistence/queries/metrics.js', () => ({
   listRunMetrics: vi.fn().mockReturnValue([]),
   getRunMetrics: vi.fn().mockReturnValue(null),
@@ -65,10 +61,6 @@ vi.mock('../../../utils/logger.js', () => ({
     info: vi.fn(),
     error: vi.fn(),
   }),
-}))
-
-vi.mock('better-sqlite3', () => ({
-  default: vi.fn().mockImplementation(() => ({ close: vi.fn() })),
 }))
 
 vi.mock('../../../modules/telemetry/index.js', () => ({
