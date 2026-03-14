@@ -54,14 +54,14 @@ export interface ParsedDependency {
 // EpicParser
 // ---------------------------------------------------------------------------
 
-/** Regex for sprint header lines: `**Sprint 1 —` (em dash or hyphen) */
-const SPRINT_HEADER_RE = /^\*\*Sprint\s+(\d+)\s*[—–-]/i
+/** Regex for sprint header lines: `**Sprint 1 —` or `Sprint 1 —` (with or without bold markers) */
+const SPRINT_HEADER_RE = /^(?:\*\*)?Sprint\s+(\d+)\s*[—–-]/i
 
 /**
  * Regex for story lines: `- 31-2: Epic doc ingestion (P0, Medium)`
  * Captures: epicNum, storyNum, title, priority, size
  */
-const STORY_LINE_RE = /^-\s+(\d+)-(\d+):\s+(.+?)\s+\((P\d+),\s+([\w-]+)\)\s*$/
+const STORY_LINE_RE = /^(?:-\s+)?(\d+)-(\d+):\s+(.+?)\s+\((P\d+),\s+([\w-]+)\)\s*$/
 
 /** Regex to find the story map section heading */
 const STORY_MAP_HEADING_RE = /^#{1,6}\s+.*Story\s+Map/im
@@ -95,6 +95,9 @@ export class EpicParser {
 
     for (const rawLine of afterHeading.split('\n')) {
       const line = rawLine.trim()
+
+      // Skip code fence markers themselves
+      if (line.startsWith('```')) continue
 
       // Sprint header — update current sprint tracking
       const sprintMatch = SPRINT_HEADER_RE.exec(line)

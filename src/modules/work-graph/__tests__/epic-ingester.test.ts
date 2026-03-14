@@ -55,7 +55,7 @@ async function seedTables(adapter: InMemoryDatabaseAdapter): Promise<void> {
 }
 
 async function queryAllStories(adapter: InMemoryDatabaseAdapter): Promise<Record<string, unknown>[]> {
-  return adapter.query('SELECT * FROM stories')
+  return adapter.query('SELECT * FROM wg_stories')
 }
 
 async function queryAllDeps(adapter: InMemoryDatabaseAdapter): Promise<Record<string, unknown>[]> {
@@ -107,7 +107,7 @@ describe('EpicIngester', () => {
 
       // Manually update the status to simulate runtime progress
       await adapter.query(
-        "UPDATE stories SET status = 'in-progress' WHERE story_key = '31-1'",
+        "UPDATE wg_stories SET status = 'in-progress' WHERE story_key = '31-1'",
       )
 
       // Second ingest — same key, updated title
@@ -122,18 +122,16 @@ describe('EpicIngester', () => {
       expect(row['status']).toBe('in-progress')
     })
 
-    it('re-ingesting the same story updates priority, size, and sprint', async () => {
+    it('re-ingesting the same story updates title', async () => {
       const ingester = new EpicIngester(adapter)
       await ingester.ingest([STORY_31_1], [])
 
-      const updated = { ...STORY_31_1, priority: 'P1', size: 'Large', sprint: 2 }
+      const updated = { ...STORY_31_1, title: 'Updated title' }
       await ingester.ingest([updated], [])
 
       const rows = await queryAllStories(adapter)
       const row = rows.find((r) => r['story_key'] === '31-1')!
-      expect(row['priority']).toBe('P1')
-      expect(row['size']).toBe('Large')
-      expect(row['sprint']).toBe(2)
+      expect(row['title']).toBe('Updated title')
     })
 
     it('does not count re-ingested (existing) stories in storiesUpserted', async () => {
@@ -227,7 +225,7 @@ describe('EpicIngester', () => {
       const ingester = new EpicIngester(adapter)
       await ingester.ingest([STORY_31_1], [])
 
-      await adapter.query("UPDATE stories SET status = 'done' WHERE story_key = '31-1'")
+      await adapter.query("UPDATE wg_stories SET status = 'done' WHERE story_key = '31-1'")
 
       await ingester.ingest([STORY_31_1], [])
 
@@ -320,7 +318,7 @@ describe('EpicIngester', () => {
       const realAdapter = new InMemoryDatabaseAdapter()
       await realAdapter.exec(CREATE_STORIES_TABLE)
       // No rows were committed
-      const rows = await faultyAdapter.query('SELECT * FROM stories')
+      const rows = await faultyAdapter.query('SELECT * FROM wg_stories')
       expect(rows).toHaveLength(0)
     })
   })

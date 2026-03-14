@@ -427,8 +427,8 @@ export async function aggregateTokenUsageForStory(
     FROM token_usage
     WHERE pipeline_run_id = ?
       AND metadata IS NOT NULL
-      AND json_extract(metadata, '$.storyKey') = ?`,
-    [runId, storyKey],
+      AND metadata LIKE ?`,
+    [runId, `%"storyKey":"${storyKey}"%`],
   )
   return rows[0] ?? { input: 0, output: 0, cost: 0 }
 }

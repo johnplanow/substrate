@@ -56,41 +56,35 @@ export class EpicIngester {
       let storiesUpserted = 0
 
       // ------------------------------------------------------------------
-      // Upsert stories
+      // Upsert stories into wg_stories
       //
       // For each story: check if it already exists.
-      //   - If yes: UPDATE title, priority, size, sprint — preserve status.
+      //   - If yes: UPDATE title — preserve status.
       //   - If no:  INSERT with status = 'planned'.
-      //
-      // We use SELECT + conditional UPDATE/INSERT rather than MySQL's
-      // ON DUPLICATE KEY UPDATE so that the same code runs correctly under
-      // both DoltDatabaseAdapter and InMemoryDatabaseAdapter (the latter does
-      // not support ON DUPLICATE KEY UPDATE syntax).
       // ------------------------------------------------------------------
 
       for (const story of stories) {
         const existing = await tx.query<{ status: string }>(
-          'SELECT status FROM stories WHERE story_key = ?',
+          'SELECT status FROM wg_stories WHERE story_key = ?',
           [story.story_key],
         )
 
         if (existing.length > 0) {
           await tx.query(
-            'UPDATE stories SET title = ?, priority = ?, size = ?, sprint = ? WHERE story_key = ?',
-            [story.title, story.priority, story.size, story.sprint, story.story_key],
+            'UPDATE wg_stories SET title = ?, updated_at = ? WHERE story_key = ?',
+            [story.title, new Date().toISOString(), story.story_key],
           )
         } else {
+          const now = new Date().toISOString()
           await tx.query(
-            'INSERT INTO stories (story_key, epic_num, story_num, title, priority, size, sprint, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO wg_stories (story_key, epic, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
             [
               story.story_key,
-              story.epic_num,
-              story.story_num,
+              String(story.epic_num),
               story.title,
-              story.priority,
-              story.size,
-              story.sprint,
               'planned',
+              now,
+              now,
             ],
           )
           storiesUpserted++
@@ -101,21 +95,12 @@ export class EpicIngester {
       // Sync dependencies
       //
       // Delete all existing 'explicit' dependency rows for this epic, then
-      // bulk-insert the fresh batch.  This ensures removed dependencies are
-      // cleaned up on re-ingestion.
-      //
-      // The DELETE uses `story_key LIKE '<epicNum>-%'` so that dependencies
-      // belonging to OTHER epics are left untouched.
+      // bulk-insert the fresh batch.
       // ------------------------------------------------------------------
 
       const epicNum = stories.length > 0 ? stories[0]!.epic_num : null
 
       if (epicNum !== null) {
-        // Delete all explicit deps where the downstream story is in this epic.
-        // InMemoryDatabaseAdapter does not support LIKE; it silently treats the
-        // LIKE condition as matching (i.e. deletes all 'explicit' rows), which
-        // is acceptable in single-epic test fixtures.  DoltDatabaseAdapter
-        // (MySQL-wire) evaluates LIKE correctly.
         await tx.query(
           `DELETE FROM story_dependencies WHERE source = 'explicit' AND story_key LIKE ?`,
           [`${epicNum}-%`],
