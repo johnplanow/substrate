@@ -731,9 +731,10 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
     await runSolutioningPhase(deps, { runId })
 
     // READY verdict should NOT store findings in decision store
-    const storedFindings = db
-      .prepare("SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings'")
-      .all(runId) as Array<{ key: string }>
+    const storedFindings = await adapter.query<{ key: string }>(
+      "SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings'",
+      [runId],
+    )
 
     expect(storedFindings).toHaveLength(0)
   })
@@ -755,11 +756,10 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
 
     await runSolutioningPhase(deps, { runId })
 
-    const storedFindings = db
-      .prepare(
-        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' ORDER BY key ASC",
-      )
-      .all(runId) as Array<{ key: string; value: string }>
+    const storedFindings = await adapter.query<{ key: string; value: string }>(
+      "SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' ORDER BY key ASC",
+      [runId],
+    )
 
     expect(storedFindings).toHaveLength(4)
     // Verify keys are sequential (finding-1, finding-2, ...)
@@ -784,11 +784,11 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
 
     await runSolutioningPhase(deps, { runId })
 
-    const firstFinding = db
-      .prepare(
-        "SELECT value FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' AND key = 'finding-1'",
-      )
-      .get(runId) as { value: string } | undefined
+    const findingRows = await adapter.query<{ value: string }>(
+      "SELECT value FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' AND key = 'finding-1'",
+      [runId],
+    )
+    const firstFinding = findingRows[0]
 
     expect(firstFinding).toBeDefined()
     const parsed = JSON.parse(firstFinding!.value) as {

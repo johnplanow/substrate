@@ -458,16 +458,18 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
     expect(result1.result).toBe('success')
 
     // Verify architecture decisions are only in run1
-    const archDecisions = db
-      .prepare(`SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'architecture'`)
-      .all(runId1) as Array<{ pipeline_run_id: string }>
+    const archDecisions = await adapter.query<{ pipeline_run_id: string }>(
+      `SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'architecture'`,
+      [runId1],
+    )
     expect(archDecisions.length).toBeGreaterThan(0)
     archDecisions.forEach((d) => expect(d.pipeline_run_id).toBe(runId1))
 
     // Run2 should have no decisions
-    const run2Decisions = db
-      .prepare(`SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning'`)
-      .all(runId2)
+    const run2Decisions = await adapter.query(
+      `SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning'`,
+      [runId2],
+    )
     expect(run2Decisions).toHaveLength(0)
   })
 })
@@ -658,28 +660,32 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
     )
 
     // Count decisions by phase
-    const analysisDecs = db
-      .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND phase = 'analysis'`)
-      .get(runId) as { cnt: number }
-    const planningDecs = db
-      .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning'`)
-      .get(runId) as { cnt: number }
-    const solutioningDecs = db
-      .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning'`)
-      .get(runId) as { cnt: number }
+    const [analysisDecs] = await adapter.query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND phase = 'analysis'`,
+      [runId],
+    )
+    const [planningDecs] = await adapter.query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning'`,
+      [runId],
+    )
+    const [solutioningDecs] = await adapter.query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning'`,
+      [runId],
+    )
 
     // Analysis: 6 product-brief fields (including technology_constraints)
-    expect(analysisDecs.cnt).toBe(6)
+    expect(analysisDecs!.cnt).toBe(6)
     // Planning: 3 FRs + 2 NFRs + 1 user story + 3 tech stack entries + 1 domain model + 1 out-of-scope = 11
-    expect(planningDecs.cnt).toBeGreaterThanOrEqual(8)
+    expect(planningDecs!.cnt).toBeGreaterThanOrEqual(8)
     // Solutioning: architecture decisions + epic decisions + story decisions
-    expect(solutioningDecs.cnt).toBeGreaterThanOrEqual(4)
+    expect(solutioningDecs!.cnt).toBeGreaterThanOrEqual(4)
 
     // Total must be across all phases
-    const totalDecs = db
-      .prepare(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`)
-      .get(runId) as { cnt: number }
-    expect(totalDecs.cnt).toBe(analysisDecs.cnt + planningDecs.cnt + solutioningDecs.cnt)
+    const [totalDecs] = await adapter.query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`,
+      [runId],
+    )
+    expect(totalDecs!.cnt).toBe(analysisDecs!.cnt + planningDecs!.cnt + solutioningDecs!.cnt)
   })
 
   it('artifacts from all three phases are registered under the same run', async () => {
@@ -709,9 +715,10 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
       { runId },
     )
 
-    const artifacts = db
-      .prepare(`SELECT phase, type FROM artifacts WHERE pipeline_run_id = ? ORDER BY phase, type`)
-      .all(runId) as Array<{ phase: string; type: string }>
+    const artifacts = await adapter.query<{ phase: string; type: string }>(
+      `SELECT phase, type FROM artifacts WHERE pipeline_run_id = ? ORDER BY phase, type`,
+      [runId],
+    )
 
     const artifactKeys = artifacts.map((a) => `${a.phase}/${a.type}`)
     expect(artifactKeys).toContain('analysis/product-brief')
@@ -747,17 +754,19 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
       { runId },
     )
 
-    const planningReqs = db
-      .prepare(`SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'planning-phase'`)
-      .get(runId) as { cnt: number }
-    const solutioningReqs = db
-      .prepare(`SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`)
-      .get(runId) as { cnt: number }
+    const [planningReqs] = await adapter.query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'planning-phase'`,
+      [runId],
+    )
+    const [solutioningReqs] = await adapter.query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
+      [runId],
+    )
 
     // Planning creates 3 FRs + 2 NFRs = 5
-    expect(planningReqs.cnt).toBe(5)
+    expect(planningReqs!.cnt).toBe(5)
     // Solutioning creates one requirement per story (3 stories)
-    expect(solutioningReqs.cnt).toBe(3)
+    expect(solutioningReqs!.cnt).toBe(3)
   })
 })
 
@@ -1039,8 +1048,7 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
   })
 
   it('buildPipelineStatusOutput correctly sums token usage from multiple phases', async () => {
-    const db2 = new Database(':memory:')
-    const adapter2 = new SyncDatabaseAdapter(db2)
+    const adapter2 = await createWasmSqliteAdapter()
     await initSchema(adapter2)
 
     const run = await createPipelineRun(adapter2, {
@@ -1073,7 +1081,7 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
     expect(result.phases.solutioning.status).toBe('running')
     expect(result.phases.implementation.status).toBe('pending')
 
-    db2.close()
+    await adapter2.close()
   })
 })
 

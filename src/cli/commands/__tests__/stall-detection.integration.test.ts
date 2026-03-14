@@ -30,16 +30,38 @@ import type { SupervisorOptions, SupervisorDeps } from '../supervisor.js'
 // Module mocks (same pattern as other health tests)
 // ---------------------------------------------------------------------------
 
+const { mockAdapterHolder } = vi.hoisted(() => {
+  const mockAdapterHolder: { current: DatabaseAdapter | null } = { current: null }
+  return { mockAdapterHolder }
+})
+
 vi.mock('../../../persistence/database.js', () => {
-  let mockAdapter: DatabaseAdapter | null = null
   return {
     DatabaseWrapper: class {
       open() { /* noop */ }
       close() { /* noop */ }
-      get adapter() { return mockAdapter! }
+      get adapter() { return mockAdapterHolder.current! }
       get isOpen() { return true }
     },
-    __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
+    __setMockAdapter: (a: unknown) => { mockAdapterHolder.current = a as DatabaseAdapter },
+  }
+})
+
+vi.mock('../../../persistence/adapter.js', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>
+  return {
+    ...actual,
+    createDatabaseAdapter: () => {
+      if (!mockAdapterHolder.current) throw new Error('Mock adapter not set — call __setMockAdapter first')
+      // Return a proxy that ignores close() so getAutoHealthData's finally block
+      // doesn't destroy the shared test adapter between assertions.
+      return new Proxy(mockAdapterHolder.current, {
+        get(target, prop) {
+          if (prop === 'close') return async () => { /* no-op */ }
+          return (target as unknown as Record<string | symbol, unknown>)[prop]
+        },
+      })
+    },
   }
 })
 
