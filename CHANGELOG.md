@@ -1,13 +1,13 @@
 # Changelog
 
-## [Unreleased] — v0.4.x
+## [0.5.0] — 2026-03-14
 
-### Breaking: Full SQLite removal — better-sqlite3 removed (Epic 29, Story 29-8)
+### Breaking: Full SQLite removal — better-sqlite3 removed (Epic 29)
 
-`better-sqlite3` and `@types/better-sqlite3` have been completely removed from `package.json` (both `dependencies` and `devDependencies`). The `SqliteDatabaseAdapter` class (`src/persistence/sqlite-adapter.ts`) and all 11 SQLite migration files (`src/persistence/migrations/`) have also been deleted.
+`better-sqlite3` and `@types/better-sqlite3` have been completely removed from the project. The `SqliteDatabaseAdapter`, `LegacySqliteAdapter`, all 11 SQLite migration files, and the WASM mock infrastructure have been deleted. The `backend: 'sqlite'` config option no longer exists.
 
 **Who is affected:**
-- Developers who call `createDatabaseAdapter({ backend: 'sqlite', ... })` directly — the sqlite backend now requires better-sqlite3 to be installed separately (not recommended; use `'auto'` or `'dolt'` instead)
+- Developers who called `createDatabaseAdapter({ backend: 'sqlite', ... })` — this backend has been removed entirely. Use `'auto'` or `'dolt'` instead.
 - Users of `substrate monitor` and `substrate metrics` who relied on reading historical `.db` SQLite files — these commands now use Dolt (when available) or in-memory storage
 - Any code importing from `src/persistence/sqlite-adapter.ts` or `src/persistence/migrations/` — these files are deleted
 
