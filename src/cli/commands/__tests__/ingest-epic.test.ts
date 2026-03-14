@@ -42,6 +42,7 @@ const {
   mockAdapterTransaction,
   mockAdapterClose,
   mockCreateDatabaseAdapter,
+  mockIngest,
 } = vi.hoisted(() => {
   const mockAdapterExec = vi.fn().mockResolvedValue(undefined)
   const mockAdapterClose = vi.fn().mockResolvedValue(undefined)
@@ -66,6 +67,8 @@ const {
     close: mockAdapterClose,
   }))
 
+  const mockIngest = vi.fn()
+
   return {
     mockExistsSync: vi.fn<() => boolean>(),
     mockReadFileSync: vi.fn<() => string>(),
@@ -74,6 +77,7 @@ const {
     mockAdapterTransaction,
     mockAdapterClose,
     mockCreateDatabaseAdapter,
+    mockIngest,
   }
 })
 
@@ -88,6 +92,8 @@ vi.mock('../../../persistence/adapter.js', () => ({
 
 // Import after mocks are set up
 import { registerIngestEpicCommand } from '../ingest-epic.js'
+import { CyclicDependencyError } from '../../../modules/work-graph/errors.js'
+import { EpicIngester } from '../../../modules/work-graph/epic-ingester.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -213,6 +219,25 @@ This section exists but has no valid story lines.
 
     const errOutput = stderrSpy.mock.calls.map((c) => String(c[0])).join('')
     expect(errOutput).toContain('Error:')
+    process.exitCode = 0
+  })
+
+  // -------------------------------------------------------------------------
+  // AC7: Cyclic dependency error
+  // -------------------------------------------------------------------------
+
+  it('exits 1 and prints "Cyclic dependency detected" to stderr when ingester throws CyclicDependencyError', async () => {
+    vi.spyOn(EpicIngester.prototype, 'ingest').mockRejectedValueOnce(
+      new CyclicDependencyError(['31-A', '31-B', '31-A']),
+    )
+
+    const program = createProgram()
+    await program.parseAsync(['node', 'substrate', 'ingest-epic', 'epic-31.md'])
+
+    expect(process.exitCode).toBe(1)
+
+    const errOutput = stderrSpy.mock.calls.map((c) => String(c[0])).join('')
+    expect(errOutput).toContain('Cyclic dependency detected')
     process.exitCode = 0
   })
 

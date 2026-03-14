@@ -13,21 +13,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Mocks — all declared before imports (vitest hoisting)
 // ---------------------------------------------------------------------------
 
-const mockOpen = vi.fn()
-const mockClose = vi.fn()
-let mockDb: Record<string, unknown> = {}
+// Mock DatabaseAdapter (replaces legacy DatabaseWrapper mock)
+const mockAdapter = {
+  query: vi.fn().mockResolvedValue([]),
+  exec: vi.fn().mockResolvedValue(undefined),
+  transaction: vi.fn(),
+  close: vi.fn().mockResolvedValue(undefined),
+  queryReadyStories: vi.fn().mockResolvedValue([]),
+}
 
-vi.mock('../../../persistence/database.js', () => ({
-  DatabaseWrapper: vi.fn(() => ({
-    open: mockOpen,
-    close: mockClose,
-    get db() {
-      return mockDb
-    },
-    get isOpen() {
-      return true
-    },
-  })),
+vi.mock('../../../persistence/adapter.js', () => ({
+  createDatabaseAdapter: vi.fn(() => mockAdapter),
+}))
+
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Mock phase detection — default to implementation (legacy behavior)
@@ -85,6 +85,7 @@ vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
     getStatus: vi.fn(),
   })),
   discoverPendingStoryKeys: (...args: unknown[]) => mockDiscoverPendingStoryKeys(...args),
+  resolveStoryKeys: vi.fn().mockResolvedValue([]),
 }))
 
 const mockCreatePipelineRun = vi.fn()
@@ -135,6 +136,7 @@ vi.mock('fs', () => ({
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
   writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
   unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
+  readFileSync: vi.fn().mockImplementation(() => { throw new Error('ENOENT') }),
 }))
 
 const mockReadFile = vi.fn()
@@ -162,6 +164,44 @@ vi.mock('../../../modules/stop-after/index.js', () => ({
   createStopAfterGate: vi.fn(() => ({ shouldHalt: () => false })),
   validateStopAfterFromConflict: vi.fn(() => ({ valid: true })),
   formatPhaseCompletionSummary: vi.fn(() => ''),
+}))
+
+// Mock routing module — createWithFallback returns a no-op resolver
+vi.mock('../../../modules/routing/index.js', () => ({
+  RoutingResolver: {
+    createWithFallback: vi.fn(() => ({ resolveModel: vi.fn(() => null) })),
+  },
+  RoutingTokenAccumulator: vi.fn(),
+  RoutingTelemetry: vi.fn(),
+  RoutingTuner: vi.fn(),
+  RoutingRecommender: vi.fn(),
+  loadModelRoutingConfig: vi.fn(() => { throw new Error('not found') }),
+}))
+
+// Mock config system — returns empty config with no token ceilings
+vi.mock('../../../modules/config/config-system-impl.js', () => ({
+  createConfigSystem: vi.fn(() => ({
+    load: vi.fn().mockResolvedValue(undefined),
+    getConfig: vi.fn(() => ({})),
+  })),
+}))
+
+// Mock metrics queries used by run.ts
+vi.mock('../../../persistence/queries/metrics.js', () => ({
+  writeRunMetrics: vi.fn().mockResolvedValue(undefined),
+  getStoryMetricsForRun: vi.fn().mockReturnValue([]),
+  aggregateTokenUsageForRun: vi.fn().mockReturnValue({ input: 0, output: 0 }),
+}))
+
+// Mock logger
+vi.mock('../../../utils/logger.js', () => ({
+  createLogger: vi.fn(() => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() })),
+  })),
 }))
 
 // ---------------------------------------------------------------------------
@@ -245,12 +285,6 @@ describe('AC8: story:metrics NDJSON wire format in --events mode', () => {
     mockOrchestratorRun.mockResolvedValue(defaultStatus)
     mockGetTokenUsageSummary.mockReturnValue([])
     mockDiscoverPendingStoryKeys.mockReturnValue([])
-
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-    })
-    mockDb = { prepare: mockPrepare }
   })
 
   afterEach(() => {

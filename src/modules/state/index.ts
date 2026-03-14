@@ -29,8 +29,9 @@ export type {
   WgStoryStatus,
 } from './types.js'
 
-// Re-export WorkGraphRepository.
+// Re-export WorkGraphRepository and BlockedStoryInfo.
 export { WorkGraphRepository } from './work-graph-repository.js'
+export type { BlockedStoryInfo } from './work-graph-repository.js'
 
 // Re-export the FileStateStore class.
 export { FileStateStore } from './file-store.js'

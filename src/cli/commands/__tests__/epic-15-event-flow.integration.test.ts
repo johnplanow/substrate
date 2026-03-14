@@ -24,22 +24,25 @@ import { PassThrough } from 'node:stream'
 // Mocks — all declared before imports (vitest hoisting)
 // ---------------------------------------------------------------------------
 
-// Mock DatabaseWrapper
-const mockOpen = vi.fn()
-const mockClose = vi.fn()
-let mockDb: Record<string, unknown> = {}
+// Mock DatabaseAdapter (replaces legacy DatabaseWrapper mock)
+const mockAdapterQuery = vi.fn().mockResolvedValue([])
+const mockAdapterExec = vi.fn().mockResolvedValue(undefined)
+const mockAdapterClose = vi.fn().mockResolvedValue(undefined)
+const mockAdapterQueryReadyStories = vi.fn().mockResolvedValue([])
+const mockAdapter = {
+  query: mockAdapterQuery,
+  exec: mockAdapterExec,
+  transaction: vi.fn(),
+  close: mockAdapterClose,
+  queryReadyStories: mockAdapterQueryReadyStories,
+}
 
-vi.mock('../../../persistence/database.js', () => ({
-  DatabaseWrapper: vi.fn(() => ({
-    open: mockOpen,
-    close: mockClose,
-    get db() {
-      return mockDb
-    },
-    get isOpen() {
-      return true
-    },
-  })),
+vi.mock('../../../persistence/adapter.js', () => ({
+  createDatabaseAdapter: vi.fn(() => mockAdapter),
+}))
+
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Mock phase detection — default to implementation (legacy behavior)
@@ -97,6 +100,7 @@ vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
     getStatus: vi.fn(),
   })),
   discoverPendingStoryKeys: (...args: unknown[]) => mockDiscoverPendingStoryKeys(...args),
+  resolveStoryKeys: vi.fn().mockResolvedValue([]),
 }))
 
 const mockCreatePipelineRun = vi.fn()
@@ -141,10 +145,16 @@ vi.mock('../../../core/event-bus.js', () => ({
 const mockExistsSync = vi.fn()
 const mockMkdirSync = vi.fn()
 const mockCpSync = vi.fn()
+const mockWriteFileSync = vi.fn()
+const mockUnlinkSync = vi.fn()
+const mockReadFileSync = vi.fn().mockImplementation(() => { throw new Error('ENOENT') })
 vi.mock('fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
   cpSync: (...args: unknown[]) => mockCpSync(...args),
+  writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+  unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
+  readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
 }))
 
 const mockReadFile = vi.fn()
@@ -175,6 +185,44 @@ vi.mock('../../../modules/stop-after/index.js', () => ({
   createStopAfterGate: vi.fn(() => ({ shouldHalt: () => false })),
   validateStopAfterFromConflict: vi.fn(() => ({ valid: true })),
   formatPhaseCompletionSummary: vi.fn(() => ''),
+}))
+
+// Mock routing module — createWithFallback returns a no-op resolver
+vi.mock('../../../modules/routing/index.js', () => ({
+  RoutingResolver: {
+    createWithFallback: vi.fn(() => ({ resolveModel: vi.fn(() => null) })),
+  },
+  RoutingTokenAccumulator: vi.fn(),
+  RoutingTelemetry: vi.fn(),
+  RoutingTuner: vi.fn(),
+  RoutingRecommender: vi.fn(),
+  loadModelRoutingConfig: vi.fn(() => { throw new Error('not found') }),
+}))
+
+// Mock config system — returns empty config with no token ceilings
+vi.mock('../../../modules/config/config-system-impl.js', () => ({
+  createConfigSystem: vi.fn(() => ({
+    load: vi.fn().mockResolvedValue(undefined),
+    getConfig: vi.fn(() => ({})),
+  })),
+}))
+
+// Mock metrics queries used by run.ts
+vi.mock('../../../persistence/queries/metrics.js', () => ({
+  writeRunMetrics: vi.fn().mockResolvedValue(undefined),
+  getStoryMetricsForRun: vi.fn().mockReturnValue([]),
+  aggregateTokenUsageForRun: vi.fn().mockReturnValue({ input: 0, output: 0 }),
+}))
+
+// Mock logger
+vi.mock('../../../utils/logger.js', () => ({
+  createLogger: vi.fn(() => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() })),
+  })),
 }))
 
 // ---------------------------------------------------------------------------
@@ -273,11 +321,7 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
     mockGetTokenUsageSummary.mockReturnValue([])
     mockDiscoverPendingStoryKeys.mockReturnValue([])
 
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-    })
-    mockDb = { prepare: mockPrepare }
+    // Adapter mock is already configured at module level
   })
 
   afterEach(() => {
@@ -501,11 +545,7 @@ describe('GAP-2: Flag mutual exclusion — --events blocks progressRenderer', ()
     mockGetTokenUsageSummary.mockReturnValue([])
     mockDiscoverPendingStoryKeys.mockReturnValue([])
 
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-    })
-    mockDb = { prepare: mockPrepare }
+    // Adapter mock is already configured at module level
   })
 
   afterEach(() => {
@@ -677,11 +717,7 @@ describe('GAP-4: Internal phase name -> event protocol phase mapping', () => {
     mockGetTokenUsageSummary.mockReturnValue([])
     mockDiscoverPendingStoryKeys.mockReturnValue([])
 
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-    })
-    mockDb = { prepare: mockPrepare }
+    // Adapter mock is already configured at module level
   })
 
   afterEach(() => {
@@ -794,11 +830,7 @@ describe('GAP-5: --verbose flag sets LOG_LEVEL', () => {
     mockGetTokenUsageSummary.mockReturnValue([])
     mockDiscoverPendingStoryKeys.mockReturnValue([])
 
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-    })
-    mockDb = { prepare: mockPrepare }
+    // Adapter mock is already configured at module level
   })
 
   afterEach(() => {
@@ -882,11 +914,7 @@ describe('GAP-6: pipeline:complete NDJSON carries correct story outcome arrays',
     mockGetTokenUsageSummary.mockReturnValue([])
     mockDiscoverPendingStoryKeys.mockReturnValue([])
 
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-    })
-    mockDb = { prepare: mockPrepare }
+    // Adapter mock is already configured at module level
   })
 
   afterEach(() => {
@@ -1010,11 +1038,7 @@ describe('GAP-7: progressRenderer only active in default human mode', () => {
     mockGetTokenUsageSummary.mockReturnValue([])
     mockDiscoverPendingStoryKeys.mockReturnValue([])
 
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-    })
-    mockDb = { prepare: mockPrepare }
+    // Adapter mock is already configured at module level
   })
 
   afterEach(() => {
@@ -1092,11 +1116,7 @@ describe('GAP-8: TUI not started when --events is active', () => {
     mockGetTokenUsageSummary.mockReturnValue([])
     mockDiscoverPendingStoryKeys.mockReturnValue([])
 
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-    })
-    mockDb = { prepare: mockPrepare }
+    // Adapter mock is already configured at module level
   })
 
   afterEach(() => {
@@ -1165,12 +1185,7 @@ describe('CLAUDE.md scaffold is called from runAutoInit (not runRunAction)', () 
     mockRequireResolve.mockReturnValue('/fake/node_modules/bmad-method/package.json')
     mockRequireCall.mockReturnValue({ version: '6.0.3' })
 
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-      run: vi.fn(),
-    })
-    mockDb = { prepare: mockPrepare }
+    // Adapter mock is already configured at module level
   })
 
   afterEach(() => {
@@ -1222,11 +1237,7 @@ describe('Story 16-7: Heartbeat and stall NDJSON event wiring (--events mode)', 
     mockGetTokenUsageSummary.mockReturnValue([])
     mockDiscoverPendingStoryKeys.mockReturnValue([])
 
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-    })
-    mockDb = { prepare: mockPrepare }
+    // Adapter mock is already configured at module level
   })
 
   afterEach(() => {
@@ -1385,11 +1396,7 @@ describe('Story 24-3: interface-change-warning NDJSON event', () => {
     mockGetTokenUsageSummary.mockReturnValue([])
     mockDiscoverPendingStoryKeys.mockReturnValue([])
 
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-    })
-    mockDb = { prepare: mockPrepare }
+    // Adapter mock is already configured at module level
   })
 
   afterEach(() => {

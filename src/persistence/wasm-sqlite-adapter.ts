@@ -115,6 +115,14 @@ export class WasmSqliteDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
     this._db.close()
     this._db = null
   }
+
+  /**
+   * Work graph not supported in WasmSqliteDatabaseAdapter.
+   * Returns `[]` to signal the caller to use the legacy discovery path.
+   */
+  async queryReadyStories(): Promise<string[]> {
+    return []
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +217,14 @@ export class SyncDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
 
   async close(): Promise<void> {
     // No-op — caller manages database lifecycle
+  }
+
+  /**
+   * Work graph not supported in SyncDatabaseAdapter.
+   * Returns `[]` to signal the caller to use the legacy discovery path.
+   */
+  async queryReadyStories(): Promise<string[]> {
+    return []
   }
 }
 

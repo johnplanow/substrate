@@ -51,8 +51,8 @@ import { computeStoryComplexity, resolveFixStoryMaxTurns, logComplexityResult } 
 import { parseInterfaceContracts } from '../compiled-workflows/interface-contracts.js'
 import { verifyContracts } from './contract-verifier.js'
 import type { ContractMismatch } from './types.js'
-import type { StateStore, StoryRecord, ContractRecord, ContractVerificationRecord } from '../state/index.js'
-import { DoltMergeConflict } from '../state/index.js'
+import type { StateStore, StoryRecord, ContractRecord, ContractVerificationRecord, WgStoryStatus } from '../state/index.js'
+import { DoltMergeConflict, WorkGraphRepository } from '../state/index.js'
 import type { ITelemetryPersistence } from '../telemetry/index.js'
 import { EfficiencyScorer, Categorizer, ConsumerAnalyzer, TelemetryNormalizer, TurnAnalyzer, LogTurnAnalyzer, Recommender } from '../telemetry/index.js'
 import type { IngestionServer } from '../telemetry/ingestion-server.js'
@@ -143,6 +143,31 @@ function buildTargetedFilesContent(issueList: unknown[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// wgStatusForPhase — work-graph status mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a StoryPhase to the corresponding WgStoryStatus for wg_stories writes.
+ * Returns null for PENDING (no write needed).
+ */
+function wgStatusForPhase(phase: StoryPhase): WgStoryStatus | null {
+  switch (phase) {
+    case 'PENDING':
+      return null
+    case 'IN_STORY_CREATION':
+    case 'IN_TEST_PLANNING':
+    case 'IN_DEV':
+    case 'IN_REVIEW':
+    case 'NEEDS_FIXES':
+      return 'in_progress'
+    case 'COMPLETE':
+      return 'complete'
+    case 'ESCALATED':
+      return 'escalated'
+  }
+}
+
+// ---------------------------------------------------------------------------
 // createImplementationOrchestrator
 // ---------------------------------------------------------------------------
 
@@ -159,6 +184,10 @@ export function createImplementationOrchestrator(
   const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer, repoMapInjector, maxRepoMapTokens } = deps
 
   const logger = createLogger('implementation-orchestrator')
+
+  // -- work-graph repository (best-effort wg_stories updates) --
+  const wgRepo = new WorkGraphRepository(db)
+  const _wgInProgressWritten = new Set<string>()
 
   // -- mutable orchestrator state --
 
@@ -499,6 +528,29 @@ export function createImplementationOrchestrator(
         void stateStore?.rollbackStory(storyKey).catch((err: unknown) =>
           logger.warn({ err, storyKey }, 'rollbackStory failed — branch may persist'),
         )
+      }
+      // wg_stories status update: fire-and-forget (AC5).
+      if (updates.phase !== undefined) {
+        const targetStatus = wgStatusForPhase(updates.phase)
+        if (targetStatus !== null) {
+          if (targetStatus === 'in_progress' && _wgInProgressWritten.has(storyKey)) {
+            // Dedup: skip redundant in_progress write (AC7)
+          } else {
+            const fullUpdated = { ...existing, ...updates }
+            const opts =
+              targetStatus === 'complete' || targetStatus === 'escalated'
+                ? { completedAt: fullUpdated.completedAt }
+                : undefined
+            void wgRepo
+              .updateStoryStatus(storyKey, targetStatus, opts)
+              .catch((err: unknown) =>
+                logger.warn({ err, storyKey }, 'wg_stories status update failed (best-effort)'),
+              )
+            if (targetStatus === 'in_progress') {
+              _wgInProgressWritten.add(storyKey)
+            }
+          }
+        }
       }
     }
   }
@@ -2239,6 +2291,11 @@ export function createImplementationOrchestrator(
           'Contract dependency edges detected — applying contract-aware dispatch ordering',
         )
       }
+
+      // Story 31-6: Persist contract dep edges to story_dependencies (fire-and-forget, non-fatal).
+      wgRepo.addContractDependencies(contractEdges).catch((err: unknown) =>
+        logger.warn({ err }, 'contract dep persistence failed (best-effort)')
+      )
 
       logger.info({
         storyCount: storyKeys.length,

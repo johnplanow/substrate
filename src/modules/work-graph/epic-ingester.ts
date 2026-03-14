@@ -9,6 +9,8 @@
 
 import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import type { ParsedStory, ParsedDependency } from './epic-parser.js'
+import { detectCycles } from './cycle-detector.js'
+import { CyclicDependencyError } from './errors.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,6 +45,13 @@ export class EpicIngester {
    * @returns `IngestResult` with counts of affected rows.
    */
   async ingest(stories: ParsedStory[], dependencies: ParsedDependency[]): Promise<IngestResult> {
+    // Fail-fast cycle check BEFORE opening a transaction — ensures zero DB
+    // side-effects when cycles are present (AC6).
+    const cycle = detectCycles(dependencies)
+    if (cycle !== null) {
+      throw new CyclicDependencyError(cycle)
+    }
+
     return this.adapter.transaction(async (tx) => {
       let storiesUpserted = 0
 

@@ -32,7 +32,7 @@ Using the context above, write a complete, implementation-ready story file for s
    - Dev Notes with file paths, import patterns, testing requirements
 5. **Apply the scope cap** — see Scope Cap Guidance below
 6. **Write the story file** to: `_bmad-output/implementation-artifacts/{{story_key}}-<kebab-title>.md`
-   - Status must be: `ready-for-dev`
+   - Do NOT add a `Status:` field to the story file — story status is managed exclusively by the Dolt work graph (`wg_stories` table)
    - Dev Agent Record section must be present but left blank (to be filled by dev agent)
 
 ## Interface Contracts Guidance

@@ -6,8 +6,9 @@
  *   - parseStoryKeysFromEpics: Extract N-M story keys from epics.md content
  *   - discoverPendingStoryKeys: Diff epics.md against existing story files
  *
- * resolveStoryKeys implements a 4-level fallback chain:
+ * resolveStoryKeys implements a 5-level fallback chain:
  *   1. Explicit --stories flag (if provided)
+ *   1.5. ready_stories SQL view (if work graph is populated; story 31-3)
  *   2. Decisions table: category='stories', phase='solutioning'
  *   3. Epic shard decisions: parse story keys from epic-shard decision values
  *   4. epics.md file on disk (via discoverPendingStoryKeys)
@@ -35,9 +36,10 @@ export interface ResolveStoryKeysOptions {
 }
 
 /**
- * Unified story key resolution with a 4-level fallback chain.
+ * Unified story key resolution with a 5-level fallback chain.
  *
  * 1. Explicit keys (from --stories flag) — returned as-is
+ * 1.5. ready_stories SQL view — when work graph is populated (story 31-3)
  * 2. Decisions table (category='stories', phase='solutioning')
  * 3. Epic shard decisions (category='epic-shard') — parsed with parseStoryKeysFromEpics
  * 4. epics.md file on disk (via discoverPendingStoryKeys)
@@ -57,6 +59,24 @@ export async function resolveStoryKeys(
   }
 
   let keys: string[] = []
+
+  // Level 1.5: ready_stories SQL view — when work graph is populated (story 31-3)
+  // If the view returns results, use those and skip Levels 2-4.
+  const readyKeys = await db.queryReadyStories()
+  if (readyKeys.length > 0) {
+    // Apply epic scope filter if requested
+    let filteredKeys = readyKeys
+    if (opts?.epicNumber !== undefined) {
+      const prefix = `${opts.epicNumber}-`
+      filteredKeys = filteredKeys.filter((k) => k.startsWith(prefix))
+    }
+    // Apply completed filter if requested
+    if (opts?.filterCompleted === true && filteredKeys.length > 0) {
+      const completedKeys = await getCompletedStoryKeys(db)
+      filteredKeys = filteredKeys.filter((k) => !completedKeys.has(k))
+    }
+    return sortStoryKeys([...new Set(filteredKeys)])
+  }
 
   // Level 2: Decisions table — category='stories', phase='solutioning'
   // This is where solutioning.ts stores each story with its key directly.

@@ -62,6 +62,14 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter {
     this._tables.clear()
   }
 
+  /**
+   * Work graph not supported in InMemoryDatabaseAdapter.
+   * Returns `[]` to signal the caller to use the legacy discovery path.
+   */
+  async queryReadyStories(): Promise<string[]> {
+    return []
+  }
+
   // -------------------------------------------------------------------------
   // SQL execution dispatcher
   // -------------------------------------------------------------------------

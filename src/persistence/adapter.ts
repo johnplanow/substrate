@@ -71,6 +71,23 @@ export interface DatabaseAdapter {
    * Close the database connection and release all resources.
    */
   close(): Promise<void>
+
+  /**
+   * Query story keys from the `ready_stories` SQL view.
+   *
+   * Returns an array of story key strings (e.g. ['31-1', '31-2']) for stories
+   * whose status is `planned` or `ready` and whose hard dependencies are all
+   * `complete` in the work graph.
+   *
+   * Returns `[]` when:
+   *   - The `ready_stories` view does not exist (story 31-1 schema not applied)
+   *   - The `stories` table is empty (story 31-2 ingestion has not run)
+   *   - The adapter does not support the work graph (InMemory, WasmSqlite)
+   *
+   * Callers should treat `[]` as a signal to fall through to the legacy
+   * story discovery chain (decisions table → epic-shard → epics.md).
+   */
+  queryReadyStories(): Promise<string[]>
 }
 
 // ---------------------------------------------------------------------------

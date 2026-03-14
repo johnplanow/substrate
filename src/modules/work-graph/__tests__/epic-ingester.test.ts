@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { EpicIngester } from '../epic-ingester.js'
+import { CyclicDependencyError } from '../errors.js'
 import { CREATE_STORIES_TABLE, CREATE_STORY_DEPENDENCIES_TABLE } from '../schema.js'
 import type { ParsedStory, ParsedDependency } from '../epic-parser.js'
 
@@ -232,6 +233,52 @@ describe('EpicIngester', () => {
 
       const rows = await queryAllStories(adapter)
       expect(rows[0]?.['status']).toBe('done')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // AC6: Cycle detection
+  // -------------------------------------------------------------------------
+
+  describe('cycle detection', () => {
+    it('throws CyclicDependencyError when dependencies contain a cycle', async () => {
+      const ingester = new EpicIngester(adapter)
+      const cyclicDeps: ParsedDependency[] = [
+        { story_key: '31-A', depends_on: '31-B', dependency_type: 'blocks', source: 'explicit' },
+        { story_key: '31-B', depends_on: '31-A', dependency_type: 'blocks', source: 'explicit' },
+      ]
+      await expect(ingester.ingest([STORY_31_1], cyclicDeps)).rejects.toThrow(CyclicDependencyError)
+    })
+
+    it('CyclicDependencyError message contains "Cyclic dependency detected"', async () => {
+      const ingester = new EpicIngester(adapter)
+      const cyclicDeps: ParsedDependency[] = [
+        { story_key: '31-A', depends_on: '31-B', dependency_type: 'blocks', source: 'explicit' },
+        { story_key: '31-B', depends_on: '31-A', dependency_type: 'blocks', source: 'explicit' },
+      ]
+      await expect(ingester.ingest([STORY_31_1], cyclicDeps)).rejects.toThrow(
+        'Cyclic dependency detected',
+      )
+    })
+
+    it('no DB rows are written when a cyclic dep set is passed (AC6)', async () => {
+      const txSpy = vi.spyOn(adapter, 'transaction')
+      const ingester = new EpicIngester(adapter)
+      const cyclicDeps: ParsedDependency[] = [
+        { story_key: '31-A', depends_on: '31-B', dependency_type: 'blocks', source: 'explicit' },
+        { story_key: '31-B', depends_on: '31-A', dependency_type: 'blocks', source: 'explicit' },
+      ]
+
+      await expect(ingester.ingest([STORY_31_1], cyclicDeps)).rejects.toThrow(CyclicDependencyError)
+
+      // transaction() must never have been called
+      expect(txSpy).not.toHaveBeenCalled()
+
+      // DB must be empty
+      const storiesRows = await queryAllStories(adapter)
+      const depsRows = await queryAllDeps(adapter)
+      expect(storiesRows).toHaveLength(0)
+      expect(depsRows).toHaveLength(0)
     })
   })
 

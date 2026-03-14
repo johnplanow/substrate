@@ -26,6 +26,7 @@ import type { ContextTemplate } from '../context-compiler/types.js'
 import { getProjectFindings } from '../implementation-orchestrator/project-findings.js'
 import { getTokenCeiling } from './token-ceiling.js'
 import { computeStoryComplexity, resolveDevStoryMaxTurns, logComplexityResult } from './story-complexity.js'
+import { stripDeprecatedStatusField, detectDeprecatedStatusField } from '../work-graph/index.js'
 
 const logger = createLogger('compiled-workflows:dev-story')
 
@@ -148,7 +149,20 @@ export async function runDevStory(
   }
 
   // ---------------------------------------------------------------------------
-  // Step 2b: Compute story complexity for dynamic turn limit scaling (Story 24-6)
+  // Step 2b: Strip deprecated Status field before prompt assembly (Story 31-8)
+  // ---------------------------------------------------------------------------
+
+  const staleStatus = detectDeprecatedStatusField(storyContent)
+  if (staleStatus !== null) {
+    logger.warn(
+      { storyFilePath, staleStatus },
+      'Story spec contains deprecated Status field — stripped before dispatch (status is managed by Dolt work graph)',
+    )
+    storyContent = stripDeprecatedStatusField(storyContent)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 2c: Compute story complexity for dynamic turn limit scaling (Story 24-6)
   // ---------------------------------------------------------------------------
 
   const complexity = computeStoryComplexity(storyContent)

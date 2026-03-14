@@ -135,7 +135,7 @@ function makePack(template: string = 'Epic: {{epic_shard}}\nPrev: {{prev_dev_not
     getPhases: vi.fn().mockReturnValue([]),
     getPrompt: vi.fn().mockResolvedValue(template),
     getConstraints: vi.fn().mockResolvedValue([]),
-    getTemplate: vi.fn().mockResolvedValue('# Story Template\n\nStatus: draft\n\n## Story\n\n## Acceptance Criteria\n\n## Tasks / Subtasks\n\n## Dev Notes\n\n## Dev Agent Record'),
+    getTemplate: vi.fn().mockResolvedValue('# Story Template\n\n## Story\n\n## Acceptance Criteria\n\n## Tasks / Subtasks\n\n## Dev Notes\n\n## Dev Agent Record'),
   }
 }
 

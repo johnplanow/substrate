@@ -1044,7 +1044,9 @@ describe('runDevStory', () => {
 
       await runDevStory(deps, DEFAULT_PARAMS)
 
-      expect(mockBuildContext).toHaveBeenCalledWith(STORY_CONTENT, 2000)
+      // Story 31-8: Status field is stripped before buildContext is called,
+      // so we match on any string content rather than the raw STORY_CONTENT.
+      expect(mockBuildContext).toHaveBeenCalledWith(expect.any(String), 2000)
     })
 
     it('passes maxRepoMapTokens to buildContext when provided in deps', async () => {
@@ -1062,7 +1064,9 @@ describe('runDevStory', () => {
 
       await runDevStory(deps, DEFAULT_PARAMS)
 
-      expect(mockBuildContext).toHaveBeenCalledWith(STORY_CONTENT, 1500)
+      // Story 31-8: Status field is stripped before buildContext is called,
+      // so we match on any string content rather than the raw STORY_CONTENT.
+      expect(mockBuildContext).toHaveBeenCalledWith(expect.any(String), 1500)
     })
 
     it('emits info log with storyKey, symbolCount, truncated, repoMapTokens when repoMapInjector is set', async () => {
@@ -1109,6 +1113,71 @@ describe('runDevStory', () => {
       expect(mockLogger.info).not.toHaveBeenCalledWith(
         expect.anything(),
         'Repo-map context assembled',
+      )
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // AC4/AC5 (31-8): deprecated Status field stripping
+  // -------------------------------------------------------------------------
+
+  describe('AC4/AC5 (31-8): deprecated Status field stripping', () => {
+    it('strips Status field from story content before passing to buildContext (AC4)', async () => {
+      // STORY_CONTENT contains 'Status: draft' — verify it is stripped before buildContext receives it
+      const mockBuildContext = vi.fn().mockResolvedValue({ text: '', symbolCount: 0, truncated: false })
+      const deps = createMockDeps({
+        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+      })
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(createSuccessDispatchResult()),
+      })
+
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(mockBuildContext).toHaveBeenCalledOnce()
+      const [contentArg] = mockBuildContext.mock.calls[0] as [string, number]
+      expect(contentArg).not.toContain('Status:')
+      expect(contentArg).toContain('## Story') // other content is preserved
+    })
+
+    it('emits WARN log with storyFilePath and staleStatus when spec contains deprecated Status field (AC5)', async () => {
+      // STORY_CONTENT contains 'Status: draft' — warn should fire with the stale value
+      const deps = createMockDeps()
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(createSuccessDispatchResult()),
+      })
+
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        { storyFilePath: DEFAULT_PARAMS.storyFilePath, staleStatus: 'draft' },
+        expect.stringContaining('deprecated Status field'),
+      )
+    })
+
+    it('does not emit Status-field WARN log when spec has no Status line', async () => {
+      const contentWithoutStatus = STORY_CONTENT.replace(/^Status:[^\n]*\n(\n)?/m, '')
+      mockReadFile.mockResolvedValue(contentWithoutStatus as unknown as string)
+
+      const deps = createMockDeps()
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(createSuccessDispatchResult()),
+      })
+
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        expect.objectContaining({ staleStatus: expect.anything() }),
+        expect.anything(),
       )
     })
   })

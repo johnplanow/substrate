@@ -42,24 +42,42 @@ vi.mock('fs', async (importOriginal) => {
   }
 })
 
-// Mock DatabaseWrapper to provide minimal pipeline run data
-const mockDbPrepare = vi.fn()
-const mockDb = {
-  prepare: mockDbPrepare,
-  close: vi.fn(),
+// Mock DatabaseAdapter — replaces legacy DatabaseWrapper mock
+const mockAdapterQuery = vi.fn().mockResolvedValue([])
+const mockAdapterExec = vi.fn().mockResolvedValue(undefined)
+const mockAdapterClose = vi.fn().mockResolvedValue(undefined)
+const mockAdapterQueryReadyStories = vi.fn().mockResolvedValue([])
+const mockAdapterObj = {
+  query: mockAdapterQuery,
+  exec: mockAdapterExec,
+  transaction: vi.fn(),
+  close: mockAdapterClose,
+  queryReadyStories: mockAdapterQueryReadyStories,
 }
 
-vi.mock('../../../persistence/database.js', () => ({
-  DatabaseWrapper: class {
-    db = mockDb
-    open() { /* noop */ }
-    close() { /* noop */ }
-  },
+vi.mock('../../../persistence/adapter.js', () => ({
+  createDatabaseAdapter: vi.fn(() => mockAdapterObj),
 }))
+
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: vi.fn().mockResolvedValue(undefined),
+}))
+
+// Mock WorkGraphRepository used by status.ts
+vi.mock('../../../modules/state/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../modules/state/index.js')>()
+  return {
+    ...actual,
+    WorkGraphRepository: vi.fn(() => ({
+      getReadyStories: vi.fn().mockResolvedValue([]),
+      getBlockedStories: vi.fn().mockResolvedValue([]),
+    })),
+  }
+})
 
 // Default: getLatestRun returns a run, getTokenUsageSummary returns zeroes
 vi.mock('../../../persistence/queries/decisions.js', () => ({
-  getLatestRun: vi.fn().mockReturnValue({
+  getLatestRun: vi.fn().mockResolvedValue({
     id: 'test-run-123',
     status: 'completed',
     methodology: 'bmad',
@@ -70,12 +88,12 @@ vi.mock('../../../persistence/queries/decisions.js', () => ({
     token_usage_json: null,
   }),
   // getTokenUsageSummary returns TokenUsageSummary[] — an array
-  getTokenUsageSummary: vi.fn().mockReturnValue([]),
+  getTokenUsageSummary: vi.fn().mockResolvedValue([]),
   getPipelineRunById: vi.fn(),
 }))
 
 vi.mock('../../../persistence/queries/metrics.js', () => ({
-  getStoryMetricsForRun: vi.fn().mockReturnValue([]),
+  getStoryMetricsForRun: vi.fn().mockResolvedValue([]),
 }))
 
 // ---------------------------------------------------------------------------
@@ -146,12 +164,8 @@ beforeEach(() => {
     stderrChunks.push(chunk)
     return true
   }) as typeof process.stderr.write
-  // Mock db.prepare to return stubs for COUNT queries
-  mockDbPrepare.mockReturnValue({
-    get: vi.fn().mockReturnValue({ cnt: 0 }),
-    run: vi.fn(),
-    all: vi.fn().mockReturnValue([]),
-  })
+  // Reset adapter query mock for each test — returns empty arrays by default
+  mockAdapterQuery.mockResolvedValue([])
 })
 
 afterEach(() => {

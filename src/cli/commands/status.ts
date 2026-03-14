@@ -36,7 +36,7 @@ import {
   parseDbTimestampAsUtc,
 } from './pipeline-shared.js'
 import type { StateStore, StoryRecord } from '../../modules/state/index.js'
-import { createStateStore } from '../../modules/state/index.js'
+import { createStateStore, WorkGraphRepository } from '../../modules/state/index.js'
 
 const logger = createLogger('status-cmd')
 
@@ -50,6 +50,19 @@ export interface StatusOptions {
   projectRoot: string
   stateStore?: StateStore
   history?: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Work graph types (for status output)
+// ---------------------------------------------------------------------------
+
+interface WgBlockerInfo { key: string; title: string; status: string }
+interface WgBlockedStory { key: string; title: string; blockers: WgBlockerInfo[] }
+interface WgReadyStory { key: string; title: string }
+interface WorkGraphSummary {
+  summary: { ready: number; blocked: number; inProgress: number; complete: number; escalated: number }
+  readyStories: WgReadyStory[]
+  blockedStories: WgBlockedStory[]
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +121,39 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
 
   try {
     await initSchema(adapter)
+
+    // Query work graph for blocked/ready stories
+    let workGraph: WorkGraphSummary | undefined
+    try {
+      const wgRepo = new WorkGraphRepository(adapter)
+      const allStories = await adapter.query<{ story_key: string; title: string | null; status: string }>(`SELECT story_key, title, status FROM wg_stories`)
+      if (allStories.length > 0) {
+        const readyStoriesRaw = await wgRepo.getReadyStories()
+        const blockedStoriesRaw = await wgRepo.getBlockedStories()
+        const readyKeys = new Set(readyStoriesRaw.map((s) => s.story_key))
+        const blockedKeys = new Set(blockedStoriesRaw.map((b) => b.story.story_key))
+        const inProgressCount = allStories.filter((s) => s.status === 'in_progress').length
+        const completeCount = allStories.filter((s) => s.status === 'complete').length
+        const escalatedCount = allStories.filter((s) => s.status === 'escalated').length
+        workGraph = {
+          summary: {
+            ready: readyKeys.size,
+            blocked: blockedKeys.size,
+            inProgress: inProgressCount,
+            complete: completeCount,
+            escalated: escalatedCount,
+          },
+          readyStories: readyStoriesRaw.map((s) => ({ key: s.story_key, title: s.title ?? s.story_key })),
+          blockedStories: blockedStoriesRaw.map((b) => ({
+            key: b.story.story_key,
+            title: b.story.title ?? b.story.story_key,
+            blockers: b.blockers.map((bl) => ({ key: bl.key, title: bl.title, status: bl.status })),
+          })),
+        }
+      }
+    } catch (err) {
+      logger.debug({ err }, 'Work graph query failed, continuing without work graph data')
+    }
 
     // Query pipeline run
     let run: PipelineRun | undefined
@@ -223,6 +269,8 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
         },
         // Task 2 (AC1, AC2): StateStore story states from Dolt/file backend
         story_states: storeStories,
+        // Story 31-5: work graph — blocked/ready stories and why
+        workGraph: workGraph ?? null,
       }
 
       process.stdout.write(
@@ -295,6 +343,30 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
         process.stdout.write('\nStateStore Story States:\n')
         for (const s of storeStories) {
           process.stdout.write(`  ${s.storyKey}: ${s.phase} (${s.reviewCycles} review cycles)\n`)
+        }
+      }
+
+      // Story 31-5: Work graph — blocked/ready stories and why
+      if (workGraph !== undefined) {
+        const { summary, readyStories, blockedStories } = workGraph
+        process.stdout.write('\nWork Graph:\n')
+        process.stdout.write(
+          `  ${summary.inProgress} in progress, ${summary.ready} ready, ${summary.blocked} blocked, ${summary.complete} complete, ${summary.escalated} escalated\n`
+        )
+        if (readyStories.length > 0) {
+          process.stdout.write('\n  Ready to dispatch:\n')
+          for (const s of readyStories) {
+            process.stdout.write(`    ${s.key}: ${s.title}\n`)
+          }
+        }
+        if (blockedStories.length > 0) {
+          process.stdout.write('\n  Blocked:\n')
+          for (const b of blockedStories) {
+            process.stdout.write(`    ${b.key}: ${b.title}\n`)
+            for (const bl of b.blockers) {
+              process.stdout.write(`      waiting on ${bl.key} (${bl.status}): ${bl.title}\n`)
+            }
+          }
         }
       }
 

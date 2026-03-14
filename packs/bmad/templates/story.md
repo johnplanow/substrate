@@ -1,7 +1,5 @@
 # Story {epic_num}.{story_num}: {Title}
 
-Status: draft
-
 ## Story
 
 As a {role},

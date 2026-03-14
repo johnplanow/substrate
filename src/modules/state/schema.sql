@@ -258,11 +258,10 @@ CREATE INDEX IF NOT EXISTS idx_wg_stories_epic ON wg_stories (epic);
 -- story_dependencies (Epic 31-1) — directed dependency edges
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS story_dependencies (
-  story_key  VARCHAR(20)   NOT NULL,
-  depends_on VARCHAR(20)   NOT NULL,
-  dep_type   VARCHAR(20)   NOT NULL,
-  source     VARCHAR(20)   NOT NULL,
-  created_at DATETIME,
+  story_key       VARCHAR(50)   NOT NULL,
+  depends_on      VARCHAR(50)   NOT NULL,
+  dependency_type VARCHAR(50)   NOT NULL DEFAULT 'blocks',
+  source          VARCHAR(50)   NOT NULL DEFAULT 'explicit',
   PRIMARY KEY (story_key, depends_on)
 );
 
@@ -276,7 +275,7 @@ CREATE OR REPLACE VIEW ready_stories AS
       SELECT 1 FROM story_dependencies d
       JOIN wg_stories dep ON dep.story_key = d.depends_on
       WHERE d.story_key = s.story_key
-        AND d.dep_type = 'blocks'
+        AND d.dependency_type = 'blocks'
         AND dep.status <> 'complete'
     );
 

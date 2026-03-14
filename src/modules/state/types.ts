@@ -273,7 +273,7 @@ export interface StoryDependency {
   /** The story being depended upon */
   depends_on: string
   /** 'blocks' = hard dependency; 'informs' = soft/advisory */
-  dep_type: 'blocks' | 'informs'
+  dependency_type: 'blocks' | 'informs'
   /** How the dependency was discovered */
   source: 'explicit' | 'contract' | 'inferred'
   /** ISO or DATETIME string when the dependency was recorded */

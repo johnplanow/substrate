@@ -67,4 +67,26 @@ export class DoltDatabaseAdapter implements DatabaseAdapter {
   async close(): Promise<void> {
     await this._client.close()
   }
+
+  /**
+   * Query story keys from the `ready_stories` SQL view.
+   *
+   * Returns story keys whose status is `planned` or `ready` and whose
+   * hard dependencies are all `complete` in the work graph.
+   *
+   * On any SQL error (e.g., view not yet created by story 31-1 schema,
+   * or empty stories table), returns `[]` so the caller falls through to
+   * the legacy discovery chain.
+   */
+  async queryReadyStories(): Promise<string[]> {
+    try {
+      const rows = await this._client.query<{ key: string }>(
+        'SELECT `key` FROM ready_stories ORDER BY `key` ASC',
+        undefined,
+      )
+      return rows.map((r) => r.key)
+    } catch {
+      return []
+    }
+  }
 }
