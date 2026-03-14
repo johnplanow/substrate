@@ -3,9 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import Database from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
-import type { DatabaseAdapter } from '../../../persistence/adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { detectStartPhase } from '../phase-detection.js'
 
 // Mock node:fs for discoverPendingStoryKeys fallback
@@ -23,9 +21,9 @@ vi.mock('node:fs', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: InstanceType<typeof Database>; adapter: DatabaseAdapter } {
-  const db = new Database(':memory:')
-  db.exec(`
+async function createTestDb(): Promise<WasmSqliteDatabaseAdapter> {
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  adapter.execSync(`
     CREATE TABLE decisions (
       id TEXT PRIMARY KEY,
       pipeline_run_id TEXT,
@@ -58,29 +56,30 @@ function createTestDb(): { db: InstanceType<typeof Database>; adapter: DatabaseA
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `)
-  const adapter = new SyncDatabaseAdapter(db)
-  return { db, adapter }
+  return adapter
 }
 
 function insertArtifact(
-  db: InstanceType<typeof Database>,
+  adapter: WasmSqliteDatabaseAdapter,
   phase: string,
   type: string,
 ): void {
-  db.prepare(
+  adapter.querySync(
     `INSERT INTO artifacts (id, phase, type, path, summary)
      VALUES (?, ?, ?, ?, ?)`,
-  ).run(crypto.randomUUID(), phase, type, `decision-store://${phase}/${type}`, 'test')
+    [crypto.randomUUID(), phase, type, `decision-store://${phase}/${type}`, 'test'],
+  )
 }
 
 function insertStoryDecision(
-  db: InstanceType<typeof Database>,
+  adapter: WasmSqliteDatabaseAdapter,
   key: string,
 ): void {
-  db.prepare(
+  adapter.querySync(
     `INSERT INTO decisions (id, phase, category, key, value)
      VALUES (?, 'solutioning', 'stories', ?, ?)`,
-  ).run(crypto.randomUUID(), key, JSON.stringify({ key, title: `Story ${key}` }))
+    [crypto.randomUUID(), key, JSON.stringify({ key, title: `Story ${key}` })],
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -88,15 +87,12 @@ function insertStoryDecision(
 // ---------------------------------------------------------------------------
 
 describe('detectStartPhase', () => {
-  let db: InstanceType<typeof Database>
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     mockExistsSync.mockReturnValue(false)
-    const setup = createTestDb()
-    db = setup.db
-    adapter = setup.adapter
+    adapter = await createTestDb()
   })
 
   it('returns analysis with needsConcept when DB is empty', async () => {
@@ -107,8 +103,8 @@ describe('detectStartPhase', () => {
   })
 
   it('returns implementation when stories exist in decisions table', async () => {
-    insertStoryDecision(db, '1-1')
-    insertStoryDecision(db, '1-2')
+    insertStoryDecision(adapter, '1-1')
+    insertStoryDecision(adapter, '1-2')
 
     const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('implementation')
@@ -130,7 +126,7 @@ describe('detectStartPhase', () => {
   })
 
   it('returns planning when analysis is complete', async () => {
-    insertArtifact(db, 'analysis', 'product-brief')
+    insertArtifact(adapter, 'analysis', 'product-brief')
 
     const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('planning')
@@ -140,8 +136,8 @@ describe('detectStartPhase', () => {
   })
 
   it('returns solutioning when planning is complete', async () => {
-    insertArtifact(db, 'analysis', 'product-brief')
-    insertArtifact(db, 'planning', 'prd')
+    insertArtifact(adapter, 'analysis', 'product-brief')
+    insertArtifact(adapter, 'planning', 'prd')
 
     const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('solutioning')
@@ -151,10 +147,10 @@ describe('detectStartPhase', () => {
   })
 
   it('returns implementation when solutioning is complete (with stories)', async () => {
-    insertArtifact(db, 'analysis', 'product-brief')
-    insertArtifact(db, 'planning', 'prd')
-    insertArtifact(db, 'solutioning', 'stories')
-    insertStoryDecision(db, '1-1')
+    insertArtifact(adapter, 'analysis', 'product-brief')
+    insertArtifact(adapter, 'planning', 'prd')
+    insertArtifact(adapter, 'solutioning', 'stories')
+    insertStoryDecision(adapter, '1-1')
 
     const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('implementation')
@@ -162,9 +158,9 @@ describe('detectStartPhase', () => {
   })
 
   it('returns solutioning when all phases done but no stories found', async () => {
-    insertArtifact(db, 'analysis', 'product-brief')
-    insertArtifact(db, 'planning', 'prd')
-    insertArtifact(db, 'solutioning', 'stories')
+    insertArtifact(adapter, 'analysis', 'product-brief')
+    insertArtifact(adapter, 'planning', 'prd')
+    insertArtifact(adapter, 'solutioning', 'stories')
     // No actual story decisions — solutioning "completed" but produced nothing usable
 
     const result = await detectStartPhase(adapter, '/project')
@@ -173,7 +169,7 @@ describe('detectStartPhase', () => {
   })
 
   it('returns analysis when research is complete', async () => {
-    insertArtifact(db, 'research', 'research-findings')
+    insertArtifact(adapter, 'research', 'research-findings')
 
     const result = await detectStartPhase(adapter, '/project')
     expect(result.phase).toBe('analysis')
@@ -185,7 +181,7 @@ describe('detectStartPhase', () => {
   it('skips gaps in phase chain (analysis missing but planning present)', async () => {
     // Only planning artifact exists (analysis was skipped or artifact missing)
     // Detection walks forward — analysis has no artifact, so it stops there
-    insertArtifact(db, 'planning', 'prd')
+    insertArtifact(adapter, 'planning', 'prd')
 
     const result = await detectStartPhase(adapter, '/project')
     // Should detect analysis is missing (no product-brief artifact)
@@ -195,9 +191,9 @@ describe('detectStartPhase', () => {
   })
 
   it('handles DB without artifacts table gracefully', async () => {
-    const brokenDb = new Database(':memory:')
+    const brokenAdapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
     // Only create decisions table (no artifacts)
-    brokenDb.exec(`
+    brokenAdapter.execSync(`
       CREATE TABLE decisions (
         id TEXT PRIMARY KEY, pipeline_run_id TEXT, phase TEXT, category TEXT,
         key TEXT, value TEXT, rationale TEXT, superseded_by TEXT,
@@ -208,11 +204,10 @@ describe('detectStartPhase', () => {
         created_at TEXT, updated_at TEXT
       );
     `)
-    const brokenAdapter = new SyncDatabaseAdapter(brokenDb)
 
     const result = await detectStartPhase(brokenAdapter, '/project')
     expect(result.phase).toBe('analysis')
     expect(result.needsConcept).toBe(true)
-    brokenDb.close()
+    await brokenAdapter.close()
   })
 })

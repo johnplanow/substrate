@@ -13,12 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { SyncDatabaseAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import { createPipelineRun, createDecision, getArtifactByTypeForRun } from '../../../../persistence/queries/decisions.js'
@@ -32,12 +27,10 @@ import type { Dispatcher, DispatchHandle, DispatchResult } from '../../../agent-
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'planning-phase-test-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+async function createTestDb(): Promise<{ adapter: DatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -168,22 +161,17 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('runPlanningPhase()', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   // -------------------------------------------------------------------------
@@ -328,11 +316,10 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const decisions = db
-        .prepare(
-          "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'functional-requirements' ORDER BY key ASC",
-        )
-        .all(runId) as Array<{ key: string; value: string }>
+      const decisions = await adapter.query<{ key: string; value: string }>(
+        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'functional-requirements' ORDER BY key ASC",
+        [runId],
+      )
 
       expect(decisions).toHaveLength(3)
       expect(decisions[0].key).toBe('FR-0')
@@ -352,11 +339,10 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const decisions = db
-        .prepare(
-          "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'non-functional-requirements' ORDER BY key ASC",
-        )
-        .all(runId) as Array<{ key: string; value: string }>
+      const decisions = await adapter.query<{ key: string; value: string }>(
+        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'non-functional-requirements' ORDER BY key ASC",
+        [runId],
+      )
 
       expect(decisions).toHaveLength(2)
       expect(decisions[0].key).toBe('NFR-0')
@@ -375,11 +361,10 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const decisions = db
-        .prepare(
-          "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'tech-stack' ORDER BY key ASC",
-        )
-        .all(runId) as Array<{ key: string; value: string }>
+      const decisions = await adapter.query<{ key: string; value: string }>(
+        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'tech-stack' ORDER BY key ASC",
+        [runId],
+      )
 
       expect(decisions.length).toBeGreaterThanOrEqual(1)
       const keyMap = Object.fromEntries(decisions.map((d) => [d.key, d.value]))
@@ -395,11 +380,10 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const decisions = db
-        .prepare(
-          "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'user-stories' ORDER BY key ASC",
-        )
-        .all(runId) as Array<{ key: string; value: string }>
+      const decisions = await adapter.query<{ key: string; value: string }>(
+        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'user-stories' ORDER BY key ASC",
+        [runId],
+      )
 
       expect(decisions).toHaveLength(1)
       expect(decisions[0].key).toBe('US-0')
@@ -415,11 +399,11 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const decision = db
-        .prepare(
-          "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'domain-model' AND key = 'entities' LIMIT 1",
-        )
-        .get(runId) as { key: string; value: string } | undefined
+      const decisionRows = await adapter.query<{ key: string; value: string }>(
+        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'domain-model' AND key = 'entities' LIMIT 1",
+        [runId],
+      )
+      const decision = decisionRows[0]
 
       expect(decision).toBeDefined()
       const domainModel = JSON.parse(decision!.value)
@@ -435,9 +419,10 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const decisions = db
-        .prepare("SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning'")
-        .all(runId)
+      const decisions = await adapter.query(
+        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning'",
+        [runId],
+      )
 
       expect(decisions).toHaveLength(0)
     })
@@ -456,11 +441,10 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const requirements = db
-        .prepare(
-          "SELECT * FROM requirements WHERE pipeline_run_id = ? AND source = 'planning-phase' AND type = 'functional' ORDER BY created_at ASC",
-        )
-        .all(runId) as Array<{ description: string; priority: string; type: string }>
+      const requirements = await adapter.query<{ description: string; priority: string; type: string }>(
+        "SELECT * FROM requirements WHERE pipeline_run_id = ? AND source = 'planning-phase' AND type = 'functional' ORDER BY created_at ASC",
+        [runId],
+      )
 
       expect(requirements).toHaveLength(3)
       expect(requirements[0].description).toBe(SAMPLE_PLANNING_OUTPUT.functional_requirements[0].description)
@@ -476,11 +460,10 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const requirements = db
-        .prepare(
-          "SELECT * FROM requirements WHERE pipeline_run_id = ? AND source = 'planning-phase' AND type = 'non_functional' ORDER BY created_at ASC",
-        )
-        .all(runId) as Array<{ description: string; priority: string; type: string }>
+      const requirements = await adapter.query<{ description: string; priority: string; type: string }>(
+        "SELECT * FROM requirements WHERE pipeline_run_id = ? AND source = 'planning-phase' AND type = 'non_functional' ORDER BY created_at ASC",
+        [runId],
+      )
 
       expect(requirements).toHaveLength(2)
       expect(requirements[0].priority).toBe('should')
@@ -495,9 +478,10 @@ describe('runPlanningPhase()', () => {
 
       const result = await runPlanningPhase(deps, params)
 
-      const allRequirements = db
-        .prepare("SELECT * FROM requirements WHERE pipeline_run_id = ? AND source = 'planning-phase'")
-        .all(runId)
+      const allRequirements = await adapter.query(
+        "SELECT * FROM requirements WHERE pipeline_run_id = ? AND source = 'planning-phase'",
+        [runId],
+      )
 
       expect(allRequirements).toHaveLength(result.requirements_count!)
       expect(allRequirements).toHaveLength(5) // 3 FRs + 2 NFRs
@@ -517,11 +501,11 @@ describe('runPlanningPhase()', () => {
 
       const result = await runPlanningPhase(deps, params)
 
-      const artifact = db
-        .prepare(
-          "SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'planning' AND type = 'prd'",
-        )
-        .get(runId) as { id: string; phase: string; type: string; path: string; summary: string } | undefined
+      const artifactRows = await adapter.query<{ id: string; phase: string; type: string; path: string; summary: string }>(
+        "SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'planning' AND type = 'prd'",
+        [runId],
+      )
+      const artifact = artifactRows[0]
 
       expect(artifact).toBeDefined()
       expect(artifact!.phase).toBe('planning')
@@ -538,9 +522,11 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const artifact = db
-        .prepare("SELECT summary FROM artifacts WHERE pipeline_run_id = ? AND type = 'prd'")
-        .get(runId) as { summary: string } | undefined
+      const artifactRows = await adapter.query<{ summary: string }>(
+        "SELECT summary FROM artifacts WHERE pipeline_run_id = ? AND type = 'prd'",
+        [runId],
+      )
+      const artifact = artifactRows[0]
 
       expect(artifact).toBeDefined()
       expect(artifact!.summary).toContain('FRs')
@@ -569,9 +555,10 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const artifacts = db
-        .prepare("SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'planning'")
-        .all(runId)
+      const artifacts = await adapter.query(
+        "SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'planning'",
+        [runId],
+      )
 
       expect(artifacts).toHaveLength(0)
     })
@@ -737,9 +724,10 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const decisions = db
-        .prepare("SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning'")
-        .all(runId)
+      const decisions = await adapter.query(
+        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning'",
+        [runId],
+      )
 
       expect(decisions).toHaveLength(0)
     })

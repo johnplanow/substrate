@@ -14,8 +14,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import Database from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { resolveStoryKeys } from '../story-discovery.js'
 
@@ -34,9 +33,9 @@ vi.mock('node:fs', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: InstanceType<typeof Database>; adapter: DatabaseAdapter } {
-  const db = new Database(':memory:')
-  db.exec(`
+async function createTestDb(): Promise<WasmSqliteDatabaseAdapter> {
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  adapter.execSync(`
     CREATE TABLE decisions (
       id TEXT PRIMARY KEY,
       pipeline_run_id TEXT,
@@ -58,40 +57,41 @@ function createTestDb(): { db: InstanceType<typeof Database>; adapter: DatabaseA
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `)
-  const adapter = new SyncDatabaseAdapter(db)
-  return { db, adapter }
+  return adapter
 }
 
 function insertStoryDecision(
-  db: InstanceType<typeof Database>,
+  adapter: WasmSqliteDatabaseAdapter,
   key: string,
   runId?: string,
 ): void {
-  db.prepare(
+  adapter.querySync(
     `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value)
      VALUES (?, ?, 'solutioning', 'stories', ?, ?)`,
-  ).run(
-    crypto.randomUUID(),
-    runId ?? null,
-    key,
-    JSON.stringify({ key, title: `Story ${key}`, description: 'test' }),
+    [
+      crypto.randomUUID(),
+      runId ?? null,
+      key,
+      JSON.stringify({ key, title: `Story ${key}`, description: 'test' }),
+    ],
   )
 }
 
 function insertEpicShard(
-  db: InstanceType<typeof Database>,
+  adapter: WasmSqliteDatabaseAdapter,
   shardKey: string,
   content: string,
   runId?: string,
 ): void {
-  db.prepare(
+  adapter.querySync(
     `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value)
      VALUES (?, ?, 'solutioning', 'epic-shard', ?, ?)`,
-  ).run(crypto.randomUUID(), runId ?? null, shardKey, content)
+    [crypto.randomUUID(), runId ?? null, shardKey, content],
+  )
 }
 
 function insertCompletedRun(
-  db: InstanceType<typeof Database>,
+  adapter: WasmSqliteDatabaseAdapter,
   completedStories: string[],
 ): void {
   const state = {
@@ -99,9 +99,10 @@ function insertCompletedRun(
       completedStories.map((k) => [k, { phase: 'COMPLETE' }]),
     ),
   }
-  db.prepare(
+  adapter.querySync(
     `INSERT INTO pipeline_runs (id, status, token_usage_json) VALUES (?, 'completed', ?)`,
-  ).run(crypto.randomUUID(), JSON.stringify(state))
+    [crypto.randomUUID(), JSON.stringify(state)],
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -109,16 +110,13 @@ function insertCompletedRun(
 // ---------------------------------------------------------------------------
 
 describe('resolveStoryKeys', () => {
-  let db: InstanceType<typeof Database>
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     // Default: no epics.md on disk (fallback level 4 returns [])
     mockExistsSync.mockReturnValue(false)
-    const setup = createTestDb()
-    db = setup.db
-    adapter = setup.adapter
+    adapter = await createTestDb()
   })
 
   // -------------------------------------------------------------------------
@@ -134,7 +132,7 @@ describe('resolveStoryKeys', () => {
     })
 
     it('returns empty explicit array falls through to DB', async () => {
-      insertStoryDecision(db, '1-1')
+      insertStoryDecision(adapter, '1-1')
       const result = await resolveStoryKeys(adapter, '/project', { explicit: [] })
       expect(result).toEqual(['1-1'])
     })
@@ -146,33 +144,33 @@ describe('resolveStoryKeys', () => {
 
   describe('Level 2: decisions table (stories)', () => {
     it('finds story keys from decisions with category=stories', async () => {
-      insertStoryDecision(db, '1-1')
-      insertStoryDecision(db, '1-2')
-      insertStoryDecision(db, '2-1')
+      insertStoryDecision(adapter, '1-1')
+      insertStoryDecision(adapter, '1-2')
+      insertStoryDecision(adapter, '2-1')
 
       const result = await resolveStoryKeys(adapter, '/project')
       expect(result).toEqual(['1-1', '1-2', '2-1'])
     })
 
     it('extracts N-M prefix from slugged keys like 1-1-capture-baselines', async () => {
-      insertStoryDecision(db, '1-1-capture-baselines')
-      insertStoryDecision(db, '2-3-rewrite-synthesis')
+      insertStoryDecision(adapter, '1-1-capture-baselines')
+      insertStoryDecision(adapter, '2-3-rewrite-synthesis')
 
       const result = await resolveStoryKeys(adapter, '/project')
       expect(result).toEqual(['1-1', '2-3'])
     })
 
     it('deduplicates keys', async () => {
-      insertStoryDecision(db, '1-1')
-      insertStoryDecision(db, '1-1') // duplicate
+      insertStoryDecision(adapter, '1-1')
+      insertStoryDecision(adapter, '1-1') // duplicate
 
       const result = await resolveStoryKeys(adapter, '/project')
       expect(result).toEqual(['1-1'])
     })
 
     it('scopes query to pipelineRunId when provided', async () => {
-      insertStoryDecision(db, '1-1', 'run-a')
-      insertStoryDecision(db, '2-1', 'run-b')
+      insertStoryDecision(adapter, '1-1', 'run-a')
+      insertStoryDecision(adapter, '2-1', 'run-b')
 
       const result = await resolveStoryKeys(adapter, '/project', {
         pipelineRunId: 'run-a',
@@ -181,9 +179,9 @@ describe('resolveStoryKeys', () => {
     })
 
     it('returns sorted keys', async () => {
-      insertStoryDecision(db, '10-1')
-      insertStoryDecision(db, '2-1')
-      insertStoryDecision(db, '1-3')
+      insertStoryDecision(adapter, '10-1')
+      insertStoryDecision(adapter, '2-1')
+      insertStoryDecision(adapter, '1-3')
 
       const result = await resolveStoryKeys(adapter, '/project')
       expect(result).toEqual(['1-3', '2-1', '10-1'])
@@ -201,15 +199,15 @@ describe('resolveStoryKeys', () => {
 **Story key:** \`1-1-capture-baselines\`
 **Story key:** \`1-2-rewrite-synthesis\`
 `
-      insertEpicShard(db, '1', epicMarkdown)
+      insertEpicShard(adapter, '1', epicMarkdown)
 
       const result = await resolveStoryKeys(adapter, '/project')
       expect(result).toEqual(['1-1', '1-2'])
     })
 
     it('combines story keys from multiple epic shards', async () => {
-      insertEpicShard(db, '1', '**Story key:** `1-1-first`')
-      insertEpicShard(db, '2', '**Story key:** `2-1-second`')
+      insertEpicShard(adapter, '1', '**Story key:** `1-1-first`')
+      insertEpicShard(adapter, '2', '**Story key:** `2-1-second`')
 
       const result = await resolveStoryKeys(adapter, '/project')
       expect(result).toEqual(['1-1', '2-1'])
@@ -217,16 +215,16 @@ describe('resolveStoryKeys', () => {
 
     it('only uses epic shards when stories decisions are empty', async () => {
       // Level 2 has data — level 3 should not be reached
-      insertStoryDecision(db, '5-1')
-      insertEpicShard(db, '1', '**Story key:** `1-1-should-not-appear`')
+      insertStoryDecision(adapter, '5-1')
+      insertEpicShard(adapter, '1', '**Story key:** `1-1-should-not-appear`')
 
       const result = await resolveStoryKeys(adapter, '/project')
       expect(result).toEqual(['5-1'])
     })
 
     it('scopes epic shard query to pipelineRunId', async () => {
-      insertEpicShard(db, '1', '**Story key:** `1-1-first`', 'run-a')
-      insertEpicShard(db, '2', '**Story key:** `2-1-second`', 'run-b')
+      insertEpicShard(adapter, '1', '**Story key:** `1-1-first`', 'run-a')
+      insertEpicShard(adapter, '2', '**Story key:** `2-1-second`', 'run-b')
 
       const result = await resolveStoryKeys(adapter, '/project', {
         pipelineRunId: 'run-a',
@@ -265,10 +263,10 @@ describe('resolveStoryKeys', () => {
 
   describe('filterCompleted', () => {
     it('filters out stories completed in previous pipeline runs', async () => {
-      insertStoryDecision(db, '1-1')
-      insertStoryDecision(db, '1-2')
-      insertStoryDecision(db, '1-3')
-      insertCompletedRun(db, ['1-1', '1-3'])
+      insertStoryDecision(adapter, '1-1')
+      insertStoryDecision(adapter, '1-2')
+      insertStoryDecision(adapter, '1-3')
+      insertCompletedRun(adapter, ['1-1', '1-3'])
 
       const result = await resolveStoryKeys(adapter, '/project', {
         filterCompleted: true,
@@ -277,8 +275,8 @@ describe('resolveStoryKeys', () => {
     })
 
     it('does not filter when filterCompleted is false', async () => {
-      insertStoryDecision(db, '1-1')
-      insertCompletedRun(db, ['1-1'])
+      insertStoryDecision(adapter, '1-1')
+      insertCompletedRun(adapter, ['1-1'])
 
       const result = await resolveStoryKeys(adapter, '/project', {
         filterCompleted: false,
@@ -293,19 +291,17 @@ describe('resolveStoryKeys', () => {
 
   describe('error resilience', () => {
     it('handles DB with missing decisions table gracefully', async () => {
-      const brokenDb = new Database(':memory:')
-      const brokenAdapter = new SyncDatabaseAdapter(brokenDb)
+      const brokenAdapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
       // No tables created — queries will throw
       mockExistsSync.mockReturnValue(false)
 
       const result = await resolveStoryKeys(brokenAdapter, '/project')
       expect(result).toEqual([])
-      brokenDb.close()
+      await brokenAdapter.close()
     })
 
     it('falls through from broken DB to epics.md', async () => {
-      const brokenDb = new Database(':memory:')
-      const brokenAdapter = new SyncDatabaseAdapter(brokenDb)
+      const brokenAdapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
       mockExistsSync.mockImplementation((p: string) => {
         if (p.endsWith('epics.md')) return true
         return false
@@ -314,7 +310,7 @@ describe('resolveStoryKeys', () => {
 
       const result = await resolveStoryKeys(brokenAdapter, '/project')
       expect(result).toEqual(['7-1'])
-      brokenDb.close()
+      await brokenAdapter.close()
     })
   })
 })

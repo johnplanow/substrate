@@ -1,18 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { getProjectFindings } from '../project-findings.js'
 import { createDecision } from '../../../persistence/queries/decisions.js'
 import { STORY_OUTCOME, ESCALATION_DIAGNOSIS, STORY_METRICS, OPERATIONAL_FINDING, ADVISORY_NOTES } from '../../../persistence/schemas/operational.js'
 
 describe('getProjectFindings', () => {
-  let db: Database.Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
-  beforeEach(() => {
-    db = new Database(':memory:')
-    db.exec(`
+  beforeEach(async () => {
+    adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+    adapter.execSync(`
       CREATE TABLE decisions (
         id TEXT PRIMARY KEY,
         pipeline_run_id TEXT,
@@ -24,11 +22,10 @@ describe('getProjectFindings', () => {
         created_at TEXT DEFAULT (datetime('now'))
       )
     `)
-    adapter = new SyncDatabaseAdapter(db)
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns empty string when no findings exist (AC5)', async () => {

@@ -19,10 +19,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { randomUUID } from 'crypto'
-import { LegacySqliteAdapter, type DatabaseAdapter } from '../../src/persistence/adapter.js'
+import { type DatabaseAdapter } from '../../src/persistence/adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../src/persistence/schema.js'
 import {
   PipelineRunSchema,
@@ -49,13 +48,10 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function openMigratedDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
-  const db = new Database(':memory:')
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  const adapter = new LegacySqliteAdapter(db)
+async function openMigratedDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return { db, adapter }
+  return { adapter }
 }
 
 // ---------------------------------------------------------------------------
@@ -64,17 +60,15 @@ async function openMigratedDb(): Promise<{ db: BetterSqlite3Database; adapter: D
 // ---------------------------------------------------------------------------
 
 describe('Gap 1: stopped status — decisions.ts API + DB + Zod schema round-trip', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('updatePipelineRun with status=stopped persists and passes PipelineRunSchema.parse()', async () => {
@@ -99,9 +93,10 @@ describe('Gap 1: stopped status — decisions.ts API + DB + Zod schema round-tri
       const runId = randomUUID()
       // DB insert must not throw (CHECK constraint from 12-5)
       expect(() => {
-        db.prepare(
+        adapter.querySync(
           `INSERT INTO pipeline_runs (id, methodology, status) VALUES (?, 'bmad', ?)`,
-        ).run(runId, status)
+          [runId, status],
+        )
       }).not.toThrow()
 
       // Zod enum (from 12-6) must accept the same status
@@ -132,17 +127,15 @@ describe('Gap 1: stopped status — decisions.ts API + DB + Zod schema round-tri
 // ---------------------------------------------------------------------------
 
 describe('Gap 2: createDecision (decisions.ts) interoperates with loadParentRunDecisions (amendments.ts)', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('decisions written via createDecision are returned by loadParentRunDecisions', async () => {
@@ -224,15 +217,13 @@ describe('Gap 2: createDecision (decisions.ts) interoperates with loadParentRunD
 // ---------------------------------------------------------------------------
 
 describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filtered) divergence', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let runId: string
   let originalDecId: string
   let supersedingDecId: string
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
 
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })
@@ -262,8 +253,8 @@ describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filt
     await supersedeDecision(adapter, originalDecId, supersedingDecId)
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('getDecisionsByPhase returns ALL decisions including superseded ones', async () => {
@@ -292,9 +283,7 @@ describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filt
   })
 
   it('superseded decision has superseded_by set — DecisionSchema accepts it', () => {
-    const row = db
-      .prepare('SELECT * FROM decisions WHERE id = ?')
-      .get(originalDecId) as Record<string, unknown>
+    const row = adapter.querySync<Record<string, unknown>>('SELECT * FROM decisions WHERE id = ?', [originalDecId])[0]
 
     const result = DecisionSchema.safeParse(row)
     expect(result.success).toBe(true)
@@ -310,17 +299,15 @@ describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filt
 // ---------------------------------------------------------------------------
 
 describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + amendments.ts)', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('full amendment lifecycle: create run, add decisions, complete, amend, supersede, verify active', async () => {
@@ -406,9 +393,7 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
 
     // Step 10: All returned runs pass PipelineRunSchema validation
     for (const entry of chain) {
-      const row = db
-        .prepare('SELECT * FROM pipeline_runs WHERE id = ?')
-        .get(entry.runId) as Record<string, unknown>
+      const row = adapter.querySync<Record<string, unknown>>('SELECT * FROM pipeline_runs WHERE id = ?', [entry.runId])[0]
       const result = PipelineRunSchema.safeParse(row)
       expect(result.success).toBe(true)
     }
@@ -451,30 +436,30 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
 // ---------------------------------------------------------------------------
 
 describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_id populated', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('getLatestCompletedRun returns amendment run with parent_run_id — passes PipelineRunSchema', async () => {
     const parentId = randomUUID()
     const amendId = randomUUID()
-    db.prepare(`
-      INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
-      VALUES (?, 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')
-    `).run(parentId)
-    db.prepare(`
-      INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
-      VALUES (?, 'bmad', 'completed', ?, '2024-06-01T00:00:00', '2024-06-01T00:00:00')
-    `).run(amendId, parentId)
+    adapter.querySync(
+      `INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
+       VALUES (?, 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')`,
+      [parentId],
+    )
+    adapter.querySync(
+      `INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
+       VALUES (?, 'bmad', 'completed', ?, '2024-06-01T00:00:00', '2024-06-01T00:00:00')`,
+      [amendId, parentId],
+    )
 
     const latest = await getLatestCompletedRun(adapter)
     expect(latest).toBeDefined()
@@ -491,10 +476,11 @@ describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_
 
   it('getLatestCompletedRun returns top-level run (parent_run_id=null) — passes PipelineRunSchema', async () => {
     const runId = randomUUID()
-    db.prepare(`
-      INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
-      VALUES (?, 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')
-    `).run(runId)
+    adapter.querySync(
+      `INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
+       VALUES (?, 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')`,
+      [runId],
+    )
 
     const latest = await getLatestCompletedRun(adapter)
     expect(latest).toBeDefined()
@@ -513,17 +499,15 @@ describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_
 // ---------------------------------------------------------------------------
 
 describe('Gap 6: decisions.ts query functions return migration 008 columns correctly', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('getLatestRun returns a row with parent_run_id field (null) after migration 008', async () => {

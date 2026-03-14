@@ -19,8 +19,6 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { TypedEventBusImpl } from '../../../core/event-bus.js'
 import type { TypedEventBus } from '../../../core/event-bus.js'
 import { CostTrackerImpl, createCostTracker } from '../cost-tracker-impl.js'
@@ -28,7 +26,7 @@ import type { CostTracker } from '../cost-tracker-impl.js'
 import { CostTrackerSubscriber, createCostTrackerSubscriber } from '../cost-tracker-subscriber.js'
 import { TOKEN_RATES, getTokenRate, estimateCost, estimateCostSafe } from '../token-rates.js'
 import type { CostEntry, SessionCostSummary, TaskCostSummary } from '../types.js'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
@@ -44,31 +42,30 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
-  const db = new Database(':memory:')
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  const adapter = new SyncDatabaseAdapter(db)
+async function createTestDb(): Promise<{ adapter: DatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter }
+  return { adapter }
 }
 
-function createTestSession(db: BetterSqlite3Database, sessionId: string = 'session-1'): void {
-  db.prepare(
+async function createTestSession(adapter: DatabaseAdapter, sessionId: string = 'session-1'): Promise<void> {
+  await adapter.query(
     `INSERT INTO sessions (id, name, graph_file, status)
      VALUES (?, ?, ?, ?)`,
-  ).run(sessionId, 'Test Session', 'test-graph.yaml', 'active')
+    [sessionId, 'Test Session', 'test-graph.yaml', 'active'],
+  )
 }
 
-function createTestTask(
-  db: BetterSqlite3Database,
+async function createTestTask(
+  adapter: DatabaseAdapter,
   taskId: string,
   sessionId: string = 'session-1',
-): void {
-  db.prepare(
+): Promise<void> {
+  await adapter.query(
     `INSERT INTO tasks (id, session_id, name, prompt, status)
      VALUES (?, ?, ?, ?, ?)`,
-  ).run(taskId, sessionId, `Task ${taskId}`, 'Do something', 'completed')
+    [taskId, sessionId, `Task ${taskId}`, 'Do something', 'completed'],
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -175,20 +172,18 @@ describe('Token Rates (AC3)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Cost Persistence Queries', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    createTestSession(db)
-    createTestTask(db, 'task-1')
-    createTestTask(db, 'task-2')
+    await createTestSession(adapter)
+    await createTestTask(adapter, 'task-1')
+    await createTestTask(adapter, 'task-2')
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   describe('recordCostEntry', () => {
@@ -523,50 +518,50 @@ describe('Cost Persistence Queries', () => {
   })
 
   describe('Index verification (AC6)', () => {
-    it('has idx_cost_entries_session_task composite index', () => {
-      const indexes = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'")
-        .all() as { name: string }[]
+    it('has idx_cost_entries_session_task composite index', async () => {
+      const indexes = await adapter.query<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'",
+      )
       const names = indexes.map((i) => i.name)
       expect(names).toContain('idx_cost_entries_session_task')
     })
 
-    it('has idx_cost_entries_provider index', () => {
-      const indexes = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'")
-        .all() as { name: string }[]
+    it('has idx_cost_entries_provider index', async () => {
+      const indexes = await adapter.query<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'",
+      )
       const names = indexes.map((i) => i.name)
       expect(names).toContain('idx_cost_entries_provider')
     })
 
-    it('has idx_cost_agent index', () => {
-      const indexes = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'")
-        .all() as { name: string }[]
+    it('has idx_cost_agent index', async () => {
+      const indexes = await adapter.query<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'",
+      )
       const names = indexes.map((i) => i.name)
       expect(names).toContain('idx_cost_agent')
     })
 
-    it('has idx_cost_session index from migration 001', () => {
-      const indexes = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'")
-        .all() as { name: string }[]
+    it('has idx_cost_session index from migration 001', async () => {
+      const indexes = await adapter.query<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'",
+      )
       const names = indexes.map((i) => i.name)
       expect(names).toContain('idx_cost_session')
     })
 
-    it('has idx_cost_task index from migration 001', () => {
-      const indexes = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'")
-        .all() as { name: string }[]
+    it('has idx_cost_task index from migration 001', async () => {
+      const indexes = await adapter.query<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'",
+      )
       const names = indexes.map((i) => i.name)
       expect(names).toContain('idx_cost_task')
     })
 
-    it('has idx_cost_session_agent composite index for agent breakdown queries (Fix #3)', () => {
-      const indexes = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'")
-        .all() as { name: string }[]
+    it('has idx_cost_session_agent composite index for agent breakdown queries (Fix #3)', async () => {
+      const indexes = await adapter.query<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'",
+      )
       const names = indexes.map((i) => i.name)
       expect(names).toContain('idx_cost_session_agent')
     })
@@ -578,25 +573,23 @@ describe('Cost Persistence Queries', () => {
 // ---------------------------------------------------------------------------
 
 describe('CostTrackerImpl', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
   let eventBus: TypedEventBus
   let tracker: CostTracker
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
     eventBus = new TypedEventBusImpl()
     tracker = createCostTracker({ db: adapter, eventBus })
-    createTestSession(db)
-    createTestTask(db, 'task-1')
-    createTestTask(db, 'task-2')
-    createTestTask(db, 'task-3')
+    await createTestSession(adapter)
+    await createTestTask(adapter, 'task-1')
+    await createTestTask(adapter, 'task-2')
+    await createTestTask(adapter, 'task-3')
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   describe('recordTaskCost (AC1)', () => {
@@ -679,10 +672,11 @@ describe('CostTrackerImpl', () => {
         'api',
       )
 
-      const row = db.prepare('SELECT cost_usd FROM tasks WHERE id = ?').get('task-1') as {
-        cost_usd: number
-      }
-      expect(row.cost_usd).toBeGreaterThan(0)
+      const [row] = await adapter.query<{ cost_usd: number }>(
+        'SELECT cost_usd FROM tasks WHERE id = ?',
+        ['task-1'],
+      )
+      expect(row!.cost_usd).toBeGreaterThan(0)
     })
 
     it('accumulates cost_usd across multiple recordings', async () => {
@@ -696,11 +690,11 @@ describe('CostTrackerImpl', () => {
         500,
         'api',
       )
-      const firstCost = (
-        db.prepare('SELECT cost_usd FROM tasks WHERE id = ?').get('task-1') as {
-          cost_usd: number
-        }
-      ).cost_usd
+      const firstRows = await adapter.query<{ cost_usd: number }>(
+        'SELECT cost_usd FROM tasks WHERE id = ?',
+        ['task-1'],
+      )
+      const firstCost = firstRows[0]!.cost_usd
 
       await tracker.recordTaskCost(
         'session-1',
@@ -712,11 +706,11 @@ describe('CostTrackerImpl', () => {
         1000,
         'api',
       )
-      const secondCost = (
-        db.prepare('SELECT cost_usd FROM tasks WHERE id = ?').get('task-1') as {
-          cost_usd: number
-        }
-      ).cost_usd
+      const secondRows = await adapter.query<{ cost_usd: number }>(
+        'SELECT cost_usd FROM tasks WHERE id = ?',
+        ['task-1'],
+      )
+      const secondCost = secondRows[0]!.cost_usd
 
       expect(secondCost).toBeGreaterThan(firstCost)
     })
@@ -927,7 +921,6 @@ describe('CostTrackerImpl', () => {
 // ---------------------------------------------------------------------------
 
 describe('CostTrackerSubscriber', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
   let eventBus: TypedEventBus
   let costTracker: CostTracker
@@ -935,13 +928,12 @@ describe('CostTrackerSubscriber', () => {
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
     eventBus = new TypedEventBusImpl()
     costTracker = createCostTracker({ db: adapter, eventBus })
-    createTestSession(db)
-    createTestTask(db, 'task-1')
-    createTestTask(db, 'task-2')
+    await createTestSession(adapter)
+    await createTestTask(adapter, 'task-1')
+    await createTestTask(adapter, 'task-2')
 
     subscriber = createCostTrackerSubscriber({
       eventBus,
@@ -955,7 +947,7 @@ describe('CostTrackerSubscriber', () => {
     await subscriber.shutdown()
     // Let pending async event handlers drain before closing
     await new Promise((r) => setTimeout(r, 10))
-    db.close()
+    await adapter.close()
   })
 
   it('records cost when task:routed then task:complete events fire', async () => {
@@ -1114,7 +1106,7 @@ describe('CostTrackerSubscriber', () => {
   })
 
   it('setDefaultSessionId updates the session used for subsequent recordings', async () => {
-    createTestSession(db, 'session-2')
+    await createTestSession(adapter, 'session-2')
 
     subscriber.setDefaultSessionId('session-2')
 
@@ -1193,12 +1185,12 @@ describe('CostTrackerSubscriber', () => {
 
 describe('createCostTracker', () => {
   it('creates a working CostTracker with default token rates', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const eventBus = new TypedEventBusImpl()
     const tracker = createCostTracker({ db: adapter, eventBus })
 
-    createTestSession(db)
-    createTestTask(db, 'task-1')
+    await createTestSession(adapter)
+    await createTestTask(adapter, 'task-1')
 
     const entry = await tracker.recordTaskCost(
       'session-1',
@@ -1212,11 +1204,11 @@ describe('createCostTracker', () => {
     )
     expect(entry.cost_usd).toBeGreaterThan(0)
 
-    db.close()
+    await adapter.close()
   })
 
   it('creates a CostTracker with custom token rates that are actually used', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const eventBus = new TypedEventBusImpl()
     // Override anthropic/claude-3-sonnet with a very high rate to prove injection works
     const customRates = {
@@ -1226,8 +1218,8 @@ describe('createCostTracker', () => {
     }
     const tracker = createCostTracker({ db: adapter, eventBus, tokenRates: customRates })
 
-    createTestSession(db)
-    createTestTask(db, 'task-1')
+    await createTestSession(adapter)
+    await createTestTask(adapter, 'task-1')
 
     const entry = await tracker.recordTaskCost(
       'session-1',
@@ -1244,6 +1236,6 @@ describe('createCostTracker', () => {
     // Verify injected rates are used (cost should be ~$2.00, not ~$0.0105)
     expect(entry.cost_usd).toBeCloseTo(2.0)
 
-    db.close()
+    await adapter.close()
   })
 })

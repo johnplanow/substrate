@@ -9,9 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import BetterSqlite3 from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createDecision, getDecisionsByCategory } from '../../../persistence/queries/decisions.js'
 import { writeStoryMetrics } from '../../../persistence/queries/metrics.js'
@@ -22,9 +20,9 @@ import { getProjectFindings } from '../project-findings.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function openTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
-  const db = new BetterSqlite3(':memory:')
-  db.exec(`
+async function openTestDb(): Promise<WasmSqliteDatabaseAdapter> {
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  adapter.execSync(`
     CREATE TABLE decisions (
       id TEXT PRIMARY KEY,
       pipeline_run_id TEXT,
@@ -37,7 +35,7 @@ function openTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
       updated_at TEXT DEFAULT (datetime('now'))
     )
   `)
-  db.exec(`
+  adapter.execSync(`
     CREATE TABLE story_metrics (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       run_id TEXT NOT NULL,
@@ -56,8 +54,7 @@ function openTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
       UNIQUE(run_id, story_key)
     )
   `)
-  const adapter = new SyncDatabaseAdapter(db)
-  return { db, adapter }
+  return adapter
 }
 
 // ---------------------------------------------------------------------------
@@ -65,17 +62,14 @@ function openTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
 // ---------------------------------------------------------------------------
 
 describe('AC2: Advisory notes persisted on LGTM_WITH_NOTES', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openTestDb()
-    db = setup.db
-    adapter = setup.adapter
+  beforeEach(async () => {
+    adapter = await openTestDb()
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('persists advisory notes to decision store with advisory-notes category', async () => {
@@ -121,17 +115,14 @@ describe('AC2: Advisory notes persisted on LGTM_WITH_NOTES', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC4: Advisory notes in getProjectFindings output', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openTestDb()
-    db = setup.db
-    adapter = setup.adapter
+  beforeEach(async () => {
+    adapter = await openTestDb()
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('includes advisory notes section when ADVISORY_NOTES decisions exist', async () => {
@@ -180,17 +171,14 @@ describe('AC4: Advisory notes in getProjectFindings output', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC5: LGTM_WITH_NOTES tracked distinctly in story_metrics', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openTestDb()
-    db = setup.db
-    adapter = setup.adapter
+  beforeEach(async () => {
+    adapter = await openTestDb()
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('stores LGTM_WITH_NOTES as result string (distinct from SHIP_IT success)', async () => {
@@ -201,7 +189,7 @@ describe('AC5: LGTM_WITH_NOTES tracked distinctly in story_metrics', () => {
       review_cycles: 1,
     })
 
-    const row = db.prepare('SELECT result FROM story_metrics WHERE story_key = ?').get('25-3') as { result: string } | undefined
+    const row = adapter.querySync<{ result: string }>('SELECT result FROM story_metrics WHERE story_key = ?', ['25-3'])[0]
     expect(row).toBeDefined()
     expect(row!.result).toBe('LGTM_WITH_NOTES')
   })
@@ -214,7 +202,7 @@ describe('AC5: LGTM_WITH_NOTES tracked distinctly in story_metrics', () => {
       review_cycles: 1,
     })
 
-    const row = db.prepare('SELECT result FROM story_metrics WHERE story_key = ?').get('25-4') as { result: string } | undefined
+    const row = adapter.querySync<{ result: string }>('SELECT result FROM story_metrics WHERE story_key = ?', ['25-4'])[0]
     expect(row).toBeDefined()
     expect(row!.result).toBe('SHIP_IT')
     expect(row!.result).not.toBe('LGTM_WITH_NOTES')
@@ -225,7 +213,7 @@ describe('AC5: LGTM_WITH_NOTES tracked distinctly in story_metrics', () => {
     await writeStoryMetrics(adapter, { run_id: 'run-1', story_key: '25-4', result: 'SHIP_IT', review_cycles: 0 })
     await writeStoryMetrics(adapter, { run_id: 'run-1', story_key: '25-5', result: 'escalated', review_cycles: 2 })
 
-    const rows = db.prepare('SELECT story_key, result FROM story_metrics WHERE run_id = ?').all('run-1') as Array<{ story_key: string; result: string }>
+    const rows = adapter.querySync<{ story_key: string; result: string }>('SELECT story_key, result FROM story_metrics WHERE run_id = ?', ['run-1'])
     const lgtmRows = rows.filter((r) => r.result === 'LGTM_WITH_NOTES')
     const shipItRows = rows.filter((r) => r.result === 'SHIP_IT')
 

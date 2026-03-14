@@ -23,12 +23,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { SyncDatabaseAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import {
   createPipelineRun,
@@ -50,12 +45,10 @@ import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'solutioning-readiness-integration-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+async function createTestDb(): Promise<{ adapter: DatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -412,22 +405,17 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('Readiness check integration: context assembly (AC1)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('readiness dispatch prompt contains functional requirements from planning phase', async () => {
@@ -572,22 +560,17 @@ describe('Readiness check integration: context assembly (AC1)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Readiness check integration: UX alignment (AC9)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('includes UX decisions in readiness prompt when ux-design phase decisions exist', async () => {
@@ -640,12 +623,9 @@ describe('Readiness check integration: UX alignment (AC9)', () => {
     expect(result1.result).toBe('success')
 
     // Cleanup and re-run with UX decisions
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+    await adapter.close()
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     const newRunId = await createTestRun(adapter)
     await seedFunctionalRequirements(adapter, newRunId)
     await seedUxDecisions(adapter, newRunId)
@@ -665,22 +645,17 @@ describe('Readiness check integration: UX alignment (AC9)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Readiness check integration: full pipeline with realistic mock data', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('full pipeline with 3 epics and 7 stories returns success when READY', async () => {
@@ -968,22 +943,17 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
 // ---------------------------------------------------------------------------
 
 describe('Readiness check integration: edge cases', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('pipeline succeeds when no NFRs are present', async () => {

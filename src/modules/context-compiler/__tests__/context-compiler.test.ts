@@ -14,9 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import BetterSqlite3 from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createDecision, createRequirement, createConstraint } from '../../../persistence/queries/decisions.js'
@@ -28,12 +26,10 @@ import type { ContextTemplate, ContextCompiler, TaskDescriptor } from '../types.
 // Test database setup
 // ---------------------------------------------------------------------------
 
-async function openTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
-  const db = new BetterSqlite3(':memory:')
-  db.pragma('foreign_keys = ON')
-  const adapter = new SyncDatabaseAdapter(db)
+async function openTestDb(): Promise<DatabaseAdapter> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter }
+  return adapter
 }
 
 // ---------------------------------------------------------------------------
@@ -141,14 +137,11 @@ describe('truncateToTokens', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC1: Core compile interface', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
   let compiler: ContextCompiler
 
   beforeEach(async () => {
-    const setup = await openTestDb()
-    db = setup.db
-    adapter = setup.adapter
+    adapter = await openTestDb()
     compiler = createContextCompiler({ db: adapter })
   })
 
@@ -244,14 +237,11 @@ describe('AC1: Core compile interface', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC2: Token budget enforcement', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
   let compiler: ContextCompiler
 
   beforeEach(async () => {
-    const setup = await openTestDb()
-    db = setup.db
-    adapter = setup.adapter
+    adapter = await openTestDb()
     compiler = createContextCompiler({ db: adapter })
   })
 
@@ -366,14 +356,11 @@ describe('AC2: Token budget enforcement', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC3: Section priority system', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
   let compiler: ContextCompiler
 
   beforeEach(async () => {
-    const setup = await openTestDb()
-    db = setup.db
-    adapter = setup.adapter
+    adapter = await openTestDb()
     compiler = createContextCompiler({ db: adapter })
   })
 
@@ -553,14 +540,11 @@ describe('AC3: Section priority system', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC4: Template registration', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
   let compiler: ContextCompiler
 
   beforeEach(async () => {
-    const setup = await openTestDb()
-    db = setup.db
-    adapter = setup.adapter
+    adapter = await openTestDb()
     compiler = createContextCompiler({ db: adapter })
   })
 
@@ -634,14 +618,11 @@ describe('AC4: Template registration', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC5: Selective decision store queries', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
   let compiler: ContextCompiler
 
   beforeEach(async () => {
-    const setup = await openTestDb()
-    db = setup.db
-    adapter = setup.adapter
+    adapter = await openTestDb()
     compiler = createContextCompiler({ db: adapter })
   })
 
@@ -838,14 +819,11 @@ describe('AC5: Selective decision store queries', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC7: CompileResult format', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
   let compiler: ContextCompiler
 
   beforeEach(async () => {
-    const setup = await openTestDb()
-    db = setup.db
-    adapter = setup.adapter
+    adapter = await openTestDb()
     compiler = createContextCompiler({ db: adapter })
   })
 
@@ -991,7 +969,7 @@ describe('AC7: CompileResult format', () => {
 
 describe('Empty decision store', () => {
   it('produces a prompt with empty sections when store is empty', async () => {
-    const { adapter } = await openTestDb()
+    const adapter = await openTestDb()
     const compiler = createContextCompiler({ db: adapter })
 
     const template: ContextTemplate = {

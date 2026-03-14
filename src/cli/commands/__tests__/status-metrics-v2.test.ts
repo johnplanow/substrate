@@ -6,13 +6,12 @@
  *   - pipeline_metrics: total_wall_clock_ms, total_review_cycles, stories_per_hour, cost_usd (last)
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import Database from 'better-sqlite3'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import { writeStoryMetrics } from '../../../persistence/queries/metrics.js'
 import { runStatusAction } from '../status.js'
-import { createAdapterFromSyncDb } from '../../../persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
@@ -63,11 +62,10 @@ vi.mock('../../../utils/logger.js', () => ({
 // Test setup helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: ReturnType<typeof Database>; adapter: DatabaseAdapter }> {
-  const db = new Database(':memory:')
-  const adapter = createAdapterFromSyncDb(db)
+async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return { db, adapter }
+  return { adapter }
 }
 
 // ---------------------------------------------------------------------------
@@ -75,13 +73,11 @@ async function createTestDb(): Promise<{ db: ReturnType<typeof Database>; adapte
 // ---------------------------------------------------------------------------
 
 describe('AC5/AC6: status --output-format json includes pipeline metrics v2', () => {
-  let db: ReturnType<typeof Database>
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let stdoutChunks: string[]
 
   beforeEach(async () => {
     const testDb = await createTestDb()
-    db = testDb.db
     adapter = testDb.adapter
     _injectedAdapter = adapter
 
@@ -93,6 +89,10 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
 
     mockExistsSync.mockReturnValue(true)
     mockResolveMainRepoRoot.mockResolvedValue('/fake/project')
+  })
+
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('JSON output includes story_metrics array and pipeline_metrics object', async () => {
@@ -125,10 +125,11 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
       dispatches: 3,
     })
 
-    // Manually insert the run into pipeline_runs with created_at/updated_at
-    db.prepare(
+    // Manually update the run using adapter.querySync
+    adapter.querySync(
       `UPDATE pipeline_runs SET status='completed', created_at=datetime('now', '-1 hour'), updated_at=datetime('now') WHERE id=?`,
-    ).run(run.id)
+      [run.id],
+    )
 
     await runStatusAction({
       outputFormat: 'json',
@@ -238,9 +239,10 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
     })
 
     // Set run to have a 1-hour wall clock
-    db.prepare(
+    adapter.querySync(
       `UPDATE pipeline_runs SET created_at=datetime('now', '-1 hour'), updated_at=datetime('now') WHERE id=?`,
-    ).run(run.id)
+      [run.id],
+    )
 
     await runStatusAction({
       outputFormat: 'json',

@@ -7,8 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../../../src/persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../src/persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../src/persistence/adapter.js'
 import { initSchema } from '../../../src/persistence/schema.js'
 import {
@@ -23,13 +22,10 @@ import {
   aggregateTokenUsageForRun,
 } from '../../../src/persistence/queries/metrics.js'
 
-async function openMemoryDb(): Promise<{ db: InstanceType<typeof Database>; adapter: DatabaseAdapter }> {
-  const db = new Database(':memory:')
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  const adapter = new SyncDatabaseAdapter(db)
+async function openMemoryDb(): Promise<{ adapter: DatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter }
+  return { adapter }
 }
 
 const BASE_RUN: Parameters<typeof writeRunMetrics>[1] = {
@@ -52,17 +48,15 @@ const BASE_RUN: Parameters<typeof writeRunMetrics>[1] = {
 }
 
 describe('run metrics queries', () => {
-  let db: InstanceType<typeof Database>
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMemoryDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   describe('writeRunMetrics', () => {
@@ -249,12 +243,10 @@ describe('run metrics queries', () => {
 })
 
 describe('story metrics queries', () => {
-  let db: InstanceType<typeof Database>
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMemoryDb()
-    db = setup.db
     adapter = setup.adapter
     // story_metrics has run_id FK — write a run_metrics row first
     await writeRunMetrics(adapter, {
@@ -265,8 +257,8 @@ describe('story metrics queries', () => {
     })
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   describe('writeStoryMetrics', () => {
@@ -373,17 +365,15 @@ describe('story metrics queries', () => {
 })
 
 describe('aggregateTokenUsageForRun', () => {
-  let db: InstanceType<typeof Database>
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMemoryDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns zeros when no token_usage rows exist for run', async () => {
@@ -393,12 +383,12 @@ describe('aggregateTokenUsageForRun', () => {
 
   it('aggregates token_usage rows for a run', async () => {
     // Insert a pipeline run and token usage records
-    db.exec(`INSERT INTO pipeline_runs (id, methodology, current_phase, status, created_at, updated_at)
+    await adapter.exec(`INSERT INTO pipeline_runs (id, methodology, current_phase, status, created_at, updated_at)
       VALUES ('run-tok', 'bmad', 'implementation', 'running', datetime('now'), datetime('now'))`)
-    db.prepare(`INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?)`)
-      .run('run-tok', 'create-story', 'claude-code', 1000, 500, 0.01)
-    db.prepare(`INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?)`)
-      .run('run-tok', 'dev-story', 'claude-code', 2000, 1000, 0.02)
+    await adapter.query(`INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?)`,
+      ['run-tok', 'create-story', 'claude-code', 1000, 500, 0.01])
+    await adapter.query(`INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?)`,
+      ['run-tok', 'dev-story', 'claude-code', 2000, 1000, 0.02])
 
     const agg = await aggregateTokenUsageForRun(adapter, 'run-tok')
     expect(agg.input).toBe(3000)

@@ -25,6 +25,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { MonitorAgentImpl } from '../modules/monitor/monitor-agent-impl.js'
 import { MonitorDatabaseImpl } from '../persistence/monitor-database.js'
+import { createWasmSqliteAdapter } from '../persistence/wasm-sqlite-adapter.js'
+import type { SyncAdapter } from '../persistence/adapter.js'
 import { createEventBus } from '../core/event-bus.js'
 import type { TypedEventBus } from '../core/event-bus.js'
 import { generateMonitorReport } from '../modules/monitor/report-generator.js'
@@ -40,19 +42,22 @@ import { tmpdir } from 'os'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestSetup(): {
+async function createTestSetup(): Promise<{
   eventBus: TypedEventBus
   monitorDb: MonitorDatabaseImpl
   agent: MonitorAgentImpl
-} {
+}> {
   const eventBus = createEventBus()
-  const monitorDb = new MonitorDatabaseImpl(':memory:')
+  const adapter = await createWasmSqliteAdapter()
+  const monitorDb = new MonitorDatabaseImpl(adapter)
   const agent = new MonitorAgentImpl(eventBus, monitorDb, { retentionDays: 90 })
   return { eventBus, monitorDb, agent }
 }
 
-function getInternalDb(db: MonitorDatabaseImpl): import('better-sqlite3').Database {
-  return (db as unknown as { _db: import('better-sqlite3').Database })._db
+function getSyncAdapter(db: MonitorDatabaseImpl): SyncAdapter {
+  const syncAdapter = (db as unknown as { _syncAdapter: SyncAdapter | null })._syncAdapter
+  if (!syncAdapter) throw new Error('No sync adapter available')
+  return syncAdapter
 }
 
 function buildMockUpdateChecker(latestVersion = '1.5.0'): UpdateChecker {
@@ -70,10 +75,10 @@ function buildMockUpdateChecker(latestVersion = '1.5.0'): UpdateChecker {
 // ---------------------------------------------------------------------------
 
 describe('Gap 1: task:complete events flow into generateMonitorReport', () => {
-  let setup: ReturnType<typeof createTestSetup>
+  let setup: Awaited<ReturnType<typeof createTestSetup>>
 
   beforeEach(async () => {
-    setup = createTestSetup()
+    setup = await createTestSetup()
     await setup.agent.initialize()
   })
 
@@ -173,8 +178,9 @@ describe('Gap 1: task:complete events flow into generateMonitorReport', () => {
 describe('Gap 2: task events flow into performance aggregates and are queryable by RecommendationEngine', () => {
   let monitorDb: MonitorDatabaseImpl
 
-  beforeEach(() => {
-    monitorDb = new MonitorDatabaseImpl(':memory:')
+  beforeEach(async () => {
+    const adapter = await createWasmSqliteAdapter()
+    monitorDb = new MonitorDatabaseImpl(adapter)
   })
 
   afterEach(() => {
@@ -296,10 +302,10 @@ describe('Gap 2: task events flow into performance aggregates and are queryable 
 // ---------------------------------------------------------------------------
 
 describe('Gap 3: TaskTypeClassifier output lands in the database via MonitorAgentImpl', () => {
-  let setup: ReturnType<typeof createTestSetup>
+  let setup: Awaited<ReturnType<typeof createTestSetup>>
 
   beforeEach(async () => {
-    setup = createTestSetup()
+    setup = await createTestSetup()
     await setup.agent.initialize()
   })
 
@@ -316,11 +322,13 @@ describe('Gap 3: TaskTypeClassifier output lands in the database via MonitorAgen
     })
 
     // The classifier should default to "coding" when no metadata is provided
-    const internal = getInternalDb(monitorDb)
-    const row = internal.prepare('SELECT task_type FROM task_metrics WHERE task_id = ?').get('task-classifier-1') as { task_type: string }
-
+    const syncAdapter = getSyncAdapter(monitorDb)
+    const [row] = syncAdapter.querySync<{ task_type: string }>(
+      'SELECT task_type FROM task_metrics WHERE task_id = ?',
+      ['task-classifier-1'],
+    )
     expect(row).toBeDefined()
-    expect(row.task_type).toBe('coding') // default fallback
+    expect(row!.task_type).toBe('coding') // default fallback
   })
 
   it('multiple task:complete events each produce their own task_metrics row', () => {
@@ -333,9 +341,9 @@ describe('Gap 3: TaskTypeClassifier output lands in the database via MonitorAgen
       })
     }
 
-    const internal = getInternalDb(monitorDb)
-    const count = (internal.prepare('SELECT COUNT(*) as cnt FROM task_metrics').get() as { cnt: number }).cnt
-    expect(count).toBe(3)
+    const syncAdapter = getSyncAdapter(monitorDb)
+    const [countRow] = syncAdapter.querySync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM task_metrics')
+    expect(countRow!.cnt).toBe(3)
   })
 
   it('task:failed event is recorded with "coding" default task type', () => {
@@ -346,14 +354,15 @@ describe('Gap 3: TaskTypeClassifier output lands in the database via MonitorAgen
       error: { message: 'Task timeout', code: 'TIMEOUT' },
     })
 
-    const internal = getInternalDb(monitorDb)
-    const row = internal.prepare('SELECT task_type, outcome, failure_reason FROM task_metrics WHERE task_id = ?')
-      .get('task-fail-classify') as { task_type: string; outcome: string; failure_reason: string }
-
+    const syncAdapter = getSyncAdapter(monitorDb)
+    const [row] = syncAdapter.querySync<{ task_type: string; outcome: string; failure_reason: string }>(
+      'SELECT task_type, outcome, failure_reason FROM task_metrics WHERE task_id = ?',
+      ['task-fail-classify'],
+    )
     expect(row).toBeDefined()
-    expect(row.outcome).toBe('failure')
-    expect(row.failure_reason).toBe('Task timeout')
-    expect(row.task_type).toBe('coding') // default
+    expect(row!.outcome).toBe('failure')
+    expect(row!.failure_reason).toBe('Task timeout')
+    expect(row!.task_type).toBe('coding') // default
   })
 })
 
@@ -364,8 +373,9 @@ describe('Gap 3: TaskTypeClassifier output lands in the database via MonitorAgen
 describe('Gap 4: Monitor reset roundtrip — seed, reset, verify empty', () => {
   let monitorDb: MonitorDatabaseImpl
 
-  beforeEach(() => {
-    monitorDb = new MonitorDatabaseImpl(':memory:')
+  beforeEach(async () => {
+    const adapter = await createWasmSqliteAdapter()
+    monitorDb = new MonitorDatabaseImpl(adapter)
   })
 
   afterEach(() => {
@@ -396,20 +406,19 @@ describe('Gap 4: Monitor reset roundtrip — seed, reset, verify empty', () => {
     })
 
     // Verify data exists before reset
-    const internalBefore = getInternalDb(monitorDb)
-    const metricsBefore = (internalBefore.prepare('SELECT COUNT(*) as cnt FROM task_metrics').get() as { cnt: number }).cnt
-    expect(metricsBefore).toBe(1)
+    const syncAdapter = getSyncAdapter(monitorDb)
+    const [metricsBeforeRow] = syncAdapter.querySync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM task_metrics')
+    expect(metricsBeforeRow!.cnt).toBe(1)
 
     // Reset
     monitorDb.resetAllData()
 
     // Verify both tables are empty
-    const internalAfter = getInternalDb(monitorDb)
-    const metricsAfter = (internalAfter.prepare('SELECT COUNT(*) as cnt FROM task_metrics').get() as { cnt: number }).cnt
-    const aggAfter = (internalAfter.prepare('SELECT COUNT(*) as cnt FROM performance_aggregates').get() as { cnt: number }).cnt
+    const [metricsAfterRow] = syncAdapter.querySync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM task_metrics')
+    const [aggAfterRow] = syncAdapter.querySync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM performance_aggregates')
 
-    expect(metricsAfter).toBe(0)
-    expect(aggAfter).toBe(0)
+    expect(metricsAfterRow!.cnt).toBe(0)
+    expect(aggAfterRow!.cnt).toBe(0)
   })
 
   it('generateMonitorReport returns zero counts after resetAllData', () => {
@@ -696,8 +705,9 @@ describe('Gap 6: VersionManager migrateConfiguration and migrateTaskGraphFormat 
 describe('Gap 7: pruneOldData + rebuildAggregates followed by report generation', () => {
   let monitorDb: MonitorDatabaseImpl
 
-  beforeEach(() => {
-    monitorDb = new MonitorDatabaseImpl(':memory:')
+  beforeEach(async () => {
+    const adapter = await createWasmSqliteAdapter()
+    monitorDb = new MonitorDatabaseImpl(adapter)
   })
 
   afterEach(() => {
@@ -705,22 +715,22 @@ describe('Gap 7: pruneOldData + rebuildAggregates followed by report generation'
   })
 
   it('after pruning old data, report reflects only recent tasks', () => {
-    const internal = getInternalDb(monitorDb)
+    const syncAdapter = getSyncAdapter(monitorDb)
     const oldDate = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString()
     const recentDate = new Date().toISOString()
 
     // Insert one old and one recent task
-    internal.prepare(`
+    syncAdapter.querySync(`
       INSERT INTO task_metrics (task_id, agent, task_type, outcome, input_tokens, output_tokens,
         duration_ms, cost, estimated_cost, billing_mode, recorded_at)
       VALUES ('old-task', 'claude', 'coding', 'success', 1000, 500, 2000, 0.05, 0.04, 'api', ?)
-    `).run(oldDate)
+    `, [oldDate])
 
-    internal.prepare(`
+    syncAdapter.querySync(`
       INSERT INTO task_metrics (task_id, agent, task_type, outcome, input_tokens, output_tokens,
         duration_ms, cost, estimated_cost, billing_mode, recorded_at)
       VALUES ('recent-task', 'claude', 'coding', 'success', 500, 200, 1000, 0.02, 0.02, 'api', ?)
-    `).run(recentDate)
+    `, [recentDate])
 
     // Build aggregates from both tasks
     monitorDb.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 1000, outputTokens: 500, durationMs: 2000, cost: 0.05 })

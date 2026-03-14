@@ -16,8 +16,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod'
@@ -29,7 +28,7 @@ import {
   getDecisionsByPhaseForRun,
 } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
-import { createAdapterFromSyncDb } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { createBuiltInPhases } from '../../../modules/phase-orchestrator/built-in-phases.js'
 import { createPhaseOrchestrator } from '../../../modules/phase-orchestrator/index.js'
 import { buildResearchSteps, runResearchPhase } from '../../../modules/phase-orchestrator/phases/research.js'
@@ -48,21 +47,18 @@ import type { Dispatcher, DispatchResult } from '../../../modules/agent-dispatch
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: ReturnType<typeof Database>; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'research-smoke-'))
-  const dbPath = join(tmpDir, 'test.db')
-  const db = new Database(dbPath)
-  await initSchema(createAdapterFromSyncDb(db))
-  // Create placeholder file so existsSync(dbPath) checks in production code pass.
-  writeFileSync(dbPath, '')
-  return { db, tmpDir }
+async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
+  const tmpDir = join(tmpdir(), `research-smoke-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  await initSchema(adapter)
+  return { adapter, tmpDir }
 }
 
 async function createTestRun(
-  db: ReturnType<typeof Database>,
+  adapter: WasmSqliteDatabaseAdapter,
   startPhase = 'research',
 ): Promise<string> {
-  const run = await createPipelineRun(createAdapterFromSyncDb(db), { methodology: 'bmad', start_phase: startPhase })
+  const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: startPhase })
   return run.id
 }
 
@@ -168,11 +164,11 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  db: ReturnType<typeof Database>,
+  adapter: WasmSqliteDatabaseAdapter,
   dispatcher: Dispatcher,
   pack: MethodologyPack,
 ): PhaseDeps {
-  return { db: createAdapterFromSyncDb(db), pack, contextCompiler: makeContextCompiler(), dispatcher }
+  return { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
 
 // ---------------------------------------------------------------------------
@@ -264,27 +260,27 @@ describe('Manifest flag precedence (effectiveResearch logic)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research → Analysis gate enforcement', () => {
-  let db: ReturnType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
+    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
   })
 
   it('analysis phase entry gate BLOCKS when research enabled but research-findings artifact missing', async () => {
     const pack = makePack({}, { research: true })
-    const orchestrator = createPhaseOrchestrator({ db: createAdapterFromSyncDb(db), pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack: pack as never })
 
     const runId = await orchestrator.startRun('test concept', 'research')
     // Set current phase to research (simulating research in progress)
-    db.prepare(`UPDATE pipeline_runs SET current_phase = 'research' WHERE id = ?`).run(runId)
+    adapter.querySync(`UPDATE pipeline_runs SET current_phase = 'research' WHERE id = ?`, [runId])
 
     // Try to advance to analysis — should fail because no research-findings artifact
     const result = await orchestrator.advancePhase(runId)
@@ -294,13 +290,13 @@ describe('Research → Analysis gate enforcement', () => {
 
   it('analysis phase entry gate PASSES when research enabled and research-findings artifact exists', async () => {
     const pack = makePack({}, { research: true })
-    const orchestrator = createPhaseOrchestrator({ db: createAdapterFromSyncDb(db), pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack: pack as never })
 
     const runId = await orchestrator.startRun('test concept', 'research')
-    db.prepare(`UPDATE pipeline_runs SET current_phase = 'research' WHERE id = ?`).run(runId)
+    adapter.querySync(`UPDATE pipeline_runs SET current_phase = 'research' WHERE id = ?`, [runId])
 
     // Register the required artifact
-    await registerArtifact(createAdapterFromSyncDb(db), {
+    await registerArtifact(adapter, {
       pipeline_run_id: runId,
       phase: 'research',
       type: 'research-findings',
@@ -314,7 +310,7 @@ describe('Research → Analysis gate enforcement', () => {
 
   it('analysis phase has NO research gate when research is disabled', async () => {
     const pack = makePack({}, { research: false })
-    const orchestrator = createPhaseOrchestrator({ db: createAdapterFromSyncDb(db), pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack: pack as never })
 
     const runId = await orchestrator.startRun('test concept', 'analysis')
 
@@ -329,20 +325,20 @@ describe('Research → Analysis gate enforcement', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research phase decision store persistence', () => {
-  let db: ReturnType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = await createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
+    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
   })
 
   it('step 1 discovery persists all 4 fields to decision store', async () => {
@@ -352,7 +348,7 @@ describe('Research phase decision store persistence', () => {
     const pack = makePack({
       'research-step-1-discovery': '{{concept}}',
     }, { research: true })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     // Run only step 1
     const steps = [buildResearchSteps()[0]!]
@@ -363,7 +359,7 @@ describe('Research phase decision store persistence', () => {
     expect(result.success).toBe(true)
 
     // Verify all 4 discovery fields persisted
-    const decisions = await getDecisionsByPhaseForRun(createAdapterFromSyncDb(db),runId, 'research')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'research')
     const keys = decisions.map((d) => d.key)
     expect(keys).toContain('concept_classification')
     expect(keys).toContain('market_findings')
@@ -377,7 +373,7 @@ describe('Research phase decision store persistence', () => {
 
   it('step 2 synthesis persists all 5 fields including arrays to decision store', async () => {
     // Pre-seed step 1 results so step 2 can resolve step: context
-    await createDecision(createAdapterFromSyncDb(db), {
+    await createDecision(adapter, {
       pipeline_run_id: runId,
       phase: 'research',
       category: 'research',
@@ -391,7 +387,7 @@ describe('Research phase decision store persistence', () => {
     const pack = makePack({
       'research-step-2-synthesis': '{{concept}}\n{{raw_findings}}',
     }, { research: true })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     // Run only step 2
     const steps = [buildResearchSteps()[1]!]
@@ -402,7 +398,7 @@ describe('Research phase decision store persistence', () => {
     expect(result.success).toBe(true)
 
     // Verify all 5 synthesis fields persisted
-    const decisions = await getDecisionsByPhaseForRun(createAdapterFromSyncDb(db),runId, 'research')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'research')
     const keys = decisions.map((d) => d.key)
     expect(keys).toContain('market_context')
     expect(keys).toContain('competitive_landscape')
@@ -426,7 +422,7 @@ describe('Research phase decision store persistence', () => {
       'research-step-1-discovery': 'Discover: {{concept}}',
       'research-step-2-synthesis': 'Synthesize: {{concept}} from {{raw_findings}}',
     }, { research: true })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const result = await runResearchPhase(deps, {
       runId,
@@ -436,15 +432,16 @@ describe('Research phase decision store persistence', () => {
     expect(result.result).toBe('success')
     expect(result.artifact_id).toBeDefined()
 
-    // Verify artifact registered in DB
-    const artifact = db
-      .prepare(`SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'research-findings'`)
-      .get(runId) as { type: string; id: string } | undefined
+    // Verify artifact registered in DB using adapter.querySync
+    const artifact = adapter.querySync<{ type: string; id: string }>(
+      `SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'research-findings'`,
+      [runId],
+    )[0]
     expect(artifact).toBeDefined()
     expect(artifact!.type).toBe('research-findings')
 
     // Verify all 9 decision fields exist
-    const decisions = await getDecisionsByPhaseForRun(createAdapterFromSyncDb(db),runId, 'research')
+    const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'research')
     const keys = decisions.map((d) => d.key)
     // Step 1: 4 fields
     expect(keys).toContain('concept_classification')
@@ -465,20 +462,20 @@ describe('Research phase decision store persistence', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research → Analysis context handoff', () => {
-  let db: ReturnType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = await createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
+    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
   })
 
   it('research phase output flows into analysis prompt via decision:research.findings', async () => {
@@ -491,7 +488,7 @@ describe('Research → Analysis context handoff', () => {
       'research-step-1-discovery': 'Discover: {{concept}}',
       'research-step-2-synthesis': 'Synthesize: {{concept}} from {{raw_findings}}',
     }, { research: true })
-    const researchDeps = makeDeps(db, researchDispatcher, researchPack)
+    const researchDeps = makeDeps(adapter, researchDispatcher, researchPack)
 
     const researchResult = await runResearchPhase(researchDeps, {
       runId,
@@ -521,7 +518,7 @@ describe('Research → Analysis context handoff', () => {
     const analysisPack = makePack({
       'analysis-step-1-vision': '### Concept\n{{concept}}\n\n### Research\n{{research_findings}}\n\n## Vision',
     })
-    const analysisDeps = makeDeps(db, analysisDispatcher, analysisPack)
+    const analysisDeps = makeDeps(adapter, analysisDispatcher, analysisPack)
 
     // Build an analysis step with research_findings context
     const analysisStep: StepDefinition = {
@@ -568,20 +565,20 @@ describe('Research → Analysis context handoff', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research phase token usage tracking', () => {
-  let db: ReturnType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = await createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
+    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
   })
 
   it('token usage is accumulated across both research steps', async () => {
@@ -593,7 +590,7 @@ describe('Research phase token usage tracking', () => {
       'research-step-1-discovery': '{{concept}}',
       'research-step-2-synthesis': '{{concept}}\n{{raw_findings}}',
     })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const result = await runResearchPhase(deps, {
       runId,
@@ -613,20 +610,20 @@ describe('Research phase token usage tracking', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research phase failure propagation', () => {
-  let db: ReturnType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
-    runId = await createTestRun(db)
+    runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
+    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
   })
 
   it('returns failed result when dispatcher throws', async () => {
@@ -641,7 +638,7 @@ describe('Research phase failure propagation', () => {
     const pack = makePack({
       'research-step-1-discovery': '{{concept}}',
     })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const result = await runResearchPhase(deps, {
       runId,
@@ -659,7 +656,7 @@ describe('Research phase failure propagation', () => {
     const pack = makePack({
       'research-step-1-discovery': '{{concept}}',
     })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const result = await runResearchPhase(deps, {
       runId,
@@ -683,14 +680,15 @@ describe('Research phase failure propagation', () => {
     const pack = makePack({
       'research-step-1-discovery': '{{concept}}',
     })
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     await runResearchPhase(deps, { runId, concept: 'Test' })
 
     // No artifact should exist
-    const artifact = db
-      .prepare(`SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'research-findings'`)
-      .get(runId) as { type: string } | undefined
+    const artifact = adapter.querySync<{ type: string }>(
+      `SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'research-findings'`,
+      [runId],
+    )[0]
     expect(artifact).toBeUndefined()
   })
 })
@@ -787,23 +785,23 @@ describe('Research schema validation edge cases', () => {
 // ---------------------------------------------------------------------------
 
 describe('Backwards compatibility: pipeline without research', () => {
-  let db: ReturnType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
+    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
   })
 
   it('phase orchestrator without research starts at analysis and has no research gates', async () => {
     const pack = makePack({}, { research: false })
-    const orchestrator = createPhaseOrchestrator({ db: createAdapterFromSyncDb(db), pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack: pack as never })
 
     const runId = await orchestrator.startRun('test concept', 'analysis')
     const status = await orchestrator.getRunStatus(runId)
@@ -813,12 +811,12 @@ describe('Backwards compatibility: pipeline without research', () => {
 
   it('analysis advances to planning without needing research artifacts', async () => {
     const pack = makePack({}, { research: false })
-    const orchestrator = createPhaseOrchestrator({ db: createAdapterFromSyncDb(db), pack: pack as never })
+    const orchestrator = createPhaseOrchestrator({ db: adapter, pack: pack as never })
 
     const runId = await orchestrator.startRun('test concept', 'analysis')
 
     // Register analysis artifact
-    await registerArtifact(createAdapterFromSyncDb(db), {
+    await registerArtifact(adapter, {
       pipeline_run_id: runId,
       phase: 'analysis',
       type: 'product-brief',

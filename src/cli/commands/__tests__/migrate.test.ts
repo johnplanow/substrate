@@ -3,6 +3,11 @@
  * Unit tests for the `substrate migrate` command.
  *
  * Story 26-13: SQLite → Dolt Migration Command
+ *
+ * NOTE (Epic 29): better-sqlite3 has been removed. readSqliteSnapshot()
+ * now always returns an empty snapshot. The "successful migration" path
+ * (which previously read rows from SQLite) no longer has data to migrate.
+ * Tests below reflect this new behavior.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -17,22 +22,6 @@ vi.mock('../../utils/git-root.js', () => ({
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn().mockReturnValue(true),
-}))
-
-// Mock better-sqlite3
-const { mockSqliteConstructor, mockPrepare, mockAll, mockClose: mockDbClose } = vi.hoisted(() => {
-  const mockAll = vi.fn()
-  const mockPrepare = vi.fn(() => ({ all: mockAll }))
-  const mockDbClose = vi.fn()
-  const mockSqliteConstructor = vi.fn(() => ({
-    prepare: mockPrepare,
-    close: mockDbClose,
-  }))
-  return { mockSqliteConstructor, mockPrepare, mockAll, mockClose: mockDbClose }
-})
-
-vi.mock('better-sqlite3', () => ({
-  default: mockSqliteConstructor,
 }))
 
 // Mock state module: checkDoltInstalled, createDoltClient, DoltNotInstalled
@@ -99,31 +88,6 @@ function createProgram(): Command {
   return program
 }
 
-const SAMPLE_ROWS = [
-  {
-    story_key: '26-1',
-    result: 'success',
-    completed_at: '2026-03-01T10:00:00Z',
-    created_at: '2026-03-01T09:00:00Z',
-    wall_clock_seconds: 120,
-    input_tokens: 1000,
-    output_tokens: 500,
-    cost_usd: 0.01,
-    review_cycles: 1,
-  },
-  {
-    story_key: '26-2',
-    result: 'success',
-    completed_at: '2026-03-02T10:00:00Z',
-    created_at: '2026-03-02T09:00:00Z',
-    wall_clock_seconds: 200,
-    input_tokens: 2000,
-    output_tokens: 800,
-    cost_usd: 0.02,
-    review_cycles: 0,
-  },
-]
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -139,9 +103,6 @@ describe('migrate command', () => {
 
     // Default: dolt .dolt dir exists
     vi.mocked(existsSync).mockReturnValue(true)
-
-    // Default: SQLite returns sample rows
-    mockAll.mockReturnValue(SAMPLE_ROWS)
   })
 
   afterEach(() => {
@@ -151,16 +112,11 @@ describe('migrate command', () => {
   })
 
   // -------------------------------------------------------------------------
-  // AC4: No SQLite data
+  // AC4: No SQLite data (Epic 29: always the case now)
   // -------------------------------------------------------------------------
 
   describe('no SQLite data', () => {
-    it('exits 0 and prints "no data" message when SQLite file is missing', async () => {
-      // Simulate Database constructor throwing (file not found)
-      mockSqliteConstructor.mockImplementationOnce(() => {
-        throw new Error('ENOENT: no such file or directory')
-      })
-
+    it('exits 0 and prints "no data" message when there is no SQLite data', async () => {
       process.exitCode = 0
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate'])
@@ -171,11 +127,7 @@ describe('migrate command', () => {
       expect(output).toContain('No SQLite data found — nothing to migrate')
     })
 
-    it('prints JSON no-data response with reason "no-sqlite-data" when --output-format json and no SQLite', async () => {
-      mockSqliteConstructor.mockImplementationOnce(() => {
-        throw new Error('ENOENT')
-      })
-
+    it('prints JSON no-data response with reason "no-sqlite-data" when --output-format json', async () => {
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate', '--output-format', 'json'])
 
@@ -251,38 +203,33 @@ describe('migrate command', () => {
   })
 
   // -------------------------------------------------------------------------
-  // AC1 / AC2 / AC3 / AC6: Successful migration
+  // AC1 / AC2 / AC3 / AC6: No data to migrate (Epic 29: SQLite removed)
   // -------------------------------------------------------------------------
 
-  describe('successful migration', () => {
-    it('calls client.query with INSERT SQL containing ON DUPLICATE KEY UPDATE', async () => {
+  describe('no data to migrate (Epic 29: SQLite removed)', () => {
+    it('does NOT call client.query since there are no rows to migrate', async () => {
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate'])
 
-      expect(mockClientQuery).toHaveBeenCalled()
-      const sql = String(mockClientQuery.mock.calls[0][0])
-      expect(sql).toContain('INSERT INTO metrics')
-      expect(sql).toContain('ON DUPLICATE KEY UPDATE')
+      expect(mockClientQuery).not.toHaveBeenCalled()
     })
 
-    it('calls client.execArgs with add and commit after writing', async () => {
+    it('does NOT call client.execArgs since there are no rows to migrate', async () => {
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate'])
 
-      const execArgsCalls = mockClientExecArgs.mock.calls.map((c) => c[0] as string[])
-      expect(execArgsCalls).toContainEqual(['add', '.'])
-      expect(execArgsCalls.some((args) => args.includes('commit') && args.includes('Migrate historical data from SQLite'))).toBe(true)
+      expect(mockClientExecArgs).not.toHaveBeenCalled()
     })
 
-    it('prints "Migrated N story metrics." to stdout', async () => {
+    it('prints "No SQLite data found — nothing to migrate" to stdout', async () => {
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate'])
 
       const output = consoleSpy.mock.calls.map((c) => String(c[0])).join('\n')
-      expect(output).toContain(`Migrated ${SAMPLE_ROWS.length} story metrics.`)
+      expect(output).toContain('No SQLite data found — nothing to migrate')
     })
 
-    it('exits 0 on success', async () => {
+    it('exits 0 with no data', async () => {
       process.exitCode = 0
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate'])
@@ -297,26 +244,26 @@ describe('migrate command', () => {
   // -------------------------------------------------------------------------
 
   describe('--dry-run flag', () => {
-    it('does NOT call client.query when --dry-run is set', async () => {
+    it('does NOT call client.query when --dry-run is set (no data)', async () => {
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate', '--dry-run'])
 
       expect(mockClientQuery).not.toHaveBeenCalled()
     })
 
-    it('does NOT call client.execArgs when --dry-run is set', async () => {
+    it('does NOT call client.execArgs when --dry-run is set (no data)', async () => {
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate', '--dry-run'])
 
       expect(mockClientExecArgs).not.toHaveBeenCalled()
     })
 
-    it('prints "Would migrate N story metrics (dry run — no changes written)"', async () => {
+    it('prints "No SQLite data found" message for --dry-run with no data', async () => {
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate', '--dry-run'])
 
       const output = consoleSpy.mock.calls.map((c) => String(c[0])).join('\n')
-      expect(output).toContain(`Would migrate ${SAMPLE_ROWS.length} story metrics (dry run — no changes written)`)
+      expect(output).toContain('No SQLite data found — nothing to migrate')
     })
   })
 
@@ -325,61 +272,24 @@ describe('migrate command', () => {
   // -------------------------------------------------------------------------
 
   describe('JSON output mode', () => {
-    it('prints valid JSON with migrated=true and counts.metrics on success', async () => {
+    it('prints valid JSON with migrated=false and reason="no-sqlite-data" since there is no data', async () => {
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate', '--output-format', 'json'])
 
       expect(consoleSpy).toHaveBeenCalledOnce()
       const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as Record<string, unknown>
-      expect(parsed.migrated).toBe(true)
-      expect(typeof (parsed.counts as Record<string, number>).metrics).toBe('number')
+      expect(parsed.migrated).toBe(false)
+      expect(parsed.reason).toBe('no-sqlite-data')
     })
 
-    it('prints valid JSON with dryRun=true and counts.metrics when --dry-run --output-format json', async () => {
+    it('prints valid JSON with migrated=false for --dry-run --output-format json with no data', async () => {
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'migrate', '--dry-run', '--output-format', 'json'])
 
       expect(consoleSpy).toHaveBeenCalledOnce()
       const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as Record<string, unknown>
+      // With no data, the early-exit path is taken regardless of --dry-run
       expect(parsed.migrated).toBe(false)
-      expect(parsed.dryRun).toBe(true)
-      expect(typeof (parsed.counts as Record<string, number>).metrics).toBe('number')
-    })
-  })
-
-  // -------------------------------------------------------------------------
-  // Skipping invalid rows
-  // -------------------------------------------------------------------------
-
-  describe('row filtering', () => {
-    it('skips rows with NULL story_key and does not include them in migrated count', async () => {
-      const rowsWithNull = [
-        ...SAMPLE_ROWS,
-        {
-          story_key: null,
-          result: 'success',
-          completed_at: '2026-03-03T10:00:00Z',
-          created_at: '2026-03-03T09:00:00Z',
-          wall_clock_seconds: 50,
-          input_tokens: 100,
-          output_tokens: 50,
-          cost_usd: 0.001,
-          review_cycles: 0,
-        },
-      ]
-      mockAll.mockReturnValueOnce(rowsWithNull)
-
-      const program = createProgram()
-      await program.parseAsync(['node', 'substrate', 'migrate'])
-
-      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join('\n')
-      // Only the valid rows (SAMPLE_ROWS.length = 2) should be migrated
-      expect(output).toContain(`Migrated ${SAMPLE_ROWS.length} story metrics.`)
-
-      // AC1: skipped rows must produce a user-visible warning on stderr
-      const stderrOutput = stderrSpy.mock.calls.map((c) => String(c[0])).join('')
-      expect(stderrOutput).toContain('Skipped')
-      expect(stderrOutput).toContain('1') // 1 row was skipped
     })
   })
 })

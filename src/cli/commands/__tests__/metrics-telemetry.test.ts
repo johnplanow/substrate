@@ -102,7 +102,7 @@ vi.mock('../../../modules/state/index.js', () => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Mock TelemetryPersistence and better-sqlite3
+// Mock TelemetryPersistence
 // ---------------------------------------------------------------------------
 
 const mockTelemetryPersistence = {
@@ -126,15 +126,6 @@ vi.mock('../../../modules/telemetry/index.js', () => ({
   AdapterTelemetryPersistence: vi.fn().mockImplementation(() => mockTelemetryPersistence),
 }))
 
-// Mock better-sqlite3 so the `require('better-sqlite3')` call in openTelemetryDb
-// returns a usable constructor. The global alias points to an ESM WASM mock that
-// cannot be required, so we provide a simple mock here.
-const mockSqliteDb = { close: vi.fn() }
-vi.mock('better-sqlite3', () => {
-  const Database = vi.fn().mockImplementation(() => mockSqliteDb)
-  Database.prototype = {}
-  return { default: Database, Database }
-})
 
 
 

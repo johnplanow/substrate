@@ -2,13 +2,10 @@
  * TelemetryPersistence — DatabaseAdapter-backed persistence for telemetry data.
  *
  * Implements ITelemetryPersistence using the generic DatabaseAdapter interface
- * (async query/exec/transaction). Replaces the prior better-sqlite3 prepared
- * statement implementation so that telemetry can be persisted to any backend
+ * (async query/exec/transaction). Telemetry can be persisted to any backend
  * (Dolt, InMemory, or WASM SQLite in tests).
  *
- * Note: This class now delegates to AdapterTelemetryPersistence. Callers
- * that previously passed a BetterSqlite3Database should wrap it with
- * createAdapterFromSyncDb() from src/persistence/wasm-sqlite-adapter.ts.
+ * Note: This class now delegates to AdapterTelemetryPersistence.
  */
 
 import type { DatabaseAdapter } from '../../persistence/adapter.js'
@@ -105,10 +102,7 @@ export interface ITelemetryPersistence {
  * Accepts a DatabaseAdapter and delegates all operations to
  * AdapterTelemetryPersistence. Provides schema initialization via initSchema().
  *
- * Migration guide: callers that previously passed a BetterSqlite3Database
- * should now pass a DatabaseAdapter. Use createAdapterFromSyncDb() from
- * src/persistence/wasm-sqlite-adapter.ts to wrap a better-sqlite3-compatible
- * database object.
+ * Accepts a DatabaseAdapter and uses it for all persistence operations.
  */
 export class TelemetryPersistence implements ITelemetryPersistence {
   private readonly _impl: AdapterTelemetryPersistence

@@ -8,12 +8,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import BetterSqlite3 from 'better-sqlite3'
-import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import {
   createDecision,
@@ -60,6 +59,7 @@ describe('T13: runExportAction --output-format json', () => {
   let runId: string
   let stdoutOutput: string[]
   let originalWrite: typeof process.stdout.write
+  let seededAdapter: import('../../../persistence/adapter.js').DatabaseAdapter
 
   beforeEach(async () => {
     // Create a real temp project root with a .substrate directory
@@ -67,18 +67,15 @@ describe('T13: runExportAction --output-format json', () => {
     const substrateDir = join(tempProjectRoot, '.substrate')
     mkdirSync(substrateDir, { recursive: true })
 
-    // Create a real SQLite database file and seed it with decisions
-    const dbPath = join(substrateDir, 'substrate.db')
-    const db = new BetterSqlite3(dbPath)
-    db.pragma('foreign_keys = ON')
-    const adapter = new SyncDatabaseAdapter(db)
-    await initSchema(adapter)
+    // Create a WASM in-memory adapter and seed it with decisions
+    seededAdapter = await createWasmSqliteAdapter()
+    await initSchema(seededAdapter)
 
-    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    const run = await createPipelineRun(seededAdapter, { methodology: 'bmad' })
     runId = run.id
 
     // Insert decisions for all three phases so all 5 files are written
-    await createDecision(adapter, {
+    await createDecision(seededAdapter, {
       pipeline_run_id: runId,
       phase: 'analysis',
       category: 'product-brief',
@@ -86,7 +83,7 @@ describe('T13: runExportAction --output-format json', () => {
       value: 'Test problem statement for JSON export',
       rationale: null,
     })
-    await createDecision(adapter, {
+    await createDecision(seededAdapter, {
       pipeline_run_id: runId,
       phase: 'planning',
       category: 'classification',
@@ -94,7 +91,7 @@ describe('T13: runExportAction --output-format json', () => {
       value: 'saas-product',
       rationale: null,
     })
-    await createDecision(adapter, {
+    await createDecision(seededAdapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'architecture',
@@ -102,7 +99,7 @@ describe('T13: runExportAction --output-format json', () => {
       value: 'TypeScript',
       rationale: null,
     })
-    await createDecision(adapter, {
+    await createDecision(seededAdapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'epics',
@@ -110,7 +107,7 @@ describe('T13: runExportAction --output-format json', () => {
       value: JSON.stringify({ title: 'Core', description: 'Core functionality' }),
       rationale: null,
     })
-    await createDecision(adapter, {
+    await createDecision(seededAdapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'stories',
@@ -124,7 +121,7 @@ describe('T13: runExportAction --output-format json', () => {
       }),
       rationale: null,
     })
-    await createDecision(adapter, {
+    await createDecision(seededAdapter, {
       pipeline_run_id: runId,
       phase: 'solutioning',
       category: 'readiness-findings',
@@ -138,19 +135,13 @@ describe('T13: runExportAction --output-format json', () => {
       rationale: null,
     })
 
-    // Close the seeded DB so createDatabaseAdapter can reopen it
-    db.close()
-
-    // Create a placeholder file so export.ts's existsSync(dbPath) check passes.
-    // The WASM mock Database is in-memory and doesn't create real files.
+    // Create a placeholder file so export.ts's existsSync(dbPath) check passes
+    const dbPath = join(substrateDir, 'substrate.db')
+    const { writeFileSync } = await import('node:fs')
     writeFileSync(dbPath, '')
 
-    // Configure the mock to open the seeded SQLite file via SqliteDatabaseAdapter
-    mockCreateDatabaseAdapter.mockImplementation(() => {
-      const reopenedDb = new BetterSqlite3(dbPath)
-      reopenedDb.pragma('foreign_keys = ON')
-      return new SyncDatabaseAdapter(reopenedDb)
-    })
+    // Configure the mock to return the pre-seeded WASM adapter
+    mockCreateDatabaseAdapter.mockReturnValue(seededAdapter)
 
     // Capture process.stdout.write output
     stdoutOutput = []
@@ -168,9 +159,12 @@ describe('T13: runExportAction --output-format json', () => {
     } as typeof process.stdout.write
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     // Restore process.stdout.write
     process.stdout.write = originalWrite
+
+    // Close adapter (no-op if runExportAction already closed it)
+    await seededAdapter.close()
 
     if (existsSync(tempProjectRoot)) {
       rmSync(tempProjectRoot, { recursive: true, force: true })
@@ -227,14 +221,8 @@ describe('T13: runExportAction --output-format json', () => {
   })
 
   it('T13c: exports operational-findings.md and experiments.md when decisions exist', async () => {
-    // Re-open DB to add operational-finding and experiment-result decisions
-    const substrateDir = join(tempProjectRoot, '.substrate')
-    const dbPathLocal = join(substrateDir, 'substrate.db')
-    const db = new BetterSqlite3(dbPathLocal)
-    db.pragma('foreign_keys = ON')
-    const adapter = new SyncDatabaseAdapter(db)
-
-    await createDecision(adapter, {
+    // Add operational-finding and experiment-result decisions to the seeded adapter
+    await createDecision(seededAdapter, {
       pipeline_run_id: runId,
       phase: 'supervisor',
       category: 'operational-finding',
@@ -247,7 +235,7 @@ describe('T13: runExportAction --output-format json', () => {
       }),
       rationale: 'Stall recovery test',
     })
-    await createDecision(adapter, {
+    await createDecision(seededAdapter, {
       pipeline_run_id: runId,
       phase: 'supervisor',
       category: 'operational-finding',
@@ -263,7 +251,7 @@ describe('T13: runExportAction --output-format json', () => {
       }),
       rationale: 'Run summary test',
     })
-    await createDecision(adapter, {
+    await createDecision(seededAdapter, {
       pipeline_run_id: runId,
       phase: 'supervisor',
       category: 'experiment-result',
@@ -277,7 +265,6 @@ describe('T13: runExportAction --output-format json', () => {
       }),
       rationale: 'Experiment test',
     })
-    db.close()
 
     const outputDir = join(tempProjectRoot, 'artifacts-operational')
 

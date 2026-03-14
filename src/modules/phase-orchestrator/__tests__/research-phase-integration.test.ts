@@ -13,12 +13,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun, registerArtifact } from '../../../persistence/queries/decisions.js'
 import { createPhaseOrchestrator } from '../phase-orchestrator-impl.js'
@@ -34,12 +32,11 @@ import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
+async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'research-integration-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter, tmpDir }
 }
 
 async function registerArtifactForRun(
@@ -127,19 +124,17 @@ describe('createBuiltInPhases - research enabled', () => {
 // ---------------------------------------------------------------------------
 
 describe('PhaseOrchestrator - research enabled', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -175,22 +170,20 @@ describe('PhaseOrchestrator - research enabled', () => {
 // ---------------------------------------------------------------------------
 
 describe('research gate enforcement', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
     const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'research' })
     runId = run.id
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -219,19 +212,17 @@ describe('research gate enforcement', () => {
 // ---------------------------------------------------------------------------
 
 describe('Full pipeline advance with research enabled', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 

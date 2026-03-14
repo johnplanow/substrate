@@ -13,8 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import Database from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../wasm-sqlite-adapter.js'
 import { initSchema } from '../schema.js'
 import {
   createDecision,
@@ -53,11 +52,9 @@ import {
 // ---------------------------------------------------------------------------
 
 async function openTestDb() {
-  const db = new Database(':memory:')
-  db.pragma('foreign_keys = ON')
-  const adapter = new SyncDatabaseAdapter(db)
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return db
+  return adapter
 }
 
 // ---------------------------------------------------------------------------
@@ -65,7 +62,7 @@ async function openTestDb() {
 // ---------------------------------------------------------------------------
 
 describe('AC1: Migration 007 creates all required tables', () => {
-  let db: InstanceType<typeof Database>
+  let db: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
@@ -82,70 +79,68 @@ describe('AC1: Migration 007 creates all required tables', () => {
 
   for (const tableName of expectedTables) {
     it(`creates table: ${tableName}`, () => {
-      const tableInfo = db
-        .prepare(`PRAGMA table_info(${tableName})`)
-        .all() as { name: string }[]
+      const tableInfo = db.querySync<{ name: string }>(`PRAGMA table_info(${tableName})`)
       expect(tableInfo.length).toBeGreaterThan(0)
     })
   }
 
   it('migration is idempotent (safe to run multiple times)', async () => {
     // Running initSchema again should not throw
-    await expect(initSchema(new SyncDatabaseAdapter(db))).resolves.not.toThrow()
+    await expect(initSchema(db)).resolves.not.toThrow()
   })
 
   it('creates index idx_decisions_phase', () => {
-    const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decisions'")
-      .all() as { name: string }[]
+    const indexes = db.querySync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decisions'",
+    )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_decisions_phase')
   })
 
   it('creates index idx_decisions_key', () => {
-    const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decisions'")
-      .all() as { name: string }[]
+    const indexes = db.querySync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decisions'",
+    )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_decisions_key')
   })
 
   it('creates index idx_requirements_type', () => {
-    const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='requirements'")
-      .all() as { name: string }[]
+    const indexes = db.querySync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='requirements'",
+    )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_requirements_type')
   })
 
   it('creates index idx_requirements_status', () => {
-    const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='requirements'")
-      .all() as { name: string }[]
+    const indexes = db.querySync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='requirements'",
+    )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_requirements_status')
   })
 
   it('creates index idx_artifacts_phase', () => {
-    const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='artifacts'")
-      .all() as { name: string }[]
+    const indexes = db.querySync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='artifacts'",
+    )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_artifacts_phase')
   })
 
   it('creates index idx_pipeline_runs_status', () => {
-    const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='pipeline_runs'")
-      .all() as { name: string }[]
+    const indexes = db.querySync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='pipeline_runs'",
+    )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_pipeline_runs_status')
   })
 
   it('creates index idx_token_usage_run', () => {
-    const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='token_usage'")
-      .all() as { name: string }[]
+    const indexes = db.querySync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='token_usage'",
+    )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_token_usage_run')
   })
@@ -156,15 +151,14 @@ describe('AC1: Migration 007 creates all required tables', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC2: Decisions table CRUD', () => {
-  let db: InstanceType<typeof Database>
+  let db: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
   })
 
   it('createDecision inserts a row with auto-generated UUID', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const decision = await createDecision(adapter, {
+    const decision = await createDecision(db, {
       phase: 'analysis',
       category: 'tech-stack',
       key: 'database',
@@ -183,8 +177,7 @@ describe('AC2: Decisions table CRUD', () => {
   })
 
   it('createDecision stores created_at timestamp', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const decision = await createDecision(adapter, {
+    const decision = await createDecision(db, {
       phase: 'planning',
       category: 'arch',
       key: 'pattern',
@@ -194,70 +187,63 @@ describe('AC2: Decisions table CRUD', () => {
   })
 
   it('getDecisionsByPhase returns all decisions for a phase', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'k1', value: 'v1' })
-    await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'k2', value: 'v2' })
-    await createDecision(adapter, { phase: 'planning', category: 'a', key: 'k3', value: 'v3' })
+    await createDecision(db, { phase: 'analysis', category: 'a', key: 'k1', value: 'v1' })
+    await createDecision(db, { phase: 'analysis', category: 'a', key: 'k2', value: 'v2' })
+    await createDecision(db, { phase: 'planning', category: 'a', key: 'k3', value: 'v3' })
 
-    const results = await getDecisionsByPhase(adapter, 'analysis')
+    const results = await getDecisionsByPhase(db, 'analysis')
     expect(results).toHaveLength(2)
     expect(results.every((d) => d.phase === 'analysis')).toBe(true)
   })
 
   it('getDecisionsByPhase returns empty array when no decisions for phase', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const results = await getDecisionsByPhase(adapter, 'nonexistent-phase')
+    const results = await getDecisionsByPhase(db, 'nonexistent-phase')
     expect(results).toHaveLength(0)
   })
 
   it('getDecisionByKey returns a single decision by phase+key', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'mykey', value: 'myvalue' })
-    const result = await getDecisionByKey(adapter, 'analysis', 'mykey')
+    await createDecision(db, { phase: 'analysis', category: 'a', key: 'mykey', value: 'myvalue' })
+    const result = await getDecisionByKey(db, 'analysis', 'mykey')
     expect(result).toBeDefined()
     expect(result?.key).toBe('mykey')
     expect(result?.value).toBe('myvalue')
   })
 
   it('getDecisionByKey returns undefined for non-existent key', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const result = await getDecisionByKey(adapter, 'analysis', 'nokey')
+    const result = await getDecisionByKey(db, 'analysis', 'nokey')
     expect(result).toBeUndefined()
   })
 
   it('updateDecision updates value and sets updated_at', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const decision = await createDecision(adapter, {
+    const decision = await createDecision(db, {
       phase: 'analysis',
       category: 'a',
       key: 'k',
       value: 'old',
     })
 
-    await updateDecision(adapter, decision.id, { value: 'new', rationale: 'changed' })
+    await updateDecision(db, decision.id, { value: 'new', rationale: 'changed' })
 
-    const updated = await getDecisionByKey(adapter, 'analysis', 'k')
+    const updated = await getDecisionByKey(db, 'analysis', 'k')
     expect(updated?.value).toBe('new')
     expect(updated?.rationale).toBe('changed')
   })
 
   it('updateDecision is a no-op when no updates provided', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const decision = await createDecision(adapter, {
+    const decision = await createDecision(db, {
       phase: 'analysis',
       category: 'a',
       key: 'k',
       value: 'original',
     })
-    await expect(updateDecision(adapter, decision.id, {})).resolves.not.toThrow()
-    const retrieved = await getDecisionByKey(adapter, 'analysis', 'k')
+    await expect(updateDecision(db, decision.id, {})).resolves.not.toThrow()
+    const retrieved = await getDecisionByKey(db, 'analysis', 'k')
     expect(retrieved?.value).toBe('original')
   })
 
   it('generates unique UUIDs for each decision', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const d1 = await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'k1', value: 'v1' })
-    const d2 = await createDecision(adapter, { phase: 'analysis', category: 'a', key: 'k2', value: 'v2' })
+    const d1 = await createDecision(db, { phase: 'analysis', category: 'a', key: 'k1', value: 'v1' })
+    const d2 = await createDecision(db, { phase: 'analysis', category: 'a', key: 'k2', value: 'v2' })
     expect(d1.id).not.toBe(d2.id)
   })
 })
@@ -267,15 +253,14 @@ describe('AC2: Decisions table CRUD', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC3: Requirements table CRUD', () => {
-  let db: InstanceType<typeof Database>
+  let db: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
   })
 
   it('createRequirement inserts with status=active', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const req = await createRequirement(adapter, {
+    const req = await createRequirement(db, {
       source: 'user-interview',
       type: 'functional',
       description: 'The system must allow user login',
@@ -289,84 +274,79 @@ describe('AC3: Requirements table CRUD', () => {
   })
 
   it('listRequirements returns all requirements without filter', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    await createRequirement(adapter, {
+    await createRequirement(db, {
       source: 'spec',
       type: 'functional',
       description: 'Feature A',
       priority: 'must',
     })
-    await createRequirement(adapter, {
+    await createRequirement(db, {
       source: 'spec',
       type: 'non_functional',
       description: 'Performance requirement',
       priority: 'should',
     })
 
-    const results = await listRequirements(adapter)
+    const results = await listRequirements(db)
     expect(results.length).toBeGreaterThanOrEqual(2)
   })
 
   it('listRequirements filters by type', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    await createRequirement(adapter, {
+    await createRequirement(db, {
       source: 's',
       type: 'functional',
       description: 'Func req',
       priority: 'must',
     })
-    await createRequirement(adapter, {
+    await createRequirement(db, {
       source: 's',
       type: 'non_functional',
       description: 'NFR',
       priority: 'should',
     })
 
-    const results = await listRequirements(adapter, { type: 'functional' })
+    const results = await listRequirements(db, { type: 'functional' })
     expect(results).toHaveLength(1)
     expect(results[0].type).toBe('functional')
   })
 
   it('listRequirements filters by priority', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    await createRequirement(adapter, {
+    await createRequirement(db, {
       source: 's',
       type: 'functional',
       description: 'Must req',
       priority: 'must',
     })
-    await createRequirement(adapter, {
+    await createRequirement(db, {
       source: 's',
       type: 'functional',
       description: 'Should req',
       priority: 'should',
     })
 
-    const results = await listRequirements(adapter, { priority: 'must' })
+    const results = await listRequirements(db, { priority: 'must' })
     expect(results).toHaveLength(1)
     expect(results[0].priority).toBe('must')
   })
 
   it('listRequirements filters by status', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const req = await createRequirement(adapter, {
+    const req = await createRequirement(db, {
       source: 's',
       type: 'functional',
       description: 'Req',
       priority: 'must',
     })
-    await updateRequirementStatus(adapter, req.id, 'done')
+    await updateRequirementStatus(db, req.id, 'done')
 
-    const active = await listRequirements(adapter, { status: 'active' })
-    const done = await listRequirements(adapter, { status: 'done' })
+    const active = await listRequirements(db, { status: 'active' })
+    const done = await listRequirements(db, { status: 'done' })
 
     expect(active.every((r) => r.status === 'active')).toBe(true)
     expect(done.every((r) => r.status === 'done')).toBe(true)
   })
 
   it('updateRequirementStatus transitions status', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const req = await createRequirement(adapter, {
+    const req = await createRequirement(db, {
       source: 's',
       type: 'functional',
       description: 'Req',
@@ -374,9 +354,9 @@ describe('AC3: Requirements table CRUD', () => {
     })
     expect(req.status).toBe('active')
 
-    await updateRequirementStatus(adapter, req.id, 'done')
+    await updateRequirementStatus(db, req.id, 'done')
 
-    const updated = await listRequirements(adapter, { status: 'done' })
+    const updated = await listRequirements(db, { status: 'done' })
     expect(updated.some((r) => r.id === req.id)).toBe(true)
   })
 })
@@ -386,15 +366,14 @@ describe('AC3: Requirements table CRUD', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC4: Constraints table CRUD', () => {
-  let db: InstanceType<typeof Database>
+  let db: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
   })
 
   it('createConstraint inserts a new row', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const constraint = await createConstraint(adapter, {
+    const constraint = await createConstraint(db, {
       category: 'security',
       description: 'All data must be encrypted at rest',
       source: 'compliance-policy',
@@ -407,27 +386,24 @@ describe('AC4: Constraints table CRUD', () => {
   })
 
   it('listConstraints returns all constraints without filter', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    await createConstraint(adapter, { category: 'security', description: 'Encryption', source: 's' })
-    await createConstraint(adapter, { category: 'performance', description: 'Latency limit', source: 's' })
+    await createConstraint(db, { category: 'security', description: 'Encryption', source: 's' })
+    await createConstraint(db, { category: 'performance', description: 'Latency limit', source: 's' })
 
-    const results = await listConstraints(adapter)
+    const results = await listConstraints(db)
     expect(results.length).toBeGreaterThanOrEqual(2)
   })
 
   it('listConstraints filters by category', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    await createConstraint(adapter, { category: 'security', description: 'Enc', source: 's' })
-    await createConstraint(adapter, { category: 'performance', description: 'Lat', source: 's' })
+    await createConstraint(db, { category: 'security', description: 'Enc', source: 's' })
+    await createConstraint(db, { category: 'performance', description: 'Lat', source: 's' })
 
-    const results = await listConstraints(adapter, { category: 'security' })
+    const results = await listConstraints(db, { category: 'security' })
     expect(results).toHaveLength(1)
     expect(results[0].category).toBe('security')
   })
 
   it('listConstraints returns empty array when no constraints match filter', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const results = await listConstraints(adapter, { category: 'nonexistent' })
+    const results = await listConstraints(db, { category: 'nonexistent' })
     expect(results).toHaveLength(0)
   })
 })
@@ -437,15 +413,14 @@ describe('AC4: Constraints table CRUD', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC5: Artifacts table CRUD', () => {
-  let db: InstanceType<typeof Database>
+  let db: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
   })
 
   it('registerArtifact inserts a new row', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const artifact = await registerArtifact(adapter, {
+    const artifact = await registerArtifact(db, {
       phase: 'analysis',
       type: 'requirements-doc',
       path: '/output/requirements.md',
@@ -461,44 +436,40 @@ describe('AC5: Artifacts table CRUD', () => {
   })
 
   it('getArtifactsByPhase returns all artifacts for a phase', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    await registerArtifact(adapter, { phase: 'analysis', type: 'doc1', path: '/a/1' })
-    await registerArtifact(adapter, { phase: 'analysis', type: 'doc2', path: '/a/2' })
-    await registerArtifact(adapter, { phase: 'planning', type: 'doc3', path: '/p/3' })
+    await registerArtifact(db, { phase: 'analysis', type: 'doc1', path: '/a/1' })
+    await registerArtifact(db, { phase: 'analysis', type: 'doc2', path: '/a/2' })
+    await registerArtifact(db, { phase: 'planning', type: 'doc3', path: '/p/3' })
 
-    const results = await getArtifactsByPhase(adapter, 'analysis')
+    const results = await getArtifactsByPhase(db, 'analysis')
     expect(results).toHaveLength(2)
     expect(results.every((a) => a.phase === 'analysis')).toBe(true)
   })
 
   it('getArtifactsByPhase returns empty array for unknown phase', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const results = await getArtifactsByPhase(adapter, 'nonexistent')
+    const results = await getArtifactsByPhase(db, 'nonexistent')
     expect(results).toHaveLength(0)
   })
 
   it('getArtifactByType returns the latest artifact of that type', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     // Insert two artifacts of the same type; the second (later) should be returned
-    await registerArtifact(adapter, {
+    await registerArtifact(db, {
       phase: 'analysis',
       type: 'requirements-doc',
       path: '/output/req-v1.md',
     })
-    await registerArtifact(adapter, {
+    await registerArtifact(db, {
       phase: 'analysis',
       type: 'requirements-doc',
       path: '/output/req-v2.md',
     })
 
-    const latest = await getArtifactByType(adapter, 'analysis', 'requirements-doc')
+    const latest = await getArtifactByType(db, 'analysis', 'requirements-doc')
     expect(latest).toBeDefined()
     expect(latest?.path).toBe('/output/req-v2.md')
   })
 
   it('getArtifactByType returns undefined for non-existent type', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const result = await getArtifactByType(adapter, 'analysis', 'no-such-type')
+    const result = await getArtifactByType(db, 'analysis', 'no-such-type')
     expect(result).toBeUndefined()
   })
 })
@@ -508,15 +479,14 @@ describe('AC5: Artifacts table CRUD', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC6: Pipeline runs table CRUD', () => {
-  let db: InstanceType<typeof Database>
+  let db: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
   })
 
   it('createPipelineRun inserts with status=running', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const run = await createPipelineRun(adapter, {
+    const run = await createPipelineRun(db, {
       methodology: 'agile',
       start_phase: 'analysis',
     })
@@ -531,37 +501,33 @@ describe('AC6: Pipeline runs table CRUD', () => {
   })
 
   it('updatePipelineRun updates phase and status', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const run = await createPipelineRun(adapter, { methodology: 'agile' })
-    await updatePipelineRun(adapter, run.id, { current_phase: 'planning', status: 'paused' })
+    const run = await createPipelineRun(db, { methodology: 'agile' })
+    await updatePipelineRun(db, run.id, { current_phase: 'planning', status: 'paused' })
 
-    const updated = await getLatestRun(adapter)
+    const updated = await getLatestRun(db)
     expect(updated?.current_phase).toBe('planning')
     expect(updated?.status).toBe('paused')
   })
 
   it('updatePipelineRun updates token_usage_json', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const run = await createPipelineRun(adapter, { methodology: 'waterfall' })
+    const run = await createPipelineRun(db, { methodology: 'waterfall' })
     const usageJson = JSON.stringify({ total: 1000 })
-    await updatePipelineRun(adapter, run.id, { token_usage_json: usageJson })
+    await updatePipelineRun(db, run.id, { token_usage_json: usageJson })
 
-    const updated = await getLatestRun(adapter)
+    const updated = await getLatestRun(db)
     expect(updated?.token_usage_json).toBe(usageJson)
   })
 
   it('updatePipelineRun is a no-op when no updates provided', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const run = await createPipelineRun(adapter, { methodology: 'agile' })
-    await expect(updatePipelineRun(adapter, run.id, {})).resolves.not.toThrow()
+    const run = await createPipelineRun(db, { methodology: 'agile' })
+    await expect(updatePipelineRun(db, run.id, {})).resolves.not.toThrow()
   })
 
   it('getLatestRun returns the most recent pipeline run', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    await createPipelineRun(adapter, { methodology: 'agile' })
-    const latest = await createPipelineRun(adapter, { methodology: 'kanban' })
+    await createPipelineRun(db, { methodology: 'agile' })
+    const latest = await createPipelineRun(db, { methodology: 'kanban' })
 
-    const result = await getLatestRun(adapter)
+    const result = await getLatestRun(db)
     expect(result).toBeDefined()
     // The latest run should have been created after the first
     expect(result?.methodology).toBe('kanban')
@@ -569,26 +535,23 @@ describe('AC6: Pipeline runs table CRUD', () => {
   })
 
   it('getLatestRun returns undefined when no runs exist', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const result = await getLatestRun(adapter)
+    const result = await getLatestRun(db)
     expect(result).toBeUndefined()
   })
 
   it('pipeline run status transitions (running -> completed)', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const run = await createPipelineRun(adapter, { methodology: 'agile' })
-    await updatePipelineRun(adapter, run.id, { status: 'completed' })
+    const run = await createPipelineRun(db, { methodology: 'agile' })
+    await updatePipelineRun(db, run.id, { status: 'completed' })
 
-    const updated = await getLatestRun(adapter)
+    const updated = await getLatestRun(db)
     expect(updated?.status).toBe('completed')
   })
 
   it('pipeline run status transitions (running -> failed)', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const run = await createPipelineRun(adapter, { methodology: 'agile' })
-    await updatePipelineRun(adapter, run.id, { status: 'failed' })
+    const run = await createPipelineRun(db, { methodology: 'agile' })
+    await updatePipelineRun(db, run.id, { status: 'failed' })
 
-    const updated = await getLatestRun(adapter)
+    const updated = await getLatestRun(db)
     expect(updated?.status).toBe('failed')
   })
 })
@@ -691,20 +654,18 @@ describe('AC7: Zod schemas validate inputs at persistence boundary', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC8: Token usage tracking', () => {
-  let db: InstanceType<typeof Database>
+  let db: WasmSqliteDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     db = await openTestDb()
-    const adapter = new SyncDatabaseAdapter(db)
-    const run = await createPipelineRun(adapter, { methodology: 'agile' })
+    const run = await createPipelineRun(db, { methodology: 'agile' })
     runId = run.id
   })
 
   it('addTokenUsage inserts a usage record', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await expect(
-      addTokenUsage(adapter, runId, {
+      addTokenUsage(db, runId, {
         phase: 'analysis',
         agent: 'claude',
         input_tokens: 100,
@@ -715,22 +676,21 @@ describe('AC8: Token usage tracking', () => {
   })
 
   it('getTokenUsageSummary returns aggregated totals by phase and agent', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    await addTokenUsage(adapter, runId, {
+    await addTokenUsage(db, runId, {
       phase: 'analysis',
       agent: 'claude',
       input_tokens: 100,
       output_tokens: 200,
       cost_usd: 0.05,
     })
-    await addTokenUsage(adapter, runId, {
+    await addTokenUsage(db, runId, {
       phase: 'analysis',
       agent: 'claude',
       input_tokens: 50,
       output_tokens: 100,
       cost_usd: 0.02,
     })
-    await addTokenUsage(adapter, runId, {
+    await addTokenUsage(db, runId, {
       phase: 'planning',
       agent: 'claude',
       input_tokens: 300,
@@ -738,7 +698,7 @@ describe('AC8: Token usage tracking', () => {
       cost_usd: 0.10,
     })
 
-    const summary = await getTokenUsageSummary(adapter, runId)
+    const summary = await getTokenUsageSummary(db, runId)
     expect(summary).toHaveLength(2)
 
     const analysisSummary = summary.find((s) => s.phase === 'analysis')
@@ -754,21 +714,19 @@ describe('AC8: Token usage tracking', () => {
   })
 
   it('getTokenUsageSummary returns empty array when no usage records exist', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const summary = await getTokenUsageSummary(adapter, runId)
+    const summary = await getTokenUsageSummary(db, runId)
     expect(summary).toHaveLength(0)
   })
 
   it('getTokenUsageSummary aggregates by agent within phase', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    await addTokenUsage(adapter, runId, {
+    await addTokenUsage(db, runId, {
       phase: 'analysis',
       agent: 'claude',
       input_tokens: 100,
       output_tokens: 200,
       cost_usd: 0.05,
     })
-    await addTokenUsage(adapter, runId, {
+    await addTokenUsage(db, runId, {
       phase: 'analysis',
       agent: 'gpt-4',
       input_tokens: 50,
@@ -776,7 +734,7 @@ describe('AC8: Token usage tracking', () => {
       cost_usd: 0.03,
     })
 
-    const summary = await getTokenUsageSummary(adapter, runId)
+    const summary = await getTokenUsageSummary(db, runId)
     expect(summary).toHaveLength(2)
 
     const claudeSummary = summary.find(
@@ -791,16 +749,15 @@ describe('AC8: Token usage tracking', () => {
   })
 
   it('getTokenUsageSummary only includes records for the given runId', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const run2 = await createPipelineRun(adapter, { methodology: 'kanban' })
-    await addTokenUsage(adapter, runId, {
+    const run2 = await createPipelineRun(db, { methodology: 'kanban' })
+    await addTokenUsage(db, runId, {
       phase: 'analysis',
       agent: 'claude',
       input_tokens: 100,
       output_tokens: 200,
       cost_usd: 0.05,
     })
-    await addTokenUsage(adapter, run2.id, {
+    await addTokenUsage(db, run2.id, {
       phase: 'analysis',
       agent: 'claude',
       input_tokens: 999,
@@ -808,7 +765,7 @@ describe('AC8: Token usage tracking', () => {
       cost_usd: 9.99,
     })
 
-    const summary = await getTokenUsageSummary(adapter, runId)
+    const summary = await getTokenUsageSummary(db, runId)
     expect(summary).toHaveLength(1)
     expect(summary[0].total_input_tokens).toBe(100)
   })
@@ -922,16 +879,15 @@ describe('Story 12-6: DecisionSchema includes superseded_by', () => {
 // ---------------------------------------------------------------------------
 
 describe('upsertDecision — decision deduplication on retry', () => {
-  let db: InstanceType<typeof Database>
+  let db: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
   })
 
   it('inserts a new decision when no match exists', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
-    const result = await upsertDecision(adapter, {
+    const run = await createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    const result = await upsertDecision(db, {
       pipeline_run_id: run.id,
       phase: 'solutioning',
       category: 'architecture',
@@ -941,14 +897,13 @@ describe('upsertDecision — decision deduplication on retry', () => {
     expect(result.key).toBe('language')
     expect(result.value).toBe('TypeScript')
 
-    const all = await getDecisionsByPhase(adapter, 'solutioning')
+    const all = await getDecisionsByPhase(db, 'solutioning')
     expect(all).toHaveLength(1)
   })
 
   it('updates existing decision with same pipeline_run_id + category + key', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
-    const original = await upsertDecision(adapter, {
+    const run = await createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    const original = await upsertDecision(db, {
       pipeline_run_id: run.id,
       phase: 'solutioning',
       category: 'architecture',
@@ -957,7 +912,7 @@ describe('upsertDecision — decision deduplication on retry', () => {
       rationale: 'Original choice',
     })
 
-    const updated = await upsertDecision(adapter, {
+    const updated = await upsertDecision(db, {
       pipeline_run_id: run.id,
       phase: 'solutioning',
       category: 'architecture',
@@ -970,21 +925,20 @@ describe('upsertDecision — decision deduplication on retry', () => {
     expect(updated.value).toBe('SQLite')
     expect(updated.rationale).toBe('Changed to embedded')
 
-    const all = await getDecisionsByPhase(adapter, 'solutioning')
+    const all = await getDecisionsByPhase(db, 'solutioning')
     expect(all).toHaveLength(1)
   })
 
   it('does not deduplicate decisions with different categories', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
-    await upsertDecision(adapter, {
+    const run = await createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    await upsertDecision(db, {
       pipeline_run_id: run.id,
       phase: 'solutioning',
       category: 'architecture',
       key: 'key-1',
       value: 'value-a',
     })
-    await upsertDecision(adapter, {
+    await upsertDecision(db, {
       pipeline_run_id: run.id,
       phase: 'solutioning',
       category: 'epics',
@@ -992,22 +946,21 @@ describe('upsertDecision — decision deduplication on retry', () => {
       value: 'value-b',
     })
 
-    const all = await getDecisionsByPhase(adapter, 'solutioning')
+    const all = await getDecisionsByPhase(db, 'solutioning')
     expect(all).toHaveLength(2)
   })
 
   it('does not deduplicate decisions with different pipeline_run_ids', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const run1 = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
-    const run2 = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
-    await upsertDecision(adapter, {
+    const run1 = await createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    const run2 = await createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
+    await upsertDecision(db, {
       pipeline_run_id: run1.id,
       phase: 'solutioning',
       category: 'architecture',
       key: 'database',
       value: 'SQLite',
     })
-    await upsertDecision(adapter, {
+    await upsertDecision(db, {
       pipeline_run_id: run2.id,
       phase: 'solutioning',
       category: 'architecture',
@@ -1015,15 +968,14 @@ describe('upsertDecision — decision deduplication on retry', () => {
       value: 'PostgreSQL',
     })
 
-    const all = await getDecisionsByPhase(adapter, 'solutioning')
+    const all = await getDecisionsByPhase(db, 'solutioning')
     expect(all).toHaveLength(2)
   })
 
   it('count after N upserts equals count from single insert', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
+    const run = await createPipelineRun(db, { methodology: 'bmad', start_phase: 'analysis' })
     for (let i = 0; i < 5; i++) {
-      await upsertDecision(adapter, {
+      await upsertDecision(db, {
         pipeline_run_id: run.id,
         phase: 'solutioning',
         category: 'architecture',
@@ -1032,7 +984,7 @@ describe('upsertDecision — decision deduplication on retry', () => {
       })
     }
 
-    const all = await getDecisionsByPhase(adapter, 'solutioning')
+    const all = await getDecisionsByPhase(db, 'solutioning')
     expect(all).toHaveLength(1)
     expect(all[0].value).toBe('attempt-4')
   })

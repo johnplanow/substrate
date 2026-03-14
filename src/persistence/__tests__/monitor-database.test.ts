@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { MonitorDatabaseImpl, createMonitorDatabase } from '../monitor-database.js'
+import { MonitorDatabaseImpl } from '../monitor-database.js'
 import type { TaskMetricsRow } from '../monitor-database.js'
 import type { DatabaseAdapter } from '../adapter.js'
 import { createWasmSqliteAdapter } from '../wasm-sqlite-adapter.js'
@@ -358,14 +358,16 @@ describe('MonitorDatabaseImpl', () => {
     expect(aggRows[0]!.cnt).toBe(0)
   })
 
-  it('createMonitorDatabase creates a working MonitorDatabase', () => {
-    // Use the path-based factory (legacy path)
-    const monitorDb = createMonitorDatabase(':memory:')
+  it('createMonitorDatabase with adapter creates a working MonitorDatabase', async () => {
+    // Use the adapter-based constructor (Epic 29 — string path no longer supported)
+    const testAdapter = await createWasmSqliteAdapter()
+    const monitorDb = new MonitorDatabaseImpl(testAdapter)
     expect(monitorDb).toBeDefined()
     // Should not throw on basic operations
     monitorDb.insertTaskMetrics(makeMetricsRow())
     const aggs = monitorDb.getAggregates()
     expect(aggs).toBeDefined()
     monitorDb.close()
+    await testAdapter.close()
   })
 })

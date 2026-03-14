@@ -2,9 +2,8 @@
  * MonitorDatabase — interface and implementation for the monitor database.
  *
  * The monitor database stores task execution metrics and performance aggregates.
- * MonitorDatabaseImpl now accepts a DatabaseAdapter instead of creating its own
- * better-sqlite3 connection. This decouples persistence from the specific backend
- * and allows the same interface to work with Dolt, InMemory, or WASM SQLite.
+ * MonitorDatabaseImpl accepts a DatabaseAdapter for persistence, allowing the
+ * same interface to work with Dolt, InMemory, or WASM SQLite backends.
  *
  * Implements:
  *  - insertTaskMetrics()     — persist a task execution record
@@ -16,7 +15,7 @@
  */
 
 import type { DatabaseAdapter, SyncAdapter } from './adapter.js'
-import { createDatabaseAdapter, isSyncAdapter } from './adapter.js'
+import { isSyncAdapter } from './adapter.js'
 import { createLogger } from '../utils/logger.js'
 import type { AgentPerformanceMetrics, TaskTypeBreakdownResult } from '../modules/monitor/performance-aggregates.js'
 
@@ -151,7 +150,7 @@ export interface MonitorDatabase {
  *
  * All database operations are executed synchronously by calling the adapter's
  * sync-compatible query path. The adapter is accepted via constructor injection,
- * so any backend (better-sqlite3 via LegacySqliteAdapter, InMemory, Dolt) works.
+ * so any SyncAdapter-compatible backend (WASM SQLite, Dolt via sync wrapper) works.
  *
  * Schema is applied on construction via _applySchema().
  */
@@ -162,9 +161,14 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
 
   constructor(databasePathOrAdapter: string | DatabaseAdapter) {
     if (typeof databasePathOrAdapter === 'string') {
-      // Legacy: create a sqlite adapter from the path string
-      this._path = databasePathOrAdapter
-      this._adapter = createDatabaseAdapter({ backend: 'sqlite', databasePath: databasePathOrAdapter })
+      // String-path construction is no longer supported — SQLite was removed in Epic 29.
+      // Use createWasmSqliteAdapter() from src/persistence/wasm-sqlite-adapter.ts
+      // and pass the resulting DatabaseAdapter to this constructor instead.
+      throw new Error(
+        'MonitorDatabaseImpl: string path constructor is no longer supported (Epic 29 SQLite removal). ' +
+        'Use createWasmSqliteAdapter() and pass the adapter directly: ' +
+        'new MonitorDatabaseImpl(await createWasmSqliteAdapter())',
+      )
     } else {
       this._path = '<adapter>'
       this._adapter = databasePathOrAdapter
@@ -176,7 +180,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
     if (this._syncAdapter === null) {
       throw new Error(
         'MonitorDatabaseImpl: adapter must implement SyncAdapter (querySync/execSync). ' +
-        'Use createWasmSqliteAdapter() or createDatabaseAdapter({ backend: "sqlite" }) for tests.'
+        'Use createWasmSqliteAdapter() from src/persistence/wasm-sqlite-adapter.ts.'
       )
     }
 

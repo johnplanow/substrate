@@ -24,8 +24,7 @@
       "@adapters/*": ["src/adapters/*"],
       "@engine/*": ["src/engine/*"],
       "@utils/*": ["src/utils/*"],
-      "@cli/*": ["src/cli/*"],
-      "better-sqlite3": ["src/__mocks__/better-sqlite3.ts"]
+      "@cli/*": ["src/cli/*"]
     }
   },
   "include": ["src/**/*.ts"],

@@ -8,12 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { SyncDatabaseAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
@@ -31,12 +26,10 @@ import type { Dispatcher, DispatchResult } from '../../../agent-dispatch/types.j
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'ux-design-phase-test-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+async function createTestDb(): Promise<{ adapter: DatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -280,23 +273,18 @@ describe('buildUxDesignSteps - step definitions (AC6, T9)', () => {
 // ---------------------------------------------------------------------------
 
 describe('runUxDesignPhase - execution (T9)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
-    tmpDir = r.tmpDir
     runId = await createTestRun(adapter)
     await seedPlanningDecisions(adapter, runId)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns result: success on happy path with 3 sequential dispatches', async () => {

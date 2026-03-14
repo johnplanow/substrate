@@ -34,9 +34,7 @@ import type {
   ExperimentResult,
 } from '../experimenter.js'
 import type { RunMetricsRow, StoryMetricsRow } from '../../../persistence/queries/metrics.js'
-import BetterSqlite3 from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
@@ -1145,9 +1143,7 @@ describe('AutoSupervisorOptions includes experiment flag (AC1)', () => {
 describe('Story 21-1 AC3: experiment result written to decision store', () => {
   it('createDecision inserts experiment-result decision with real DB on IMPROVED verdict', async () => {
     // Use a real in-memory DB instead of the mock object
-    const db: BetterSqlite3Database = new BetterSqlite3(':memory:')
-    db.pragma('foreign_keys = ON')
-    const adapter = new SyncDatabaseAdapter(db)
+    const adapter = await createWasmSqliteAdapter()
     await initSchema(adapter)
 
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })
@@ -1198,6 +1194,6 @@ describe('Story 21-1 AC3: experiment result written to decision store', () => {
     expect(typeof val.after).toBe('number')
     expect(val.branch_name).toMatch(/^supervisor\/experiment\//)
 
-    db.close()
+    await adapter.close()
   })
 })

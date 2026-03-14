@@ -8,12 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { SyncDatabaseAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
@@ -32,12 +27,10 @@ import type { Dispatcher, DispatchResult } from '../../../agent-dispatch/types.j
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'planning-multistep-test-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+async function createTestDb(): Promise<{ adapter: DatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -265,23 +258,18 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('runPlanningPhase() multi-step path', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
     await seedAnalysisDecisions(adapter, runId)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('uses 3-step path when manifest defines steps', async () => {

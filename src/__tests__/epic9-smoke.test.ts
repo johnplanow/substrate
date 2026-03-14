@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import Database from 'better-sqlite3';
-import { createAdapterFromSyncDb } from '../persistence/wasm-sqlite-adapter.js';
+import { createWasmSqliteAdapter } from '../persistence/wasm-sqlite-adapter.js';
 import type { DatabaseAdapter } from '../persistence/adapter.js';
 import { initSchema } from '../persistence/schema.js';
 import { createContextCompiler } from '../modules/context-compiler/index.js';
@@ -8,22 +7,19 @@ import { createDecision } from '../persistence/queries/decisions.js';
 import { createGate } from '../modules/quality-gates/gate-registry.js';
 import { createDebatePanel } from '../modules/debate-panel/index.js';
 import { createPackLoader } from '../modules/methodology-pack/index.js';
-import { join } from 'path';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-let db: ReturnType<typeof Database>;
 let adapter: DatabaseAdapter;
 
 beforeAll(async () => {
-  db = new Database(':memory:');
-  adapter = createAdapterFromSyncDb(db);
+  adapter = await createWasmSqliteAdapter();
   await initSchema(adapter);
 });
 
-afterAll(() => {
-  db.close();
+afterAll(async () => {
+  await adapter.close();
 });
 
 // Item 4: Context compiler
@@ -121,7 +117,7 @@ describe('Item 6: Debate Panel DB write', () => {
     });
 
     // Verify the rationale stored in DB is valid JSON
-    const row = db.prepare("SELECT rationale FROM decisions WHERE key = 'smoke-db-decision'").get() as any;
+    const [row] = await adapter.query<{ rationale: string }>("SELECT rationale FROM decisions WHERE key = 'smoke-db-decision'");
     expect(row, 'decision not persisted to DB').toBeDefined();
     expect(() => JSON.parse(row.rationale)).not.toThrow();
     const parsed = JSON.parse(row.rationale);

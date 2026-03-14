@@ -18,12 +18,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { SyncDatabaseAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
@@ -45,12 +40,10 @@ import type { TypedEventBus } from '../../../../core/event-bus.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'solutioning-retry-test-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+async function createTestDb(): Promise<{ adapter: DatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -286,22 +279,17 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('Retry flow: trigger conditions (AC6)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('does NOT trigger retry when NEEDS_WORK has zero blockers (only 3 dispatches)', async () => {
@@ -389,22 +377,17 @@ describe('Retry flow: trigger conditions (AC6)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Retry flow: gap analysis prompt construction (AC6)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('retry story dispatch contains gap analysis section header', async () => {
@@ -521,22 +504,17 @@ describe('Retry flow: gap analysis prompt construction (AC6)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Retry flow: decision store state (AC6, AC7)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('stores NEEDS_WORK findings in decision store before retry', async () => {
@@ -552,11 +530,10 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
 
     await runSolutioningPhase(deps, { runId })
 
-    const findings = db
-      .prepare(
-        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' ORDER BY key ASC",
-      )
-      .all(runId) as Array<{ key: string; value: string }>
+    const findings = await adapter.query<{ key: string; value: string }>(
+      "SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' ORDER BY key ASC",
+      [runId],
+    )
 
     // Both blocker findings should be stored
     expect(findings.length).toBeGreaterThanOrEqual(2)
@@ -577,11 +554,11 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
 
     await runSolutioningPhase(deps, { runId })
 
-    const finding = db
-      .prepare(
-        "SELECT value FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' AND key = 'finding-1'",
-      )
-      .get(runId) as { value: string } | undefined
+    const findings = await adapter.query<{ value: string }>(
+      "SELECT value FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' AND key = 'finding-1'",
+      [runId],
+    )
+    const finding = findings[0]
 
     expect(finding).toBeDefined()
     const parsed = JSON.parse(finding!.value) as { severity: string }
@@ -618,22 +595,17 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Retry flow: retry outcomes (AC6)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns success with readiness_passed=true when retry readiness returns READY', async () => {
@@ -791,22 +763,17 @@ describe('Retry flow: retry outcomes (AC6)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Retry flow: token usage accumulation', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('accumulates token usage from retry story generation dispatch', async () => {

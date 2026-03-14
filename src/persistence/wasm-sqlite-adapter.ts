@@ -7,8 +7,7 @@
  *
  * Two adapters:
  *   - WasmSqliteDatabaseAdapter: wraps a raw sql.js database instance
- *   - SyncDatabaseAdapter: wraps any better-sqlite3-API-compatible object
- *     (e.g. the WASM mock in src/__mocks__/better-sqlite3.ts)
+ *   - SyncDatabaseAdapter: wraps any synchronous prepare/exec-compatible object
  */
 
 import type { DatabaseAdapter, SyncAdapter } from './adapter.js'
@@ -125,13 +124,12 @@ export async function createWasmSqliteAdapter(): Promise<DatabaseAdapter> {
 }
 
 // ---------------------------------------------------------------------------
-// SyncDatabaseAdapter — wraps any better-sqlite3 API-compatible object
+// SyncDatabaseAdapter — wraps any synchronous prepare/exec-compatible object
 // ---------------------------------------------------------------------------
 
 /**
- * Minimal interface matching the better-sqlite3 Database API surface
- * (prepare, exec, close). Used to accept both real better-sqlite3 and
- * the WASM mock without importing either module directly.
+ * Minimal interface matching the synchronous Database API surface
+ * (prepare, exec, close).
  */
 interface SyncDatabaseLike {
   prepare(sql: string): { reader: boolean; all(...params: unknown[]): unknown[]; run(...params: unknown[]): unknown }
@@ -139,11 +137,11 @@ interface SyncDatabaseLike {
 }
 
 /**
- * DatabaseAdapter that wraps any object implementing the better-sqlite3
- * synchronous API (prepare/exec). Does NOT own the database lifecycle —
+ * DatabaseAdapter that wraps any object implementing the synchronous
+ * prepare/exec API. Does NOT own the database lifecycle —
  * close() is a no-op; the caller manages open/close.
  *
- * This replaces SqliteDatabaseAdapter for use with the WASM mock.
+ * Used in test code that bridges legacy synchronous database objects.
  */
 export class SyncDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
   private readonly _db: SyncDatabaseLike
@@ -201,7 +199,7 @@ export class SyncDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
 }
 
 /**
- * Create a DatabaseAdapter wrapping a better-sqlite3-API-compatible database.
+ * Create a DatabaseAdapter wrapping a synchronous prepare/exec-compatible database.
  *
  * The adapter delegates prepare/exec calls to the underlying database.
  * close() is a no-op — the caller remains responsible for closing the database.

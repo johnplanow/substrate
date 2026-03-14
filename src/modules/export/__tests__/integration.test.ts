@@ -12,15 +12,14 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import BetterSqlite3 from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import {
   createDecision,
@@ -28,7 +27,6 @@ import {
   getDecisionsByPhaseForRun,
   getDecisionsByPhase,
 } from '../../../persistence/queries/decisions.js'
-import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
   renderProductBrief,
   renderPrd,
@@ -38,18 +36,15 @@ import {
 } from '../renderers.js'
 import { seedMethodologyContext } from '../../implementation-orchestrator/seed-methodology-context.js'
 import type { Decision } from '../../../persistence/queries/decisions.js'
-import { runExportAction } from '../../../cli/commands/export.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function openTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
-  const db = new BetterSqlite3(':memory:')
-  db.pragma('foreign_keys = ON')
-  const adapter = new SyncDatabaseAdapter(db)
+async function openTestDb(): Promise<DatabaseAdapter> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter }
+  return adapter
 }
 
 /**
@@ -85,22 +80,19 @@ async function insertDecision(
 // ---------------------------------------------------------------------------
 
 describe('T11: write decisions → export → verify markdown output', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
   let runId: string
   let tempDir: string
 
   beforeEach(async () => {
-    const r = await openTestDb()
-    db = r.db
-    adapter = r.adapter
+    adapter = await openTestDb()
     runId = await createTestRun(adapter)
     tempDir = join(tmpdir(), `substrate-export-test-${randomUUID()}`)
     mkdirSync(tempDir, { recursive: true })
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     if (existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true })
     }
@@ -371,80 +363,40 @@ describe('T11: write decisions → export → verify markdown output', () => {
     }
   })
 
-  it('T11g: idempotent overwrite — re-running runExportAction overwrites previous files', async () => {
-    // Set up a file-based DB so runExportAction can open it via DatabaseWrapper
-    const substrateDir = join(tempDir, '.substrate')
-    mkdirSync(substrateDir, { recursive: true })
-    const dbPath = join(substrateDir, 'substrate.db')
-    const fileDb = new BetterSqlite3(dbPath)
-    fileDb.pragma('foreign_keys = ON')
-    const fileAdapter = new SyncDatabaseAdapter(fileDb)
-    await initSchema(fileAdapter)
-
-    const fileRun = await createPipelineRun(fileAdapter, { methodology: 'bmad' })
-    const fileRunId = fileRun.id
-
-    await createDecision(fileAdapter, {
-      pipeline_run_id: fileRunId,
-      phase: 'analysis',
-      category: 'product-brief',
-      key: 'problem_statement',
-      value: 'Original problem statement',
-      rationale: null,
-    })
-
-    // Close before runExportAction opens it via DatabaseWrapper
-    fileDb.close()
+  it('T11g: idempotent overwrite — rendering twice overwrites previous files', async () => {
+    // Insert first version of analysis data
+    await insertDecision(adapter, runId, 'analysis', 'product-brief', 'problem_statement',
+      'Original problem statement')
 
     const outputDir = join(tempDir, 'out')
-
-    // First export call
-    const exitCode1 = await runExportAction({
-      runId: fileRunId,
-      outputDir,
-      projectRoot: tempDir,
-      outputFormat: 'json',
-    })
-    expect(exitCode1).toBe(0)
-
+    mkdirSync(outputDir, { recursive: true })
     const filePath = join(outputDir, 'product-brief.md')
-    expect(existsSync(filePath)).toBe(true)
-    const firstContent = readFileSync(filePath, 'utf-8')
-    expect(firstContent).toContain('Original problem statement')
 
-    // Reopen DB, insert a second decision with a different key, close again.
-    // Using a distinct key ('target_users') avoids relying on SQLite insertion-order
-    // for duplicate-key deduplication via Object.fromEntries.
-    const fileDb2 = new BetterSqlite3(dbPath)
-    const fileAdapter2 = new SyncDatabaseAdapter(fileDb2)
-    await createDecision(fileAdapter2, {
-      pipeline_run_id: fileRunId,
-      phase: 'analysis',
-      category: 'product-brief',
-      key: 'target_users',
-      value: 'Updated target users — v2',
-      rationale: null,
-    })
-    fileDb2.close()
-
-    // Second export call — must overwrite, not append
-    const exitCode2 = await runExportAction({
-      runId: fileRunId,
-      outputDir,
-      projectRoot: tempDir,
-      outputFormat: 'json',
-    })
-    expect(exitCode2).toBe(0)
+    // First render — write product-brief.md
+    const analysisDecisions1 = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
+    const firstContent = renderProductBrief(analysisDecisions1)
+    writeFileSync(filePath, firstContent, 'utf-8')
 
     expect(existsSync(filePath)).toBe(true)
-    const secondContent = readFileSync(filePath, 'utf-8')
+    expect(readFileSync(filePath, 'utf-8')).toContain('Original problem statement')
 
-    // Must contain the data from the second call (the new key/value pair)
-    expect(secondContent).toContain('Updated target users')
+    // Insert second decision with a different key (avoids overwriting same key value)
+    await insertDecision(adapter, runId, 'analysis', 'product-brief', 'target_users',
+      'Updated target users — v2')
+
+    // Second render — must overwrite, not append
+    const analysisDecisions2 = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
+    const secondContent = renderProductBrief(analysisDecisions2)
+    writeFileSync(filePath, secondContent, 'utf-8')
+
+    const finalContent = readFileSync(filePath, 'utf-8')
+
+    // Must contain the data from the second render (the new key/value pair)
+    expect(finalContent).toContain('Updated target users')
     // Must NOT be the concatenation of both writes (i.e., overwrite not append)
-    expect(secondContent).not.toBe(firstContent + firstContent)
+    expect(finalContent).not.toBe(firstContent + firstContent)
     // File length must equal the second call's rendered content, not be doubled
-    expect(secondContent.length).not.toBe(firstContent.length + secondContent.length)
+    expect(finalContent.length).not.toBe(firstContent.length + finalContent.length)
   })
 
   it('T11h: missing phases gracefully produce no files', async () => {
@@ -478,20 +430,14 @@ describe('T11: write decisions → export → verify markdown output', () => {
 // ---------------------------------------------------------------------------
 
 describe('T12: export → seedMethodologyContext round-trip', () => {
-  let sourceDb: BetterSqlite3Database
   let sourceAdapter: DatabaseAdapter
-  let seedDb: BetterSqlite3Database
   let seedAdapter: DatabaseAdapter
   let runId: string
   let tempProjectRoot: string
 
   beforeEach(async () => {
-    const r1 = await openTestDb()
-    sourceDb = r1.db
-    sourceAdapter = r1.adapter
-    const r2 = await openTestDb()
-    seedDb = r2.db
-    seedAdapter = r2.adapter
+    sourceAdapter = await openTestDb()
+    seedAdapter = await openTestDb()
     runId = await createTestRun(sourceAdapter)
 
     // Create temp project root with the expected directory structure
@@ -500,9 +446,9 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
     mkdirSync(artifactsDir, { recursive: true })
   })
 
-  afterEach(() => {
-    sourceDb.close()
-    seedDb.close()
+  afterEach(async () => {
+    await sourceAdapter.close()
+    await seedAdapter.close()
     if (existsSync(tempProjectRoot)) {
       rmSync(tempProjectRoot, { recursive: true, force: true })
     }

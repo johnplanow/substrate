@@ -13,12 +13,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { SyncDatabaseAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import { createPipelineRun } from '../../../../persistence/queries/decisions.js'
@@ -39,12 +37,11 @@ vi.mock('../../../implementation-orchestrator/project-findings.js', () => ({
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
+async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'analysis-phase-test-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter, tmpDir }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -139,21 +136,19 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('runAnalysisPhase()', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -270,11 +265,10 @@ describe('runAnalysisPhase()', () => {
       await runAnalysisPhase(deps, params)
 
       // Query the database to verify decisions were created
-      const decisions = db
-        .prepare(
-          "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'analysis' AND category = 'product-brief' ORDER BY key ASC",
-        )
-        .all(runId) as Array<{ key: string; value: string }>
+      const decisions = await adapter.query<{ key: string; value: string }>(
+        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'analysis' AND category = 'product-brief' ORDER BY key ASC",
+        [runId],
+      )
 
       expect(decisions).toHaveLength(6)
 
@@ -294,11 +288,11 @@ describe('runAnalysisPhase()', () => {
 
       await runAnalysisPhase(deps, params)
 
-      const targetUsersDecision = db
-        .prepare(
-          "SELECT value FROM decisions WHERE pipeline_run_id = ? AND key = 'target_users'",
-        )
-        .get(runId) as { value: string } | undefined
+      const targetUsersRows = await adapter.query<{ value: string }>(
+        "SELECT value FROM decisions WHERE pipeline_run_id = ? AND key = 'target_users'",
+        [runId],
+      )
+      const targetUsersDecision = targetUsersRows[0]
 
       expect(targetUsersDecision).toBeDefined()
       // Should be a valid JSON array string
@@ -313,11 +307,10 @@ describe('runAnalysisPhase()', () => {
 
       await runAnalysisPhase(deps, params)
 
-      const decisions = db
-        .prepare(
-          "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase != 'analysis'",
-        )
-        .all(runId)
+      const decisions = await adapter.query(
+        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase != 'analysis'",
+        [runId],
+      )
 
       // No decisions outside analysis phase
       expect(decisions).toHaveLength(0)
@@ -331,9 +324,10 @@ describe('runAnalysisPhase()', () => {
 
       await runAnalysisPhase(deps, params)
 
-      const decisions = db
-        .prepare('SELECT * FROM decisions WHERE pipeline_run_id = ?')
-        .all(runId)
+      const decisions = await adapter.query(
+        'SELECT * FROM decisions WHERE pipeline_run_id = ?',
+        [runId],
+      )
 
       expect(decisions).toHaveLength(0)
     })
@@ -351,11 +345,11 @@ describe('runAnalysisPhase()', () => {
 
       const result = await runAnalysisPhase(deps, params)
 
-      const artifact = db
-        .prepare(
-          "SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'analysis' AND type = 'product-brief'",
-        )
-        .get(runId) as { id: string; phase: string; type: string; path: string; summary: string } | undefined
+      const artifactRows = await adapter.query<{ id: string; phase: string; type: string; path: string; summary: string }>(
+        "SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'analysis' AND type = 'product-brief'",
+        [runId],
+      )
+      const artifact = artifactRows[0]
 
       expect(artifact).toBeDefined()
       expect(artifact!.phase).toBe('analysis')
@@ -371,9 +365,11 @@ describe('runAnalysisPhase()', () => {
 
       await runAnalysisPhase(deps, params)
 
-      const artifact = db
-        .prepare("SELECT summary FROM artifacts WHERE pipeline_run_id = ? AND type = 'product-brief'")
-        .get(runId) as { summary: string } | undefined
+      const artifactRows = await adapter.query<{ summary: string }>(
+        "SELECT summary FROM artifacts WHERE pipeline_run_id = ? AND type = 'product-brief'",
+        [runId],
+      )
+      const artifact = artifactRows[0]
 
       expect(artifact).toBeDefined()
       expect(artifact!.summary).toBe(SAMPLE_BRIEF.problem_statement.substring(0, 100))
@@ -399,9 +395,10 @@ describe('runAnalysisPhase()', () => {
 
       await runAnalysisPhase(deps, params)
 
-      const artifacts = db
-        .prepare('SELECT * FROM artifacts WHERE pipeline_run_id = ?')
-        .all(runId)
+      const artifacts = await adapter.query(
+        'SELECT * FROM artifacts WHERE pipeline_run_id = ?',
+        [runId],
+      )
 
       expect(artifacts).toHaveLength(0)
     })
@@ -637,17 +634,14 @@ describe('runAnalysisPhase()', () => {
 // ---------------------------------------------------------------------------
 
 describe('runAnalysisPhase() — single-dispatch: prior findings injection', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'analysis-findings-test-'))
-    const database = new Database(join(tmp, 'test.db'))
-    adapter = new SyncDatabaseAdapter(database)
+    adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
     await initSchema(adapter)
-    db = database
     tmpDir = tmp
     const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     runId = run.id
@@ -655,8 +649,8 @@ describe('runAnalysisPhase() — single-dispatch: prior findings injection', () 
     vi.mocked(getProjectFindings).mockResolvedValue('')
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
     vi.restoreAllMocks()
   })

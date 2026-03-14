@@ -10,9 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as DB } from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createHash } from 'node:crypto'
 
@@ -65,11 +63,10 @@ const CREATE_DECISIONS_TABLE = `
   )
 `
 
-function createTestDb(): { db: DB; adapter: DatabaseAdapter } {
-  const db = new Database(':memory:')
-  db.exec(CREATE_DECISIONS_TABLE)
-  const adapter = new SyncDatabaseAdapter(db)
-  return { db, adapter }
+async function createTestDb(): Promise<WasmSqliteDatabaseAdapter> {
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  adapter.execSync(CREATE_DECISIONS_TABLE)
+  return adapter
 }
 
 // ---------------------------------------------------------------------------
@@ -163,16 +160,13 @@ function setupEpicsFile(content: string): void {
 // ---------------------------------------------------------------------------
 
 describe('AC4: Relaxed Heading Regex — parseEpicShards()', () => {
-  let db: DB
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
-  beforeEach(() => {
-    const setup = createTestDb()
-    db = setup.db
-    adapter = setup.adapter
+  beforeEach(async () => {
+    adapter = await createTestDb()
   })
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('parses ## (h2) epic headings and produces correct shard count', async () => {
@@ -235,16 +229,13 @@ describe('AC4: Relaxed Heading Regex — parseEpicShards()', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC7: MAX_EPIC_SHARD_CHARS = 12,000', () => {
-  let db: DB
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
-  beforeEach(() => {
-    const setup = createTestDb()
-    db = setup.db
-    adapter = setup.adapter
+  beforeEach(async () => {
+    adapter = await createTestDb()
   })
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('does not truncate content shorter than 12,000 chars', async () => {
@@ -264,16 +255,13 @@ describe('AC7: MAX_EPIC_SHARD_CHARS = 12,000', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC1/AC2/AC6: Content-hash comparison in seedEpicShards()', () => {
-  let db: DB
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
-  beforeEach(() => {
-    const setup = createTestDb()
-    db = setup.db
-    adapter = setup.adapter
+  beforeEach(async () => {
+    adapter = await createTestDb()
   })
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('AC6: seeds shards and stores hash when no epic-shard-hash exists (first run)', async () => {
@@ -375,16 +363,13 @@ Story 3-1: New
 // ---------------------------------------------------------------------------
 
 describe('Integration: h3 headings, full seed-modify-re-seed flow', () => {
-  let db: DB
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
-  beforeEach(() => {
-    const setup = createTestDb()
-    db = setup.db
-    adapter = setup.adapter
+  beforeEach(async () => {
+    adapter = await createTestDb()
   })
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('seeds with h3 headings, verifies count, modifies, re-seeds and verifies updated content', async () => {

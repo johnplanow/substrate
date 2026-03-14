@@ -153,7 +153,7 @@ function createMockDeps(capturedPrompts: string[]): WorkflowDeps {
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 
-  const mockDb = {} as import('better-sqlite3').Database
+  const mockDb = {} as import('../../../persistence/adapter.js').DatabaseAdapter
 
   return {
     db: mockDb,

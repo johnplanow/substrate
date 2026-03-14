@@ -12,12 +12,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun, registerArtifact } from '../../../persistence/queries/decisions.js'
 import { createPhaseOrchestrator } from '../phase-orchestrator-impl.js'
@@ -33,12 +31,11 @@ import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
+async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'ux-skipped-integration-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter, tmpDir }
 }
 
 async function registerArtifactForRun(
@@ -109,19 +106,17 @@ describe('createBuiltInPhases - UX design disabled (default)', () => {
 // ---------------------------------------------------------------------------
 
 describe('PhaseOrchestrator - phase list without UX design', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -154,22 +149,20 @@ describe('PhaseOrchestrator - phase list without UX design', () => {
 // ---------------------------------------------------------------------------
 
 describe('Solutioning entry gate - no ux-design gate when UX skipped', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
     const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     runId = run.id
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -224,19 +217,17 @@ describe('Solutioning entry gate - no ux-design gate when UX skipped', () => {
 // ---------------------------------------------------------------------------
 
 describe('Full pipeline advance without UX design', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 

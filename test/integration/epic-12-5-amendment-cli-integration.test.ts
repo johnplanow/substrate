@@ -23,8 +23,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { randomUUID } from 'crypto'
 
 import {
@@ -40,37 +38,33 @@ import {
   formatDeltaDocument,
 } from '../../src/modules/delta-document/index.js'
 import { runPostPhaseSupersessionDetection } from '../../src/cli/commands/amend.js'
-import { SyncDatabaseAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../src/persistence/schema.js'
-import type { DatabaseAdapter } from '../../src/persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function openMigratedDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
-  const db = new Database(':memory:')
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  const adapter = new SyncDatabaseAdapter(db)
+async function openMigratedDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return { db, adapter }
+  return { adapter }
 }
 
 function insertRun(
-  db: BetterSqlite3Database,
+  adapter: WasmSqliteDatabaseAdapter,
   id: string,
   status: string = 'completed',
   parentRunId: string | null = null,
 ): void {
-  db.prepare(`
+  adapter.querySync(`
     INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
     VALUES (?, 'bmad', ?, ?, datetime('now'), datetime('now'))
-  `).run(id, status, parentRunId)
+  `, [id, status, parentRunId])
 }
 
 function insertDecision(
-  db: BetterSqlite3Database,
+  adapter: WasmSqliteDatabaseAdapter,
   id: string,
   runId: string,
   overrides: {
@@ -88,10 +82,10 @@ function insertDecision(
     value = 'default-value',
     rationale = null,
   } = overrides
-  db.prepare(`
+  adapter.querySync(`
     INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, rationale, superseded_by, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'), datetime('now'))
-  `).run(id, runId, phase, category, key, value, rationale)
+  `, [id, runId, phase, category, key, value, rationale])
 }
 
 // ---------------------------------------------------------------------------
@@ -99,17 +93,15 @@ function insertDecision(
 // ---------------------------------------------------------------------------
 
 describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 12-10)', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('decisions superseded by runPostPhaseSupersessionDetection appear in the delta document supersededDecisions', async () => {
@@ -117,15 +109,15 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
     const parentRunId = randomUUID()
     const parentD1 = randomUUID()
     const parentD2 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, parentD1, parentRunId, {
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,parentD1, parentRunId, {
       phase: 'analysis',
       category: 'architecture',
       key: 'database',
       value: 'MySQL',
       rationale: 'Initial choice',
     })
-    insertDecision(db, parentD2, parentRunId, {
+    insertDecision(adapter,parentD2, parentRunId, {
       phase: 'analysis',
       category: 'stack',
       key: 'language',
@@ -142,7 +134,7 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
 
     // Insert amendment decision that replaces parentD1
     const amendD1 = randomUUID()
-    insertDecision(db, amendD1, amendmentRunId, {
+    insertDecision(adapter,amendD1, amendmentRunId, {
       phase: 'analysis',
       category: 'architecture',
       key: 'database',
@@ -165,9 +157,7 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
     expect(log[0].supersedingDecisionId).toBe(amendD1)
 
     // Verify DB was updated: parentD1 should now be superseded
-    const parentD1Row = db
-      .prepare('SELECT superseded_by FROM decisions WHERE id = ?')
-      .get(parentD1) as { superseded_by: string | null }
+    const parentD1Row = adapter.querySync<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentD1])[0]
     expect(parentD1Row.superseded_by).toBe(amendD1)
 
     // Build delta document inputs as runAmendCommand does
@@ -204,10 +194,10 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
     const pD1 = randomUUID() // analysis decision
     const pD2 = randomUUID() // planning decision
     const pD3 = randomUUID() // solutioning decision
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'MySQL' })
-    insertDecision(db, pD2, parentRunId, { phase: 'planning', category: 'scope', key: 'deadline', value: 'Q1' })
-    insertDecision(db, pD3, parentRunId, { phase: 'solutioning', category: 'api', key: 'protocol', value: 'REST' })
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'MySQL' })
+    insertDecision(adapter,pD2, parentRunId, { phase: 'planning', category: 'scope', key: 'deadline', value: 'Q1' })
+    insertDecision(adapter,pD3, parentRunId, { phase: 'solutioning', category: 'api', key: 'protocol', value: 'REST' })
 
     const amendmentRunId = randomUUID()
     await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
@@ -216,9 +206,9 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
     const aD1 = randomUUID()
     const aD2 = randomUUID()
     const aD3 = randomUUID()
-    insertDecision(db, aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
-    insertDecision(db, aD2, amendmentRunId, { phase: 'planning', category: 'scope', key: 'deadline', value: 'Q2' })
-    insertDecision(db, aD3, amendmentRunId, { phase: 'solutioning', category: 'api', key: 'protocol', value: 'GraphQL' })
+    insertDecision(adapter,aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
+    insertDecision(adapter,aD2, amendmentRunId, { phase: 'planning', category: 'scope', key: 'deadline', value: 'Q2' })
+    insertDecision(adapter,aD3, amendmentRunId, { phase: 'solutioning', category: 'api', key: 'protocol', value: 'GraphQL' })
 
     const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
@@ -264,15 +254,15 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
   it('no supersessions means empty supersededDecisions and recommendations reflect no supersessions', async () => {
     const parentRunId = randomUUID()
     const pD1 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'SQLite' })
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'SQLite' })
 
     const amendmentRunId = randomUUID()
     await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     // Amendment adds a new decision (different key — no supersession)
     const aD1 = randomUUID()
-    insertDecision(db, aD1, amendmentRunId, { phase: 'analysis', category: 'cache', key: 'provider', value: 'Redis' })
+    insertDecision(adapter,aD1, amendmentRunId, { phase: 'analysis', category: 'cache', key: 'provider', value: 'Redis' })
 
     const handler = await createAmendmentContextHandler(adapter, parentRunId)
     await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
@@ -308,33 +298,31 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
 // ---------------------------------------------------------------------------
 
 describe('Context Handler → Delta Document: handler feeds generateDeltaDocument correctly', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('handler.getParentDecisions() returns correct input for new decisions computation', async () => {
     const parentRunId = randomUUID()
     const pD1 = randomUUID()
     const pD2 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'SQLite' })
-    insertDecision(db, pD2, parentRunId, { phase: 'planning', category: 'scope', key: 'size', value: 'small' })
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'SQLite' })
+    insertDecision(adapter,pD2, parentRunId, { phase: 'planning', category: 'scope', key: 'size', value: 'small' })
 
     const amendmentRunId = randomUUID()
     await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     // Amendment adds a new decision and carries over pD2 (same ID)
     const aD1 = randomUUID()
-    insertDecision(db, aD1, amendmentRunId, { phase: 'analysis', category: 'cache', key: 'redis', value: 'yes' })
+    insertDecision(adapter,aD1, amendmentRunId, { phase: 'analysis', category: 'cache', key: 'redis', value: 'yes' })
 
     const handler = await createAmendmentContextHandler(adapter, parentRunId)
     const parentDecisions = handler.getParentDecisions()
@@ -360,15 +348,15 @@ describe('Context Handler → Delta Document: handler feeds generateDeltaDocumen
     const parentRunId = randomUUID()
     const pD1 = randomUUID()
     const pD2 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'MySQL' })
-    insertDecision(db, pD2, parentRunId, { phase: 'planning', category: 'scope', key: 'size', value: 'medium' })
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'MySQL' })
+    insertDecision(adapter,pD2, parentRunId, { phase: 'planning', category: 'scope', key: 'size', value: 'medium' })
 
     const amendmentRunId = randomUUID()
     await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     const aD1 = randomUUID()
-    insertDecision(db, aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
+    insertDecision(adapter,aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
 
     const handler = await createAmendmentContextHandler(adapter, parentRunId)
     // Manually log a supersession (as runPostPhaseSupersessionDetection would)
@@ -414,14 +402,14 @@ describe('Context Handler → Delta Document: handler feeds generateDeltaDocumen
     const parentRunId = randomUUID()
     const pD1 = randomUUID()
     const pD2 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'k1', value: 'v1' })
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'k1', value: 'v1' })
 
     // Create handler before pD2 is inserted
     const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
     // Insert pD2 AFTER handler creation
-    insertDecision(db, pD2, parentRunId, { phase: 'analysis', category: 'arch', key: 'k2', value: 'v2' })
+    insertDecision(adapter,pD2, parentRunId, { phase: 'analysis', category: 'arch', key: 'k2', value: 'v2' })
 
     // Handler was created before pD2 — it should NOT include pD2
     const decisions = handler.getParentDecisions()
@@ -436,32 +424,30 @@ describe('Context Handler → Delta Document: handler feeds generateDeltaDocumen
 // ---------------------------------------------------------------------------
 
 describe('Full Amendment Pipeline: amendment run → delta doc → validation', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('generated delta document from a real DB run passes validateDeltaDocument()', async () => {
     const parentRunId = randomUUID()
     const pD1 = randomUUID()
     const pD2 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, pD1, parentRunId, {
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,pD1, parentRunId, {
       phase: 'analysis',
       category: 'architecture',
       key: 'database',
       value: 'MySQL',
       rationale: 'Legacy system compatibility',
     })
-    insertDecision(db, pD2, parentRunId, {
+    insertDecision(adapter,pD2, parentRunId, {
       phase: 'planning',
       category: 'scope',
       key: 'timeline',
@@ -477,7 +463,7 @@ describe('Full Amendment Pipeline: amendment run → delta doc → validation', 
     })
 
     const aD1 = randomUUID()
-    insertDecision(db, aD1, amendmentRunId, {
+    insertDecision(adapter,aD1, amendmentRunId, {
       phase: 'analysis',
       category: 'architecture',
       key: 'database',
@@ -521,14 +507,14 @@ describe('Full Amendment Pipeline: amendment run → delta doc → validation', 
   it('delta document recommendations reflect actual delta data from DB', async () => {
     const parentRunId = randomUUID()
     const pD1 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'old-value' })
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'old-value' })
 
     const amendmentRunId = randomUUID()
     await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     const aD1 = randomUUID()
-    insertDecision(db, aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'new-value' })
+    insertDecision(adapter,aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'new-value' })
 
     const handler = await createAmendmentContextHandler(adapter, parentRunId)
     await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
@@ -563,24 +549,22 @@ describe('Full Amendment Pipeline: amendment run → delta doc → validation', 
 // ---------------------------------------------------------------------------
 
 describe('formatDeltaDocument: Markdown output is well-formed with real DB data', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('formatted delta document has all required Markdown sections with real DB decisions', async () => {
     const parentRunId = randomUUID()
     const pD1 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, pD1, parentRunId, {
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,pD1, parentRunId, {
       phase: 'analysis',
       category: 'architecture',
       key: 'database',
@@ -592,7 +576,7 @@ describe('formatDeltaDocument: Markdown output is well-formed with real DB data'
     await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     const aD1 = randomUUID()
-    insertDecision(db, aD1, amendmentRunId, {
+    insertDecision(adapter,aD1, amendmentRunId, {
       phase: 'analysis',
       category: 'architecture',
       key: 'database',
@@ -651,7 +635,7 @@ describe('formatDeltaDocument: Markdown output is well-formed with real DB data'
 
   it('formatted document has stable structure regardless of decision count', async () => {
     const parentRunId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
+    insertRun(adapter,parentRunId, 'completed')
     // No decisions — empty parent run
 
     const amendmentRunId = randomUUID()
@@ -688,13 +672,13 @@ describe('formatDeltaDocument: Markdown output is well-formed with real DB data'
 
   it('formatted document correctly groups impact findings by confidence level', async () => {
     const parentRunId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
+    insertRun(adapter,parentRunId, 'completed')
 
     const amendmentRunId = randomUUID()
     await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     const aD1 = randomUUID()
-    insertDecision(db, aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'k', value: 'v' })
+    insertDecision(adapter,aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'k', value: 'v' })
 
     const parentDecisions: Parameters<typeof generateDeltaDocument>[0]['parentDecisions'] = []
     const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
@@ -733,33 +717,31 @@ describe('formatDeltaDocument: Markdown output is well-formed with real DB data'
 // ---------------------------------------------------------------------------
 
 describe('runPostPhaseSupersessionDetection: real DB + handler state integration', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('correctly identifies matching decisions by phase + category + key tuple', async () => {
     const parentRunId = randomUUID()
     const pMatchD = randomUUID() // matches by phase/category/key
     const pNoMatchD = randomUUID() // different key — should not supersede
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, pMatchD, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'MySQL' })
-    insertDecision(db, pNoMatchD, parentRunId, { phase: 'analysis', category: 'arch', key: 'cache', value: 'Redis' })
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,pMatchD, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'MySQL' })
+    insertDecision(adapter,pNoMatchD, parentRunId, { phase: 'analysis', category: 'arch', key: 'cache', value: 'Redis' })
 
     const amendmentRunId = randomUUID()
     await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     // Amendment decision matches pMatchD by phase/category/key
     const aMatchD = randomUUID()
-    insertDecision(db, aMatchD, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
+    insertDecision(adapter,aMatchD, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
 
     const handler = await createAmendmentContextHandler(adapter, parentRunId)
     await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
@@ -770,9 +752,7 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     expect(log[0].supersedingDecisionId).toBe(aMatchD)
 
     // pNoMatchD should NOT be superseded
-    const pNoMatchRow = db
-      .prepare('SELECT superseded_by FROM decisions WHERE id = ?')
-      .get(pNoMatchD) as { superseded_by: string | null }
+    const pNoMatchRow = adapter.querySync<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [pNoMatchD])[0]
     expect(pNoMatchRow.superseded_by).toBeNull()
   })
 
@@ -780,16 +760,16 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     const parentRunId = randomUUID()
     const pAnalysisD = randomUUID()
     const pPlanningD = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, pAnalysisD, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'MySQL' })
-    insertDecision(db, pPlanningD, parentRunId, { phase: 'planning', category: 'arch', key: 'db', value: 'MySQL' })
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,pAnalysisD, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'MySQL' })
+    insertDecision(adapter,pPlanningD, parentRunId, { phase: 'planning', category: 'arch', key: 'db', value: 'MySQL' })
 
     const amendmentRunId = randomUUID()
     await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     // Amendment has an analysis decision with matching key
     const aD = randomUUID()
-    insertDecision(db, aD, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
+    insertDecision(adapter,aD, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
 
     const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
@@ -800,9 +780,7 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     expect(log).toHaveLength(1) // Only analysis-phase decision superseded
 
     // Planning decision should NOT be superseded
-    const pPlanningRow = db
-      .prepare('SELECT superseded_by FROM decisions WHERE id = ?')
-      .get(pPlanningD) as { superseded_by: string | null }
+    const pPlanningRow = adapter.querySync<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [pPlanningD])[0]
     expect(pPlanningRow.superseded_by).toBeNull()
   })
 
@@ -810,9 +788,9 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     const parentRunId = randomUUID()
     const pD1 = randomUUID()
     const pD2 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'MySQL' })
-    insertDecision(db, pD2, parentRunId, { phase: 'analysis', category: 'stack', key: 'lang', value: 'JS' })
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,pD1, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'MySQL' })
+    insertDecision(adapter,pD2, parentRunId, { phase: 'analysis', category: 'stack', key: 'lang', value: 'JS' })
 
     const amendmentRunId = randomUUID()
     await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
@@ -820,8 +798,8 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     // Amendment decisions that supersede both parent decisions
     const aD1 = randomUUID()
     const aD2 = randomUUID()
-    insertDecision(db, aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
-    insertDecision(db, aD2, amendmentRunId, { phase: 'analysis', category: 'stack', key: 'lang', value: 'TS' })
+    insertDecision(adapter,aD1, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
+    insertDecision(adapter,aD2, amendmentRunId, { phase: 'analysis', category: 'stack', key: 'lang', value: 'TS' })
 
     // Pre-supersede pD1 to trigger an error on the second call to supersedeDecision for pD1
     await supersedeDecision(adapter, pD1, aD1)
@@ -832,9 +810,7 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     await expect(runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)).resolves.not.toThrow()
 
     // pD2 should still have been superseded despite the error for pD1
-    const pD2Row = db
-      .prepare('SELECT superseded_by FROM decisions WHERE id = ?')
-      .get(pD2) as { superseded_by: string | null }
+    const pD2Row = adapter.querySync<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [pD2])[0]
     expect(pD2Row.superseded_by).toBe(aD2)
   })
 
@@ -842,17 +818,17 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
     const parentRunId = randomUUID()
     const pA = randomUUID() // analysis
     const pB = randomUUID() // planning
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, pA, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'MySQL' })
-    insertDecision(db, pB, parentRunId, { phase: 'planning', category: 'scope', key: 'deadline', value: 'Q1' })
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,pA, parentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'MySQL' })
+    insertDecision(adapter,pB, parentRunId, { phase: 'planning', category: 'scope', key: 'deadline', value: 'Q1' })
 
     const amendmentRunId = randomUUID()
     await createAmendmentRun(adapter, { id: amendmentRunId, parentRunId, methodology: 'bmad' })
 
     const aA = randomUUID()
     const aB = randomUUID()
-    insertDecision(db, aA, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
-    insertDecision(db, aB, amendmentRunId, { phase: 'planning', category: 'scope', key: 'deadline', value: 'Q2' })
+    insertDecision(adapter,aA, amendmentRunId, { phase: 'analysis', category: 'arch', key: 'db', value: 'PostgreSQL' })
+    insertDecision(adapter,aB, amendmentRunId, { phase: 'planning', category: 'scope', key: 'deadline', value: 'Q2' })
 
     const handler = await createAmendmentContextHandler(adapter, parentRunId)
 

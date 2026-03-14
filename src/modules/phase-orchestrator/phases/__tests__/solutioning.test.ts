@@ -14,12 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { SyncDatabaseAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
@@ -42,12 +37,10 @@ import type { Dispatcher, DispatchHandle, DispatchResult } from '../../../agent-
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'solutioning-phase-test-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+async function createTestDb(): Promise<{ adapter: DatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -289,22 +282,17 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('runSolutioningPhase()', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   // -------------------------------------------------------------------------
@@ -425,11 +413,11 @@ describe('runSolutioningPhase()', () => {
 
       await runSolutioningPhase(deps, { runId })
 
-      const artifact = db
-        .prepare(
-          "SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'solutioning' AND type = 'architecture'",
-        )
-        .get(runId) as { id: string; phase: string; type: string; path: string } | undefined
+      const artifacts = await adapter.query<{ id: string; phase: string; type: string; path: string }>(
+        "SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'solutioning' AND type = 'architecture'",
+        [runId],
+      )
+      const artifact = artifacts[0]
 
       expect(artifact).toBeDefined()
       expect(artifact!.phase).toBe('solutioning')
@@ -476,11 +464,11 @@ describe('runSolutioningPhase()', () => {
 
       await runSolutioningPhase(deps, { runId })
 
-      const artifact = db
-        .prepare(
-          "SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'solutioning' AND type = 'stories'",
-        )
-        .get(runId) as { id: string; phase: string; type: string; path: string; summary: string } | undefined
+      const artifacts = await adapter.query<{ id: string; phase: string; type: string; path: string; summary: string }>(
+        "SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'solutioning' AND type = 'stories'",
+        [runId],
+      )
+      const artifact = artifacts[0]
 
       expect(artifact).toBeDefined()
       expect(artifact!.phase).toBe('solutioning')
@@ -495,9 +483,11 @@ describe('runSolutioningPhase()', () => {
 
       await runSolutioningPhase(deps, { runId })
 
-      const artifact = db
-        .prepare("SELECT summary FROM artifacts WHERE pipeline_run_id = ? AND type = 'stories'")
-        .get(runId) as { summary: string } | undefined
+      const artifacts = await adapter.query<{ summary: string }>(
+        "SELECT summary FROM artifacts WHERE pipeline_run_id = ? AND type = 'stories'",
+        [runId],
+      )
+      const artifact = artifacts[0]
 
       expect(artifact).toBeDefined()
       expect(artifact!.summary).toContain('epics')
@@ -797,11 +787,10 @@ describe('runSolutioningPhase()', () => {
 
       await runSolutioningPhase(deps, { runId })
 
-      const decisions = db
-        .prepare(
-          "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning' AND category = 'architecture' ORDER BY key ASC",
-        )
-        .all(runId) as Array<{ key: string; value: string; rationale: string | null }>
+      const decisions = await adapter.query<{ key: string; value: string; rationale: string | null }>(
+        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning' AND category = 'architecture' ORDER BY key ASC",
+        [runId],
+      )
 
       expect(decisions).toHaveLength(SAMPLE_ARCHITECTURE_DECISIONS.length)
       expect(decisions[0].key).toBe('database')
@@ -815,11 +804,10 @@ describe('runSolutioningPhase()', () => {
 
       await runSolutioningPhase(deps, { runId })
 
-      const decisions = db
-        .prepare(
-          "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning' AND category = 'epics' ORDER BY key ASC",
-        )
-        .all(runId) as Array<{ key: string; value: string }>
+      const decisions = await adapter.query<{ key: string; value: string }>(
+        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning' AND category = 'epics' ORDER BY key ASC",
+        [runId],
+      )
 
       expect(decisions).toHaveLength(2) // 2 epics in SAMPLE_EPICS
       expect(decisions[0].key).toBe('epic-1')
@@ -834,11 +822,10 @@ describe('runSolutioningPhase()', () => {
 
       await runSolutioningPhase(deps, { runId })
 
-      const decisions = db
-        .prepare(
-          "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning' AND category = 'stories' ORDER BY key ASC",
-        )
-        .all(runId) as Array<{ key: string; value: string }>
+      const decisions = await adapter.query<{ key: string; value: string }>(
+        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning' AND category = 'stories' ORDER BY key ASC",
+        [runId],
+      )
 
       expect(decisions).toHaveLength(3) // 3 total stories in SAMPLE_EPICS
       expect(decisions[0].key).toBe('1-1')
@@ -857,11 +844,10 @@ describe('runSolutioningPhase()', () => {
 
       await runSolutioningPhase(deps, { runId })
 
-      const requirements = db
-        .prepare(
-          "SELECT * FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase' AND type = 'functional' ORDER BY created_at ASC",
-        )
-        .all(runId) as Array<{ description: string; priority: string; type: string }>
+      const requirements = await adapter.query<{ description: string; priority: string; type: string }>(
+        "SELECT * FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase' AND type = 'functional' ORDER BY created_at ASC",
+        [runId],
+      )
 
       expect(requirements).toHaveLength(3) // 3 total stories
       expect(requirements[0].type).toBe('functional')
@@ -1257,23 +1243,18 @@ describe('Story 16-1: summarizeDecisions', () => {
 })
 
 describe('Story 16-1: Architecture skip on retry (AC3)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const testDb = await createTestDb()
-    db = testDb.db
     adapter = testDb.adapter
-    tmpDir = testDb.tmpDir
     runId = await createTestRun(adapter)
     await seedPlanningRequirements(adapter, runId)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('skips architecture dispatch when architecture artifact already exists', async () => {
@@ -1326,23 +1307,18 @@ describe('Story 16-1: Architecture skip on retry (AC3)', () => {
 })
 
 describe('Story 16-1: Decision deduplication in solutioning (AC4)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const testDb = await createTestDb()
-    db = testDb.db
     adapter = testDb.adapter
-    tmpDir = testDb.tmpDir
     runId = await createTestRun(adapter)
     await seedPlanningRequirements(adapter, runId)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('does not duplicate architecture decisions on multiple runs', async () => {

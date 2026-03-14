@@ -14,7 +14,6 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import BetterSqlite3 from 'better-sqlite3'
 import { resolve } from 'path'
 
 // Persistence (9-1)
@@ -25,7 +24,7 @@ import {
   createConstraint,
   createPipelineRun,
 } from '../../persistence/queries/decisions.js'
-import { createAdapterFromSyncDb } from '../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../persistence/wasm-sqlite-adapter.js'
 import type { DatabaseAdapter } from '../../persistence/adapter.js'
 
 // Context Compiler (9-2)
@@ -58,11 +57,10 @@ import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function openDb(): Promise<{ db: ReturnType<typeof BetterSqlite3>; adapter: DatabaseAdapter }> {
-  const db = new BetterSqlite3(':memory:')
-  const adapter = createAdapterFromSyncDb(db)
+async function openDb(): Promise<{ adapter: DatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter }
+  return { adapter }
 }
 
 function mockDispatcher(): Dispatcher {
@@ -92,12 +90,10 @@ function fixedPerspectiveGenerator(
 // ---------------------------------------------------------------------------
 
 describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const r = openDb()
-    db = r.db
+  beforeEach(async () => {
+    const r = await openDb()
     adapter = r.adapter
   })
 
@@ -330,12 +326,10 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Integration: Debate Panel → Decision Store → Context Compiler (9-1 + 9-2 + 9-4)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const r = openDb()
-    db = r.db
+  beforeEach(async () => {
+    const r = await openDb()
     adapter = r.adapter
   })
 
@@ -472,9 +466,9 @@ describe('Integration: Debate Panel → Decision Store → Context Compiler (9-1
     expect(result.escalated).toBe(true)
 
     // Even escalated decisions must be persisted
-    const rows = db.prepare(
-      "SELECT * FROM decisions WHERE key = 'microservices-pattern'"
-    ).all() as Array<{ key: string; value: string }>
+    const rows = await adapter.query<{ key: string; value: string }>(
+      "SELECT * FROM decisions WHERE key = 'microservices-pattern'",
+    )
     expect(rows).toHaveLength(1)
     expect(rows[0]?.key).toBe('microservices-pattern')
   })
@@ -626,12 +620,10 @@ describe('Integration: YAML Parser → Quality Gates (9-3 + 9-4)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Integration: Methodology Pack → Context Compiler (9-2 + 9-5)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const r = openDb()
-    db = r.db
+  beforeEach(async () => {
+    const r = await openDb()
     adapter = r.adapter
   })
 
@@ -775,12 +767,10 @@ describe('Integration: Methodology Pack → Context Compiler (9-2 + 9-5)', () =>
 // ---------------------------------------------------------------------------
 
 describe('Integration: Full Epic 9 pipeline (9-1 + 9-2 + 9-4)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const r = openDb()
-    db = r.db
+  beforeEach(async () => {
+    const r = await openDb()
     adapter = r.adapter
   })
 
@@ -948,9 +938,10 @@ describe('Integration: Full Epic 9 pipeline (9-1 + 9-2 + 9-4)', () => {
 
     // Each phase should have exactly one debate-panel decision
     for (const phase of phases) {
-      const rows = db.prepare(
-        `SELECT * FROM decisions WHERE phase = ? AND category = 'debate-panel'`
-      ).all(phase) as Array<{ key: string }>
+      const rows = await adapter.query<{ key: string }>(
+        `SELECT * FROM decisions WHERE phase = ? AND category = 'debate-panel'`,
+        [phase],
+      )
       expect(rows).toHaveLength(1)
       expect(rows[0]?.key).toBe(`key-${phase}`)
     }

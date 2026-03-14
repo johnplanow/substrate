@@ -15,13 +15,11 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import {
   createPipelineRun,
@@ -44,12 +42,11 @@ import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 // Helpers — test DB setup
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
+async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'elicitation-integration-test-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter, tmpDir }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -506,21 +503,19 @@ describe('Integration: Elicitation prompt template loading and filling (AC3)', (
 // ---------------------------------------------------------------------------
 
 describe('Integration: Elicitation results stored in decision store (AC4)', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -711,21 +706,19 @@ describe('Integration: elicitate: true steps in phase definitions (AC5)', () => 
 // ---------------------------------------------------------------------------
 
 describe('Integration: End-to-end elicitation round', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -760,7 +753,7 @@ describe('Integration: End-to-end elicitation round', () => {
       insights: 'Assumption: users want real-time sync → Truth: async is sufficient for 80% of cases.',
     }
     const dispatcher = makeDispatcher([makeDispatchResult(elicitationOutput)])
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const handle = deps.dispatcher.dispatch({
       prompt: filledPrompt,
@@ -871,7 +864,7 @@ describe('Integration: End-to-end elicitation round', () => {
 
     const dispatcher = makeDispatcher([failedResult])
     const pack = makeElicitationPack()
-    const deps = makeDeps(db, dispatcher, pack)
+    const deps = makeDeps(adapter, dispatcher, pack)
 
     const method = selected[0]!
     const template = await pack.getPrompt('elicitation-apply')

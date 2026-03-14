@@ -15,9 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { createAdapterFromSyncDb } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import {
   createPipelineRun,
@@ -36,11 +34,10 @@ import type { PipelineRun } from '../../../persistence/queries/decisions.js'
 // In-memory DB helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
-  const db = new Database(':memory:')
-  const adapter = createAdapterFromSyncDb(db)
+async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return { db, adapter }
+  return { adapter }
 }
 
 async function createTestRun(
@@ -207,7 +204,7 @@ function makeMockPack(prompts: Record<string, string> = {}) {
 
 describe('buildPipelineStatusOutput', () => {
   it('returns correct schema with all phases', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter, {
       config_json: JSON.stringify({
         concept: 'test concept',
@@ -259,11 +256,11 @@ describe('buildPipelineStatusOutput', () => {
     expect(result.total_tokens.input).toBe(3000)
     expect(result.total_tokens.output).toBe(2000)
 
-    db.close()
+    await adapter.close()
   })
 
   it('AC5: matches the exact JSON schema from the story spec', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter, {
       config_json: JSON.stringify({
         concept: 'test concept',
@@ -323,11 +320,11 @@ describe('buildPipelineStatusOutput', () => {
     expect(result.phases.solutioning.status).toBe('running')
     expect(result.phases.implementation.status).toBe('pending')
 
-    db.close()
+    await adapter.close()
   })
 
   it('handles run with no phase history (legacy run)', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     const result = buildPipelineStatusOutput(run, [], 0, 0)
@@ -341,7 +338,7 @@ describe('buildPipelineStatusOutput', () => {
     expect(result.phases.solutioning.status).toBe('pending')
     expect(result.phases.implementation.status).toBe('pending')
 
-    db.close()
+    await adapter.close()
   })
 })
 
@@ -351,7 +348,7 @@ describe('buildPipelineStatusOutput', () => {
 
 describe('formatPipelineStatusHuman', () => {
   it('includes phase names and status indicators', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     const statusOutput = buildPipelineStatusOutput(run, [], 5, 3)
@@ -365,11 +362,11 @@ describe('formatPipelineStatusHuman', () => {
     expect(formatted).toContain('Decisions: 5')
     expect(formatted).toContain('Stories: 3')
 
-    db.close()
+    await adapter.close()
   })
 
   it('shows DONE indicator for completed phases', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter, {
       config_json: JSON.stringify({
         concept: 'test',
@@ -384,7 +381,7 @@ describe('formatPipelineStatusHuman', () => {
 
     expect(formatted).toContain('[DONE]')
 
-    db.close()
+    await adapter.close()
   })
 })
 
@@ -394,7 +391,7 @@ describe('formatPipelineStatusHuman', () => {
 
 describe('formatPipelineSummary', () => {
   it('human format includes all metrics', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     const tokenSummary = [
@@ -416,11 +413,11 @@ describe('formatPipelineSummary', () => {
     expect(result).toContain('Token Usage:')
     expect(result).toContain('BMAD Baseline:')
 
-    db.close()
+    await adapter.close()
   })
 
   it('json format returns valid JSON with all fields', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     const tokenSummary = [
@@ -447,7 +444,7 @@ describe('formatPipelineSummary', () => {
     expect(parsed.token_usage).toHaveProperty('bmad_baseline')
     expect(parsed.token_usage).toHaveProperty('savings_pct')
 
-    db.close()
+    await adapter.close()
   })
 })
 
@@ -457,7 +454,7 @@ describe('formatPipelineSummary', () => {
 
 describe('Phase gate enforcement (AC2)', () => {
   it('entry gate blocks planning when product-brief artifact is missing', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     // No analysis artifacts — planning should be blocked
@@ -470,7 +467,7 @@ describe('Phase gate enforcement (AC2)', () => {
     // Start from planning without analysis artifact
     const runId = run.id
     // Update current phase to planning manually
-    db.prepare(`UPDATE pipeline_runs SET current_phase = 'analysis' WHERE id = ?`).run(runId)
+    adapter.querySync(`UPDATE pipeline_runs SET current_phase = 'analysis' WHERE id = ?`, [runId])
 
     // Advance from analysis to planning should fail (no product-brief artifact)
     const advanceResult = await orchestrator.advancePhase(runId)
@@ -478,11 +475,11 @@ describe('Phase gate enforcement (AC2)', () => {
     expect(advanceResult.gateFailures?.length).toBeGreaterThan(0)
     expect(advanceResult.gateFailures?.[0].error).toContain('product-brief')
 
-    db.close()
+    await adapter.close()
   })
 
   it('entry gate blocks solutioning when prd artifact is missing', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     // Register product-brief artifact but not prd
@@ -498,18 +495,18 @@ describe('Phase gate enforcement (AC2)', () => {
     const orchestrator = createPhaseOrchestrator({ db: adapter, pack: pack as never })
 
     // Set current phase to planning
-    db.prepare(`UPDATE pipeline_runs SET current_phase = 'planning' WHERE id = ?`).run(run.id)
+    adapter.querySync(`UPDATE pipeline_runs SET current_phase = 'planning' WHERE id = ?`, [run.id])
 
     // Advance from planning to solutioning should fail (no prd artifact)
     const advanceResult = await orchestrator.advancePhase(run.id)
     expect(advanceResult.advanced).toBe(false)
     expect(advanceResult.gateFailures?.some((f) => f.error.includes('prd'))).toBe(true)
 
-    db.close()
+    await adapter.close()
   })
 
   it('entry gate blocks implementation when architecture/stories missing', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     // Register analysis and planning artifacts only
@@ -531,7 +528,7 @@ describe('Phase gate enforcement (AC2)', () => {
     const orchestrator = createPhaseOrchestrator({ db: adapter, pack: pack as never })
 
     // Set current phase to solutioning
-    db.prepare(`UPDATE pipeline_runs SET current_phase = 'solutioning' WHERE id = ?`).run(run.id)
+    adapter.querySync(`UPDATE pipeline_runs SET current_phase = 'solutioning' WHERE id = ?`, [run.id])
 
     // Advance from solutioning to implementation should fail (no architecture/stories artifacts)
     const advanceResult = await orchestrator.advancePhase(run.id)
@@ -542,7 +539,7 @@ describe('Phase gate enforcement (AC2)', () => {
       ),
     ).toBe(true)
 
-    db.close()
+    await adapter.close()
   })
 })
 
@@ -552,7 +549,7 @@ describe('Phase gate enforcement (AC2)', () => {
 
 describe('Resume pipeline (AC3)', () => {
   it('resume from planning — analysis artifacts exist, planning continues', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     // Register analysis artifact to indicate analysis is complete
@@ -572,11 +569,11 @@ describe('Resume pipeline (AC3)', () => {
     // Should resume from planning (after the completed analysis phase)
     expect(runStatus.currentPhase).toBe('planning')
 
-    db.close()
+    await adapter.close()
   })
 
   it('resume from solutioning — planning artifacts exist, solutioning continues', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     // Register analysis and planning artifacts
@@ -602,11 +599,11 @@ describe('Resume pipeline (AC3)', () => {
     // Should resume from solutioning
     expect(runStatus.currentPhase).toBe('solutioning')
 
-    db.close()
+    await adapter.close()
   })
 
   it('resume when all phases complete marks run as completed', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     // Register all required artifacts
@@ -650,7 +647,7 @@ describe('Resume pipeline (AC3)', () => {
     // All phases done — run should be completed
     expect(runStatus.status).toBe('completed')
 
-    db.close()
+    await adapter.close()
   })
 })
 
@@ -660,7 +657,7 @@ describe('Resume pipeline (AC3)', () => {
 
 describe('Analysis phase integration (AC1, AC7)', () => {
   it('runs analysis phase and stores product-brief artifact', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
     const pack = makeMockPack()
     const dispatcher = makeMockDispatcher({ analysis: ANALYSIS_OUTPUT })
@@ -677,17 +674,18 @@ describe('Analysis phase integration (AC1, AC7)', () => {
     expect(result.product_brief).toBeDefined()
     expect(result.artifact_id).toBeDefined()
 
-    // Verify artifact was stored
-    const artifact = db
-      .prepare(`SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'product-brief'`)
-      .get(run.id) as { type: string } | undefined
+    // Verify artifact was stored using adapter.querySync
+    const artifact = adapter.querySync<{ type: string }>(
+      `SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'product-brief'`,
+      [run.id],
+    )[0]
     expect(artifact).toBeDefined()
 
-    db.close()
+    await adapter.close()
   })
 
   it('analysis phase with --concept-file reads concept from file path (tested via concept param)', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
     const pack = makeMockPack()
 
@@ -725,7 +723,7 @@ describe('Analysis phase integration (AC1, AC7)', () => {
 
     expect(capturedPrompt).toContain(conceptText)
 
-    db.close()
+    await adapter.close()
   })
 
   it('missing concept when --from analysis produces error', async () => {
@@ -761,7 +759,7 @@ describe('Analysis phase integration (AC1, AC7)', () => {
 
 describe('Planning phase integration (AC2)', () => {
   it('runs planning phase after analysis and stores prd artifact', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
     const pack = makeMockPack()
     const dispatcher = makeMockDispatcher({ planning: PLANNING_OUTPUT })
@@ -793,12 +791,13 @@ describe('Planning phase integration (AC2)', () => {
     expect(result.artifact_id).toBeDefined()
 
     // Verify prd artifact was stored
-    const artifact = db
-      .prepare(`SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'prd'`)
-      .get(run.id) as { type: string } | undefined
+    const artifact = adapter.querySync<{ type: string }>(
+      `SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'prd'`,
+      [run.id],
+    )[0]
     expect(artifact).toBeDefined()
 
-    db.close()
+    await adapter.close()
   })
 })
 
@@ -808,7 +807,7 @@ describe('Planning phase integration (AC2)', () => {
 
 describe('Solutioning phase integration', () => {
   it('runs solutioning phase and stores architecture + stories artifacts', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
     const pack = makeMockPack()
     const dispatcher = makeMockDispatcher({
@@ -845,17 +844,19 @@ describe('Solutioning phase integration', () => {
     expect(result.stories).toBeGreaterThan(0)
 
     // Verify both artifacts were stored
-    const archArtifact = db
-      .prepare(`SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'architecture'`)
-      .get(run.id) as { type: string } | undefined
-    const storiesArtifact = db
-      .prepare(`SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'stories'`)
-      .get(run.id) as { type: string } | undefined
+    const archArtifact = adapter.querySync<{ type: string }>(
+      `SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'architecture'`,
+      [run.id],
+    )[0]
+    const storiesArtifact = adapter.querySync<{ type: string }>(
+      `SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'stories'`,
+      [run.id],
+    )[0]
 
     expect(archArtifact).toBeDefined()
     expect(storiesArtifact).toBeDefined()
 
-    db.close()
+    await adapter.close()
   })
 })
 
@@ -865,7 +866,7 @@ describe('Solutioning phase integration', () => {
 
 describe('Full phase sequence with gate checks (AC1, AC6)', () => {
   it('advances through analysis -> planning -> solutioning when gates pass', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     // Register artifacts to simulate completed phases
@@ -898,7 +899,7 @@ describe('Full phase sequence with gate checks (AC1, AC6)', () => {
     expect(advance2.advanced).toBe(true)
     expect(advance2.phase).toBe('solutioning')
 
-    db.close()
+    await adapter.close()
   })
 })
 
@@ -909,7 +910,7 @@ describe('Full phase sequence with gate checks (AC1, AC6)', () => {
 describe('Status command (AC4, AC5)', () => {
   it('AC4: human status format shows phase breakdown', async () => {
     // Test via buildPipelineStatusOutput + formatPipelineStatusHuman
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter, {
       config_json: JSON.stringify({
         concept: 'test',
@@ -930,11 +931,11 @@ describe('Status command (AC4, AC5)', () => {
     expect(humanOutput).toContain('Decisions: 10')
     expect(humanOutput).toContain('Stories: 5')
 
-    db.close()
+    await adapter.close()
   })
 
   it('AC5: JSON status output matches spec schema', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter, {
       config_json: JSON.stringify({
         concept: 'test',
@@ -969,7 +970,7 @@ describe('Status command (AC4, AC5)', () => {
       stories_count: 12,
     })
 
-    db.close()
+    await adapter.close()
   })
 
   it('runAutoStatus human output for phase-level run', async () => {
@@ -1017,7 +1018,7 @@ describe('Status command (AC4, AC5)', () => {
 
 describe('Concept input methods (AC7)', () => {
   it('inline concept text is passed to analysis phase', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
     const pack = makeMockPack()
 
@@ -1053,7 +1054,7 @@ describe('Concept input methods (AC7)', () => {
 
     expect(capturedPrompt).toContain('Build a task management app')
 
-    db.close()
+    await adapter.close()
   })
 
   it('concept-file path content is used (validated via concept param)', () => {
@@ -1070,7 +1071,7 @@ describe('Concept input methods (AC7)', () => {
 
 describe('--from flag phase selection (AC2)', () => {
   it('startRun with implementation phase creates run with implementation as start', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const pack = makeMockPack()
 
     const { createPhaseOrchestrator } = await import('../../../modules/phase-orchestrator/index.js')
@@ -1082,7 +1083,7 @@ describe('--from flag phase selection (AC2)', () => {
     // The run should be at implementation phase
     expect(runStatus.currentPhase).toBe('implementation')
 
-    db.close()
+    await adapter.close()
   })
 
   it('validates phase name correctly', () => {
@@ -1100,7 +1101,7 @@ describe('--from flag phase selection (AC2)', () => {
 
 describe('Token usage tracking', () => {
   it('token usage is recorded after analysis phase', async () => {
-    const { db, adapter } = await createTestDb()
+    const { adapter } = await createTestDb()
     const run = await createTestRun(adapter)
     const pack = makeMockPack()
     const dispatcher = makeMockDispatcher({ analysis: ANALYSIS_OUTPUT })
@@ -1116,6 +1117,6 @@ describe('Token usage tracking', () => {
     expect(result.tokenUsage.input).toBe(500)
     expect(result.tokenUsage.output).toBe(200)
 
-    db.close()
+    await adapter.close()
   })
 })

@@ -18,12 +18,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import {
   createPipelineRun,
@@ -48,12 +46,11 @@ import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
+async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'epic11-integration-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter, tmpDir }
 }
 
 async function createTestRun(adapter: DatabaseAdapter, startPhase = 'analysis'): Promise<string> {
@@ -208,19 +205,17 @@ const STORY_GENERATION_OUTPUT = {
 // ---------------------------------------------------------------------------
 
 describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -331,19 +326,17 @@ describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -485,19 +478,17 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-1)', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -624,19 +615,17 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
 // ---------------------------------------------------------------------------
 
 describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11-4)', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -778,19 +767,17 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
 // ---------------------------------------------------------------------------
 
 describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -858,19 +845,17 @@ describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Gap 6: parseConfigJson used by orchestrator lifecycle (11-1)', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -966,19 +951,17 @@ describe('Gap 6: parseConfigJson used by orchestrator lifecycle (11-1)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1 + 11-5)', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -1100,19 +1083,17 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
 // ---------------------------------------------------------------------------
 
 describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const r = await createTestDb()
-    db = r.db
     adapter = r.adapter
     tmpDir = r.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 

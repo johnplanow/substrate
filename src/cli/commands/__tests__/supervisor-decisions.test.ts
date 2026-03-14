@@ -9,13 +9,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import BetterSqlite3 from 'better-sqlite3'
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { createDecision, getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
-import { createAdapterFromSyncDb } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { OPERATIONAL_FINDING } from '../../../persistence/schemas/operational.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
@@ -47,11 +46,11 @@ vi.mock('../../../utils/git-root.js', () => ({
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function openTestDb() {
-  const db = new BetterSqlite3(':memory:')
+async function openTestDb(): Promise<WasmSqliteDatabaseAdapter> {
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
-  await realInitSchema(createAdapterFromSyncDb(db))
-  return db
+  await realInitSchema(adapter)
+  return adapter
 }
 
 function makeHealthStalled(overrides?: Partial<PipelineHealthOutput>): PipelineHealthOutput {
@@ -78,15 +77,19 @@ function makeHealthStalled(overrides?: Partial<PipelineHealthOutput>): PipelineH
 // ---------------------------------------------------------------------------
 
 describe('AC1: Supervisor writes stall findings to decision store', () => {
-  let db: Awaited<ReturnType<typeof openTestDb>>
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    db = await openTestDb()
+    adapter = await openTestDb()
+  })
+
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('writeStallFindings inserts operational-finding decisions for active stories', async () => {
     // Simulate what defaultSupervisorDeps.writeStallFindings does, but directly
-    const run = await createPipelineRun(createAdapterFromSyncDb(db),{ methodology: 'bmad' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     const storyDetails: Record<string, { phase: string; review_cycles: number }> = {
       '1-1': { phase: 'IN_DEV', review_cycles: 0 },
       '1-2': { phase: 'COMPLETE', review_cycles: 1 },
@@ -100,7 +103,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
     )
 
     for (const [storyKey, storyState] of activeStories) {
-      await createDecision(createAdapterFromSyncDb(db), {
+      await createDecision(adapter, {
         pipeline_run_id: run.id,
         phase: 'supervisor',
         category: OPERATIONAL_FINDING,
@@ -115,7 +118,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
       })
     }
 
-    const decisions = await getDecisionsByCategory(createAdapterFromSyncDb(db),OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(adapter, OPERATIONAL_FINDING)
     // Only active stories should have findings (1-1 and 1-3, not 1-2 which is COMPLETE)
     expect(decisions).toHaveLength(2)
 
@@ -133,8 +136,8 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
   })
 
   it('max-restarts-escalated outcome is persisted correctly', async () => {
-    const run = await createPipelineRun(createAdapterFromSyncDb(db),{ methodology: 'bmad' })
-    await createDecision(createAdapterFromSyncDb(db), {
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await createDecision(adapter, {
       pipeline_run_id: run.id,
       phase: 'supervisor',
       category: OPERATIONAL_FINDING,
@@ -147,7 +150,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
       }),
     })
 
-    const decisions = await getDecisionsByCategory(createAdapterFromSyncDb(db),OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(adapter, OPERATIONAL_FINDING)
     expect(decisions).toHaveLength(1)
     const val = JSON.parse(decisions[0]!.value)
     expect(val.outcome).toBe('max-restarts-escalated')
@@ -229,15 +232,19 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC2: Supervisor run-level summary to decision store', () => {
-  let db: Awaited<ReturnType<typeof openTestDb>>
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    db = await openTestDb()
+    adapter = await openTestDb()
+  })
+
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('writeRunSummary inserts operational-finding decision with correct key and value', async () => {
     // Simulate the writeRunSummary logic directly against in-memory DB
-    const run = await createPipelineRun(createAdapterFromSyncDb(db),{ methodology: 'bmad' })
+    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     const opts = {
       runId: run.id,
       succeeded: ['1-1', '1-2'],
@@ -247,7 +254,7 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
       elapsed_seconds: 450,
     }
 
-    await createDecision(createAdapterFromSyncDb(db), {
+    await createDecision(adapter, {
       pipeline_run_id: opts.runId,
       phase: 'supervisor',
       category: OPERATIONAL_FINDING,
@@ -264,7 +271,7 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
       rationale: `Run summary: ${opts.succeeded.length} succeeded, ${opts.failed.length} failed.`,
     })
 
-    const decisions = await getDecisionsByCategory(createAdapterFromSyncDb(db),OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(adapter, OPERATIONAL_FINDING)
     expect(decisions).toHaveLength(1)
     expect(decisions[0]!.key).toBe(`run-summary:${run.id}`)
     expect(decisions[0]!.category).toBe('operational-finding')
@@ -285,7 +292,7 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
     if (totalStories === 0) {
       // writeRunSummary would return early
     } else {
-      await createDecision(createAdapterFromSyncDb(db), {
+      await createDecision(adapter, {
         pipeline_run_id: 'run-empty',
         phase: 'supervisor',
         category: OPERATIONAL_FINDING,
@@ -294,7 +301,7 @@ describe('AC2: Supervisor run-level summary to decision store', () => {
       })
     }
 
-    const decisions = await getDecisionsByCategory(createAdapterFromSyncDb(db),OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(adapter, OPERATIONAL_FINDING)
     expect(decisions).toHaveLength(0)
   })
 })
@@ -332,29 +339,35 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
   let runId: string
   let stdoutChunks: string[]
   let writeSpy: ReturnType<typeof vi.spyOn>
-  let smokeDb: InstanceType<typeof BetterSqlite3>
+  let smokeAdapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     tempProjectRoot = join(tmpdir(), `substrate-supervisor-smoke-${randomUUID()}`)
     const substrateDir = join(tempProjectRoot, '.substrate')
     mkdirSync(substrateDir, { recursive: true })
 
-    // Create a real seeded DB (in-process, backed by BetterSqlite3 VFS)
+    // Create a placeholder file so that existsSync(dbPath) guard check passes.
     dbPath = join(substrateDir, 'substrate.db')
-    smokeDb = new BetterSqlite3(dbPath)
-    // BetterSqlite3 uses an emscripten VFS inside vitest — the file may not
-    // appear on the real filesystem. Write a placeholder so that the
-    // defaultSupervisorDeps' existsSync(dbPath) guard check passes.
     writeFileSync(dbPath, '')
-    const adapter = createAdapterFromSyncDb(smokeDb)
+
+    smokeAdapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
     const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
-    await realInitSchema(adapter)
-    const run = await createPipelineRun(adapter, { methodology: 'bmad' })
+    await realInitSchema(smokeAdapter)
+    const run = await createPipelineRun(smokeAdapter, { methodology: 'bmad' })
     runId = run.id
 
-    // Inject the adapter so defaultSupervisorDeps closures use this DB
+    // Inject a non-closable proxy so that defaultSupervisorDeps calling close()
+    // does not actually close the underlying WASM database (unlike SyncDatabaseAdapter
+    // which had a no-op close). This preserves the data for post-run assertions.
+    const nonClosableProxy: DatabaseAdapter = {
+      query: (sql, params) => smokeAdapter.query(sql, params),
+      exec: (sql) => smokeAdapter.exec(sql),
+      transaction: (fn) => smokeAdapter.transaction(fn),
+      close: async () => { /* no-op — smokeAdapter is closed in afterEach */ },
+    }
+
     const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
-    dbModule.__setMockAdapter(adapter)
+    dbModule.__setMockAdapter(nonClosableProxy)
 
     stdoutChunks = []
     writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: any) => {
@@ -363,9 +376,9 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
     })
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     writeSpy.mockRestore()
-    try { smokeDb.close() } catch { /* already closed */ }
+    try { await smokeAdapter.close() } catch { /* already closed */ }
     if (existsSync(tempProjectRoot)) {
       rmSync(tempProjectRoot, { recursive: true, force: true })
     }
@@ -427,10 +440,7 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
     )
 
     // Verify the decisions landed in the DB via the injected adapter
-    // (BetterSqlite3 uses an emscripten VFS inside vitest, so opening a
-    // second connection to the same path won't see the data — read from
-    // the same adapter instance that defaultSupervisorDeps wrote through.)
-    const decisions = await getDecisionsByCategory(createAdapterFromSyncDb(smokeDb), OPERATIONAL_FINDING)
+    const decisions = await getDecisionsByCategory(smokeAdapter, OPERATIONAL_FINDING)
 
     // Should have at least one stall finding for story 1-1
     const stallFindings = decisions.filter((d) => d.key.startsWith('stall:'))

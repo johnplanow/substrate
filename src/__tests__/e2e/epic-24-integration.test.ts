@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import type { MethodologyPack } from '../../modules/methodology-pack/types.js'
 import type { ContextCompiler } from '../../modules/context-compiler/context-compiler.js'
 import type {
@@ -102,8 +102,8 @@ const mockRunBuildVerification = vi.mocked(runBuildVerification)
 // Shared factories
 // ---------------------------------------------------------------------------
 
-function makeDb(): BetterSqlite3Database {
-  return {} as BetterSqlite3Database
+function makeDb(): DatabaseAdapter {
+  return {} as unknown as DatabaseAdapter
 }
 
 function makePack(): MethodologyPack {

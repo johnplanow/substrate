@@ -9,8 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../../wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../wasm-sqlite-adapter.js'
 import { initSchema } from '../../schema.js'
 import {
   writeRunMetrics,
@@ -33,22 +32,21 @@ import type { RunMetricsInput, StoryMetricsInput } from '../metrics.js'
 // ---------------------------------------------------------------------------
 
 async function openDb() {
-  const db = new Database(':memory:')
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  await initSchema(new SyncDatabaseAdapter(db))
-  return db
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  await initSchema(adapter)
+  return adapter
 }
 
-function insertPipelineRun(db: InstanceType<typeof Database>, id: string, status = 'completed'): void {
-  db.prepare(
+function insertPipelineRun(adapter: WasmSqliteDatabaseAdapter, id: string, status = 'completed'): void {
+  adapter.querySync(
     `INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
      VALUES (?, 'bmad', ?, NULL, datetime('now'), datetime('now'))`,
-  ).run(id, status)
+    [id, status],
+  )
 }
 
 async function seedRunMetrics(
-  adapter: SyncDatabaseAdapter,
+  adapter: WasmSqliteDatabaseAdapter,
   overrides: Partial<RunMetricsInput> & { run_id: string },
 ): Promise<void> {
   const { run_id, ...rest } = overrides
@@ -66,18 +64,17 @@ async function seedRunMetrics(
 // ---------------------------------------------------------------------------
 
 describe('writeRunMetrics (T9)', () => {
-  let db: InstanceType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    db = await openDb()
+    adapter = await openDb()
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('inserts a row with all required fields', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await seedRunMetrics(adapter, { run_id: 'run-001' })
     const row = await getRunMetrics(adapter, 'run-001')
     expect(row).toBeDefined()
@@ -87,7 +84,6 @@ describe('writeRunMetrics (T9)', () => {
   })
 
   it('stores optional numeric fields with defaults of 0', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await seedRunMetrics(adapter, { run_id: 'run-002' })
     const row = (await getRunMetrics(adapter, 'run-002'))!
     expect(row.total_input_tokens).toBe(0)
@@ -104,7 +100,6 @@ describe('writeRunMetrics (T9)', () => {
   })
 
   it('stores all provided optional fields correctly', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await seedRunMetrics(adapter, {
       run_id: 'run-003',
       total_input_tokens: 1000,
@@ -140,7 +135,6 @@ describe('writeRunMetrics (T9)', () => {
   })
 
   it('upserts (INSERT OR REPLACE) on duplicate run_id', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await seedRunMetrics(adapter, { run_id: 'run-004', total_input_tokens: 100 })
     await seedRunMetrics(adapter, { run_id: 'run-004', total_input_tokens: 200 })
     const row = (await getRunMetrics(adapter, 'run-004'))!
@@ -148,25 +142,23 @@ describe('writeRunMetrics (T9)', () => {
   })
 
   it('returns undefined for an unknown run_id', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const row = await getRunMetrics(adapter, 'nonexistent')
     expect(row).toBeUndefined()
   })
 })
 
 describe('writeStoryMetrics (T9)', () => {
-  let db: InstanceType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    db = await openDb()
+    adapter = await openDb()
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('inserts a story metrics row', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const input: StoryMetricsInput = {
       run_id: 'run-s1',
       story_key: '17-1',
@@ -191,7 +183,6 @@ describe('writeStoryMetrics (T9)', () => {
   })
 
   it('upserts on duplicate run_id + story_key', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const base: StoryMetricsInput = { run_id: 'run-s2', story_key: '17-1', result: 'failed' }
     await writeStoryMetrics(adapter, base)
     await writeStoryMetrics(adapter, { ...base, result: 'success', input_tokens: 999 })
@@ -202,7 +193,6 @@ describe('writeStoryMetrics (T9)', () => {
   })
 
   it('stores phase_durations_json as a JSON string', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const durations = { 'create-story': 30, 'dev-story': 90 }
     await writeStoryMetrics(adapter, {
       run_id: 'run-s3',
@@ -215,12 +205,10 @@ describe('writeStoryMetrics (T9)', () => {
   })
 
   it('returns empty array for run with no story metrics', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     expect(await getStoryMetricsForRun(adapter, 'no-such-run')).toHaveLength(0)
   })
 
   it('returns all stories for a run in insertion order', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await writeStoryMetrics(adapter, { run_id: 'run-s4', story_key: 'A', result: 'success' })
     await writeStoryMetrics(adapter, { run_id: 'run-s4', story_key: 'B', result: 'failed' })
     await writeStoryMetrics(adapter, { run_id: 'run-s4', story_key: 'C', result: 'escalated' })
@@ -231,18 +219,17 @@ describe('writeStoryMetrics (T9)', () => {
 })
 
 describe('aggregateTokenUsageForRun (T9)', () => {
-  let db: InstanceType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    db = await openDb()
+    adapter = await openDb()
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns zeros when no token_usage rows exist for the run', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const agg = await aggregateTokenUsageForRun(adapter, 'run-tok-empty')
     expect(agg.input).toBe(0)
     expect(agg.output).toBe(0)
@@ -250,17 +237,18 @@ describe('aggregateTokenUsageForRun (T9)', () => {
   })
 
   it('aggregates token rows for a specific pipeline run', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     // Insert a pipeline_run and token_usage rows directly
-    insertPipelineRun(db, 'run-tok-1')
-    db.prepare(
+    insertPipelineRun(adapter, 'run-tok-1')
+    adapter.querySync(
       `INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run('run-tok-1', 'dev-story', 'claude', 100, 50, 0.005)
-    db.prepare(
+      ['run-tok-1', 'dev-story', 'claude', 100, 50, 0.005],
+    )
+    adapter.querySync(
       `INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run('run-tok-1', 'code-review', 'claude', 200, 100, 0.010)
+      ['run-tok-1', 'code-review', 'claude', 200, 100, 0.010],
+    )
 
     const agg = await aggregateTokenUsageForRun(adapter, 'run-tok-1')
     expect(agg.input).toBe(300)
@@ -269,13 +257,13 @@ describe('aggregateTokenUsageForRun (T9)', () => {
   })
 
   it('does not aggregate rows from a different run', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    insertPipelineRun(db, 'run-tok-2a')
-    insertPipelineRun(db, 'run-tok-2b')
-    db.prepare(
+    insertPipelineRun(adapter, 'run-tok-2a')
+    insertPipelineRun(adapter, 'run-tok-2b')
+    adapter.querySync(
       `INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run('run-tok-2a', 'dev-story', 'claude', 999, 888, 0.099)
+      ['run-tok-2a', 'dev-story', 'claude', 999, 888, 0.099],
+    )
 
     const agg = await aggregateTokenUsageForRun(adapter, 'run-tok-2b')
     expect(agg.input).toBe(0)
@@ -287,23 +275,21 @@ describe('aggregateTokenUsageForRun (T9)', () => {
 // ---------------------------------------------------------------------------
 
 describe('listRunMetrics (T10)', () => {
-  let db: InstanceType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    db = await openDb()
-    const adapter = new SyncDatabaseAdapter(db)
+    adapter = await openDb()
     // Seed three runs with distinct started_at values
     await seedRunMetrics(adapter, { run_id: 'run-L1', started_at: '2026-01-01T00:00:00.000Z' })
     await seedRunMetrics(adapter, { run_id: 'run-L2', started_at: '2026-01-02T00:00:00.000Z' })
     await seedRunMetrics(adapter, { run_id: 'run-L3', started_at: '2026-01-03T00:00:00.000Z' })
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns rows newest first', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const rows = await listRunMetrics(adapter)
     expect(rows[0].run_id).toBe('run-L3')
     expect(rows[1].run_id).toBe('run-L2')
@@ -311,7 +297,6 @@ describe('listRunMetrics (T10)', () => {
   })
 
   it('respects the limit parameter', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const rows = await listRunMetrics(adapter, 2)
     expect(rows).toHaveLength(2)
     expect(rows[0].run_id).toBe('run-L3')
@@ -319,15 +304,13 @@ describe('listRunMetrics (T10)', () => {
   })
 
   it('returns empty array when no rows exist', async () => {
-    const emptyDb = await openDb()
-    const emptyAdapter = new SyncDatabaseAdapter(emptyDb)
+    const emptyAdapter = await openDb()
     expect(await listRunMetrics(emptyAdapter)).toHaveLength(0)
-    emptyDb.close()
+    await emptyAdapter.close()
   })
 
   it('defaults to limit 10', async () => {
-    const db2 = await openDb()
-    const adapter2 = new SyncDatabaseAdapter(db2)
+    const adapter2 = await openDb()
     for (let i = 1; i <= 12; i++) {
       await seedRunMetrics(adapter2, {
         run_id: `bulk-run-${i}`,
@@ -336,31 +319,28 @@ describe('listRunMetrics (T10)', () => {
     }
     const rows = await listRunMetrics(adapter2)
     expect(rows).toHaveLength(10)
-    db2.close()
+    await adapter2.close()
   })
 })
 
 describe('tagRunAsBaseline / getBaselineRunMetrics (T10)', () => {
-  let db: InstanceType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    db = await openDb()
-    const adapter = new SyncDatabaseAdapter(db)
+    adapter = await openDb()
     await seedRunMetrics(adapter, { run_id: 'run-B1' })
     await seedRunMetrics(adapter, { run_id: 'run-B2' })
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns undefined when no baseline is set', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     expect(await getBaselineRunMetrics(adapter)).toBeUndefined()
   })
 
   it('marks a run as baseline and returns it', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await tagRunAsBaseline(adapter, 'run-B1')
     const baseline = await getBaselineRunMetrics(adapter)
     expect(baseline).toBeDefined()
@@ -369,7 +349,6 @@ describe('tagRunAsBaseline / getBaselineRunMetrics (T10)', () => {
   })
 
   it('clears previous baseline when a new one is set', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await tagRunAsBaseline(adapter, 'run-B1')
     await tagRunAsBaseline(adapter, 'run-B2')
     const baseline = await getBaselineRunMetrics(adapter)
@@ -381,7 +360,6 @@ describe('tagRunAsBaseline / getBaselineRunMetrics (T10)', () => {
   })
 
   it('updates is_baseline field on getRunMetrics after tagging', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await tagRunAsBaseline(adapter, 'run-B1')
     expect((await getRunMetrics(adapter, 'run-B1'))!.is_baseline).toBe(1)
     await tagRunAsBaseline(adapter, 'run-B2')
@@ -391,11 +369,10 @@ describe('tagRunAsBaseline / getBaselineRunMetrics (T10)', () => {
 })
 
 describe('compareRunMetrics (T10)', () => {
-  let db: InstanceType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    db = await openDb()
-    const adapter = new SyncDatabaseAdapter(db)
+    adapter = await openDb()
     await seedRunMetrics(adapter, {
       run_id: 'run-C1',
       total_input_tokens: 1000,
@@ -414,22 +391,19 @@ describe('compareRunMetrics (T10)', () => {
     })
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns null when run A does not exist', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     expect(await compareRunMetrics(adapter, 'ghost', 'run-C2')).toBeNull()
   })
 
   it('returns null when run B does not exist', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     expect(await compareRunMetrics(adapter, 'run-C1', 'ghost')).toBeNull()
   })
 
   it('computes correct token deltas (positive when B > A)', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const delta = (await compareRunMetrics(adapter, 'run-C1', 'run-C2'))!
     expect(delta).not.toBeNull()
     expect(delta.token_input_delta).toBe(200)
@@ -437,7 +411,6 @@ describe('compareRunMetrics (T10)', () => {
   })
 
   it('computes correct token percentage deltas', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const delta = (await compareRunMetrics(adapter, 'run-C1', 'run-C2'))!
     // 200 / 1000 = 20%
     expect(delta.token_input_pct).toBeCloseTo(20)
@@ -446,7 +419,6 @@ describe('compareRunMetrics (T10)', () => {
   })
 
   it('computes correct wall clock delta', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const delta = (await compareRunMetrics(adapter, 'run-C1', 'run-C2'))!
     expect(delta.wall_clock_delta_seconds).toBeCloseTo(50)
     // 50 / 200 = 25%
@@ -454,7 +426,6 @@ describe('compareRunMetrics (T10)', () => {
   })
 
   it('computes correct review cycle delta', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const delta = (await compareRunMetrics(adapter, 'run-C1', 'run-C2'))!
     expect(delta.review_cycles_delta).toBe(2)
     // 2 / 4 = 50%
@@ -462,7 +433,6 @@ describe('compareRunMetrics (T10)', () => {
   })
 
   it('computes correct cost delta', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const delta = (await compareRunMetrics(adapter, 'run-C1', 'run-C2'))!
     expect(delta.cost_delta).toBeCloseTo(0.01)
     // 0.01 / 0.02 = 50%
@@ -470,7 +440,6 @@ describe('compareRunMetrics (T10)', () => {
   })
 
   it('returns negative deltas when B < A', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     // Swap A and B
     const delta = (await compareRunMetrics(adapter, 'run-C2', 'run-C1'))!
     expect(delta.token_input_delta).toBe(-200)
@@ -478,7 +447,6 @@ describe('compareRunMetrics (T10)', () => {
   })
 
   it('returns null pct fields when base values are zero (undefined/infinite change)', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await seedRunMetrics(adapter, {
       run_id: 'run-zero',
       total_input_tokens: 0,
@@ -492,7 +460,6 @@ describe('compareRunMetrics (T10)', () => {
   })
 
   it('populates run_id_a and run_id_b correctly', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const delta = (await compareRunMetrics(adapter, 'run-C1', 'run-C2'))!
     expect(delta.run_id_a).toBe('run-C1')
     expect(delta.run_id_b).toBe('run-C2')
@@ -500,11 +467,10 @@ describe('compareRunMetrics (T10)', () => {
 })
 
 describe('getRunSummaryForSupervisor (T10 / AC5)', () => {
-  let db: InstanceType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    db = await openDb()
-    const adapter = new SyncDatabaseAdapter(db)
+    adapter = await openDb()
     await seedRunMetrics(adapter, {
       run_id: 'run-sup-1',
       total_input_tokens: 1000,
@@ -515,17 +481,15 @@ describe('getRunSummaryForSupervisor (T10 / AC5)', () => {
     await writeStoryMetrics(adapter, { run_id: 'run-sup-1', story_key: '17-2', result: 'failed' })
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns null for an unknown run', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     expect(await getRunSummaryForSupervisor(adapter, 'no-such-run')).toBeNull()
   })
 
   it('returns the run row and story rows', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const summary = (await getRunSummaryForSupervisor(adapter, 'run-sup-1'))!
     expect(summary).not.toBeNull()
     expect(summary.run.run_id).toBe('run-sup-1')
@@ -534,7 +498,6 @@ describe('getRunSummaryForSupervisor (T10 / AC5)', () => {
   })
 
   it('returns undefined baseline when none is set', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const summary = (await getRunSummaryForSupervisor(adapter, 'run-sup-1'))!
     expect(summary.baseline).toBeUndefined()
     expect(summary.token_vs_baseline_pct).toBeNull()
@@ -542,7 +505,6 @@ describe('getRunSummaryForSupervisor (T10 / AC5)', () => {
   })
 
   it('computes token_vs_baseline_pct when baseline exists', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     // Seed baseline run with known token counts
     await seedRunMetrics(adapter, {
       run_id: 'run-baseline',
@@ -560,7 +522,6 @@ describe('getRunSummaryForSupervisor (T10 / AC5)', () => {
   })
 
   it('computes review_cycles_vs_baseline_pct correctly', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await seedRunMetrics(adapter, {
       run_id: 'run-baseline2',
       total_input_tokens: 1000,
@@ -575,7 +536,6 @@ describe('getRunSummaryForSupervisor (T10 / AC5)', () => {
   })
 
   it('returns null deltas when the run IS the baseline', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await tagRunAsBaseline(adapter, 'run-sup-1')
     const summary = (await getRunSummaryForSupervisor(adapter, 'run-sup-1'))!
     // When the queried run is the baseline, skip delta calculation
@@ -589,18 +549,18 @@ describe('getRunSummaryForSupervisor (T10 / AC5)', () => {
 // ---------------------------------------------------------------------------
 
 describe('aggregateTokenUsageForStory', () => {
-  let db: InstanceType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    db = await openDb()
+    adapter = await openDb()
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   function insertTokenUsageWithMetadata(
-    db: InstanceType<typeof Database>,
+    adapter: WasmSqliteDatabaseAdapter,
     runId: string,
     phase: string,
     input: number,
@@ -608,15 +568,15 @@ describe('aggregateTokenUsageForStory', () => {
     cost: number,
     metadata: string | null,
   ): void {
-    db.prepare(
+    adapter.querySync(
       `INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd, metadata)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(runId, phase, 'claude', input, output, cost, metadata)
+      [runId, phase, 'claude', input, output, cost, metadata],
+    )
   }
 
   it('returns zeros when no token_usage rows exist for the run', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    insertPipelineRun(db, 'run-story-empty')
+    insertPipelineRun(adapter, 'run-story-empty')
     const agg = await aggregateTokenUsageForStory(adapter, 'run-story-empty', '17-1')
     expect(agg.input).toBe(0)
     expect(agg.output).toBe(0)
@@ -624,10 +584,9 @@ describe('aggregateTokenUsageForStory', () => {
   })
 
   it('returns zeros when no rows match the given storyKey', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    insertPipelineRun(db, 'run-story-nomatch')
+    insertPipelineRun(adapter, 'run-story-nomatch')
     insertTokenUsageWithMetadata(
-      db, 'run-story-nomatch', 'dev-story', 100, 50, 0.005,
+      adapter, 'run-story-nomatch', 'dev-story', 100, 50, 0.005,
       JSON.stringify({ storyKey: '17-2' }),
     )
     const agg = await aggregateTokenUsageForStory(adapter, 'run-story-nomatch', '17-1')
@@ -637,10 +596,9 @@ describe('aggregateTokenUsageForStory', () => {
   })
 
   it('returns zeros when metadata is NULL', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    insertPipelineRun(db, 'run-story-null-meta')
+    insertPipelineRun(adapter, 'run-story-null-meta')
     insertTokenUsageWithMetadata(
-      db, 'run-story-null-meta', 'dev-story', 100, 50, 0.005, null,
+      adapter, 'run-story-null-meta', 'dev-story', 100, 50, 0.005, null,
     )
     const agg = await aggregateTokenUsageForStory(adapter, 'run-story-null-meta', '17-1')
     expect(agg.input).toBe(0)
@@ -649,20 +607,19 @@ describe('aggregateTokenUsageForStory', () => {
   })
 
   it('aggregates only rows matching the given storyKey', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    insertPipelineRun(db, 'run-story-match')
+    insertPipelineRun(adapter, 'run-story-match')
     // Matching rows for story 17-1
     insertTokenUsageWithMetadata(
-      db, 'run-story-match', 'dev-story', 100, 50, 0.005,
+      adapter, 'run-story-match', 'dev-story', 100, 50, 0.005,
       JSON.stringify({ storyKey: '17-1' }),
     )
     insertTokenUsageWithMetadata(
-      db, 'run-story-match', 'code-review', 200, 80, 0.010,
+      adapter, 'run-story-match', 'code-review', 200, 80, 0.010,
       JSON.stringify({ storyKey: '17-1' }),
     )
     // Non-matching row for story 17-2
     insertTokenUsageWithMetadata(
-      db, 'run-story-match', 'dev-story', 999, 999, 0.999,
+      adapter, 'run-story-match', 'dev-story', 999, 999, 0.999,
       JSON.stringify({ storyKey: '17-2' }),
     )
     const agg = await aggregateTokenUsageForStory(adapter, 'run-story-match', '17-1')
@@ -672,11 +629,10 @@ describe('aggregateTokenUsageForStory', () => {
   })
 
   it('does not aggregate rows from a different run', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
-    insertPipelineRun(db, 'run-story-other-run-a')
-    insertPipelineRun(db, 'run-story-other-run-b')
+    insertPipelineRun(adapter, 'run-story-other-run-a')
+    insertPipelineRun(adapter, 'run-story-other-run-b')
     insertTokenUsageWithMetadata(
-      db, 'run-story-other-run-a', 'dev-story', 500, 200, 0.02,
+      adapter, 'run-story-other-run-a', 'dev-story', 500, 200, 0.02,
       JSON.stringify({ storyKey: '17-1' }),
     )
     const agg = await aggregateTokenUsageForStory(adapter, 'run-story-other-run-b', '17-1')
@@ -689,25 +645,23 @@ describe('aggregateTokenUsageForStory', () => {
 // ---------------------------------------------------------------------------
 
 describe('incrementRunRestarts', () => {
-  let db: InstanceType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    db = await openDb()
+    adapter = await openDb()
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('increments restarts from 0 to 1 on first call', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await seedRunMetrics(adapter, { run_id: 'run-restart-1', restarts: 0 })
     await incrementRunRestarts(adapter, 'run-restart-1')
     expect((await getRunMetrics(adapter, 'run-restart-1'))!.restarts).toBe(1)
   })
 
   it('increments restarts multiple times correctly', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await seedRunMetrics(adapter, { run_id: 'run-restart-2', restarts: 0 })
     await incrementRunRestarts(adapter, 'run-restart-2')
     await incrementRunRestarts(adapter, 'run-restart-2')
@@ -716,13 +670,11 @@ describe('incrementRunRestarts', () => {
   })
 
   it('does not throw when the run_id does not yet exist', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     // Should not throw — inserts a placeholder row so the count is preserved
     await expect(incrementRunRestarts(adapter, 'nonexistent-run')).resolves.not.toThrow()
   })
 
   it('preserves restart count when writeRunMetrics is called after incrementRunRestarts on nonexistent row', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     // Simulates the real pipeline sequence: supervisor restarts before
     // writeRunMetrics has ever been called for a run_id.
     await incrementRunRestarts(adapter, 'run-restart-preexist')
@@ -738,7 +690,6 @@ describe('incrementRunRestarts', () => {
   })
 
   it('does not affect other runs', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await seedRunMetrics(adapter, { run_id: 'run-restart-3a', restarts: 0 })
     await seedRunMetrics(adapter, { run_id: 'run-restart-3b', restarts: 0 })
     await incrementRunRestarts(adapter, 'run-restart-3a')

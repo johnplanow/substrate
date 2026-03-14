@@ -1,20 +1,19 @@
 /**
  * Contract test suite for DatabaseAdapter implementations.
  *
- * All three adapters (Sqlite, Dolt-mocked, InMemory) are tested against the
+ * All three adapters (WasmSqlite, Dolt-mocked, InMemory) are tested against the
  * same interface expectations: basic query, parameterised query, exec DDL,
  * transaction commit, transaction rollback, and close.
  *
- * SqliteDatabaseAdapter: tested against a real better-sqlite3 in-memory DB.
+ * WasmSqliteDatabaseAdapter: tested against a real sql.js in-memory DB.
  * DoltDatabaseAdapter:   tested with a mocked DoltClient (verifies delegation).
  * InMemoryDatabaseAdapter: tested directly (verifies behaviour).
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
 
 import type { DatabaseAdapter } from '../adapter.js'
-import { SyncDatabaseAdapter } from '../wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../wasm-sqlite-adapter.js'
 import { DoltDatabaseAdapter } from '../dolt-adapter.js'
 import { InMemoryDatabaseAdapter } from '../memory-adapter.js'
 import type { DoltClient } from '../../modules/state/dolt-client.js'
@@ -22,14 +21,6 @@ import type { DoltClient } from '../../modules/state/dolt-client.js'
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Open an in-memory SQLite database ready for testing. */
-function openSqliteDb() {
-  const db = new Database(':memory:')
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  return db
-}
 
 /** Build a mocked DoltClient object suitable for DoltDatabaseAdapter tests. */
 function makeMockedDoltClient() {
@@ -40,36 +31,34 @@ function makeMockedDoltClient() {
 }
 
 // ---------------------------------------------------------------------------
-// CREATE TABLE DDL used by SqliteDatabaseAdapter and InMemoryDatabaseAdapter
+// CREATE TABLE DDL used by WasmSqliteDatabaseAdapter and InMemoryDatabaseAdapter
 // ---------------------------------------------------------------------------
 
 const CREATE_TABLE_SQL =
   'CREATE TABLE IF NOT EXISTS contract_items (id INTEGER, name TEXT, score REAL)'
 
 // ---------------------------------------------------------------------------
-// SqliteDatabaseAdapter contract tests
+// WasmSqliteDatabaseAdapter contract tests
 // ---------------------------------------------------------------------------
 
-describe('SyncDatabaseAdapter contract', () => {
-  let rawDb: ReturnType<typeof openSqliteDb>
-  let adapter: DatabaseAdapter
+describe('WasmSqliteDatabaseAdapter contract', () => {
+  let adapter: WasmSqliteDatabaseAdapter
 
-  beforeEach(() => {
-    rawDb = openSqliteDb()
-    adapter = new SyncDatabaseAdapter(rawDb)
-    rawDb.exec(CREATE_TABLE_SQL)
+  beforeEach(async () => {
+    adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+    adapter.execSync(CREATE_TABLE_SQL)
   })
 
   afterEach(async () => {
     try {
-      rawDb.close()
+      await adapter.close()
     } catch {
       // Already closed
     }
   })
 
   it('query — returns rows from a SELECT', async () => {
-    rawDb.exec("INSERT INTO contract_items (id, name, score) VALUES (1, 'Alice', 9.5)")
+    adapter.execSync("INSERT INTO contract_items (id, name, score) VALUES (1, 'Alice', 9.5)")
     const rows = await adapter.query<{ id: number; name: string; score: number }>(
       'SELECT * FROM contract_items',
     )
@@ -78,8 +67,8 @@ describe('SyncDatabaseAdapter contract', () => {
   })
 
   it('query — accepts parameterised queries', async () => {
-    rawDb.exec("INSERT INTO contract_items (id, name, score) VALUES (2, 'Bob', 7.0)")
-    rawDb.exec("INSERT INTO contract_items (id, name, score) VALUES (3, 'Carol', 8.0)")
+    adapter.execSync("INSERT INTO contract_items (id, name, score) VALUES (2, 'Bob', 7.0)")
+    adapter.execSync("INSERT INTO contract_items (id, name, score) VALUES (3, 'Carol', 8.0)")
 
     const rows = await adapter.query<{ id: number; name: string }>(
       'SELECT id, name FROM contract_items WHERE id = ?',
@@ -97,9 +86,9 @@ describe('SyncDatabaseAdapter contract', () => {
   it('exec — executes DDL without error', async () => {
     await expect(adapter.exec('CREATE TABLE IF NOT EXISTS tmp_test (x INTEGER)')).resolves.toBeUndefined()
     // Verify table exists
-    const rows = rawDb
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tmp_test'")
-      .all()
+    const rows = adapter.querySync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='tmp_test'",
+    )
     expect(rows).toHaveLength(1)
   })
 
@@ -107,7 +96,7 @@ describe('SyncDatabaseAdapter contract', () => {
     await expect(
       adapter.exec("INSERT INTO contract_items (id, name, score) VALUES (10, 'Dan', 6.0)"),
     ).resolves.toBeUndefined()
-    const count = (rawDb.prepare('SELECT COUNT(*) AS n FROM contract_items').get() as { n: number }).n
+    const count = adapter.querySync<{ n: number }>('SELECT COUNT(*) AS n FROM contract_items')[0]!.n
     expect(count).toBe(1)
   })
 
@@ -119,7 +108,7 @@ describe('SyncDatabaseAdapter contract', () => {
     })
 
     expect(result).toBe(20)
-    const count = (rawDb.prepare('SELECT COUNT(*) AS n FROM contract_items WHERE id = 20').get() as { n: number }).n
+    const count = adapter.querySync<{ n: number }>('SELECT COUNT(*) AS n FROM contract_items WHERE id = 20')[0]!.n
     expect(count).toBe(1)
   })
 
@@ -131,7 +120,7 @@ describe('SyncDatabaseAdapter contract', () => {
       }),
     ).rejects.toThrow('intentional rollback')
 
-    const count = (rawDb.prepare('SELECT COUNT(*) AS n FROM contract_items WHERE id = 30').get() as { n: number }).n
+    const count = adapter.querySync<{ n: number }>('SELECT COUNT(*) AS n FROM contract_items WHERE id = 30')[0]!.n
     expect(count).toBe(0)
   })
 

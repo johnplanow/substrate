@@ -12,12 +12,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
@@ -35,12 +33,11 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
+async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'compat-test-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter, tmpDir }
 }
 
 /**
@@ -180,23 +177,22 @@ async function writeSingleDispatchStories(adapter: DatabaseAdapter, runId: strin
 // ---------------------------------------------------------------------------
 
 describe('AC7: Database schema backward compatibility', () => {
-  let db: BetterSqlite3Database
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
+    adapter = setup.adapter
     tmpDir = setup.tmpDir
   })
-  // Note: this block only uses raw db.prepare() for PRAGMA — no adapter needed
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('decisions table has all expected columns', () => {
-    const columns = db.prepare('PRAGMA table_info(decisions)').all() as { name: string }[]
+    const columns = adapter.querySync<{ name: string }>('PRAGMA table_info(decisions)')
     const names = columns.map((c) => c.name)
 
     expect(names).toContain('id')
@@ -211,7 +207,7 @@ describe('AC7: Database schema backward compatibility', () => {
   })
 
   it('artifacts table has all expected columns', () => {
-    const columns = db.prepare('PRAGMA table_info(artifacts)').all() as { name: string }[]
+    const columns = adapter.querySync<{ name: string }>('PRAGMA table_info(artifacts)')
     const names = columns.map((c) => c.name)
 
     expect(names).toContain('id')
@@ -225,7 +221,7 @@ describe('AC7: Database schema backward compatibility', () => {
   })
 
   it('pipeline_runs table has all expected columns', () => {
-    const columns = db.prepare('PRAGMA table_info(pipeline_runs)').all() as { name: string }[]
+    const columns = adapter.querySync<{ name: string }>('PRAGMA table_info(pipeline_runs)')
     const names = columns.map((c) => c.name)
 
     expect(names).toContain('id')
@@ -239,9 +235,9 @@ describe('AC7: Database schema backward compatibility', () => {
   })
 
   it('decisions table has required indexes', () => {
-    const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decisions'")
-      .all() as { name: string }[]
+    const indexes = adapter.querySync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decisions'",
+    )
     const names = indexes.map((i) => i.name)
 
     expect(names).toContain('idx_decisions_phase')
@@ -249,16 +245,15 @@ describe('AC7: Database schema backward compatibility', () => {
   })
 
   it('artifacts table has required index', () => {
-    const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='artifacts'")
-      .all() as { name: string }[]
+    const indexes = adapter.querySync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='artifacts'",
+    )
     const names = indexes.map((i) => i.name)
 
     expect(names).toContain('idx_artifacts_phase')
   })
 
   it('schema migration is idempotent (safe to run multiple times)', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await expect(initSchema(adapter)).resolves.not.toThrow()
     await expect(initSchema(adapter)).resolves.not.toThrow()
   })
@@ -269,14 +264,12 @@ describe('AC7: Database schema backward compatibility', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC7: Single-dispatch decisions readable by multi-step query functions', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
     const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
@@ -288,8 +281,8 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
     await writeSingleDispatchStories(adapter, runId)
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -408,19 +401,17 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
 // ---------------------------------------------------------------------------
 
 describe('AC7: auto status output schema unchanged', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
     tmpDir = setup.tmpDir
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -482,14 +473,16 @@ describe('AC7: auto status output schema unchanged', () => {
     await writeSingleDispatchStories(adapter, run.id)
 
     // Query counts the same way auto status does
-    const allDecisions = db
-      .prepare('SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?')
-      .get(run.id) as { cnt: number }
-    const storyCount = db
-      .prepare(
-        "SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND category = 'stories'",
-      )
-      .get(run.id) as { cnt: number }
+    const allDecisionsRows = adapter.querySync<{ cnt: number }>(
+      'SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?',
+      [run.id],
+    )
+    const storyCountRows = adapter.querySync<{ cnt: number }>(
+      "SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND category = 'stories'",
+      [run.id],
+    )
+    const allDecisions = allDecisionsRows[0]!
+    const storyCount = storyCountRows[0]!
 
     // 5 analysis decisions + 3 arch + 1 epic + 2 stories = 11 total
     expect(allDecisions.cnt).toBe(11)

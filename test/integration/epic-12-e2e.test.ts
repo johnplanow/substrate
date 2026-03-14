@@ -10,8 +10,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { randomUUID } from 'crypto'
 import { Command } from 'commander'
 
@@ -39,39 +37,35 @@ import {
   VALID_PHASES,
 } from '../../src/modules/stop-after/index.js'
 import { registerBrainstormCommand } from '../../src/cli/commands/brainstorm.js'
-import { SyncDatabaseAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../src/persistence/schema.js'
-import type { DatabaseAdapter } from '../../src/persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function openMigratedDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
-  const db = new Database(':memory:')
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  const adapter = new SyncDatabaseAdapter(db)
+async function openMigratedDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return { db, adapter }
+  return { adapter }
 }
 
 /** Insert a pipeline_run using a real UUID for id, for Zod schema compatibility. */
 function insertRun(
-  db: BetterSqlite3Database,
+  adapter: WasmSqliteDatabaseAdapter,
   id: string,
   status: string = 'completed',
   parentRunId: string | null = null,
 ): void {
-  db.prepare(`
+  adapter.querySync(`
     INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
     VALUES (?, 'bmad', ?, ?, datetime('now'), datetime('now'))
-  `).run(id, status, parentRunId)
+  `, [id, status, parentRunId])
 }
 
 /** Insert a decision using real UUIDs for id and runId, for Zod schema compatibility. */
 function insertDecision(
-  db: BetterSqlite3Database,
+  adapter: WasmSqliteDatabaseAdapter,
   id: string,
   runId: string,
   overrides: {
@@ -92,10 +86,10 @@ function insertDecision(
     supersededBy = null,
   } = overrides
 
-  db.prepare(`
+  adapter.querySync(`
     INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, rationale, superseded_by, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-  `).run(id, runId, phase, category, key, value, rationale, supersededBy)
+  `, [id, runId, phase, category, key, value, rationale, supersededBy])
 }
 
 // ---------------------------------------------------------------------------
@@ -103,17 +97,15 @@ function insertDecision(
 // ---------------------------------------------------------------------------
 
 describe('Data Layer Integration: Migration 008 + Zod schemas + amendment queries', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('PipelineRunStatusEnum accepts "stopped" — value added in Migration 008', () => {
@@ -129,12 +121,10 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
   it('PipelineRunSchema validates a row with parent_run_id (Migration 008 column)', () => {
     const parentId = randomUUID()
     const amendId = randomUUID()
-    insertRun(db, parentId, 'completed')
-    insertRun(db, amendId, 'running', parentId)
+    insertRun(adapter,parentId, 'completed')
+    insertRun(adapter,amendId, 'running', parentId)
 
-    const row = db
-      .prepare('SELECT * FROM pipeline_runs WHERE id = ?')
-      .get(amendId) as Record<string, unknown>
+    const row = adapter.querySync<Record<string, unknown>>('SELECT * FROM pipeline_runs WHERE id = ?', [amendId])[0]
 
     const result = PipelineRunSchema.safeParse(row)
     expect(result.success).toBe(true)
@@ -145,11 +135,9 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
 
   it('PipelineRunSchema validates a row with status="stopped"', () => {
     const runId = randomUUID()
-    insertRun(db, runId, 'stopped')
+    insertRun(adapter,runId, 'stopped')
 
-    const row = db
-      .prepare('SELECT * FROM pipeline_runs WHERE id = ?')
-      .get(runId) as Record<string, unknown>
+    const row = adapter.querySync<Record<string, unknown>>('SELECT * FROM pipeline_runs WHERE id = ?', [runId])[0]
 
     const result = PipelineRunSchema.safeParse(row)
     expect(result.success).toBe(true)
@@ -162,14 +150,12 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
     const runId = randomUUID()
     const decOrigId = randomUUID()
     const decNewId = randomUUID()
-    insertRun(db, runId, 'completed')
-    insertDecision(db, decOrigId, runId, { key: 'k-orig' })
-    insertDecision(db, decNewId, runId, { key: 'k-new' })
+    insertRun(adapter,runId, 'completed')
+    insertDecision(adapter,decOrigId, runId, { key: 'k-orig' })
+    insertDecision(adapter,decNewId, runId, { key: 'k-new' })
     await supersedeDecision(adapter, decOrigId, decNewId)
 
-    const row = db
-      .prepare('SELECT * FROM decisions WHERE id = ?')
-      .get(decOrigId) as Record<string, unknown>
+    const row = adapter.querySync<Record<string, unknown>>('SELECT * FROM decisions WHERE id = ?', [decOrigId])[0]
 
     const result = DecisionSchema.safeParse(row)
     expect(result.success).toBe(true)
@@ -181,12 +167,10 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
   it('DecisionSchema validates a row with superseded_by = NULL', () => {
     const runId = randomUUID()
     const decId = randomUUID()
-    insertRun(db, runId, 'completed')
-    insertDecision(db, decId, runId, { key: 'k-active' })
+    insertRun(adapter,runId, 'completed')
+    insertDecision(adapter,decId, runId, { key: 'k-active' })
 
-    const row = db
-      .prepare('SELECT * FROM decisions WHERE id = ?')
-      .get(decId) as Record<string, unknown>
+    const row = adapter.querySync<Record<string, unknown>>('SELECT * FROM decisions WHERE id = ?', [decId])[0]
 
     const result = DecisionSchema.safeParse(row)
     expect(result.success).toBe(true)
@@ -198,16 +182,14 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
   it('createAmendmentRun creates a row that passes PipelineRunSchema validation', async () => {
     const parentId = randomUUID()
     const newId = randomUUID()
-    insertRun(db, parentId, 'completed')
+    insertRun(adapter,parentId, 'completed')
     const returnedId = await createAmendmentRun(adapter, {
       id: newId,
       parentRunId: parentId,
       methodology: 'bmad',
     })
 
-    const row = db
-      .prepare('SELECT * FROM pipeline_runs WHERE id = ?')
-      .get(returnedId) as Record<string, unknown>
+    const row = adapter.querySync<Record<string, unknown>>('SELECT * FROM pipeline_runs WHERE id = ?', [returnedId])[0]
 
     const result = PipelineRunSchema.safeParse(row)
     expect(result.success).toBe(true)
@@ -223,11 +205,11 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
     const d2 = randomUUID()
     const d3 = randomUUID()
     const d4 = randomUUID()
-    insertRun(db, runId, 'running')
-    insertDecision(db, d1, runId, { phase: 'analysis', key: 'k1', value: 'v1' })
-    insertDecision(db, d2, runId, { phase: 'planning', key: 'k2', value: 'v2' })
-    insertDecision(db, d3, runId, { phase: 'analysis', key: 'k3', value: 'v3' })
-    insertDecision(db, d4, runId, { phase: 'analysis', key: 'k4', value: 'v4' })
+    insertRun(adapter,runId, 'running')
+    insertDecision(adapter,d1, runId, { phase: 'analysis', key: 'k1', value: 'v1' })
+    insertDecision(adapter,d2, runId, { phase: 'planning', key: 'k2', value: 'v2' })
+    insertDecision(adapter,d3, runId, { phase: 'analysis', key: 'k3', value: 'v3' })
+    insertDecision(adapter,d4, runId, { phase: 'analysis', key: 'k4', value: 'v4' })
     // Supersede d1
     await supersedeDecision(adapter, d1, d4)
 
@@ -247,7 +229,7 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
 
   it('getLatestCompletedRun result passes PipelineRunSchema validation', async () => {
     const runId = randomUUID()
-    insertRun(db, runId, 'completed')
+    insertRun(adapter,runId, 'completed')
 
     const run = await getLatestCompletedRun(adapter)
     expect(run).toBeDefined()
@@ -260,9 +242,9 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
     const r0 = randomUUID()
     const r1 = randomUUID()
     const r2 = randomUUID()
-    insertRun(db, r0, 'completed')
-    insertRun(db, r1, 'completed', r0)
-    insertRun(db, r2, 'running', r1)
+    insertRun(adapter,r0, 'completed')
+    insertRun(adapter,r1, 'completed', r0)
+    insertRun(adapter,r2, 'running', r1)
 
     const chain = await getAmendmentRunChain(adapter, r2)
     expect(chain).toHaveLength(3)
@@ -283,17 +265,15 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
 // ---------------------------------------------------------------------------
 
 describe('Amendment Pipeline Integration: queries + context handler + delta document', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('context handler loads real parent decisions from DB and formats phase context', async () => {
@@ -302,21 +282,21 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     const d1 = randomUUID()
     const d2 = randomUUID()
     const d3 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, d1, parentRunId, {
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,d1, parentRunId, {
       phase: 'analysis',
       category: 'architecture',
       key: 'database-choice',
       value: 'PostgreSQL',
       rationale: 'Scalability requirements',
     })
-    insertDecision(db, d2, parentRunId, {
+    insertDecision(adapter,d2, parentRunId, {
       phase: 'analysis',
       category: 'stack',
       key: 'language',
       value: 'TypeScript',
     })
-    insertDecision(db, d3, parentRunId, {
+    insertDecision(adapter,d3, parentRunId, {
       phase: 'planning',
       category: 'scope',
       key: 'mvp-deadline',
@@ -348,14 +328,14 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     const parentRunId = randomUUID()
     const supD1 = randomUUID()
     const supD2 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, supD1, parentRunId, {
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,supD1, parentRunId, {
       phase: 'analysis',
       category: 'architecture',
       key: 'db-type',
       value: 'MySQL',
     })
-    insertDecision(db, supD2, parentRunId, {
+    insertDecision(adapter,supD2, parentRunId, {
       phase: 'analysis',
       category: 'architecture',
       key: 'db-type-new',
@@ -377,8 +357,8 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     const parentRunId = randomUUID()
     const logD1 = randomUUID()
     const logD2 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, logD1, parentRunId, { phase: 'analysis', key: 'k1', value: 'v1' })
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,logD1, parentRunId, { phase: 'analysis', key: 'k1', value: 'v1' })
 
     const handler = await createAmendmentContextHandler(adapter, parentRunId)
 
@@ -418,14 +398,14 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     const deltaPd2 = randomUUID()
     const deltaAd1 = randomUUID()
 
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, deltaPd1, parentRunId, {
+    insertRun(adapter,parentRunId, 'completed')
+    insertDecision(adapter,deltaPd1, parentRunId, {
       phase: 'analysis',
       category: 'arch',
       key: 'db-engine',
       value: 'MySQL',
     })
-    insertDecision(db, deltaPd2, parentRunId, {
+    insertDecision(adapter,deltaPd2, parentRunId, {
       phase: 'planning',
       category: 'scope',
       key: 'team-size',
@@ -440,7 +420,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     })
 
     // Insert amendment decisions
-    insertDecision(db, deltaAd1, amendmentId, {
+    insertDecision(adapter,deltaAd1, amendmentId, {
       phase: 'analysis',
       category: 'arch',
       key: 'db-engine-new',
@@ -452,9 +432,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     // Load ALL parent decisions first (before the supersession is reflected in loadParentRunDecisions)
     // Note: loadParentRunDecisions returns only non-superseded decisions.
     // We need the superseded decision separately.
-    const supersededRow = db
-      .prepare('SELECT * FROM decisions WHERE id = ?')
-      .get(deltaPd1) as Parameters<typeof generateDeltaDocument>[0]['supersededDecisions'][0]
+    const supersededRow = adapter.querySync<Parameters<typeof generateDeltaDocument>[0]['supersededDecisions'][0]>('SELECT * FROM decisions WHERE id = ?', [deltaPd1])[0]
 
     // Load current active parent decisions (deltaPd1 is now excluded; deltaPd2 is active)
     const parentDecisions = await loadParentRunDecisions(adapter, parentRunId)
@@ -502,14 +480,14 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     const fmtAd1 = randomUUID()
     const fmtAmendId = randomUUID()
 
-    insertRun(db, fmtParentId, 'completed')
-    insertDecision(db, fmtPd1, fmtParentId, {
+    insertRun(adapter,fmtParentId, 'completed')
+    insertDecision(adapter,fmtPd1, fmtParentId, {
       phase: 'analysis',
       category: 'arch',
       key: 'pattern',
       value: 'monolith',
     })
-    insertDecision(db, fmtAd1, fmtParentId, {
+    insertDecision(adapter,fmtAd1, fmtParentId, {
       phase: 'analysis',
       category: 'arch',
       key: 'pattern-new',
@@ -518,9 +496,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     await supersedeDecision(adapter, fmtPd1, fmtAd1)
 
     const parentDecisions = await loadParentRunDecisions(adapter, fmtParentId)
-    const supersededRow = db
-      .prepare('SELECT * FROM decisions WHERE id = ?')
-      .get(fmtPd1) as Parameters<typeof generateDeltaDocument>[0]['supersededDecisions'][0]
+    const supersededRow = adapter.querySync<Parameters<typeof generateDeltaDocument>[0]['supersededDecisions'][0]>('SELECT * FROM decisions WHERE id = ?', [fmtPd1])[0]
 
     const doc = await generateDeltaDocument({
       amendmentRunId: fmtAmendId,
@@ -567,15 +543,15 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     const ffD2 = randomUUID()
     const ffAmendD1 = randomUUID()
 
-    insertRun(db, fullParentId, 'completed')
-    insertDecision(db, ffD1, fullParentId, {
+    insertRun(adapter,fullParentId, 'completed')
+    insertDecision(adapter,ffD1, fullParentId, {
       phase: 'analysis',
       category: 'auth',
       key: 'auth-mechanism',
       value: 'JWT',
       rationale: 'Stateless auth for API',
     })
-    insertDecision(db, ffD2, fullParentId, {
+    insertDecision(adapter,ffD2, fullParentId, {
       phase: 'analysis',
       category: 'database',
       key: 'orm',
@@ -602,7 +578,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
     expect(context).toContain('Switch to session-based auth')
 
     // Step 5: Insert amendment decision and supersede original
-    insertDecision(db, ffAmendD1, amendId, {
+    insertDecision(adapter,ffAmendD1, amendId, {
       phase: 'analysis',
       category: 'auth',
       key: 'auth-mechanism',
@@ -628,7 +604,7 @@ describe('Amendment Pipeline Integration: queries + context handler + delta docu
 
     // ff-d1 is now superseded, so parentDecisions won't include it
     const supersededDecisions = [
-      db.prepare('SELECT * FROM decisions WHERE id = ?').get(ffD1),
+      adapter.querySync<Parameters<typeof generateDeltaDocument>[0]['supersededDecisions'][0]>('SELECT * FROM decisions WHERE id = ?', [ffD1])[0],
     ].filter(Boolean) as Parameters<typeof generateDeltaDocument>[0]['supersededDecisions']
 
     const doc = await generateDeltaDocument({

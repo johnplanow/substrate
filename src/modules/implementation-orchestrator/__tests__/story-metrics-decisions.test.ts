@@ -8,9 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import BetterSqlite3 from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createDecision, getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
@@ -20,12 +18,10 @@ import { STORY_METRICS } from '../../../persistence/schemas/operational.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function openTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
-  const db = new BetterSqlite3(':memory:')
-  db.pragma('foreign_keys = ON')
-  const adapter = new SyncDatabaseAdapter(db)
+async function openTestDb(): Promise<WasmSqliteDatabaseAdapter> {
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
   await initSchema(adapter)
-  return { db, adapter }
+  return adapter
 }
 
 // ---------------------------------------------------------------------------
@@ -33,13 +29,10 @@ async function openTestDb(): Promise<{ db: BetterSqlite3Database; adapter: Datab
 // ---------------------------------------------------------------------------
 
 describe('AC4: Orchestrator writes story-metrics decisions', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    const setup = await openTestDb()
-    db = setup.db
-    adapter = setup.adapter
+    adapter = await openTestDb()
   })
 
   it('inserts story-metrics decision with correct key format and value shape', async () => {

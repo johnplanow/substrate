@@ -56,40 +56,27 @@ interface MigrationResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Open the SQLite database at `dbPath` (read-only) and return a snapshot of
- * the story_metrics rows.  Returns an empty snapshot if the file does not
- * exist or the table is missing.
+ * Reads the SQLite snapshot for migration.
+ *
+ * NOTE (Epic 29): SQLite support has been removed from Substrate.
+ *
+ * If you need to migrate historical SQLite data, downgrade to a pre-Epic-29
+ * version of Substrate (v0.4.x or earlier), run `substrate migrate`, then
+ * upgrade. The Dolt database will retain the migrated data across upgrades.
+ *
+ * This function now always returns an empty snapshot.
  */
 export async function readSqliteSnapshot(dbPath: string): Promise<SqliteSnapshot> {
-  let db: any = null
-  try {
-    const BetterSqlite3Module = await import('better-sqlite3')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const BetterSqlite3 = BetterSqlite3Module.default as any
-    db = new BetterSqlite3(dbPath, { readonly: true })
-  } catch {
-    // File not found, unreadable, or better-sqlite3 not installed
-    return { storyMetrics: [] }
+  // Check if a legacy SQLite file exists and warn the user
+  const { existsSync: fileExists } = await import('node:fs')
+  if (fileExists(dbPath)) {
+    process.stderr.write(
+      `Warning: Legacy SQLite database found at ${dbPath} but SQLite support has been\n` +
+      `removed in Epic 29. To migrate historical data, downgrade to Substrate v0.4.x,\n` +
+      `run 'substrate migrate', then upgrade back to this version.\n`,
+    )
   }
-
-  try {
-    const rows = db
-      .prepare(
-        `SELECT story_key, result, completed_at, created_at,
-                wall_clock_seconds, input_tokens, output_tokens,
-                cost_usd, review_cycles
-         FROM story_metrics`,
-      )
-      .all() as StoryMetricRow[]
-    return { storyMetrics: rows }
-  } catch (err: unknown) {
-    // Table may not exist yet in older databases
-    const msg = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`Warning: could not read story_metrics from SQLite: ${msg}\n`)
-    return { storyMetrics: [] }
-  } finally {
-    db.close()
-  }
+  return { storyMetrics: [] }
 }
 
 // ---------------------------------------------------------------------------

@@ -11,12 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { SyncDatabaseAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import {
@@ -38,12 +33,10 @@ import type { TypedEventBus } from '../../../../core/event-bus.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'solutioning-verdict-test-'))
-  const db = new Database(join(tmpDir, 'test.db'))
-  const adapter = new SyncDatabaseAdapter(db)
+async function createTestDb(): Promise<{ adapter: DatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -277,22 +270,17 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('Verdict handling: READY path (AC8)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns result=success and readiness_passed=true when verdict is READY', async () => {
@@ -449,22 +437,17 @@ describe('Verdict handling: READY path (AC8)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Verdict handling: NOT_READY path (AC7)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns result=failed and readiness_passed=false when verdict is NOT_READY', async () => {
@@ -522,11 +505,10 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
 
     await runSolutioningPhase(deps, { runId })
 
-    const findings = db
-      .prepare(
-        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning' AND category = 'readiness-findings' ORDER BY key ASC",
-      )
-      .all(runId) as Array<{ key: string; value: string }>
+    const findings = await adapter.query<{ key: string; value: string }>(
+      "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning' AND category = 'readiness-findings' ORDER BY key ASC",
+      [runId],
+    )
 
     expect(findings).toHaveLength(2)
     expect(findings[0].key).toBe('finding-1')
@@ -544,11 +526,11 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
 
     await runSolutioningPhase(deps, { runId })
 
-    const finding = db
-      .prepare(
-        "SELECT value FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' AND key = 'finding-1'",
-      )
-      .get(runId) as { value: string } | undefined
+    const findings = await adapter.query<{ value: string }>(
+      "SELECT value FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' AND key = 'finding-1'",
+      [runId],
+    )
+    const finding = findings[0]
 
     expect(finding).toBeDefined()
     const parsed = JSON.parse(finding!.value) as {
@@ -659,22 +641,17 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Verdict handling: NEEDS_WORK without blockers path', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
-  let tmpDir: string
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
-    db = setup.db
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
-  afterEach(() => {
-    db.close()
-    rmSync(tmpDir, { recursive: true, force: true })
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns result=success when NEEDS_WORK has no blocker findings', async () => {
@@ -753,11 +730,10 @@ describe('Verdict handling: NEEDS_WORK without blockers path', () => {
 
     await runSolutioningPhase(deps, { runId })
 
-    const findings = db
-      .prepare(
-        "SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings'",
-      )
-      .all(runId) as Array<{ key: string }>
+    const findings = await adapter.query<{ key: string }>(
+      "SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings'",
+      [runId],
+    )
 
     expect(findings).toHaveLength(0)
   })

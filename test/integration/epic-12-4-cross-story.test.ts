@@ -7,15 +7,14 @@
  *   - Story 12-11: Phase runner amendmentContext injection
  *   - Story 12-12: Amendment supersession writeback (runPostPhaseSupersessionDetection)
  *
- * All tests use real in-memory SQLite databases with migrations applied.
+ * All tests use in-memory WASM SQLite databases with schema applied via DatabaseAdapter.
  * Phase runners are tested with real DB state; dispatcher is mocked.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { randomUUID } from 'crypto'
-import { LegacySqliteAdapter, type DatabaseAdapter } from '../../src/persistence/adapter.js'
+import { type DatabaseAdapter } from '../../src/persistence/adapter.js'
+import { createWasmSqliteAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../src/persistence/schema.js'
 import {
   createAmendmentRun,
@@ -40,29 +39,26 @@ import type { Dispatcher, DispatchHandle, DispatchResult } from '../../src/modul
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function openMigratedDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
-  const db = new Database(':memory:')
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  const adapter = new LegacySqliteAdapter(db)
+async function openMigratedDb(): Promise<{ adapter: DatabaseAdapter }> {
+  const adapter = await createWasmSqliteAdapter()
   await initSchema(adapter)
-  return { db, adapter }
+  return { adapter }
 }
 
-function insertRun(
-  db: BetterSqlite3Database,
+async function insertRun(
+  adapter: DatabaseAdapter,
   id: string,
   status: string = 'completed',
   parentRunId: string | null = null,
-): void {
-  db.prepare(`
+): Promise<void> {
+  await adapter.exec(`
     INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
-    VALUES (?, 'bmad', ?, ?, datetime('now'), datetime('now'))
-  `).run(id, status, parentRunId)
+    VALUES ('${id}', 'bmad', '${status}', ${parentRunId ? `'${parentRunId}'` : 'NULL'}, datetime('now'), datetime('now'))
+  `)
 }
 
-function insertDecision(
-  db: BetterSqlite3Database,
+async function insertDecision(
+  adapter: DatabaseAdapter,
   id: string,
   runId: string,
   overrides: {
@@ -72,7 +68,7 @@ function insertDecision(
     value?: string
     rationale?: string | null
   } = {},
-): void {
+): Promise<void> {
   const {
     phase = 'analysis',
     category = 'architecture',
@@ -80,10 +76,10 @@ function insertDecision(
     value = 'default-value',
     rationale = null,
   } = overrides
-  db.prepare(`
+  await adapter.exec(`
     INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, rationale, superseded_by, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'), datetime('now'))
-  `).run(id, runId, phase, category, key, value, rationale)
+    VALUES ('${id}', '${runId}', '${phase}', '${category}', '${key}', '${value}', ${rationale ? `'${rationale}'` : 'NULL'}, NULL, datetime('now'), datetime('now'))
+  `)
 }
 
 const SAMPLE_BRIEF: ProductBrief = {
@@ -182,25 +178,23 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('supersedes parent decisions when amendment decisions share the same (phase, category, key)', async () => {
     // Setup parent run with decisions
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, parentDecId, parentRunId, {
+    await insertRun(adapter, parentRunId, 'completed')
+    await insertDecision(adapter, parentDecId, parentRunId, {
       phase: 'analysis',
       category: 'product-brief',
       key: 'problem_statement',
@@ -210,8 +204,8 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     // Setup amendment run with overlapping decision
     const amendmentRunId = randomUUID()
     const amendmentDecId = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
-    insertDecision(db, amendmentDecId, amendmentRunId, {
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
+    await insertDecision(adapter, amendmentDecId, amendmentRunId, {
       phase: 'analysis',
       category: 'product-brief',
       key: 'problem_statement',
@@ -223,9 +217,7 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     // Verify parent decision is now superseded in DB
-    const parentRow = db
-      .prepare('SELECT superseded_by FROM decisions WHERE id = ?')
-      .get(parentDecId) as { superseded_by: string | null }
+    const [parentRow] = await adapter.query<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentDecId])
 
     expect(parentRow.superseded_by).toBe(amendmentDecId)
   })
@@ -233,8 +225,8 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
   it('logs supersession entry in handler in-memory log after detection', async () => {
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, parentDecId, parentRunId, {
+    await insertRun(adapter, parentRunId, 'completed')
+    await insertDecision(adapter, parentDecId, parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target_users',
@@ -243,8 +235,8 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
 
     const amendmentRunId = randomUUID()
     const amendmentDecId = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
-    insertDecision(db, amendmentDecId, amendmentRunId, {
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
+    await insertDecision(adapter, amendmentDecId, amendmentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target_users',
@@ -267,8 +259,8 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
   it('does not supersede when amendment decision is in a different phase', async () => {
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, parentDecId, parentRunId, {
+    await insertRun(adapter, parentRunId, 'completed')
+    await insertDecision(adapter, parentDecId, parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target_users',
@@ -277,9 +269,9 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
 
     const amendmentRunId = randomUUID()
     const amendmentDecId = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
     // Insert a PLANNING decision (different phase)
-    insertDecision(db, amendmentDecId, amendmentRunId, {
+    await insertDecision(adapter, amendmentDecId, amendmentRunId, {
       phase: 'planning',
       category: 'scope',
       key: 'target_users',
@@ -293,17 +285,15 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     const log = handler.getSupersessionLog()
     expect(log).toHaveLength(0)
 
-    const parentRow = db
-      .prepare('SELECT superseded_by FROM decisions WHERE id = ?')
-      .get(parentDecId) as { superseded_by: string | null }
+    const [parentRow] = await adapter.query<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentDecId])
     expect(parentRow.superseded_by).toBeNull()
   })
 
   it('does not supersede when keys differ between parent and amendment decisions', async () => {
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, parentDecId, parentRunId, {
+    await insertRun(adapter, parentRunId, 'completed')
+    await insertDecision(adapter, parentDecId, parentRunId, {
       phase: 'analysis',
       category: 'architecture',
       key: 'database',
@@ -312,9 +302,9 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
 
     const amendmentRunId = randomUUID()
     const amendmentDecId = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
     // Different key
-    insertDecision(db, amendmentDecId, amendmentRunId, {
+    await insertDecision(adapter, amendmentDecId, amendmentRunId, {
       phase: 'analysis',
       category: 'architecture',
       key: 'cache',
@@ -332,14 +322,14 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     const parentRunId = randomUUID()
     const parentDecId1 = randomUUID()
     const parentDecId2 = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, parentDecId1, parentRunId, {
+    await insertRun(adapter, parentRunId, 'completed')
+    await insertDecision(adapter, parentDecId1, parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target_users',
       value: 'enterprise',
     })
-    insertDecision(db, parentDecId2, parentRunId, {
+    await insertDecision(adapter, parentDecId2, parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'timeline',
@@ -349,14 +339,14 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     const amendmentRunId = randomUUID()
     const amendDecId1 = randomUUID()
     const amendDecId2 = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
-    insertDecision(db, amendDecId1, amendmentRunId, {
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
+    await insertDecision(adapter, amendDecId1, amendmentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target_users',
       value: 'small businesses',
     })
-    insertDecision(db, amendDecId2, amendmentRunId, {
+    await insertDecision(adapter, amendDecId2, amendmentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'timeline',
@@ -369,12 +359,8 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     const log = handler.getSupersessionLog()
     expect(log).toHaveLength(2)
 
-    const parentRow1 = db
-      .prepare('SELECT superseded_by FROM decisions WHERE id = ?')
-      .get(parentDecId1) as { superseded_by: string | null }
-    const parentRow2 = db
-      .prepare('SELECT superseded_by FROM decisions WHERE id = ?')
-      .get(parentDecId2) as { superseded_by: string | null }
+    const [parentRow1] = await adapter.query<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentDecId1])
+    const [parentRow2] = await adapter.query<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentDecId2])
     expect(parentRow1.superseded_by).toBe(amendDecId1)
     expect(parentRow2.superseded_by).toBe(amendDecId2)
   })
@@ -385,17 +371,17 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
     const supersedingInParentId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
+    await insertRun(adapter, parentRunId, 'completed')
 
     // Insert a decision that gets superseded WITHIN the parent run
-    insertDecision(db, parentDecId, parentRunId, {
+    await insertDecision(adapter, parentDecId, parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target_users',
       value: 'enterprise',
     })
     // The superseding decision has a different key to avoid collision with amendment decisions
-    insertDecision(db, supersedingInParentId, parentRunId, {
+    await insertDecision(adapter, supersedingInParentId, parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target_users_v2',
@@ -417,8 +403,8 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     // Create amendment run with a decision that only matches the original superseded key
     const amendmentRunId = randomUUID()
     const amendDecId = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
-    insertDecision(db, amendDecId, amendmentRunId, {
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
+    await insertDecision(adapter, amendDecId, amendmentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target_users', // This key is NOT in parentDecisions (parentDecId was superseded)
@@ -436,14 +422,14 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     const parentRunId = randomUUID()
     const analysisDecId = randomUUID()
     const planningDecId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, analysisDecId, parentRunId, {
+    await insertRun(adapter, parentRunId, 'completed')
+    await insertDecision(adapter, analysisDecId, parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'users',
       value: 'enterprise',
     })
-    insertDecision(db, planningDecId, parentRunId, {
+    await insertDecision(adapter, planningDecId, parentRunId, {
       phase: 'planning',
       category: 'arch',
       key: 'storage',
@@ -453,14 +439,14 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     const amendmentRunId = randomUUID()
     const amendAnalysisDecId = randomUUID()
     const amendPlanningDecId = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
-    insertDecision(db, amendAnalysisDecId, amendmentRunId, {
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
+    await insertDecision(adapter, amendAnalysisDecId, amendmentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'users',
       value: 'sme',
     })
-    insertDecision(db, amendPlanningDecId, amendmentRunId, {
+    await insertDecision(adapter, amendPlanningDecId, amendmentRunId, {
       phase: 'planning',
       category: 'arch',
       key: 'storage',
@@ -485,23 +471,21 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
 // ---------------------------------------------------------------------------
 
 describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('analysis phase receives amendment context string when provided', async () => {
     const parentRunId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, randomUUID(), parentRunId, {
+    await insertRun(adapter, parentRunId, 'completed')
+    await insertDecision(adapter, randomUUID(), parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target_users',
@@ -522,11 +506,9 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
 
     // Create amendment run and execute analysis phase with amendment context
     const amendmentRunId = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
 
-    const run = db
-      .prepare('SELECT id FROM pipeline_runs WHERE id = ?')
-      .get(amendmentRunId) as { id: string }
+    const [run] = await adapter.query<{ id: string }>('SELECT id FROM pipeline_runs WHERE id = ?', [amendmentRunId])
     expect(run).toBeDefined()
 
     // Capture what the dispatcher receives
@@ -565,7 +547,7 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
 
   it('analysis phase without amendment context does not inject framing block', async () => {
     const runId = randomUUID()
-    insertRun(db, runId, 'running')
+    await insertRun(adapter, runId, 'running')
 
     let capturedPrompt = ''
     const mockDispatcher: Dispatcher = {
@@ -600,7 +582,7 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
 
   it('analysis phase with empty string amendmentContext does not inject framing block', async () => {
     const runId = randomUUID()
-    insertRun(db, runId, 'running')
+    await insertRun(adapter, runId, 'running')
 
     let capturedPrompt = ''
     const mockDispatcher: Dispatcher = {
@@ -639,23 +621,21 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
 // ---------------------------------------------------------------------------
 
 describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('planning phase receives amendment context when provided', async () => {
     const parentRunId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, randomUUID(), parentRunId, {
+    await insertRun(adapter, parentRunId, 'completed')
+    await insertDecision(adapter, randomUUID(), parentRunId, {
       phase: 'planning',
       category: 'arch',
       key: 'storage',
@@ -671,7 +651,7 @@ describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11
 
     // Create an amendment run with product-brief decisions to satisfy planning phase
     const amendmentRunId = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
 
     // Insert analysis decisions to satisfy planning phase requirement
     const briefFields = [
@@ -682,7 +662,7 @@ describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11
       { key: 'constraints', value: '["GDPR"]' },
     ]
     for (const field of briefFields) {
-      insertDecision(db, randomUUID(), amendmentRunId, {
+      await insertDecision(adapter, randomUUID(), amendmentRunId, {
         phase: 'analysis',
         category: 'product-brief',
         key: field.key,
@@ -728,7 +708,7 @@ describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11
 
   it('planning phase without amendment context succeeds without framing block', async () => {
     const runId = randomUUID()
-    insertRun(db, runId, 'running')
+    await insertRun(adapter, runId, 'running')
 
     // Insert analysis decisions to satisfy planning phase requirement
     const briefFields = [
@@ -739,7 +719,7 @@ describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11
       { key: 'constraints', value: '["GDPR"]' },
     ]
     for (const field of briefFields) {
-      insertDecision(db, randomUUID(), runId, {
+      await insertDecision(adapter, randomUUID(), runId, {
         phase: 'analysis',
         category: 'product-brief',
         key: field.key,
@@ -786,25 +766,23 @@ describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11
 // ---------------------------------------------------------------------------
 
 describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†’ active decisions (12-8 + 12-11 + 12-12)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('after analysis phase + supersession detection: parent decisions are superseded, amendment decisions are active', async () => {
     // Step 1: Create a completed parent run with decisions
     const parentRunId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
+    await insertRun(adapter, parentRunId, 'completed')
     const parentDecId = randomUUID()
-    insertDecision(db, parentDecId, parentRunId, {
+    await insertDecision(adapter, parentDecId, parentRunId, {
       phase: 'analysis',
       category: 'product-brief',
       key: 'problem_statement',
@@ -813,7 +791,7 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
 
     // Step 2: Create amendment run
     const amendmentRunId = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
 
     // Step 3: Create handler and load context
     const handler = await createAmendmentContextHandler(adapter, parentRunId, {
@@ -854,9 +832,7 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
 
     // Step 6: Verify supersession state
     // The parent's problem_statement decision should now be superseded
-    const parentRow = db
-      .prepare('SELECT superseded_by FROM decisions WHERE id = ?')
-      .get(parentDecId) as { superseded_by: string | null }
+    const [parentRow] = await adapter.query<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentDecId])
 
     expect(parentRow.superseded_by).not.toBeNull()
 
@@ -886,8 +862,8 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
   it('loadParentRunDecisions excludes decisions superseded by amendment writeback', async () => {
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, parentDecId, parentRunId, {
+    await insertRun(adapter, parentRunId, 'completed')
+    await insertDecision(adapter, parentDecId, parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target',
@@ -896,8 +872,8 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
 
     const amendmentRunId = randomUUID()
     const amendDecId = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
-    insertDecision(db, amendDecId, amendmentRunId, {
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
+    await insertDecision(adapter, amendDecId, amendmentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target',
@@ -923,25 +899,23 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
 // ---------------------------------------------------------------------------
 
 describe('Gap 5: Phase context isolation in handler with real DB decisions (12-8)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('analysis context does not contain planning decisions, planning context does not contain analysis decisions', async () => {
     const parentRunId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
+    await insertRun(adapter, parentRunId, 'completed')
 
     // Analysis decision
-    insertDecision(db, randomUUID(), parentRunId, {
+    await insertDecision(adapter, randomUUID(), parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target_users',
@@ -949,7 +923,7 @@ describe('Gap 5: Phase context isolation in handler with real DB decisions (12-8
     })
 
     // Planning decision
-    insertDecision(db, randomUUID(), parentRunId, {
+    await insertDecision(adapter, randomUUID(), parentRunId, {
       phase: 'planning',
       category: 'arch',
       key: 'storage',
@@ -957,7 +931,7 @@ describe('Gap 5: Phase context isolation in handler with real DB decisions (12-8
     })
 
     // Solutioning decision
-    insertDecision(db, randomUUID(), parentRunId, {
+    await insertDecision(adapter, randomUUID(), parentRunId, {
       phase: 'solutioning',
       category: 'api',
       key: 'auth',
@@ -988,15 +962,15 @@ describe('Gap 5: Phase context isolation in handler with real DB decisions (12-8
 
   it('phaseFilter limits available decisions across all loadContextForPhase calls', async () => {
     const parentRunId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
+    await insertRun(adapter, parentRunId, 'completed')
 
-    insertDecision(db, randomUUID(), parentRunId, {
+    await insertDecision(adapter, randomUUID(), parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target_users',
       value: 'enterprise',
     })
-    insertDecision(db, randomUUID(), parentRunId, {
+    await insertDecision(adapter, randomUUID(), parentRunId, {
       phase: 'planning',
       category: 'arch',
       key: 'storage',
@@ -1026,24 +1000,22 @@ describe('Gap 5: Phase context isolation in handler with real DB decisions (12-8
 // ---------------------------------------------------------------------------
 
 describe('Gap 6: Handler snapshot vs. live DB state consistency (12-8 + 12-12)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
-    db = setup.db
     adapter = setup.adapter
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('handler getParentDecisions reflects decisions at creation time, not after supersession', async () => {
     const parentRunId = randomUUID()
     const parentDecId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
-    insertDecision(db, parentDecId, parentRunId, {
+    await insertRun(adapter, parentRunId, 'completed')
+    await insertDecision(adapter, parentDecId, parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target',
@@ -1059,8 +1031,8 @@ describe('Gap 6: Handler snapshot vs. live DB state consistency (12-8 + 12-12)',
     // Now create an amendment decision and supersede the parent decision
     const amendmentRunId = randomUUID()
     const amendDecId = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
-    insertDecision(db, amendDecId, amendmentRunId, {
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
+    await insertDecision(adapter, amendDecId, amendmentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'target',
@@ -1074,9 +1046,7 @@ describe('Gap 6: Handler snapshot vs. live DB state consistency (12-8 + 12-12)',
     expect(decisionsAfter.map((d) => d.id)).toContain(parentDecId)
 
     // But the DB reflects the new state (superseded_by is set)
-    const dbRow = db
-      .prepare('SELECT superseded_by FROM decisions WHERE id = ?')
-      .get(parentDecId) as { superseded_by: string | null }
+    const [dbRow] = await adapter.query<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentDecId])
     expect(dbRow.superseded_by).toBe(amendDecId)
 
     // The in-memory supersession log DOES reflect the supersession
@@ -1086,17 +1056,17 @@ describe('Gap 6: Handler snapshot vs. live DB state consistency (12-8 + 12-12)',
 
   it('supersession log accurately tracks all supersessions across multiple detection calls', async () => {
     const parentRunId = randomUUID()
-    insertRun(db, parentRunId, 'completed')
+    await insertRun(adapter, parentRunId, 'completed')
 
     const parentAnalysisDecId = randomUUID()
     const parentPlanningDecId = randomUUID()
-    insertDecision(db, parentAnalysisDecId, parentRunId, {
+    await insertDecision(adapter, parentAnalysisDecId, parentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'users',
       value: 'enterprise',
     })
-    insertDecision(db, parentPlanningDecId, parentRunId, {
+    await insertDecision(adapter, parentPlanningDecId, parentRunId, {
       phase: 'planning',
       category: 'arch',
       key: 'db',
@@ -1104,17 +1074,17 @@ describe('Gap 6: Handler snapshot vs. live DB state consistency (12-8 + 12-12)',
     })
 
     const amendmentRunId = randomUUID()
-    insertRun(db, amendmentRunId, 'running', parentRunId)
+    await insertRun(adapter, amendmentRunId, 'running', parentRunId)
 
     const amendAnalysisDecId = randomUUID()
     const amendPlanningDecId = randomUUID()
-    insertDecision(db, amendAnalysisDecId, amendmentRunId, {
+    await insertDecision(adapter, amendAnalysisDecId, amendmentRunId, {
       phase: 'analysis',
       category: 'scope',
       key: 'users',
       value: 'SME',
     })
-    insertDecision(db, amendPlanningDecId, amendmentRunId, {
+    await insertDecision(adapter, amendPlanningDecId, amendmentRunId, {
       phase: 'planning',
       category: 'arch',
       key: 'db',

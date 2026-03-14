@@ -2,9 +2,6 @@
  * DatabaseAdapter — unified async interface for all persistence backends.
  *
  * Implementations:
- *  - LegacySqliteAdapter (inline): wraps any better-sqlite3-API-compatible sync database.
- *    In tests the vitest alias maps `better-sqlite3` to a WASM (sql.js) mock.
- *    Production callers should use 'auto' or 'dolt' backends instead.
  *  - DoltDatabaseAdapter: delegates to DoltClient (async mysql2 or CLI)
  *  - InMemoryDatabaseAdapter: in-memory Maps (for CI / unit tests)
  *
@@ -29,7 +26,7 @@ const logger = createLogger('persistence:adapter')
 
 /**
  * Optional synchronous query extension for adapters backed by synchronous engines
- * (e.g., sql.js WASM, LegacySqliteAdapter). Consumers that require a synchronous
+ * (e.g., WasmSqliteDatabaseAdapter). Consumers that require a synchronous
  * interface (like MonitorDatabaseImpl) use this to avoid async cascades.
  */
 export interface SyncAdapter {
@@ -86,19 +83,14 @@ export interface DatabaseAdapter {
 export interface DatabaseAdapterConfig {
   /**
    * Which backend to use.
-   * - 'sqlite': test-only path — uses the vitest-aliased WASM mock.
-   *   Throws at runtime in production (better-sqlite3 was removed in Epic 29).
    * - 'dolt': connect via DoltClient (mysql2 socket or CLI fallback)
    * - 'memory': in-memory Maps, no persistence (ideal for CI / unit tests)
    * - 'auto': detect Dolt availability; fall back to 'memory' if not available
    */
-  backend: 'sqlite' | 'dolt' | 'memory' | 'auto'
+  backend: 'dolt' | 'memory' | 'auto'
 
   /** Project root used for Dolt auto-detection and as the Dolt repo path. */
   basePath?: string
-
-  /** For 'sqlite' backend (test-only): path to the SQLite database file (default ':memory:'). */
-  databasePath?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -119,43 +111,6 @@ function isDoltAvailable(basePath: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// LegacySqliteAdapter — wraps any better-sqlite3-API-compatible sync database.
-// In tests the vitest alias maps `better-sqlite3` to the WASM (sql.js) mock,
-// so the require() below resolves without the native C++ addon.
-// ---------------------------------------------------------------------------
-
-/** Wraps a better-sqlite3-API-compatible database. Implements SyncAdapter for sync callers. */
-export class LegacySqliteAdapter implements DatabaseAdapter, SyncAdapter {
-  private readonly _db: any
-  constructor(db: any) { this._db = db }
-  querySync<T = unknown>(sql: string, params?: unknown[]): T[] {
-    const stmt = this._db.prepare(sql)
-    if (stmt.reader) {
-      return (params && params.length > 0 ? stmt.all(...params) : stmt.all()) as T[]
-    }
-    if (params && params.length > 0) { stmt.run(...params) } else { stmt.run() }
-    return []
-  }
-  execSync(sql: string): void { this._db.exec(sql) }
-  async query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
-    return this.querySync<T>(sql, params)
-  }
-  async exec(sql: string): Promise<void> { this.execSync(sql) }
-  async transaction<T>(fn: (adapter: DatabaseAdapter) => Promise<T>): Promise<T> {
-    this._db.exec('BEGIN')
-    try {
-      const result = await fn(this)
-      this._db.exec('COMMIT')
-      return result
-    } catch (err) {
-      try { this._db.exec('ROLLBACK') } catch { /* already rolled back */ }
-      throw err
-    }
-  }
-  async close(): Promise<void> { this._db.close() }
-}
-
-// ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
@@ -168,17 +123,6 @@ export class LegacySqliteAdapter implements DatabaseAdapter, SyncAdapter {
 export function createDatabaseAdapter(config: DatabaseAdapterConfig = { backend: 'auto' }): DatabaseAdapter {
   const backend = config.backend ?? 'auto'
   const basePath = config.basePath ?? process.cwd()
-
-  if (backend === 'sqlite') {
-    // In tests, vitest alias + tsconfig paths redirect `better-sqlite3` to the
-    // WASM mock (src/__mocks__/better-sqlite3.ts). In production this require()
-    // will throw because better-sqlite3 was removed in Epic 29-8.
-    // Production callers should use 'auto' or 'dolt' instead.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const BetterSqlite3 = require('better-sqlite3') as { new(path: string): unknown }
-    const db = new BetterSqlite3(config.databasePath ?? ':memory:')
-    return new LegacySqliteAdapter(db)
-  }
 
   if (backend === 'dolt') {
     logger.debug('Using DoltDatabaseAdapter (explicit config)')

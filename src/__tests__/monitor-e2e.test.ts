@@ -12,6 +12,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { MonitorAgentImpl } from '../modules/monitor/monitor-agent-impl.js'
 import { MonitorDatabaseImpl } from '../persistence/monitor-database.js'
+import { createWasmSqliteAdapter } from '../persistence/wasm-sqlite-adapter.js'
+import type { SyncAdapter } from '../persistence/adapter.js'
 import { createEventBus } from '../core/event-bus.js'
 import type { TypedEventBus } from '../core/event-bus.js'
 
@@ -19,21 +21,23 @@ import type { TypedEventBus } from '../core/event-bus.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestSetup(): {
+async function createTestSetup(): Promise<{
   eventBus: TypedEventBus
   monitorDb: MonitorDatabaseImpl
   agent: MonitorAgentImpl
-} {
+}> {
   const eventBus = createEventBus()
-  const monitorDb = new MonitorDatabaseImpl(':memory:')
+  const adapter = await createWasmSqliteAdapter()
+  const monitorDb = new MonitorDatabaseImpl(adapter)
   const agent = new MonitorAgentImpl(eventBus, monitorDb, { retentionDays: 90 })
   return { eventBus, monitorDb, agent }
 }
 
 function getRowCount(db: MonitorDatabaseImpl, table: string): number {
-  const internal = (db as unknown as { _db: import('better-sqlite3').Database })._db
-  const result = internal.prepare(`SELECT COUNT(*) as cnt FROM ${table}`).get() as { cnt: number }
-  return result.cnt
+  const syncAdapter = (db as unknown as { _syncAdapter: SyncAdapter | null })._syncAdapter
+  if (!syncAdapter) throw new Error('No sync adapter available')
+  const rows = syncAdapter.querySync<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM ${table}`)
+  return rows[0]?.cnt ?? 0
 }
 
 // ---------------------------------------------------------------------------
@@ -44,7 +48,7 @@ describe('Monitor Agent E2E Integration', () => {
   let setup: ReturnType<typeof createTestSetup>
 
   beforeEach(async () => {
-    setup = createTestSetup()
+    setup = await createTestSetup()
     await setup.agent.initialize()
   })
 
@@ -73,15 +77,15 @@ describe('Monitor Agent E2E Integration', () => {
     expect(count).toBe(1)
 
     // Check the specific record
-    const internal = (monitorDb as unknown as { _db: import('better-sqlite3').Database })._db
-    const row = internal.prepare('SELECT * FROM task_metrics WHERE task_id = ?').get('task-e2e-1') as {
-      task_id: string
-      outcome: string
-      input_tokens: number
-    }
+    const syncAdapter = (monitorDb as unknown as { _syncAdapter: SyncAdapter | null })._syncAdapter
+    if (!syncAdapter) throw new Error('No sync adapter available')
+    const [row] = syncAdapter.querySync<{ task_id: string; outcome: string; input_tokens: number }>(
+      'SELECT * FROM task_metrics WHERE task_id = ?',
+      ['task-e2e-1'],
+    )
     expect(row).toBeDefined()
-    expect(row.task_id).toBe('task-e2e-1')
-    expect(row.outcome).toBe('success')
+    expect(row!.task_id).toBe('task-e2e-1')
+    expect(row!.outcome).toBe('success')
   })
 
   it('task:failed event is recorded with failure reason', () => {
@@ -95,16 +99,16 @@ describe('Monitor Agent E2E Integration', () => {
       },
     })
 
-    const internal = (monitorDb as unknown as { _db: import('better-sqlite3').Database })._db
-    const row = internal.prepare('SELECT * FROM task_metrics WHERE task_id = ?').get('task-e2e-fail') as {
-      task_id: string
-      outcome: string
-      failure_reason: string
-    }
+    const syncAdapter = (monitorDb as unknown as { _syncAdapter: SyncAdapter | null })._syncAdapter
+    if (!syncAdapter) throw new Error('No sync adapter available')
+    const [row] = syncAdapter.querySync<{ task_id: string; outcome: string; failure_reason: string }>(
+      'SELECT * FROM task_metrics WHERE task_id = ?',
+      ['task-e2e-fail'],
+    )
     expect(row).toBeDefined()
-    expect(row.task_id).toBe('task-e2e-fail')
-    expect(row.outcome).toBe('failure')
-    expect(row.failure_reason).toBe('Process exited with non-zero code')
+    expect(row!.task_id).toBe('task-e2e-fail')
+    expect(row!.outcome).toBe('failure')
+    expect(row!.failure_reason).toBe('Process exited with non-zero code')
   })
 
   it('both task:complete and task:failed events create separate records', () => {
@@ -168,14 +172,15 @@ describe('Monitor Agent E2E Integration', () => {
     const { monitorDb } = setup
 
     // Manually insert old record directly to db
-    const internal = (monitorDb as unknown as { _db: import('better-sqlite3').Database })._db
+    const syncAdapter = (monitorDb as unknown as { _syncAdapter: SyncAdapter | null })._syncAdapter
+    if (!syncAdapter) throw new Error('No sync adapter available')
     const oldDate = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString()
 
-    internal.prepare(`
+    syncAdapter.querySync(`
       INSERT INTO task_metrics (task_id, agent, task_type, outcome, input_tokens, output_tokens,
         duration_ms, cost, estimated_cost, billing_mode, recorded_at)
       VALUES ('old-task', 'claude', 'coding', 'success', 100, 200, 500, 0.05, 0.04, 'api', ?)
-    `).run(oldDate)
+    `, [oldDate])
 
     const deleted = monitorDb.pruneOldData(90)
     expect(deleted).toBe(1)
@@ -192,10 +197,11 @@ describe('Monitor Agent E2E Integration', () => {
     const { monitorDb } = setup
 
     // Verify monitor DB has its own tables (not the main DB tables)
-    const internal = (monitorDb as unknown as { _db: import('better-sqlite3').Database })._db
-    const tables = internal
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-      .all() as { name: string }[]
+    const syncAdapter = (monitorDb as unknown as { _syncAdapter: SyncAdapter | null })._syncAdapter
+    if (!syncAdapter) throw new Error('No sync adapter available')
+    const tables = syncAdapter.querySync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+    )
     const tableNames = tables.map((t) => t.name)
 
     // Monitor-specific tables exist

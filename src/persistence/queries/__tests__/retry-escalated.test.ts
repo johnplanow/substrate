@@ -8,8 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../../wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../wasm-sqlite-adapter.js'
 import { initSchema } from '../../schema.js'
 import { createDecision } from '../decisions.js'
 import { getRetryableEscalations } from '../retry-escalated.js'
@@ -20,11 +19,9 @@ import type { EscalationDiagnosis } from '../../../modules/implementation-orches
 // ---------------------------------------------------------------------------
 
 async function openDb() {
-  const db = new Database(':memory:')
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  await initSchema(new SyncDatabaseAdapter(db))
-  return db
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  await initSchema(adapter)
+  return adapter
 }
 
 function makeDiagnosis(recommendedAction: EscalationDiagnosis['recommendedAction']): string {
@@ -44,7 +41,7 @@ function makeDiagnosis(recommendedAction: EscalationDiagnosis['recommendedAction
 }
 
 async function insertDecision(
-  adapter: SyncDatabaseAdapter,
+  adapter: WasmSqliteDatabaseAdapter,
   storyKey: string,
   runId: string,
   recommendedAction: EscalationDiagnosis['recommendedAction'],
@@ -62,25 +59,23 @@ async function insertDecision(
 // ---------------------------------------------------------------------------
 
 describe('getRetryableEscalations', () => {
-  let db: InstanceType<typeof Database>
+  let adapter: WasmSqliteDatabaseAdapter
 
   beforeEach(async () => {
-    db = await openDb()
+    adapter = await openDb()
   })
 
-  afterEach(() => {
-    db.close()
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('returns empty result when no escalation-diagnosis decisions exist', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const result = await getRetryableEscalations(adapter)
     expect(result.retryable).toEqual([])
     expect(result.skipped).toEqual([])
   })
 
   it('AC1: returns retry-targeted stories as retryable', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await insertDecision(adapter, '22-1', 'run-abc', 'retry-targeted')
 
     const result = await getRetryableEscalations(adapter)
@@ -89,7 +84,6 @@ describe('getRetryableEscalations', () => {
   })
 
   it('AC2: excludes human-intervention stories with correct reason', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await insertDecision(adapter, '22-2', 'run-abc', 'human-intervention')
 
     const result = await getRetryableEscalations(adapter)
@@ -98,7 +92,6 @@ describe('getRetryableEscalations', () => {
   })
 
   it('AC2: excludes split-story stories with correct reason', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await insertDecision(adapter, '22-3', 'run-abc', 'split-story')
 
     const result = await getRetryableEscalations(adapter)
@@ -107,7 +100,6 @@ describe('getRetryableEscalations', () => {
   })
 
   it('AC1/AC2: correctly classifies mixed results', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const runId = 'run-mixed'
     await insertDecision(adapter, '22-1', runId, 'retry-targeted')
     await insertDecision(adapter, '22-2', runId, 'human-intervention')
@@ -123,7 +115,6 @@ describe('getRetryableEscalations', () => {
   })
 
   it('AC1: defaults to latest run when no runId provided', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     // Insert decisions for two runs — only latest run's decisions should be returned
     await insertDecision(adapter, '22-1', 'run-old', 'retry-targeted')
     await insertDecision(adapter, '22-2', 'run-new', 'retry-targeted')
@@ -135,7 +126,6 @@ describe('getRetryableEscalations', () => {
   })
 
   it('AC5: scopes to specified run-id when provided', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await insertDecision(adapter, '22-1', 'run-old', 'retry-targeted')
     await insertDecision(adapter, '22-2', 'run-new', 'retry-targeted')
 
@@ -146,7 +136,6 @@ describe('getRetryableEscalations', () => {
   })
 
   it('AC5: returns empty when specified runId has no matching decisions', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await insertDecision(adapter, '22-1', 'run-abc', 'retry-targeted')
 
     const result = await getRetryableEscalations(adapter, 'run-nonexistent')
@@ -155,7 +144,6 @@ describe('getRetryableEscalations', () => {
   })
 
   it('skips decisions with malformed keys (no colon)', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await createDecision(adapter, {
       phase: 'implementation',
       category: 'escalation-diagnosis',
@@ -168,7 +156,6 @@ describe('getRetryableEscalations', () => {
   })
 
   it('skips decisions with malformed JSON values', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     await createDecision(adapter, {
       phase: 'implementation',
       category: 'escalation-diagnosis',
@@ -181,7 +168,6 @@ describe('getRetryableEscalations', () => {
   })
 
   it('deduplicates: last decision per storyKey wins (created_at ASC order)', async () => {
-    const adapter = new SyncDatabaseAdapter(db)
     const runId = 'run-dedup'
     // First insert: retry-targeted
     await insertDecision(adapter, '22-1', runId, 'retry-targeted')

@@ -10,12 +10,11 @@
  *   AC6: Graceful fallback when no story state
  */
 
-import { describe, it, expect } from 'vitest'
-import Database from 'better-sqlite3'
+import { describe, it, expect, afterEach } from 'vitest'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
-import { createAdapterFromSyncDb } from '../../../persistence/wasm-sqlite-adapter.js'
 import {
   buildPipelineStatusOutput,
   formatPipelineStatusHuman,
@@ -25,28 +24,28 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<ReturnType<typeof Database>> {
-  const db = new Database(':memory:')
-  await initSchema(createAdapterFromSyncDb(db))
-  return db
+async function createTestDb(): Promise<WasmSqliteDatabaseAdapter> {
+  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  await initSchema(adapter)
+  return adapter
 }
 
 async function createTestRun(
-  db: ReturnType<typeof Database>,
+  adapter: WasmSqliteDatabaseAdapter,
   overrides: { token_usage_json?: string | null; config_json?: string | null } = {},
 ): Promise<PipelineRun> {
-  const run = await createPipelineRun(createAdapterFromSyncDb(db), {
+  const run = await createPipelineRun(adapter, {
     methodology: 'bmad',
     start_phase: 'analysis',
     config_json: overrides.config_json ?? null,
   })
   if (overrides.token_usage_json !== undefined) {
-    db.prepare(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`).run(
-      overrides.token_usage_json,
-      run.id,
+    adapter.querySync(
+      `UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`,
+      [overrides.token_usage_json, run.id],
     )
   }
-  return db.prepare('SELECT * FROM pipeline_runs WHERE id = ?').get(run.id) as PipelineRun
+  return adapter.querySync<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])[0]!
 }
 
 /** Build a minimal OrchestratorStatus JSON string for token_usage_json */
@@ -70,54 +69,52 @@ function makeStoryState(
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC5+AC6: state deserialization', () => {
+  let adapter: WasmSqliteDatabaseAdapter
+
+  afterEach(async () => {
+    await adapter.close()
+  })
+
   it('AC6: stories is undefined when token_usage_json is null', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, { token_usage_json: null })
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, { token_usage_json: null })
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
     expect(result.stories).toBeUndefined()
-
-    db.close()
   })
 
   it('AC6: stories is undefined when token_usage_json has no stories key', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: JSON.stringify({ state: 'RUNNING', maxConcurrentActual: 1 }),
     })
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
     expect(result.stories).toBeUndefined()
-
-    db.close()
   })
 
   it('AC6: stories is undefined when stories map is empty', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: JSON.stringify({ state: 'RUNNING', stories: {} }),
     })
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
     expect(result.stories).toBeUndefined()
-
-    db.close()
   })
 
   it('AC6: gracefully handles malformed JSON in token_usage_json', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, { token_usage_json: 'NOT_VALID_JSON' })
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, { token_usage_json: 'NOT_VALID_JSON' })
 
     expect(() => buildPipelineStatusOutput(run, [], 0, 0)).not.toThrow()
     const result = buildPipelineStatusOutput(run, [], 0, 0)
     expect(result.stories).toBeUndefined()
-
-    db.close()
   })
 
   it('AC5: deserializes story state from token_usage_json without orchestrator in-process', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'IN_DEV', reviewCycles: 0 },
@@ -129,8 +126,6 @@ describe('buildPipelineStatusOutput — AC5+AC6: state deserialization', () => {
     expect(result.stories).toBeDefined()
     expect(result.stories?.details['22-1']).toBeDefined()
     expect(result.stories?.details['22-2']).toBeDefined()
-
-    db.close()
   })
 })
 
@@ -139,9 +134,15 @@ describe('buildPipelineStatusOutput — AC5+AC6: state deserialization', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC1: per-story details', () => {
+  let adapter: WasmSqliteDatabaseAdapter
+
+  afterEach(async () => {
+    await adapter.close()
+  })
+
   it('stories.details contains phase for each story', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'IN_DEV', reviewCycles: 0 },
@@ -154,13 +155,11 @@ describe('buildPipelineStatusOutput — AC1: per-story details', () => {
     expect(result.stories?.details['22-1'].phase).toBe('COMPLETE')
     expect(result.stories?.details['22-2'].phase).toBe('IN_DEV')
     expect(result.stories?.details['22-3'].phase).toBe('ESCALATED')
-
-    db.close()
   })
 
   it('stories.details contains review_cycles for each story', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 2 },
         '22-2': { phase: 'NEEDS_FIXES', reviewCycles: 1 },
@@ -171,13 +170,11 @@ describe('buildPipelineStatusOutput — AC1: per-story details', () => {
 
     expect(result.stories?.details['22-1'].review_cycles).toBe(2)
     expect(result.stories?.details['22-2'].review_cycles).toBe(1)
-
-    db.close()
   })
 
   it('stories.details keys match story keys in state', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '10-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '10-2': { phase: 'PENDING', reviewCycles: 0 },
@@ -190,8 +187,6 @@ describe('buildPipelineStatusOutput — AC1: per-story details', () => {
     expect(Object.keys(result.stories?.details ?? {})).toEqual(
       expect.arrayContaining(['10-1', '10-2', '10-3']),
     )
-
-    db.close()
   })
 })
 
@@ -200,9 +195,15 @@ describe('buildPipelineStatusOutput — AC1: per-story details', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
+  let adapter: WasmSqliteDatabaseAdapter
+
+  afterEach(async () => {
+    await adapter.close()
+  })
+
   it('counts completed stories (COMPLETE phase)', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'COMPLETE', reviewCycles: 0 },
@@ -213,13 +214,11 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
     expect(result.stories?.completed).toBe(2)
-
-    db.close()
   })
 
   it('counts in_progress stories (IN_* and NEEDS_FIXES phases)', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'IN_STORY_CREATION', reviewCycles: 0 },
         '22-2': { phase: 'IN_DEV', reviewCycles: 0 },
@@ -234,13 +233,11 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
 
     expect(result.stories?.in_progress).toBe(5) // all IN_* + NEEDS_FIXES
     expect(result.stories?.completed).toBe(1)
-
-    db.close()
   })
 
   it('counts escalated stories (ESCALATED phase)', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'ESCALATED', reviewCycles: 3 },
         '22-2': { phase: 'ESCALATED', reviewCycles: 3 },
@@ -251,13 +248,11 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
     expect(result.stories?.escalated).toBe(2)
-
-    db.close()
   })
 
   it('counts pending stories (PENDING phase)', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'PENDING', reviewCycles: 0 },
         '22-2': { phase: 'PENDING', reviewCycles: 0 },
@@ -270,13 +265,11 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
 
     expect(result.stories?.pending).toBe(3)
     expect(result.stories?.in_progress).toBe(1)
-
-    db.close()
   })
 
   it('all four count fields are present even when some are zero', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
       }),
@@ -288,13 +281,11 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
     expect(result.stories?.in_progress).toBe(0)
     expect(result.stories?.escalated).toBe(0)
     expect(result.stories?.pending).toBe(0)
-
-    db.close()
   })
 
   it('mixed state: completed + in_progress + escalated + pending all counted correctly', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'IN_DEV', reviewCycles: 0 },
@@ -310,8 +301,6 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
     expect(result.stories?.in_progress).toBe(2) // IN_DEV + NEEDS_FIXES
     expect(result.stories?.escalated).toBe(1)
     expect(result.stories?.pending).toBe(1)
-
-    db.close()
   })
 })
 
@@ -320,10 +309,16 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
+  let adapter: WasmSqliteDatabaseAdapter
+
+  afterEach(async () => {
+    await adapter.close()
+  })
+
   it('elapsed_seconds is positive for a story that started', async () => {
-    const db = await createTestDb()
+    adapter = await createTestDb()
     const startedAt = new Date(Date.now() - 120_000).toISOString() // 120s ago
-    const run = await createTestRun(db, {
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'IN_DEV', reviewCycles: 0, startedAt },
       }),
@@ -335,13 +330,11 @@ describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
     // Allow ±5s tolerance for test execution
     expect(elapsed).toBeGreaterThanOrEqual(115)
     expect(elapsed).toBeLessThanOrEqual(130)
-
-    db.close()
   })
 
   it('elapsed_seconds is 0 for a story with no startedAt', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'PENDING', reviewCycles: 0 },
       }),
@@ -350,14 +343,12 @@ describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
     expect(result.stories?.details['22-1'].elapsed_seconds).toBe(0)
-
-    db.close()
   })
 
   it('elapsed_seconds is non-negative even for future startedAt (clock skew)', async () => {
-    const db = await createTestDb()
+    adapter = await createTestDb()
     const futureStartedAt = new Date(Date.now() + 60_000).toISOString()
-    const run = await createTestRun(db, {
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'IN_DEV', reviewCycles: 0, startedAt: futureStartedAt },
       }),
@@ -366,14 +357,12 @@ describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
     expect(result.stories?.details['22-1'].elapsed_seconds).toBe(0)
-
-    db.close()
   })
 
   it('elapsed_seconds for a completed story reflects total time when completedAt not used', async () => {
-    const db = await createTestDb()
+    adapter = await createTestDb()
     const startedAt = new Date(Date.now() - 300_000).toISOString() // 5 minutes ago
-    const run = await createTestRun(db, {
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': {
           phase: 'COMPLETE',
@@ -390,8 +379,6 @@ describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
     const elapsed = result.stories?.details['22-1'].elapsed_seconds ?? 0
     expect(elapsed).toBeGreaterThanOrEqual(295)
     expect(elapsed).toBeLessThanOrEqual(310)
-
-    db.close()
   })
 })
 
@@ -400,10 +387,16 @@ describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
+  let adapter: WasmSqliteDatabaseAdapter
+
+  afterEach(async () => {
+    await adapter.close()
+  })
+
   it('shows sprint progress table when stories are present', async () => {
-    const db = await createTestDb()
+    adapter = await createTestDb()
     const startedAt = new Date(Date.now() - 60_000).toISOString()
-    const run = await createTestRun(db, {
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1, startedAt },
         '22-2': { phase: 'IN_DEV', reviewCycles: 0, startedAt },
@@ -418,13 +411,11 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     expect(output).toContain('PHASE')
     expect(output).toContain('CYCLES')
     expect(output).toContain('ELAPSED')
-
-    db.close()
   })
 
   it('shows each story key in the sprint table', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'PENDING', reviewCycles: 0 },
@@ -438,13 +429,11 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     expect(output).toContain('22-1')
     expect(output).toContain('22-2')
     expect(output).toContain('22-3')
-
-    db.close()
   })
 
   it('shows phases in the sprint table', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'IN_REVIEW', reviewCycles: 2 },
@@ -456,13 +445,11 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
 
     expect(output).toContain('COMPLETE')
     expect(output).toContain('IN_REVIEW')
-
-    db.close()
   })
 
   it('shows review cycle count in the sprint table', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 3 },
       }),
@@ -472,14 +459,12 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     const output = formatPipelineStatusHuman(status)
 
     expect(output).toContain('3')
-
-    db.close()
   })
 
   it('shows elapsed time for stories with startedAt', async () => {
-    const db = await createTestDb()
+    adapter = await createTestDb()
     const startedAt = new Date(Date.now() - 90_000).toISOString() // 90s ago
-    const run = await createTestRun(db, {
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'IN_DEV', reviewCycles: 0, startedAt },
       }),
@@ -490,13 +475,11 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
 
     // Should contain a time in seconds (e.g., "85s" to "95s")
     expect(output).toMatch(/\d+s/)
-
-    db.close()
   })
 
   it('shows "-" for elapsed when story has no startedAt', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'PENDING', reviewCycles: 0 },
       }),
@@ -506,13 +489,11 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     const output = formatPipelineStatusHuman(status)
 
     expect(output).toContain('-')
-
-    db.close()
   })
 
   it('shows count summary line at the bottom of sprint table', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
         '22-2': { phase: 'IN_DEV', reviewCycles: 0 },
@@ -528,26 +509,22 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
     expect(output).toContain('In Progress: 1')
     expect(output).toContain('Escalated: 1')
     expect(output).toContain('Pending: 1')
-
-    db.close()
   })
 
   it('does not show sprint table when no story state is available', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db) // no token_usage_json
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter) // no token_usage_json
 
     const status = buildPipelineStatusOutput(run, [], 0, 0)
     const output = formatPipelineStatusHuman(status)
 
     expect(output).not.toContain('Sprint Progress')
     expect(output).not.toContain('STORY')
-
-    db.close()
   })
 
   it('AC4: existing human output fields are still present alongside sprint table', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'COMPLETE', reviewCycles: 1 },
       }),
@@ -568,8 +545,6 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
 
     // Sprint table also present
     expect(output).toContain('Sprint Progress')
-
-    db.close()
   })
 })
 
@@ -578,9 +553,15 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — active_dispatches backward compatibility', () => {
+  let adapter: WasmSqliteDatabaseAdapter
+
+  afterEach(async () => {
+    await adapter.close()
+  })
+
   it('active_dispatches still counts non-terminal stories', async () => {
-    const db = await createTestDb()
-    const run = await createTestRun(db, {
+    adapter = await createTestDb()
+    const run = await createTestRun(adapter, {
       token_usage_json: makeStoryState({
         '22-1': { phase: 'IN_DEV', reviewCycles: 0 },
         '22-2': { phase: 'IN_REVIEW', reviewCycles: 1 },
@@ -594,7 +575,5 @@ describe('buildPipelineStatusOutput — active_dispatches backward compatibility
 
     // IN_DEV + IN_REVIEW = 2 active
     expect(result.active_dispatches).toBe(2)
-
-    db.close()
   })
 })

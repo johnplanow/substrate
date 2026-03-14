@@ -6,13 +6,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import BetterSqlite3 from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { DebatePanelImpl, createDebatePanel } from '../debate-panel-impl.js'
 import type { PerspectiveGeneratorFn } from '../debate-panel-impl.js'
 import type { Perspective, DecisionRequest } from '../types.js'
 import type { Dispatcher } from '../../agent-dispatch/types.js'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
@@ -340,12 +338,10 @@ describe('DebatePanel — Architectural tier (AC6)', () => {
 // ---------------------------------------------------------------------------
 
 describe('DebatePanel — Decision Persistence (AC7)', () => {
-  let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
-    db = new BetterSqlite3(':memory:')
-    adapter = new SyncDatabaseAdapter(db)
+    adapter = await createWasmSqliteAdapter()
     await initSchema(adapter)
   })
 
@@ -361,7 +357,7 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
     })
     await panel.decide({ ...BASE_REQUEST, tier: 'routine' })
 
-    const rows = db.prepare("SELECT * FROM decisions WHERE category = 'debate-panel'").all() as Record<string, unknown>[]
+    const rows = await adapter.query<Record<string, unknown>>("SELECT * FROM decisions WHERE category = 'debate-panel'")
     expect(rows).toHaveLength(1)
     expect(rows[0]?.value).toBe('Use TypeScript')
     expect(rows[0]?.category).toBe('debate-panel')
@@ -379,7 +375,7 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
     })
     await panel.decide({ ...BASE_REQUEST, tier: 'routine' })
 
-    const rows = db.prepare("SELECT * FROM decisions WHERE category = 'debate-panel'").all() as Record<string, unknown>[]
+    const rows = await adapter.query<Record<string, unknown>>("SELECT * FROM decisions WHERE category = 'debate-panel'")
     const rationale = JSON.parse(rows[0]?.rationale as string)
     expect(rationale.tier).toBe('routine')
     expect(Array.isArray(rationale.perspectives)).toBe(true)
@@ -397,7 +393,7 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
     })
     await panel.decide({ ...BASE_REQUEST, tier: 'routine', key: 'my-custom-key' })
 
-    const rows = db.prepare("SELECT * FROM decisions WHERE key = 'my-custom-key'").all() as Record<string, unknown>[]
+    const rows = await adapter.query<Record<string, unknown>>("SELECT * FROM decisions WHERE key = 'my-custom-key'")
     expect(rows).toHaveLength(1)
   })
 
@@ -413,7 +409,7 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
     })
     await panel.decide({ ...BASE_REQUEST, tier: 'routine', phase: 'planning' })
 
-    const rows = db.prepare("SELECT * FROM decisions WHERE phase = 'planning'").all() as Record<string, unknown>[]
+    const rows = await adapter.query<Record<string, unknown>>("SELECT * FROM decisions WHERE phase = 'planning'")
     expect(rows).toHaveLength(1)
   })
 
@@ -445,7 +441,7 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
     })
     await panel.decide({ ...BASE_REQUEST, tier: 'significant' })
 
-    const rows = db.prepare("SELECT * FROM decisions WHERE category = 'debate-panel'").all() as Record<string, unknown>[]
+    const rows = await adapter.query<Record<string, unknown>>("SELECT * FROM decisions WHERE category = 'debate-panel'")
     expect(rows).toHaveLength(1)
     const rationale = JSON.parse(rows[0]?.rationale as string)
     expect(rationale.tier).toBe('significant')

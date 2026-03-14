@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
@@ -127,8 +127,8 @@ const mockGetDecisionsByCategory = vi.mocked(getDecisionsByCategory)
 // Factory helpers
 // ---------------------------------------------------------------------------
 
-function createMockDb(): BetterSqlite3Database {
-  return {} as BetterSqlite3Database
+function createMockDb(): DatabaseAdapter {
+  return {} as DatabaseAdapter
 }
 
 function createMockPack(): MethodologyPack {
@@ -264,7 +264,7 @@ function makeContractDecision(
 // ---------------------------------------------------------------------------
 
 describe('AC5: orchestrator logs contract dependency edges when detected', () => {
-  let db: BetterSqlite3Database
+  let db: DatabaseAdapter
   let pack: MethodologyPack
   let contextCompiler: ContextCompiler
   let dispatcher: Dispatcher

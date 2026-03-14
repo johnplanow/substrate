@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
@@ -95,8 +95,8 @@ const mockRunBuildVerification = vi.mocked(runBuildVerification)
 // Mock factories
 // ---------------------------------------------------------------------------
 
-function createMockDb(): BetterSqlite3Database {
-  return {} as BetterSqlite3Database
+function createMockDb(): DatabaseAdapter {
+  return {} as DatabaseAdapter
 }
 
 function createMockPack(overrides?: Partial<{ verifyCommand: string | false; verifyTimeoutMs: number }>): MethodologyPack {
@@ -205,7 +205,7 @@ function makeCodeReviewShipIt() {
 // ---------------------------------------------------------------------------
 
 describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
-  let db: BetterSqlite3Database
+  let db: DatabaseAdapter
   let pack: MethodologyPack
   let contextCompiler: ContextCompiler
   let dispatcher: Dispatcher

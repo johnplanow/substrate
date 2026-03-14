@@ -2,10 +2,9 @@
  * AdapterTelemetryPersistence — DatabaseAdapter-backed persistence for telemetry data.
  *
  * Implements ITelemetryPersistence using the generic DatabaseAdapter interface
- * (async query/exec/transaction) instead of raw better-sqlite3 prepared statements.
+ * (async query/exec/transaction).
  *
- * This enables telemetry persistence on any backend (Dolt, InMemory, or legacy
- * SQLite via LegacySqliteAdapter) without a direct better-sqlite3 dependency.
+ * This enables telemetry persistence on any backend (Dolt, InMemory, or WASM SQLite).
  *
  * SQL conversions from the original TelemetryPersistence:
  *  - INSERT OR REPLACE → DELETE + INSERT (adapter-compatible across all backends)

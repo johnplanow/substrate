@@ -10,9 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import BetterSqlite3 from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { SyncDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun, getDecisionsByCategory } from '../../../persistence/queries/decisions.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
@@ -116,14 +114,11 @@ function createMockEventBus(): TypedEventBus {
 // ---------------------------------------------------------------------------
 
 describe('Smoke: orchestrator writes story-metrics decision through real DB', () => {
-  let db: BetterSqlite3Database
-  let adapter: DatabaseAdapter
+  let adapter: WasmSqliteDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
-    db = new BetterSqlite3(':memory:')
-    db.pragma('foreign_keys = ON')
-    adapter = new SyncDatabaseAdapter(db)
+    adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
     await initSchema(adapter)
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     runId = run.id

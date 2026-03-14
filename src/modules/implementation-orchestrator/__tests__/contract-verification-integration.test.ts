@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
@@ -105,8 +105,8 @@ const mockVerifyContracts = vi.mocked(verifyContracts)
 // Mock factories
 // ---------------------------------------------------------------------------
 
-function createMockDb(): BetterSqlite3Database {
-  return {} as BetterSqlite3Database
+function createMockDb(): DatabaseAdapter {
+  return {} as DatabaseAdapter
 }
 
 function createMockPack(): MethodologyPack {
@@ -225,7 +225,7 @@ function makeContractMismatch(overrides?: object) {
 // ---------------------------------------------------------------------------
 
 describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
-  let db: BetterSqlite3Database
+  let db: DatabaseAdapter
   let pack: MethodologyPack
   let contextCompiler: ContextCompiler
   let dispatcher: Dispatcher
