@@ -41,12 +41,12 @@ export interface TaskMetrics {
  * Monitor agent — collects and persists task execution metrics automatically.
  *
  * Subscribes to `task:complete` and `task:failed` events via the event bus
- * and records metrics to a dedicated SQLite database (monitor.db).
+ * and records metrics to the shared database (Dolt or in-memory).
  */
 export interface MonitorAgent extends BaseService {
   /**
    * Record metrics for a completed or failed task.
-   * Executes synchronously using better-sqlite3 to ensure zero latency impact
+   * Executes synchronously using SyncAdapter to ensure zero latency impact
    * on the task execution pipeline (NFR22).
    */
   recordTaskMetrics(

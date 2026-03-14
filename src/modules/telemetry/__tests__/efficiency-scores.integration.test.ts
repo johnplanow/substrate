@@ -1,15 +1,15 @@
 /**
  * Integration tests for TelemetryPersistence efficiency_scores.
  *
- * Uses better-sqlite3 in-memory (`:memory:`) database with schema applied
- * before each test. No real Dolt binary required.
+ * Uses WASM SQLite (sql.js) in-memory database with schema applied
+ * before each test. No better-sqlite3 or real Dolt binary required.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 
 import { TelemetryPersistence } from '../persistence.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
+import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import type {
   EfficiencyScore,
   ModelEfficiency,
@@ -24,88 +24,12 @@ import type {
 // Test database setup
 // ---------------------------------------------------------------------------
 
-function createTestDb(): BetterSqlite3Database {
-  const db = new Database(':memory:')
-  // Apply schema DDL directly so tables exist before TelemetryPersistence
-  // prepares its statements in the constructor.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS turn_analysis (
-      story_key         VARCHAR(64)    NOT NULL,
-      span_id           VARCHAR(128)   NOT NULL,
-      turn_number       INTEGER        NOT NULL,
-      name              VARCHAR(255)   NOT NULL DEFAULT '',
-      timestamp         BIGINT         NOT NULL DEFAULT 0,
-      source            VARCHAR(32)    NOT NULL DEFAULT '',
-      model             VARCHAR(64),
-      input_tokens      INTEGER        NOT NULL DEFAULT 0,
-      output_tokens     INTEGER        NOT NULL DEFAULT 0,
-      cache_read_tokens INTEGER        NOT NULL DEFAULT 0,
-      fresh_tokens      INTEGER        NOT NULL DEFAULT 0,
-      cache_hit_rate    DOUBLE         NOT NULL DEFAULT 0,
-      cost_usd          DOUBLE         NOT NULL DEFAULT 0,
-      duration_ms       INTEGER        NOT NULL DEFAULT 0,
-      context_size      INTEGER        NOT NULL DEFAULT 0,
-      context_delta     INTEGER        NOT NULL DEFAULT 0,
-      tool_name         VARCHAR(128),
-      is_context_spike  BOOLEAN        NOT NULL DEFAULT 0,
-      child_spans_json  TEXT           NOT NULL DEFAULT '[]',
-      PRIMARY KEY (story_key, span_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS efficiency_scores (
-      story_key                     VARCHAR(64)  NOT NULL,
-      timestamp                     BIGINT       NOT NULL,
-      composite_score               INTEGER      NOT NULL DEFAULT 0,
-      cache_hit_sub_score           DOUBLE       NOT NULL DEFAULT 0,
-      io_ratio_sub_score            DOUBLE       NOT NULL DEFAULT 0,
-      context_management_sub_score  DOUBLE       NOT NULL DEFAULT 0,
-      avg_cache_hit_rate            DOUBLE       NOT NULL DEFAULT 0,
-      avg_io_ratio                  DOUBLE       NOT NULL DEFAULT 0,
-      context_spike_count           INTEGER      NOT NULL DEFAULT 0,
-      total_turns                   INTEGER      NOT NULL DEFAULT 0,
-      per_model_json                TEXT         NOT NULL DEFAULT '[]',
-      per_source_json               TEXT         NOT NULL DEFAULT '[]',
-      PRIMARY KEY (story_key, timestamp)
-    );
-
-    CREATE TABLE IF NOT EXISTS recommendations (
-      id                       VARCHAR(16)   NOT NULL,
-      story_key                VARCHAR(64)   NOT NULL,
-      sprint_id                VARCHAR(64),
-      rule_id                  VARCHAR(64)   NOT NULL,
-      severity                 VARCHAR(16)   NOT NULL,
-      title                    TEXT          NOT NULL,
-      description              TEXT          NOT NULL,
-      potential_savings_tokens INTEGER,
-      potential_savings_usd    DOUBLE,
-      action_target            TEXT,
-      generated_at             VARCHAR(32)   NOT NULL,
-      PRIMARY KEY (id)
-    );
-
-    CREATE TABLE IF NOT EXISTS category_stats (
-      story_key            VARCHAR(100)   NOT NULL,
-      category             VARCHAR(30)    NOT NULL,
-      total_tokens         BIGINT         NOT NULL DEFAULT 0,
-      percentage           DECIMAL(6,3)   NOT NULL DEFAULT 0,
-      event_count          INTEGER        NOT NULL DEFAULT 0,
-      avg_tokens_per_event DECIMAL(12,2)  NOT NULL DEFAULT 0,
-      trend                VARCHAR(10)    NOT NULL DEFAULT 'stable',
-      PRIMARY KEY (story_key, category)
-    );
-
-    CREATE TABLE IF NOT EXISTS consumer_stats (
-      story_key            VARCHAR(100)   NOT NULL,
-      consumer_key         VARCHAR(300)   NOT NULL,
-      category             VARCHAR(30)    NOT NULL,
-      total_tokens         BIGINT         NOT NULL DEFAULT 0,
-      percentage           DECIMAL(6,3)   NOT NULL DEFAULT 0,
-      event_count          INTEGER        NOT NULL DEFAULT 0,
-      top_invocations_json TEXT,
-      PRIMARY KEY (story_key, consumer_key)
-    );
-  `)
-  return db
+async function createTestAdapter(): Promise<DatabaseAdapter> {
+  const adapter = await createWasmSqliteAdapter()
+  // Apply the telemetry schema
+  const persistence = new TelemetryPersistence(adapter)
+  await persistence.initSchema()
+  return adapter
 }
 
 // ---------------------------------------------------------------------------
@@ -144,12 +68,16 @@ function makeEfficiencyScore(overrides: Partial<EfficiencyScore> = {}): Efficien
 // ---------------------------------------------------------------------------
 
 describe('TelemetryPersistence efficiency_scores', () => {
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let persistence: TelemetryPersistence
 
-  beforeEach(() => {
-    db = createTestDb()
-    persistence = new TelemetryPersistence(db)
+  beforeEach(async () => {
+    adapter = await createTestAdapter()
+    persistence = new TelemetryPersistence(adapter)
+  })
+
+  afterEach(async () => {
+    await adapter.close()
   })
 
   describe('storeEfficiencyScore / getEfficiencyScore', () => {
@@ -230,10 +158,11 @@ describe('TelemetryPersistence efficiency_scores', () => {
       expect(retrieved!.compositeScore).toBe(99)
 
       // Confirm exactly one row exists in the DB for this story+timestamp
-      const rowCount = (db as import('better-sqlite3').Database)
-        .prepare(`SELECT COUNT(*) as cnt FROM efficiency_scores WHERE story_key = ? AND timestamp = ?`)
-        .get('27-6', SHARED_TIMESTAMP) as { cnt: number }
-      expect(rowCount.cnt).toBe(1)
+      const rows = await adapter.query<{ cnt: number }>(
+        `SELECT COUNT(*) as cnt FROM efficiency_scores WHERE story_key = ? AND timestamp = ?`,
+        ['27-6', SHARED_TIMESTAMP],
+      )
+      expect(rows[0]!.cnt).toBe(1)
     })
 
     it('should return the most recent score when multiple timestamps exist for same story', async () => {
@@ -300,12 +229,16 @@ function makeRecommendation(overrides: Partial<Recommendation> = {}): Recommenda
 }
 
 describe('TelemetryPersistence recommendations', () => {
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let persistence: TelemetryPersistence
 
-  beforeEach(() => {
-    db = createTestDb()
-    persistence = new TelemetryPersistence(db)
+  beforeEach(async () => {
+    adapter = await createTestAdapter()
+    persistence = new TelemetryPersistence(adapter)
+  })
+
+  afterEach(async () => {
+    await adapter.close()
   })
 
   describe('saveRecommendations / getRecommendations', () => {
@@ -448,12 +381,16 @@ function makeCategoryStats(overrides: Partial<CategoryStats> = {}): CategoryStat
 }
 
 describe('TelemetryPersistence category_stats', () => {
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let persistence: TelemetryPersistence
 
-  beforeEach(() => {
-    db = createTestDb()
-    persistence = new TelemetryPersistence(db)
+  beforeEach(async () => {
+    adapter = await createTestAdapter()
+    persistence = new TelemetryPersistence(adapter)
+  })
+
+  afterEach(async () => {
+    await adapter.close()
   })
 
   describe('storeCategoryStats / getCategoryStats', () => {
@@ -593,12 +530,16 @@ function makeConsumerStats(overrides: Partial<ConsumerStats> = {}): ConsumerStat
 }
 
 describe('TelemetryPersistence consumer_stats', () => {
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let persistence: TelemetryPersistence
 
-  beforeEach(() => {
-    db = createTestDb()
-    persistence = new TelemetryPersistence(db)
+  beforeEach(async () => {
+    adapter = await createTestAdapter()
+    persistence = new TelemetryPersistence(adapter)
+  })
+
+  afterEach(async () => {
+    await adapter.close()
   })
 
   describe('storeConsumerStats / getConsumerStats', () => {
@@ -641,11 +582,12 @@ describe('TelemetryPersistence consumer_stats', () => {
     })
 
     it('should handle null topInvocations gracefully (deserializes as [])', async () => {
-      // Directly insert a row with NULL top_invocations_json
-      db.prepare(
+      // Directly insert a row with NULL top_invocations_json via adapter
+      await adapter.query(
         `INSERT INTO consumer_stats (story_key, consumer_key, category, total_tokens, percentage, event_count, top_invocations_json)
          VALUES (?, ?, ?, ?, ?, ?, NULL)`,
-      ).run('27-5', 'null_test|', 'other', 100, 1.0, 1)
+        ['27-5', 'null_test|', 'other', 100, 1.0, 1],
+      )
 
       const retrieved = await persistence.getConsumerStats('27-5')
       expect(retrieved).toHaveLength(1)

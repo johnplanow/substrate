@@ -8,7 +8,7 @@
  *  - Make ZERO LLM calls (FR69) — pure statistical processing
  *
  * Architecture constraints:
- *  - Uses better-sqlite3 synchronous API for zero-latency writes (NFR22)
+ *  - Uses synchronous DatabaseAdapter (SyncAdapter) for zero-latency writes (NFR22)
  *  - All event subscriptions use synchronous handlers
  *  - Depends on TypedEventBus, MonitorDatabase, and TaskTypeClassifier
  */
@@ -174,7 +174,7 @@ export class MonitorAgentImpl implements MonitorAgent {
 
   /**
    * Record metrics for a completed or failed task.
-   * Executes synchronously (better-sqlite3) for zero-latency impact (NFR22).
+   * Executes synchronously (SyncAdapter) for zero-latency impact (NFR22).
    */
   recordTaskMetrics(
     taskId: string,

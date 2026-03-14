@@ -11,7 +11,9 @@
  *     (e.g. the WASM mock in src/__mocks__/better-sqlite3.ts)
  */
 
-import type { DatabaseAdapter } from './adapter.js'
+import type { DatabaseAdapter, SyncAdapter } from './adapter.js'
+export type { SyncAdapter } from './adapter.js'
+export { isSyncAdapter } from './adapter.js'
 
 // sql.js types (dynamic import — no compile-time dependency)
 interface SqlJsDatabase {
@@ -32,7 +34,7 @@ interface SqlJsStatement {
 // WasmSqliteDatabaseAdapter
 // ---------------------------------------------------------------------------
 
-export class WasmSqliteDatabaseAdapter implements DatabaseAdapter {
+export class WasmSqliteDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
   private _db: SqlJsDatabase | null
 
   constructor(db: SqlJsDatabase) {
@@ -46,7 +48,8 @@ export class WasmSqliteDatabaseAdapter implements DatabaseAdapter {
     return this._db
   }
 
-  async query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
+  // Synchronous query path (implements SyncAdapter)
+  querySync<T = unknown>(sql: string, params?: unknown[]): T[] {
     const db = this._assertOpen()
     const stmt = db.prepare(sql)
     try {
@@ -63,9 +66,18 @@ export class WasmSqliteDatabaseAdapter implements DatabaseAdapter {
     }
   }
 
-  async exec(sql: string): Promise<void> {
+  // Synchronous exec path (implements SyncAdapter)
+  execSync(sql: string): void {
     const db = this._assertOpen()
     db.exec(sql)
+  }
+
+  async query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
+    return this.querySync<T>(sql, params)
+  }
+
+  async exec(sql: string): Promise<void> {
+    this.execSync(sql)
   }
 
   async transaction<T>(fn: (adapter: DatabaseAdapter) => Promise<T>): Promise<T> {
@@ -133,14 +145,15 @@ interface SyncDatabaseLike {
  *
  * This replaces SqliteDatabaseAdapter for use with the WASM mock.
  */
-export class SyncDatabaseAdapter implements DatabaseAdapter {
+export class SyncDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
   private readonly _db: SyncDatabaseLike
 
   constructor(db: SyncDatabaseLike) {
     this._db = db
   }
 
-  async query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
+  // Synchronous query path (implements SyncAdapter)
+  querySync<T = unknown>(sql: string, params?: unknown[]): T[] {
     const stmt = this._db.prepare(sql)
     if (stmt.reader) {
       return (params && params.length > 0 ? stmt.all(...params) : stmt.all()) as T[]
@@ -153,8 +166,17 @@ export class SyncDatabaseAdapter implements DatabaseAdapter {
     return []
   }
 
-  async exec(sql: string): Promise<void> {
+  // Synchronous exec path (implements SyncAdapter)
+  execSync(sql: string): void {
     this._db.exec(sql)
+  }
+
+  async query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
+    return this.querySync<T>(sql, params)
+  }
+
+  async exec(sql: string): Promise<void> {
+    this.execSync(sql)
   }
 
   async transaction<T>(fn: (adapter: DatabaseAdapter) => Promise<T>): Promise<T> {

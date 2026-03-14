@@ -75,9 +75,9 @@ async function createTempProject(): Promise<{ projectRoot: string; adapter: Data
   const dbDir = join(projectRoot, '.substrate')
   mkdirSync(dbDir, { recursive: true })
 
-  // Create placeholder file so existsSync(dbPath) passes in metrics.ts.
-  const dbPath = join(dbDir, 'substrate.db')
-  writeFileSync(dbPath, '')
+  // Create placeholder .dolt dir so existsSync(doltStateDir) passes in metrics.ts.
+  const doltStateDir = join(dbDir, 'state', '.dolt')
+  mkdirSync(doltStateDir, { recursive: true })
 
   const adapter = await createWasmSqliteAdapter()
   await realInitSchema(adapter)

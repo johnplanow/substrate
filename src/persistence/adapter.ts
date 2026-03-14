@@ -2,7 +2,9 @@
  * DatabaseAdapter — unified async interface for all persistence backends.
  *
  * Implementations:
- *  - LegacySqliteAdapter (inline): wraps better-sqlite3 (synchronous ops wrapped in promises)
+ *  - LegacySqliteAdapter (inline): wraps any better-sqlite3-API-compatible sync database.
+ *    In tests the vitest alias maps `better-sqlite3` to a WASM (sql.js) mock.
+ *    Production callers should use 'auto' or 'dolt' backends instead.
  *  - DoltDatabaseAdapter: delegates to DoltClient (async mysql2 or CLI)
  *  - InMemoryDatabaseAdapter: in-memory Maps (for CI / unit tests)
  *
@@ -24,6 +26,23 @@ const logger = createLogger('persistence:adapter')
 // ---------------------------------------------------------------------------
 // DatabaseAdapter interface
 // ---------------------------------------------------------------------------
+
+/**
+ * Optional synchronous query extension for adapters backed by synchronous engines
+ * (e.g., sql.js WASM, LegacySqliteAdapter). Consumers that require a synchronous
+ * interface (like MonitorDatabaseImpl) use this to avoid async cascades.
+ */
+export interface SyncAdapter {
+  /** Execute a SQL query synchronously and return typed rows. */
+  querySync<T = unknown>(sql: string, params?: unknown[]): T[]
+  /** Execute a SQL statement synchronously (DDL/DML). */
+  execSync(sql: string): void
+}
+
+/** Type guard: check if a DatabaseAdapter also implements SyncAdapter. */
+export function isSyncAdapter(adapter: DatabaseAdapter): adapter is DatabaseAdapter & SyncAdapter {
+  return typeof (adapter as DatabaseAdapter & SyncAdapter).querySync === 'function'
+}
 
 /**
  * Unified async database adapter interface.
@@ -67,7 +86,8 @@ export interface DatabaseAdapter {
 export interface DatabaseAdapterConfig {
   /**
    * Which backend to use.
-   * - 'sqlite': wrap an existing better-sqlite3 database file
+   * - 'sqlite': test-only path — uses the vitest-aliased WASM mock.
+   *   Throws at runtime in production (better-sqlite3 was removed in Epic 29).
    * - 'dolt': connect via DoltClient (mysql2 socket or CLI fallback)
    * - 'memory': in-memory Maps, no persistence (ideal for CI / unit tests)
    * - 'auto': detect Dolt availability; fall back to 'memory' if not available
@@ -77,7 +97,7 @@ export interface DatabaseAdapterConfig {
   /** Project root used for Dolt auto-detection and as the Dolt repo path. */
   basePath?: string
 
-  /** For 'sqlite' backend: path to the SQLite database file (default ':memory:'). */
+  /** For 'sqlite' backend (test-only): path to the SQLite database file (default ':memory:'). */
   databasePath?: string
 }
 
@@ -99,15 +119,16 @@ function isDoltAvailable(basePath: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// LegacySqliteAdapter — inline adapter for the 'sqlite' backend path.
-// Replaces the deleted SqliteDatabaseAdapter import.
+// LegacySqliteAdapter — wraps any better-sqlite3-API-compatible sync database.
+// In tests the vitest alias maps `better-sqlite3` to the WASM (sql.js) mock,
+// so the require() below resolves without the native C++ addon.
 // ---------------------------------------------------------------------------
 
-/** Inline legacy adapter for the sqlite backend path. */
-class LegacySqliteAdapter implements DatabaseAdapter {
+/** Wraps a better-sqlite3-API-compatible database. Implements SyncAdapter for sync callers. */
+export class LegacySqliteAdapter implements DatabaseAdapter, SyncAdapter {
   private readonly _db: any
   constructor(db: any) { this._db = db }
-  async query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
+  querySync<T = unknown>(sql: string, params?: unknown[]): T[] {
     const stmt = this._db.prepare(sql)
     if (stmt.reader) {
       return (params && params.length > 0 ? stmt.all(...params) : stmt.all()) as T[]
@@ -115,7 +136,11 @@ class LegacySqliteAdapter implements DatabaseAdapter {
     if (params && params.length > 0) { stmt.run(...params) } else { stmt.run() }
     return []
   }
-  async exec(sql: string): Promise<void> { this._db.exec(sql) }
+  execSync(sql: string): void { this._db.exec(sql) }
+  async query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
+    return this.querySync<T>(sql, params)
+  }
+  async exec(sql: string): Promise<void> { this.execSync(sql) }
   async transaction<T>(fn: (adapter: DatabaseAdapter) => Promise<T>): Promise<T> {
     this._db.exec('BEGIN')
     try {
@@ -145,9 +170,12 @@ export function createDatabaseAdapter(config: DatabaseAdapterConfig = { backend:
   const basePath = config.basePath ?? process.cwd()
 
   if (backend === 'sqlite') {
-    // Dynamically require better-sqlite3 to avoid import-time side effects
+    // In tests, vitest alias + tsconfig paths redirect `better-sqlite3` to the
+    // WASM mock (src/__mocks__/better-sqlite3.ts). In production this require()
+    // will throw because better-sqlite3 was removed in Epic 29-8.
+    // Production callers should use 'auto' or 'dolt' instead.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const BetterSqlite3 = require('better-sqlite3')
+    const BetterSqlite3 = require('better-sqlite3') as { new(path: string): unknown }
     const db = new BetterSqlite3(config.databasePath ?? ':memory:')
     return new LegacySqliteAdapter(db)
   }

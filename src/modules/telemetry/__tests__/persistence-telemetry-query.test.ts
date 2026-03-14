@@ -6,100 +6,25 @@
  * - getEfficiencyScore(storyKey) — returns correct record and null for unknown key
  * - getAllRecommendations(limit?) — ordering: critical first, then by savings DESC
  *
- * Uses real in-memory SQLite seeded with fixture rows. No real Dolt required.
+ * Uses WASM SQLite (sql.js) in-memory database. No real Dolt required.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
-import Database from 'better-sqlite3'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 
 import { TelemetryPersistence } from '../persistence.js'
+import type { DatabaseAdapter } from '../../../persistence/adapter.js'
+import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
 import type { EfficiencyScore, ModelEfficiency, SourceEfficiency, Recommendation } from '../types.js'
 
 // ---------------------------------------------------------------------------
-// Test database setup (shared schema DDL)
+// Test database setup
 // ---------------------------------------------------------------------------
 
-function createTestDb(): BetterSqlite3Database {
-  const db = new Database(':memory:')
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS turn_analysis (
-      story_key         VARCHAR(64)    NOT NULL,
-      span_id           VARCHAR(128)   NOT NULL,
-      turn_number       INTEGER        NOT NULL,
-      name              VARCHAR(255)   NOT NULL DEFAULT '',
-      timestamp         BIGINT         NOT NULL DEFAULT 0,
-      source            VARCHAR(32)    NOT NULL DEFAULT '',
-      model             VARCHAR(64),
-      input_tokens      INTEGER        NOT NULL DEFAULT 0,
-      output_tokens     INTEGER        NOT NULL DEFAULT 0,
-      cache_read_tokens INTEGER        NOT NULL DEFAULT 0,
-      fresh_tokens      INTEGER        NOT NULL DEFAULT 0,
-      cache_hit_rate    DOUBLE         NOT NULL DEFAULT 0,
-      cost_usd          DOUBLE         NOT NULL DEFAULT 0,
-      duration_ms       INTEGER        NOT NULL DEFAULT 0,
-      context_size      INTEGER        NOT NULL DEFAULT 0,
-      context_delta     INTEGER        NOT NULL DEFAULT 0,
-      tool_name         VARCHAR(128),
-      is_context_spike  BOOLEAN        NOT NULL DEFAULT 0,
-      child_spans_json  TEXT           NOT NULL DEFAULT '[]',
-      PRIMARY KEY (story_key, span_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS efficiency_scores (
-      story_key                     VARCHAR(64)  NOT NULL,
-      timestamp                     BIGINT       NOT NULL,
-      composite_score               INTEGER      NOT NULL DEFAULT 0,
-      cache_hit_sub_score           DOUBLE       NOT NULL DEFAULT 0,
-      io_ratio_sub_score            DOUBLE       NOT NULL DEFAULT 0,
-      context_management_sub_score  DOUBLE       NOT NULL DEFAULT 0,
-      avg_cache_hit_rate            DOUBLE       NOT NULL DEFAULT 0,
-      avg_io_ratio                  DOUBLE       NOT NULL DEFAULT 0,
-      context_spike_count           INTEGER      NOT NULL DEFAULT 0,
-      total_turns                   INTEGER      NOT NULL DEFAULT 0,
-      per_model_json                TEXT         NOT NULL DEFAULT '[]',
-      per_source_json               TEXT         NOT NULL DEFAULT '[]',
-      PRIMARY KEY (story_key, timestamp)
-    );
-
-    CREATE TABLE IF NOT EXISTS recommendations (
-      id                       VARCHAR(16)   NOT NULL,
-      story_key                VARCHAR(64)   NOT NULL,
-      sprint_id                VARCHAR(64),
-      rule_id                  VARCHAR(64)   NOT NULL,
-      severity                 VARCHAR(16)   NOT NULL,
-      title                    TEXT          NOT NULL,
-      description              TEXT          NOT NULL,
-      potential_savings_tokens INTEGER,
-      potential_savings_usd    DOUBLE,
-      action_target            TEXT,
-      generated_at             VARCHAR(32)   NOT NULL,
-      PRIMARY KEY (id)
-    );
-
-    CREATE TABLE IF NOT EXISTS category_stats (
-      story_key            VARCHAR(100)   NOT NULL,
-      category             VARCHAR(30)    NOT NULL,
-      total_tokens         BIGINT         NOT NULL DEFAULT 0,
-      percentage           DECIMAL(6,3)   NOT NULL DEFAULT 0,
-      event_count          INTEGER        NOT NULL DEFAULT 0,
-      avg_tokens_per_event DECIMAL(12,2)  NOT NULL DEFAULT 0,
-      trend                VARCHAR(10)    NOT NULL DEFAULT 'stable',
-      PRIMARY KEY (story_key, category)
-    );
-
-    CREATE TABLE IF NOT EXISTS consumer_stats (
-      story_key            VARCHAR(100)   NOT NULL,
-      consumer_key         VARCHAR(300)   NOT NULL,
-      category             VARCHAR(30)    NOT NULL,
-      total_tokens         BIGINT         NOT NULL DEFAULT 0,
-      percentage           DECIMAL(6,3)   NOT NULL DEFAULT 0,
-      event_count          INTEGER        NOT NULL DEFAULT 0,
-      top_invocations_json TEXT,
-      PRIMARY KEY (story_key, consumer_key)
-    );
-  `)
-  return db
+async function createTestAdapter(): Promise<DatabaseAdapter> {
+  const adapter = await createWasmSqliteAdapter()
+  const persistence = new TelemetryPersistence(adapter)
+  await persistence.initSchema()
+  return adapter
 }
 
 // ---------------------------------------------------------------------------
@@ -149,12 +74,16 @@ function makeRecommendation(overrides: Partial<Recommendation> = {}): Recommenda
 // ---------------------------------------------------------------------------
 
 describe('TelemetryPersistence — getEfficiencyScores', () => {
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let persistence: TelemetryPersistence
 
-  beforeEach(() => {
-    db = createTestDb()
-    persistence = new TelemetryPersistence(db)
+  beforeEach(async () => {
+    adapter = await createTestAdapter()
+    persistence = new TelemetryPersistence(adapter)
+  })
+
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('should return empty array when no scores exist', async () => {
@@ -237,12 +166,16 @@ describe('TelemetryPersistence — getEfficiencyScores', () => {
 // ---------------------------------------------------------------------------
 
 describe('TelemetryPersistence — getEfficiencyScore (single story lookup)', () => {
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let persistence: TelemetryPersistence
 
-  beforeEach(() => {
-    db = createTestDb()
-    persistence = new TelemetryPersistence(db)
+  beforeEach(async () => {
+    adapter = await createTestAdapter()
+    persistence = new TelemetryPersistence(adapter)
+  })
+
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('should return null for unknown story key', async () => {
@@ -277,12 +210,16 @@ describe('TelemetryPersistence — getEfficiencyScore (single story lookup)', ()
 // ---------------------------------------------------------------------------
 
 describe('TelemetryPersistence — getAllRecommendations', () => {
-  let db: BetterSqlite3Database
+  let adapter: DatabaseAdapter
   let persistence: TelemetryPersistence
 
-  beforeEach(() => {
-    db = createTestDb()
-    persistence = new TelemetryPersistence(db)
+  beforeEach(async () => {
+    adapter = await createTestAdapter()
+    persistence = new TelemetryPersistence(adapter)
+  })
+
+  afterEach(async () => {
+    await adapter.close()
   })
 
   it('should return empty array when no recommendations exist', async () => {

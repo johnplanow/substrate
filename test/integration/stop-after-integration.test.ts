@@ -17,7 +17,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { runMigrations } from '../../src/persistence/migrations/index.js'
 import {
   createPipelineRun,
   updatePipelineRun,
@@ -32,17 +31,18 @@ import {
 } from '../../src/modules/stop-after/index.js'
 import type { PhaseName } from '../../src/modules/stop-after/index.js'
 import { createPhaseOrchestrator } from '../../src/modules/phase-orchestrator/index.js'
-import { SqliteDatabaseAdapter } from '../../src/persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../src/persistence/schema.js'
 import type { DatabaseAdapter } from '../../src/persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // In-memory DB helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
+async function createTestDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
   const db = new Database(':memory:')
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter }
 }
 
@@ -84,7 +84,7 @@ function makeMockPack() {
 
 describe('Integration: DB status transitions on stop-after', () => {
   it('updatePipelineRun sets status to "stopped" and persists it (AC4)', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     // Simulate what auto.ts does after gate.shouldHalt() returns true
@@ -98,7 +98,7 @@ describe('Integration: DB status transitions on stop-after', () => {
   })
 
   it('status transitions: running -> stopped (not completed or failed) (AC4)', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     // Before halt: status should be 'running'
@@ -118,7 +118,7 @@ describe('Integration: DB status transitions on stop-after', () => {
 
   it('stopped status is preserved for all four stop phases (AC4)', async () => {
     for (const stopPhase of VALID_PHASES) {
-      const { db, adapter } = createTestDb()
+      const { db, adapter } = await createTestDb()
       const run = await createTestRun(adapter, { start_phase: stopPhase })
 
       const gate = createStopAfterGate(stopPhase)
@@ -140,7 +140,7 @@ describe('Integration: DB status transitions on stop-after', () => {
 
 describe('Integration: resumeRun() tolerates "stopped" status (AC6)', () => {
   it('resumeRun() does not throw when run status is "stopped"', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     // Put run in 'stopped' state (simulating stop-after analysis)
@@ -156,7 +156,7 @@ describe('Integration: resumeRun() tolerates "stopped" status (AC6)', () => {
   })
 
   it('resumeRun() resumes from next phase after a stopped run with analysis artifact (AC6)', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     // Register product-brief artifact (analysis is complete)
@@ -189,7 +189,7 @@ describe('Integration: resumeRun() tolerates "stopped" status (AC6)', () => {
   })
 
   it('resumeRun() resumes from solutioning after stopped run with analysis+planning artifacts (AC6)', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     await registerArtifact(adapter, {
@@ -219,7 +219,7 @@ describe('Integration: resumeRun() tolerates "stopped" status (AC6)', () => {
   })
 
   it('resumeRun() transitions run status from stopped to running (AC6)', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     // Register artifact to allow resumption
@@ -379,7 +379,7 @@ describe('Integration: gate evaluation semantics (AC8 of Story 12-2)', () => {
 
 describe('Integration: phase completion summary content (AC5 of Story 12-2)', () => {
   it('summary contains the resume command with the correct run ID', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     const startedAt = new Date(Date.now() - 30000).toISOString()
@@ -400,7 +400,7 @@ describe('Integration: phase completion summary content (AC5 of Story 12-2)', ()
   })
 
   it('summary word count is within 50–500 for a typical stop-after scenario', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     const summary = formatPhaseCompletionSummary({
@@ -423,7 +423,7 @@ describe('Integration: phase completion summary content (AC5 of Story 12-2)', ()
   })
 
   it('summary contains phase name and "completed" for each valid stop phase (AC5)', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     for (const phase of VALID_PHASES) {
@@ -444,7 +444,7 @@ describe('Integration: phase completion summary content (AC5 of Story 12-2)', ()
   })
 
   it('summary does not contain ANSI escape codes (no terminal color sequences) (AC5)', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     const summary = formatPhaseCompletionSummary({
@@ -468,7 +468,7 @@ describe('Integration: phase completion summary content (AC5 of Story 12-2)', ()
 
 describe('Integration: full stop-after gate+DB interaction', () => {
   it('gate evaluates true, DB is updated to stopped, summary is produced (AC4+AC5)', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     const stopAfterPhase: PhaseName = 'analysis'
@@ -505,7 +505,7 @@ describe('Integration: full stop-after gate+DB interaction', () => {
   })
 
   it('stop-after at implementation phase: DB stopped, pipeline does not continue (AC4+AC8)', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     const stopAfterPhase: PhaseName = 'implementation'
@@ -539,7 +539,7 @@ describe('Integration: full stop-after gate+DB interaction', () => {
   })
 
   it('stop-after at analysis phase: only analysis runs, phases 2-4 are not executed (AC8)', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
     const run = await createTestRun(adapter)
 
     const stopAfterPhase: PhaseName = 'analysis'
@@ -579,7 +579,7 @@ describe('Integration: full stop-after gate+DB interaction', () => {
 
 describe('Integration: gate statelessness with concurrent DB runs (AC7)', () => {
   it('multiple concurrent gates each update their respective run independently', async () => {
-    const { db, adapter } = createTestDb()
+    const { db, adapter } = await createTestDb()
 
     // Simulate two concurrent pipeline executions
     const run1 = await createTestRun(adapter, { start_phase: 'analysis' })

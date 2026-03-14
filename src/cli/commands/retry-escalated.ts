@@ -10,8 +10,8 @@
  * Architecture (ADR-001: Modular Monolith):
  *   CLI is a thin wiring layer — all query/business logic lives in modules.
  *
- * Database (ADR-003: SQLite WAL):
- *   Uses DatabaseWrapper from src/persistence/database.ts for all DB access.
+ * Database:
+ *   Uses createDatabaseAdapter() from src/persistence/adapter.ts for all DB access.
  */
 
 import type { Command } from 'commander'

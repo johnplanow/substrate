@@ -22,10 +22,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { randomUUID } from 'crypto'
-import { SqliteDatabaseAdapter } from '../../src/persistence/sqlite-adapter.js'
-import type { DatabaseAdapter } from '../../src/persistence/adapter.js'
-
-import { runMigrations } from '../../src/persistence/migrations/index.js'
+import { LegacySqliteAdapter, type DatabaseAdapter } from '../../src/persistence/adapter.js'
+import { initSchema } from '../../src/persistence/schema.js'
 import {
   PipelineRunSchema,
   DecisionSchema,
@@ -51,12 +49,12 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function openMigratedDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
+async function openMigratedDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
   const db = new Database(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new LegacySqliteAdapter(db)
+  await initSchema(adapter)
   return { db, adapter }
 }
 
@@ -69,8 +67,8 @@ describe('Gap 1: stopped status — decisions.ts API + DB + Zod schema round-tri
   let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openMigratedDb()
+  beforeEach(async () => {
+    const setup = await openMigratedDb()
     db = setup.db
     adapter = setup.adapter
   })
@@ -137,8 +135,8 @@ describe('Gap 2: createDecision (decisions.ts) interoperates with loadParentRunD
   let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openMigratedDb()
+  beforeEach(async () => {
+    const setup = await openMigratedDb()
     db = setup.db
     adapter = setup.adapter
   })
@@ -233,7 +231,7 @@ describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filt
   let supersedingDecId: string
 
   beforeEach(async () => {
-    const setup = openMigratedDb()
+    const setup = await openMigratedDb()
     db = setup.db
     adapter = setup.adapter
 
@@ -315,8 +313,8 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
   let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openMigratedDb()
+  beforeEach(async () => {
+    const setup = await openMigratedDb()
     db = setup.db
     adapter = setup.adapter
   })
@@ -456,8 +454,8 @@ describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_
   let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openMigratedDb()
+  beforeEach(async () => {
+    const setup = await openMigratedDb()
     db = setup.db
     adapter = setup.adapter
   })
@@ -518,8 +516,8 @@ describe('Gap 6: decisions.ts query functions return migration 008 columns corre
   let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openMigratedDb()
+  beforeEach(async () => {
+    const setup = await openMigratedDb()
     db = setup.db
     adapter = setup.adapter
   })

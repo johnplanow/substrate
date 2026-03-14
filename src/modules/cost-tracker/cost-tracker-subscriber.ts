@@ -10,7 +10,7 @@
  * Design decisions:
  *  - Routing decisions are cached in memory (Map) until the task completes
  *  - Cost recording happens synchronously in the event handler (non-blocking due
- *    to better-sqlite3 synchronous API which is very fast for single writes)
+ *    to SyncAdapter which is very fast for single writes)
  *  - Errors during cost recording are logged but never propagate to callers
  *  - Provider/model resolution: uses routing decision if available, falls back
  *    to defaults if not (graceful degradation)

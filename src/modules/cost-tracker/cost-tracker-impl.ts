@@ -9,7 +9,7 @@
  *  - Use atomic database operations for consistency
  *
  * Architecture constraints:
- *  - Uses better-sqlite3 synchronous API for zero-latency writes (NFR22)
+ *  - Uses synchronous DatabaseAdapter (SyncAdapter) for zero-latency writes (NFR22)
  *  - Cost recording is synchronous for consistency with event handling
  *  - Subscription billing_mode => cost_usd = 0; savings = equivalent API cost
  *  - Token rates in USD per 1M tokens (AC3)
@@ -40,7 +40,7 @@ const logger = createLogger('cost-tracker')
 /**
  * CostTracker records and queries cost data for tasks and sessions.
  *
- * All methods are synchronous (uses better-sqlite3) to avoid blocking
+ * All methods are synchronous (uses SyncAdapter) to avoid blocking
  * the event loop or adding latency to task execution.
  */
 export interface CostTracker {

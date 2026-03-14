@@ -27,7 +27,6 @@ import Database from 'better-sqlite3'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import { randomUUID } from 'crypto'
 
-import { runMigrations } from '../../src/persistence/migrations/index.js'
 import {
   createAmendmentRun,
   loadParentRunDecisions,
@@ -41,19 +40,20 @@ import {
   formatDeltaDocument,
 } from '../../src/modules/delta-document/index.js'
 import { runPostPhaseSupersessionDetection } from '../../src/cli/commands/amend.js'
-import { SqliteDatabaseAdapter } from '../../src/persistence/sqlite-adapter.js'
+import { SyncDatabaseAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
+import { initSchema } from '../../src/persistence/schema.js'
 import type { DatabaseAdapter } from '../../src/persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function openMigratedDb(): { db: BetterSqlite3Database; adapter: DatabaseAdapter } {
+async function openMigratedDb(): Promise<{ db: BetterSqlite3Database; adapter: DatabaseAdapter }> {
   const db = new Database(':memory:')
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
-  runMigrations(db)
-  const adapter = new SqliteDatabaseAdapter(db)
+  const adapter = new SyncDatabaseAdapter(db)
+  await initSchema(adapter)
   return { db, adapter }
 }
 
@@ -102,8 +102,8 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
   let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openMigratedDb()
+  beforeEach(async () => {
+    const setup = await openMigratedDb()
     db = setup.db
     adapter = setup.adapter
   })
@@ -311,8 +311,8 @@ describe('Context Handler → Delta Document: handler feeds generateDeltaDocumen
   let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openMigratedDb()
+  beforeEach(async () => {
+    const setup = await openMigratedDb()
     db = setup.db
     adapter = setup.adapter
   })
@@ -439,8 +439,8 @@ describe('Full Amendment Pipeline: amendment run → delta doc → validation', 
   let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openMigratedDb()
+  beforeEach(async () => {
+    const setup = await openMigratedDb()
     db = setup.db
     adapter = setup.adapter
   })
@@ -566,8 +566,8 @@ describe('formatDeltaDocument: Markdown output is well-formed with real DB data'
   let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openMigratedDb()
+  beforeEach(async () => {
+    const setup = await openMigratedDb()
     db = setup.db
     adapter = setup.adapter
   })
@@ -736,8 +736,8 @@ describe('runPostPhaseSupersessionDetection: real DB + handler state integration
   let db: BetterSqlite3Database
   let adapter: DatabaseAdapter
 
-  beforeEach(() => {
-    const setup = openMigratedDb()
+  beforeEach(async () => {
+    const setup = await openMigratedDb()
     db = setup.db
     adapter = setup.adapter
   })

@@ -90,10 +90,9 @@ export interface MetricsOptions {
 // Telemetry helper: open adapter-backed DB for telemetry queries
 // ---------------------------------------------------------------------------
 
-async function openTelemetryAdapter(dbPath: string): Promise<{ persistence: AdapterTelemetryPersistence; close: () => Promise<void> } | null> {
-  if (!existsSync(dbPath)) return null
+async function openTelemetryAdapter(basePath: string): Promise<{ persistence: AdapterTelemetryPersistence; close: () => Promise<void> } | null> {
   try {
-    const adapter = createDatabaseAdapter({ backend: 'sqlite', databasePath: dbPath })
+    const adapter = createDatabaseAdapter({ backend: 'auto', basePath })
     const persistence = new AdapterTelemetryPersistence(adapter)
     return { persistence, close: () => adapter.close() }
   } catch {
@@ -211,19 +210,18 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
   }
 
   // ---------------------------------------------------------------------------
-  // Telemetry modes — open SQLite DB and delegate to telemetry queries
+  // Telemetry modes — open adapter (Dolt or in-memory) for telemetry queries
   // ---------------------------------------------------------------------------
   if (hasTelemetryMode) {
     const dbRoot = await resolveMainRepoRoot(projectRoot)
-    const dbPath = join(dbRoot, '.substrate', 'substrate.db')
     const doltStatePath = join(dbRoot, '.substrate', 'state', '.dolt')
     const doltExists = existsSync(doltStatePath)
 
     // For story-scoped modes (turns, consumers): always require data; exit 1 if empty
     // For aggregate modes (efficiency, recommendations, categories): allow graceful no-data message
 
-    if (!doltExists && !existsSync(dbPath)) {
-      const msg = 'No telemetry data yet — run a pipeline with `telemetry.enabled: true`'
+    if (!doltExists) {
+      const msg = 'No telemetry data yet — run a pipeline with Dolt initialized and `telemetry.enabled: true`'
       if (turns !== undefined || consumers !== undefined) {
         // Story-scoped modes exit 1 when not found
         process.stderr.write(`Error: ${msg}\n`)
@@ -237,7 +235,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       return 0
     }
 
-    const telemetryHandle = await openTelemetryAdapter(dbPath)
+    const telemetryHandle = await openTelemetryAdapter(dbRoot)
     if (telemetryHandle === null) {
       const msg = 'No telemetry data yet — run a pipeline with `telemetry.enabled: true`'
       if (turns !== undefined || consumers !== undefined) {
@@ -511,18 +509,18 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
   }
 
   const dbRoot = await resolveMainRepoRoot(projectRoot)
-  const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+  const doltStateDir = join(dbRoot, '.substrate', 'state', '.dolt')
 
-  if (!existsSync(dbPath)) {
+  if (!existsSync(doltStateDir)) {
     if (outputFormat === 'json') {
-      process.stdout.write(formatOutput({ runs: [], message: 'No metrics yet — no pipeline database found.' }, 'json', true) + '\n')
+      process.stdout.write(formatOutput({ runs: [], message: 'No metrics yet — no pipeline database found. Initialize Dolt with `substrate init`.' }, 'json', true) + '\n')
     } else {
-      process.stdout.write('No metrics yet — no pipeline database found.\n')
+      process.stdout.write('No metrics yet — no pipeline database found. Initialize Dolt with `substrate init`.\n')
     }
     return 0
   }
 
-  const adapter = createDatabaseAdapter({ backend: 'sqlite', databasePath: dbPath })
+  const adapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
   try {
     await initSchema(adapter)
 

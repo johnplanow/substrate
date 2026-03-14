@@ -7,13 +7,16 @@
  *  - pruneOldData removes records older than retention period
  *  - rebuildAggregates recalculates performance_aggregates correctly
  *  - getAggregates returns filtered results
- *  - WAL mode is enabled
  *  - updateAggregates correctly upserts aggregate rows
+ *
+ * Uses WASM SQLite (sql.js) via WasmSqliteDatabaseAdapter for no-native-deps testing.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { MonitorDatabaseImpl, createMonitorDatabase } from '../monitor-database.js'
 import type { TaskMetricsRow } from '../monitor-database.js'
+import type { DatabaseAdapter } from '../adapter.js'
+import { createWasmSqliteAdapter } from '../wasm-sqlite-adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,30 +45,31 @@ function makeMetricsRow(overrides: Partial<TaskMetricsRow> = {}): TaskMetricsRow
 // ---------------------------------------------------------------------------
 
 describe('MonitorDatabaseImpl', () => {
+  let adapter: DatabaseAdapter
   let db: MonitorDatabaseImpl
 
-  beforeEach(() => {
-    db = new MonitorDatabaseImpl(':memory:')
+  beforeEach(async () => {
+    adapter = await createWasmSqliteAdapter()
+    db = new MonitorDatabaseImpl(adapter)
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     try {
       db.close()
     } catch {
       // Already closed
     }
+    await adapter.close()
   })
 
   // -------------------------------------------------------------------------
   // Schema creation
   // -------------------------------------------------------------------------
 
-  it('creates all required tables on initialization', () => {
-    // Access internal DB to verify schema
-    const internal = (db as unknown as { _db: import('better-sqlite3').Database })._db
-    const tables = internal
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-      .all() as { name: string }[]
+  it('creates all required tables on initialization', async () => {
+    const tables = await adapter.query<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+    )
 
     const tableNames = tables.map((t) => t.name)
     expect(tableNames).toContain('task_metrics')
@@ -74,11 +78,10 @@ describe('MonitorDatabaseImpl', () => {
     expect(tableNames).toContain('_schema_version')
   })
 
-  it('creates all required indexes for task_metrics', () => {
-    const internal = (db as unknown as { _db: import('better-sqlite3').Database })._db
-    const indexes = internal
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_metrics'")
-      .all() as { name: string }[]
+  it('creates all required indexes for task_metrics', async () => {
+    const indexes = await adapter.query<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_metrics'",
+    )
 
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_tm_agent')
@@ -91,12 +94,11 @@ describe('MonitorDatabaseImpl', () => {
   // insertTaskMetrics
   // -------------------------------------------------------------------------
 
-  it('inserts a task metrics row successfully', () => {
+  it('inserts a task metrics row successfully', async () => {
     const row = makeMetricsRow()
     db.insertTaskMetrics(row)
 
-    const internal = (db as unknown as { _db: import('better-sqlite3').Database })._db
-    const result = internal.prepare('SELECT * FROM task_metrics WHERE task_id = ?').get('task-1') as {
+    const results = await adapter.query<{
       task_id: string
       agent: string
       task_type: string
@@ -107,9 +109,10 @@ describe('MonitorDatabaseImpl', () => {
       cost: number
       estimated_cost: number
       billing_mode: string
-    }
+    }>('SELECT * FROM task_metrics WHERE task_id = ?', ['task-1'])
 
-    expect(result).toBeDefined()
+    expect(results).toHaveLength(1)
+    const result = results[0]!
     expect(result.task_id).toBe('task-1')
     expect(result.agent).toBe('claude')
     expect(result.task_type).toBe('coding')
@@ -122,7 +125,7 @@ describe('MonitorDatabaseImpl', () => {
     expect(result.billing_mode).toBe('api')
   })
 
-  it('inserts a failure metrics row with failure_reason', () => {
+  it('inserts a failure metrics row with failure_reason', async () => {
     const row = makeMetricsRow({
       taskId: 'task-fail',
       outcome: 'failure',
@@ -130,24 +133,22 @@ describe('MonitorDatabaseImpl', () => {
     })
     db.insertTaskMetrics(row)
 
-    const internal = (db as unknown as { _db: import('better-sqlite3').Database })._db
-    const result = internal.prepare('SELECT * FROM task_metrics WHERE task_id = ?').get('task-fail') as {
-      outcome: string
-      failure_reason: string
-    }
+    const results = await adapter.query<{ outcome: string; failure_reason: string }>(
+      'SELECT * FROM task_metrics WHERE task_id = ?',
+      ['task-fail'],
+    )
 
-    expect(result.outcome).toBe('failure')
-    expect(result.failure_reason).toBe('Out of memory')
+    expect(results[0]!.outcome).toBe('failure')
+    expect(results[0]!.failure_reason).toBe('Out of memory')
   })
 
-  it('can insert multiple metrics rows', () => {
+  it('can insert multiple metrics rows', async () => {
     db.insertTaskMetrics(makeMetricsRow({ taskId: 'task-1', recordedAt: new Date(Date.now() - 1000).toISOString() }))
     db.insertTaskMetrics(makeMetricsRow({ taskId: 'task-2', recordedAt: new Date().toISOString() }))
     db.insertTaskMetrics(makeMetricsRow({ taskId: 'task-3', agent: 'codex', taskType: 'testing' }))
 
-    const internal = (db as unknown as { _db: import('better-sqlite3').Database })._db
-    const count = (internal.prepare('SELECT COUNT(*) as cnt FROM task_metrics').get() as { cnt: number }).cnt
-    expect(count).toBe(3)
+    const rows = await adapter.query<{ cnt: number }>('SELECT COUNT(*) as cnt FROM task_metrics')
+    expect(rows[0]!.cnt).toBe(3)
   })
 
   // -------------------------------------------------------------------------
@@ -254,7 +255,7 @@ describe('MonitorDatabaseImpl', () => {
   // pruneOldData
   // -------------------------------------------------------------------------
 
-  it('prunes records older than retention period', () => {
+  it('prunes records older than retention period', async () => {
     const old = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString() // 100 days ago
     const recent = new Date().toISOString()
 
@@ -264,10 +265,9 @@ describe('MonitorDatabaseImpl', () => {
     const deleted = db.pruneOldData(90) // 90-day retention
     expect(deleted).toBe(1)
 
-    const internal = (db as unknown as { _db: import('better-sqlite3').Database })._db
-    const remaining = internal.prepare('SELECT task_id FROM task_metrics').all() as { task_id: string }[]
+    const remaining = await adapter.query<{ task_id: string }>('SELECT task_id FROM task_metrics')
     expect(remaining).toHaveLength(1)
-    expect(remaining[0].task_id).toBe('new-task')
+    expect(remaining[0]!.task_id).toBe('new-task')
   })
 
   it('returns 0 when no records are old enough to prune', () => {
@@ -341,29 +341,25 @@ describe('MonitorDatabaseImpl', () => {
   })
 
   // -------------------------------------------------------------------------
-  // createMonitorDatabase factory
-  // -------------------------------------------------------------------------
-
-  // -------------------------------------------------------------------------
   // resetAllData()
   // -------------------------------------------------------------------------
 
-  it('resetAllData() deletes all task_metrics and performance_aggregates rows', () => {
+  it('resetAllData() deletes all task_metrics and performance_aggregates rows', async () => {
     db.insertTaskMetrics(makeMetricsRow({ taskId: 'task-1' }))
     db.insertTaskMetrics(makeMetricsRow({ taskId: 'task-2' }))
     db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
 
     db.resetAllData()
 
-    const internal = (db as unknown as { _db: import('better-sqlite3').Database })._db
-    const metricsCount = (internal.prepare('SELECT COUNT(*) as cnt FROM task_metrics').get() as { cnt: number }).cnt
-    const aggCount = (internal.prepare('SELECT COUNT(*) as cnt FROM performance_aggregates').get() as { cnt: number }).cnt
+    const metricsRows = await adapter.query<{ cnt: number }>('SELECT COUNT(*) as cnt FROM task_metrics')
+    const aggRows = await adapter.query<{ cnt: number }>('SELECT COUNT(*) as cnt FROM performance_aggregates')
 
-    expect(metricsCount).toBe(0)
-    expect(aggCount).toBe(0)
+    expect(metricsRows[0]!.cnt).toBe(0)
+    expect(aggRows[0]!.cnt).toBe(0)
   })
 
   it('createMonitorDatabase creates a working MonitorDatabase', () => {
+    // Use the path-based factory (legacy path)
     const monitorDb = createMonitorDatabase(':memory:')
     expect(monitorDb).toBeDefined()
     // Should not throw on basic operations

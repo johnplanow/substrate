@@ -13,10 +13,14 @@
  *  - updateAggregates() / updatePerformanceAggregates(): increments existing row (AC6)
  *  - updateAggregates(): updates last_updated timestamp (AC7)
  *  - performance_aggregates schema has all required columns (AC7)
+ *
+ * Uses WASM SQLite (sql.js) via WasmSqliteDatabaseAdapter for no-native-deps testing.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { MonitorDatabaseImpl } from '../monitor-database.js'
+import type { DatabaseAdapter } from '../adapter.js'
+import { createWasmSqliteAdapter } from '../wasm-sqlite-adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -52,18 +56,21 @@ function makeDelta(overrides: {
 // ---------------------------------------------------------------------------
 
 describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
+  let adapter: DatabaseAdapter
   let db: MonitorDatabaseImpl
 
-  beforeEach(() => {
-    db = new MonitorDatabaseImpl(':memory:')
+  beforeEach(async () => {
+    adapter = await createWasmSqliteAdapter()
+    db = new MonitorDatabaseImpl(adapter)
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     try {
       db.close()
     } catch {
       // already closed
     }
+    await adapter.close()
   })
 
   // -------------------------------------------------------------------------
@@ -71,11 +78,11 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
   // -------------------------------------------------------------------------
 
   describe('AC7: performance_aggregates schema', () => {
-    it('table has all required columns', () => {
-      const internal = (db as unknown as { _db: import('better-sqlite3').Database })._db
-      const info = internal
-        .prepare("PRAGMA table_info('performance_aggregates')")
-        .all() as { name: string; type: string; notnull: number }[]
+    it('table has all required columns', async () => {
+      // Query PRAGMA table_info to verify columns
+      const info = await adapter.query<{ name: string; type: string; notnull: number }>(
+        "PRAGMA table_info('performance_aggregates')",
+      )
 
       const columns = info.map((c) => c.name)
       expect(columns).toContain('agent')
@@ -91,11 +98,10 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
       expect(columns).toContain('last_updated')
     })
 
-    it('(agent, task_type) is the primary key', () => {
-      const internal = (db as unknown as { _db: import('better-sqlite3').Database })._db
-      const info = internal
-        .prepare("PRAGMA table_info('performance_aggregates')")
-        .all() as { name: string; pk: number }[]
+    it('(agent, task_type) is the primary key', async () => {
+      const info = await adapter.query<{ name: string; pk: number }>(
+        "PRAGMA table_info('performance_aggregates')",
+      )
 
       const pkCols = info.filter((c) => c.pk > 0).map((c) => c.name)
       expect(pkCols).toContain('agent')
@@ -147,15 +153,14 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
       expect(rows[0].lastUpdated <= after).toBe(true)
     })
 
-    it('tracks retries when provided', () => {
+    it('tracks retries when provided', async () => {
       db.updateAggregates('agent-a', 'coding', makeDelta({ retries: 3 }))
       db.updateAggregates('agent-a', 'coding', makeDelta({ retries: 1 }))
 
-      const internal = (db as unknown as { _db: import('better-sqlite3').Database })._db
-      const row = internal
-        .prepare("SELECT total_retries FROM performance_aggregates WHERE agent='agent-a' AND task_type='coding'")
-        .get() as { total_retries: number }
-      expect(row.total_retries).toBe(4)
+      const rows = await adapter.query<{ total_retries: number }>(
+        "SELECT total_retries FROM performance_aggregates WHERE agent = 'agent-a' AND task_type = 'coding'",
+      )
+      expect(rows[0]!.total_retries).toBe(4)
     })
   })
 

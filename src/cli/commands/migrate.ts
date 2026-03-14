@@ -64,7 +64,8 @@ export async function readSqliteSnapshot(dbPath: string): Promise<SqliteSnapshot
   let db: any = null
   try {
     const BetterSqlite3Module = await import('better-sqlite3')
-    const BetterSqlite3 = BetterSqlite3Module.default
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const BetterSqlite3 = BetterSqlite3Module.default as any
     db = new BetterSqlite3(dbPath, { readonly: true })
   } catch {
     // File not found, unreadable, or better-sqlite3 not installed

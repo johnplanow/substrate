@@ -166,7 +166,7 @@ function buildContextBlock(
  *
  * Throws if parentRunId is not found (delegates to loadParentRunDecisions()).
  *
- * @param db - better-sqlite3 Database instance
+ * @param db - DatabaseAdapter instance
  * @param parentRunId - ID of the completed parent pipeline run
  * @param options - Optional configuration (phaseFilter, framingConcept)
  * @returns AmendmentContextHandler instance
