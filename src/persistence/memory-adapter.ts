@@ -148,9 +148,9 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter {
   // INSERT
   // -------------------------------------------------------------------------
 
-  private _insert(sql: string): Row[] {
+  private _insert(sql: string, _ignoreConflicts = false): Row[] {
     // INSERT INTO tableName (col1, col2, ...) VALUES (val1, val2, ...)
-    const m = /INSERT\s+INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\((.+)\)\s*$/is.exec(sql)
+    const m = /INSERT\s+(?:IGNORE\s+)?INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\((.+)\)\s*$/is.exec(sql)
     if (!m) return []
 
     const tableName = m[1]!

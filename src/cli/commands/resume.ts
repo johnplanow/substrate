@@ -72,8 +72,6 @@ function mapInternalPhaseToEventPhase(internalPhase: string): PipelinePhase | nu
     case 'IN_MINOR_FIX':
     case 'IN_MAJOR_FIX':
       return 'fix'
-    case 'IN_TEST_PLANNING':
-      return 'test-planning'
     default:
       return null
   }
