@@ -223,8 +223,8 @@ export interface ExperimenterDeps {
   /** Generic process spawner used for `gh pr create` and similar CLI tools. */
   spawn: SpawnFn
   runStory: RunStoryFn
-  getRunMetrics: (db: DatabaseAdapter, runId: string) => RunMetricsRow | undefined
-  getStoryMetrics: (db: DatabaseAdapter, runId: string) => StoryMetricsRow[]
+  getRunMetrics: (db: DatabaseAdapter, runId: string) => Promise<RunMetricsRow | undefined>
+  getStoryMetrics: (db: DatabaseAdapter, runId: string) => Promise<StoryMetricsRow[]>
   readFile: (path: string) => Promise<string>
   writeFile: (path: string, content: string) => Promise<void>
   /** Create directory (recursive). Used to ensure audit log directories exist. */
@@ -703,15 +703,15 @@ export function createExperimenter(
    * Returns false (budget exceeded) if the experiment used more than the cap.
    * Returns true (within budget) if the cap is satisfied or metrics are unavailable.
    */
-  function isWithinTokenBudget(
+  async function isWithinTokenBudget(
     db: DatabaseAdapter,
     storyKey: string,
     baselineRunId: string,
     experimentRunId: string,
-  ): boolean {
+  ): Promise<boolean> {
     try {
-      const baselineStories = getStory(db, baselineRunId)
-      const experimentStories = getStory(db, experimentRunId)
+      const baselineStories = await getStory(db, baselineRunId)
+      const experimentStories = await getStory(db, experimentRunId)
 
       const baselineStory = baselineStories.find((m) => m.story_key === storyKey)
       const experimentStory = experimentStories.find((m) => m.story_key === storyKey)
@@ -784,8 +784,8 @@ export function createExperimenter(
 
       // ---- COMPARING: query metrics, check token budget, compute verdict ----
       currentPhase = 'COMPARING'
-      const baselineMetrics = getRun(db, baselineRunId)
-      const experimentMetrics = getRun(db, runId)
+      const baselineMetrics = await getRun(db, baselineRunId)
+      const experimentMetrics = await getRun(db, runId)
 
       if (!baselineMetrics || !experimentMetrics) {
         log(`[experimenter] Warning: metrics unavailable for comparison`)
@@ -795,7 +795,7 @@ export function createExperimenter(
         deltas = computeDeltas(baselineMetrics, experimentMetrics)
 
         // AC6: token budget cap — check story-level tokens before computing final verdict
-        const withinBudget = isWithinTokenBudget(db, rec.story_key, baselineRunId, runId)
+        const withinBudget = await isWithinTokenBudget(db, rec.story_key, baselineRunId, runId)
         if (!withinBudget) {
           verdict = 'REGRESSED'
           caughtError = `Token budget cap exceeded (${config.tokenBudgetMultiplier}x baseline)`

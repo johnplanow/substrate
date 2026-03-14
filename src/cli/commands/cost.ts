@@ -344,7 +344,7 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
     // Helper: get cost entries filtered by includePlanning flag (FIX 3)
     // Uses getAllCostEntriesFiltered from queries which applies SQL-level category filter
     const getFilteredEntries = (): Promise<CostEntry[]> =>
-      getAllCostEntriesFiltered(adapter, sessionId as string, includePlanning)
+      getAllCostEntriesFiltered(adapter!, sessionId as string, includePlanning)
 
     // Handle JSON output (AC6)
     if (outputFormat === 'json') {

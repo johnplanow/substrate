@@ -1763,7 +1763,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         // Resolve story keys via unified fallback chain:
         // explicit --stories → decisions table → epic shards → epics.md
-        const storyKeys = resolveStoryKeys(adapter, projectRoot, {
+        const storyKeys = await resolveStoryKeys(adapter, projectRoot, {
           explicit: explicitStories,
           epicNumber: options.epic,
         })

@@ -436,7 +436,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
         })
 
         // Resolve story keys via unified fallback chain (scoped to this run)
-        const storyKeys = resolveStoryKeys(adapter, projectRoot, {
+        const storyKeys = await resolveStoryKeys(adapter, projectRoot, {
           pipelineRunId: runId,
         })
 

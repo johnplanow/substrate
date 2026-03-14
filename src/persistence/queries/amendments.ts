@@ -235,7 +235,7 @@ export async function getAmendmentRunChain(
       )
     }
 
-    const rows = await adapter.query<{
+    const rows: { id: string; parent_run_id: string | null; status: string; created_at: string }[] = await adapter.query<{
       id: string
       parent_run_id: string | null
       status: string
@@ -244,7 +244,7 @@ export async function getAmendmentRunChain(
       'SELECT id, parent_run_id, status, created_at FROM pipeline_runs WHERE id = ?',
       [currentId],
     )
-    const row = rows[0]
+    const row: { id: string; parent_run_id: string | null; status: string; created_at: string } | undefined = rows[0]
 
     if (!row) break
 
