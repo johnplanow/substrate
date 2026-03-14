@@ -45,16 +45,16 @@ async function createTestDb(): Promise<WasmSqliteDatabaseAdapter> {
       value TEXT NOT NULL,
       rationale TEXT,
       superseded_by TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE pipeline_runs (
       id TEXT PRIMARY KEY,
       status TEXT NOT NULL,
       token_usage_json TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `)
   return adapter

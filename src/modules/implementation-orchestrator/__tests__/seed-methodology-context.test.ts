@@ -58,8 +58,8 @@ const CREATE_DECISIONS_TABLE = `
     key             TEXT NOT NULL,
     value           TEXT NOT NULL,
     rationale       TEXT,
-    created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )
 `
 

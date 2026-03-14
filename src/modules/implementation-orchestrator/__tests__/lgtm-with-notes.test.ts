@@ -31,13 +31,13 @@ async function openTestDb(): Promise<WasmSqliteDatabaseAdapter> {
       key TEXT NOT NULL,
       value TEXT NOT NULL,
       rationale TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `)
   adapter.execSync(`
     CREATE TABLE story_metrics (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER PRIMARY KEY AUTO_INCREMENT,
       run_id TEXT NOT NULL,
       story_key TEXT NOT NULL,
       result TEXT NOT NULL,
@@ -47,10 +47,10 @@ async function openTestDb(): Promise<WasmSqliteDatabaseAdapter> {
       wall_clock_seconds INTEGER NOT NULL DEFAULT 0,
       input_tokens INTEGER NOT NULL DEFAULT 0,
       output_tokens INTEGER NOT NULL DEFAULT 0,
-      cost_usd REAL NOT NULL DEFAULT 0,
+      cost_usd DOUBLE NOT NULL DEFAULT 0,
       review_cycles INTEGER NOT NULL DEFAULT 0,
       dispatches INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(run_id, story_key)
     )
   `)

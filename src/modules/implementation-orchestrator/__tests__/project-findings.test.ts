@@ -19,7 +19,7 @@ describe('getProjectFindings', () => {
         key TEXT NOT NULL,
         value TEXT NOT NULL,
         rationale TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `)
   })

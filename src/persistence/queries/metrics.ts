@@ -72,64 +72,59 @@ export interface TokenAggregate {
 /**
  * Write or update run-level metrics.
  *
- * Uses INSERT ... ON CONFLICT DO UPDATE to avoid a TOCTOU race on the
- * `restarts` counter: when a row already exists, `restarts` is preserved from
- * the DB (so any `incrementRunRestarts()` calls made by the supervisor between
- * the caller's read and this write are not silently overwritten).
+ * Uses a portable delete-then-insert pattern inside a transaction to work on
+ * both SQLite/WASM and Dolt/MySQL. When a row already exists, the `restarts`
+ * and `is_baseline` values are preserved from the existing row (so any
+ * `incrementRunRestarts()` calls made by the supervisor between the caller's
+ * read and this write are not silently overwritten).
  */
 export async function writeRunMetrics(
   adapter: DatabaseAdapter,
   input: RunMetricsInput,
 ): Promise<void> {
-  await adapter.query(
-    `INSERT INTO run_metrics (
-      run_id, methodology, status, started_at, completed_at,
-      wall_clock_seconds, total_input_tokens, total_output_tokens, total_cost_usd,
-      stories_attempted, stories_succeeded, stories_failed, stories_escalated,
-      total_review_cycles, total_dispatches, concurrency_setting, max_concurrent_actual, restarts,
-      is_baseline
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(run_id) DO UPDATE SET
-      methodology = excluded.methodology,
-      status = excluded.status,
-      started_at = excluded.started_at,
-      completed_at = excluded.completed_at,
-      wall_clock_seconds = excluded.wall_clock_seconds,
-      total_input_tokens = excluded.total_input_tokens,
-      total_output_tokens = excluded.total_output_tokens,
-      total_cost_usd = excluded.total_cost_usd,
-      stories_attempted = excluded.stories_attempted,
-      stories_succeeded = excluded.stories_succeeded,
-      stories_failed = excluded.stories_failed,
-      stories_escalated = excluded.stories_escalated,
-      total_review_cycles = excluded.total_review_cycles,
-      total_dispatches = excluded.total_dispatches,
-      concurrency_setting = excluded.concurrency_setting,
-      max_concurrent_actual = excluded.max_concurrent_actual,
-      restarts = run_metrics.restarts,
-      is_baseline = run_metrics.is_baseline`,
-    [
-      input.run_id,
-      input.methodology,
-      input.status,
-      input.started_at,
-      input.completed_at ?? null,
-      input.wall_clock_seconds ?? 0,
-      input.total_input_tokens ?? 0,
-      input.total_output_tokens ?? 0,
-      input.total_cost_usd ?? 0,
-      input.stories_attempted ?? 0,
-      input.stories_succeeded ?? 0,
-      input.stories_failed ?? 0,
-      input.stories_escalated ?? 0,
-      input.total_review_cycles ?? 0,
-      input.total_dispatches ?? 0,
-      input.concurrency_setting ?? 1,
-      input.max_concurrent_actual ?? 1,
-      input.restarts ?? 0,
-      input.is_baseline ?? 0,
-    ],
-  )
+  await adapter.transaction(async (tx) => {
+    // Read existing row to preserve restarts and is_baseline
+    const existing = await tx.query<{ restarts: number; is_baseline: number }>(
+      'SELECT restarts, is_baseline FROM run_metrics WHERE run_id = ?',
+      [input.run_id],
+    )
+    if (existing.length > 0) {
+      await tx.query('DELETE FROM run_metrics WHERE run_id = ?', [input.run_id])
+    }
+    const restarts = existing[0]?.restarts ?? (input.restarts ?? 0)
+    const isBaseline = existing[0]?.is_baseline ?? (input.is_baseline ?? 0)
+
+    await tx.query(
+      `INSERT INTO run_metrics (
+        run_id, methodology, status, started_at, completed_at,
+        wall_clock_seconds, total_input_tokens, total_output_tokens, total_cost_usd,
+        stories_attempted, stories_succeeded, stories_failed, stories_escalated,
+        total_review_cycles, total_dispatches, concurrency_setting, max_concurrent_actual, restarts,
+        is_baseline
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.run_id,
+        input.methodology,
+        input.status,
+        input.started_at,
+        input.completed_at ?? null,
+        input.wall_clock_seconds ?? 0,
+        input.total_input_tokens ?? 0,
+        input.total_output_tokens ?? 0,
+        input.total_cost_usd ?? 0,
+        input.stories_attempted ?? 0,
+        input.stories_succeeded ?? 0,
+        input.stories_failed ?? 0,
+        input.stories_escalated ?? 0,
+        input.total_review_cycles ?? 0,
+        input.total_dispatches ?? 0,
+        input.concurrency_setting ?? 1,
+        input.max_concurrent_actual ?? 1,
+        restarts,
+        isBaseline,
+      ],
+    )
+  })
 }
 
 /**
@@ -190,17 +185,32 @@ export async function getBaselineRunMetrics(
  * If the run_id does not yet exist in run_metrics, a placeholder row is
  * inserted so the restart count is not lost — writeRunMetrics will overwrite
  * all other fields when the run reaches a terminal state.
+ *
+ * Uses a portable select-then-update/insert pattern inside a transaction to
+ * work on both SQLite/WASM and Dolt/MySQL.
  */
 export async function incrementRunRestarts(
   adapter: DatabaseAdapter,
   runId: string,
 ): Promise<void> {
-  await adapter.query(
-    `INSERT INTO run_metrics (run_id, methodology, status, started_at, restarts)
-     VALUES (?, 'unknown', 'running', ?, 1)
-     ON CONFLICT(run_id) DO UPDATE SET restarts = run_metrics.restarts + 1`,
-    [runId, new Date().toISOString()],
-  )
+  await adapter.transaction(async (tx) => {
+    const existing = await tx.query<{ restarts: number }>(
+      'SELECT restarts FROM run_metrics WHERE run_id = ?',
+      [runId],
+    )
+    if (existing.length > 0) {
+      await tx.query(
+        'UPDATE run_metrics SET restarts = ? WHERE run_id = ?',
+        [existing[0].restarts + 1, runId],
+      )
+    } else {
+      await tx.query(
+        `INSERT INTO run_metrics (run_id, methodology, status, started_at, restarts)
+         VALUES (?, 'unknown', 'running', ?, 1)`,
+        [runId, new Date().toISOString()],
+      )
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -209,43 +219,51 @@ export async function incrementRunRestarts(
 
 /**
  * Write or update story-level metrics.
+ *
+ * Uses a portable delete-then-insert pattern inside a transaction to work on
+ * both SQLite/WASM and Dolt/MySQL. When a row already exists, the `started_at`
+ * value is preserved from the existing row if the new value is null.
  */
 export async function writeStoryMetrics(
   adapter: DatabaseAdapter,
   input: StoryMetricsInput,
 ): Promise<void> {
-  await adapter.query(
-    `INSERT INTO story_metrics (
-      run_id, story_key, result, phase_durations_json, started_at, completed_at,
-      wall_clock_seconds, input_tokens, output_tokens, cost_usd,
-      review_cycles, dispatches
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(run_id, story_key) DO UPDATE SET
-      result = excluded.result,
-      phase_durations_json = excluded.phase_durations_json,
-      started_at = COALESCE(excluded.started_at, story_metrics.started_at),
-      completed_at = excluded.completed_at,
-      wall_clock_seconds = excluded.wall_clock_seconds,
-      input_tokens = excluded.input_tokens,
-      output_tokens = excluded.output_tokens,
-      cost_usd = excluded.cost_usd,
-      review_cycles = excluded.review_cycles,
-      dispatches = excluded.dispatches`,
-    [
-      input.run_id,
-      input.story_key,
-      input.result,
-      input.phase_durations_json ?? null,
-      input.started_at ?? null,
-      input.completed_at ?? null,
-      input.wall_clock_seconds ?? 0,
-      input.input_tokens ?? 0,
-      input.output_tokens ?? 0,
-      input.cost_usd ?? 0,
-      input.review_cycles ?? 0,
-      input.dispatches ?? 0,
-    ],
-  )
+  await adapter.transaction(async (tx) => {
+    // Read existing row to preserve started_at when new value is null
+    const existing = await tx.query<{ started_at: string | null }>(
+      'SELECT started_at FROM story_metrics WHERE run_id = ? AND story_key = ?',
+      [input.run_id, input.story_key],
+    )
+    if (existing.length > 0) {
+      await tx.query(
+        'DELETE FROM story_metrics WHERE run_id = ? AND story_key = ?',
+        [input.run_id, input.story_key],
+      )
+    }
+    const startedAt = input.started_at ?? existing[0]?.started_at ?? null
+
+    await tx.query(
+      `INSERT INTO story_metrics (
+        run_id, story_key, result, phase_durations_json, started_at, completed_at,
+        wall_clock_seconds, input_tokens, output_tokens, cost_usd,
+        review_cycles, dispatches
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.run_id,
+        input.story_key,
+        input.result,
+        input.phase_durations_json ?? null,
+        startedAt,
+        input.completed_at ?? null,
+        input.wall_clock_seconds ?? 0,
+        input.input_tokens ?? 0,
+        input.output_tokens ?? 0,
+        input.cost_usd ?? 0,
+        input.review_cycles ?? 0,
+        input.dispatches ?? 0,
+      ],
+    )
+  })
 }
 
 /**
