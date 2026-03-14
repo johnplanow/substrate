@@ -19,22 +19,20 @@ import { tmpdir } from 'os'
 // Mocks — declared before imports
 // ---------------------------------------------------------------------------
 
-// Mock DatabaseWrapper (we don't need real SQLite here)
-const mockOpen = vi.fn()
-const mockClose = vi.fn()
-let mockDb: Record<string, unknown> = {}
+// Mock persistence layer (we don't need real Dolt/SQLite here)
+const mockInitSchema = vi.fn().mockResolvedValue(undefined)
 
-vi.mock('../../../persistence/database.js', () => ({
-  DatabaseWrapper: vi.fn().mockImplementation(() => ({
-    open: mockOpen,
-    close: mockClose,
-    get db() {
-      return mockDb
-    },
-    get isOpen() {
-      return true
-    },
-  })),
+vi.mock('../../../persistence/adapter.js', () => ({
+  createDatabaseAdapter: vi.fn().mockReturnValue({
+    query: vi.fn().mockResolvedValue([]),
+    exec: vi.fn().mockResolvedValue(undefined),
+    transaction: vi.fn().mockImplementation((fn: Function) => fn()),
+    close: vi.fn().mockResolvedValue(undefined),
+  }),
+}))
+
+vi.mock('../../../persistence/schema.js', () => ({
+  initSchema: (...args: unknown[]) => mockInitSchema(...args),
 }))
 
 // Mock PackLoader — simulate successful pack load
@@ -96,13 +94,6 @@ describe('auto init pack scaffolding integration', () => {
     // Create a fresh temp directory for each test
     tmpDir = mkdtempSync(join(tmpdir(), 'substrate-test-'))
     mockPackLoad.mockResolvedValue(mockPack())
-
-    const mockPrepare = vi.fn().mockReturnValue({
-      all: vi.fn().mockReturnValue([]),
-      get: vi.fn().mockReturnValue(undefined),
-      run: vi.fn(),
-    })
-    mockDb = { prepare: mockPrepare }
   })
 
   afterEach(() => {
@@ -150,7 +141,7 @@ describe('auto init pack scaffolding integration', () => {
     })
 
     expect(exitCode).toBe(0)
-    expect(mockOpen).toHaveBeenCalled()
+    expect(mockInitSchema).toHaveBeenCalled()
     stdoutWrite.mockRestore()
   })
 
