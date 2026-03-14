@@ -259,6 +259,95 @@ describe('DoltClient', () => {
     })
   })
 
+  describe('concurrent CLI serialization', () => {
+    it('serializes concurrent CLI queries so they do not overlap', async () => {
+      const mod = await import('node:child_process')
+      let activeCount = 0
+      let maxConcurrent = 0
+
+      vi.mocked(mod.execFile).mockImplementation(
+        (_cmd: unknown, _args: unknown, _opts: unknown, callback: unknown) => {
+          activeCount++
+          if (activeCount > maxConcurrent) maxConcurrent = activeCount
+          // Simulate async delay
+          setTimeout(() => {
+            activeCount--
+            if (typeof callback === 'function') {
+              callback(null, '{"rows":[]}', '')
+            }
+          }, 10)
+        },
+      )
+
+      const client = await makeCliClient()
+      // Fire 3 concurrent queries
+      await Promise.all([
+        client.query('SELECT 1'),
+        client.query('SELECT 2'),
+        client.query('SELECT 3'),
+      ])
+
+      // Mutex should ensure no overlapping execFile calls
+      expect(maxConcurrent).toBe(1)
+    })
+
+    it('serializes concurrent execArgs calls', async () => {
+      const mod = await import('node:child_process')
+      let activeCount = 0
+      let maxConcurrent = 0
+
+      vi.mocked(mod.execFile).mockImplementation(
+        (_cmd: unknown, _args: unknown, _opts: unknown, callback: unknown) => {
+          activeCount++
+          if (activeCount > maxConcurrent) maxConcurrent = activeCount
+          setTimeout(() => {
+            activeCount--
+            if (typeof callback === 'function') {
+              callback(null, 'ok\n', '')
+            }
+          }, 10)
+        },
+      )
+
+      const client = await makeCliClient()
+      await Promise.all([
+        client.execArgs(['log', '--oneline']),
+        client.execArgs(['status']),
+        client.execArgs(['branch']),
+      ])
+
+      expect(maxConcurrent).toBe(1)
+    })
+
+    it('releases lock even when a query fails', async () => {
+      const mod = await import('node:child_process')
+      let callCount = 0
+
+      vi.mocked(mod.execFile).mockImplementation(
+        (_cmd: unknown, _args: unknown, _opts: unknown, callback: unknown) => {
+          callCount++
+          if (callCount === 1) {
+            // First call fails
+            if (typeof callback === 'function') {
+              callback(new Error('manifest locked'), '', 'manifest locked')
+            }
+          } else {
+            // Subsequent calls succeed
+            if (typeof callback === 'function') {
+              callback(null, '{"rows":[{"id":1}]}', '')
+            }
+          }
+        },
+      )
+
+      const client = await makeCliClient()
+      // First query fails, second should still proceed (lock released)
+      await expect(client.query('INSERT INTO t VALUES (1)')).rejects.toThrow()
+      const rows = await client.query<{ id: number }>('SELECT 1')
+      expect(rows).toEqual([{ id: 1 }])
+    })
+  })
+
   describe('close()', () => {
     it('closes the pool when connected via socket', async () => {
       const { access } = await import('node:fs/promises')

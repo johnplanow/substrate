@@ -338,7 +338,18 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
     }
 
     // Resume from the phase AFTER the last completed one
-    const resumePhaseIdx = lastCompletedPhaseIdx + 1
+    const gateDerivedResumeIdx = lastCompletedPhaseIdx + 1
+
+    // Trust current_phase from DB as a floor: if the run had reached a later
+    // phase (e.g., implementation) but gate artifacts are inconsistent due to
+    // a crash, don't regress to an earlier phase (e.g., analysis).
+    let resumePhaseIdx = gateDerivedResumeIdx
+    if (run.current_phase) {
+      const dbPhaseIdx = this._phases.findIndex(p => p.name === run.current_phase)
+      if (dbPhaseIdx >= 0 && dbPhaseIdx > gateDerivedResumeIdx) {
+        resumePhaseIdx = dbPhaseIdx
+      }
+    }
 
     // If all phases are done, mark the run as completed and return
     if (resumePhaseIdx >= this._phases.length) {

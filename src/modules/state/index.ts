@@ -24,7 +24,13 @@ export type {
   TableDiff,
   StoryDiff,
   HistoryEntry,
+  WgStory,
+  StoryDependency,
+  WgStoryStatus,
 } from './types.js'
+
+// Re-export WorkGraphRepository.
+export { WorkGraphRepository } from './work-graph-repository.js'
 
 // Re-export the FileStateStore class.
 export { FileStateStore } from './file-store.js'

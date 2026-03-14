@@ -34,6 +34,7 @@ import { registerDiffCommand } from './commands/diff.js'
 import { registerHistoryCommand } from './commands/history.js'
 import { registerRepoMapCommand } from './commands/repo-map.js'
 import { registerRoutingCommand } from './commands/routing.js'
+import { registerIngestEpicCommand } from './commands/ingest-epic.js'
 
 // Increase max listeners before any commands or transports register their handlers.
 // With CLI commands registered, pino-pretty workers and Commander exit handlers
@@ -138,6 +139,9 @@ export async function createProgram(): Promise<Command> {
 
   // Export / artifact sharing
   registerExportCommand(program, version)
+
+  // Work-graph commands (Epic 31)
+  registerIngestEpicCommand(program)
 
   // Maintenance
   registerUpgradeCommand(program)

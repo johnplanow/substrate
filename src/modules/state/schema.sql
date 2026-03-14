@@ -236,3 +236,48 @@ CREATE TABLE IF NOT EXISTS repo_map_meta (
 
 INSERT IGNORE INTO _schema_version (version, description) VALUES (5, 'Add repo_map_symbols and repo_map_meta tables (Epic 28-2)');
 INSERT IGNORE INTO _schema_version (version, description) VALUES (6, 'Add dependencies JSON column to repo_map_symbols (Epic 28-3)');
+
+-- ---------------------------------------------------------------------------
+-- wg_stories (Epic 31-1) — planning-level work graph story nodes
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS wg_stories (
+  story_key    VARCHAR(20)   NOT NULL,
+  epic         VARCHAR(20)   NOT NULL,
+  title        VARCHAR(255),
+  status       VARCHAR(30)   NOT NULL DEFAULT 'planned',
+  spec_path    VARCHAR(500),
+  created_at   DATETIME,
+  updated_at   DATETIME,
+  completed_at DATETIME,
+  PRIMARY KEY (story_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wg_stories_epic ON wg_stories (epic);
+
+-- ---------------------------------------------------------------------------
+-- story_dependencies (Epic 31-1) — directed dependency edges
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS story_dependencies (
+  story_key  VARCHAR(20)   NOT NULL,
+  depends_on VARCHAR(20)   NOT NULL,
+  dep_type   VARCHAR(20)   NOT NULL,
+  source     VARCHAR(20)   NOT NULL,
+  created_at DATETIME,
+  PRIMARY KEY (story_key, depends_on)
+);
+
+-- ---------------------------------------------------------------------------
+-- ready_stories view (Epic 31-1)
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE VIEW ready_stories AS
+  SELECT s.* FROM wg_stories s
+  WHERE s.status IN ('planned', 'ready')
+    AND NOT EXISTS (
+      SELECT 1 FROM story_dependencies d
+      JOIN wg_stories dep ON dep.story_key = d.depends_on
+      WHERE d.story_key = s.story_key
+        AND d.dep_type = 'blocks'
+        AND dep.status <> 'complete'
+    );
+
+INSERT IGNORE INTO _schema_version (version, description) VALUES (7, 'Add wg_stories, story_dependencies tables and ready_stories view (Epic 31-1)');

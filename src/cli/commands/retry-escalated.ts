@@ -108,7 +108,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     }
 
     // AC6: Live retry — invoke the orchestrator with retryable keys
-    const packPath = join(projectRoot, 'packs', packName)
+    const packPath = join(dbRoot, 'packs', packName)
     const packLoader = createPackLoader()
     let pack
     try {

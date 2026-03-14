@@ -238,8 +238,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
   }
 
-  const packPath = join(projectRoot, 'packs', packName)
   const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const packPath = join(dbRoot, 'packs', packName)
   const dbDir = join(dbRoot, '.substrate')
   const dbPath = join(dbDir, 'substrate.db')
 

@@ -166,7 +166,7 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbDir = join(dbRoot, '.substrate')
   const dbPath = join(dbDir, 'substrate.db')
-  const packPath = join(projectRoot, 'packs', packName)
+  const packPath = join(dbRoot, 'packs', packName)
 
   const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
   if (!existsSync(dbPath) && !existsSync(doltDir)) {

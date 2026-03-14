@@ -17,6 +17,8 @@ import type { Command } from 'commander'
 import { join } from 'path'
 import { mkdirSync, existsSync } from 'fs'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
+import { createEventEmitter } from '../../modules/implementation-orchestrator/event-emitter.js'
+import type { PipelinePhase } from '../../modules/implementation-orchestrator/event-types.js'
 import { IngestionServer } from '../../modules/telemetry/ingestion-server.js'
 import { AdapterTelemetryPersistence } from '../../modules/telemetry/adapter-persistence.js'
 import { createConfigSystem } from '../../modules/config/config-system-impl.js'
@@ -56,6 +58,27 @@ import {
 
 const logger = createLogger('resume-cmd')
 
+/**
+ * Map internal orchestrator phase names to pipeline event protocol phase names.
+ */
+function mapInternalPhaseToEventPhase(internalPhase: string): PipelinePhase | null {
+  switch (internalPhase) {
+    case 'IN_STORY_CREATION':
+      return 'create-story'
+    case 'IN_DEV':
+      return 'dev-story'
+    case 'IN_REVIEW':
+      return 'code-review'
+    case 'IN_MINOR_FIX':
+    case 'IN_MAJOR_FIX':
+      return 'fix'
+    case 'IN_TEST_PLANNING':
+      return 'test-planning'
+    default:
+      return null
+  }
+}
+
 // ---------------------------------------------------------------------------
 // resume action
 // ---------------------------------------------------------------------------
@@ -67,11 +90,12 @@ export interface ResumeOptions {
   projectRoot: string
   concurrency: number
   pack: string
+  events?: boolean
   registry?: AdapterRegistry
 }
 
 export async function runResumeAction(options: ResumeOptions): Promise<number> {
-  const { runId: specifiedRunId, stopAfter, outputFormat, projectRoot, concurrency, pack: packName, registry } = options
+  const { runId: specifiedRunId, stopAfter, outputFormat, projectRoot, concurrency, pack: packName, events: eventsFlag, registry } = options
 
   // Validate --stop-after phase (before any DB writes) (AC7)
   if (stopAfter !== undefined && !VALID_PHASES.includes(stopAfter)) {
@@ -84,8 +108,8 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
     return 1
   }
 
-  const packPath = join(projectRoot, 'packs', packName)
   const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const packPath = join(dbRoot, 'packs', packName)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
 
   const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
@@ -190,6 +214,7 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
       concept,
       concurrency,
       outputFormat,
+      events: eventsFlag,
       existingRunId: runId,
       projectRoot,
       registry,
@@ -226,6 +251,7 @@ export interface FullPipelineFromPhaseOptions {
   concept: string
   concurrency: number
   outputFormat: OutputFormat
+  events?: boolean
   existingRunId?: string
   projectRoot: string
   registry?: AdapterRegistry
@@ -242,6 +268,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     concept,
     concurrency,
     outputFormat,
+    events: eventsFlag,
     existingRunId,
     projectRoot,
     registry: injectedRegistry,
@@ -288,6 +315,12 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
       runId = existingRunId
     } else {
       runId = await phaseOrchestrator.startRun(concept, startPhase)
+    }
+
+    // Wire NDJSON event emitter when --events flag is active
+    let ndjsonEmitter: ReturnType<typeof createEventEmitter> | undefined
+    if (eventsFlag === true) {
+      ndjsonEmitter = createEventEmitter(process.stdout)
     }
 
     const phaseOrder: PhaseName[] = ['analysis', 'planning', 'solutioning', 'implementation']
@@ -408,11 +441,103 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
             maxConcurrency: concurrency,
             maxReviewCycles: 2,
             pipelineRunId: runId,
+            enableHeartbeat: eventsFlag === true,
           },
           projectRoot,
           ...(ingestionServer !== undefined ? { ingestionServer } : {}),
           ...(telemetryPersistence !== undefined ? { telemetryPersistence } : {}),
         })
+
+        // Wire NDJSON event listeners for --events mode
+        if (ndjsonEmitter !== undefined) {
+          // Resolve story keys early so we can include them in pipeline:start
+          const resolvedKeys = await resolveStoryKeys(adapter, projectRoot, {
+            pipelineRunId: runId,
+          })
+
+          ndjsonEmitter.emit({
+            type: 'pipeline:start',
+            ts: new Date().toISOString(),
+            run_id: runId,
+            stories: resolvedKeys,
+            concurrency,
+          })
+
+          eventBus.on('orchestrator:story-phase-start', (payload) => {
+            const phase = mapInternalPhaseToEventPhase(payload.phase)
+            if (phase !== null) {
+              ndjsonEmitter!.emit({
+                type: 'story:phase',
+                ts: new Date().toISOString(),
+                key: payload.storyKey,
+                phase,
+                status: 'in_progress',
+              })
+            }
+          })
+
+          eventBus.on('orchestrator:story-phase-complete', (payload) => {
+            const phase = mapInternalPhaseToEventPhase(payload.phase)
+            if (phase !== null) {
+              const result = payload.result as { story_file?: string; verdict?: string }
+              ndjsonEmitter!.emit({
+                type: 'story:phase',
+                ts: new Date().toISOString(),
+                key: payload.storyKey,
+                phase,
+                status: 'complete',
+                ...(phase === 'code-review' && result?.verdict !== undefined
+                  ? { verdict: result.verdict }
+                  : {}),
+                ...(phase === 'create-story' && result?.story_file !== undefined
+                  ? { file: result.story_file }
+                  : {}),
+              })
+            }
+          })
+
+          eventBus.on('orchestrator:story-complete', (payload) => {
+            ndjsonEmitter!.emit({
+              type: 'story:done',
+              ts: new Date().toISOString(),
+              key: payload.storyKey,
+              result: 'success',
+              review_cycles: payload.reviewCycles,
+            })
+          })
+
+          eventBus.on('orchestrator:story-escalated', (payload) => {
+            const rawIssues = Array.isArray(payload.issues) ? payload.issues : []
+            const issues = rawIssues.map((issue) => {
+              const iss = issue as { severity?: string; file?: string; description?: string; desc?: string }
+              return {
+                severity: (iss.severity ?? 'unknown') as 'blocker' | 'major' | 'minor' | 'unknown',
+                file: iss.file ?? '',
+                desc: iss.desc ?? iss.description ?? '',
+              }
+            })
+            ndjsonEmitter!.emit({
+              type: 'story:escalation',
+              ts: new Date().toISOString(),
+              key: payload.storyKey,
+              reason: payload.lastVerdict ?? 'escalated',
+              cycles: payload.reviewCycles ?? 0,
+              issues,
+              ...(payload.diagnosis !== undefined ? { diagnosis: payload.diagnosis } : {}),
+            })
+          })
+
+          eventBus.on('orchestrator:heartbeat', (payload) => {
+            ndjsonEmitter!.emit({
+              type: 'pipeline:heartbeat',
+              ts: new Date().toISOString(),
+              run_id: payload.runId,
+              active_dispatches: payload.activeDispatches,
+              completed_dispatches: payload.completedDispatches,
+              queued_dispatches: payload.queuedDispatches,
+            })
+          })
+        }
 
         eventBus.on('orchestrator:story-phase-complete', (payload) => {
           try {
@@ -447,6 +572,17 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
         }
 
         await orchestrator.run(storyKeys)
+
+        // Emit pipeline:complete event
+        if (ndjsonEmitter !== undefined) {
+          ndjsonEmitter.emit({
+            type: 'pipeline:complete',
+            ts: new Date().toISOString(),
+            succeeded: storyKeys, // Best-effort; full breakdown requires orchestrator result
+            failed: [],
+            escalated: [],
+          })
+        }
 
         if (outputFormat === 'human') {
           process.stdout.write('[IMPLEMENTATION] Complete\n')
@@ -578,6 +714,7 @@ export function registerResumeCommand(
       'Output format: human (default) or json',
       'human',
     )
+    .option('--events', 'Emit structured NDJSON events on stdout for programmatic consumption')
     .action(
       async (opts: {
         runId?: string
@@ -586,6 +723,7 @@ export function registerResumeCommand(
         concurrency: number
         projectRoot: string
         outputFormat: string
+        events?: boolean
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         const exitCode = await runResumeAction({
@@ -595,6 +733,7 @@ export function registerResumeCommand(
           projectRoot: opts.projectRoot,
           concurrency: opts.concurrency,
           pack: opts.pack,
+          events: opts.events,
           registry,
         })
         process.exitCode = exitCode

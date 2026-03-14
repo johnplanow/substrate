@@ -234,6 +234,53 @@ export interface HistoryEntry {
 }
 
 // ---------------------------------------------------------------------------
+// WgStoryStatus / WgStory / StoryDependency (Epic 31-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Status values for work-graph story nodes.
+ */
+export type WgStoryStatus = 'planned' | 'ready' | 'in_progress' | 'complete' | 'escalated' | 'blocked'
+
+/**
+ * A work-graph story node representing a planning-level story.
+ */
+export interface WgStory {
+  /** Unique story identifier, e.g. "31-1" */
+  story_key: string
+  /** Epic identifier, e.g. "31" */
+  epic: string
+  /** Human-readable story title */
+  title?: string
+  /** Current work-graph status */
+  status: WgStoryStatus
+  /** Path to the story spec file */
+  spec_path?: string
+  /** ISO or DATETIME string when the story was created */
+  created_at?: string
+  /** ISO or DATETIME string when the story was last updated */
+  updated_at?: string
+  /** ISO or DATETIME string when the story was completed */
+  completed_at?: string
+}
+
+/**
+ * A directed dependency edge between two work-graph stories.
+ */
+export interface StoryDependency {
+  /** The story that depends on another */
+  story_key: string
+  /** The story being depended upon */
+  depends_on: string
+  /** 'blocks' = hard dependency; 'informs' = soft/advisory */
+  dep_type: 'blocks' | 'informs'
+  /** How the dependency was discovered */
+  source: 'explicit' | 'contract' | 'inferred'
+  /** ISO or DATETIME string when the dependency was recorded */
+  created_at?: string
+}
+
+// ---------------------------------------------------------------------------
 // StateStoreConfig
 // ---------------------------------------------------------------------------
 

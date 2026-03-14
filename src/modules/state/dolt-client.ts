@@ -38,6 +38,8 @@ export class DoltClient {
   private _pool: Pool | null = null
   private _useCliMode = false
   private _connected = false
+  /** Promise-chain mutex that serializes all CLI operations to prevent concurrent noms manifest access */
+  private _cliMutex: Promise<void> = Promise.resolve()
 
   constructor(options: DoltClientOptions) {
     this.repoPath = options.repoPath
@@ -101,6 +103,19 @@ export class DoltClient {
     }
   }
 
+  /**
+   * Acquire an exclusive CLI lock. Dolt CLI takes an exclusive lock on the noms
+   * manifest, so concurrent `dolt sql -q` / `dolt <subcommand>` processes
+   * produce "cannot update manifest: database is read only" errors.
+   * Serialize all CLI operations through a single promise chain.
+   */
+  private _withCliLock<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = this._cliMutex
+    let release!: () => void
+    this._cliMutex = new Promise<void>((resolve) => { release = resolve })
+    return prev.then(fn).finally(() => release())
+  }
+
   private async _queryCli<T>(sql: string, params?: unknown[], branch?: string): Promise<T[]> {
     // Substitute params with escaped literals
     let resolvedSql = sql
@@ -114,24 +129,27 @@ export class DoltClient {
       })
     }
 
-    try {
-      // Dolt CLI has no branch flag for `dolt sql`. Prepend DOLT_CHECKOUT
-      // to switch branches when needed. Multi-statement output produces one
-      // JSON object per line — parse the last line for the actual result.
-      const branchPrefix = branch
-        ? `CALL DOLT_CHECKOUT('${branch.replace(/'/g, "''")}'); `
-        : ''
-      const args = ['sql', '-q', branchPrefix + resolvedSql, '--result-format', 'json']
-      const { stdout } = await runExecFile('dolt', args, { cwd: this.repoPath })
-      // When branch prefix is used, stdout has multiple JSON lines; take the last one
-      const lines = (stdout || '').trim().split('\n').filter(Boolean)
-      const lastLine = lines.length > 0 ? lines[lines.length - 1]! : '{"rows":[]}'
-      const parsed = JSON.parse(lastLine)
-      return (parsed.rows ?? []) as T[]
-    } catch (err: unknown) {
-      const detail = err instanceof Error ? err.message : String(err)
-      throw new DoltQueryError(resolvedSql, detail)
-    }
+    const finalSql = resolvedSql
+    return this._withCliLock(async () => {
+      try {
+        // Dolt CLI has no branch flag for `dolt sql`. Prepend DOLT_CHECKOUT
+        // to switch branches when needed. Multi-statement output produces one
+        // JSON object per line — parse the last line for the actual result.
+        const branchPrefix = branch
+          ? `CALL DOLT_CHECKOUT('${branch.replace(/'/g, "''")}'); `
+          : ''
+        const args = ['sql', '-q', branchPrefix + finalSql, '--result-format', 'json']
+        const { stdout } = await runExecFile('dolt', args, { cwd: this.repoPath })
+        // When branch prefix is used, stdout has multiple JSON lines; take the last one
+        const lines = (stdout || '').trim().split('\n').filter(Boolean)
+        const lastLine = lines.length > 0 ? lines[lines.length - 1]! : '{"rows":[]}'
+        const parsed = JSON.parse(lastLine)
+        return (parsed.rows ?? []) as T[]
+      } catch (err: unknown) {
+        const detail = err instanceof Error ? err.message : String(err)
+        throw new DoltQueryError(finalSql, detail)
+      }
+    })
   }
 
   /**
@@ -155,13 +173,15 @@ export class DoltClient {
    * messages) to avoid whitespace-splitting issues.
    */
   async execArgs(args: string[]): Promise<string> {
-    try {
-      const { stdout } = await runExecFile('dolt', args, { cwd: this.repoPath })
-      return stdout
-    } catch (err: unknown) {
-      const detail = err instanceof Error ? err.message : String(err)
-      throw new DoltQueryError(args.join(' '), detail)
-    }
+    return this._withCliLock(async () => {
+      try {
+        const { stdout } = await runExecFile('dolt', args, { cwd: this.repoPath })
+        return stdout
+      } catch (err: unknown) {
+        const detail = err instanceof Error ? err.message : String(err)
+        throw new DoltQueryError(args.join(' '), detail)
+      }
+    })
   }
 
   async close(): Promise<void> {

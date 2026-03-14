@@ -594,8 +594,8 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     yes: nonInteractive = false,
   } = options
 
-  const packPath = join(projectRoot, 'packs', packName)
   const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const packPath = join(dbRoot, 'packs', packName)
   const substrateDir = join(dbRoot, '.substrate')
   const dbPath = join(substrateDir, 'substrate.db')
   const configPath = join(substrateDir, 'config.yaml')

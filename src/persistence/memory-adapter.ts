@@ -76,8 +76,12 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter {
     if (/^DROP\s+TABLE/i.test(upper)) {
       return this._dropTable(resolved)
     }
-    if (/^INSERT\s+INTO/i.test(upper)) {
-      return this._insert(resolved)
+    if (/^CREATE\s+(?:OR\s+REPLACE\s+)?VIEW/i.test(upper)) {
+      // VIEWs are not supported in InMemoryDatabaseAdapter — treat as no-op.
+      return []
+    }
+    if (/^INSERT\s+(?:IGNORE\s+)?INTO/i.test(upper)) {
+      return this._insert(resolved, /^INSERT\s+IGNORE\s+INTO/i.test(upper))
     }
     if (/^SELECT/i.test(upper)) {
       return this._select(resolved)
