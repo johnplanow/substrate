@@ -60,7 +60,7 @@ export async function createDecision(adapter: DatabaseAdapter, input: CreateDeci
   const id = crypto.randomUUID()
 
   await adapter.query(
-    `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, rationale)
+    `INSERT INTO decisions (id, pipeline_run_id, phase, category, \`key\`, value, rationale)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
@@ -87,7 +87,7 @@ export async function upsertDecision(adapter: DatabaseAdapter, input: CreateDeci
 
   // Check for existing decision with same pipeline_run_id + category + key
   const rows = await adapter.query<Decision>(
-    'SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = ? AND key = ? LIMIT 1',
+    'SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = ? AND `key` = ? LIMIT 1',
     [validated.pipeline_run_id ?? null, validated.category, validated.key],
   )
   const existing = rows[0]
@@ -148,7 +148,7 @@ export async function getDecisionByKey(
   key: string,
 ): Promise<Decision | undefined> {
   const rows = await adapter.query<Decision>(
-    'SELECT * FROM decisions WHERE phase = ? AND key = ? LIMIT 1',
+    'SELECT * FROM decisions WHERE phase = ? AND `key` = ? LIMIT 1',
     [phase, key],
   )
   return rows[0]
@@ -176,7 +176,8 @@ export async function updateDecision(
 
   if (setClauses.length === 0) return
 
-  setClauses.push("updated_at = datetime('now')")
+  setClauses.push('updated_at = ?')
+  values.push(new Date().toISOString())
   values.push(id)
 
   await adapter.query(`UPDATE decisions SET ${setClauses.join(', ')} WHERE id = ?`, values)
@@ -352,7 +353,7 @@ export async function getArtifactByType(
   type: string,
 ): Promise<Artifact | undefined> {
   const rows = await adapter.query<Artifact>(
-    'SELECT * FROM artifacts WHERE phase = ? AND type = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
+    'SELECT * FROM artifacts WHERE phase = ? AND type = ? ORDER BY created_at DESC, id DESC LIMIT 1',
     [phase, type],
   )
   return rows[0]
@@ -370,7 +371,7 @@ export async function getArtifactByTypeForRun(
   type: string,
 ): Promise<Artifact | undefined> {
   const rows = await adapter.query<Artifact>(
-    'SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = ? AND type = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
+    'SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = ? AND type = ? ORDER BY created_at DESC, id DESC LIMIT 1',
     [runId, phase, type],
   )
   return rows[0]
@@ -406,8 +407,8 @@ export async function updatePipelineRunConfig(
   configJson: string,
 ): Promise<void> {
   await adapter.query(
-    "UPDATE pipeline_runs SET config_json = ?, updated_at = datetime('now') WHERE id = ?",
-    [configJson, id],
+    'UPDATE pipeline_runs SET config_json = ?, updated_at = ? WHERE id = ?',
+    [configJson, new Date().toISOString(), id],
   )
 }
 
@@ -466,7 +467,8 @@ export async function updatePipelineRun(
 
   if (setClauses.length === 0) return
 
-  setClauses.push("updated_at = datetime('now')")
+  setClauses.push('updated_at = ?')
+  values.push(new Date().toISOString())
   values.push(id)
 
   await adapter.query(`UPDATE pipeline_runs SET ${setClauses.join(', ')} WHERE id = ?`, values)
@@ -484,7 +486,7 @@ export async function getRunningPipelineRuns(adapter: DatabaseAdapter): Promise<
  */
 export async function getLatestRun(adapter: DatabaseAdapter): Promise<PipelineRun | undefined> {
   const rows = await adapter.query<PipelineRun>(
-    'SELECT * FROM pipeline_runs ORDER BY created_at DESC, rowid DESC LIMIT 1',
+    'SELECT * FROM pipeline_runs ORDER BY created_at DESC, id DESC LIMIT 1',
   )
   return rows[0]
 }

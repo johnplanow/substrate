@@ -194,25 +194,31 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
     this._syncAdapter.execSync(`
       CREATE TABLE IF NOT EXISTS _schema_version (
         version_id  INTEGER PRIMARY KEY,
-        applied_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        applied_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `)
-    this._syncAdapter.execSync(`INSERT OR IGNORE INTO _schema_version (version_id) VALUES (1)`)
+    // Portable upsert: check before inserting (INSERT OR IGNORE is SQLite-only)
+    const existing = this._syncAdapter.querySync<{ version_id: number }>(
+      'SELECT version_id FROM _schema_version WHERE version_id = 1',
+    )
+    if (existing.length === 0) {
+      this._syncAdapter.querySync('INSERT INTO _schema_version (version_id) VALUES (1)')
+    }
     this._syncAdapter.execSync(`
       CREATE TABLE IF NOT EXISTS task_metrics (
-        task_id        TEXT    NOT NULL,
-        agent          TEXT    NOT NULL,
-        task_type      TEXT    NOT NULL,
-        outcome        TEXT    NOT NULL CHECK(outcome IN ('success', 'failure')),
+        task_id        VARCHAR(255) NOT NULL,
+        agent          VARCHAR(128) NOT NULL,
+        task_type      VARCHAR(128) NOT NULL,
+        outcome        VARCHAR(16)  NOT NULL CHECK(outcome IN ('success', 'failure')),
         failure_reason TEXT,
         input_tokens   INTEGER NOT NULL DEFAULT 0,
         output_tokens  INTEGER NOT NULL DEFAULT 0,
         duration_ms    INTEGER NOT NULL DEFAULT 0,
-        cost           REAL    NOT NULL DEFAULT 0.0,
-        estimated_cost REAL    NOT NULL DEFAULT 0.0,
-        billing_mode   TEXT    NOT NULL DEFAULT 'api',
+        cost           DOUBLE  NOT NULL DEFAULT 0.0,
+        estimated_cost DOUBLE  NOT NULL DEFAULT 0.0,
+        billing_mode   VARCHAR(32) NOT NULL DEFAULT 'api',
         retries        INTEGER NOT NULL DEFAULT 0,
-        recorded_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+        recorded_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (task_id, recorded_at)
       )
     `)
@@ -222,30 +228,30 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
     this._syncAdapter.execSync(`CREATE INDEX IF NOT EXISTS idx_tm_agent_type  ON task_metrics(agent, task_type)`)
     this._syncAdapter.execSync(`
       CREATE TABLE IF NOT EXISTS performance_aggregates (
-        agent              TEXT    NOT NULL,
-        task_type          TEXT    NOT NULL,
+        agent              VARCHAR(255) NOT NULL,
+        task_type          VARCHAR(255) NOT NULL,
         total_tasks        INTEGER NOT NULL DEFAULT 0,
         successful_tasks   INTEGER NOT NULL DEFAULT 0,
         failed_tasks       INTEGER NOT NULL DEFAULT 0,
         total_input_tokens INTEGER NOT NULL DEFAULT 0,
         total_output_tokens INTEGER NOT NULL DEFAULT 0,
         total_duration_ms  INTEGER NOT NULL DEFAULT 0,
-        total_cost         REAL    NOT NULL DEFAULT 0.0,
+        total_cost         DOUBLE  NOT NULL DEFAULT 0.0,
         total_retries      INTEGER NOT NULL DEFAULT 0,
-        last_updated       TEXT    NOT NULL DEFAULT (datetime('now')),
+        last_updated       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (agent, task_type)
       )
     `)
     this._syncAdapter.execSync(`
       CREATE TABLE IF NOT EXISTS routing_recommendations (
-        id                INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_type         TEXT    NOT NULL,
-        current_agent     TEXT    NOT NULL,
-        recommended_agent TEXT    NOT NULL,
+        id                INTEGER PRIMARY KEY AUTO_INCREMENT,
+        task_type         VARCHAR(128) NOT NULL,
+        current_agent     VARCHAR(128) NOT NULL,
+        recommended_agent VARCHAR(128) NOT NULL,
         reason            TEXT,
-        confidence        REAL    NOT NULL DEFAULT 0.0,
+        confidence        DOUBLE  NOT NULL DEFAULT 0.0,
         supporting_data   TEXT,
-        generated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+        generated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         expires_at        TEXT
       )
     `)
@@ -277,8 +283,15 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
   }
 
   insertTaskMetrics(row: TaskMetricsRow): void {
+    // Portable duplicate-key guard (INSERT OR IGNORE is SQLite-only)
+    const dup = this._querySync<{ task_id: string }>(
+      'SELECT task_id FROM task_metrics WHERE task_id = ? AND recorded_at = ?',
+      [row.taskId, row.recordedAt],
+    )
+    if (dup.length > 0) return
+
     this._mutateSync(
-      `INSERT OR IGNORE INTO task_metrics (
+      `INSERT INTO task_metrics (
         task_id, agent, task_type, outcome, failure_reason,
         input_tokens, output_tokens, duration_ms, cost, estimated_cost,
         billing_mode, recorded_at
@@ -526,7 +539,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
         last_updated
       FROM performance_aggregates
       WHERE task_type = ?
-      ORDER BY (CAST(successful_tasks AS REAL) / NULLIF(total_tasks, 0)) DESC`,
+      ORDER BY (CAST(successful_tasks AS DOUBLE) / NULLIF(total_tasks, 0)) DESC`,
       [taskType],
     )
 

@@ -384,7 +384,7 @@ describe('aggregateTokenUsageForRun', () => {
   it('aggregates token_usage rows for a run', async () => {
     // Insert a pipeline run and token usage records
     await adapter.exec(`INSERT INTO pipeline_runs (id, methodology, current_phase, status, created_at, updated_at)
-      VALUES ('run-tok', 'bmad', 'implementation', 'running', datetime('now'), datetime('now'))`)
+      VALUES ('run-tok', 'bmad', 'implementation', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`)
     await adapter.query(`INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?)`,
       ['run-tok', 'create-story', 'claude-code', 1000, 500, 0.01])
     await adapter.query(`INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?)`,

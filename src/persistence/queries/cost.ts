@@ -127,8 +127,8 @@ export async function incrementTaskCost(
   costDelta: number,
 ): Promise<void> {
   await adapter.query(
-    `UPDATE tasks SET cost_usd = cost_usd + ?, updated_at = datetime('now') WHERE id = ?`,
-    [costDelta, taskId],
+    'UPDATE tasks SET cost_usd = cost_usd + ?, updated_at = ? WHERE id = ?',
+    [costDelta, new Date().toISOString(), taskId],
   )
 }
 

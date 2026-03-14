@@ -52,7 +52,7 @@ function insertRun(
 ): void {
   adapter.querySync(
     `INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
-    VALUES (?, 'bmad', ?, ?, datetime('now'), datetime('now'))`,
+    VALUES (?, 'bmad', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     [id, status, parentRunId],
   )
 }
@@ -82,7 +82,7 @@ function insertDecision(
 
   adapter.querySync(
     `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, superseded_by, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     [id, runId, phase, category, key, value, supersededBy],
   )
 }

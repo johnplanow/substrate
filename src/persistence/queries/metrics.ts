@@ -197,9 +197,9 @@ export async function incrementRunRestarts(
 ): Promise<void> {
   await adapter.query(
     `INSERT INTO run_metrics (run_id, methodology, status, started_at, restarts)
-     VALUES (?, 'unknown', 'running', datetime('now'), 1)
+     VALUES (?, 'unknown', 'running', ?, 1)
      ON CONFLICT(run_id) DO UPDATE SET restarts = run_metrics.restarts + 1`,
-    [runId],
+    [runId, new Date().toISOString()],
   )
 }
 

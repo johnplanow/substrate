@@ -124,9 +124,11 @@ export function createDatabaseAdapter(config: DatabaseAdapterConfig = { backend:
   const backend = config.backend ?? 'auto'
   const basePath = config.basePath ?? process.cwd()
 
+  const doltRepoPath = join(basePath, '.substrate', 'state')
+
   if (backend === 'dolt') {
     logger.debug('Using DoltDatabaseAdapter (explicit config)')
-    const client = new DoltClient({ repoPath: basePath })
+    const client = new DoltClient({ repoPath: doltRepoPath })
     return new DoltDatabaseAdapter(client)
   }
 
@@ -138,7 +140,7 @@ export function createDatabaseAdapter(config: DatabaseAdapterConfig = { backend:
   // 'auto': probe for Dolt, fall back to in-memory
   if (isDoltAvailable(basePath)) {
     logger.debug('Dolt detected, using DoltDatabaseAdapter')
-    const client = new DoltClient({ repoPath: basePath })
+    const client = new DoltClient({ repoPath: doltRepoPath })
     return new DoltDatabaseAdapter(client)
   }
 

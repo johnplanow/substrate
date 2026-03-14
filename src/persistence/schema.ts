@@ -28,40 +28,40 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   // -- Core tables (migration 001 + 003) ------------------------------------
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
-      id                TEXT PRIMARY KEY,
+      id                VARCHAR(255) PRIMARY KEY,
       name              TEXT,
       graph_file        TEXT NOT NULL,
-      status            TEXT NOT NULL DEFAULT 'active',
-      budget_usd        REAL,
-      total_cost_usd    REAL NOT NULL DEFAULT 0.0,
-      planning_cost_usd REAL NOT NULL DEFAULT 0.0,
+      status            VARCHAR(32) NOT NULL DEFAULT 'active',
+      budget_usd        DOUBLE,
+      total_cost_usd    DOUBLE NOT NULL DEFAULT 0.0,
+      planning_cost_usd DOUBLE NOT NULL DEFAULT 0.0,
       config_snapshot   TEXT,
       base_branch       TEXT NOT NULL DEFAULT 'main',
       plan_source       TEXT,
       planning_agent    TEXT,
       planning_costs_count_against_budget INTEGER NOT NULL DEFAULT 0,
-      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
-      id              TEXT PRIMARY KEY,
-      session_id      TEXT NOT NULL REFERENCES sessions(id),
+      id              VARCHAR(255) PRIMARY KEY,
+      session_id      VARCHAR(255) NOT NULL,
       name            TEXT NOT NULL,
       description     TEXT,
       prompt          TEXT NOT NULL,
-      status          TEXT NOT NULL DEFAULT 'pending',
-      agent           TEXT,
+      status          VARCHAR(32) NOT NULL DEFAULT 'pending',
+      agent           VARCHAR(128),
       model           TEXT,
-      billing_mode    TEXT,
+      billing_mode    VARCHAR(32),
       worktree_path   TEXT,
       worktree_branch TEXT,
       worktree_cleaned_at TEXT,
       worker_id       TEXT,
-      budget_usd      REAL,
-      cost_usd        REAL NOT NULL DEFAULT 0.0,
+      budget_usd      DOUBLE,
+      cost_usd        DOUBLE NOT NULL DEFAULT 0.0,
       input_tokens    INTEGER NOT NULL DEFAULT 0,
       output_tokens   INTEGER NOT NULL DEFAULT 0,
       result          TEXT,
@@ -78,8 +78,8 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
       budget_exceeded INTEGER NOT NULL DEFAULT 0,
       started_at      TEXT,
       completed_at    TEXT,
-      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
 
@@ -90,8 +90,8 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS task_dependencies (
-      task_id    TEXT NOT NULL REFERENCES tasks(id),
-      depends_on TEXT NOT NULL REFERENCES tasks(id),
+      task_id    VARCHAR(255) NOT NULL,
+      depends_on VARCHAR(255) NOT NULL,
       PRIMARY KEY (task_id, depends_on),
       CHECK (task_id != depends_on)
     )
@@ -100,16 +100,16 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS execution_log (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id TEXT NOT NULL REFERENCES sessions(id),
-      task_id    TEXT REFERENCES tasks(id),
-      event      TEXT NOT NULL,
-      old_status TEXT,
-      new_status TEXT,
-      agent      TEXT,
-      cost_usd   REAL,
+      id         INTEGER PRIMARY KEY AUTO_INCREMENT,
+      session_id VARCHAR(255) NOT NULL,
+      task_id    VARCHAR(255),
+      event      VARCHAR(128) NOT NULL,
+      old_status VARCHAR(32),
+      new_status VARCHAR(32),
+      agent      VARCHAR(128),
+      cost_usd   DOUBLE,
       data       TEXT,
-      timestamp  TEXT NOT NULL DEFAULT (datetime('now'))
+      timestamp  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_log_session ON execution_log(session_id)')
@@ -120,20 +120,20 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   // -- Cost entries (migration 001 + 002) -----------------------------------
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS cost_entries (
-      id             INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id     TEXT NOT NULL REFERENCES sessions(id),
-      task_id        TEXT REFERENCES tasks(id),
-      agent          TEXT NOT NULL,
-      billing_mode   TEXT NOT NULL,
-      category       TEXT NOT NULL DEFAULT 'execution',
-      provider       TEXT NOT NULL DEFAULT 'unknown',
+      id             INTEGER PRIMARY KEY AUTO_INCREMENT,
+      session_id     VARCHAR(255) NOT NULL,
+      task_id        VARCHAR(255),
+      agent          VARCHAR(128) NOT NULL,
+      billing_mode   VARCHAR(32) NOT NULL,
+      category       VARCHAR(64) NOT NULL DEFAULT 'execution',
+      provider       VARCHAR(64) NOT NULL DEFAULT 'unknown',
       input_tokens   INTEGER NOT NULL DEFAULT 0,
       output_tokens  INTEGER NOT NULL DEFAULT 0,
-      estimated_cost REAL NOT NULL DEFAULT 0.0,
-      actual_cost    REAL,
-      savings_usd    REAL NOT NULL DEFAULT 0.0,
+      estimated_cost DOUBLE NOT NULL DEFAULT 0.0,
+      actual_cost    DOUBLE,
+      savings_usd    DOUBLE NOT NULL DEFAULT 0.0,
       model          TEXT,
-      timestamp      TEXT NOT NULL DEFAULT (datetime('now'))
+      timestamp      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_cost_session ON cost_entries(session_id)')
@@ -147,10 +147,10 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   // -- Session signals (migration 004) --------------------------------------
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS session_signals (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id   TEXT NOT NULL,
-      signal       TEXT NOT NULL CHECK(signal IN ('pause', 'resume', 'cancel')),
-      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      id           INTEGER PRIMARY KEY AUTO_INCREMENT,
+      session_id   VARCHAR(255) NOT NULL,
+      \`signal\`   VARCHAR(16) NOT NULL CHECK(\`signal\` IN ('pause', 'resume', 'cancel')),
+      created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       processed_at TEXT
     )
   `)
@@ -158,16 +158,16 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   // -- Plans (migration 005 + 006) ------------------------------------------
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS plans (
-      id                 TEXT PRIMARY KEY,
+      id                 VARCHAR(255) PRIMARY KEY,
       description        TEXT NOT NULL,
       task_count         INTEGER NOT NULL DEFAULT 0,
-      estimated_cost_usd REAL NOT NULL DEFAULT 0.0,
-      planning_agent     TEXT NOT NULL,
+      estimated_cost_usd DOUBLE NOT NULL DEFAULT 0.0,
+      planning_agent     VARCHAR(128) NOT NULL,
       plan_yaml          TEXT NOT NULL,
-      status             TEXT NOT NULL DEFAULT 'draft',
+      status             VARCHAR(32) NOT NULL DEFAULT 'draft',
       current_version    INTEGER NOT NULL DEFAULT 1,
-      created_at         TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status)')
@@ -175,12 +175,12 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS plan_versions (
-      plan_id           TEXT NOT NULL REFERENCES plans(id),
+      plan_id           VARCHAR(255) NOT NULL,
       version           INTEGER NOT NULL,
       task_graph_yaml   TEXT NOT NULL,
       feedback_used     TEXT,
-      planning_cost_usd REAL NOT NULL DEFAULT 0.0,
-      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      planning_cost_usd DOUBLE NOT NULL DEFAULT 0.0,
+      created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (plan_id, version)
     )
   `)
@@ -189,16 +189,16 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   // -- Pipeline runs + decisions (migration 007 + 008 final shapes) ---------
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS pipeline_runs (
-      id               TEXT PRIMARY KEY,
-      methodology      TEXT NOT NULL,
-      current_phase    TEXT,
-      status           TEXT NOT NULL DEFAULT 'running'
+      id               VARCHAR(255) PRIMARY KEY,
+      methodology      VARCHAR(128) NOT NULL,
+      current_phase    VARCHAR(64),
+      status           VARCHAR(32) NOT NULL DEFAULT 'running'
                        CHECK(status IN ('running','paused','completed','failed','stopped')),
       config_json      TEXT,
       token_usage_json TEXT,
-      parent_run_id    TEXT REFERENCES pipeline_runs(id) ON DELETE CASCADE,
-      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+      parent_run_id    VARCHAR(255),
+      created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status)')
@@ -206,32 +206,32 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS decisions (
-      id              TEXT PRIMARY KEY,
-      pipeline_run_id TEXT REFERENCES pipeline_runs(id),
-      phase           TEXT NOT NULL,
-      category        TEXT NOT NULL,
-      key             TEXT NOT NULL,
+      id              VARCHAR(255) PRIMARY KEY,
+      pipeline_run_id VARCHAR(255),
+      phase           VARCHAR(64) NOT NULL,
+      category        VARCHAR(64) NOT NULL,
+      \`key\`         VARCHAR(255) NOT NULL,
       value           TEXT NOT NULL,
       rationale       TEXT,
-      superseded_by   TEXT REFERENCES decisions(id) ON DELETE SET NULL,
-      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      superseded_by   VARCHAR(255),
+      created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_decisions_phase ON decisions(phase)')
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_decisions_key ON decisions(phase, key)')
+  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_decisions_key ON decisions(phase, `key`)')
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_decisions_superseded_by ON decisions(superseded_by)')
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS requirements (
-      id              TEXT PRIMARY KEY,
-      pipeline_run_id TEXT REFERENCES pipeline_runs(id),
-      source          TEXT NOT NULL,
-      type            TEXT NOT NULL CHECK(type IN ('functional','non_functional','constraint')),
+      id              VARCHAR(255) PRIMARY KEY,
+      pipeline_run_id VARCHAR(255),
+      source          VARCHAR(128) NOT NULL,
+      type            VARCHAR(32) NOT NULL CHECK(type IN ('functional','non_functional','constraint')),
       description     TEXT NOT NULL,
-      priority        TEXT NOT NULL CHECK(priority IN ('must','should','could','wont')),
-      status          TEXT NOT NULL DEFAULT 'active',
-      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      priority        VARCHAR(16) NOT NULL CHECK(priority IN ('must','should','could','wont')),
+      status          VARCHAR(32) NOT NULL DEFAULT 'active',
+      created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_requirements_type ON requirements(type)')
@@ -239,40 +239,40 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS constraints (
-      id              TEXT PRIMARY KEY,
-      pipeline_run_id TEXT REFERENCES pipeline_runs(id),
-      category        TEXT NOT NULL,
+      id              VARCHAR(255) PRIMARY KEY,
+      pipeline_run_id VARCHAR(255),
+      category        VARCHAR(64) NOT NULL,
       description     TEXT NOT NULL,
-      source          TEXT NOT NULL,
-      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      source          VARCHAR(128) NOT NULL,
+      created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS artifacts (
-      id              TEXT PRIMARY KEY,
-      pipeline_run_id TEXT REFERENCES pipeline_runs(id),
-      phase           TEXT NOT NULL,
-      type            TEXT NOT NULL,
+      id              VARCHAR(255) PRIMARY KEY,
+      pipeline_run_id VARCHAR(255),
+      phase           VARCHAR(64) NOT NULL,
+      type            VARCHAR(128) NOT NULL,
       path            TEXT NOT NULL,
       content_hash    TEXT,
       summary         TEXT,
-      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_artifacts_phase ON artifacts(phase)')
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS token_usage (
-      id              INTEGER PRIMARY KEY AUTOINCREMENT,
-      pipeline_run_id TEXT REFERENCES pipeline_runs(id),
-      phase           TEXT NOT NULL,
-      agent           TEXT NOT NULL,
+      id              INTEGER PRIMARY KEY AUTO_INCREMENT,
+      pipeline_run_id VARCHAR(255),
+      phase           VARCHAR(64) NOT NULL,
+      agent           VARCHAR(128) NOT NULL,
       input_tokens    INTEGER NOT NULL DEFAULT 0,
       output_tokens   INTEGER NOT NULL DEFAULT 0,
-      cost_usd        REAL NOT NULL DEFAULT 0.0,
+      cost_usd        DOUBLE NOT NULL DEFAULT 0.0,
       metadata        TEXT,
-      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_token_usage_run ON token_usage(pipeline_run_id)')
@@ -280,15 +280,15 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   // -- Run metrics (migration 010) ------------------------------------------
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS run_metrics (
-      run_id              TEXT PRIMARY KEY,
-      methodology         TEXT NOT NULL,
-      status              TEXT NOT NULL DEFAULT 'running',
+      run_id              VARCHAR(255) PRIMARY KEY,
+      methodology         VARCHAR(128) NOT NULL,
+      status              VARCHAR(32) NOT NULL DEFAULT 'running',
       started_at          TEXT NOT NULL,
       completed_at        TEXT,
-      wall_clock_seconds  REAL DEFAULT 0,
+      wall_clock_seconds  DOUBLE DEFAULT 0,
       total_input_tokens  INTEGER DEFAULT 0,
       total_output_tokens INTEGER DEFAULT 0,
-      total_cost_usd      REAL DEFAULT 0,
+      total_cost_usd      DOUBLE DEFAULT 0,
       stories_attempted   INTEGER DEFAULT 0,
       stories_succeeded   INTEGER DEFAULT 0,
       stories_failed      INTEGER DEFAULT 0,
@@ -299,26 +299,26 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
       max_concurrent_actual INTEGER DEFAULT 1,
       restarts            INTEGER DEFAULT 0,
       is_baseline         INTEGER DEFAULT 0,
-      created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS story_metrics (
-      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id              TEXT NOT NULL,
-      story_key           TEXT NOT NULL,
-      result              TEXT NOT NULL DEFAULT 'pending',
+      id                  INTEGER PRIMARY KEY AUTO_INCREMENT,
+      run_id              VARCHAR(255) NOT NULL,
+      story_key           VARCHAR(255) NOT NULL,
+      result              VARCHAR(32) NOT NULL DEFAULT 'pending',
       phase_durations_json TEXT,
       started_at          TEXT,
       completed_at        TEXT,
-      wall_clock_seconds  REAL DEFAULT 0,
+      wall_clock_seconds  DOUBLE DEFAULT 0,
       input_tokens        INTEGER DEFAULT 0,
       output_tokens       INTEGER DEFAULT 0,
-      cost_usd            REAL DEFAULT 0,
+      cost_usd            DOUBLE DEFAULT 0,
       review_cycles       INTEGER DEFAULT 0,
       dispatches          INTEGER DEFAULT 0,
-      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(run_id, story_key)
     )
   `)
@@ -326,19 +326,19 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   // -- Monitor tables (from 001-monitor-schema) -----------------------------
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS task_metrics (
-      task_id        TEXT    NOT NULL,
-      agent          TEXT    NOT NULL,
-      task_type      TEXT    NOT NULL,
-      outcome        TEXT    NOT NULL CHECK(outcome IN ('success', 'failure')),
+      task_id        VARCHAR(255) NOT NULL,
+      agent          VARCHAR(128) NOT NULL,
+      task_type      VARCHAR(128) NOT NULL,
+      outcome        VARCHAR(16)  NOT NULL CHECK(outcome IN ('success', 'failure')),
       failure_reason TEXT,
       input_tokens   INTEGER NOT NULL DEFAULT 0,
       output_tokens  INTEGER NOT NULL DEFAULT 0,
       duration_ms    INTEGER NOT NULL DEFAULT 0,
-      cost           REAL    NOT NULL DEFAULT 0.0,
-      estimated_cost REAL    NOT NULL DEFAULT 0.0,
-      billing_mode   TEXT    NOT NULL DEFAULT 'api',
+      cost           DOUBLE  NOT NULL DEFAULT 0.0,
+      estimated_cost DOUBLE  NOT NULL DEFAULT 0.0,
+      billing_mode   VARCHAR(32) NOT NULL DEFAULT 'api',
       retries        INTEGER NOT NULL DEFAULT 0,
-      recorded_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+      recorded_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (task_id, recorded_at)
     )
   `)
@@ -349,31 +349,31 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS performance_aggregates (
-      agent              TEXT    NOT NULL,
-      task_type          TEXT    NOT NULL,
+      agent              VARCHAR(255) NOT NULL,
+      task_type          VARCHAR(255) NOT NULL,
       total_tasks        INTEGER NOT NULL DEFAULT 0,
       successful_tasks   INTEGER NOT NULL DEFAULT 0,
       failed_tasks       INTEGER NOT NULL DEFAULT 0,
       total_input_tokens INTEGER NOT NULL DEFAULT 0,
       total_output_tokens INTEGER NOT NULL DEFAULT 0,
       total_duration_ms  INTEGER NOT NULL DEFAULT 0,
-      total_cost         REAL    NOT NULL DEFAULT 0.0,
+      total_cost         DOUBLE  NOT NULL DEFAULT 0.0,
       total_retries      INTEGER NOT NULL DEFAULT 0,
-      last_updated       TEXT    NOT NULL DEFAULT (datetime('now')),
+      last_updated       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (agent, task_type)
     )
   `)
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS routing_recommendations (
-      id                INTEGER PRIMARY KEY AUTOINCREMENT,
-      task_type         TEXT    NOT NULL,
-      current_agent     TEXT    NOT NULL,
-      recommended_agent TEXT    NOT NULL,
+      id                INTEGER PRIMARY KEY AUTO_INCREMENT,
+      task_type         VARCHAR(128) NOT NULL,
+      current_agent     VARCHAR(128) NOT NULL,
+      recommended_agent VARCHAR(128) NOT NULL,
       reason            TEXT,
-      confidence        REAL    NOT NULL DEFAULT 0.0,
+      confidence        DOUBLE  NOT NULL DEFAULT 0.0,
       supporting_data   TEXT,
-      generated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+      generated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       expires_at        TEXT
     )
   `)
@@ -506,7 +506,7 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version    INTEGER PRIMARY KEY,
       name       TEXT    NOT NULL,
-      applied_at TEXT    NOT NULL DEFAULT (datetime('now'))
+      applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
 }

@@ -80,12 +80,14 @@ export async function createAmendmentRun(adapter: DatabaseAdapter, input: Create
   // Insert new amendment run with parent_run_id set
   await adapter.query(
     `INSERT INTO pipeline_runs (id, methodology, current_phase, status, config_json, parent_run_id, created_at, updated_at)
-     VALUES (?, ?, NULL, 'running', ?, ?, datetime('now'), datetime('now'))`,
+     VALUES (?, ?, NULL, 'running', ?, ?, ?, ?)`,
     [
       input.id,
       input.methodology,
       input.configJson ?? null,
       input.parentRunId,
+      new Date().toISOString(),
+      new Date().toISOString(),
     ],
   )
 
@@ -159,8 +161,8 @@ export async function supersedeDecision(
 
   // Perform the update
   await adapter.query(
-    `UPDATE decisions SET superseded_by = ?, updated_at = datetime('now') WHERE id = ?`,
-    [supersedingDecisionId, originalDecisionId],
+    'UPDATE decisions SET superseded_by = ?, updated_at = ? WHERE id = ?',
+    [supersedingDecisionId, new Date().toISOString(), originalDecisionId],
   )
 }
 
@@ -192,7 +194,7 @@ export async function getActiveDecisions(adapter: DatabaseAdapter, filter?: Acti
     values.push(filter.category)
   }
   if (filter?.key !== undefined) {
-    conditions.push('key = ?')
+    conditions.push('`key` = ?')
     values.push(filter.key)
   }
 
@@ -282,7 +284,7 @@ export async function getLatestCompletedRun(adapter: DatabaseAdapter): Promise<P
   const rows = await adapter.query<PipelineRun>(
     `SELECT * FROM pipeline_runs
      WHERE status = 'completed'
-     ORDER BY created_at DESC, rowid DESC
+     ORDER BY created_at DESC, id DESC
      LIMIT 1`,
   )
   return rows[0]

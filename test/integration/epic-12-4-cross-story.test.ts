@@ -53,7 +53,7 @@ async function insertRun(
 ): Promise<void> {
   await adapter.exec(`
     INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
-    VALUES ('${id}', 'bmad', '${status}', ${parentRunId ? `'${parentRunId}'` : 'NULL'}, datetime('now'), datetime('now'))
+    VALUES ('${id}', 'bmad', '${status}', ${parentRunId ? `'${parentRunId}'` : 'NULL'}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `)
 }
 
@@ -78,7 +78,7 @@ async function insertDecision(
   } = overrides
   await adapter.exec(`
     INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, rationale, superseded_by, created_at, updated_at)
-    VALUES ('${id}', '${runId}', '${phase}', '${category}', '${key}', '${value}', ${rationale ? `'${rationale}'` : 'NULL'}, NULL, datetime('now'), datetime('now'))
+    VALUES ('${id}', '${runId}', '${phase}', '${category}', '${key}', '${value}', ${rationale ? `'${rationale}'` : 'NULL'}, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `)
 }
 

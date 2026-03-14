@@ -31,8 +31,8 @@ async function openTestDb(): Promise<WasmSqliteDatabaseAdapter> {
       key TEXT NOT NULL,
       value TEXT NOT NULL,
       rationale TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `)
   adapter.execSync(`
@@ -50,7 +50,7 @@ async function openTestDb(): Promise<WasmSqliteDatabaseAdapter> {
       cost_usd REAL NOT NULL DEFAULT 0,
       review_cycles INTEGER NOT NULL DEFAULT 0,
       dispatches INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(run_id, story_key)
     )
   `)

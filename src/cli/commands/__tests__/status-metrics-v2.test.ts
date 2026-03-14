@@ -127,8 +127,8 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
 
     // Manually update the run using adapter.querySync
     adapter.querySync(
-      `UPDATE pipeline_runs SET status='completed', created_at=datetime('now', '-1 hour'), updated_at=datetime('now') WHERE id=?`,
-      [run.id],
+      `UPDATE pipeline_runs SET status='completed', created_at=?, updated_at=? WHERE id=?`,
+      [new Date(Date.now() - 3600000).toISOString(), new Date().toISOString(), run.id],
     )
 
     await runStatusAction({
@@ -240,8 +240,8 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
 
     // Set run to have a 1-hour wall clock
     adapter.querySync(
-      `UPDATE pipeline_runs SET created_at=datetime('now', '-1 hour'), updated_at=datetime('now') WHERE id=?`,
-      [run.id],
+      `UPDATE pipeline_runs SET created_at=?, updated_at=? WHERE id=?`,
+      [new Date(Date.now() - 3600000).toISOString(), new Date().toISOString(), run.id],
     )
 
     await runStatusAction({

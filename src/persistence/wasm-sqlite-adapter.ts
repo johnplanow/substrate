@@ -3,7 +3,9 @@
  * the DatabaseAdapter interface.
  *
  * Provides full SQLite SQL compatibility (JOINs, VIEWs, aggregates,
- * AUTOINCREMENT, etc.) without any native C++ compilation.
+ * AUTO_INCREMENT, etc.) without any native C++ compilation.
+ * Includes SQL normalization to translate MySQL/Dolt-flavored DDL
+ * (AUTO_INCREMENT) to SQLite equivalents (AUTOINCREMENT).
  *
  * Two adapters:
  *   - WasmSqliteDatabaseAdapter: wraps a raw sql.js database instance
@@ -47,10 +49,22 @@ export class WasmSqliteDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
     return this._db
   }
 
+  /**
+   * Normalize MySQL/Dolt-flavored SQL to SQLite-compatible SQL.
+   *
+   * The shared DDL and DML is written for Dolt (MySQL wire-compatible),
+   * so this adapter translates the few incompatible constructs:
+   *   - AUTO_INCREMENT → AUTOINCREMENT (SQLite keyword)
+   *   - INSERT IGNORE INTO → INSERT OR IGNORE INTO (SQLite syntax)
+   */
+  private _normalizeSql(sql: string): string {
+    return sql.replace(/\bAUTO_INCREMENT\b/g, 'AUTOINCREMENT')
+  }
+
   // Synchronous query path (implements SyncAdapter)
   querySync<T = unknown>(sql: string, params?: unknown[]): T[] {
     const db = this._assertOpen()
-    const stmt = db.prepare(sql)
+    const stmt = db.prepare(this._normalizeSql(sql))
     try {
       if (params && params.length > 0) {
         stmt.bind(params)
@@ -68,7 +82,7 @@ export class WasmSqliteDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
   // Synchronous exec path (implements SyncAdapter)
   execSync(sql: string): void {
     const db = this._assertOpen()
-    db.exec(sql)
+    db.exec(this._normalizeSql(sql))
   }
 
   async query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {

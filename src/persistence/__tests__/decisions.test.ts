@@ -451,12 +451,18 @@ describe('AC5: Artifacts table CRUD', () => {
   })
 
   it('getArtifactByType returns the latest artifact of that type', async () => {
-    // Insert two artifacts of the same type; the second (later) should be returned
+    // Insert two artifacts of the same type with explicit timestamps
+    // to ensure deterministic ordering (UUIDs are random, so id DESC is not reliable)
     await registerArtifact(db, {
       phase: 'analysis',
       type: 'requirements-doc',
       path: '/output/req-v1.md',
     })
+    // Update first artifact's created_at to an earlier time so v2 is clearly "later"
+    await db.query(
+      "UPDATE artifacts SET created_at = '2020-01-01T00:00:00.000Z' WHERE path = ?",
+      ['/output/req-v1.md'],
+    )
     await registerArtifact(db, {
       phase: 'analysis',
       type: 'requirements-doc',
@@ -524,7 +530,12 @@ describe('AC6: Pipeline runs table CRUD', () => {
   })
 
   it('getLatestRun returns the most recent pipeline run', async () => {
-    await createPipelineRun(db, { methodology: 'agile' })
+    const first = await createPipelineRun(db, { methodology: 'agile' })
+    // Set first run's created_at to an earlier time so the second run is clearly "latest"
+    await db.query(
+      "UPDATE pipeline_runs SET created_at = '2020-01-01T00:00:00.000Z' WHERE id = ?",
+      [first.id],
+    )
     const latest = await createPipelineRun(db, { methodology: 'kanban' })
 
     const result = await getLatestRun(db)

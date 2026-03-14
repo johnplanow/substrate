@@ -398,7 +398,7 @@ describe('Cost Persistence Queries', () => {
       // Verify it's a valid date string from the DB, not a brand-new Date()
       expect(summary.created_at).toBeDefined()
       expect(summary.created_at).not.toBe('')
-      // The DB uses datetime('now') format: YYYY-MM-DD HH:MM:SS
+      // The DB uses CURRENT_TIMESTAMP format: YYYY-MM-DD HH:MM:SS
       // It should be a reasonable timestamp (not the current millisecond)
       const timestamp = new Date(summary.created_at)
       expect(timestamp.getTime()).not.toBeNaN()

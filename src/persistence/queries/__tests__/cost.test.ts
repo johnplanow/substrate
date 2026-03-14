@@ -52,7 +52,7 @@ async function openDb() {
 function insertSession(adapter: WasmSqliteDatabaseAdapter, id: string): void {
   adapter.querySync(
     `INSERT INTO sessions (id, graph_file, status, created_at, updated_at)
-     VALUES (?, 'test.json', 'active', datetime('now'), datetime('now'))`,
+     VALUES (?, 'test.json', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     [id],
   )
 }
@@ -61,7 +61,7 @@ function insertSession(adapter: WasmSqliteDatabaseAdapter, id: string): void {
 function insertTask(adapter: WasmSqliteDatabaseAdapter, sessionId: string, taskId: string): void {
   adapter.querySync(
     `INSERT INTO tasks (id, session_id, name, prompt, status, cost_usd, created_at, updated_at)
-     VALUES (?, ?, 'test-task', 'test-prompt', 'completed', 0.0, datetime('now'), datetime('now'))`,
+     VALUES (?, ?, 'test-task', 'test-prompt', 'completed', 0.0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     [taskId, sessionId],
   )
 }

@@ -40,7 +40,7 @@ async function openDb() {
 function insertPipelineRun(adapter: WasmSqliteDatabaseAdapter, id: string, status = 'completed'): void {
   adapter.querySync(
     `INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
-     VALUES (?, 'bmad', ?, NULL, datetime('now'), datetime('now'))`,
+     VALUES (?, 'bmad', ?, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     [id, status],
   )
 }
