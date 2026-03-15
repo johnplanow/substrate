@@ -121,18 +121,6 @@ exports[`Recommender > analyze() snapshot test > should produce deterministic ou
     "title": "High token consumer: read_file|read",
   },
   {
-    "actionTarget": "conversation_history",
-    "description": "The "conversation_history" category is growing across turns, currently at 8.3% of total tokens (2,200 tokens). This trend suggests increasing context pressure from this source.",
-    "generatedAt": "2026-01-01T00:00:00.000Z",
-    "id": "dfb27342a2cbe62b",
-    "potentialSavingsTokens": 440,
-    "ruleId": "growing_categories",
-    "severity": "info",
-    "sprintId": "sprint-3",
-    "storyKey": "27-7",
-    "title": "Growing category: conversation_history",
-  },
-  {
     "actionTarget": "claude-haiku-3-5",
     "description": "Model "claude-haiku-3-5" has a cache hit rate of 3.3% vs. "claude-sonnet-4-5" at 11.5% (gap: 8.2 percentage points). Consider routing tasks to the higher-performing model.",
     "generatedAt": "2026-01-01T00:00:00.000Z",

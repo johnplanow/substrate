@@ -1925,8 +1925,8 @@ describe('createImplementationOrchestrator', () => {
         (call[0] as { taskType: string }).taskType === 'minor-fixes'
       )
       expect(fixCall).toBeDefined()
-      // maxTurns should be set (resolveFixStoryMaxTurns(1) = 50 base for low complexity)
-      expect((fixCall![0] as { maxTurns?: number }).maxTurns).toBe(50)
+      // maxTurns should be set — minor-fixes gets half the complexity budget (50/2 = 25)
+      expect((fixCall![0] as { maxTurns?: number }).maxTurns).toBe(25)
 
       mockReadFile.mockRejectedValue(new Error('mock readFile: file not found'))
     })
@@ -1954,7 +1954,8 @@ describe('createImplementationOrchestrator', () => {
       )
       expect(fixCalls.length).toBeGreaterThan(0)
       const lastFixCall = fixCalls[fixCalls.length - 1]
-      expect((lastFixCall[0] as { maxTurns?: number }).maxTurns).toBe(50)
+      // Auto-approve minor-fixes gets half the complexity budget (50/2 = 25)
+      expect((lastFixCall[0] as { maxTurns?: number }).maxTurns).toBe(25)
 
       mockReadFile.mockRejectedValue(new Error('mock readFile: file not found'))
     })

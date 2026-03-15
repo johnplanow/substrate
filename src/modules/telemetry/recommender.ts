@@ -375,14 +375,27 @@ export class Recommender implements IRecommender {
   // ---------------------------------------------------------------------------
 
   /**
+   * Categories whose growth is inherent to normal agentic work and not actionable.
+   * tool_outputs grows as the agent reads files, runs commands, etc. — expected behavior.
+   * conversation_history grows naturally as conversations progress.
+   */
+  private static readonly EXPECTED_GROWTH_CATEGORIES = new Set([
+    'tool_outputs',
+    'conversation_history',
+  ])
+
+  /**
    * Flag semantic categories with trend === 'growing'.
    * Severity is 'info' by default; 'warning' if percentage > 25%.
+   * Skips categories whose growth is inherent to normal agentic work.
    */
   private _runGrowingCategories(ctx: RecommenderContext): Recommendation[] {
     const { categories, storyKey, sprintId, generatedAt } = ctx
     if (categories.length === 0) return []
 
-    const growing = categories.filter((c) => c.trend === 'growing')
+    const growing = categories.filter((c) =>
+      c.trend === 'growing' && !Recommender.EXPECTED_GROWTH_CATEGORIES.has(c.category),
+    )
 
     return growing.map((cat, index) => {
       // growing_categories: floor is 'info'; only 'warning' if pct > 25
@@ -475,8 +488,19 @@ export class Recommender implements IRecommender {
   // ---------------------------------------------------------------------------
 
   /**
+   * Models known to be intentionally routed for lightweight tasks.
+   * These should not be flagged as "underperforming" — the orchestrator chose them
+   * deliberately for cost/speed reasons, not as a performance optimization target.
+   */
+  private static readonly INTENTIONAL_LIGHTWEIGHT_MODELS = new Set([
+    'claude-haiku-4-5-20251001',
+    'claude-haiku-4-5',
+  ])
+
+  /**
    * If more than one model is present, flag the underperforming model.
    * Severity is 'info' by default; 'warning' if cache efficiency gap > 20pp.
+   * Skips flagging models that are intentionally routed for lightweight tasks.
    */
   private _runModelComparison(ctx: RecommenderContext): Recommendation[] {
     const { efficiencyScore, storyKey, sprintId, generatedAt } = ctx
@@ -488,6 +512,9 @@ export class Recommender implements IRecommender {
     const sorted = [...models].sort((a, b) => b.cacheHitRate - a.cacheHitRate)
     const best = sorted[0]!
     const worst = sorted[sorted.length - 1]!
+
+    // Don't flag lightweight models that are intentionally routed
+    if (Recommender.INTENTIONAL_LIGHTWEIGHT_MODELS.has(worst.model)) return []
 
     // Don't compare a model to itself
     if (best.model === worst.model) return []

@@ -1792,9 +1792,10 @@ export function createImplementationOrchestrator(
             const fixTemplate = await pack.getPrompt('fix-story')
             const storyContent = await readFile(storyFilePath ?? '', 'utf-8')
 
-            // Compute maxTurns from story complexity
+            // Compute maxTurns from story complexity — auto-approve fixes are minor,
+            // so cap at half the full complexity budget (min 15) to prevent churn
             const complexity = computeStoryComplexity(storyContent)
-            autoApproveMaxTurns = resolveFixStoryMaxTurns(complexity.complexityScore)
+            autoApproveMaxTurns = Math.max(15, Math.floor(resolveFixStoryMaxTurns(complexity.complexityScore) / 2))
             logComplexityResult(storyKey, complexity, autoApproveMaxTurns)
 
             let reviewFeedback: string
@@ -1906,9 +1907,13 @@ export function createImplementationOrchestrator(
           const storyContent = await readFile(storyFilePath ?? '', 'utf-8')
 
           // Compute complexity for turn limit scaling (major-rework: Story 24-6, minor-fix: fix-story enrichment)
+          // Minor-fixes get half budget (min 15) to prevent churn; major-rework gets full budget
           {
             const complexity = computeStoryComplexity(storyContent)
-            fixMaxTurns = resolveFixStoryMaxTurns(complexity.complexityScore)
+            const fullBudget = resolveFixStoryMaxTurns(complexity.complexityScore)
+            fixMaxTurns = taskType === 'minor-fixes'
+              ? Math.max(15, Math.floor(fullBudget / 2))
+              : fullBudget
             logComplexityResult(storyKey, complexity, fixMaxTurns)
           }
 
