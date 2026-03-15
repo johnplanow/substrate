@@ -1,10 +1,10 @@
 /**
- * Tests for dispatch context injection (Story 30-1).
+ * Tests for dispatch context injection (Story 30-1, updated v0.5.9).
  *
  * Covers:
- *   - IngestionServer.setActiveDispatch() / clearActiveDispatch() state management
- *   - Payload stamping with dispatchContext when storyKey matches active dispatch
- *   - No stamping when storyKey has no active dispatch or no storyKey in payload
+ *   - IngestionServer extracts dispatch context from OTLP resource attributes
+ *   - Payload stamping with dispatchContext when resource attributes are present
+ *   - No stamping when resource attributes are absent
  *   - TelemetryNormalizer.normalizeLog() propagates dispatchContext to NormalizedLog
  *   - LogTurnAnalyzer.analyze() copies taskType/phase/dispatchId to TurnAnalysis
  *   - TelemetryPipeline.processBatch() passes dispatchContext through to normalizeLog
@@ -159,64 +159,6 @@ function makeOtlpLogPayloadWithDispatchAttrs(
     ],
   }
 }
-
-// ---------------------------------------------------------------------------
-// IngestionServer dispatch context state management tests
-// ---------------------------------------------------------------------------
-
-describe('IngestionServer — dispatch context state management', () => {
-  let server: IngestionServer
-
-  beforeEach(() => {
-    server = new IngestionServer({ port: 0 })
-  })
-
-  afterEach(async () => {
-    try {
-      await server.stop()
-    } catch {
-      // ignore — server may already be stopped
-    }
-  })
-
-  it('setActiveDispatch registers a context for a story key', () => {
-    const ctx: DispatchContext = { taskType: 'dev-story', phase: 'IN_DEV', dispatchId: 'dispatch-001' }
-    // should not throw
-    expect(() => server.setActiveDispatch('30-1', ctx)).not.toThrow()
-  })
-
-  it('clearActiveDispatch removes a registered context', () => {
-    const ctx: DispatchContext = { taskType: 'dev-story', phase: 'IN_DEV', dispatchId: 'dispatch-001' }
-    server.setActiveDispatch('30-1', ctx)
-    // should not throw
-    expect(() => server.clearActiveDispatch('30-1')).not.toThrow()
-  })
-
-  it('clearActiveDispatch is a no-op when no context is registered', () => {
-    // No prior setActiveDispatch call — should not throw
-    expect(() => server.clearActiveDispatch('no-story')).not.toThrow()
-  })
-
-  it('setActiveDispatch overwrites a prior context for the same story key', () => {
-    const ctx1: DispatchContext = { taskType: 'dev-story', phase: 'IN_DEV', dispatchId: 'dispatch-001' }
-    const ctx2: DispatchContext = { taskType: 'code-review', phase: 'IN_REVIEW', dispatchId: 'dispatch-002' }
-    server.setActiveDispatch('30-1', ctx1)
-    server.setActiveDispatch('30-1', ctx2)
-    // No assertion on internals — the overwrite should silently succeed
-    expect(() => server.clearActiveDispatch('30-1')).not.toThrow()
-  })
-
-  it('multiple story keys can have independent dispatch contexts', () => {
-    const ctx1: DispatchContext = { taskType: 'dev-story', phase: 'IN_DEV', dispatchId: 'd1' }
-    const ctx2: DispatchContext = { taskType: 'code-review', phase: 'IN_REVIEW', dispatchId: 'd2' }
-    server.setActiveDispatch('30-1', ctx1)
-    server.setActiveDispatch('30-2', ctx2)
-    // Clear only one — the other should remain (no cross-story interference)
-    server.clearActiveDispatch('30-1')
-    // Still no-op clearing the second
-    expect(() => server.clearActiveDispatch('30-2')).not.toThrow()
-  })
-})
 
 // ---------------------------------------------------------------------------
 // TelemetryNormalizer — normalizeLog dispatch context propagation
@@ -514,34 +456,7 @@ describe('IngestionServer — HTTP payload stamping with dispatch context', () =
     })
   }
 
-  it('stamps dispatchContext on received payloads when storyKey has an active dispatch', async () => {
-    const storedPayloads: import('../telemetry-pipeline.js').RawOtlpPayload[] = []
-    const mockPipeline = {
-      processBatch: vi.fn(async (items: import('../telemetry-pipeline.js').RawOtlpPayload[]) => {
-        storedPayloads.push(...items)
-      }),
-    } as unknown as import('../telemetry-pipeline.js').TelemetryPipeline
-
-    server = new IngestionServer({ port: 0, batchSize: 1, flushIntervalMs: 10000 })
-    server.setPipeline(mockPipeline)
-    await server.start()
-
-    const storyKey = '30-1-http-test'
-    const dispatchCtx: DispatchContext = { taskType: 'dev-story', phase: 'IN_DEV', dispatchId: 'http-dispatch-01' }
-    server.setActiveDispatch(storyKey, dispatchCtx)
-
-    const body = JSON.stringify(makeOtlpLogPayload(storyKey))
-    const endpoint = server.getOtlpEnvVars().OTEL_EXPORTER_OTLP_ENDPOINT
-    await sendPost(endpoint!, body)
-
-    // Wait for batch buffer flush (batchSize=1 triggers immediate flush)
-    await new Promise((resolve) => setTimeout(resolve, 50))
-
-    expect(storedPayloads.length).toBeGreaterThan(0)
-    expect(storedPayloads[0]?.dispatchContext).toEqual(dispatchCtx)
-  })
-
-  it('does not stamp dispatchContext on payloads when no active dispatch is registered', async () => {
+  it('does not stamp dispatchContext when resource attributes lack task_type/dispatch_id', async () => {
     const storedPayloads: import('../telemetry-pipeline.js').RawOtlpPayload[] = []
     const mockPipeline = {
       processBatch: vi.fn(async (items: import('../telemetry-pipeline.js').RawOtlpPayload[]) => {
@@ -564,34 +479,7 @@ describe('IngestionServer — HTTP payload stamping with dispatch context', () =
     expect(storedPayloads[0]?.dispatchContext).toBeUndefined()
   })
 
-  it('does not stamp dispatchContext after clearActiveDispatch is called', async () => {
-    const storedPayloads: import('../telemetry-pipeline.js').RawOtlpPayload[] = []
-    const mockPipeline = {
-      processBatch: vi.fn(async (items: import('../telemetry-pipeline.js').RawOtlpPayload[]) => {
-        storedPayloads.push(...items)
-      }),
-    } as unknown as import('../telemetry-pipeline.js').TelemetryPipeline
-
-    server = new IngestionServer({ port: 0, batchSize: 1, flushIntervalMs: 10000 })
-    server.setPipeline(mockPipeline)
-    await server.start()
-
-    const storyKey = '30-1-http-clear'
-    const dispatchCtx: DispatchContext = { taskType: 'dev-story', phase: 'IN_DEV', dispatchId: 'http-dispatch-02' }
-    server.setActiveDispatch(storyKey, dispatchCtx)
-    server.clearActiveDispatch(storyKey)
-
-    const body = JSON.stringify(makeOtlpLogPayload(storyKey))
-    const endpoint = server.getOtlpEnvVars().OTEL_EXPORTER_OTLP_ENDPOINT
-    await sendPost(endpoint!, body)
-
-    await new Promise((resolve) => setTimeout(resolve, 50))
-
-    expect(storedPayloads.length).toBeGreaterThan(0)
-    expect(storedPayloads[0]?.dispatchContext).toBeUndefined()
-  })
-
-  it('extracts dispatchContext from OTLP resource attributes without setActiveDispatch', async () => {
+  it('extracts dispatchContext from OTLP resource attributes', async () => {
     const storedPayloads: import('../telemetry-pipeline.js').RawOtlpPayload[] = []
     const mockPipeline = {
       processBatch: vi.fn(async (items: import('../telemetry-pipeline.js').RawOtlpPayload[]) => {

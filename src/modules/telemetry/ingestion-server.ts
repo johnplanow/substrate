@@ -94,8 +94,6 @@ export class IngestionServer {
   private readonly _flushIntervalMs: number
   private _buffer: BatchBuffer<RawOtlpPayload> | undefined
   private readonly _pendingBatches = new Set<Promise<void>>()
-  /** Map from storyKey → DispatchContext, tracking active dispatches. */
-  private readonly _activeDispatches = new Map<string, DispatchContext>()
 
   constructor(options: IngestionServerOptions = {}) {
     this._port = options.port ?? 4318
@@ -117,30 +115,6 @@ export class IngestionServer {
       return
     }
     this._initPipeline(pipeline)
-  }
-
-  /**
-   * Register an active dispatch context for a story.
-   * All OTLP payloads received while this context is active will be stamped
-   * with the dispatch context so per-phase analysis is possible.
-   *
-   * @param storyKey - The story key being dispatched
-   * @param context - The dispatch context to associate with this story
-   */
-  setActiveDispatch(storyKey: string, context: DispatchContext): void {
-    this._activeDispatches.set(storyKey, context)
-    logger.debug({ storyKey, taskType: context.taskType, phase: context.phase }, 'IngestionServer: active dispatch registered')
-  }
-
-  /**
-   * Clear the active dispatch context for a story.
-   * Should be called after the dispatch completes (success or failure).
-   *
-   * @param storyKey - The story key whose dispatch context should be cleared
-   */
-  clearActiveDispatch(storyKey: string): void {
-    this._activeDispatches.delete(storyKey)
-    logger.debug({ storyKey }, 'IngestionServer: active dispatch cleared')
   }
 
   private _initPipeline(pipeline: TelemetryPipeline): void {
@@ -345,14 +319,12 @@ export class IngestionServer {
           const body: unknown = JSON.parse(bodyStr)
           const source = detectSource(body)
           const { storyKey, taskType, dispatchId } = this._extractSubstrateAttributes(body)
-          // Prefer resource attributes from the payload (self-contained, no timing dependency).
-          // Fall back to the active dispatch map for backwards compatibility.
-          let dispatchContext: DispatchContext | undefined
-          if (taskType !== undefined && dispatchId !== undefined) {
-            dispatchContext = { taskType, phase: taskType, dispatchId }
-          } else if (storyKey !== undefined) {
-            dispatchContext = this._activeDispatches.get(storyKey)
-          }
+          // Dispatch context is extracted directly from OTLP resource attributes
+          // (set by ClaudeCodeAdapter via OTEL_RESOURCE_ATTRIBUTES env var).
+          const dispatchContext: DispatchContext | undefined =
+            taskType !== undefined && dispatchId !== undefined
+              ? { taskType, phase: taskType, dispatchId }
+              : undefined
           const payload: RawOtlpPayload = { body, source, receivedAt: Date.now(), storyKey, ...(dispatchContext !== undefined && { dispatchContext }) }
           this._buffer.push(payload)
         } catch (err) {
