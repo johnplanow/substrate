@@ -269,15 +269,20 @@ export class IngestionServer {
   // ---------------------------------------------------------------------------
 
   /**
-   * Extract the substrate.story_key attribute from a raw OTLP payload body.
-   * Looks in resourceSpans[].resource.attributes and resourceLogs[].resource.attributes.
+   * Substrate resource attributes extracted from an OTLP payload.
+   * These are set by ClaudeCodeAdapter via OTEL_RESOURCE_ATTRIBUTES env var.
    */
-  private _extractStoryKeyFromPayload(body: unknown): string | undefined {
-    if (!body || typeof body !== 'object') return undefined
+  private _extractSubstrateAttributes(body: unknown): {
+    storyKey?: string
+    taskType?: string
+    dispatchId?: string
+  } {
+    if (!body || typeof body !== 'object') return {}
     const payload = body as Record<string, unknown>
 
-    const extractFromResources = (resources: unknown): string | undefined => {
-      if (!Array.isArray(resources)) return undefined
+    const extractFromResources = (resources: unknown): Record<string, string> => {
+      const result: Record<string, string> = {}
+      if (!Array.isArray(resources)) return result
       for (const entry of resources) {
         if (!entry || typeof entry !== 'object') continue
         const resource = (entry as Record<string, unknown>).resource
@@ -287,19 +292,28 @@ export class IngestionServer {
         for (const attr of attrs) {
           if (!attr || typeof attr !== 'object') continue
           const a = attr as Record<string, unknown>
-          if (a.key === 'substrate.story_key') {
+          const key = a.key as string | undefined
+          if (key !== undefined && key.startsWith('substrate.')) {
             const val = a.value as Record<string, unknown> | undefined
-            if (val && typeof val.stringValue === 'string') return val.stringValue
+            if (val && typeof val.stringValue === 'string') {
+              result[key] = val.stringValue
+            }
           }
         }
       }
-      return undefined
+      return result
     }
 
-    return (
-      extractFromResources(payload.resourceSpans) ??
-      extractFromResources(payload.resourceLogs)
-    )
+    const attrs = {
+      ...extractFromResources(payload.resourceSpans),
+      ...extractFromResources(payload.resourceLogs),
+    }
+
+    return {
+      storyKey: attrs['substrate.story_key'],
+      taskType: attrs['substrate.task_type'],
+      dispatchId: attrs['substrate.dispatch_id'],
+    }
   }
 
   private _handleRequest(req: IncomingMessage, res: ServerResponse): void {
@@ -330,9 +344,16 @@ export class IngestionServer {
         try {
           const body: unknown = JSON.parse(bodyStr)
           const source = detectSource(body)
-          const storyKey = this._extractStoryKeyFromPayload(body)
-          const dispatchContext = storyKey !== undefined ? this._activeDispatches.get(storyKey) : undefined
-          const payload: RawOtlpPayload = { body, source, receivedAt: Date.now(), ...(dispatchContext !== undefined && { dispatchContext }) }
+          const { storyKey, taskType, dispatchId } = this._extractSubstrateAttributes(body)
+          // Prefer resource attributes from the payload (self-contained, no timing dependency).
+          // Fall back to the active dispatch map for backwards compatibility.
+          let dispatchContext: DispatchContext | undefined
+          if (taskType !== undefined && dispatchId !== undefined) {
+            dispatchContext = { taskType, phase: taskType, dispatchId }
+          } else if (storyKey !== undefined) {
+            dispatchContext = this._activeDispatches.get(storyKey)
+          }
+          const payload: RawOtlpPayload = { body, source, receivedAt: Date.now(), storyKey, ...(dispatchContext !== undefined && { dispatchContext }) }
           this._buffer.push(payload)
         } catch (err) {
           logger.warn({ err, url: req.url }, 'Failed to parse OTLP payload JSON — discarding')

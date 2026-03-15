@@ -156,23 +156,21 @@ describe('Recommender', () => {
 
   describe('biggest_consumers rule', () => {
     it('should emit nothing when all consumers are below 5% threshold', () => {
-      const totalTokens = 10000
       const consumers: ConsumerStats[] = [
-        makeConsumer({ consumerKey: 'op1|', totalTokens: 400, percentage: 4.0 }),
-        makeConsumer({ consumerKey: 'op2|', totalTokens: 300, percentage: 3.0 }),
+        makeConsumer({ consumerKey: 'op1|tool1', totalTokens: 400, percentage: 4.0 }),
+        makeConsumer({ consumerKey: 'op2|tool2', totalTokens: 300, percentage: 3.0 }),
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
       const biggestConsumerRecs = result.filter((r) => r.ruleId === 'biggest_consumers')
       expect(biggestConsumerRecs).toHaveLength(0)
-      void totalTokens
     })
 
-    it('should emit recommendations for top consumers above 5%', () => {
+    it('should emit recommendations for top consumers above 5% and 10K tokens', () => {
       const consumers: ConsumerStats[] = [
-        makeConsumer({ consumerKey: 'file_read|', totalTokens: 5000, percentage: 50 }),
-        makeConsumer({ consumerKey: 'bash|', totalTokens: 3000, percentage: 30 }),
-        makeConsumer({ consumerKey: 'other|', totalTokens: 2000, percentage: 20 }),
+        makeConsumer({ consumerKey: 'file_read|read', totalTokens: 50000, percentage: 50 }),
+        makeConsumer({ consumerKey: 'bash|execute', totalTokens: 30000, percentage: 30 }),
+        makeConsumer({ consumerKey: 'other|tool', totalTokens: 20000, percentage: 20 }),
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
@@ -180,14 +178,60 @@ describe('Recommender', () => {
       expect(biggestConsumerRecs).toHaveLength(3)
     })
 
-    it('should assign critical severity when consumer > 25% of total', () => {
+    it('should filter out consumers below MIN_SIGNIFICANT_TOKENS (10K)', () => {
       const consumers: ConsumerStats[] = [
-        makeConsumer({ consumerKey: 'big_op|', totalTokens: 8000, percentage: 80 }),
-        makeConsumer({ consumerKey: 'small_op|', totalTokens: 2000, percentage: 20 }),
+        makeConsumer({ consumerKey: 'big_op|tool', totalTokens: 50000, percentage: 80 }),
+        makeConsumer({ consumerKey: 'tiny_op|tool', totalTokens: 5000, percentage: 8 }),
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
-      const biggestConsumerRec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'big_op|')
+      const biggestConsumerRecs = result.filter((r) => r.ruleId === 'biggest_consumers')
+      expect(biggestConsumerRecs).toHaveLength(1)
+      expect(biggestConsumerRecs[0]?.actionTarget).toBe('big_op|tool')
+    })
+
+    it('should filter out model-only consumers (empty toolName after |)', () => {
+      const consumers: ConsumerStats[] = [
+        makeConsumer({ consumerKey: 'claude-sonnet-4-6|', totalTokens: 80000, percentage: 80 }),
+        makeConsumer({ consumerKey: 'file_read|read', totalTokens: 20000, percentage: 20 }),
+      ]
+      const context = makeContext({ consumers })
+      const result = recommender.analyze(context)
+      const biggestConsumerRecs = result.filter((r) => r.ruleId === 'biggest_consumers')
+      expect(biggestConsumerRecs).toHaveLength(1)
+      expect(biggestConsumerRecs[0]?.actionTarget).toBe('file_read|read')
+    })
+
+    it('should cap severity at warning when absolute tokens < 50K', () => {
+      const consumers: ConsumerStats[] = [
+        makeConsumer({ consumerKey: 'big_op|tool', totalTokens: 30000, percentage: 80 }),
+        makeConsumer({ consumerKey: 'other|tool', totalTokens: 12000, percentage: 20 }),
+      ]
+      const context = makeContext({ consumers })
+      const result = recommender.analyze(context)
+      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'big_op|tool')
+      expect(rec?.severity).toBe('warning') // 80% would be critical, but capped at warning due to <50K
+    })
+
+    it('should cap severity at info when absolute tokens < 20K', () => {
+      const consumers: ConsumerStats[] = [
+        makeConsumer({ consumerKey: 'op|tool', totalTokens: 15000, percentage: 80 }),
+        makeConsumer({ consumerKey: 'other|tool', totalTokens: 10000, percentage: 20 }),
+      ]
+      const context = makeContext({ consumers })
+      const result = recommender.analyze(context)
+      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'op|tool')
+      expect(rec?.severity).toBe('info') // <20K tokens → capped at info
+    })
+
+    it('should assign critical severity when consumer > 25% and > 50K tokens', () => {
+      const consumers: ConsumerStats[] = [
+        makeConsumer({ consumerKey: 'big_op|tool', totalTokens: 80000, percentage: 80 }),
+        makeConsumer({ consumerKey: 'small_op|tool', totalTokens: 20000, percentage: 20 }),
+      ]
+      const context = makeContext({ consumers })
+      const result = recommender.analyze(context)
+      const biggestConsumerRec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'big_op|tool')
       expect(biggestConsumerRec?.severity).toBe('critical')
     })
 
@@ -555,38 +599,37 @@ describe('Recommender', () => {
   // -------------------------------------------------------------------------
 
   describe('severity assignment', () => {
-    it('should assign critical when token percent > 25%', () => {
+    it('should assign critical when token percent > 25% and absolute tokens > 50K', () => {
       const consumers: ConsumerStats[] = [
-        makeConsumer({ consumerKey: 'big_consumer|', totalTokens: 8000, percentage: 80 }),
-        makeConsumer({ consumerKey: 'small|', totalTokens: 2000, percentage: 20 }),
+        makeConsumer({ consumerKey: 'big_consumer|tool', totalTokens: 80000, percentage: 80 }),
+        makeConsumer({ consumerKey: 'small|tool', totalTokens: 20000, percentage: 20 }),
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
-      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'big_consumer|')
+      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'big_consumer|tool')
       expect(rec?.severity).toBe('critical')
     })
 
-    it('should assign warning when token percent > 10% but <= 25%', () => {
-      // Consumer at ~15%
+    it('should assign warning when token percent > 10% but <= 25% and absolute tokens > 20K', () => {
       const consumers: ConsumerStats[] = [
-        makeConsumer({ consumerKey: 'medium_consumer|', totalTokens: 1500, percentage: 15 }),
-        makeConsumer({ consumerKey: 'large|', totalTokens: 8500, percentage: 85 }),
+        makeConsumer({ consumerKey: 'medium_consumer|tool', totalTokens: 25000, percentage: 15 }),
+        makeConsumer({ consumerKey: 'large|tool', totalTokens: 140000, percentage: 85 }),
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
-      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'medium_consumer|')
+      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'medium_consumer|tool')
       expect(rec?.severity).toBe('warning')
     })
 
-    it('should assign info when token percent <= 10%', () => {
-      // Consumer at 6% exactly (above 5% threshold, below 10%)
+    it('should assign info when token percent <= 10% and above MIN_SIGNIFICANT_TOKENS', () => {
+      // Consumer at 6% exactly (above 5% threshold, below 10%) but still above 10K
       const consumers: ConsumerStats[] = [
-        makeConsumer({ consumerKey: 'small_consumer|', totalTokens: 600, percentage: 6 }),
-        makeConsumer({ consumerKey: 'large_consumer|', totalTokens: 9400, percentage: 94 }),
+        makeConsumer({ consumerKey: 'small_consumer|tool', totalTokens: 12000, percentage: 6 }),
+        makeConsumer({ consumerKey: 'large_consumer|tool', totalTokens: 188000, percentage: 94 }),
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
-      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'small_consumer|')
+      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'small_consumer|tool')
       expect(rec?.severity).toBe('info')
     })
   })
@@ -598,11 +641,11 @@ describe('Recommender', () => {
   describe('analyze() output ordering', () => {
     it('should sort: critical first, then warning, then info', () => {
       // Setup context that will generate recs of different severities
+      // Use tokens above MIN_SIGNIFICANT_TOKENS and proper tool names
       const consumers: ConsumerStats[] = [
-        makeConsumer({ consumerKey: 'critical_op|', totalTokens: 8000, percentage: 80 }), // critical
-        makeConsumer({ consumerKey: 'warning_op|', totalTokens: 1500, percentage: 15 }), // warning
-        makeConsumer({ consumerKey: 'info_op|', totalTokens: 600, percentage: 6 }),       // info
-        makeConsumer({ consumerKey: 'tiny_op|', totalTokens: 100, percentage: 1 }),       // below 5%, not emitted
+        makeConsumer({ consumerKey: 'critical_op|tool', totalTokens: 80000, percentage: 80 }), // critical (>50K, >25%)
+        makeConsumer({ consumerKey: 'warning_op|tool', totalTokens: 25000, percentage: 15 }), // warning (>20K, >10%)
+        makeConsumer({ consumerKey: 'info_op|tool', totalTokens: 12000, percentage: 6 }),      // info (>10K, ≤10%)
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
@@ -640,8 +683,8 @@ describe('Recommender', () => {
   describe('ID determinism', () => {
     it('should generate the same ID for the same inputs across calls', () => {
       const consumers: ConsumerStats[] = [
-        makeConsumer({ consumerKey: 'test_op|', totalTokens: 5000, percentage: 50 }),
-        makeConsumer({ consumerKey: 'other_op|', totalTokens: 5000, percentage: 50 }),
+        makeConsumer({ consumerKey: 'test_op|tool', totalTokens: 50000, percentage: 50 }),
+        makeConsumer({ consumerKey: 'other_op|tool', totalTokens: 50000, percentage: 50 }),
       ]
       const context = makeContext({ consumers })
       const result1 = recommender.analyze(context)
@@ -654,8 +697,8 @@ describe('Recommender', () => {
 
     it('should generate 16-char hex IDs', () => {
       const consumers: ConsumerStats[] = [
-        makeConsumer({ consumerKey: 'test_op|', totalTokens: 5000, percentage: 50 }),
-        makeConsumer({ consumerKey: 'other_op|', totalTokens: 5000, percentage: 50 }),
+        makeConsumer({ consumerKey: 'test_op|tool', totalTokens: 50000, percentage: 50 }),
+        makeConsumer({ consumerKey: 'other_op|tool', totalTokens: 50000, percentage: 50 }),
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)

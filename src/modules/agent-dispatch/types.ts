@@ -141,7 +141,7 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
   'planning': 300_000,
   'architecture': 300_000,
   'story-generation': 300_000,
-  'create-story': 420_000,
+  'create-story': 600_000,
   'dev-story': 1_800_000,
   'code-review': 900_000,
   'minor-fixes': 600_000,
@@ -179,7 +179,7 @@ export const DEFAULT_MAX_TURNS: Record<string, number> = {
   'dev-story': 75,
   'major-rework': 50,
   'code-review': 25,
-  'create-story': 20,
+  'create-story': 30,
   'minor-fixes': 25,
   // Multi-step phase decomposition step types (tighter per-step budgets)
   'analysis-vision': 8,

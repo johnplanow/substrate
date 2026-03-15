@@ -111,6 +111,54 @@ function makeOtlpLogPayload(storyKey: string, inputTokens = 1000, outputTokens =
   }
 }
 
+/**
+ * Build an OTLP log payload with full substrate resource attributes
+ * (story_key + task_type + dispatch_id), simulating what ClaudeCodeAdapter sets
+ * via OTEL_RESOURCE_ATTRIBUTES.
+ */
+function makeOtlpLogPayloadWithDispatchAttrs(
+  storyKey: string,
+  taskType: string,
+  dispatchId: string,
+  inputTokens = 1000,
+  outputTokens = 200,
+): unknown {
+  return {
+    resourceLogs: [
+      {
+        resource: {
+          attributes: [
+            { key: 'substrate.story_key', value: { stringValue: storyKey } },
+            { key: 'substrate.task_type', value: { stringValue: taskType } },
+            { key: 'substrate.dispatch_id', value: { stringValue: dispatchId } },
+            { key: 'service.name', value: { stringValue: 'claude-code' } },
+          ],
+        },
+        scopeLogs: [
+          {
+            logRecords: [
+              {
+                logRecordId: `log-${storyKey}-1`,
+                traceId: 'trace-abc',
+                spanId: `span-${storyKey}-1`,
+                timeUnixNano: String(Date.now() * 1_000_000),
+                severityText: 'INFO',
+                body: { stringValue: 'api_request' },
+                attributes: [
+                  { key: 'event.name', value: { stringValue: 'api_request' } },
+                  { key: 'gen_ai.usage.input_tokens', value: { intValue: inputTokens } },
+                  { key: 'gen_ai.usage.output_tokens', value: { intValue: outputTokens } },
+                  { key: 'gen_ai.request.model', value: { stringValue: 'claude-3-5-sonnet-20241022' } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+}
+
 // ---------------------------------------------------------------------------
 // IngestionServer dispatch context state management tests
 // ---------------------------------------------------------------------------
@@ -540,5 +588,55 @@ describe('IngestionServer — HTTP payload stamping with dispatch context', () =
 
     expect(storedPayloads.length).toBeGreaterThan(0)
     expect(storedPayloads[0]?.dispatchContext).toBeUndefined()
+  })
+
+  it('extracts dispatchContext from OTLP resource attributes without setActiveDispatch', async () => {
+    const storedPayloads: import('../telemetry-pipeline.js').RawOtlpPayload[] = []
+    const mockPipeline = {
+      processBatch: vi.fn(async (items: import('../telemetry-pipeline.js').RawOtlpPayload[]) => {
+        storedPayloads.push(...items)
+      }),
+    } as unknown as import('../telemetry-pipeline.js').TelemetryPipeline
+
+    server = new IngestionServer({ port: 0, batchSize: 1, flushIntervalMs: 10000 })
+    server.setPipeline(mockPipeline)
+    await server.start()
+
+    // NO setActiveDispatch call — dispatch context should come from resource attributes
+    const storyKey = '30-1-resource-attrs'
+    const body = JSON.stringify(makeOtlpLogPayloadWithDispatchAttrs(storyKey, 'dev-story', 'dispatch-abc'))
+    const endpoint = server.getOtlpEnvVars().OTEL_EXPORTER_OTLP_ENDPOINT
+    await sendPost(endpoint!, body)
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(storedPayloads.length).toBeGreaterThan(0)
+    expect(storedPayloads[0]?.dispatchContext).toBeDefined()
+    expect(storedPayloads[0]?.dispatchContext?.taskType).toBe('dev-story')
+    expect(storedPayloads[0]?.dispatchContext?.dispatchId).toBe('dispatch-abc')
+    expect(storedPayloads[0]?.storyKey).toBe(storyKey)
+  })
+
+  it('extracts storyKey from resource attributes and populates it on the payload', async () => {
+    const storedPayloads: import('../telemetry-pipeline.js').RawOtlpPayload[] = []
+    const mockPipeline = {
+      processBatch: vi.fn(async (items: import('../telemetry-pipeline.js').RawOtlpPayload[]) => {
+        storedPayloads.push(...items)
+      }),
+    } as unknown as import('../telemetry-pipeline.js').TelemetryPipeline
+
+    server = new IngestionServer({ port: 0, batchSize: 1, flushIntervalMs: 10000 })
+    server.setPipeline(mockPipeline)
+    await server.start()
+
+    const storyKey = '30-1-storykey-test'
+    const body = JSON.stringify(makeOtlpLogPayload(storyKey))
+    const endpoint = server.getOtlpEnvVars().OTEL_EXPORTER_OTLP_ENDPOINT
+    await sendPost(endpoint!, body)
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(storedPayloads.length).toBeGreaterThan(0)
+    expect(storedPayloads[0]?.storyKey).toBe(storyKey)
   })
 })

@@ -113,28 +113,50 @@ export class Recommender implements IRecommender {
   // ---------------------------------------------------------------------------
 
   /**
-   * Identify top 3 token consumers (by inputTokens + outputTokens) where pct >5%.
-   * Severity based on the consumer's percentage of total tokens.
+   * Minimum absolute token count for a consumer to be flagged.
+   * Below this, the consumer is too small to be actionable regardless of percentage.
+   */
+  private static readonly MIN_SIGNIFICANT_TOKENS = 10_000
+
+  /**
+   * Identify top 3 token consumers (by inputTokens + outputTokens) where pct >5%
+   * AND absolute tokens exceed MIN_SIGNIFICANT_TOKENS.
+   *
+   * Filters out model-only consumers (empty toolName, format "model|") since those
+   * just indicate which model ran — not an actionable optimization target.
+   *
+   * Severity factors both percentage share and absolute magnitude:
+   *   - percentage-based tier via _assignSeverity()
+   *   - capped at 'warning' when absolute tokens < 50,000
+   *   - capped at 'info' when absolute tokens < 20,000
    */
   private _runBiggestConsumers(ctx: RecommenderContext): Recommendation[] {
     const { consumers, storyKey, sprintId, generatedAt } = ctx
 
     if (consumers.length === 0) return []
 
-    // Use the pre-computed percentage field from ConsumerStats (set by the categorizer
-    // relative to the overall story token budget). Fallback: recompute from consumers sum.
     const grandTotal = consumers.reduce((sum, c) => sum + c.totalTokens, 0)
     if (grandTotal === 0) return []
 
     const sorted = [...consumers].sort((a, b) => b.totalTokens - a.totalTokens)
     const top3 = sorted.slice(0, 3).filter((c) => {
-      // Use the percentage field which was computed against the true grand total
-      return c.percentage > 5
+      // Must exceed both percentage and absolute thresholds
+      if (c.percentage <= 5) return false
+      if (c.totalTokens < Recommender.MIN_SIGNIFICANT_TOKENS) return false
+      // Filter out model-only consumers (format: "operationName|" with empty toolName)
+      // These just identify which model ran, not an actionable operation
+      if (c.consumerKey.endsWith('|') && !c.consumerKey.includes('|', 0)) return false
+      const parts = c.consumerKey.split('|')
+      if (parts.length === 2 && parts[1] === '') return false
+      return true
     })
 
     return top3.map((consumer, index) => {
       const pct = consumer.percentage
-      const severity = this._assignSeverity(pct)
+      let severity = this._assignSeverity(pct)
+      // Cap severity based on absolute token magnitude
+      if (consumer.totalTokens < 20_000 && severity !== 'info') severity = 'info'
+      else if (consumer.totalTokens < 50_000 && severity === 'critical') severity = 'warning'
       const actionTarget = consumer.consumerKey
       const id = this._makeId('biggest_consumers', storyKey, actionTarget, index)
 

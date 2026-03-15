@@ -83,6 +83,8 @@ export interface RawOtlpPayload {
   receivedAt: number
   /** Optional dispatch context stamped at ingestion time (Story 30-1) */
   dispatchContext?: DispatchContext
+  /** Story key extracted from OTLP resource attributes (substrate.story_key) */
+  storyKey?: string
 }
 
 // ---------------------------------------------------------------------------
