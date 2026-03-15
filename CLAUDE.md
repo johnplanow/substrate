@@ -68,6 +68,8 @@ For long-running pipelines, attach the **supervisor** for automatic stall detect
 substrate supervisor --output-format json
 ```
 
+**CRITICAL: Only attach a supervisor to runs you started in the same session.** Attaching a supervisor to another session's run risks killing healthy dispatches and restarting with incorrect scope. The supervisor inherits story keys from the health snapshot on restart, but cross-session interference can still cause unexpected behavior.
+
 **Interpreting silence:** No output for 5 minutes = normal (agent is working). No output for 15+ minutes = likely stalled. Use `substrate health` to confirm, then consider killing and resuming.
 
 ### After Pipeline Completes

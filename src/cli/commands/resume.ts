@@ -90,6 +90,8 @@ export interface ResumeOptions {
   pack: string
   events?: boolean
   registry?: AdapterRegistry
+  /** Explicit story keys to scope the resumed run to (prevents unscoped discovery). */
+  stories?: string[]
 }
 
 export async function runResumeAction(options: ResumeOptions): Promise<number> {
@@ -216,6 +218,7 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
       existingRunId: runId,
       projectRoot,
       registry,
+      stories: options.stories,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -253,6 +256,8 @@ export interface FullPipelineFromPhaseOptions {
   existingRunId?: string
   projectRoot: string
   registry?: AdapterRegistry
+  /** Explicit story keys to scope this run to (prevents unscoped ready_stories discovery). */
+  stories?: string[]
 }
 
 export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): Promise<number> {
@@ -270,6 +275,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     existingRunId,
     projectRoot,
     registry: injectedRegistry,
+    stories: explicitStories,
   } = options
 
   if (!existsSync(dbDir)) {
@@ -450,6 +456,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
         if (ndjsonEmitter !== undefined) {
           // Resolve story keys early so we can include them in pipeline:start
           const resolvedKeys = await resolveStoryKeys(adapter, projectRoot, {
+            explicit: explicitStories,
             pipelineRunId: runId,
           })
 
@@ -560,6 +567,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
 
         // Resolve story keys via unified fallback chain (scoped to this run)
         const storyKeys = await resolveStoryKeys(adapter, projectRoot, {
+          explicit: explicitStories,
           pipelineRunId: runId,
         })
 

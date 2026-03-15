@@ -355,7 +355,14 @@ export async function handleStallRecovery(
   const { emitEvent, log } = io
   const { projectRoot } = state
 
-  if (health.staleness_seconds < stallThreshold) return null
+  // Phase-aware threshold: code review phases get 2x the threshold since
+  // review agents read many files without producing output tokens (Finding 2).
+  const REVIEW_PHASES = new Set(['IN_REVIEW', 'code-review'])
+  const activePhases = Object.values(health.stories.details ?? {}).map((s: any) => s.phase)
+  const inReviewPhase = activePhases.some((p: string) => REVIEW_PHASES.has(p))
+  const effectiveThreshold = inReviewPhase ? stallThreshold * 2 : stallThreshold
+
+  if (health.staleness_seconds < effectiveThreshold) return null
 
   const directPids = [
     ...(health.process.orchestrator_pid !== null ? [health.process.orchestrator_pid] : []),
@@ -443,6 +450,10 @@ export async function handleStallRecovery(
   log(`Supervisor: Restarting pipeline (attempt ${newRestartCount}/${maxRestarts})`)
 
   try {
+    // Extract story keys from the health snapshot so the restart is scoped
+    // to the same stories as the original run (Finding 1: prevent unscoped discovery).
+    const scopedStories = Object.keys(health.stories.details ?? {})
+
     const registry = await getRegistry()
     await resumePipeline({
       runId: health.run_id ?? undefined,
@@ -451,6 +462,7 @@ export async function handleStallRecovery(
       concurrency: 3,
       pack,
       registry,
+      ...(scopedStories.length > 0 ? { stories: scopedStories } : {}),
     })
     if (writeStallFindings) {
       await writeStallFindings({
