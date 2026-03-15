@@ -1,10 +1,14 @@
 /**
  * EfficiencyScorer — computes composite 0-100 efficiency scores for story runs.
  *
- * The composite score combines three sub-scores:
- *   - cacheHitSubScore    (weight 40%): how well the story leverages prompt caching
- *   - ioRatioSubScore     (weight 30%): whether agents produce proportional output
- *   - contextManagement   (weight 30%): frequency of context spikes
+ * The composite score combines four sub-scores (Epic 35 — Telemetry Scoring v2):
+ *   - cacheHitSubScore        (weight 25%): how well the story leverages prompt caching
+ *   - ioRatioSubScore         (weight 25%): logarithmic output/freshInput productivity curve
+ *   - contextManagement       (weight 25%): frequency of context spikes
+ *   - tokenDensitySubScore    (weight 25%): output tokens per turn vs task-type baseline
+ *
+ * Cold-start turns (first turn per dispatch) are excluded from sub-score
+ * computation but included in totalTurns for observability (Story 35-3).
  *
  * Architecture constraints:
  *   - Constructor injection: accepts pino.Logger via constructor
@@ -15,6 +19,13 @@
 import type pino from 'pino'
 
 import type { TurnAnalysis, EfficiencyScore, ModelEfficiency, SourceEfficiency } from './types.js'
+import { getBaseline } from './task-baselines.js'
+
+// Sub-score weights (Epic 35 — equal weighting across 4 dimensions)
+const W_CACHE = 0.25
+const W_IO_RATIO = 0.25
+const W_CONTEXT = 0.25
+const W_TOKEN_DENSITY = 0.25
 
 // ---------------------------------------------------------------------------
 // EfficiencyScorer
@@ -48,33 +59,56 @@ export class EfficiencyScorer {
         cacheHitSubScore: 0,
         ioRatioSubScore: 0,
         contextManagementSubScore: 0,
+        tokenDensitySubScore: 0,
         avgCacheHitRate: 0,
         avgIoRatio: 0,
         contextSpikeCount: 0,
         totalTurns: 0,
+        coldStartTurnsExcluded: 0,
         perModelBreakdown: [],
         perSourceBreakdown: [],
       }
     }
 
-    const avgCacheHitRate = this._computeAvgCacheHitRate(turns)
-    const avgIoRatio = this._computeAvgIoRatio(turns)
+    // Story 35-2: Infer task type from turns (unanimous → use type-specific baseline)
+    const taskType = this._inferTaskType(turns)
+    const baseline = getBaseline(taskType)
+
+    // Story 35-3: Exclude cold-start turns (first turn per dispatchId) from scoring
+    const coldStartIds = this._identifyColdStartTurns(turns)
+    let scoringTurns = turns.filter((t) => !coldStartIds.has(t.spanId))
+    // Fallback: if excluding cold-starts leaves nothing, use all turns
+    if (scoringTurns.length === 0) scoringTurns = turns
+
+    const avgCacheHitRate = this._computeAvgCacheHitRate(scoringTurns)
+    const avgIoRatio = this._computeAvgIoRatio(scoringTurns)
     const contextSpikeCount = turns.filter((t) => t.isContextSpike).length
     const totalTurns = turns.length
 
-    const cacheHitSubScore = this._computeCacheHitSubScore(turns)
-    const ioRatioSubScore = this._computeIoRatioSubScore(turns)
-    const contextManagementSubScore = this._computeContextManagementSubScore(turns)
-
-    const compositeScore = Math.round(
-      cacheHitSubScore * 0.4 + ioRatioSubScore * 0.3 + contextManagementSubScore * 0.3,
+    const cacheHitSubScore = this._computeCacheHitSubScore(scoringTurns)
+    const ioRatioSubScore = this._computeIoRatioSubScore(scoringTurns, baseline.targetIoRatio)
+    const contextManagementSubScore = this._computeContextManagementSubScore(scoringTurns)
+    const tokenDensitySubScore = this._computeTokenDensitySubScore(
+      scoringTurns,
+      baseline.expectedOutputPerTurn,
     )
 
-    const perModelBreakdown = this._buildPerModelBreakdown(turns)
-    const perSourceBreakdown = this._buildPerSourceBreakdown(turns)
+    const compositeScore = Math.round(
+      cacheHitSubScore * W_CACHE +
+      ioRatioSubScore * W_IO_RATIO +
+      contextManagementSubScore * W_CONTEXT +
+      tokenDensitySubScore * W_TOKEN_DENSITY,
+    )
+
+    const perModelBreakdown = this._buildPerModelBreakdown(scoringTurns)
+    const perSourceBreakdown = this._buildPerSourceBreakdown(
+      scoringTurns,
+      baseline.targetIoRatio,
+      baseline.expectedOutputPerTurn,
+    )
 
     this._logger.info(
-      { storyKey, compositeScore, contextSpikeCount },
+      { storyKey, compositeScore, contextSpikeCount, coldStartTurnsExcluded: coldStartIds.size },
       'Computed efficiency score',
     )
 
@@ -85,13 +119,58 @@ export class EfficiencyScorer {
       cacheHitSubScore,
       ioRatioSubScore,
       contextManagementSubScore,
+      tokenDensitySubScore,
       avgCacheHitRate,
       avgIoRatio,
       contextSpikeCount,
       totalTurns,
+      coldStartTurnsExcluded: coldStartIds.size,
       perModelBreakdown,
       perSourceBreakdown,
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: cold-start identification (Story 35-3)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Identify cold-start turns: the first turn per dispatchId.
+   * Returns a set of spanIds that should be excluded from scoring.
+   * Only considers turns with a non-empty dispatchId.
+   */
+  private _identifyColdStartTurns(turns: TurnAnalysis[]): Set<string> {
+    const coldStarts = new Set<string>()
+    const seenDispatches = new Set<string>()
+
+    // Turns are in chronological order (by turnNumber); first seen per dispatch is cold-start
+    for (const turn of turns) {
+      if (turn.dispatchId !== undefined && turn.dispatchId !== '' && !seenDispatches.has(turn.dispatchId)) {
+        seenDispatches.add(turn.dispatchId)
+        coldStarts.add(turn.spanId)
+      }
+    }
+
+    return coldStarts
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: task type inference (Story 35-2)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Infer the task type from turns. Returns the task type only when all turns
+   * with a taskType agree (unanimous). For mixed task types (story-level
+   * scoring across dispatches), returns undefined → default baseline.
+   */
+  private _inferTaskType(turns: TurnAnalysis[]): string | undefined {
+    const types = new Set<string>()
+    for (const turn of turns) {
+      if (turn.taskType !== undefined && turn.taskType !== '') {
+        types.add(turn.taskType)
+      }
+    }
+    return types.size === 1 ? [...types][0] : undefined
   }
 
   // ---------------------------------------------------------------------------
@@ -108,25 +187,27 @@ export class EfficiencyScorer {
   }
 
   /**
-   * I/O ratio sub-score: measures output productivity.
+   * I/O ratio sub-score: logarithmic output/freshInput productivity curve (Story 35-1).
    *
-   * For code generation workloads, high context-to-output ratio is normal and
-   * desirable (agent reads large cached context, produces substantial code).
-   * The old formula penalized this. New formula uses output-to-fresh-input ratio:
-   *   - outputTokens / max(freshInputTokens, 1) per turn
-   *   - Ratio > 1 means productive (more output than fresh input) → score 100
-   *   - Ratio < 1 → scaled linearly: ratio * 100
-   *   - Averaged across turns
+   * Replaces the old binary threshold (>=1 → 100) with a logarithmic curve
+   * that provides gradient across the observed range:
+   *   - score = clamp(log10(ratio) / log10(targetRatio) * 100, 0, 100)
+   *   - ratio = avg(outputTokens / max(freshInputTokens, 1)) across turns
+   *   - targetRatio is calibrated per task type (Story 35-2)
+   *
+   * Examples (TARGET=100): ratio 1→0, 10→50, 50→85, 100→100, 200→100(clamped)
    */
-  private _computeIoRatioSubScore(turns: TurnAnalysis[]): number {
+  private _computeIoRatioSubScore(turns: TurnAnalysis[], targetRatio: number): number {
     if (turns.length === 0) return 0
     const avg = turns.reduce((acc, t) => {
       const freshInput = Math.max(t.inputTokens, 1) // fresh tokens only, not cached
       return acc + t.outputTokens / freshInput
     }, 0) / turns.length
-    // Ratio >= 1 means agent produces more than it consumes in fresh tokens → 100
-    // Ratio < 1 → linear scale (e.g., 0.5 → 50)
-    return this._clamp(avg >= 1 ? 100 : avg * 100, 0, 100)
+
+    if (avg <= 0) return 0
+    const logTarget = Math.log10(Math.max(targetRatio, 2)) // guard against degenerate target
+    const score = (Math.log10(avg) / logTarget) * 100
+    return this._clamp(score, 0, 100)
   }
 
   /**
@@ -139,6 +220,23 @@ export class EfficiencyScorer {
     const spikeCount = turns.filter((t) => t.isContextSpike).length
     const spikeRatio = spikeCount / totalTurns
     return this._clamp(100 - spikeRatio * 100, 0, 100)
+  }
+
+  /**
+   * Token density sub-score: output tokens per turn vs task-type baseline (Story 35-4).
+   *
+   * Measures whether the agent is producing useful output or spinning:
+   *   - score = clamp(avgOutputPerTurn / expectedOutputPerTurn * 100, 0, 100)
+   *   - expectedOutputPerTurn is calibrated per task type (Story 35-2)
+   *
+   * Below-baseline dispatches get proportionally lower scores.
+   * At-or-above-baseline dispatches score 100.
+   */
+  private _computeTokenDensitySubScore(turns: TurnAnalysis[], expectedOutputPerTurn: number): number {
+    if (turns.length === 0) return 0
+    const avgOutput = turns.reduce((acc, t) => acc + t.outputTokens, 0) / turns.length
+    const ratio = avgOutput / Math.max(expectedOutputPerTurn, 1)
+    return this._clamp(ratio * 100, 0, 100)
   }
 
   // ---------------------------------------------------------------------------
@@ -216,7 +314,11 @@ export class EfficiencyScorer {
    * Group turns by source, computing a per-group composite score using the
    * same formula as the overall score. Sources with zero turns are excluded.
    */
-  private _buildPerSourceBreakdown(turns: TurnAnalysis[]): SourceEfficiency[] {
+  private _buildPerSourceBreakdown(
+    turns: TurnAnalysis[],
+    targetIoRatio: number,
+    expectedOutputPerTurn: number,
+  ): SourceEfficiency[] {
     const groups = new Map<string, TurnAnalysis[]>()
 
     for (const turn of turns) {
@@ -234,41 +336,22 @@ export class EfficiencyScorer {
     for (const [source, groupTurns] of groups) {
       if (groupTurns.length === 0) continue
 
-      const cacheHitSub = this._computeCacheHitSubScoreForGroup(groupTurns)
-      const ioRatioSub = this._computeIoRatioSubScoreForGroup(groupTurns)
-      const contextSub = this._computeContextManagementSubScoreForGroup(groupTurns)
+      const cacheHitSub = this._computeCacheHitSubScore(groupTurns)
+      const ioRatioSub = this._computeIoRatioSubScore(groupTurns, targetIoRatio)
+      const contextSub = this._computeContextManagementSubScore(groupTurns)
+      const tokenDensitySub = this._computeTokenDensitySubScore(groupTurns, expectedOutputPerTurn)
 
       const compositeScore = Math.round(
-        cacheHitSub * 0.4 + ioRatioSub * 0.3 + contextSub * 0.3,
+        cacheHitSub * W_CACHE +
+        ioRatioSub * W_IO_RATIO +
+        contextSub * W_CONTEXT +
+        tokenDensitySub * W_TOKEN_DENSITY,
       )
 
       result.push({ source, compositeScore, turnCount: groupTurns.length })
     }
 
     return result
-  }
-
-  // Reusable group-level sub-score helpers
-  private _computeCacheHitSubScoreForGroup(turns: TurnAnalysis[]): number {
-    if (turns.length === 0) return 0
-    const avg = turns.reduce((acc, t) => acc + t.cacheHitRate, 0) / turns.length
-    return this._clamp(avg * 100, 0, 100)
-  }
-
-  private _computeIoRatioSubScoreForGroup(turns: TurnAnalysis[]): number {
-    if (turns.length === 0) return 0
-    const avg = turns.reduce((acc, t) => {
-      const freshInput = Math.max(t.inputTokens, 1)
-      return acc + t.outputTokens / freshInput
-    }, 0) / turns.length
-    return this._clamp(avg >= 1 ? 100 : avg * 100, 0, 100)
-  }
-
-  private _computeContextManagementSubScoreForGroup(turns: TurnAnalysis[]): number {
-    if (turns.length === 0) return 0
-    const spikeCount = turns.filter((t) => t.isContextSpike).length
-    const spikeRatio = spikeCount / turns.length
-    return this._clamp(100 - spikeRatio * 100, 0, 100)
   }
 
   // ---------------------------------------------------------------------------

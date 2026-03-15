@@ -287,12 +287,14 @@ export const EfficiencyScoreSchema = z.object({
   timestamp: z.number(),
   /** Composite 0-100 score (weighted average of sub-scores) */
   compositeScore: z.number().int().min(0).max(100),
-  /** Cache hit sub-score 0-100 (weight: 40%) */
+  /** Cache hit sub-score 0-100 (weight: 25%) */
   cacheHitSubScore: z.number().min(0).max(100),
-  /** I/O ratio sub-score 0-100 (weight: 30%) */
+  /** I/O ratio sub-score 0-100 (weight: 25%) */
   ioRatioSubScore: z.number().min(0).max(100),
-  /** Context management sub-score 0-100 (weight: 30%) */
+  /** Context management sub-score 0-100 (weight: 25%) */
   contextManagementSubScore: z.number().min(0).max(100),
+  /** Token density sub-score 0-100 (weight: 25%) — Story 35-4 */
+  tokenDensitySubScore: z.number().min(0).max(100).default(0),
   /** Average cache hit rate across all turns (0-1) */
   avgCacheHitRate: z.number(),
   /** Average I/O ratio across all turns (inputTokens / max(outputTokens, 1)) */
@@ -301,6 +303,8 @@ export const EfficiencyScoreSchema = z.object({
   contextSpikeCount: z.number().int().nonnegative(),
   /** Total number of turns analyzed */
   totalTurns: z.number().int().nonnegative(),
+  /** Number of cold-start turns excluded from scoring — Story 35-3 */
+  coldStartTurnsExcluded: z.number().int().nonnegative().default(0),
   /** Per-model efficiency breakdown */
   perModelBreakdown: z.array(ModelEfficiencySchema),
   /** Per-source efficiency breakdown */

@@ -198,8 +198,10 @@ describe('retry-escalated efficiency gate (Story 30-8)', () => {
       cacheHitSubScore: 30,
       ioRatioSubScore: 50,
       contextManagementSubScore: 80,
+      tokenDensitySubScore: 50,
       totalTurns: 10,
       contextSpikeCount: 0,
+      coldStartTurnsExcluded: 0,
     })
 
     const writes: string[] = []
@@ -229,8 +231,10 @@ describe('retry-escalated efficiency gate (Story 30-8)', () => {
       cacheHitSubScore: 80,
       ioRatioSubScore: 70,
       contextManagementSubScore: 30,
+      tokenDensitySubScore: 50,
       totalTurns: 10,
       contextSpikeCount: 7,
+      coldStartTurnsExcluded: 0,
     })
 
     const writes: string[] = []
@@ -256,8 +260,10 @@ describe('retry-escalated efficiency gate (Story 30-8)', () => {
       cacheHitSubScore: 80,
       ioRatioSubScore: 70,
       contextManagementSubScore: 30,
+      tokenDensitySubScore: 50,
       totalTurns: 10,
       contextSpikeCount: 7,
+      coldStartTurnsExcluded: 0,
     })
 
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
@@ -371,8 +377,10 @@ describe('retry-escalated efficiency gate (Story 30-8)', () => {
       cacheHitSubScore: 20,
       ioRatioSubScore: 30,
       contextManagementSubScore: 20,
+      tokenDensitySubScore: 50,
       totalTurns: 8,
       contextSpikeCount: 6,
+      coldStartTurnsExcluded: 0,
     })
 
     const writes: string[] = []

@@ -55,6 +55,8 @@ export { IngestionServer, TelemetryError } from './ingestion-server.js'
 export type { IngestionServerOptions, DispatchContext } from './ingestion-server.js'
 
 export { EfficiencyScorer, createEfficiencyScorer } from './efficiency-scorer.js'
+export { getBaseline, TASK_BASELINES, DEFAULT_BASELINE } from './task-baselines.js'
+export type { TaskBaseline } from './task-baselines.js'
 export { Categorizer } from './categorizer.js'
 export { ConsumerAnalyzer } from './consumer-analyzer.js'
 export { Recommender } from './recommender.js'

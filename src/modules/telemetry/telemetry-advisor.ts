@@ -45,10 +45,14 @@ export interface EfficiencyProfile {
   ioRatioSubScore: number
   /** Context management sub-score 0-100 */
   contextManagementSubScore: number
+  /** Token density sub-score 0-100 (Story 35-4) */
+  tokenDensitySubScore: number
   /** Total number of turns analyzed */
   totalTurns: number
   /** Number of context spike events */
   contextSpikeCount: number
+  /** Number of cold-start turns excluded from scoring (Story 35-3) */
+  coldStartTurnsExcluded: number
 }
 
 // ---------------------------------------------------------------------------
@@ -88,8 +92,10 @@ export class TelemetryAdvisor {
         cacheHitSubScore: score.cacheHitSubScore,
         ioRatioSubScore: score.ioRatioSubScore,
         contextManagementSubScore: score.contextManagementSubScore,
+        tokenDensitySubScore: score.tokenDensitySubScore ?? 0,
         totalTurns: score.totalTurns,
         contextSpikeCount: score.contextSpikeCount,
+        coldStartTurnsExcluded: score.coldStartTurnsExcluded ?? 0,
       }
     } catch (err) {
       logger.warn({ err, storyKey }, 'Failed to retrieve efficiency score')

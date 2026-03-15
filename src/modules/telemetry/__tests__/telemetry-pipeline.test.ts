@@ -141,10 +141,12 @@ function makeEfficiencyScore(): EfficiencyScore {
     cacheHitSubScore: 0,
     ioRatioSubScore: 80,
     contextManagementSubScore: 100,
+    tokenDensitySubScore: 50,
     avgCacheHitRate: 0,
     avgIoRatio: 2,
     contextSpikeCount: 0,
     totalTurns: 1,
+    coldStartTurnsExcluded: 0,
     perModelBreakdown: [],
     perSourceBreakdown: [],
   }

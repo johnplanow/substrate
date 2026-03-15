@@ -142,10 +142,12 @@ function makeEfficiencyScore(storyKey = '27-6', compositeScore = 75) {
     cacheHitSubScore: 80,
     ioRatioSubScore: 70,
     contextManagementSubScore: 75,
+    tokenDensitySubScore: 50,
     avgCacheHitRate: 0.8,
     avgIoRatio: 2.0,
     contextSpikeCount: 1,
     totalTurns: 13,
+    coldStartTurnsExcluded: 0,
     perModelBreakdown: [{ model: 'claude-sonnet', cacheHitRate: 0.75, avgIoRatio: 2.0, costPer1KOutputTokens: 0.003 }],
     perSourceBreakdown: [{ source: 'claude-code', compositeScore: 88, turnCount: 10 }],
   }

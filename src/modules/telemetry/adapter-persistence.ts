@@ -70,10 +70,12 @@ interface EfficiencyScoreRow {
   cache_hit_sub_score: number
   io_ratio_sub_score: number
   context_management_sub_score: number
+  token_density_sub_score?: number
   avg_cache_hit_rate: number
   avg_io_ratio: number
   context_spike_count: number
   total_turns: number
+  cold_start_turns_excluded?: number
   per_model_json: string
   per_source_json: string
   dispatch_id: string | null
@@ -187,6 +189,8 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
         total_turns                   INTEGER      NOT NULL DEFAULT 0,
         per_model_json                TEXT         NOT NULL DEFAULT '[]',
         per_source_json               TEXT         NOT NULL DEFAULT '[]',
+        token_density_sub_score       DOUBLE       NOT NULL DEFAULT 0,
+        cold_start_turns_excluded     INTEGER      NOT NULL DEFAULT 0,
         dispatch_id                   TEXT,
         task_type                     TEXT,
         phase                         TEXT,
@@ -198,6 +202,18 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
       CREATE INDEX IF NOT EXISTS idx_efficiency_story
         ON efficiency_scores (story_key, timestamp DESC)
     `)
+
+    // Add new columns for existing databases (Epic 35)
+    try {
+      await this._adapter.exec(
+        `ALTER TABLE efficiency_scores ADD COLUMN token_density_sub_score DOUBLE NOT NULL DEFAULT 0`,
+      )
+    } catch { /* column already exists */ }
+    try {
+      await this._adapter.exec(
+        `ALTER TABLE efficiency_scores ADD COLUMN cold_start_turns_excluded INTEGER NOT NULL DEFAULT 0`,
+      )
+    } catch { /* column already exists */ }
 
     await this._adapter.exec(`
       CREATE TABLE IF NOT EXISTS recommendations (
@@ -366,13 +382,17 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
       `INSERT INTO efficiency_scores (
         story_key, timestamp, composite_score,
         cache_hit_sub_score, io_ratio_sub_score, context_management_sub_score,
+        token_density_sub_score,
         avg_cache_hit_rate, avg_io_ratio, context_spike_count, total_turns,
+        cold_start_turns_excluded,
         per_model_json, per_source_json,
         dispatch_id, task_type, phase
       ) VALUES (
         ?, ?, ?,
         ?, ?, ?,
+        ?,
         ?, ?, ?, ?,
+        ?,
         ?, ?,
         ?, ?, ?
       )`,
@@ -383,10 +403,12 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
         score.cacheHitSubScore,
         score.ioRatioSubScore,
         score.contextManagementSubScore,
+        score.tokenDensitySubScore ?? 0,
         score.avgCacheHitRate,
         score.avgIoRatio,
         score.contextSpikeCount,
         score.totalTurns,
+        score.coldStartTurnsExcluded ?? 0,
         JSON.stringify(score.perModelBreakdown),
         JSON.stringify(score.perSourceBreakdown),
         score.dispatchId ?? null,
@@ -408,10 +430,12 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
       cacheHitSubScore: row.cache_hit_sub_score,
       ioRatioSubScore: row.io_ratio_sub_score,
       contextManagementSubScore: row.context_management_sub_score,
+      tokenDensitySubScore: row.token_density_sub_score ?? 0,
       avgCacheHitRate: row.avg_cache_hit_rate,
       avgIoRatio: row.avg_io_ratio,
       contextSpikeCount: row.context_spike_count,
       totalTurns: row.total_turns,
+      coldStartTurnsExcluded: row.cold_start_turns_excluded ?? 0,
       perModelBreakdown: JSON.parse(row.per_model_json) as unknown[],
       perSourceBreakdown: JSON.parse(row.per_source_json) as unknown[],
       ...(row.dispatch_id != null && { dispatchId: row.dispatch_id }),

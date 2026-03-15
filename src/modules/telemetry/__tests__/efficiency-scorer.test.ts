@@ -1,7 +1,13 @@
 /**
- * Unit tests for EfficiencyScorer.
+ * Unit tests for EfficiencyScorer (Epic 35 — Telemetry Scoring v2).
  *
- * Tests cover all scoring logic without touching SQLite or Dolt.
+ * Tests cover:
+ *   - Story 35-1: Logarithmic io_ratio curve
+ *   - Story 35-2: Per-task-type baseline profiles
+ *   - Story 35-3: Cold-start turn exclusion
+ *   - Story 35-4: Token density sub-score
+ *   - Story 35-5: Composite score revalidation
+ *
  * Logger is injected as a vi.fn() stub.
  */
 
@@ -74,7 +80,9 @@ describe('EfficiencyScorer', () => {
       expect(result.cacheHitSubScore).toBe(0)
       expect(result.ioRatioSubScore).toBe(0)
       expect(result.contextManagementSubScore).toBe(0)
+      expect(result.tokenDensitySubScore).toBe(0)
       expect(result.totalTurns).toBe(0)
+      expect(result.coldStartTurnsExcluded).toBe(0)
       expect(result.avgCacheHitRate).toBe(0)
       expect(result.avgIoRatio).toBe(0)
       expect(result.contextSpikeCount).toBe(0)
@@ -107,25 +115,53 @@ describe('EfficiencyScorer', () => {
     })
 
     it('should clamp cacheHitSubScore to 0 when cacheHitRate is negative (invalid)', () => {
-      // cacheHitRate of -0.5 * 100 = -50 → clamped to 0
       const turns = [makeTurn({ cacheHitRate: -0.5 })]
       const result = scorer.score('27-6', turns)
       expect(result.cacheHitSubScore).toBe(0)
     })
 
-    it('should compute ioRatioSubScore near 80 when avgIoRatio = 1 (equal input/output)', () => {
-      // totalInput = inputTokens + cacheReadTokens = 1000 + 0 = 1000
-      // ioRatio = 1000/1000 = 1 → 100 - (1-1)*20 = 100
-      const turns = [makeTurn({ inputTokens: 1000, outputTokens: 1000, cacheReadTokens: 0, cacheHitRate: 0 })]
-      const result = scorer.score('27-6', turns)
-      expect(result.ioRatioSubScore).toBe(100)
-    })
+    // Story 35-1: Logarithmic io_ratio curve
+    describe('ioRatioSubScore (logarithmic curve)', () => {
+      it('should score 0 when io_ratio = 1 (log10(1) = 0)', () => {
+        // output/freshInput = 1000/1000 = 1.0 → log10(1)/log10(100)*100 = 0
+        const turns = [makeTurn({ inputTokens: 1000, outputTokens: 1000, cacheReadTokens: 0, cacheHitRate: 0 })]
+        const result = scorer.score('27-6', turns)
+        expect(result.ioRatioSubScore).toBe(0)
+      })
 
-    it('should compute near-zero ioRatioSubScore when output is tiny relative to fresh input', () => {
-      // outputTokens/max(inputTokens,1) = 100/100000 = 0.001 → avg < 1 → score = 0.001*100 = 0.1
-      const turns = [makeTurn({ inputTokens: 100_000, outputTokens: 100, cacheHitRate: 0 })]
-      const result = scorer.score('27-6', turns)
-      expect(result.ioRatioSubScore).toBeCloseTo(0.1, 5)
+      it('should score 50 when io_ratio = 10 (default TARGET=100)', () => {
+        // output/freshInput = 1000/100 = 10 → log10(10)/log10(100)*100 = 1/2*100 = 50
+        const turns = [makeTurn({ inputTokens: 100, outputTokens: 1000, cacheReadTokens: 0, cacheHitRate: 0 })]
+        const result = scorer.score('27-6', turns)
+        expect(result.ioRatioSubScore).toBeCloseTo(50, 1)
+      })
+
+      it('should score 100 when io_ratio = TARGET (100)', () => {
+        // output/freshInput = 1000/10 = 100 → log10(100)/log10(100)*100 = 100
+        const turns = [makeTurn({ inputTokens: 10, outputTokens: 1000, cacheReadTokens: 0, cacheHitRate: 0 })]
+        const result = scorer.score('27-6', turns)
+        expect(result.ioRatioSubScore).toBe(100)
+      })
+
+      it('should clamp to 100 when io_ratio exceeds TARGET', () => {
+        // output/freshInput = 10000/10 = 1000 → log10(1000)/log10(100)*100 = 3/2*100 = 150 → clamped 100
+        const turns = [makeTurn({ inputTokens: 10, outputTokens: 10000, cacheReadTokens: 0, cacheHitRate: 0 })]
+        const result = scorer.score('27-6', turns)
+        expect(result.ioRatioSubScore).toBe(100)
+      })
+
+      it('should score 0 when io_ratio < 1 (output < freshInput)', () => {
+        // output/freshInput = 100/100000 = 0.001 → log10(0.001) = -3 → negative → clamped to 0
+        const turns = [makeTurn({ inputTokens: 100_000, outputTokens: 100, cacheHitRate: 0 })]
+        const result = scorer.score('27-6', turns)
+        expect(result.ioRatioSubScore).toBe(0)
+      })
+
+      it('should score 0 when outputTokens = 0', () => {
+        const turns = [makeTurn({ outputTokens: 0, inputTokens: 1000 })]
+        const result = scorer.score('27-6', turns)
+        expect(result.ioRatioSubScore).toBe(0)
+      })
     })
 
     it('should compute contextManagementSubScore = 100 when no spikes', () => {
@@ -157,24 +193,94 @@ describe('EfficiencyScorer', () => {
       expect(result.contextManagementSubScore).toBe(0)
     })
 
-    it('should compute composite score weighted sum correctly', () => {
-      // All cacheHitRate=1.0 → cacheHitSubScore=100
-      // output/max(input,1) = 500/1000 = 0.5 → avg < 1 → ioRatioSubScore = 0.5*100 = 50
-      // no spikes → contextManagementSubScore=100
-      // composite = round(100*0.4 + 50*0.3 + 100*0.3) = round(40+15+30) = round(85) = 85
+    // Story 35-4: Token density sub-score
+    describe('tokenDensitySubScore', () => {
+      it('should score 100 when avg output equals default baseline (800)', () => {
+        // Default baseline expectedOutputPerTurn = 800
+        const turns = [makeTurn({ outputTokens: 800 })]
+        const result = scorer.score('27-6', turns)
+        expect(result.tokenDensitySubScore).toBe(100)
+      })
+
+      it('should score 50 when avg output is half of baseline', () => {
+        const turns = [makeTurn({ outputTokens: 400 })]
+        const result = scorer.score('27-6', turns)
+        expect(result.tokenDensitySubScore).toBe(50)
+      })
+
+      it('should clamp to 100 when avg output exceeds baseline', () => {
+        const turns = [makeTurn({ outputTokens: 1600 })]
+        const result = scorer.score('27-6', turns)
+        expect(result.tokenDensitySubScore).toBe(100)
+      })
+
+      it('should score near 0 when output is minimal', () => {
+        const turns = [makeTurn({ outputTokens: 1 })]
+        const result = scorer.score('27-6', turns)
+        expect(result.tokenDensitySubScore).toBeCloseTo(0.125, 2) // 1/800*100
+      })
+
+      it('should use task-type specific baseline when all turns share a taskType', () => {
+        // code-review baseline: expectedOutputPerTurn = 3900
+        const turns = [
+          makeTurn({ outputTokens: 3900, taskType: 'code-review' }),
+          makeTurn({ spanId: 'span-2', outputTokens: 3900, taskType: 'code-review' }),
+        ]
+        const result = scorer.score('27-6', turns)
+        expect(result.tokenDensitySubScore).toBe(100) // 3900/3900 = 1.0 → 100
+      })
+
+      it('should use default baseline when turns have mixed taskTypes', () => {
+        // Mixed types → default baseline (800)
+        const turns = [
+          makeTurn({ outputTokens: 800, taskType: 'dev-story' }),
+          makeTurn({ spanId: 'span-2', outputTokens: 800, taskType: 'code-review' }),
+        ]
+        const result = scorer.score('27-6', turns)
+        expect(result.tokenDensitySubScore).toBe(100) // 800/800 = 1.0 → 100
+      })
+    })
+
+    // Story 35-5: Composite score with new weights (25% each)
+    it('should compute composite score with 4 equal weights of 25%', () => {
+      // Design a turn with predictable sub-scores:
+      //   cacheHitRate = 1.0 → cacheHitSubScore = 100
+      //   output/fresh = 800/1 = 800 >> TARGET(100) → ioRatioSubScore = 100 (clamped)
+      //   no spikes → contextManagementSubScore = 100
+      //   output = 800, default baseline = 800 → tokenDensitySubScore = 100
+      // composite = round(100*0.25 + 100*0.25 + 100*0.25 + 100*0.25) = 100
       const turns = [
         makeTurn({
-          inputTokens: 1000,
-          outputTokens: 500,
+          inputTokens: 1,
+          outputTokens: 800,
           cacheHitRate: 1.0,
           isContextSpike: false,
         }),
       ]
       const result = scorer.score('27-6', turns)
-      expect(result.compositeScore).toBe(85)
+      expect(result.compositeScore).toBe(100)
       expect(result.cacheHitSubScore).toBe(100)
-      expect(result.ioRatioSubScore).toBe(50)
+      expect(result.ioRatioSubScore).toBe(100)
       expect(result.contextManagementSubScore).toBe(100)
+      expect(result.tokenDensitySubScore).toBe(100)
+    })
+
+    it('should produce gradient composite with varied sub-scores', () => {
+      // cacheHitRate = 0.8 → cache = 80
+      // output/fresh = 500/50 = 10 → ioRatio = log10(10)/log10(100)*100 = 50
+      // no spikes → context = 100
+      // output = 500, baseline = 800 → density = 500/800*100 = 62.5
+      // composite = round(80*0.25 + 50*0.25 + 100*0.25 + 62.5*0.25) = round(73.125) = 73
+      const turns = [
+        makeTurn({
+          inputTokens: 50,
+          outputTokens: 500,
+          cacheHitRate: 0.8,
+          isContextSpike: false,
+        }),
+      ]
+      const result = scorer.score('27-6', turns)
+      expect(result.compositeScore).toBe(73)
     })
 
     it('should correctly set totalTurns and contextSpikeCount', () => {
@@ -194,6 +300,92 @@ describe('EfficiencyScorer', () => {
         expect.objectContaining({ storyKey: '27-6' }),
         expect.any(String),
       )
+    })
+
+    // Story 35-3: Cold-start turn exclusion
+    describe('cold-start turn exclusion', () => {
+      it('should exclude first turn per dispatchId from scoring', () => {
+        // 2 dispatches, each with 2 turns. First turn of each = cold-start
+        const turns = [
+          makeTurn({ spanId: 'cold-1', dispatchId: 'dispatch-a', cacheHitRate: 0.0, outputTokens: 10 }),
+          makeTurn({ spanId: 'warm-1', dispatchId: 'dispatch-a', cacheHitRate: 1.0, outputTokens: 800 }),
+          makeTurn({ spanId: 'cold-2', dispatchId: 'dispatch-b', cacheHitRate: 0.0, outputTokens: 10 }),
+          makeTurn({ spanId: 'warm-2', dispatchId: 'dispatch-b', cacheHitRate: 1.0, outputTokens: 800 }),
+        ]
+        const result = scorer.score('27-6', turns)
+        expect(result.coldStartTurnsExcluded).toBe(2)
+        expect(result.totalTurns).toBe(4) // all turns counted
+        // Scoring uses only warm turns: cacheHitRate=1.0 → cache=100
+        expect(result.cacheHitSubScore).toBe(100)
+      })
+
+      it('should not exclude turns without dispatchId', () => {
+        const turns = [
+          makeTurn({ spanId: 'no-dispatch-1', cacheHitRate: 0.5 }),
+          makeTurn({ spanId: 'no-dispatch-2', cacheHitRate: 0.5 }),
+        ]
+        const result = scorer.score('27-6', turns)
+        expect(result.coldStartTurnsExcluded).toBe(0)
+        expect(result.cacheHitSubScore).toBe(50)
+      })
+
+      it('should fallback to all turns when all are cold-starts (single-turn dispatches)', () => {
+        const turns = [
+          makeTurn({ spanId: 'only-1', dispatchId: 'dispatch-x', cacheHitRate: 0.8 }),
+          makeTurn({ spanId: 'only-2', dispatchId: 'dispatch-y', cacheHitRate: 0.6 }),
+        ]
+        const result = scorer.score('27-6', turns)
+        // Both are cold-starts, but fallback uses all turns
+        expect(result.coldStartTurnsExcluded).toBe(2)
+        expect(result.cacheHitSubScore).toBeCloseTo(70, 0) // avg(0.8, 0.6) * 100
+      })
+    })
+
+    // Story 35-2: Per-task-type baseline profiles
+    describe('per-task-type baselines', () => {
+      it('should use dev-story baseline when all turns have taskType=dev-story', () => {
+        // dev-story: expectedOutputPerTurn=550, targetIoRatio=100
+        const turns = [
+          makeTurn({
+            taskType: 'dev-story',
+            outputTokens: 550,
+            inputTokens: 10, // ratio = 550/10 = 55
+          }),
+          makeTurn({
+            spanId: 'span-2',
+            taskType: 'dev-story',
+            outputTokens: 550,
+            inputTokens: 10,
+          }),
+        ]
+        const result = scorer.score('27-6', turns)
+        expect(result.tokenDensitySubScore).toBe(100) // 550/550 = 1.0 → 100
+        // ioRatio: ratio=55, log10(55)/log10(100)*100 = 1.740/2 * 100 ≈ 87
+        expect(result.ioRatioSubScore).toBeCloseTo(87, 0)
+      })
+
+      it('should use code-review baseline (lower targetIoRatio) for code-review', () => {
+        // code-review: targetIoRatio=50, expectedOutputPerTurn=3900
+        const turns = [
+          makeTurn({
+            taskType: 'code-review',
+            outputTokens: 3900,
+            inputTokens: 100, // ratio = 3900/100 = 39
+          }),
+        ]
+        const result = scorer.score('27-6', turns)
+        // ioRatio: ratio=39, log10(39)/log10(50)*100 = 1.591/1.699 * 100 ≈ 93.6
+        expect(result.ioRatioSubScore).toBeCloseTo(93.6, 0)
+        expect(result.tokenDensitySubScore).toBe(100) // 3900/3900 = 1.0 → 100
+      })
+
+      it('should use default baseline for unknown task types', () => {
+        const turns = [
+          makeTurn({ taskType: 'custom-task', outputTokens: 800 }),
+        ]
+        const result = scorer.score('27-6', turns)
+        expect(result.tokenDensitySubScore).toBe(100) // 800/800 (default) = 1.0 → 100
+      })
     })
 
     describe('per-model breakdown', () => {
@@ -258,9 +450,23 @@ describe('EfficiencyScorer', () => {
 
     describe('per-source breakdown', () => {
       it('should group turns by source and compute per-group composite score', () => {
+        // Use predictable values for each source
         const turns = [
-          makeTurn({ source: 'claude-code', cacheHitRate: 1.0, isContextSpike: false }),
-          makeTurn({ spanId: 'span-2', source: 'unknown', cacheHitRate: 0, isContextSpike: true }),
+          makeTurn({
+            source: 'claude-code',
+            cacheHitRate: 1.0,
+            isContextSpike: false,
+            inputTokens: 10,
+            outputTokens: 800,
+          }),
+          makeTurn({
+            spanId: 'span-2',
+            source: 'unknown',
+            cacheHitRate: 0,
+            isContextSpike: true,
+            inputTokens: 10,
+            outputTokens: 800,
+          }),
         ]
         const result = scorer.score('27-6', turns)
         expect(result.perSourceBreakdown).toHaveLength(2)
@@ -268,12 +474,10 @@ describe('EfficiencyScorer', () => {
         const unk = result.perSourceBreakdown.find((s) => s.source === 'unknown')
         expect(cc).toBeDefined()
         expect(unk).toBeDefined()
-        // claude-code: cacheHit=100, output/input=500/1000=0.5→ioRatio=50, no spikes=100
-        // composite=round(100*0.4+50*0.3+100*0.3)=round(40+15+30)=85
-        expect(cc!.compositeScore).toBe(85)
-        // unknown: cacheHit=0, output/input=500/1000=0.5→ioRatio=50, all spikes→0
-        // composite=round(0*0.4+50*0.3+0*0.3)=round(15)=15
-        expect(unk!.compositeScore).toBe(15)
+        // claude-code: cache=100, ioRatio(80→~95), context=100, density=100 → high composite
+        expect(cc!.compositeScore).toBeGreaterThan(90)
+        // unknown: cache=0, ioRatio(80→~95), context=0, density=100 → lower composite
+        expect(unk!.compositeScore).toBeLessThan(60)
       })
 
       it('should include correct turnCount per source', () => {
@@ -304,12 +508,12 @@ describe('EfficiencyScorer', () => {
         expect(Number.isNaN(result.cacheHitSubScore)).toBe(false)
         expect(Number.isNaN(result.ioRatioSubScore)).toBe(false)
         expect(Number.isNaN(result.contextManagementSubScore)).toBe(false)
+        expect(Number.isNaN(result.tokenDensitySubScore)).toBe(false)
         expect(result.compositeScore).toBeGreaterThanOrEqual(0)
         expect(result.compositeScore).toBeLessThanOrEqual(100)
       })
 
       it('should produce contextDelta = inputTokens for a single turn (no spikes from that alone)', () => {
-        // Single turn cannot be 2x its own average, so isContextSpike=false is forced by logic
         const turn = makeTurn({ isContextSpike: false })
         const result = scorer.score('27-6', [turn])
         expect(result.contextManagementSubScore).toBe(100)
@@ -329,6 +533,7 @@ describe('EfficiencyScorer', () => {
         expect(result1.cacheHitSubScore).toBe(result2.cacheHitSubScore)
         expect(result1.ioRatioSubScore).toBe(result2.ioRatioSubScore)
         expect(result1.contextManagementSubScore).toBe(result2.contextManagementSubScore)
+        expect(result1.tokenDensitySubScore).toBe(result2.tokenDensitySubScore)
       })
     })
 
@@ -355,7 +560,6 @@ describe('EfficiencyScorer', () => {
       it('should handle outputTokens = 0 without NaN by using max(outputTokens, 1)', () => {
         const turns = [makeTurn({ outputTokens: 0, inputTokens: 1000 })]
         const result = scorer.score('27-6', turns)
-        // output/max(input,1) = 0/1000 = 0 → avg < 1 → ioRatioSubScore = 0*100 = 0
         expect(Number.isNaN(result.avgIoRatio)).toBe(false)
         expect(result.ioRatioSubScore).toBe(0)
       })

@@ -389,6 +389,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           cacheHitSubScore: scoreB.cacheHitSubScore - scoreA.cacheHitSubScore,
           ioRatioSubScore: scoreB.ioRatioSubScore - scoreA.ioRatioSubScore,
           contextManagementSubScore: scoreB.contextManagementSubScore - scoreA.contextManagementSubScore,
+          tokenDensitySubScore: (scoreB.tokenDensitySubScore ?? 0) - (scoreA.tokenDensitySubScore ?? 0),
         }
         if (outputFormat === 'json') {
           process.stdout.write(formatOutput({ storyA: scoreA, storyB: scoreB, delta }, 'json', true) + '\n')
@@ -402,6 +403,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           process.stdout.write(`  ${'Cache Hit Sub-Score'.padEnd(30)} ${scoreA.cacheHitSubScore.toFixed(1).padStart(12)} ${scoreB.cacheHitSubScore.toFixed(1).padStart(12)} ${`${sign(delta.cacheHitSubScore)}${delta.cacheHitSubScore.toFixed(1)}`.padStart(10)}\n`)
           process.stdout.write(`  ${'I/O Ratio Sub-Score'.padEnd(30)} ${scoreA.ioRatioSubScore.toFixed(1).padStart(12)} ${scoreB.ioRatioSubScore.toFixed(1).padStart(12)} ${`${sign(delta.ioRatioSubScore)}${delta.ioRatioSubScore.toFixed(1)}`.padStart(10)}\n`)
           process.stdout.write(`  ${'Context Mgmt Sub-Score'.padEnd(30)} ${scoreA.contextManagementSubScore.toFixed(1).padStart(12)} ${scoreB.contextManagementSubScore.toFixed(1).padStart(12)} ${`${sign(delta.contextManagementSubScore)}${delta.contextManagementSubScore.toFixed(1)}`.padStart(10)}\n`)
+          process.stdout.write(`  ${'Token Density Sub-Score'.padEnd(30)} ${(scoreA.tokenDensitySubScore ?? 0).toFixed(1).padStart(12)} ${(scoreB.tokenDensitySubScore ?? 0).toFixed(1).padStart(12)} ${`${sign(delta.tokenDensitySubScore)}${delta.tokenDensitySubScore.toFixed(1)}`.padStart(10)}\n`)
         }
         return 0
       }
