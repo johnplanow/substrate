@@ -75,6 +75,22 @@ export async function resolveStoryKeys(
       const completedKeys = await getCompletedStoryKeys(db)
       filteredKeys = filteredKeys.filter((k) => !completedKeys.has(k))
     }
+    // Startup reconciliation: exclude stories that already have committed
+    // implementation artifacts. These were completed in a prior run or manual
+    // commit but the work graph wasn't updated. Also reconcile wg_stories
+    // status so ready_stories stays accurate for future queries.
+    const existingArtifacts = collectExistingStoryKeys(projectRoot)
+    const alreadyDone = filteredKeys.filter((k) => existingArtifacts.has(k))
+    if (alreadyDone.length > 0) {
+      filteredKeys = filteredKeys.filter((k) => !existingArtifacts.has(k))
+      // Best-effort: update wg_stories status to 'complete' for reconciled stories
+      for (const key of alreadyDone) {
+        db.query(
+          `UPDATE wg_stories SET status = 'complete', completed_at = ? WHERE story_key = ? AND status <> 'complete'`,
+          [new Date().toISOString(), key],
+        ).catch(() => { /* best-effort */ })
+      }
+    }
     return sortStoryKeys([...new Set(filteredKeys)])
   }
 
@@ -133,6 +149,14 @@ export async function resolveStoryKeys(
   if (opts?.filterCompleted === true && keys.length > 0) {
     const completedKeys = await getCompletedStoryKeys(db)
     keys = keys.filter((k) => !completedKeys.has(k))
+  }
+
+  // Startup reconciliation: exclude stories with existing implementation
+  // artifacts (Levels 2/3 don't check artifacts — Level 4 already does via
+  // discoverPendingStoryKeys, but this catch-all covers all fallback paths).
+  if (keys.length > 0) {
+    const existingArtifacts = collectExistingStoryKeys(projectRoot)
+    keys = keys.filter((k) => !existingArtifacts.has(k))
   }
 
   return sortStoryKeys([...new Set(keys)])
