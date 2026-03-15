@@ -400,10 +400,18 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
       tool_name         VARCHAR(128),
       is_context_spike  BOOLEAN        NOT NULL DEFAULT 0,
       child_spans_json  TEXT           NOT NULL DEFAULT '[]',
+      task_type         VARCHAR(64),
+      phase             VARCHAR(64),
+      dispatch_id       VARCHAR(64),
       PRIMARY KEY (story_key, span_id)
     )
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_turn_analysis_story ON turn_analysis (story_key, turn_number)')
+
+  // Migration: add dispatch context columns for existing repos (Story 30-1)
+  for (const col of ['task_type', 'phase', 'dispatch_id']) {
+    try { await adapter.exec(`ALTER TABLE turn_analysis ADD COLUMN ${col} VARCHAR(64)`) } catch { /* column already exists */ }
+  }
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS efficiency_scores (
@@ -419,9 +427,17 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
       total_turns                   INTEGER      NOT NULL DEFAULT 0,
       per_model_json                TEXT         NOT NULL DEFAULT '[]',
       per_source_json               TEXT         NOT NULL DEFAULT '[]',
+      dispatch_id                   TEXT,
+      task_type                     TEXT,
+      phase                         TEXT,
       PRIMARY KEY (story_key, timestamp)
     )
   `)
+
+  // Migration: add dispatch context columns for existing repos (Story 30-3)
+  for (const col of ['dispatch_id', 'task_type', 'phase']) {
+    try { await adapter.exec(`ALTER TABLE efficiency_scores ADD COLUMN ${col} TEXT`) } catch { /* column already exists */ }
+  }
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS recommendations (
