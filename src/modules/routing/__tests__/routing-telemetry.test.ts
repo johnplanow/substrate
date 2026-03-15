@@ -32,6 +32,7 @@ function createMockLogger(): pino.Logger {
 function createMockTelemetry(): ITelemetryPersistence {
   return {
     recordSpan: vi.fn(),
+    purgeStoryTelemetry: vi.fn(async () => {}),
     // minimal no-ops for any other ITelemetryPersistence methods
     persistSpan: vi.fn(),
     getSpans: vi.fn(),

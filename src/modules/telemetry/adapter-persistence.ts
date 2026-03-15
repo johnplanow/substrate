@@ -682,6 +682,26 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
   }
 
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // ITelemetryPersistence — stale data cleanup (v0.5.9)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Delete all telemetry data for a story across all 5 telemetry tables.
+   * Used to purge stale data from prior runs before persisting new data.
+   */
+  async purgeStoryTelemetry(storyKey: string): Promise<void> {
+    await this._adapter.transaction(async (adapter) => {
+      await adapter.query('DELETE FROM turn_analysis WHERE story_key = ?', [storyKey])
+      await adapter.query('DELETE FROM efficiency_scores WHERE story_key = ?', [storyKey])
+      await adapter.query('DELETE FROM recommendations WHERE story_key = ?', [storyKey])
+      await adapter.query('DELETE FROM category_stats WHERE story_key = ?', [storyKey])
+      await adapter.query('DELETE FROM consumer_stats WHERE story_key = ?', [storyKey])
+    })
+    logger.debug({ storyKey }, 'Purged stale telemetry data for story')
+  }
+
+  // ---------------------------------------------------------------------------
   // ITelemetryPersistence — OTEL span recording (no-op)
   // ---------------------------------------------------------------------------
 

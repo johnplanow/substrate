@@ -342,6 +342,7 @@ describe('RepoMapQueryEngine', () => {
     function createMockTelemetryPersistence(): ITelemetryPersistence {
       return {
         recordSpan: vi.fn(),
+        purgeStoryTelemetry: vi.fn(async () => {}),
         persistSpan: vi.fn(),
         getSpans: vi.fn(),
         listSpans: vi.fn(),

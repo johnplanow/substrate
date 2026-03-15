@@ -89,6 +89,16 @@ export interface ITelemetryPersistence {
   /** Retrieve consumer stats for a story ordered by total_tokens descending. */
   getConsumerStats(storyKey: string): Promise<ConsumerStats[]>
 
+  // -- Stale data cleanup (v0.5.9) --------------------------------------------
+
+  /**
+   * Delete all telemetry data for a story (turn_analysis, efficiency_scores,
+   * recommendations, category_stats, consumer_stats).
+   * Called before persisting new data for a re-run story to prevent stale
+   * rows from prior runs lingering in the database.
+   */
+  purgeStoryTelemetry(storyKey: string): Promise<void>
+
   // -- OTEL span recording (story 28-6) --------------------------------------
 
   /**
@@ -200,6 +210,14 @@ export class TelemetryPersistence implements ITelemetryPersistence {
 
   async getConsumerStats(storyKey: string): Promise<ConsumerStats[]> {
     return this._impl.getConsumerStats(storyKey)
+  }
+
+  // ---------------------------------------------------------------------------
+  // ITelemetryPersistence — stale data cleanup (v0.5.9)
+  // ---------------------------------------------------------------------------
+
+  async purgeStoryTelemetry(storyKey: string): Promise<void> {
+    return this._impl.purgeStoryTelemetry(storyKey)
   }
 
   // ---------------------------------------------------------------------------

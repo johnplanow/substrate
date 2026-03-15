@@ -52,6 +52,7 @@ function makeMockPersistence(
     storeConsumerStats: vi.fn(),
     getConsumerStats: vi.fn().mockResolvedValue([]),
     recordSpan: vi.fn(),
+    purgeStoryTelemetry: vi.fn(async () => {}),
   } as unknown as ITelemetryPersistence
 }
 

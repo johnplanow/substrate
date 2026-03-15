@@ -233,6 +233,7 @@ function makeMockDeps(
       getCategoryStats: vi.fn().mockResolvedValue([]),
       storeConsumerStats: vi.fn().mockResolvedValue(undefined),
       getConsumerStats: vi.fn().mockResolvedValue([]),
+      purgeStoryTelemetry: vi.fn().mockResolvedValue(undefined),
     } as unknown as ITelemetryPersistence & {
       storeTurnAnalysis: ReturnType<typeof vi.fn>
       storeCategoryStats: ReturnType<typeof vi.fn>

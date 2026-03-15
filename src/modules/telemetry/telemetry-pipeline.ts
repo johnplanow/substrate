@@ -141,6 +141,8 @@ export class TelemetryPipeline {
   private readonly _efficiencyScorer: EfficiencyScorer
   private readonly _recommender: Recommender
   private readonly _persistence: ITelemetryPersistence
+  /** Stories that have had stale telemetry purged this pipeline lifetime. */
+  private readonly _purgedStories = new Set<string>()
 
   constructor(deps: TelemetryPipelineDeps) {
     this._normalizer = deps.normalizer
@@ -461,6 +463,14 @@ export class TelemetryPipeline {
    */
   private async _persistStoryData(storyKey: string, data: StoryPersistenceData): Promise<void> {
     const { turns, efficiencyScore, categoryStats, consumerStats, recommendations, dispatchScores } = data
+
+    // Purge stale telemetry from prior runs (once per story per pipeline lifetime)
+    if (!this._purgedStories.has(storyKey)) {
+      this._purgedStories.add(storyKey)
+      await this._persistence.purgeStoryTelemetry(storyKey).catch((err: unknown) =>
+        logger.warn({ err, storyKey }, 'Failed to purge stale telemetry — continuing with persist'),
+      )
+    }
 
     await Promise.all([
       turns.length > 0
