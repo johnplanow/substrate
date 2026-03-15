@@ -68,6 +68,12 @@ export interface NormalizedLog {
   costUsd: number
   model?: string
   storyKey?: string
+  /** Task type from dispatch context (Story 30-1) */
+  taskType?: string
+  /** Pipeline phase from dispatch context (Story 30-1) */
+  phase?: string
+  /** Dispatch ID from dispatch context (Story 30-1) */
+  dispatchId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -192,6 +198,12 @@ export const TurnAnalysisSchema = z.object({
   /** True if inputTokens > 2 × average inputTokens across all turns */
   isContextSpike: z.boolean(),
   childSpans: z.array(ChildSpanSummarySchema),
+  /** Task type from dispatch context (Story 30-1) */
+  taskType: z.string().optional(),
+  /** Pipeline phase from dispatch context (Story 30-1) */
+  phase: z.string().optional(),
+  /** Dispatch ID from dispatch context (Story 30-1) */
+  dispatchId: z.string().optional(),
 })
 
 export type TurnAnalysis = z.infer<typeof TurnAnalysisSchema>
@@ -293,6 +305,12 @@ export const EfficiencyScoreSchema = z.object({
   perModelBreakdown: z.array(ModelEfficiencySchema),
   /** Per-source efficiency breakdown */
   perSourceBreakdown: z.array(SourceEfficiencySchema),
+  /** Dispatch ID — present only for per-dispatch scores (Story 30-3) */
+  dispatchId: z.string().optional(),
+  /** Task type from dispatch context — present only for per-dispatch scores (Story 30-3) */
+  taskType: z.string().optional(),
+  /** Pipeline phase from dispatch context — present only for per-dispatch scores (Story 30-3) */
+  phase: z.string().optional(),
 })
 
 export type EfficiencyScore = z.infer<typeof EfficiencyScoreSchema>
@@ -310,6 +328,7 @@ export const RuleIdSchema = z.enum([
   'growing_categories',
   'cache_efficiency',
   'per_model_comparison',
+  'cache_delta_regression',
 ])
 
 export type RuleId = z.infer<typeof RuleIdSchema>
@@ -351,6 +370,8 @@ export interface RecommenderContext {
   consumers: ConsumerStats[]
   efficiencyScore: EfficiencyScore
   allSpans: NormalizedSpan[]
+  /** Per-dispatch efficiency scores (Story 30-3). When present, enables cache_delta_regression rule. */
+  dispatchScores?: EfficiencyScore[]
 }
 
 export interface IRecommender {

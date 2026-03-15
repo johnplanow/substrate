@@ -97,6 +97,13 @@ export interface OrchestratorConfig {
    * Falls back to undefined when absent, resulting in no sprint label on records.
    */
   sprint?: string
+  /**
+   * Per-story context token ceilings (Story 30-8).
+   * When a story key is present, the ceiling is passed as --max-context-tokens
+   * to every dispatch for that story. Used by efficiency-gated retry to
+   * constrain context for stories with prior context spike patterns.
+   */
+  perStoryContextCeilings?: Record<string, number>
 }
 
 // ---------------------------------------------------------------------------

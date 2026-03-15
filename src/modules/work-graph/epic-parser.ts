@@ -61,7 +61,7 @@ const SPRINT_HEADER_RE = /^(?:\*\*)?Sprint\s+(\d+)\s*[—–-]/i
  * Regex for story lines: `- 31-2: Epic doc ingestion (P0, Medium)`
  * Captures: epicNum, storyNum, title, priority, size
  */
-const STORY_LINE_RE = /^(?:-\s+)?(\d+)-(\d+):\s+(.+?)\s+\((P\d+),\s+([\w-]+)\)\s*$/
+const STORY_LINE_RE = /^(?:-\s+)?(?:Story\s+)?(\d+)-(\d+):\s+(.+?)\s+\((P\d+),\s+([\w-]+)\)\s*$/
 
 /** Regex to find the story map section heading */
 const STORY_MAP_HEADING_RE = /^#{1,6}\s+.*Story\s+Map/im

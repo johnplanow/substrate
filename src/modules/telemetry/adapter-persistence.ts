@@ -58,6 +58,9 @@ interface TurnAnalysisRow {
   tool_name: string | null
   is_context_spike: number // SQL stores BOOLEAN as 0/1
   child_spans_json: string
+  task_type: string | null
+  phase: string | null
+  dispatch_id: string | null
 }
 
 interface EfficiencyScoreRow {
@@ -73,6 +76,9 @@ interface EfficiencyScoreRow {
   total_turns: number
   per_model_json: string
   per_source_json: string
+  dispatch_id: string | null
+  task_type: string | null
+  phase: string | null
 }
 
 interface RecommendationRow {
@@ -155,6 +161,9 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
         tool_name         VARCHAR(128),
         is_context_spike  BOOLEAN        NOT NULL DEFAULT 0,
         child_spans_json  TEXT           NOT NULL DEFAULT '[]',
+        task_type         VARCHAR(64),
+        phase             VARCHAR(64),
+        dispatch_id       VARCHAR(64),
         PRIMARY KEY (story_key, span_id)
       )
     `)
@@ -178,6 +187,9 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
         total_turns                   INTEGER      NOT NULL DEFAULT 0,
         per_model_json                TEXT         NOT NULL DEFAULT '[]',
         per_source_json               TEXT         NOT NULL DEFAULT '[]',
+        dispatch_id                   TEXT,
+        task_type                     TEXT,
+        phase                         TEXT,
         PRIMARY KEY (story_key, timestamp)
       )
     `)
@@ -265,11 +277,13 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
             story_key, span_id, turn_number, name, timestamp, source, model,
             input_tokens, output_tokens, cache_read_tokens, fresh_tokens,
             cache_hit_rate, cost_usd, duration_ms, context_size, context_delta,
-            tool_name, is_context_spike, child_spans_json
+            tool_name, is_context_spike, child_spans_json,
+            task_type, phase, dispatch_id
           ) VALUES (
             ?, ?, ?, ?, ?, ?, ?,
             ?, ?, ?, ?,
             ?, ?, ?, ?, ?,
+            ?, ?, ?,
             ?, ?, ?
           )`,
           [
@@ -292,6 +306,9 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
             turn.toolName ?? null,
             turn.isContextSpike ? 1 : 0,
             JSON.stringify(turn.childSpans),
+            turn.taskType ?? null,
+            turn.phase ?? null,
+            turn.dispatchId ?? null,
           ],
         )
       }
@@ -327,6 +344,9 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
         toolName: row.tool_name ?? undefined,
         isContextSpike: row.is_context_spike === 1,
         childSpans: JSON.parse(row.child_spans_json) as unknown[],
+        taskType: row.task_type ?? undefined,
+        phase: row.phase ?? undefined,
+        dispatchId: row.dispatch_id ?? undefined,
       }
       return TurnAnalysisSchema.parse(raw)
     })
@@ -347,12 +367,14 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
         story_key, timestamp, composite_score,
         cache_hit_sub_score, io_ratio_sub_score, context_management_sub_score,
         avg_cache_hit_rate, avg_io_ratio, context_spike_count, total_turns,
-        per_model_json, per_source_json
+        per_model_json, per_source_json,
+        dispatch_id, task_type, phase
       ) VALUES (
         ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?
+        ?, ?,
+        ?, ?, ?
       )`,
       [
         score.storyKey,
@@ -367,6 +389,9 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
         score.totalTurns,
         JSON.stringify(score.perModelBreakdown),
         JSON.stringify(score.perSourceBreakdown),
+        score.dispatchId ?? null,
+        score.taskType ?? null,
+        score.phase ?? null,
       ],
     )
     logger.debug(
@@ -375,14 +400,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
     )
   }
 
-  async getEfficiencyScore(storyKey: string): Promise<EfficiencyScore | null> {
-    const rows = await this._adapter.query<EfficiencyScoreRow>(
-      `SELECT * FROM efficiency_scores WHERE story_key = ? ORDER BY timestamp DESC LIMIT 1`,
-      [storyKey],
-    )
-    if (rows.length === 0) return null
-
-    const row = rows[0]
+  private _rowToEfficiencyScore(row: EfficiencyScoreRow): EfficiencyScore {
     const raw = {
       storyKey: row.story_key,
       timestamp: row.timestamp,
@@ -396,35 +414,41 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
       totalTurns: row.total_turns,
       perModelBreakdown: JSON.parse(row.per_model_json) as unknown[],
       perSourceBreakdown: JSON.parse(row.per_source_json) as unknown[],
+      ...(row.dispatch_id != null && { dispatchId: row.dispatch_id }),
+      ...(row.task_type != null && { taskType: row.task_type }),
+      ...(row.phase != null && { phase: row.phase }),
     }
-
     return EfficiencyScoreSchema.parse(raw)
+  }
+
+  async getEfficiencyScore(storyKey: string): Promise<EfficiencyScore | null> {
+    const rows = await this._adapter.query<EfficiencyScoreRow>(
+      `SELECT * FROM efficiency_scores WHERE story_key = ? AND dispatch_id IS NULL ORDER BY timestamp DESC LIMIT 1`,
+      [storyKey],
+    )
+    if (rows.length === 0) return null
+
+    return this._rowToEfficiencyScore(rows[0]!)
   }
 
   async getEfficiencyScores(limit = 20): Promise<EfficiencyScore[]> {
     const rows = await this._adapter.query<EfficiencyScoreRow>(
-      `SELECT * FROM efficiency_scores ORDER BY timestamp DESC LIMIT ?`,
+      `SELECT * FROM efficiency_scores WHERE dispatch_id IS NULL ORDER BY timestamp DESC LIMIT ?`,
       [limit],
     )
     if (rows.length === 0) return []
 
-    return rows.map((row) => {
-      const raw = {
-        storyKey: row.story_key,
-        timestamp: row.timestamp,
-        compositeScore: row.composite_score,
-        cacheHitSubScore: row.cache_hit_sub_score,
-        ioRatioSubScore: row.io_ratio_sub_score,
-        contextManagementSubScore: row.context_management_sub_score,
-        avgCacheHitRate: row.avg_cache_hit_rate,
-        avgIoRatio: row.avg_io_ratio,
-        contextSpikeCount: row.context_spike_count,
-        totalTurns: row.total_turns,
-        perModelBreakdown: JSON.parse(row.per_model_json) as unknown[],
-        perSourceBreakdown: JSON.parse(row.per_source_json) as unknown[],
-      }
-      return EfficiencyScoreSchema.parse(raw)
-    })
+    return rows.map((row) => this._rowToEfficiencyScore(row))
+  }
+
+  async getDispatchEfficiencyScores(storyKey: string): Promise<EfficiencyScore[]> {
+    const rows = await this._adapter.query<EfficiencyScoreRow>(
+      `SELECT * FROM efficiency_scores WHERE story_key = ? AND dispatch_id IS NOT NULL ORDER BY timestamp ASC`,
+      [storyKey],
+    )
+    if (rows.length === 0) return []
+
+    return rows.map((row) => this._rowToEfficiencyScore(row))
   }
 
   // ---------------------------------------------------------------------------

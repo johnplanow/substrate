@@ -57,6 +57,8 @@ import type { ITelemetryPersistence } from '../telemetry/index.js'
 import { EfficiencyScorer, Categorizer, ConsumerAnalyzer, TelemetryNormalizer, TurnAnalyzer, LogTurnAnalyzer, Recommender } from '../telemetry/index.js'
 import type { IngestionServer } from '../telemetry/ingestion-server.js'
 import { TelemetryPipeline } from '../telemetry/telemetry-pipeline.js'
+import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
+import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
 
 // ---------------------------------------------------------------------------
@@ -184,6 +186,11 @@ export function createImplementationOrchestrator(
   const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer, repoMapInjector, maxRepoMapTokens } = deps
 
   const logger = createLogger('implementation-orchestrator')
+
+  // -- TelemetryAdvisor for optimization directive injection (Story 30-6) --
+  const telemetryAdvisor: TelemetryAdvisor | undefined = db !== undefined
+    ? createTelemetryAdvisor({ db })
+    : undefined
 
   // -- work-graph repository (best-effort wg_stories updates) --
   const wgRepo = new WorkGraphRepository(db)
@@ -747,7 +754,7 @@ export function createImplementationOrchestrator(
    * to maxReviewCycles). On SHIP_IT the story is marked COMPLETE. On
    * exhausted retries the story is ESCALATED.
    */
-  async function processStory(storyKey: string): Promise<void> {
+  async function processStory(storyKey: string, storyOptions?: { optimizationDirectives?: string }): Promise<void> {
     logger.info({ storyKey }, 'Processing story')
 
     // -- memory pressure pre-check (Story 23-8, AC1) --
@@ -1096,7 +1103,9 @@ export function createImplementationOrchestrator(
           let batchResult
           try {
             batchResult = await runDevStory(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens },
+              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens,
+                ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}),
+                ...(storyOptions?.optimizationDirectives !== undefined ? { optimizationDirectives: storyOptions.optimizationDirectives } : {}) },
               {
                 storyKey,
                 storyFilePath: storyFilePath ?? '',
@@ -1188,7 +1197,9 @@ export function createImplementationOrchestrator(
         // AC7: Small/medium story — single dispatch (existing behavior)
         incrementDispatches(storyKey)
         const devResult = await runDevStory(
-          { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens },
+          { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens,
+            ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}),
+            ...(storyOptions?.optimizationDirectives !== undefined ? { optimizationDirectives: storyOptions.optimizationDirectives } : {}) },
           {
             storyKey,
             storyFilePath: storyFilePath ?? '',
@@ -1421,7 +1432,8 @@ export function createImplementationOrchestrator(
             )
             incrementDispatches(storyKey)
             const batchReview = await runCodeReview(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens },
+              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens,
+                ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}) },
               {
                 storyKey,
                 storyFilePath: storyFilePath ?? '',
@@ -1465,7 +1477,8 @@ export function createImplementationOrchestrator(
           // Single review (small story or re-review after fix)
           incrementDispatches(storyKey)
           reviewResult = await runCodeReview(
-            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens },
+            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens,
+              ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}) },
             {
               storyKey,
               storyFilePath: storyFilePath ?? '',
@@ -1823,6 +1836,9 @@ export function createImplementationOrchestrator(
             taskType: 'minor-fixes',
             workingDirectory: projectRoot,
             ...(autoApproveMaxTurns !== undefined ? { maxTurns: autoApproveMaxTurns } : {}),
+            ...(config.perStoryContextCeilings?.[storyKey] !== undefined
+              ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
+              : {}),
             ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
             storyKey,
           })
@@ -1968,6 +1984,9 @@ export function createImplementationOrchestrator(
               ...(fixModel !== undefined ? { model: fixModel } : {}),
               outputSchema: DevStoryResultSchema,
               ...(fixMaxTurns !== undefined ? { maxTurns: fixMaxTurns } : {}),
+              ...(config.perStoryContextCeilings?.[storyKey] !== undefined
+                ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
+                : {}),
               ...(projectRoot !== undefined ? { workingDirectory: projectRoot } : {}),
               ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
             })
@@ -1977,6 +1996,9 @@ export function createImplementationOrchestrator(
               taskType,
               ...(fixModel !== undefined ? { model: fixModel } : {}),
               ...(fixMaxTurns !== undefined ? { maxTurns: fixMaxTurns } : {}),
+              ...(config.perStoryContextCeilings?.[storyKey] !== undefined
+                ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
+                : {}),
               ...(projectRoot !== undefined ? { workingDirectory: projectRoot } : {}),
               ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
             })
@@ -2056,8 +2078,30 @@ export function createImplementationOrchestrator(
    * story dispatch (Story 23-8, AC2).
    */
   async function processConflictGroup(group: string[]): Promise<void> {
+    // Track completed story keys within this conflict group for directive injection (Story 30-6)
+    const completedStoryKeys: string[] = []
+
     for (const storyKey of group) {
-      await processStory(storyKey)
+      // Query optimization directives from prior completed stories (Story 30-6)
+      let optimizationDirectives: string | undefined
+      if (telemetryAdvisor !== undefined && completedStoryKeys.length > 0) {
+        try {
+          const recs = await telemetryAdvisor.getRecommendationsForRun(completedStoryKeys)
+          const directives = telemetryAdvisor.formatOptimizationDirectives(recs)
+          if (directives.length > 0) {
+            optimizationDirectives = directives
+            logger.debug(
+              { storyKey, directiveCount: recs.filter((r) => r.severity !== 'info').length },
+              'Optimization directives ready for dispatch',
+            )
+          }
+        } catch (err) {
+          logger.debug({ err, storyKey }, 'Failed to fetch optimization directives — proceeding without')
+        }
+      }
+
+      await processStory(storyKey, { optimizationDirectives })
+      completedStoryKeys.push(storyKey)
       // GC hint between stories — best-effort, no error handling needed [AC2]
       ;(globalThis as { gc?: () => void }).gc?.()
       const gcPauseMs = config.gcPauseMs ?? 2_000

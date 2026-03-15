@@ -242,6 +242,7 @@ export async function runCodeReview(
     outputSchema: CodeReviewResultSchema,
     workingDirectory: deps.projectRoot,
     ...(deps.otlpEndpoint !== undefined ? { otlpEndpoint: deps.otlpEndpoint } : {}),
+    ...(deps.maxContextTokens !== undefined ? { maxContextTokens: deps.maxContextTokens } : {}),
     storyKey,
   })
 

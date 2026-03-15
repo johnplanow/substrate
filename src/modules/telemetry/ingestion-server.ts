@@ -28,6 +28,23 @@ import { BatchBuffer } from './batch-buffer.js'
 import type { TelemetryPipeline, RawOtlpPayload } from './telemetry-pipeline.js'
 import { detectSource } from './source-detector.js'
 
+// ---------------------------------------------------------------------------
+// DispatchContext
+// ---------------------------------------------------------------------------
+
+/**
+ * Dispatch context injected by the orchestrator before each agent dispatch.
+ * Stamped onto every RawOtlpPayload received while that dispatch is active.
+ */
+export interface DispatchContext {
+  /** Task type of the dispatch (e.g. 'dev-story', 'code-review', 'create-story') */
+  taskType: string
+  /** Pipeline phase (e.g. 'IN_DEV', 'IN_REVIEW', 'IN_STORY_CREATION') */
+  phase: string
+  /** Unique identifier for this dispatch */
+  dispatchId: string
+}
+
 const logger = createLogger('telemetry:ingestion-server')
 
 // ---------------------------------------------------------------------------
@@ -77,6 +94,8 @@ export class IngestionServer {
   private readonly _flushIntervalMs: number
   private _buffer: BatchBuffer<RawOtlpPayload> | undefined
   private readonly _pendingBatches = new Set<Promise<void>>()
+  /** Map from storyKey → DispatchContext, tracking active dispatches. */
+  private readonly _activeDispatches = new Map<string, DispatchContext>()
 
   constructor(options: IngestionServerOptions = {}) {
     this._port = options.port ?? 4318
@@ -100,6 +119,30 @@ export class IngestionServer {
     this._initPipeline(pipeline)
   }
 
+  /**
+   * Register an active dispatch context for a story.
+   * All OTLP payloads received while this context is active will be stamped
+   * with the dispatch context so per-phase analysis is possible.
+   *
+   * @param storyKey - The story key being dispatched
+   * @param context - The dispatch context to associate with this story
+   */
+  setActiveDispatch(storyKey: string, context: DispatchContext): void {
+    this._activeDispatches.set(storyKey, context)
+    logger.debug({ storyKey, taskType: context.taskType, phase: context.phase }, 'IngestionServer: active dispatch registered')
+  }
+
+  /**
+   * Clear the active dispatch context for a story.
+   * Should be called after the dispatch completes (success or failure).
+   *
+   * @param storyKey - The story key whose dispatch context should be cleared
+   */
+  clearActiveDispatch(storyKey: string): void {
+    this._activeDispatches.delete(storyKey)
+    logger.debug({ storyKey }, 'IngestionServer: active dispatch cleared')
+  }
+
   private _initPipeline(pipeline: TelemetryPipeline): void {
     this._buffer = new BatchBuffer<RawOtlpPayload>({
       batchSize: this._batchSize,
@@ -117,6 +160,21 @@ export class IngestionServer {
         this._pendingBatches.delete(pending)
       })
     })
+  }
+
+  /**
+   * Force-flush buffered OTLP payloads and await all in-flight processBatch() calls.
+   * Call this between story dispatches to ensure story N's telemetry (including
+   * recommendations) is fully persisted before story N+1 begins.
+   *
+   * No-op when no TelemetryPipeline is wired.
+   */
+  async flushAndAwait(): Promise<void> {
+    if (this._buffer === undefined) return
+    this._buffer.flush()
+    if (this._pendingBatches.size > 0) {
+      await Promise.all([...this._pendingBatches])
+    }
   }
 
   /**
@@ -210,6 +268,40 @@ export class IngestionServer {
   // Private helpers
   // ---------------------------------------------------------------------------
 
+  /**
+   * Extract the substrate.story_key attribute from a raw OTLP payload body.
+   * Looks in resourceSpans[].resource.attributes and resourceLogs[].resource.attributes.
+   */
+  private _extractStoryKeyFromPayload(body: unknown): string | undefined {
+    if (!body || typeof body !== 'object') return undefined
+    const payload = body as Record<string, unknown>
+
+    const extractFromResources = (resources: unknown): string | undefined => {
+      if (!Array.isArray(resources)) return undefined
+      for (const entry of resources) {
+        if (!entry || typeof entry !== 'object') continue
+        const resource = (entry as Record<string, unknown>).resource
+        if (!resource || typeof resource !== 'object') continue
+        const attrs = (resource as Record<string, unknown>).attributes
+        if (!Array.isArray(attrs)) continue
+        for (const attr of attrs) {
+          if (!attr || typeof attr !== 'object') continue
+          const a = attr as Record<string, unknown>
+          if (a.key === 'substrate.story_key') {
+            const val = a.value as Record<string, unknown> | undefined
+            if (val && typeof val.stringValue === 'string') return val.stringValue
+          }
+        }
+      }
+      return undefined
+    }
+
+    return (
+      extractFromResources(payload.resourceSpans) ??
+      extractFromResources(payload.resourceLogs)
+    )
+  }
+
   private _handleRequest(req: IncomingMessage, res: ServerResponse): void {
     // Health check support
     if (req.url === '/health' && req.method === 'GET') {
@@ -238,7 +330,9 @@ export class IngestionServer {
         try {
           const body: unknown = JSON.parse(bodyStr)
           const source = detectSource(body)
-          const payload: RawOtlpPayload = { body, source, receivedAt: Date.now() }
+          const storyKey = this._extractStoryKeyFromPayload(body)
+          const dispatchContext = storyKey !== undefined ? this._activeDispatches.get(storyKey) : undefined
+          const payload: RawOtlpPayload = { body, source, receivedAt: Date.now(), ...(dispatchContext !== undefined && { dispatchContext }) }
           this._buffer.push(payload)
         } catch (err) {
           logger.warn({ err, url: req.url }, 'Failed to parse OTLP payload JSON — discarding')

@@ -666,6 +666,106 @@ describe('Recommender', () => {
   })
 
   // -------------------------------------------------------------------------
+  // Rule: cache_delta_regression
+  // -------------------------------------------------------------------------
+
+  describe('cache_delta_regression rule', () => {
+    it('should emit warning for >30pp cache hit rate drop between consecutive dispatches', () => {
+      // dispatch 1: 80%, dispatch 2: 45% → 35pp drop → warning
+      const dispatchScores = [
+        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.80, timestamp: 1000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-2', avgCacheHitRate: 0.45, timestamp: 2000 }),
+      ]
+      const context = makeContext({ dispatchScores })
+      const result = recommender.analyze(context)
+      const recs = result.filter((r) => r.ruleId === 'cache_delta_regression')
+      expect(recs).toHaveLength(1)
+      expect(recs[0]?.severity).toBe('warning')
+      expect(recs[0]?.description).toContain('dispatch-1')
+      expect(recs[0]?.description).toContain('dispatch-2')
+      expect(recs[0]?.description).toContain('35.0')
+    })
+
+    it('should emit critical for >50pp cache hit rate drop between consecutive dispatches', () => {
+      // dispatch 1: 90%, dispatch 2: 30% → 60pp drop → critical
+      const dispatchScores = [
+        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.90, timestamp: 1000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-2', avgCacheHitRate: 0.30, timestamp: 2000 }),
+      ]
+      const context = makeContext({ dispatchScores })
+      const result = recommender.analyze(context)
+      const recs = result.filter((r) => r.ruleId === 'cache_delta_regression')
+      expect(recs).toHaveLength(1)
+      expect(recs[0]?.severity).toBe('critical')
+    })
+
+    it('should emit no recommendation when drop is exactly 30pp or less', () => {
+      // dispatch 1: 70%, dispatch 2: 45% → 25pp drop → no rec
+      const dispatchScores = [
+        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.70, timestamp: 1000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-2', avgCacheHitRate: 0.45, timestamp: 2000 }),
+      ]
+      const context = makeContext({ dispatchScores })
+      const result = recommender.analyze(context)
+      const recs = result.filter((r) => r.ruleId === 'cache_delta_regression')
+      expect(recs).toHaveLength(0)
+    })
+
+    it('should emit no recommendation when dispatchScores is undefined', () => {
+      const context = makeContext({ dispatchScores: undefined })
+      const result = recommender.analyze(context)
+      const recs = result.filter((r) => r.ruleId === 'cache_delta_regression')
+      expect(recs).toHaveLength(0)
+    })
+
+    it('should emit no recommendation when dispatchScores has exactly 1 entry', () => {
+      const dispatchScores = [
+        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.90, timestamp: 1000 }),
+      ]
+      const context = makeContext({ dispatchScores })
+      const result = recommender.analyze(context)
+      const recs = result.filter((r) => r.ruleId === 'cache_delta_regression')
+      expect(recs).toHaveLength(0)
+    })
+
+    it('should emit no recommendation when dispatchScores is an empty array', () => {
+      const context = makeContext({ dispatchScores: [] })
+      const result = recommender.analyze(context)
+      const recs = result.filter((r) => r.ruleId === 'cache_delta_regression')
+      expect(recs).toHaveLength(0)
+    })
+
+    it('should emit 2 recommendations for three dispatches with two regressions', () => {
+      // Three dispatches all showing regression
+      const dispatchScores = [
+        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.90, timestamp: 1000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-2', avgCacheHitRate: 0.50, timestamp: 2000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-3', avgCacheHitRate: 0.10, timestamp: 3000 }),
+      ]
+      const context = makeContext({ dispatchScores })
+      const result = recommender.analyze(context)
+      const recs = result.filter((r) => r.ruleId === 'cache_delta_regression')
+      expect(recs).toHaveLength(2)
+    })
+
+    it('should emit recommendation only for regressing pair when first pair is fine', () => {
+      // Pair 1: 0.80 → 0.75 (5pp drop, no rec); Pair 2: 0.75 → 0.20 (55pp drop, critical)
+      const dispatchScores = [
+        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.80, timestamp: 1000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-2', avgCacheHitRate: 0.75, timestamp: 2000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-3', avgCacheHitRate: 0.20, timestamp: 3000 }),
+      ]
+      const context = makeContext({ dispatchScores })
+      const result = recommender.analyze(context)
+      const recs = result.filter((r) => r.ruleId === 'cache_delta_regression')
+      expect(recs).toHaveLength(1)
+      expect(recs[0]?.severity).toBe('critical')
+      expect(recs[0]?.actionTarget).toContain('dispatch-2')
+      expect(recs[0]?.actionTarget).toContain('dispatch-3')
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // Snapshot test
   // -------------------------------------------------------------------------
 

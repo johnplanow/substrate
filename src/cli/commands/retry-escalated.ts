@@ -30,6 +30,7 @@ import { createPipelineRun, addTokenUsage } from '../../persistence/queries/deci
 import { getRetryableEscalations } from '../../persistence/queries/retry-escalated.js'
 import { createLogger } from '../../utils/logger.js'
 import { type OutputFormat, formatOutput } from './pipeline-shared.js'
+import { createTelemetryAdvisor } from '../../modules/telemetry/telemetry-advisor.js'
 
 const logger = createLogger('retry-escalated-cmd')
 
@@ -40,6 +41,8 @@ const logger = createLogger('retry-escalated-cmd')
 export interface RetryEscalatedOptions {
   runId?: string
   dryRun: boolean
+  /** When true, bypass efficiency-gate checks (warning and context ceiling). Defaults to false. */
+  force?: boolean
   outputFormat: OutputFormat
   projectRoot: string
   concurrency: number
@@ -53,7 +56,7 @@ export interface RetryEscalatedOptions {
 // ---------------------------------------------------------------------------
 
 export async function runRetryEscalatedAction(options: RetryEscalatedOptions): Promise<number> {
-  const { runId, dryRun, outputFormat, projectRoot, concurrency, pack: packName, registry: injectedRegistry } = options
+  const { runId, dryRun, force, outputFormat, projectRoot, concurrency, pack: packName, registry: injectedRegistry } = options
 
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
@@ -87,6 +90,35 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
         process.stdout.write('No retry-targeted escalations found.\n')
       }
       return 0
+    }
+
+    // AC8: Efficiency gate — check prior run profiles before retrying (Story 30-8)
+    // Skipped when --dry-run or --force is set.
+    const perStoryContextCeilings: Record<string, number> = {}
+    if (!dryRun && !force) {
+      const advisor = createTelemetryAdvisor({ db: adapter })
+      const CONTEXT_SPIKE_THRESHOLD = 100_000
+      const contextCeiling = Math.round(CONTEXT_SPIKE_THRESHOLD * 0.8)
+
+      for (const storyKey of retryable) {
+        try {
+          const profile = await advisor.getEfficiencyProfile(storyKey)
+          if (profile === null) continue
+          if (profile.compositeScore < 50) {
+            process.stdout.write(
+              `[WARN] ${storyKey}: Previous run had low efficiency (score: ${profile.compositeScore}). Retry may encounter the same issues.\n`,
+            )
+          }
+          if (profile.contextManagementSubScore < 50) {
+            perStoryContextCeilings[storyKey] = contextCeiling
+            process.stdout.write(
+              `[INFO] ${storyKey}: Context ceiling set to ${contextCeiling} tokens due to prior context spike pattern.\n`,
+            )
+          }
+        } catch (err) {
+          logger.warn({ err, storyKey }, 'Failed to read efficiency profile — skipping gate')
+        }
+      }
     }
 
     // AC3 + AC7: Dry-run mode — print plan and exit without invoking orchestrator
@@ -158,6 +190,9 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
         maxConcurrency: concurrency,
         maxReviewCycles: 2,
         pipelineRunId: pipelineRun.id,
+        ...(Object.keys(perStoryContextCeilings).length > 0
+          ? { perStoryContextCeilings }
+          : {}),
       },
       projectRoot,
     })
@@ -240,6 +275,7 @@ export function registerRetryEscalatedCommand(
     .description('Retry escalated stories flagged as retry-targeted by escalation diagnosis')
     .option('--run-id <id>', 'Scope to a specific pipeline run ID (defaults to latest run with escalations)')
     .option('--dry-run', 'Print retryable and skipped stories without invoking the orchestrator')
+    .option('--force', 'Bypass efficiency-gate checks (warning and context ceiling)', false)
     .option(
       '--concurrency <n>',
       'Maximum parallel story executions',
@@ -259,6 +295,7 @@ export function registerRetryEscalatedCommand(
       async (opts: {
         runId?: string
         dryRun?: boolean
+        force?: boolean
         concurrency: number
         pack: string
         projectRoot: string
@@ -268,6 +305,7 @@ export function registerRetryEscalatedCommand(
         const exitCode = await runRetryEscalatedAction({
           runId: opts.runId,
           dryRun: opts.dryRun === true,
+          force: opts.force === true,
           outputFormat,
           projectRoot: opts.projectRoot,
           concurrency: opts.concurrency,

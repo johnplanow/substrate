@@ -212,6 +212,126 @@ describe('TelemetryPersistence efficiency_scores', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Per-dispatch efficiency scores tests (Story 30-3)
+// ---------------------------------------------------------------------------
+
+describe('TelemetryPersistence dispatch efficiency scores (Story 30-3)', () => {
+  let adapter: DatabaseAdapter
+  let persistence: TelemetryPersistence
+
+  beforeEach(async () => {
+    adapter = await createTestAdapter()
+    persistence = new TelemetryPersistence(adapter)
+  })
+
+  afterEach(async () => {
+    await adapter.close()
+  })
+
+  it('getDispatchEfficiencyScores returns only dispatch scores (dispatch_id IS NOT NULL)', async () => {
+    const storyAggregate = makeEfficiencyScore({ storyKey: '30-3', timestamp: 1_000 })
+    const dispatch1 = makeEfficiencyScore({
+      storyKey: '30-3',
+      timestamp: 1_001,
+      compositeScore: 60,
+      dispatchId: 'dispatch-1',
+      taskType: 'dev-story',
+      phase: 'implementation',
+    })
+    const dispatch2 = makeEfficiencyScore({
+      storyKey: '30-3',
+      timestamp: 1_002,
+      compositeScore: 80,
+      dispatchId: 'dispatch-2',
+      taskType: 'code-review',
+      phase: 'review',
+    })
+
+    await persistence.storeEfficiencyScore(storyAggregate)
+    await persistence.storeEfficiencyScore(dispatch1)
+    await persistence.storeEfficiencyScore(dispatch2)
+
+    const dispatches = await persistence.getDispatchEfficiencyScores('30-3')
+    expect(dispatches).toHaveLength(2)
+
+    const d1 = dispatches.find((d) => d.dispatchId === 'dispatch-1')
+    expect(d1).toBeDefined()
+    expect(d1!.taskType).toBe('dev-story')
+    expect(d1!.phase).toBe('implementation')
+    expect(d1!.compositeScore).toBe(60)
+
+    const d2 = dispatches.find((d) => d.dispatchId === 'dispatch-2')
+    expect(d2).toBeDefined()
+    expect(d2!.taskType).toBe('code-review')
+    expect(d2!.phase).toBe('review')
+    expect(d2!.compositeScore).toBe(80)
+  })
+
+  it('getEfficiencyScores returns only story aggregate (dispatch_id IS NULL)', async () => {
+    const storyAggregate = makeEfficiencyScore({ storyKey: '30-3', timestamp: 1_000 })
+    const dispatch1 = makeEfficiencyScore({
+      storyKey: '30-3',
+      timestamp: 1_001,
+      dispatchId: 'dispatch-1',
+    })
+
+    await persistence.storeEfficiencyScore(storyAggregate)
+    await persistence.storeEfficiencyScore(dispatch1)
+
+    const scores = await persistence.getEfficiencyScores(20)
+    expect(scores).toHaveLength(1)
+    expect(scores[0]!.dispatchId).toBeUndefined()
+    expect(scores[0]!.timestamp).toBe(1_000)
+  })
+
+  it('dispatch scores round-trip with dispatchId, taskType, phase intact', async () => {
+    const dispatch = makeEfficiencyScore({
+      storyKey: '30-3',
+      timestamp: 5_000,
+      compositeScore: 72,
+      dispatchId: 'unique-dispatch-id',
+      taskType: 'create-story',
+      phase: 'planning',
+    })
+
+    await persistence.storeEfficiencyScore(dispatch)
+    const dispatches = await persistence.getDispatchEfficiencyScores('30-3')
+
+    expect(dispatches).toHaveLength(1)
+    expect(dispatches[0]!.dispatchId).toBe('unique-dispatch-id')
+    expect(dispatches[0]!.taskType).toBe('create-story')
+    expect(dispatches[0]!.phase).toBe('planning')
+    expect(dispatches[0]!.compositeScore).toBe(72)
+  })
+
+  it('getDispatchEfficiencyScores returns empty array when no dispatch scores exist', async () => {
+    const storyAggregate = makeEfficiencyScore({ storyKey: '30-3', timestamp: 1_000 })
+    await persistence.storeEfficiencyScore(storyAggregate)
+
+    const dispatches = await persistence.getDispatchEfficiencyScores('30-3')
+    expect(dispatches).toHaveLength(0)
+  })
+
+  it('getEfficiencyScore (single story latest) only returns aggregate score', async () => {
+    const aggregate = makeEfficiencyScore({ storyKey: '30-3', timestamp: 1_000, compositeScore: 90 })
+    const dispatch = makeEfficiencyScore({
+      storyKey: '30-3',
+      timestamp: 2_000,
+      compositeScore: 50,
+      dispatchId: 'dispatch-x',
+    })
+
+    await persistence.storeEfficiencyScore(aggregate)
+    await persistence.storeEfficiencyScore(dispatch)
+
+    const result = await persistence.getEfficiencyScore('30-3')
+    expect(result).not.toBeNull()
+    expect(result!.compositeScore).toBe(90) // aggregate, not dispatch
+    expect(result!.dispatchId).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Recommendations persistence tests (story 27-7)
 // ---------------------------------------------------------------------------
 

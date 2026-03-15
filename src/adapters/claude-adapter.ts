@@ -23,6 +23,9 @@ import type {
   PlanParseResult,
   PlannedTask,
 } from './types.js'
+import { createLogger } from '../utils/logger.js'
+
+const logger = createLogger('claude-adapter')
 
 /** Default model used when none is specified */
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
@@ -132,15 +135,32 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       'Ignore all session startup context, memory notes, and "Next Up" indicators. ' +
       'Follow the instructions in the user message exactly. ' +
       'Emit ONLY the YAML output specified in the Output Contract — no other text.'
+
+    const effectiveSystemPrompt =
+      options.optimizationDirectives !== undefined && options.optimizationDirectives.length > 0
+        ? `${systemPrompt}\n\n## Optimization Directives\n${options.optimizationDirectives}`
+        : systemPrompt
+
+    if (options.optimizationDirectives !== undefined && options.optimizationDirectives.length > 0) {
+      logger.debug(
+        { storyKey: options.storyKey, directiveChars: options.optimizationDirectives.length },
+        'Injecting optimization directives into system prompt',
+      )
+    }
+
     const args = [
       '-p',
       '--model', model,
       '--dangerously-skip-permissions',
-      '--system-prompt', systemPrompt,
+      '--system-prompt', effectiveSystemPrompt,
     ]
 
     if (options.maxTurns !== undefined) {
       args.push('--max-turns', String(options.maxTurns))
+    }
+
+    if (options.maxContextTokens !== undefined) {
+      args.push('--max-context-tokens', String(options.maxContextTokens))
     }
 
     if (options.additionalFlags && options.additionalFlags.length > 0) {

@@ -7,6 +7,7 @@
  *
  * Callers subscribe to the 'flush' event via `.on('flush', handler)`.
  * Call `start()` to begin the interval timer and `stop()` to drain and clean up.
+ * Call `flush()` to force-flush immediately without stopping the interval timer.
  *
  * Design invariants:
  *   - Never throws; errors from flush handlers are the caller's responsibility
@@ -65,6 +66,15 @@ export class BatchBuffer<T> extends EventEmitter {
     if (typeof this._timer.unref === 'function') {
       this._timer.unref()
     }
+  }
+
+  /**
+   * Trigger an immediate flush of buffered items without stopping the interval timer.
+   * Use this to force-flush between pipeline phases while keeping the timer active.
+   * No-op when the buffer is empty.
+   */
+  flush(): void {
+    this._flush()
   }
 
   /**

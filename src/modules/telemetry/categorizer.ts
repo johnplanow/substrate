@@ -28,6 +28,20 @@ import type {
 // Module-scope lookup tables (constructed once, shared across all instances)
 // ---------------------------------------------------------------------------
 
+/**
+ * Tier 0: task-type to semantic category mapping.
+ *
+ * When a TurnAnalysis has a known taskType, the category is determined
+ * directly from this map without consulting lower tiers.
+ */
+const TASK_TYPE_CATEGORY_MAP = new Map<string, SemanticCategory>([
+  ['create-story', 'system_prompts'],
+  ['dev-story',    'tool_outputs'],
+  ['code-review',  'conversation_history'],
+  ['test-plan',    'system_prompts'],
+  ['minor-fixes',  'tool_outputs'],
+])
+
 const EXACT_CATEGORY_MAP = new Map<string, SemanticCategory>([
   ['read_file', 'file_reads'],
   ['write_file', 'tool_outputs'],
@@ -85,12 +99,19 @@ export class Categorizer {
   // ---------------------------------------------------------------------------
 
   /**
-   * Classify an operation into a SemanticCategory using three-tier logic.
+   * Classify an operation into a SemanticCategory using tiered logic.
    *
    * @param operationName - Span operation name (e.g. 'read_file', 'bash')
    * @param toolName      - Optional tool name; non-empty value overrides fallback to tool_outputs
+   * @param taskType      - Optional task type (e.g. 'dev-story', 'code-review'); acts as Tier 0 (highest priority)
    */
-  classify(operationName: string, toolName?: string): SemanticCategory {
+  classify(operationName: string, toolName?: string, taskType?: string): SemanticCategory {
+    // Tier 0: taskType takes highest priority when defined and mapped
+    if (taskType !== undefined && taskType.length > 0) {
+      const taskCategory = TASK_TYPE_CATEGORY_MAP.get(taskType)
+      if (taskCategory !== undefined) return taskCategory
+    }
+
     // Tier 1: exact match
     const exact = EXACT_CATEGORY_MAP.get(operationName)
     if (exact !== undefined) return exact
@@ -234,7 +255,7 @@ export class Categorizer {
 
     for (let i = 0; i < turns.length; i++) {
       const turn = turns[i]
-      const cat = this.classify(turn.name, turn.toolName)
+      const cat = this.classify(turn.name, turn.toolName, turn.taskType)
       const bucket = buckets.get(cat)!
       const tokens = turn.inputTokens + turn.outputTokens
       bucket.total += tokens

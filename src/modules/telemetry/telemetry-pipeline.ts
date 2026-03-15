@@ -7,8 +7,8 @@
  *      a. Span-based: TurnAnalyzer.analyze(spans) → TurnAnalysis[]
  *      b. Log-based:  LogTurnAnalyzer.analyze(logs) → TurnAnalysis[]
  *      c. Merge & deduplicate by spanId (prefer span-derived)
- *   3. Compute category stats → CategoryStats[] (Categorizer) — span-only
- *   4. Compute consumer stats → ConsumerStats[] (ConsumerAnalyzer) — span-only
+ *   3. Compute category stats → CategoryStats[] (Categorizer)
+ *   4. Compute consumer stats → ConsumerStats[] (ConsumerAnalyzer)
  *   5. Score efficiency → EfficiencyScore (EfficiencyScorer) — from merged turns
  *   6. Generate recommendations → Recommendation[] (Recommender) — from merged turns
  *   7. Persist all results (ITelemetryPersistence)
@@ -18,9 +18,29 @@
  *   - Never throws from processBatch() — errors are caught per-item and logged
  *   - Grouping by storyKey; payloads without a storyKey are skipped at the
  *     analysis stage (normalised data is still stored)
- *   - Log-only path (AC3): when no spans are present, LogTurnAnalyzer produces
- *     turns for efficiency scoring and persistence (categorizer/consumer remain
- *     span-only — addressed in story 27-16)
+ *   - Log-only path: when no spans are present, LogTurnAnalyzer produces turns.
+ *     Category stats: computeCategoryStatsFromTurns(). Consumer stats: analyzeFromTurns().
+ *     Recommendations: Recommender.analyze() with allSpans: [].
+ *
+ * ============================================================================
+ * Persistence parity audit (Story 30-4)
+ * ============================================================================
+ * Both _processStory (span path) and _processStoryFromTurns (log-only path)
+ * call all 5 persistence methods via the shared _persistStoryData() helper:
+ *
+ *   1. storeTurnAnalysis    — turns from TurnAnalyzer or LogTurnAnalyzer
+ *   2. storeEfficiencyScore — composite score from EfficiencyScorer
+ *   3. storeCategoryStats   — span: computeCategoryStats(); log: computeCategoryStatsFromTurns()
+ *   4. storeConsumerStats   — span: consumerAnalyzer.analyze(); log: analyzeFromTurns()
+ *   5. saveRecommendations  — Recommender.analyze() with allSpans: spans (span) or [] (log)
+ *
+ * Additionally: per-dispatch storeEfficiencyScore calls mirror across both paths.
+ *
+ * Span-only Recommender rules (return [] when allSpans.length === 0, accepted limitation):
+ *   - large_file_reads  — requires span.operationName === 'file_read' (not in log turns)
+ *   - expensive_bash    — requires span attribute tool.name === 'bash' (not in log turns)
+ *   - cache_efficiency  — explicitly checks if (allSpans.length === 0) return []
+ * ============================================================================
  */
 
 import { createLogger } from '../../utils/logger.js'
@@ -33,7 +53,17 @@ import type { EfficiencyScorer } from './efficiency-scorer.js'
 import type { Recommender } from './recommender.js'
 import type { ITelemetryPersistence } from './persistence.js'
 import type { OtlpSource } from './source-detector.js'
-import type { NormalizedSpan, NormalizedLog, TurnAnalysis, RecommenderContext } from './types.js'
+import type { DispatchContext } from './ingestion-server.js'
+import type {
+  NormalizedSpan,
+  NormalizedLog,
+  TurnAnalysis,
+  RecommenderContext,
+  CategoryStats,
+  ConsumerStats,
+  Recommendation,
+  EfficiencyScore,
+} from './types.js'
 
 const logger = createLogger('telemetry:pipeline')
 
@@ -51,6 +81,8 @@ export interface RawOtlpPayload {
   source: OtlpSource
   /** Unix milliseconds when the payload was received */
   receivedAt: number
+  /** Optional dispatch context stamped at ingestion time (Story 30-1) */
+  dispatchContext?: DispatchContext
 }
 
 // ---------------------------------------------------------------------------
@@ -69,6 +101,22 @@ export interface TelemetryPipelineDeps {
   efficiencyScorer: EfficiencyScorer
   recommender: Recommender
   persistence: ITelemetryPersistence
+}
+
+// ---------------------------------------------------------------------------
+// StoryPersistenceData
+// ---------------------------------------------------------------------------
+
+/**
+ * Data bag passed to _persistStoryData — shared by both analysis paths.
+ */
+interface StoryPersistenceData {
+  turns: TurnAnalysis[]
+  efficiencyScore: EfficiencyScore
+  categoryStats: CategoryStats[]
+  consumerStats: ConsumerStats[]
+  recommendations: Recommendation[]
+  dispatchScores: EfficiencyScore[]
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +185,7 @@ export class TelemetryPipeline {
         logger.warn({ err }, 'TelemetryPipeline: normalizeSpan failed — skipping payload')
       }
       try {
-        const logs = this._normalizer.normalizeLog(item.body)
+        const logs = this._normalizer.normalizeLog(item.body, item.dispatchContext)
         allLogs.push(...logs)
       } catch (err) {
         logger.warn({ err }, 'TelemetryPipeline: normalizeLog failed — skipping payload')
@@ -227,6 +275,24 @@ export class TelemetryPipeline {
   // ---------------------------------------------------------------------------
 
   /**
+   * Group turns by dispatchId for per-dispatch scoring.
+   * Only turns with a non-empty dispatchId are included.
+   */
+  private _groupTurnsByDispatchId(turns: TurnAnalysis[]): Map<string, TurnAnalysis[]> {
+    const groups = new Map<string, TurnAnalysis[]>()
+    for (const turn of turns) {
+      if (turn.dispatchId === undefined || turn.dispatchId === '') continue
+      const existing = groups.get(turn.dispatchId)
+      if (existing !== undefined) {
+        existing.push(turn)
+      } else {
+        groups.set(turn.dispatchId, [turn])
+      }
+    }
+    return groups
+  }
+
+  /**
    * Merge span-derived and log-derived turns, deduplicating by spanId.
    * When a span and a log share the same spanId, the span-derived turn is preferred
    * (richer data). The merged result is sorted chronologically and renumbered.
@@ -261,7 +327,23 @@ export class TelemetryPipeline {
     const consumers = this._consumerAnalyzer.analyze(spans)
 
     // Step 5: Efficiency score (from merged turns)
-    const efficiencyScore = this._efficiencyScorer.score(storyKey, turns)
+    const baseTimestamp = Date.now()
+    const storyScore = this._efficiencyScorer.score(storyKey, turns)
+    const efficiencyScore = { ...storyScore, timestamp: baseTimestamp }
+
+    // Per-dispatch scoring
+    const dispatchGroups = this._groupTurnsByDispatchId(turns)
+    const dispatchScores = Array.from(dispatchGroups.entries()).map(([dispatchId, dispatchTurns], idx) => {
+      const firstTurn = dispatchTurns[0]
+      const scored = this._efficiencyScorer.score(storyKey, dispatchTurns)
+      return {
+        ...scored,
+        timestamp: baseTimestamp + 1 + idx,
+        dispatchId,
+        taskType: firstTurn?.taskType,
+        phase: firstTurn?.phase,
+      }
+    })
 
     // Step 6: Recommendations
     const generatedAt = new Date().toISOString()
@@ -273,35 +355,19 @@ export class TelemetryPipeline {
       consumers,
       efficiencyScore,
       allSpans: spans,
+      dispatchScores,
     }
     const recommendations = this._recommender.analyze(context)
 
-    // Step 7: Persist
-    await Promise.all([
-      turns.length > 0
-        ? this._persistence.storeTurnAnalysis(storyKey, turns).catch((err: unknown) =>
-            logger.warn({ err, storyKey }, 'Failed to store turn analysis'),
-          )
-        : Promise.resolve(),
-      categories.length > 0
-        ? this._persistence.storeCategoryStats(storyKey, categories).catch((err: unknown) =>
-            logger.warn({ err, storyKey }, 'Failed to store category stats'),
-          )
-        : Promise.resolve(),
-      consumers.length > 0
-        ? this._persistence.storeConsumerStats(storyKey, consumers).catch((err: unknown) =>
-            logger.warn({ err, storyKey }, 'Failed to store consumer stats'),
-          )
-        : Promise.resolve(),
-      this._persistence.storeEfficiencyScore(efficiencyScore).catch((err: unknown) =>
-        logger.warn({ err, storyKey }, 'Failed to store efficiency score'),
-      ),
-      recommendations.length > 0
-        ? this._persistence.saveRecommendations(storyKey, recommendations).catch((err: unknown) =>
-            logger.warn({ err, storyKey }, 'Failed to save recommendations'),
-          )
-        : Promise.resolve(),
-    ])
+    // Step 7: Persist (shared helper — mirrors log-only path)
+    await this._persistStoryData(storyKey, {
+      turns,
+      efficiencyScore,
+      categoryStats: categories,
+      consumerStats: consumers,
+      recommendations,
+      dispatchScores,
+    })
 
     logger.info(
       {
@@ -309,29 +375,97 @@ export class TelemetryPipeline {
         turns: turns.length,
         compositeScore: efficiencyScore.compositeScore,
         recommendations: recommendations.length,
+        dispatchScores: dispatchScores.length,
       },
       'TelemetryPipeline: story analysis complete',
     )
   }
 
   /**
-   * Log-only analysis path (AC3, AC6): processes turns from LogTurnAnalyzer
-   * through efficiency scoring, category stats, and persistence.
+   * Log-only analysis path: processes turns from LogTurnAnalyzer through full
+   * analysis and persistence — mirrors span path via _persistStoryData (Story 30-4).
    */
   private async _processStoryFromTurns(storyKey: string, turns: TurnAnalysis[]): Promise<void> {
     if (turns.length === 0) return
 
     // Efficiency score from log-derived turns
-    const efficiencyScore = this._efficiencyScorer.score(storyKey, turns)
+    const baseTimestamp = Date.now()
+    const storyScore = this._efficiencyScorer.score(storyKey, turns)
+    const efficiencyScore = { ...storyScore, timestamp: baseTimestamp }
 
     // Category stats from turns (no raw spans needed)
     const categoryStats = this._categorizer.computeCategoryStatsFromTurns(turns)
 
-    // Persist turn analysis, efficiency score, and category stats
+    // Consumer stats from turns (AC2 — analyzeFromTurns already exists on ConsumerAnalyzer)
+    const consumerStats = this._consumerAnalyzer.analyzeFromTurns(turns)
+
+    // Per-dispatch scoring
+    const dispatchGroups = this._groupTurnsByDispatchId(turns)
+    const dispatchScores = Array.from(dispatchGroups.entries()).map(([dispatchId, dispatchTurns], idx) => {
+      const firstTurn = dispatchTurns[0]
+      const scored = this._efficiencyScorer.score(storyKey, dispatchTurns)
+      return {
+        ...scored,
+        timestamp: baseTimestamp + 1 + idx,
+        dispatchId,
+        taskType: firstTurn?.taskType,
+        phase: firstTurn?.phase,
+      }
+    })
+
+    // Recommendations via Recommender with allSpans: [] (AC3)
+    // Rules that require span attributes (large_file_reads, expensive_bash, cache_efficiency)
+    // return [] when allSpans is empty — accepted limitation documented in file header.
+    const generatedAt = new Date().toISOString()
+    const context: RecommenderContext = {
+      storyKey,
+      generatedAt,
+      turns,
+      categories: categoryStats,
+      consumers: consumerStats,
+      efficiencyScore,
+      allSpans: [],
+      dispatchScores,
+    }
+    const recommendations = this._recommender.analyze(context)
+
+    // Persist all 5 methods via shared helper (AC4, AC5)
+    await this._persistStoryData(storyKey, {
+      turns,
+      efficiencyScore,
+      categoryStats,
+      consumerStats,
+      recommendations,
+      dispatchScores,
+    })
+
+    logger.info(
+      {
+        storyKey,
+        turns: turns.length,
+        compositeScore: efficiencyScore.compositeScore,
+        categories: categoryStats.length,
+        recommendations: recommendations.length,
+        dispatchScores: dispatchScores.length,
+      },
+      'TelemetryPipeline: story analysis from turns complete',
+    )
+  }
+
+  /**
+   * Shared persistence helper — called by both _processStory and _processStoryFromTurns.
+   * All 5 persistence calls are made here with individual error guards so a single
+   * failure does not abort the others (AC5).
+   */
+  private async _persistStoryData(storyKey: string, data: StoryPersistenceData): Promise<void> {
+    const { turns, efficiencyScore, categoryStats, consumerStats, recommendations, dispatchScores } = data
+
     await Promise.all([
-      this._persistence.storeTurnAnalysis(storyKey, turns).catch((err: unknown) =>
-        logger.warn({ err, storyKey }, 'Failed to store turn analysis'),
-      ),
+      turns.length > 0
+        ? this._persistence.storeTurnAnalysis(storyKey, turns).catch((err: unknown) =>
+            logger.warn({ err, storyKey }, 'Failed to store turn analysis'),
+          )
+        : Promise.resolve(),
       this._persistence.storeEfficiencyScore(efficiencyScore).catch((err: unknown) =>
         logger.warn({ err, storyKey }, 'Failed to store efficiency score'),
       ),
@@ -340,16 +474,21 @@ export class TelemetryPipeline {
             logger.warn({ err, storyKey }, 'Failed to store category stats'),
           )
         : Promise.resolve(),
+      consumerStats.length > 0
+        ? this._persistence.storeConsumerStats(storyKey, consumerStats).catch((err: unknown) =>
+            logger.warn({ err, storyKey }, 'Failed to store consumer stats'),
+          )
+        : Promise.resolve(),
+      recommendations.length > 0
+        ? this._persistence.saveRecommendations(storyKey, recommendations).catch((err: unknown) =>
+            logger.warn({ err, storyKey }, 'Failed to save recommendations'),
+          )
+        : Promise.resolve(),
+      ...dispatchScores.map((ds) =>
+        this._persistence.storeEfficiencyScore(ds).catch((err: unknown) =>
+          logger.warn({ err, storyKey, dispatchId: ds.dispatchId }, 'Failed to store dispatch efficiency score'),
+        ),
+      ),
     ])
-
-    logger.info(
-      {
-        storyKey,
-        turns: turns.length,
-        compositeScore: efficiencyScore.compositeScore,
-        categories: categoryStats.length,
-      },
-      'TelemetryPipeline: story analysis from turns complete',
-    )
   }
 }

@@ -524,7 +524,7 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
     )
   })
 
-  it('AC3: log-only path calls computeCategoryStatsFromTurns but NOT span-based categorizer or consumer analyzer', async () => {
+  it('AC3: log-only path calls computeCategoryStatsFromTurns and analyzeFromTurns but NOT span-based categorizer or consumer analyzer', async () => {
     const logs = [makeLog()]
     const deps = makeMockDeps([], logs)
     const pipeline = new TelemetryPipeline(deps)
@@ -538,6 +538,9 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
       .not.toHaveBeenCalled()
     // Turn-based category stats IS called
     expect((deps.categorizer as unknown as { computeCategoryStatsFromTurns: ReturnType<typeof vi.fn> }).computeCategoryStatsFromTurns)
+      .toHaveBeenCalled()
+    // Turn-based consumer stats IS called (AC2 — Story 30-4)
+    expect((deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }).analyzeFromTurns)
       .toHaveBeenCalled()
   })
 
@@ -649,5 +652,248 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
 
     const pipeline = new TelemetryPipeline(deps)
     await expect(pipeline.processBatch([makePayload()])).resolves.not.toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tests — Log-only path parity (Story 30-4)
+// ---------------------------------------------------------------------------
+
+describe('TelemetryPipeline log-only path parity (Story 30-4)', () => {
+  it('log-only path calls all 5 persistence methods (AC: 30-4)', async () => {
+    const logs = [makeLog()]
+    const deps = makeMockDeps([], logs)
+
+    // Ensure non-empty returns from all analyzers so persistence is called
+    deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
+    ;(deps.categorizer as unknown as { computeCategoryStatsFromTurns: ReturnType<typeof vi.fn> }).computeCategoryStatsFromTurns
+      .mockReturnValue(makeCategoryStats())
+    ;(deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }).analyzeFromTurns
+      .mockReturnValue(makeConsumerStats())
+    ;(deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+      .mockReturnValue([makeRecommendation()])
+
+    const pipeline = new TelemetryPipeline(deps)
+    await pipeline.processBatch([makePayload()])
+
+    // All 5 persistence methods called with the correct story key
+    expect(deps.persistence.storeTurnAnalysis).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
+    expect(deps.persistence.storeEfficiencyScore).toHaveBeenCalledWith(
+      expect.objectContaining({ storyKey: STORY_KEY }),
+    )
+    expect(deps.persistence.storeCategoryStats).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
+    expect(deps.persistence.storeConsumerStats).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
+    expect(deps.persistence.saveRecommendations).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
+  })
+
+  it('log-only path passes analyzeFromTurns result to storeConsumerStats', async () => {
+    const logs = [makeLog()]
+    const deps = makeMockDeps([], logs)
+    const expectedConsumers = makeConsumerStats()
+
+    deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
+    ;(deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }).analyzeFromTurns
+      .mockReturnValue(expectedConsumers)
+
+    const pipeline = new TelemetryPipeline(deps)
+    await pipeline.processBatch([makePayload()])
+
+    expect(deps.persistence.storeConsumerStats).toHaveBeenCalledWith(STORY_KEY, expectedConsumers)
+  })
+
+  it('log-only path passes recommender.analyze result to saveRecommendations', async () => {
+    const logs = [makeLog()]
+    const deps = makeMockDeps([], logs)
+    const expectedRec = makeRecommendation()
+
+    deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
+    ;(deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+      .mockReturnValue([expectedRec])
+
+    const pipeline = new TelemetryPipeline(deps)
+    await pipeline.processBatch([makePayload()])
+
+    expect(deps.persistence.saveRecommendations).toHaveBeenCalledWith(STORY_KEY, [expectedRec])
+  })
+
+  it('log-only path calls recommender.analyze with allSpans: [] (AC3)', async () => {
+    const logs = [makeLog()]
+    const deps = makeMockDeps([], logs)
+    deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
+
+    const pipeline = new TelemetryPipeline(deps)
+    await pipeline.processBatch([makePayload()])
+
+    expect((deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
+      .toHaveBeenCalledWith(expect.objectContaining({ allSpans: [], storyKey: STORY_KEY }))
+  })
+
+  it('persistence errors in consumer stats and recommendations do not throw', async () => {
+    const logs = [makeLog()]
+    const deps = makeMockDeps([], logs)
+    deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
+    ;(deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }).analyzeFromTurns
+      .mockReturnValue(makeConsumerStats())
+    ;(deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+      .mockReturnValue([makeRecommendation()])
+    deps.persistence.storeConsumerStats.mockRejectedValue(new Error('consumer db error'))
+    deps.persistence.saveRecommendations.mockRejectedValue(new Error('recs db error'))
+
+    const pipeline = new TelemetryPipeline(deps)
+    await expect(pipeline.processBatch([makePayload()])).resolves.not.toThrow()
+  })
+
+  it('skips storeConsumerStats when analyzeFromTurns returns empty array', async () => {
+    const logs = [makeLog()]
+    const deps = makeMockDeps([], logs)
+    deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
+    ;(deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }).analyzeFromTurns
+      .mockReturnValue([])
+
+    const pipeline = new TelemetryPipeline(deps)
+    await pipeline.processBatch([makePayload()])
+
+    expect(deps.persistence.storeConsumerStats).not.toHaveBeenCalled()
+  })
+
+  it('skips saveRecommendations when recommender returns empty array', async () => {
+    const logs = [makeLog()]
+    const deps = makeMockDeps([], logs)
+    deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
+    ;(deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+      .mockReturnValue([])
+
+    const pipeline = new TelemetryPipeline(deps)
+    await pipeline.processBatch([makePayload()])
+
+    expect(deps.persistence.saveRecommendations).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tests — Per-dispatch efficiency scoring (Story 30-3)
+// ---------------------------------------------------------------------------
+
+describe('TelemetryPipeline per-dispatch efficiency scoring (Story 30-3)', () => {
+  // Helper that creates turns with a dispatchId
+  function makeTurnWithDispatch(overrides?: Partial<TurnAnalysis>): TurnAnalysis {
+    return makeTurnAnalysis(overrides)
+  }
+
+  it('produces 3 storeEfficiencyScore calls when turns have 2 distinct dispatchIds (log-only path)', async () => {
+    const logs = [makeLog()]
+    const deps = makeMockDeps([], logs)
+
+    // 3 turns with dispatch-1, 2 with dispatch-2, 1 with no dispatchId
+    const dispatchedTurns: TurnAnalysis[] = [
+      makeTurnWithDispatch({ spanId: 'ls1', dispatchId: 'dispatch-1', taskType: 'dev-story', phase: 'implementation' }),
+      makeTurnWithDispatch({ spanId: 'ls2', dispatchId: 'dispatch-1', taskType: 'dev-story', phase: 'implementation' }),
+      makeTurnWithDispatch({ spanId: 'ls3', dispatchId: 'dispatch-1', taskType: 'dev-story', phase: 'implementation' }),
+      makeTurnWithDispatch({ spanId: 'ls4', dispatchId: 'dispatch-2', taskType: 'code-review', phase: 'review' }),
+      makeTurnWithDispatch({ spanId: 'ls5', dispatchId: 'dispatch-2', taskType: 'code-review', phase: 'review' }),
+      makeTurnWithDispatch({ spanId: 'ls6' }), // no dispatchId
+    ]
+    deps.logTurnAnalyzer.analyze.mockReturnValue(dispatchedTurns)
+    const pipeline = new TelemetryPipeline(deps)
+    await pipeline.processBatch([makePayload()])
+
+    // 1 story aggregate + 2 dispatch scores = 3 total calls
+    expect(deps.persistence.storeEfficiencyScore).toHaveBeenCalledTimes(3)
+  })
+
+  it('dispatch score objects carry correct dispatchId, taskType, phase', async () => {
+    const logs = [makeLog()]
+    const deps = makeMockDeps([], logs)
+
+    const dispatchedTurns: TurnAnalysis[] = [
+      makeTurnWithDispatch({ spanId: 'ls1', dispatchId: 'dispatch-1', taskType: 'dev-story', phase: 'implementation' }),
+      makeTurnWithDispatch({ spanId: 'ls2', dispatchId: 'dispatch-1', taskType: 'dev-story', phase: 'implementation' }),
+      makeTurnWithDispatch({ spanId: 'ls3', dispatchId: 'dispatch-2', taskType: 'code-review', phase: 'review' }),
+      makeTurnWithDispatch({ spanId: 'ls4', dispatchId: 'dispatch-2', taskType: 'code-review', phase: 'review' }),
+    ]
+    deps.logTurnAnalyzer.analyze.mockReturnValue(dispatchedTurns)
+    const pipeline = new TelemetryPipeline(deps)
+    await pipeline.processBatch([makePayload()])
+
+    const calls = deps.persistence.storeEfficiencyScore.mock.calls as [TurnAnalysis][]
+    // First call is story aggregate (no dispatchId)
+    expect((calls[0]![0] as EfficiencyScore).dispatchId).toBeUndefined()
+    // Subsequent calls have dispatchId
+    const dispatchCalls = calls.slice(1).map((c) => c[0] as EfficiencyScore)
+    const dispatchIds = dispatchCalls.map((s) => s.dispatchId)
+    expect(dispatchIds).toContain('dispatch-1')
+    expect(dispatchIds).toContain('dispatch-2')
+
+    const d1 = dispatchCalls.find((s) => s.dispatchId === 'dispatch-1')!
+    expect(d1.taskType).toBe('dev-story')
+    expect(d1.phase).toBe('implementation')
+
+    const d2 = dispatchCalls.find((s) => s.dispatchId === 'dispatch-2')!
+    expect(d2.taskType).toBe('code-review')
+    expect(d2.phase).toBe('review')
+  })
+
+  it('turns with no dispatchId at all → only 1 call to storeEfficiencyScore', async () => {
+    const logs = [makeLog()]
+    const deps = makeMockDeps([], logs)
+
+    const turns: TurnAnalysis[] = [
+      makeTurnAnalysis({ spanId: 'ls1' }),
+      makeTurnAnalysis({ spanId: 'ls2' }),
+    ]
+    deps.logTurnAnalyzer.analyze.mockReturnValue(turns)
+    const pipeline = new TelemetryPipeline(deps)
+    await pipeline.processBatch([makePayload()])
+
+    expect(deps.persistence.storeEfficiencyScore).toHaveBeenCalledTimes(1)
+  })
+
+  it('timestamp offsets are unique across story and dispatch scores', async () => {
+    const logs = [makeLog()]
+    const deps = makeMockDeps([], logs)
+
+    const turns: TurnAnalysis[] = [
+      makeTurnWithDispatch({ spanId: 'ls1', dispatchId: 'dispatch-1' }),
+      makeTurnWithDispatch({ spanId: 'ls2', dispatchId: 'dispatch-2' }),
+    ]
+    deps.logTurnAnalyzer.analyze.mockReturnValue(turns)
+    const pipeline = new TelemetryPipeline(deps)
+    await pipeline.processBatch([makePayload()])
+
+    const calls = deps.persistence.storeEfficiencyScore.mock.calls as [EfficiencyScore][]
+    const timestamps = calls.map((c) => c[0].timestamp)
+    // All timestamps must be unique
+    const unique = new Set(timestamps)
+    expect(unique.size).toBe(timestamps.length)
+    // Story aggregate is the smallest timestamp
+    const storyTs = calls[0]![0].timestamp
+    const dispatchTs = calls.slice(1).map((c) => c[0].timestamp)
+    for (const ts of dispatchTs) {
+      expect(ts).toBeGreaterThan(storyTs)
+    }
+  })
+
+  it('span-path also produces dispatch scores when turns have dispatchIds', async () => {
+    const spans = [makeSpan()]
+    const deps = makeMockDeps(spans)
+
+    // Override turnAnalyzer to return turns with dispatchIds
+    const spannedTurns: TurnAnalysis[] = [
+      makeTurnWithDispatch({ spanId: 'sp1', dispatchId: 'dispatch-A', taskType: 'dev-story', phase: 'implementation' }),
+      makeTurnWithDispatch({ spanId: 'sp2', dispatchId: 'dispatch-A', taskType: 'dev-story', phase: 'implementation' }),
+    ]
+    ;(deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+      .mockReturnValue(spannedTurns)
+
+    const pipeline = new TelemetryPipeline(deps)
+    await pipeline.processBatch([makePayload()])
+
+    // 1 story aggregate + 1 dispatch = 2 calls
+    expect(deps.persistence.storeEfficiencyScore).toHaveBeenCalledTimes(2)
+    const calls = deps.persistence.storeEfficiencyScore.mock.calls as [EfficiencyScore][]
+    const dispatchScore = calls.find((c) => c[0].dispatchId !== undefined)![0]
+    expect(dispatchScore.dispatchId).toBe('dispatch-A')
+    expect(dispatchScore.taskType).toBe('dev-story')
+    expect(dispatchScore.phase).toBe('implementation')
   })
 })

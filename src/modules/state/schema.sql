@@ -122,6 +122,9 @@ CREATE TABLE IF NOT EXISTS turn_analysis (
   tool_name         VARCHAR(128),
   is_context_spike  BOOLEAN        NOT NULL DEFAULT 0,
   child_spans_json  TEXT           NOT NULL DEFAULT '[]',
+  task_type         VARCHAR(64),
+  phase             VARCHAR(64),
+  dispatch_id       VARCHAR(64),
   PRIMARY KEY (story_key, span_id)
 );
 
@@ -145,6 +148,9 @@ CREATE TABLE IF NOT EXISTS efficiency_scores (
   total_turns                   INTEGER      NOT NULL DEFAULT 0,
   per_model_json                TEXT         NOT NULL DEFAULT '[]',
   per_source_json               TEXT         NOT NULL DEFAULT '[]',
+  dispatch_id                   TEXT,
+  task_type                     TEXT,
+  phase                         TEXT,
   PRIMARY KEY (story_key, timestamp)
 );
 
@@ -262,6 +268,7 @@ CREATE TABLE IF NOT EXISTS story_dependencies (
   depends_on      VARCHAR(50)   NOT NULL,
   dependency_type VARCHAR(50)   NOT NULL DEFAULT 'blocks',
   source          VARCHAR(50)   NOT NULL DEFAULT 'explicit',
+  created_at      DATETIME,
   PRIMARY KEY (story_key, depends_on)
 );
 
@@ -280,3 +287,35 @@ CREATE OR REPLACE VIEW ready_stories AS
     );
 
 INSERT IGNORE INTO _schema_version (version, description) VALUES (7, 'Add wg_stories, story_dependencies tables and ready_stories view (Epic 31-1)');
+INSERT IGNORE INTO _schema_version (version, description) VALUES (8, 'Add task_type, phase, dispatch_id columns to turn_analysis (Story 30-1)');
+
+-- Migration: add dispatch context columns to turn_analysis for existing repos (Story 30-1)
+-- Uses INFORMATION_SCHEMA guard for Dolt/MySQL compatibility (ADD COLUMN IF NOT EXISTS not standard MySQL)
+-- For fresh repos the columns are already declared in CREATE TABLE IF NOT EXISTS above, so these
+-- INFORMATION_SCHEMA checks will find count > 0 and emit 'SELECT 1' (no-op).
+SET @_task_type_exists = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'turn_analysis' AND COLUMN_NAME = 'task_type');
+SET @_sql = IF(@_task_type_exists = 0, 'ALTER TABLE turn_analysis ADD COLUMN task_type VARCHAR(64)', 'SELECT 1');
+PREPARE _add_col FROM @_sql; EXECUTE _add_col; DEALLOCATE PREPARE _add_col;
+
+SET @_phase_exists = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'turn_analysis' AND COLUMN_NAME = 'phase');
+SET @_sql = IF(@_phase_exists = 0, 'ALTER TABLE turn_analysis ADD COLUMN phase VARCHAR(64)', 'SELECT 1');
+PREPARE _add_col FROM @_sql; EXECUTE _add_col; DEALLOCATE PREPARE _add_col;
+
+SET @_dispatch_id_exists = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'turn_analysis' AND COLUMN_NAME = 'dispatch_id');
+SET @_sql = IF(@_dispatch_id_exists = 0, 'ALTER TABLE turn_analysis ADD COLUMN dispatch_id VARCHAR(64)', 'SELECT 1');
+PREPARE _add_col FROM @_sql; EXECUTE _add_col; DEALLOCATE PREPARE _add_col;
+
+INSERT IGNORE INTO _schema_version (version, description) VALUES (9, 'Add dispatch_id, task_type, phase columns to efficiency_scores (Story 30-3)');
+
+-- Migration: add dispatch context columns to efficiency_scores for existing repos (Story 30-3)
+SET @_eff_dispatch_id_exists = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'efficiency_scores' AND COLUMN_NAME = 'dispatch_id');
+SET @_sql = IF(@_eff_dispatch_id_exists = 0, 'ALTER TABLE efficiency_scores ADD COLUMN dispatch_id TEXT', 'SELECT 1');
+PREPARE _add_col FROM @_sql; EXECUTE _add_col; DEALLOCATE PREPARE _add_col;
+
+SET @_eff_task_type_exists = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'efficiency_scores' AND COLUMN_NAME = 'task_type');
+SET @_sql = IF(@_eff_task_type_exists = 0, 'ALTER TABLE efficiency_scores ADD COLUMN task_type TEXT', 'SELECT 1');
+PREPARE _add_col FROM @_sql; EXECUTE _add_col; DEALLOCATE PREPARE _add_col;
+
+SET @_eff_phase_exists = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'efficiency_scores' AND COLUMN_NAME = 'phase');
+SET @_sql = IF(@_eff_phase_exists = 0, 'ALTER TABLE efficiency_scores ADD COLUMN phase TEXT', 'SELECT 1');
+PREPARE _add_col FROM @_sql; EXECUTE _add_col; DEALLOCATE PREPARE _add_col;

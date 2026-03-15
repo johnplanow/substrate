@@ -1986,4 +1986,144 @@ describe('createImplementationOrchestrator', () => {
       mockReadFile.mockRejectedValue(new Error('mock readFile: file not found'))
     })
   })
+
+  // -------------------------------------------------------------------------
+  // Story 30-8 (AC6): perStoryContextCeilings propagated into dispatch options
+  // -------------------------------------------------------------------------
+
+  describe('Story 30-8 AC6: perStoryContextCeilings propagated into dispatch AdapterOptions', () => {
+    it('passes maxContextTokens to runDevStory when story key is in perStoryContextCeilings', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ perStoryContextCeilings: { '5-1': 80000 } }),
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(mockRunDevStory).toHaveBeenCalledOnce()
+      const [devDeps] = mockRunDevStory.mock.calls[0]
+      expect((devDeps as { maxContextTokens?: number }).maxContextTokens).toBe(80000)
+    })
+
+    it('passes maxContextTokens to runCodeReview when story key is in perStoryContextCeilings', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ perStoryContextCeilings: { '5-1': 80000 } }),
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(mockRunCodeReview).toHaveBeenCalledOnce()
+      const [reviewDeps] = mockRunCodeReview.mock.calls[0]
+      expect((reviewDeps as { maxContextTokens?: number }).maxContextTokens).toBe(80000)
+    })
+
+    it('passes maxContextTokens to minor-fixes dispatcher.dispatch when story key is in perStoryContextCeilings', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMinorFixes())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ perStoryContextCeilings: { '5-1': 80000 } }),
+      })
+
+      await orchestrator.run(['5-1'])
+
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const fixCall = dispatchCalls.find((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      )
+      expect(fixCall).toBeDefined()
+      expect((fixCall![0] as { maxContextTokens?: number }).maxContextTokens).toBe(80000)
+    })
+
+    it('passes maxContextTokens to major-rework dispatcher.dispatch when story key is in perStoryContextCeilings', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMajorRework())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ perStoryContextCeilings: { '5-1': 80000 } }),
+      })
+
+      await orchestrator.run(['5-1'])
+
+      const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      const reworkCall = dispatchCalls.find((call: unknown[]) =>
+        (call[0] as { taskType: string }).taskType === 'major-rework'
+      )
+      expect(reworkCall).toBeDefined()
+      expect((reworkCall![0] as { maxContextTokens?: number }).maxContextTokens).toBe(80000)
+    })
+
+    it('does NOT pass maxContextTokens to dispatch when story key is absent from perStoryContextCeilings (backward compat)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      // perStoryContextCeilings only has '9-1', but we run '5-1'
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ perStoryContextCeilings: { '9-1': 80000 } }),
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(mockRunDevStory).toHaveBeenCalledOnce()
+      const [devDeps] = mockRunDevStory.mock.calls[0]
+      expect((devDeps as { maxContextTokens?: number }).maxContextTokens).toBeUndefined()
+
+      expect(mockRunCodeReview).toHaveBeenCalledOnce()
+      const [reviewDeps] = mockRunCodeReview.mock.calls[0]
+      expect((reviewDeps as { maxContextTokens?: number }).maxContextTokens).toBeUndefined()
+    })
+
+    it('passes maxContextTokens only to the story in perStoryContextCeilings when multiple stories run', async () => {
+      mockRunCreateStory.mockImplementation(async (_deps, params) =>
+        makeCreateStorySuccess(params.storyKey),
+      )
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      // Only '5-1' has a ceiling; '9-1' should not
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxConcurrency: 1, perStoryContextCeilings: { '5-1': 80000 } }),
+      })
+
+      await orchestrator.run(['5-1', '9-1'])
+
+      const devCalls = mockRunDevStory.mock.calls
+      expect(devCalls).toHaveLength(2)
+
+      const devCall51 = devCalls.find((_call) => {
+        const [, params] = _call
+        return (params as { storyKey: string }).storyKey === '5-1'
+      })
+      const devCall91 = devCalls.find((_call) => {
+        const [, params] = _call
+        return (params as { storyKey: string }).storyKey === '9-1'
+      })
+
+      expect(devCall51).toBeDefined()
+      expect((devCall51![0] as { maxContextTokens?: number }).maxContextTokens).toBe(80000)
+
+      expect(devCall91).toBeDefined()
+      expect((devCall91![0] as { maxContextTokens?: number }).maxContextTokens).toBeUndefined()
+    })
+  })
 })

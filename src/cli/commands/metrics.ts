@@ -108,7 +108,7 @@ function rowsToEfficiencyScore(rows: EfficiencyScore[]): EfficiencyScore[] {
 // Telemetry text formatters
 // ---------------------------------------------------------------------------
 
-function printEfficiencyTable(scores: EfficiencyScore[]): void {
+function printEfficiencyTable(scores: EfficiencyScore[], dispatchScoresByStory: Map<string, EfficiencyScore[]> = new Map()): void {
   process.stdout.write(`\nEfficiency Scores (${scores.length} records)\n`)
   process.stdout.write('─'.repeat(80) + '\n')
   process.stdout.write(
@@ -123,6 +123,19 @@ function printEfficiencyTable(scores: EfficiencyScore[]): void {
     process.stdout.write(
       `  ${s.storyKey.padEnd(14)} ${String(s.compositeScore).padStart(6)} ${cacheHitPct.padStart(11)} ${ioRatio.padStart(10)} ${ctxMgmt.padStart(9)} ${model}\n`,
     )
+    // Print per-dispatch rows (at most 5) indented under the story row
+    const dispatchScores = dispatchScoresByStory.get(s.storyKey)
+    if (dispatchScores !== undefined && dispatchScores.length > 0) {
+      const rows = dispatchScores.slice(0, 5)
+      for (const ds of rows) {
+        const taskType = ds.taskType ?? 'unknown'
+        const phase = ds.phase ?? 'unknown'
+        const dsCacheHitPct = ds.totalTurns > 0 ? `${(ds.avgCacheHitRate * 100).toFixed(1)}%` : '0.0%'
+        process.stdout.write(
+          `    ↳ ${taskType}/${phase} score=${ds.compositeScore} cache=${dsCacheHitPct} turns=${ds.totalTurns}\n`,
+        )
+      }
+    }
   }
 }
 
@@ -144,16 +157,18 @@ function printRecommendationTable(recs: Recommendation[]): void {
 
 function printTurnTable(turns: TurnAnalysis[], storyKey: string): void {
   process.stdout.write(`\nTurn Analysis: ${storyKey} (${turns.length} turns)\n`)
-  process.stdout.write('─'.repeat(80) + '\n')
+  process.stdout.write('─'.repeat(100) + '\n')
   process.stdout.write(
-    `  ${'#'.padStart(4)} ${'Tokens In'.padStart(10)} ${'Tok Out'.padStart(8)} ${'Cache Hit%'.padStart(11)} ${'Ctx Size'.padStart(9)} Spike\n`,
+    `  ${'#'.padStart(4)} ${'Tokens In'.padStart(10)} ${'Tok Out'.padStart(8)} ${'Cache Hit%'.padStart(11)} ${'Ctx Size'.padStart(9)} ${'Task Type'.padEnd(16)} ${'Phase'.padEnd(16)} Spike\n`,
   )
-  process.stdout.write('  ' + '─'.repeat(60) + '\n')
+  process.stdout.write('  ' + '─'.repeat(86) + '\n')
   for (const t of turns) {
     const cacheHitPct = t.inputTokens > 0 ? `${(t.cacheHitRate * 100).toFixed(1)}%` : '0.0%'
     const spike = t.isContextSpike ? ' ⚠' : ''
+    const taskType = (t.taskType ?? '-').padEnd(16)
+    const phase = (t.phase ?? '-').padEnd(16)
     process.stdout.write(
-      `  ${String(t.turnNumber).padStart(4)} ${t.inputTokens.toLocaleString().padStart(10)} ${t.outputTokens.toLocaleString().padStart(8)} ${cacheHitPct.padStart(11)} ${t.contextSize.toLocaleString().padStart(9)}${spike}\n`,
+      `  ${String(t.turnNumber).padStart(4)} ${t.inputTokens.toLocaleString().padStart(10)} ${t.outputTokens.toLocaleString().padStart(8)} ${cacheHitPct.padStart(11)} ${t.contextSize.toLocaleString().padStart(9)} ${taskType} ${phase}${spike}\n`,
     )
   }
 }
@@ -256,10 +271,25 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       // -- efficiency mode --
       if (efficiency === true) {
         const scores = await telemetryPersistence.getEfficiencyScores(20)
+        // Fetch dispatch scores for each unique story key
+        const storyKeys = [...new Set(scores.map((s) => s.storyKey))]
+        const dispatchScoresByStory = new Map<string, EfficiencyScore[]>()
+        await Promise.all(
+          storyKeys.map(async (sk) => {
+            const ds = await telemetryPersistence.getDispatchEfficiencyScores(sk)
+            if (ds.length > 0) {
+              dispatchScoresByStory.set(sk, ds)
+            }
+          }),
+        )
         if (outputFormat === 'json') {
-          process.stdout.write(formatOutput({ efficiency: rowsToEfficiencyScore(scores) }, 'json', true) + '\n')
+          const efficiencyWithDispatch = scores.map((s) => ({
+            ...rowsToEfficiencyScore([s])[0],
+            dispatchScores: dispatchScoresByStory.get(s.storyKey) ?? [],
+          }))
+          process.stdout.write(formatOutput({ efficiency: efficiencyWithDispatch }, 'json', true) + '\n')
         } else {
-          printEfficiencyTable(scores)
+          printEfficiencyTable(scores, dispatchScoresByStory)
         }
         return 0
       }

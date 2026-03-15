@@ -108,6 +108,7 @@ vi.mock('../../../modules/state/index.js', () => ({
 const mockTelemetryPersistence = {
   initSchema: vi.fn(),
   getEfficiencyScores: vi.fn().mockResolvedValue([]),
+  getDispatchEfficiencyScores: vi.fn().mockResolvedValue([]),
   getAllRecommendations: vi.fn().mockResolvedValue([]),
   getTurnAnalysis: vi.fn().mockResolvedValue([]),
   getConsumerStats: vi.fn().mockResolvedValue([]),
@@ -482,6 +483,7 @@ describe('metrics command — telemetry modes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockTelemetryPersistence.getEfficiencyScores.mockResolvedValue([])
+    mockTelemetryPersistence.getDispatchEfficiencyScores.mockResolvedValue([])
     mockTelemetryPersistence.getAllRecommendations.mockResolvedValue([])
     mockTelemetryPersistence.getTurnAnalysis.mockResolvedValue([])
     mockTelemetryPersistence.getConsumerStats.mockResolvedValue([])
@@ -553,6 +555,67 @@ describe('metrics command — telemetry modes', () => {
       stdout.restore()
       expect(result).toBe(0)
       expect(stdout.output()).toContain('0 records')
+    })
+
+    it('should render ↳ dispatch rows indented under story row when dispatch scores exist', async () => {
+      await setupExistsSyncForTelemetry()
+
+      const storyScore = makeEfficiencyScore('27-6', 75)
+      mockTelemetryPersistence.getEfficiencyScores.mockResolvedValue([storyScore])
+
+      const dispatchScore1 = {
+        ...makeEfficiencyScore('27-6', 92),
+        dispatchId: 'dispatch-001',
+        taskType: 'dev-story',
+        phase: 'IN_DEV',
+        totalTurns: 5,
+        avgCacheHitRate: 0.85,
+      }
+      const dispatchScore2 = {
+        ...makeEfficiencyScore('27-6', 78),
+        dispatchId: 'dispatch-002',
+        taskType: 'code-review',
+        phase: 'IN_REVIEW',
+        totalTurns: 3,
+        avgCacheHitRate: 0.75,
+      }
+      mockTelemetryPersistence.getDispatchEfficiencyScores.mockResolvedValue([dispatchScore1, dispatchScore2])
+
+      const { runMetricsAction } = await import('../metrics.js')
+      const stdout = captureStdout()
+      const result = await runMetricsAction({
+        outputFormat: 'human',
+        projectRoot: '/tmp/test-project',
+        efficiency: true,
+      })
+      stdout.restore()
+
+      expect(result).toBe(0)
+      const out = stdout.output()
+      expect(out).toContain('27-6')
+      expect(out).toContain('↳ dev-story/IN_DEV')
+      expect(out).toContain('↳ code-review/IN_REVIEW')
+      expect(mockTelemetryPersistence.getDispatchEfficiencyScores).toHaveBeenCalledWith('27-6')
+    })
+
+    it('should not render ↳ rows when getDispatchEfficiencyScores returns empty', async () => {
+      await setupExistsSyncForTelemetry()
+
+      const scores = [makeEfficiencyScore('27-6', 75)]
+      mockTelemetryPersistence.getEfficiencyScores.mockResolvedValue(scores)
+      mockTelemetryPersistence.getDispatchEfficiencyScores.mockResolvedValue([])
+
+      const { runMetricsAction } = await import('../metrics.js')
+      const stdout = captureStdout()
+      const result = await runMetricsAction({
+        outputFormat: 'human',
+        projectRoot: '/tmp/test-project',
+        efficiency: true,
+      })
+      stdout.restore()
+
+      expect(result).toBe(0)
+      expect(stdout.output()).not.toContain('↳')
     })
   })
 

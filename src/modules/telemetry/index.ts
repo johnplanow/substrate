@@ -52,7 +52,7 @@ export { TelemetryPersistence } from './persistence.js'
 export { AdapterTelemetryPersistence } from './adapter-persistence.js'
 
 export { IngestionServer, TelemetryError } from './ingestion-server.js'
-export type { IngestionServerOptions } from './ingestion-server.js'
+export type { IngestionServerOptions, DispatchContext } from './ingestion-server.js'
 
 export { EfficiencyScorer, createEfficiencyScorer } from './efficiency-scorer.js'
 export { Categorizer } from './categorizer.js'

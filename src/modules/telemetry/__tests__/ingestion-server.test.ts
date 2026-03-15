@@ -1,12 +1,13 @@
 /**
- * Unit tests for IngestionServer (Story 27-9, Task 2).
+ * Unit tests for IngestionServer (Story 27-9, Task 2; Story 30-5, Task 2).
  *
- * Tests server lifecycle and getOtlpEnvVars() guard/content.
+ * Tests server lifecycle, getOtlpEnvVars() guard/content, and flushAndAwait().
  * Uses port 0 for OS-assigned ports to avoid conflicts.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { IngestionServer, TelemetryError } from '../ingestion-server.js'
+import type { TelemetryPipeline } from '../telemetry-pipeline.js'
 
 describe('IngestionServer', () => {
   let server: IngestionServer
@@ -73,6 +74,76 @@ describe('IngestionServer', () => {
     await server.start()
     await server.stop()
     await expect(server.stop()).resolves.toBeUndefined()
+  })
+})
+
+// -- flushAndAwait() --
+
+describe('IngestionServer.flushAndAwait()', () => {
+  it('resolves immediately when no pipeline is wired (AC3)', async () => {
+    const server = new IngestionServer({ port: 0 })
+    await expect(server.flushAndAwait()).resolves.toBeUndefined()
+  })
+
+  it('resolves after in-flight processBatch() completes (AC2)', async () => {
+    let resolveBatch!: () => void
+    const batchPromise = new Promise<void>((resolve) => { resolveBatch = resolve })
+
+    const mockPipeline: TelemetryPipeline = {
+      processBatch: vi.fn().mockReturnValue(batchPromise),
+    } as unknown as TelemetryPipeline
+
+    const server = new IngestionServer({ port: 0, pipeline: mockPipeline, batchSize: 1 })
+    await server.start()
+
+    // Push an item to trigger a size-based flush, which starts processBatch in-flight
+    const fetch = await import('node:http')
+    const envVars = server.getOtlpEnvVars()
+    const endpoint = envVars['OTEL_EXPORTER_OTLP_ENDPOINT']!
+
+    // Post a minimal OTLP payload to the server to trigger processing
+    await new Promise<void>((resolve, reject) => {
+      const body = JSON.stringify({ resourceLogs: [] })
+      const url = new URL('/v1/logs', endpoint)
+      const req = fetch.request(
+        { hostname: '127.0.0.1', port: url.port, method: 'POST', path: url.pathname,
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
+        (res) => { res.resume(); res.on('end', resolve) },
+      )
+      req.on('error', reject)
+      req.write(body)
+      req.end()
+    })
+
+    // The batch should now be in-flight (processBatch called but not resolved)
+    let awaited = false
+    const flushPromise = server.flushAndAwait().then(() => { awaited = true })
+
+    // Before resolving the batch, flushAndAwait should not have resolved
+    await new Promise<void>((r) => setImmediate(r))
+    expect(awaited).toBe(false)
+
+    // Resolve the in-flight batch
+    resolveBatch()
+    await flushPromise
+    expect(awaited).toBe(true)
+
+    await server.stop()
+  })
+
+  it('resolves immediately when buffer has items but no pending batches (no-op on pending)', async () => {
+    // A server with pipeline but batchSize=100 so timer flush won't fire synchronously
+    const mockPipeline: TelemetryPipeline = {
+      processBatch: vi.fn().mockResolvedValue(undefined),
+    } as unknown as TelemetryPipeline
+
+    const server = new IngestionServer({ port: 0, pipeline: mockPipeline, batchSize: 100, flushIntervalMs: 60000 })
+    await server.start()
+
+    // flushAndAwait with no buffered items and no pending batches should resolve
+    await expect(server.flushAndAwait()).resolves.toBeUndefined()
+
+    await server.stop()
   })
 })
 

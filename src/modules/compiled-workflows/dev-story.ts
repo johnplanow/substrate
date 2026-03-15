@@ -322,6 +322,8 @@ export async function runDevStory(
       maxTurns: resolvedMaxTurns,
       ...(deps.projectRoot !== undefined ? { workingDirectory: deps.projectRoot } : {}),
       ...(deps.otlpEndpoint !== undefined ? { otlpEndpoint: deps.otlpEndpoint } : {}),
+      ...(deps.maxContextTokens !== undefined ? { maxContextTokens: deps.maxContextTokens } : {}),
+      ...(deps.optimizationDirectives !== undefined ? { optimizationDirectives: deps.optimizationDirectives } : {}),
       storyKey,
     })
 

@@ -211,6 +211,47 @@ describe('Categorizer', () => {
       })
     })
 
+    describe('Tier 0 — taskType classification', () => {
+      it('should classify taskType "create-story" → "system_prompts"', () => {
+        expect(categorizer.classify('api_request', undefined, 'create-story')).toBe('system_prompts')
+      })
+
+      it('should classify taskType "dev-story" → "tool_outputs"', () => {
+        expect(categorizer.classify('api_request', undefined, 'dev-story')).toBe('tool_outputs')
+      })
+
+      it('should classify taskType "code-review" → "conversation_history"', () => {
+        expect(categorizer.classify('api_request', undefined, 'code-review')).toBe('conversation_history')
+      })
+
+      it('should classify taskType "test-plan" → "system_prompts"', () => {
+        expect(categorizer.classify('api_request', undefined, 'test-plan')).toBe('system_prompts')
+      })
+
+      it('should classify taskType "minor-fixes" → "tool_outputs"', () => {
+        expect(categorizer.classify('api_request', undefined, 'minor-fixes')).toBe('tool_outputs')
+      })
+
+      it('should fall through to Tier 1 when taskType is unknown', () => {
+        // 'api_request' is in exact map → 'conversation_history'
+        expect(categorizer.classify('api_request', undefined, 'unknown-task')).toBe('conversation_history')
+      })
+
+      it('should fall through to Tier 1 when taskType is undefined', () => {
+        // 'api_request' is in exact map → 'conversation_history'
+        expect(categorizer.classify('api_request', undefined, undefined)).toBe('conversation_history')
+      })
+
+      it('should fall through to Tier 1 when taskType is empty string', () => {
+        // 'read_file' is in exact map → 'file_reads'
+        expect(categorizer.classify('read_file', undefined, '')).toBe('file_reads')
+      })
+
+      it('Tier 0 overrides Tier 1 exact match (dev-story wins over api_request→conversation_history)', () => {
+        expect(categorizer.classify('api_request', undefined, 'dev-story')).toBe('tool_outputs')
+      })
+    })
+
     describe('Tier 5: log_turn default', () => {
       it('should classify "log_turn" as conversation_history', () => {
         expect(categorizer.classify('log_turn')).toBe('conversation_history')
@@ -492,6 +533,65 @@ describe('Categorizer', () => {
       for (const stat of result) {
         expect(stat.percentage).toBe(0)
       }
+    })
+
+    it('AC5: multi-dispatch story produces 3+ non-zero category entries when taskType is used', () => {
+      // 5 turns with taskType 'dev-story' → tool_outputs
+      const devStoryTurns = Array.from({ length: 5 }, (_, i) =>
+        makeTurn({
+          spanId: `dev-${i}`,
+          name: 'api_request',
+          taskType: 'dev-story',
+          inputTokens: 100,
+          outputTokens: 0,
+          turnNumber: i + 1,
+          timestamp: 1000 + i * 1000,
+        }),
+      )
+      // 4 turns with taskType 'code-review' → conversation_history
+      const codeReviewTurns = Array.from({ length: 4 }, (_, i) =>
+        makeTurn({
+          spanId: `review-${i}`,
+          name: 'api_request',
+          taskType: 'code-review',
+          inputTokens: 100,
+          outputTokens: 0,
+          turnNumber: 6 + i,
+          timestamp: 6000 + i * 1000,
+        }),
+      )
+      // 3 turns with taskType 'create-story' → system_prompts
+      const createStoryTurns = Array.from({ length: 3 }, (_, i) =>
+        makeTurn({
+          spanId: `create-${i}`,
+          name: 'api_request',
+          taskType: 'create-story',
+          inputTokens: 100,
+          outputTokens: 0,
+          turnNumber: 10 + i,
+          timestamp: 10000 + i * 1000,
+        }),
+      )
+
+      const allTurns = [...devStoryTurns, ...codeReviewTurns, ...createStoryTurns]
+      const result = categorizer.computeCategoryStatsFromTurns(allTurns)
+
+      const toolOutputs = result.find((r) => r.category === 'tool_outputs')!
+      const conversationHistory = result.find((r) => r.category === 'conversation_history')!
+      const systemPrompts = result.find((r) => r.category === 'system_prompts')!
+
+      expect(toolOutputs.totalTokens).toBeGreaterThan(0)
+      expect(conversationHistory.totalTokens).toBeGreaterThan(0)
+      expect(systemPrompts.totalTokens).toBeGreaterThan(0)
+
+      // Verify exact counts
+      expect(toolOutputs.totalTokens).toBe(500)    // 5 dev-story turns × 100
+      expect(conversationHistory.totalTokens).toBe(400) // 4 code-review turns × 100
+      expect(systemPrompts.totalTokens).toBe(300)  // 3 create-story turns × 100
+
+      // At least 3 non-zero category entries
+      const nonZero = result.filter((r) => r.totalTokens > 0)
+      expect(nonZero.length).toBeGreaterThanOrEqual(3)
     })
   })
 

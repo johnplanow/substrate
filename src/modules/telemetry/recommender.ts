@@ -57,6 +57,7 @@ export class Recommender implements IRecommender {
       ...this._runGrowingCategories(context),
       ...this._runCacheEfficiency(context),
       ...this._runModelComparison(context),
+      ...this._runCacheDeltaRegression(context),
     ]
 
     // Sort: critical first, then warning, then info; within tier by potentialSavingsTokens desc
@@ -488,6 +489,50 @@ export class Recommender implements IRecommender {
         generatedAt,
       },
     ]
+  }
+
+  // ---------------------------------------------------------------------------
+  // Rule: cache_delta_regression
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Detect significant cache hit rate drops between consecutive dispatches.
+   * >30pp drop → warning; >50pp drop → critical.
+   * Requires dispatchScores with at least 2 entries; otherwise returns [].
+   */
+  private _runCacheDeltaRegression(ctx: RecommenderContext): Recommendation[] {
+    const { dispatchScores, storyKey, sprintId, generatedAt } = ctx
+    if (dispatchScores === undefined || dispatchScores.length < 2) return []
+
+    // Sort chronologically — dispatch timestamps are set sequentially in pipeline
+    const sorted = [...dispatchScores].sort((a, b) => a.timestamp - b.timestamp)
+
+    const recs: Recommendation[] = []
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const prev = sorted[i]!
+      const curr = sorted[i + 1]!
+      const deltaPP = (prev.avgCacheHitRate - curr.avgCacheHitRate) * 100
+      if (deltaPP <= 30) continue
+
+      const severity: RecommendationSeverity = deltaPP > 50 ? 'critical' : 'warning'
+      const prevId = prev.dispatchId ?? `dispatch-${i}`
+      const currId = curr.dispatchId ?? `dispatch-${i + 1}`
+      const pairKey = `${prevId}→${currId}`
+      const id = this._makeId('cache_delta_regression', storyKey, pairKey, i)
+
+      recs.push({
+        id,
+        storyKey,
+        sprintId,
+        ruleId: 'cache_delta_regression' as RuleId,
+        severity,
+        title: `Cache regression between dispatches: ${pairKey}`,
+        description: `Cache hit rate dropped ${deltaPP.toFixed(1)} percentage points between dispatch "${prevId}" (${(prev.avgCacheHitRate * 100).toFixed(1)}%) and "${currId}" (${(curr.avgCacheHitRate * 100).toFixed(1)}%). This likely indicates a prompt prefix change broke cache alignment. Investigate whether the system prompt or context prefix was restructured between these dispatches.`,
+        actionTarget: pairKey,
+        generatedAt,
+      })
+    }
+    return recs
   }
 
   // ---------------------------------------------------------------------------

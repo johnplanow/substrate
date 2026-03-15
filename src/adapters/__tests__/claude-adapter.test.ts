@@ -86,6 +86,59 @@ describe('ClaudeCodeAdapter.buildCommand()', () => {
     expect(cmd.args).not.toContain('my prompt')
     expect(cmd.binary).toBe('claude')
   })
+
+  it('includes --max-context-tokens arg when maxContextTokens is set', () => {
+    const cmd = adapter.buildCommand('test prompt', makeOptions({ maxContextTokens: 80000 }))
+    expect(cmd.args).toContain('--max-context-tokens')
+    const idx = cmd.args.indexOf('--max-context-tokens')
+    expect(cmd.args[idx + 1]).toBe('80000')
+  })
+
+  it('does not include --max-context-tokens arg when maxContextTokens is not set', () => {
+    const cmd = adapter.buildCommand('test prompt', makeOptions())
+    expect(cmd.args).not.toContain('--max-context-tokens')
+  })
+
+  // ---------------------------------------------------------------------------
+  // Story 30-6: optimizationDirectives injection into system prompt
+  // ---------------------------------------------------------------------------
+
+  it('appends optimization directives to system prompt when optimizationDirectives is set', () => {
+    const directives = 'OPTIMIZATION (critical): Enable caching. Use prompt caching to reduce costs.'
+    const cmd = adapter.buildCommand('test prompt', makeOptions({ optimizationDirectives: directives }))
+    const systemPromptIdx = cmd.args.indexOf('--system-prompt')
+    expect(systemPromptIdx).toBeGreaterThan(-1)
+    const systemPrompt = cmd.args[systemPromptIdx + 1]
+    expect(systemPrompt).toContain('## Optimization Directives')
+    expect(systemPrompt).toContain(directives)
+  })
+
+  it('system prompt contains base prompt text before the directives section', () => {
+    const directives = 'OPTIMIZATION (warning): Reduce tool calls.'
+    const cmd = adapter.buildCommand('test prompt', makeOptions({ optimizationDirectives: directives }))
+    const systemPromptIdx = cmd.args.indexOf('--system-prompt')
+    const systemPrompt = cmd.args[systemPromptIdx + 1] ?? ''
+    expect(systemPrompt).toContain('You are an autonomous coding agent')
+    const baseIndex = systemPrompt.indexOf('You are an autonomous coding agent')
+    const headerIndex = systemPrompt.indexOf('## Optimization Directives')
+    expect(baseIndex).toBeLessThan(headerIndex)
+  })
+
+  it('system prompt is exactly the base prompt when optimizationDirectives is undefined', () => {
+    const cmd = adapter.buildCommand('test prompt', makeOptions())
+    const systemPromptIdx = cmd.args.indexOf('--system-prompt')
+    const systemPrompt = cmd.args[systemPromptIdx + 1] ?? ''
+    expect(systemPrompt).not.toContain('## Optimization Directives')
+    expect(systemPrompt).toContain('You are an autonomous coding agent')
+  })
+
+  it('system prompt is exactly the base prompt when optimizationDirectives is empty string', () => {
+    const cmd = adapter.buildCommand('test prompt', makeOptions({ optimizationDirectives: '' }))
+    const systemPromptIdx = cmd.args.indexOf('--system-prompt')
+    const systemPrompt = cmd.args[systemPromptIdx + 1] ?? ''
+    expect(systemPrompt).not.toContain('## Optimization Directives')
+    expect(systemPrompt).toContain('You are an autonomous coding agent')
+  })
 })
 
 // ---------------------------------------------------------------------------

@@ -46,8 +46,15 @@ export interface ITelemetryPersistence {
   /**
    * Retrieve multiple efficiency scores ordered by timestamp DESC.
    * Returns up to `limit` records (default 20).
+   * Only returns story-aggregate scores (dispatch_id IS NULL).
    */
   getEfficiencyScores(limit?: number): Promise<EfficiencyScore[]>
+
+  /**
+   * Retrieve per-dispatch efficiency scores for a specific story.
+   * Returns only scores where dispatch_id IS NOT NULL, ordered by timestamp ASC.
+   */
+  getDispatchEfficiencyScores(storyKey: string): Promise<EfficiencyScore[]>
 
   // -- Recommendations (story 27-7) ------------------------------------------
 
@@ -149,6 +156,10 @@ export class TelemetryPersistence implements ITelemetryPersistence {
 
   async getEfficiencyScores(limit = 20): Promise<EfficiencyScore[]> {
     return this._impl.getEfficiencyScores(limit)
+  }
+
+  async getDispatchEfficiencyScores(storyKey: string): Promise<EfficiencyScore[]> {
+    return this._impl.getDispatchEfficiencyScores(storyKey)
   }
 
   // ---------------------------------------------------------------------------

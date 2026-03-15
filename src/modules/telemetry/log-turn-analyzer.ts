@@ -143,6 +143,9 @@ export class LogTurnAnalyzer {
             toolName: log.toolName,
             isContextSpike: false, // will be set in second pass
             childSpans: [],
+            ...(log.taskType !== undefined && { taskType: log.taskType }),
+            ...(log.phase !== undefined && { phase: log.phase }),
+            ...(log.dispatchId !== undefined && { dispatchId: log.dispatchId }),
           }
         },
       )

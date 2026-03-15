@@ -12,6 +12,7 @@
 
 import type pino from 'pino'
 import type { NormalizedSpan, NormalizedLog } from './types.js'
+import type { DispatchContext } from './ingestion-server.js'
 import { estimateCost } from './cost-table.js'
 import { normalizeTimestamp } from './timestamp-normalizer.js'
 import {
@@ -314,18 +315,19 @@ export class TelemetryNormalizer {
    * Normalize a raw OTLP log payload into an array of `NormalizedLog`.
    *
    * @param raw - Raw OTLP log payload (resourceLogs structure)
+   * @param dispatchContext - Optional dispatch context to stamp on each log (Story 30-1)
    * @returns Array of normalized logs; empty on error or empty input
    */
-  normalizeLog(raw: unknown): NormalizedLog[] {
+  normalizeLog(raw: unknown, dispatchContext?: DispatchContext): NormalizedLog[] {
     try {
-      return this._normalizeLogInternal(raw)
+      return this._normalizeLogInternal(raw, dispatchContext)
     } catch (err) {
       this._logger.warn({ err }, 'TelemetryNormalizer.normalizeLog: unexpected error')
       return []
     }
   }
 
-  private _normalizeLogInternal(raw: unknown): NormalizedLog[] {
+  private _normalizeLogInternal(raw: unknown, dispatchContext?: DispatchContext): NormalizedLog[] {
     if (!raw || typeof raw !== 'object') return []
 
     const payload = raw as OtlpLogPayload
@@ -347,7 +349,7 @@ export class TelemetryNormalizer {
           if (!record) continue
 
           try {
-            const normalized = this._normalizeOneLog(record, resourceAttrs)
+            const normalized = this._normalizeOneLog(record, resourceAttrs, dispatchContext)
             results.push(normalized)
           } catch (err) {
             this._logger.warn({ err }, 'Failed to normalize log record — skipping')
@@ -362,6 +364,7 @@ export class TelemetryNormalizer {
   private _normalizeOneLog(
     record: OtlpLogRecord,
     resourceAttrs: OtlpAttr[] | undefined,
+    dispatchContext?: DispatchContext,
   ): NormalizedLog {
     const logId = record.logRecordId ?? generateLogId()
     const timestamp = normalizeTimestamp(record.timeUnixNano)
@@ -418,6 +421,11 @@ export class TelemetryNormalizer {
       costUsd,
       model,
       storyKey,
+      ...(dispatchContext !== undefined && {
+        taskType: dispatchContext.taskType,
+        phase: dispatchContext.phase,
+        dispatchId: dispatchContext.dispatchId,
+      }),
     }
   }
 }

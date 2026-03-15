@@ -166,6 +166,56 @@ describe('BatchBuffer', () => {
     expect(flushed).toBe(false)
   })
 
+  // -- flush() — force-flush without stopping timer --
+
+  it('flush() emits buffered items immediately', () => {
+    const buffer = new BatchBuffer<number>({ batchSize: 100, flushIntervalMs: 5000 })
+    const flushed: number[][] = []
+    buffer.on('flush', (items: number[]) => flushed.push(items))
+    buffer.start()
+
+    buffer.push(1)
+    buffer.push(2)
+    expect(flushed).toHaveLength(0)
+
+    buffer.flush()
+    expect(flushed).toHaveLength(1)
+    expect(flushed[0]).toEqual([1, 2])
+
+    buffer.stop()
+  })
+
+  it('flush() leaves the interval timer running (not stopped)', () => {
+    const buffer = new BatchBuffer<number>({ batchSize: 100, flushIntervalMs: 1000 })
+    const flushed: number[][] = []
+    buffer.on('flush', (items: number[]) => flushed.push(items))
+    buffer.start()
+
+    buffer.push(1)
+    buffer.flush()
+    expect(flushed).toHaveLength(1)
+
+    // Timer should still be running — pushing and advancing should trigger another flush
+    buffer.push(2)
+    vi.advanceTimersByTime(1000)
+    expect(flushed).toHaveLength(2)
+    expect(flushed[1]).toEqual([2])
+
+    buffer.stop()
+  })
+
+  it('flush() on an empty buffer is a no-op (no event emitted)', () => {
+    const buffer = new BatchBuffer<number>({ batchSize: 100, flushIntervalMs: 5000 })
+    let flushCount = 0
+    buffer.on('flush', () => { flushCount++ })
+    buffer.start()
+
+    buffer.flush()
+    expect(flushCount).toBe(0)
+
+    buffer.stop()
+  })
+
   // -- timer fires multiple times --
 
   it('flushes on each timer interval', () => {

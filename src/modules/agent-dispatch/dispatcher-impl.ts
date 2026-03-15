@@ -385,7 +385,7 @@ export class DispatcherImpl implements Dispatcher {
     request: DispatchRequest<unknown>,
     resolve: (result: DispatchResult<unknown>) => void
   ): Promise<void> {
-    const { prompt, agent, taskType, timeout, outputSchema, workingDirectory, model, maxTurns, otlpEndpoint, storyKey } = request
+    const { prompt, agent, taskType, timeout, outputSchema, workingDirectory, model, maxTurns, maxContextTokens, otlpEndpoint, storyKey, optimizationDirectives } = request
 
     // Resolve effective model: explicit request.model wins; then routing resolver; then undefined (adapter default)
     let effectiveModel: string | undefined = model
@@ -438,8 +438,10 @@ export class DispatcherImpl implements Dispatcher {
       billingMode: 'subscription',
       ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
       ...(resolvedMaxTurns !== undefined ? { maxTurns: resolvedMaxTurns } : {}),
+      ...(maxContextTokens !== undefined ? { maxContextTokens } : {}),
       ...(otlpEndpoint !== undefined ? { otlpEndpoint } : {}),
       ...(storyKey !== undefined ? { storyKey } : {}),
+      ...(optimizationDirectives !== undefined ? { optimizationDirectives } : {}),
     })
 
     // Resolve timeout
