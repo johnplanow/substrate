@@ -105,6 +105,12 @@ export interface SupervisorDeps {
    */
   getRegistry: () => Promise<AdapterRegistry>
   /**
+   * Read the original CLI scope flags (explicitStories, epic) from a pipeline run's config_json.
+   * Used during restart to replay the exact scope the user originally requested.
+   * Optional — falls back to health snapshot story keys when not provided.
+   */
+  getRunConfig?: (runId: string, projectRoot: string) => Promise<{ explicitStories?: string[]; epic?: number } | null>
+  /**
    * Write a run-level summary finding to the decision store (AC2 of Story 21-1).
    * Called when the pipeline reaches terminal state.
    * Optional — if omitted no decisions are written.
@@ -276,6 +282,23 @@ function defaultSupervisorDeps(): SupervisorDeps {
         try { await raAdapter.close() } catch { /* ignore */ }
       }
     },
+    getRunConfig: async (runId: string, projectRoot: string) => {
+      try {
+        const dbRoot = await resolveMainRepoRoot(projectRoot)
+        const rcAdapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
+        try {
+          await initSchema(rcAdapter)
+          const rows = await rcAdapter.query<{ config_json: string | null }>('SELECT config_json FROM pipeline_runs WHERE id = ?', [runId])
+          if (rows.length === 0 || rows[0]!.config_json === null) return null
+          const config = JSON.parse(rows[0]!.config_json) as { explicitStories?: string[]; epic?: number }
+          return { explicitStories: config.explicitStories, epic: config.epic }
+        } finally {
+          try { await rcAdapter.close() } catch { /* ignore */ }
+        }
+      } catch {
+        return null
+      }
+    },
   }
 }
 
@@ -344,7 +367,7 @@ export async function handleStallRecovery(
   health: PipelineHealthOutput,
   state: ProjectCycleState,
   config: { stallThreshold: number; maxRestarts: number; pack: string; outputFormat: OutputFormat },
-  deps: Pick<SupervisorDeps, 'killPid' | 'resumePipeline' | 'sleep' | 'incrementRestarts' | 'getAllDescendants' | 'writeStallFindings' | 'getRegistry'>,
+  deps: Pick<SupervisorDeps, 'killPid' | 'resumePipeline' | 'sleep' | 'incrementRestarts' | 'getAllDescendants' | 'writeStallFindings' | 'getRegistry' | 'getRunConfig'>,
   io: {
     emitEvent: (event: Record<string, unknown>) => void
     log: (msg: string) => void
@@ -450,9 +473,23 @@ export async function handleStallRecovery(
   log(`Supervisor: Restarting pipeline (attempt ${newRestartCount}/${maxRestarts})`)
 
   try {
-    // Extract story keys from the health snapshot so the restart is scoped
-    // to the same stories as the original run (Finding 1: prevent unscoped discovery).
-    const scopedStories = Object.keys(health.stories.details ?? {})
+    // Read the original CLI scope from config_json (preferred), falling back
+    // to the health snapshot's active story keys (Finding 1: prevent unscoped discovery).
+    let scopedStories: string[] | undefined
+    if (deps.getRunConfig !== undefined && health.run_id !== null) {
+      try {
+        const runConfig = await deps.getRunConfig(health.run_id, projectRoot)
+        if (runConfig?.explicitStories !== undefined && runConfig.explicitStories.length > 0) {
+          scopedStories = runConfig.explicitStories
+        }
+      } catch {
+        // Best-effort — fall through to health snapshot
+      }
+    }
+    if (scopedStories === undefined) {
+      const healthKeys = Object.keys(health.stories.details ?? {})
+      if (healthKeys.length > 0) scopedStories = healthKeys
+    }
 
     const registry = await getRegistry()
     await resumePipeline({
@@ -462,7 +499,7 @@ export async function handleStallRecovery(
       concurrency: 3,
       pack,
       registry,
-      ...(scopedStories.length > 0 ? { stories: scopedStories } : {}),
+      ...(scopedStories !== undefined ? { stories: scopedStories } : {}),
     })
     if (writeStallFindings) {
       await writeStallFindings({
@@ -715,6 +752,7 @@ export async function runSupervisorAction(
         getAllDescendants: resolvedDeps.getAllDescendants,
         writeStallFindings: resolvedDeps.writeStallFindings,
         getRegistry: resolvedDeps.getRegistry,
+        getRunConfig: resolvedDeps.getRunConfig,
       },
       { emitEvent, log },
     )

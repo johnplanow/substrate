@@ -170,7 +170,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     const pipelineRun = await createPipelineRun(adapter, {
       methodology: pack.manifest.name,
       start_phase: 'implementation',
-      config_json: JSON.stringify({ storyKeys: retryable, concurrency, retryRun: true }),
+      config_json: JSON.stringify({ storyKeys: retryable, concurrency, retryRun: true, explicitStories: retryable }),
     })
 
     const eventBus = createEventBus()

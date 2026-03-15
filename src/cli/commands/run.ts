@@ -517,7 +517,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     const pipelineRun = await createPipelineRun(adapter, {
       methodology: pack.manifest.name,
       start_phase: 'implementation',
-      config_json: JSON.stringify({ storyKeys, concurrency }),
+      config_json: JSON.stringify({ storyKeys, concurrency, ...(parsedStoryKeys.length > 0 ? { explicitStories: parsedStoryKeys } : {}) }),
     })
 
     // Create dependencies
@@ -1483,6 +1483,18 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     // Start the run
     const startedAt = Date.now()
     const runId = await phaseOrchestrator.startRun(concept ?? '', startPhase)
+
+    // Persist original CLI scope flags so supervisor can replay them on restart
+    if (explicitStories !== undefined && explicitStories.length > 0 || options.epic !== undefined) {
+      const existingRun = (await adapter.query<{ config_json: string | null }>('SELECT config_json FROM pipeline_runs WHERE id = ?', [runId]))[0]
+      const existing = JSON.parse(existingRun?.config_json ?? '{}')
+      const updated = {
+        ...existing,
+        ...(explicitStories !== undefined && explicitStories.length > 0 ? { explicitStories } : {}),
+        ...(options.epic !== undefined ? { epic: options.epic } : {}),
+      }
+      await adapter.query('UPDATE pipeline_runs SET config_json = ? WHERE id = ?', [JSON.stringify(updated), runId])
+    }
 
     if (outputFormat === 'human') {
       process.stdout.write(`Starting full pipeline from phase: ${startPhase}\n`)
