@@ -151,8 +151,18 @@ export class TelemetryAdvisor {
    */
   formatOptimizationDirectives(recommendations: Recommendation[]): string {
     const MAX_CHARS = 2000
+
+    // Only inject rules the agent can act on. Exclude:
+    // - biggest_consumers: reports which model consumed tokens (orchestrator-level, not agent-actionable)
+    // - per_model_comparison: model routing is orchestrator-level
+    // - cache_efficiency: overall cache stats without specific remediation
+    const AGENT_ACTIONABLE_RULES = new Set([
+      'large_file_reads', 'expensive_bash', 'repeated_tool_calls',
+      'context_growth_spike', 'growing_categories', 'cache_delta_regression',
+    ])
+
     const actionable = recommendations.filter(
-      (r) => r.severity === 'critical' || r.severity === 'warning',
+      (r) => (r.severity === 'critical' || r.severity === 'warning') && AGENT_ACTIONABLE_RULES.has(r.ruleId),
     )
     if (actionable.length === 0) return ''
 

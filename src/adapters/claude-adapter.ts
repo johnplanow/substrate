@@ -193,9 +193,13 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       // Prevent child process from hanging if the OTLP endpoint is unreachable.
       // Without this, the OTEL SDK retries indefinitely on shutdown, blocking exit.
       envEntries.OTEL_EXPORTER_OTLP_TIMEOUT = '5000'
-      // Inject substrate.story_key as a resource attribute for per-story grouping
-      if (options.storyKey !== undefined) {
-        envEntries.OTEL_RESOURCE_ATTRIBUTES = `substrate.story_key=${options.storyKey}`
+      // Inject substrate resource attributes for per-story/dispatch grouping
+      const resourceAttrs: string[] = []
+      if (options.storyKey !== undefined) resourceAttrs.push(`substrate.story_key=${options.storyKey}`)
+      if (options.taskType !== undefined) resourceAttrs.push(`substrate.task_type=${options.taskType}`)
+      if (options.dispatchId !== undefined) resourceAttrs.push(`substrate.dispatch_id=${options.dispatchId}`)
+      if (resourceAttrs.length > 0) {
+        envEntries.OTEL_RESOURCE_ATTRIBUTES = resourceAttrs.join(',')
       }
     }
 

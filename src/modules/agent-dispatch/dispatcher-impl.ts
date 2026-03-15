@@ -442,6 +442,8 @@ export class DispatcherImpl implements Dispatcher {
       ...(otlpEndpoint !== undefined ? { otlpEndpoint } : {}),
       ...(storyKey !== undefined ? { storyKey } : {}),
       ...(optimizationDirectives !== undefined ? { optimizationDirectives } : {}),
+      taskType,
+      dispatchId: id,
     })
 
     // Resolve timeout

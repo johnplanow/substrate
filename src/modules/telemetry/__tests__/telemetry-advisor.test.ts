@@ -19,7 +19,7 @@ function makeRecommendation(overrides: Partial<Recommendation> = {}): Recommenda
   return {
     id: 'abcdef1234567890',
     storyKey: '30-1',
-    ruleId: 'cache_efficiency',
+    ruleId: 'large_file_reads',
     severity: 'warning',
     title: 'Low cache hit rate',
     description: 'Enable prompt caching for better performance',

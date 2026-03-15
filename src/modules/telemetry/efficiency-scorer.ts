@@ -108,16 +108,25 @@ export class EfficiencyScorer {
   }
 
   /**
-   * I/O ratio sub-score: lower ratio = better = higher score.
-   * Formula: clamp(100 - (avgIoRatio - 1) × 20, 0, 100)
+   * I/O ratio sub-score: measures output productivity.
    *
-   * At avgIoRatio=1: score=80 (equal input/output tokens)
-   * At avgIoRatio=5: score=20
-   * At avgIoRatio≥6: clamped to 0
+   * For code generation workloads, high context-to-output ratio is normal and
+   * desirable (agent reads large cached context, produces substantial code).
+   * The old formula penalized this. New formula uses output-to-fresh-input ratio:
+   *   - outputTokens / max(freshInputTokens, 1) per turn
+   *   - Ratio > 1 means productive (more output than fresh input) → score 100
+   *   - Ratio < 1 → scaled linearly: ratio * 100
+   *   - Averaged across turns
    */
   private _computeIoRatioSubScore(turns: TurnAnalysis[]): number {
-    const avg = this._computeAvgIoRatio(turns)
-    return this._clamp(100 - (avg - 1) * 20, 0, 100)
+    if (turns.length === 0) return 0
+    const avg = turns.reduce((acc, t) => {
+      const freshInput = Math.max(t.inputTokens, 1) // fresh tokens only, not cached
+      return acc + t.outputTokens / freshInput
+    }, 0) / turns.length
+    // Ratio >= 1 means agent produces more than it consumes in fresh tokens → 100
+    // Ratio < 1 → linear scale (e.g., 0.5 → 50)
+    return this._clamp(avg >= 1 ? 100 : avg * 100, 0, 100)
   }
 
   /**
@@ -248,12 +257,11 @@ export class EfficiencyScorer {
 
   private _computeIoRatioSubScoreForGroup(turns: TurnAnalysis[]): number {
     if (turns.length === 0) return 0
-    const avg =
-      turns.reduce((acc, t) => {
-        const totalInput = t.inputTokens + (t.cacheReadTokens ?? 0)
-        return acc + totalInput / Math.max(t.outputTokens, 1)
-      }, 0) / turns.length
-    return this._clamp(100 - (avg - 1) * 20, 0, 100)
+    const avg = turns.reduce((acc, t) => {
+      const freshInput = Math.max(t.inputTokens, 1)
+      return acc + t.outputTokens / freshInput
+    }, 0) / turns.length
+    return this._clamp(avg >= 1 ? 100 : avg * 100, 0, 100)
   }
 
   private _computeContextManagementSubScoreForGroup(turns: TurnAnalysis[]): number {

@@ -121,11 +121,11 @@ describe('EfficiencyScorer', () => {
       expect(result.ioRatioSubScore).toBe(100)
     })
 
-    it('should clamp ioRatioSubScore to 0 when avgIoRatio is very high', () => {
-      // inputTokens=100000, outputTokens=100 → ratio=1000 → 100-(1000-1)*20 very negative → 0
+    it('should compute near-zero ioRatioSubScore when output is tiny relative to fresh input', () => {
+      // outputTokens/max(inputTokens,1) = 100/100000 = 0.001 → avg < 1 → score = 0.001*100 = 0.1
       const turns = [makeTurn({ inputTokens: 100_000, outputTokens: 100, cacheHitRate: 0 })]
       const result = scorer.score('27-6', turns)
-      expect(result.ioRatioSubScore).toBe(0)
+      expect(result.ioRatioSubScore).toBeCloseTo(0.1, 5)
     })
 
     it('should compute contextManagementSubScore = 100 when no spikes', () => {
@@ -159,9 +159,9 @@ describe('EfficiencyScorer', () => {
 
     it('should compute composite score weighted sum correctly', () => {
       // All cacheHitRate=1.0 → cacheHitSubScore=100
-      // totalInput = 1000 + 500 = 1500, ioRatio=1500/500=3 → 100-(3-1)*20=60 → ioRatioSubScore=60
+      // output/max(input,1) = 500/1000 = 0.5 → avg < 1 → ioRatioSubScore = 0.5*100 = 50
       // no spikes → contextManagementSubScore=100
-      // composite = round(100*0.4 + 60*0.3 + 100*0.3) = round(40+18+30) = round(88) = 88
+      // composite = round(100*0.4 + 50*0.3 + 100*0.3) = round(40+15+30) = round(85) = 85
       const turns = [
         makeTurn({
           inputTokens: 1000,
@@ -171,9 +171,9 @@ describe('EfficiencyScorer', () => {
         }),
       ]
       const result = scorer.score('27-6', turns)
-      expect(result.compositeScore).toBe(88)
+      expect(result.compositeScore).toBe(85)
       expect(result.cacheHitSubScore).toBe(100)
-      expect(result.ioRatioSubScore).toBe(60)
+      expect(result.ioRatioSubScore).toBe(50)
       expect(result.contextManagementSubScore).toBe(100)
     })
 
@@ -268,12 +268,12 @@ describe('EfficiencyScorer', () => {
         const unk = result.perSourceBreakdown.find((s) => s.source === 'unknown')
         expect(cc).toBeDefined()
         expect(unk).toBeDefined()
-        // claude-code: cacheHit=100, totalInput=(1000+500)=1500, ioRatio=1500/500=3→60, no spikes=100
-        // composite=round(100*0.4+60*0.3+100*0.3)=round(40+18+30)=88
-        expect(cc!.compositeScore).toBe(88)
-        // unknown: cacheHit=0, ioRatio=3→60, all spikes→0
-        // composite=round(0*0.4+60*0.3+0*0.3)=round(18)=18
-        expect(unk!.compositeScore).toBe(18)
+        // claude-code: cacheHit=100, output/input=500/1000=0.5→ioRatio=50, no spikes=100
+        // composite=round(100*0.4+50*0.3+100*0.3)=round(40+15+30)=85
+        expect(cc!.compositeScore).toBe(85)
+        // unknown: cacheHit=0, output/input=500/1000=0.5→ioRatio=50, all spikes→0
+        // composite=round(0*0.4+50*0.3+0*0.3)=round(15)=15
+        expect(unk!.compositeScore).toBe(15)
       })
 
       it('should include correct turnCount per source', () => {
@@ -355,7 +355,7 @@ describe('EfficiencyScorer', () => {
       it('should handle outputTokens = 0 without NaN by using max(outputTokens, 1)', () => {
         const turns = [makeTurn({ outputTokens: 0, inputTokens: 1000 })]
         const result = scorer.score('27-6', turns)
-        // ioRatio = 1000/1 = 1000 → ioRatioSubScore = clamp(100-(1000-1)*20,0,100) = 0
+        // output/max(input,1) = 0/1000 = 0 → avg < 1 → ioRatioSubScore = 0*100 = 0
         expect(Number.isNaN(result.avgIoRatio)).toBe(false)
         expect(result.ioRatioSubScore).toBe(0)
       })
