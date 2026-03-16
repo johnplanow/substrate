@@ -121,10 +121,13 @@ function getAvailableMemory(): number {
       const purgeable = parseInt(vmstat.match(/Pages purgeable:\s+(\d+)/)?.[1] ?? '0', 10)
       const speculative = parseInt(vmstat.match(/Pages speculative:\s+(\d+)/)?.[1] ?? '0', 10)
       const available = (free + purgeable + speculative) * pageSize
-      // At warn level, halve the estimate to be conservative without hard-blocking
+      // At warn level (2), log but trust the vm_stat estimate as-is.
+      // Level 2 fires frequently on macOS when the compressor is active,
+      // even with gigabytes of reclaimable memory. Halving caused false
+      // stalls on 24GB machines during single-story runs.
+      // Only level 4 (critical) hard-gates to 0 (handled above).
       if (pressureLevel >= 2) {
-        logger.warn({ pressureLevel, availableBeforeDiscount: available }, 'macOS kernel reports memory pressure — discounting estimate')
-        return Math.floor(available / 2)
+        logger.debug({ pressureLevel, available }, 'macOS kernel reports memory pressure level 2 (warn) — using raw estimate')
       }
       return available
     } catch {
