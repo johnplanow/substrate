@@ -12,10 +12,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Hoist mock functions so they are available when vi.mock factories execute
 // ---------------------------------------------------------------------------
 
-const { mockReadFile, mockGetGitDiffForFiles, mockGetGitDiffStatSummary } = vi.hoisted(() => ({
+const { mockReadFile, mockGetGitDiffForFiles, mockGetGitDiffStatSummary, mockGetGitDiffStatForFiles } = vi.hoisted(() => ({
   mockReadFile: vi.fn(),
   mockGetGitDiffForFiles: vi.fn(),
   mockGetGitDiffStatSummary: vi.fn(),
+  mockGetGitDiffStatForFiles: vi.fn(),
 }))
 
 // ---------------------------------------------------------------------------
@@ -29,6 +30,7 @@ vi.mock('node:fs/promises', () => ({
 vi.mock('../git-helpers.js', () => ({
   getGitDiffForFiles: mockGetGitDiffForFiles,
   getGitDiffStatSummary: mockGetGitDiffStatSummary,
+  getGitDiffStatForFiles: mockGetGitDiffStatForFiles,
   getGitDiffSummary: vi.fn(),
   getGitChangedFiles: vi.fn(),
   stageIntentToAdd: vi.fn(),
@@ -253,6 +255,7 @@ describe('runTestExpansion', () => {
     // Scoped diff that exceeds 200000 token ceiling (~800000 chars)
     mockGetGitDiffForFiles.mockResolvedValue('x'.repeat(825_000))
     mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
+    mockGetGitDiffStatForFiles.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
 
     const dispatchFn = vi.fn().mockReturnValue({
       id: 'test-id',
@@ -267,7 +270,7 @@ describe('runTestExpansion', () => {
     await runTestExpansion(deps, DEFAULT_PARAMS)
 
     expect(mockGetGitDiffForFiles).toHaveBeenCalled()
-    expect(mockGetGitDiffStatSummary).toHaveBeenCalled()
+    expect(mockGetGitDiffStatForFiles).toHaveBeenCalled()
 
     const callArgs = dispatchFn.mock.calls[0][0] as { prompt: string }
     // Stat-only summary should appear in the prompt, not the large diff
