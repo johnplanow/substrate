@@ -79,6 +79,31 @@ export async function getGitDiffForFiles(
 }
 
 // ---------------------------------------------------------------------------
+// getGitDiffStatForFiles
+// ---------------------------------------------------------------------------
+
+/**
+ * Capture the file-level stat summary scoped to specific files.
+ *
+ * Runs `git diff --stat HEAD -- file1.ts file2.ts ...` to produce a condensed
+ * stat summary limited to only the specified file paths. Used as a fallback
+ * when the scoped full diff exceeds the token budget — ensures the stat-only
+ * summary also stays scoped to the story's files rather than showing all
+ * uncommitted changes in the repo.
+ *
+ * @param files - List of file paths to scope the stat summary to
+ * @param workingDirectory - Directory to run git in (defaults to process.cwd())
+ * @returns The scoped stat summary string, or '' on error/empty
+ */
+export async function getGitDiffStatForFiles(
+  files: string[],
+  workingDirectory: string = process.cwd(),
+): Promise<string> {
+  if (files.length === 0) return ''
+  return runGitCommand(['diff', '--stat', 'HEAD', '--', ...files], workingDirectory, 'git-diff-stat-files')
+}
+
+// ---------------------------------------------------------------------------
 // getGitChangedFiles
 // ---------------------------------------------------------------------------
 

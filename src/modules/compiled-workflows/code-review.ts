@@ -22,7 +22,7 @@ import { countTokens } from '../context-compiler/token-counter.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import { CodeReviewResultSchema } from './schemas.js'
 import type { WorkflowDeps, CodeReviewParams, CodeReviewResult } from './types.js'
-import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, stageIntentToAdd, getGitChangedFiles } from './git-helpers.js'
+import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitDiffStatForFiles, stageIntentToAdd, getGitChangedFiles } from './git-helpers.js'
 import { getTokenCeiling } from './token-ceiling.js'
 
 const logger = createLogger('compiled-workflows:code-review')
@@ -137,9 +137,9 @@ export async function runCodeReview(
     } else {
       logger.warn(
         { estimatedTotal: scopedTotal, ceiling: TOKEN_CEILING, fileCount: filesModified.length },
-        'Scoped diff exceeds token ceiling — falling back to stat-only summary',
+        'Scoped diff exceeds token ceiling — falling back to scoped stat-only summary',
       )
-      gitDiffContent = await getGitDiffStatSummary(cwd)
+      gitDiffContent = await getGitDiffStatForFiles(filesModified, cwd)
     }
   } else {
     // Tier 2: Full repo diff — stage untracked files first so they appear in the diff

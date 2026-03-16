@@ -71,7 +71,7 @@ export type { PromptSection, AssembleResult, SectionPriority } from './prompt-as
 // Git helpers
 // ---------------------------------------------------------------------------
 
-export { getGitDiffSummary, getGitDiffStatSummary } from './git-helpers.js'
+export { getGitDiffSummary, getGitDiffStatSummary, getGitDiffStatForFiles } from './git-helpers.js'
 
 // ---------------------------------------------------------------------------
 // Story analyzer

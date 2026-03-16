@@ -1145,6 +1145,14 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ? new IngestionServer({ port: telemetryPort })
       : undefined
 
+    // Ensure the telemetry ingestion server releases its port on process exit
+    // to prevent EADDRINUSE on the next run.
+    if (ingestionServer !== undefined) {
+      process.on('exit', () => { ingestionServer.stop() })
+      process.on('SIGINT', () => { ingestionServer.stop(); process.exit(130) })
+      process.on('SIGTERM', () => { ingestionServer.stop(); process.exit(143) })
+    }
+
     // --- Story 28-6 AC5: Wire RoutingTelemetry — emit OTEL spans for each routing decision ---
     if (telemetryPersistence !== undefined) {
       const routingTelemetry = new RoutingTelemetry(telemetryPersistence, logger)
@@ -1726,6 +1734,15 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         const fpIngestionServer = fullTelemetryEnabled
           ? new IngestionServer({ port: fullTelemetryPort ?? 4318 })
           : undefined
+
+        // Ensure the telemetry ingestion server releases its port on process exit
+        // to prevent EADDRINUSE on the next run.
+        if (fpIngestionServer !== undefined) {
+          process.on('exit', () => { fpIngestionServer.stop() })
+          process.on('SIGINT', () => { fpIngestionServer.stop(); process.exit(130) })
+          process.on('SIGTERM', () => { fpIngestionServer.stop(); process.exit(143) })
+        }
+
         const fpTelemetryPersistence = fullTelemetryEnabled
           ? new AdapterTelemetryPersistence(adapter)
           : undefined

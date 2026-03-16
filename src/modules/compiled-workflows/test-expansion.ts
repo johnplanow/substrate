@@ -20,7 +20,7 @@ import { countTokens } from '../context-compiler/token-counter.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import { TestExpansionResultSchema } from './schemas.js'
 import type { WorkflowDeps, TestExpansionParams, TestExpansionResult } from './types.js'
-import { getGitDiffForFiles, getGitDiffStatSummary } from './git-helpers.js'
+import { getGitDiffForFiles, getGitDiffStatForFiles } from './git-helpers.js'
 import { getTokenCeiling } from './token-ceiling.js'
 import { resolveDefaultTestPatterns } from './default-test-patterns.js'
 
@@ -137,7 +137,7 @@ export async function runTestExpansion(
           { estimatedTotal: scopedTotal, ceiling: TOKEN_CEILING, fileCount: filesModified.length },
           'Scoped diff exceeds token ceiling — falling back to stat-only summary',
         )
-        gitDiffContent = await getGitDiffStatSummary(cwd)
+        gitDiffContent = await getGitDiffStatForFiles(filesModified, cwd)
       }
     } catch (err) {
       logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to get git diff — proceeding with empty diff')

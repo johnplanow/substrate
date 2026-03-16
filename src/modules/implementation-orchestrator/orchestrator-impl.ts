@@ -1552,31 +1552,95 @@ export function createImplementationOrchestrator(
         const truncatedOutput = (buildVerifyResult.output ?? '').slice(0, 2000)
         const reason = buildVerifyResult.reason ?? 'build-verification-failed'
 
-        eventBus.emit('story:build-verification-failed', {
-          storyKey,
-          exitCode: buildVerifyResult.exitCode ?? 1,
-          output: truncatedOutput,
-        })
-
-        logger.warn(
-          { storyKey, reason, exitCode: buildVerifyResult.exitCode },
-          'Build verification failed — escalating story',
+        // -- build-fix retry: attempt to auto-fix missing npm packages before escalating --
+        let retryPassed = false
+        const fullOutput = buildVerifyResult.output ?? ''
+        const missingPkgMatch = fullOutput.match(
+          /Cannot find (?:module|package) ['"]([^'"]+)['"]/
+        ) ?? fullOutput.match(
+          /ERR_MODULE_NOT_FOUND[^]*?['"]([^'"]+)['"]/
         )
 
-        updateStory(storyKey, {
-          phase: 'ESCALATED' as StoryPhase,
-          error: reason,
-          completedAt: new Date().toISOString(),
-        })
-        await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
-        await emitEscalation({
-          storyKey,
-          lastVerdict: reason,
-          reviewCycles: 0,
-          issues: [truncatedOutput],
-        })
-        await persistState()
-        return
+        if (missingPkgMatch && buildVerifyResult.status !== 'timeout') {
+          const missingPkg = missingPkgMatch[1]
+            // Strip subpath imports (e.g. "@foo/bar/baz" → "@foo/bar")
+            .replace(/^(@[^/]+\/[^/]+)\/.*$/, '$1')
+            .replace(/^([^@][^/]*)\/.*$/, '$1')
+
+          const resolvedRoot = projectRoot ?? process.cwd()
+          logger.warn(
+            { storyKey, missingPkg },
+            'Build-fix retry: detected missing npm package — attempting npm install',
+          )
+
+          try {
+            execSync(`npm install ${missingPkg}`, {
+              cwd: resolvedRoot,
+              timeout: 60_000,
+              encoding: 'utf-8',
+              stdio: 'pipe',
+            })
+
+            logger.warn(
+              { storyKey, missingPkg },
+              'Build-fix retry: npm install succeeded — retrying build verification',
+            )
+
+            const retryResult = runBuildVerification({
+              verifyCommand: pack.manifest.verifyCommand,
+              verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
+              projectRoot: resolvedRoot,
+            })
+
+            if (retryResult.status === 'passed') {
+              retryPassed = true
+              eventBus.emit('story:build-verification-passed', { storyKey })
+              logger.warn(
+                { storyKey, missingPkg },
+                'Build-fix retry: build verification passed after installing missing package',
+              )
+            } else {
+              logger.warn(
+                { storyKey, missingPkg, retryStatus: retryResult.status },
+                'Build-fix retry: build still fails after installing missing package — escalating',
+              )
+            }
+          } catch (installErr: unknown) {
+            const installMsg = installErr instanceof Error ? installErr.message : String(installErr)
+            logger.warn(
+              { storyKey, missingPkg, error: installMsg },
+              'Build-fix retry: npm install failed — escalating',
+            )
+          }
+        }
+
+        if (!retryPassed) {
+          eventBus.emit('story:build-verification-failed', {
+            storyKey,
+            exitCode: buildVerifyResult.exitCode ?? 1,
+            output: truncatedOutput,
+          })
+
+          logger.warn(
+            { storyKey, reason, exitCode: buildVerifyResult.exitCode },
+            'Build verification failed — escalating story',
+          )
+
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            error: reason,
+            completedAt: new Date().toISOString(),
+          })
+          await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+          await emitEscalation({
+            storyKey,
+            lastVerdict: reason,
+            reviewCycles: 0,
+            issues: [truncatedOutput],
+          })
+          await persistState()
+          return
+        }
       }
       // status === 'skipped': gate disabled — proceed directly to code-review
     }
@@ -2621,6 +2685,11 @@ export function createImplementationOrchestrator(
         batchCount: batches.length,
         maxConcurrency: config.maxConcurrency,
       }, 'Orchestrator starting')
+
+      logger.info(
+        { storyCount: storyKeys.length, conflictGroups: batches.length, maxConcurrency: config.maxConcurrency },
+        `Story dispatch plan: ${storyKeys.length} stories in ${batches.length} conflict groups (max concurrency: ${config.maxConcurrency})`,
+      )
 
       if (config.skipPreflight !== true) {
         const preflightStart = Date.now()
