@@ -31,13 +31,13 @@ import { DoltQueryError, DoltMergeConflictError } from './errors.js'
 const log = createLogger('modules:state:dolt')
 
 /**
- * Validate that a story key matches the expected pattern (e.g. "26-7").
+ * Validate that a story key matches the expected pattern (e.g. "26-7", "1-1a", "NEW-26").
  * Prevents SQL injection via string-interpolated identifiers.
  */
-const STORY_KEY_PATTERN = /^[0-9]+-[0-9]+$/
+const STORY_KEY_PATTERN = /^[A-Za-z0-9]+-[A-Za-z0-9]+$/
 function assertValidStoryKey(storyKey: string): void {
   if (!STORY_KEY_PATTERN.test(storyKey)) {
-    throw new DoltQueryError('assertValidStoryKey', `Invalid story key: '${storyKey}'. Must match pattern <number>-<number>.`)
+    throw new DoltQueryError('assertValidStoryKey', `Invalid story key: '${storyKey}'. Must match pattern <segment>-<segment> (e.g. "10-1", "1-1a", "NEW-26").`)
   }
 }
 

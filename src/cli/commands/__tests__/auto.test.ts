@@ -270,6 +270,9 @@ describe('validateStoryKey', () => {
     expect(validateStoryKey('10-1')).toBe(true)
     expect(validateStoryKey('1-2')).toBe(true)
     expect(validateStoryKey('100-99')).toBe(true)
+    expect(validateStoryKey('1-1a')).toBe(true)
+    expect(validateStoryKey('NEW-26')).toBe(true)
+    expect(validateStoryKey('E5-accessibility')).toBe(true)
   })
 
   it('rejects invalid story keys', () => {
@@ -277,7 +280,8 @@ describe('validateStoryKey', () => {
     expect(validateStoryKey('10')).toBe(false)
     expect(validateStoryKey('10-1-extra')).toBe(false)
     expect(validateStoryKey('')).toBe(false)
-    expect(validateStoryKey('abc-def')).toBe(false)
+    expect(validateStoryKey('10-')).toBe(false)
+    expect(validateStoryKey('-10')).toBe(false)
   })
 })
 

@@ -13,8 +13,9 @@ import type { Dispatcher } from '../agent-dispatch/types.js'
 import type { TypedEventBus } from '../../core/event-bus.js'
 import type { TokenCeilings } from '../config/config-schema.js'
 import { readFile } from 'node:fs/promises'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, basename } from 'node:path'
+import yaml from 'js-yaml'
 import { updatePipelineRun, getDecisionsByPhase, getDecisionsByCategory, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
 import { writeStoryMetrics, aggregateTokenUsageForStory } from '../../persistence/queries/metrics.js'
@@ -22,7 +23,7 @@ import { STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME, TEST_EXPANSION_FIND
 import { generateEscalationDiagnosis } from './escalation-diagnosis.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { DevStoryResultSchema } from '../compiled-workflows/schemas.js'
-import { runCreateStory, isValidStoryFile } from '../compiled-workflows/create-story.js'
+import { runCreateStory, isValidStoryFile, extractStorySection } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
 import { runTestPlan } from '../compiled-workflows/test-plan.js'
@@ -145,6 +146,86 @@ function buildTargetedFilesContent(issueList: unknown[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Story title validation — word-overlap similarity check
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize a title string into a set of meaningful words for comparison.
+ * Strips punctuation, lowercases, and filters out very short words (<=2 chars)
+ * and common stop words to focus on content-bearing terms.
+ */
+function titleToWordSet(title: string): Set<string> {
+  const stopWords = new Set(['the', 'and', 'for', 'with', 'from', 'into', 'that', 'this', 'via'])
+  return new Set(
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, ' ')
+      .split(/[\s-]+/)
+      .filter((w) => w.length > 2 && !stopWords.has(w)),
+  )
+}
+
+/**
+ * Compute the word overlap ratio between two titles.
+ * Returns a value between 0 and 1, where 1 means all words in the smaller set
+ * are present in the larger set.
+ *
+ * Uses the smaller set as the denominator so that a generated title that is a
+ * reasonable subset or superset of the expected title still scores well.
+ */
+function computeTitleOverlap(titleA: string, titleB: string): number {
+  const wordsA = titleToWordSet(titleA)
+  const wordsB = titleToWordSet(titleB)
+  if (wordsA.size === 0 || wordsB.size === 0) return 0
+
+  let shared = 0
+  for (const w of wordsA) {
+    if (wordsB.has(w)) shared++
+  }
+  // Use the smaller set size as denominator
+  const denominator = Math.min(wordsA.size, wordsB.size)
+  return shared / denominator
+}
+
+/**
+ * Extract the expected story title from the epic shard content.
+ *
+ * Looks for patterns like:
+ *   - "### Story 37-1: Turborepo monorepo scaffold"
+ *   - "Story 37-1: Turborepo monorepo scaffold"
+ *   - "**37-1**: Turborepo monorepo scaffold"
+ *   - "37-1: Turborepo monorepo scaffold"
+ *
+ * Returns the title portion after the story key, or null if no match.
+ */
+function extractExpectedStoryTitle(shardContent: string, storyKey: string): string | null {
+  if (!shardContent || !storyKey) return null
+  const escaped = storyKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+  // Try heading patterns: "### Story 37-1: Title" or "Story 37-1: Title" or "**37-1**: Title" or "37-1: Title"
+  const patterns = [
+    new RegExp(`^#{2,4}\\s+Story\\s+${escaped}[:\\s]+\\s*(.+)$`, 'mi'),
+    new RegExp(`^Story\\s+${escaped}[:\\s]+\\s*(.+)$`, 'mi'),
+    new RegExp(`^\\*\\*${escaped}\\*\\*[:\\s]+\\s*(.+)$`, 'mi'),
+    new RegExp(`^${escaped}[:\\s]+\\s*(.+)$`, 'mi'),
+  ]
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(shardContent)
+    if (match?.[1]) {
+      // Clean up: remove trailing markdown formatting, trim
+      return match[1].replace(/\*+$/, '').trim()
+    }
+  }
+
+  return null
+}
+
+// Minimum word overlap ratio for create-story title validation.
+// Below this threshold, a warning is emitted (but the pipeline is not blocked).
+const TITLE_OVERLAP_WARNING_THRESHOLD = 0.3
+
+// ---------------------------------------------------------------------------
 // wgStatusForPhase — work-graph status mapping
 // ---------------------------------------------------------------------------
 
@@ -167,6 +248,86 @@ function wgStatusForPhase(phase: StoryPhase): WgStoryStatus | null {
     case 'ESCALATED':
       return 'escalated'
   }
+}
+
+// ---------------------------------------------------------------------------
+// Project profile staleness check
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether `.substrate/project-profile.yaml` is stale relative to
+ * the actual project structure.
+ *
+ * Returns an array of human-readable indicator strings. An empty array
+ * means the profile appears current (or doesn't exist).
+ *
+ * Staleness indicators checked:
+ * - Profile says `type: single` but `turbo.json` exists (should be monorepo)
+ * - Profile has no Go language but `go.mod` exists
+ * - Profile has no Python language but `pyproject.toml` exists
+ * - Profile has no Rust language but `Cargo.toml` exists
+ */
+export function checkProfileStaleness(projectRoot: string): string[] {
+  const profilePath = join(projectRoot, '.substrate', 'project-profile.yaml')
+  if (!existsSync(profilePath)) {
+    return []
+  }
+
+  let profile: {
+    project?: {
+      type?: string
+      language?: string
+      packages?: Array<{ language?: string }>
+    }
+  }
+
+  try {
+    const raw = readFileSync(profilePath, 'utf-8')
+    profile = (yaml.load(raw) as typeof profile) ?? {}
+  } catch {
+    // Malformed YAML — cannot check staleness
+    return []
+  }
+
+  const project = profile.project
+  if (project === undefined) {
+    return []
+  }
+
+  const indicators: string[] = []
+
+  // Collect all languages declared in the profile (primary + packages)
+  const declaredLanguages = new Set<string>()
+  if (typeof project.language === 'string') {
+    declaredLanguages.add(project.language)
+  }
+  if (Array.isArray(project.packages)) {
+    for (const pkg of project.packages) {
+      if (typeof pkg.language === 'string') {
+        declaredLanguages.add(pkg.language)
+      }
+    }
+  }
+
+  // Check: profile says single but turbo.json exists
+  if (project.type === 'single' && existsSync(join(projectRoot, 'turbo.json'))) {
+    indicators.push('turbo.json exists but profile says type: single (should be monorepo)')
+  }
+
+  // Check: new language markers that the profile doesn't declare
+  const languageMarkers: Array<{ file: string; language: string }> = [
+    { file: 'go.mod', language: 'go' },
+    { file: 'pyproject.toml', language: 'python' },
+    { file: 'Cargo.toml', language: 'rust' },
+  ]
+
+  for (const marker of languageMarkers) {
+    if (existsSync(join(projectRoot, marker.file)) && !declaredLanguages.has(marker.language)) {
+      indicators.push(`${marker.file} exists but profile does not declare ${marker.language}`)
+    }
+  }
+
+  return indicators
 }
 
 // ---------------------------------------------------------------------------
@@ -624,16 +785,19 @@ export function createImplementationOrchestrator(
         else active++
       }
 
-      // Emit heartbeat when no progress has been made in the last interval
-      const timeSinceProgress = Date.now() - _lastProgressTs
-      if (timeSinceProgress >= HEARTBEAT_INTERVAL_MS) {
-        eventBus.emit('orchestrator:heartbeat', {
-          runId: config.pipelineRunId ?? '',
-          activeDispatches: active,
-          completedDispatches: completed,
-          queuedDispatches: queued,
-        })
-      }
+      // Emit heartbeat unconditionally on every tick while RUNNING.
+      // Previously gated by timeSinceProgress >= HEARTBEAT_INTERVAL_MS, which
+      // suppressed heartbeats when persistState() called recordProgress()
+      // shortly before the tick. During long-running dispatches (e.g. code
+      // review timing out), the heartbeat must keep ticking so external
+      // monitors (supervisor, CLI) can distinguish "alive but waiting" from
+      // "stalled process".
+      eventBus.emit('orchestrator:heartbeat', {
+        runId: config.pipelineRunId ?? '',
+        activeDispatches: active,
+        completedDispatches: completed,
+        queuedDispatches: queued,
+      })
 
       // Watchdog: check for stalls with phase-aware thresholds (AC3, AC4)
       const elapsed = Date.now() - _lastProgressTs
@@ -912,6 +1076,61 @@ export function createImplementationOrchestrator(
       }
 
       storyFilePath = createResult.story_file
+
+      // -- Story title validation (safety net for hallucinated titles) --
+      // Compare the generated story title against the expected title from the
+      // epic shard. If word overlap is below the threshold, emit a non-blocking
+      // warning so operators can spot context-truncation regressions early.
+      if (createResult.story_title) {
+        try {
+          const epicId = storyKey.split('-')[0] ?? storyKey
+          const implDecisions = await getDecisionsByPhase(db, 'implementation')
+          // Replicate the shard lookup order from create-story.ts:
+          // 1. Per-story shard (post-37-0), 2. Per-epic shard + extraction (pre-37-0)
+          let shardContent: string | undefined
+          const perStoryShard = implDecisions.find(
+            (d) => d.category === 'epic-shard' && d.key === storyKey,
+          )
+          if (perStoryShard?.value) {
+            shardContent = perStoryShard.value
+          } else {
+            const epicShard = implDecisions.find(
+              (d) => d.category === 'epic-shard' && d.key === epicId,
+            )
+            if (epicShard?.value) {
+              shardContent = extractStorySection(epicShard.value, storyKey) ?? epicShard.value
+            }
+          }
+
+          if (shardContent) {
+            const expectedTitle = extractExpectedStoryTitle(shardContent, storyKey)
+            if (expectedTitle) {
+              const overlap = computeTitleOverlap(expectedTitle, createResult.story_title)
+              if (overlap < TITLE_OVERLAP_WARNING_THRESHOLD) {
+                const msg =
+                  `Story title mismatch: expected "${expectedTitle}" ` +
+                  `but got "${createResult.story_title}" ` +
+                  `(word overlap: ${Math.round(overlap * 100)}%). ` +
+                  `This may indicate the create-story agent received truncated context.`
+                logger.warn({ storyKey, expectedTitle, generatedTitle: createResult.story_title, overlap }, msg)
+                eventBus.emit('orchestrator:story-warn', { storyKey, msg })
+              } else {
+                logger.debug(
+                  { storyKey, expectedTitle, generatedTitle: createResult.story_title, overlap },
+                  'Story title validation passed',
+                )
+              }
+            }
+          }
+        } catch (titleValidationErr) {
+          // Title validation is best-effort — never block the pipeline
+          logger.debug(
+            { storyKey, err: titleValidationErr },
+            'Story title validation skipped due to error',
+          )
+        }
+      }
+
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
       endPhase(storyKey, 'create-story')
@@ -1523,6 +1742,33 @@ export function createImplementationOrchestrator(
             'Phantom review detected (0 issues + error) — retrying review once',
           )
           continue
+        }
+
+        // Consecutive review timeout escalation: if both the original review AND the
+        // phantom-retry timed out / failed, escalate immediately. Dispatching a fix
+        // agent after 2 consecutive review timeouts wastes ~15+ minutes on yet another
+        // timeout — the environment is likely resource-constrained or the story's diff
+        // is too large for the reviewer to process within the time limit.
+        if (isPhantomReview && timeoutRetried) {
+          logger.warn(
+            { storyKey, reviewCycles, error: reviewResult.error },
+            'Consecutive review timeouts detected (original + retry both failed) — escalating immediately',
+          )
+          endPhase(storyKey, 'code-review')
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            error: 'consecutive-review-timeouts',
+            completedAt: new Date().toISOString(),
+          })
+          await writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
+          await emitEscalation({
+            storyKey,
+            lastVerdict: 'consecutive-review-timeouts',
+            reviewCycles: reviewCycles + 1,
+            issues: ['Review dispatch failed twice consecutively (original + phantom-retry). Likely resource-constrained or diff too large for reviewer.'],
+          })
+          await persistState()
+          return
         }
 
         verdict = reviewResult.verdict
@@ -2510,6 +2756,22 @@ export function createImplementationOrchestrator(
           }
         } catch (err) {
           logger.error({ err }, 'Post-sprint contract verification threw an error — skipping')
+        }
+      }
+
+      // Post-run project profile staleness check.
+      // Detect if .substrate/project-profile.yaml is out of sync with the actual
+      // project structure (e.g., stories created a monorepo or added new languages).
+      if (projectRoot !== undefined) {
+        try {
+          const indicators = checkProfileStaleness(projectRoot)
+          if (indicators.length > 0) {
+            const message = 'Project profile may be outdated — consider running `substrate init --force` to re-detect'
+            eventBus.emit('pipeline:profile-stale', { message, indicators })
+            logger.warn({ indicators }, message)
+          }
+        } catch (err) {
+          logger.debug({ err }, 'Profile staleness check failed (best-effort)')
         }
       }
 

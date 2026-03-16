@@ -294,7 +294,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
     for (const key of parsedStoryKeys) {
       if (!validateStoryKey(key)) {
-        const errorMsg = `Story key '${key}' is not a valid format. Expected: <epic>-<story> (e.g., 10-1)`
+        const errorMsg = `Story key '${key}' is not a valid format. Expected: <epic>-<story> (e.g., 10-1, 1-1a, NEW-26)`
         if (outputFormat === 'json') {
           process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
         } else {
@@ -1120,6 +1120,16 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           stalePruned: payload.stalePruned,
           mismatches: payload.mismatches,
           verdict: payload.verdict,
+        })
+      })
+
+      // Project profile staleness warning: non-blocking post-run check
+      eventBus.on('pipeline:profile-stale', (payload) => {
+        ndjsonEmitter!.emit({
+          type: 'pipeline:profile-stale',
+          ts: new Date().toISOString(),
+          message: payload.message,
+          indicators: payload.indicators,
         })
       })
     }

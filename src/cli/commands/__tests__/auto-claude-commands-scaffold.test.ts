@@ -121,6 +121,15 @@ vi.mock('node:module', () => {
             })),
           }
         }
+        if (s.includes('path-utils')) {
+          return {
+            toDashPath: (relativePath: string) => {
+              // Minimal stub: strip extension, replace slashes with dashes, prepend bmad-
+              const withoutExt = relativePath.replace(/\.(md|yaml|yml)$/i, '')
+              return `bmad-${withoutExt.replace(/[/\\]/g, '-')}.md`
+            },
+          }
+        }
         return mockRequireCall(id)
       }
       req.resolve = (id: string) => mockRequireResolve(id)

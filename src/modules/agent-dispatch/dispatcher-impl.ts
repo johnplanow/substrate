@@ -1003,6 +1003,20 @@ export function runBuildVerification(options: {
         }
       }
 
+      // Greenfield detection: if the build script doesn't exist yet
+      // (e.g., empty package.json on a new repo), treat as skip rather
+      // than failure — the first story is likely the one that creates it.
+      const missingScriptPattern = /Missing script[:\s]|No script found|Command "build" not found/i
+      if (missingScriptPattern.test(combinedOutput)) {
+        logger.warn('Build script not found — skipping pre-flight (greenfield repo)')
+        return {
+          status: 'skipped',
+          exitCode,
+          output: combinedOutput,
+          reason: 'build-script-not-found',
+        }
+      }
+
       return {
         status: 'failed',
         exitCode,

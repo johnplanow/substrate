@@ -304,6 +304,52 @@ describe('runBuildVerification', () => {
     expect(result.output).toBe('string error')
   })
 
+  // -------------------------------------------------------------------------
+  // Greenfield detection: missing build script → skip (not fail)
+  // -------------------------------------------------------------------------
+
+  it('returns status: skipped when npm reports "Missing script" (greenfield repo)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
+    const err = makeExecError({
+      status: 1,
+      stderr: 'npm error Missing script: "build"\nnpm error\nnpm error To see a list of scripts, run:\nnpm error   npm run\n',
+    })
+    mockExecSync.mockImplementation(() => { throw err })
+
+    const result = runBuildVerification({ projectRoot })
+
+    expect(result.status).toBe('skipped')
+    expect(result.reason).toBe('build-script-not-found')
+  })
+
+  it('returns status: skipped when yarn reports "Command build not found" (greenfield repo)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('yarn.lock'))
+    const err = makeExecError({
+      status: 1,
+      stderr: 'error Command "build" not found.',
+    })
+    mockExecSync.mockImplementation(() => { throw err })
+
+    const result = runBuildVerification({ projectRoot })
+
+    expect(result.status).toBe('skipped')
+    expect(result.reason).toBe('build-script-not-found')
+  })
+
+  it('still returns status: failed for real build errors (not missing script)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
+    const err = makeExecError({
+      status: 1,
+      stderr: 'error TS2304: Cannot find name "foo".',
+    })
+    mockExecSync.mockImplementation(() => { throw err })
+
+    const result = runBuildVerification({ projectRoot })
+
+    expect(result.status).toBe('failed')
+    expect(result.reason).toBe('build-verification-failed')
+  })
+
   it('handles Buffer stdout/stderr in error object', () => {
     mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ status: 1 })

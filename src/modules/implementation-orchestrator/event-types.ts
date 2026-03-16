@@ -548,6 +548,28 @@ export interface SupervisorExperimentErrorEvent {
 }
 
 // ---------------------------------------------------------------------------
+// PipelineProfileStaleEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted after all stories complete when the `.substrate/project-profile.yaml`
+ * may be outdated relative to the actual project structure (e.g., profile says
+ * `type: single` but a `turbo.json` now exists, or new language markers appeared).
+ *
+ * Non-blocking warning — the pipeline has already finished. The user should
+ * re-run `substrate init --force` to regenerate the profile.
+ */
+export interface PipelineProfileStaleEvent {
+  type: 'pipeline:profile-stale'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Human-readable message describing the staleness indicators found */
+  message: string
+  /** List of staleness indicators detected (e.g., "turbo.json exists but profile says type: single") */
+  indicators: string[]
+}
+
+// ---------------------------------------------------------------------------
 // PipelineContractMismatchEvent
 // ---------------------------------------------------------------------------
 
@@ -637,6 +659,7 @@ export type PipelineEvent =
   | PipelineStartEvent
   | PipelineCompleteEvent
   | PipelinePreFlightFailureEvent
+  | PipelineProfileStaleEvent
   | PipelineContractMismatchEvent
   | PipelineContractVerificationSummaryEvent
   | StoryPhaseEvent
@@ -687,6 +710,8 @@ export const EVENT_TYPE_NAMES = [
   'pipeline:complete',
   // Story 25-2: pre-flight build gate failure (pipeline-level abort)
   'pipeline:pre-flight-failure',
+  // Post-run profile staleness warning (non-blocking)
+  'pipeline:profile-stale',
   // Story 25-6: post-sprint contract verification mismatch (non-blocking warning)
   'pipeline:contract-mismatch',
   // Post-sprint contract verification summary (consolidated result)

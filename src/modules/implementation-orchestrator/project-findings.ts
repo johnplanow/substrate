@@ -54,9 +54,9 @@ export async function getProjectFindings(db: DatabaseAdapter): Promise<string> {
       for (const d of diagnoses.slice(-3)) {
         try {
           const val = JSON.parse(d.value)
-          sections.push(`- ${d.key.split(':')[0]}: ${val.recommendedAction} — ${val.rationale}`)
+          sections.push(`- ${(d.key ?? '').split(':')[0]}: ${val.recommendedAction} — ${val.rationale}`)
         } catch {
-          sections.push(`- ${d.key}: escalated`)
+          sections.push(`- ${d.key ?? 'unknown'}: escalated`)
         }
       }
     }
@@ -78,13 +78,13 @@ export async function getProjectFindings(db: DatabaseAdapter): Promise<string> {
       for (const m of highCycleStories) {
         try {
           const val = JSON.parse(m.value)
-          sections.push(`- ${m.key.split(':')[0]}: ${val.review_cycles} cycles`)
+          sections.push(`- ${(m.key ?? '').split(':')[0]}: ${val.review_cycles} cycles`)
         } catch { /* skip */ }
       }
     }
 
     // Summarize operational findings (stalls)
-    const stalls = operational.filter((o) => o.key.startsWith('stall:'))
+    const stalls = operational.filter((o) => o.key?.startsWith('stall:'))
     if (stalls.length > 0) {
       sections.push(`**Prior stalls:** ${stalls.length} stall event(s) recorded`)
     }
@@ -95,7 +95,7 @@ export async function getProjectFindings(db: DatabaseAdapter): Promise<string> {
       for (const n of advisoryNotes.slice(-3)) {
         try {
           const val = JSON.parse(n.value)
-          const storyId = n.key.split(':')[0]
+          const storyId = (n.key ?? '').split(':')[0]
           if (typeof val.notes === 'string' && val.notes.length > 0) {
             sections.push(`- ${storyId}: ${val.notes}`)
           }

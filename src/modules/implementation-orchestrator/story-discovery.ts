@@ -180,8 +180,8 @@ export function parseStoryKeysFromEpics(content: string): string[] {
 
   const keys = new Set<string>()
 
-  // Pattern 1: **Story key:** `N-M-optional-slug` or **Story key:** N-M
-  const explicitKeyPattern = /\*\*Story key:\*\*\s*`?(\d+-\d+)(?:-[^`\s]*)?`?/g
+  // Pattern 1: **Story key:** `N-Ma-optional-slug` or **Story key:** N-Ma
+  const explicitKeyPattern = /\*\*Story key:\*\*\s*`?([A-Za-z0-9]+-[A-Za-z0-9]+)(?:-[^`\s]*)?`?/g
   let match: RegExpExecArray | null
   while ((match = explicitKeyPattern.exec(content)) !== null) {
     if (match[1] !== undefined) {
@@ -189,24 +189,25 @@ export function parseStoryKeysFromEpics(content: string): string[] {
     }
   }
 
-  // Pattern 2: ### Story N.M: title  or  ### Story N-M: title  (dot or dash separator)
-  const headingPattern = /^###\s+Story\s+(\d+)[.\-](\d+)/gm
+  // Pattern 2: ### Story N-Ma: title  or  ### Story N.M: title  (dot or dash separator)
+  // Captures letter suffixes like 1-1a, 1-2b, and non-numeric prefixes like NEW-26, E5
+  const headingPattern = /^###\s+Story\s+([A-Za-z0-9]+)[.\-]([A-Za-z0-9]+)/gm
   while ((match = headingPattern.exec(content)) !== null) {
     if (match[1] !== undefined && match[2] !== undefined) {
       keys.add(`${match[1]}-${match[2]}`)
     }
   }
 
-  // Pattern 4: Inline story references like "Story 26-1: title" (in story maps, sprint plans)
-  const inlineStoryPattern = /Story\s+(\d+)-(\d+)[:\s]/g
+  // Pattern 4: Inline story references like "Story 26-1: title" or "Story 1-1a: title"
+  const inlineStoryPattern = /Story\s+([A-Za-z0-9]+)-([A-Za-z0-9]+)[:\s]/g
   while ((match = inlineStoryPattern.exec(content)) !== null) {
     if (match[1] !== undefined && match[2] !== undefined) {
       keys.add(`${match[1]}-${match[2]}`)
     }
   }
 
-  // Pattern 3: file path reference _bmad-output/implementation-artifacts/N-M-slug.md
-  const filePathPattern = /_bmad-output\/implementation-artifacts\/(\d+-\d+)-/g
+  // Pattern 3: file path reference _bmad-output/implementation-artifacts/KEY-slug.md
+  const filePathPattern = /_bmad-output\/implementation-artifacts\/([A-Za-z0-9]+-[A-Za-z0-9]+)-/g
   while ((match = filePathPattern.exec(content)) !== null) {
     if (match[1] !== undefined) {
       keys.add(match[1])
@@ -274,6 +275,14 @@ export function discoverPendingStoryKeys(projectRoot: string, epicNumber?: numbe
       }
       allKeys = sortStoryKeys([...new Set(allKeys)])
     }
+  }
+
+  // Supplement with sprint-status.yaml if it exists (catches NEW-*, E-* keys not in epics.md)
+  const sprintKeys = parseStoryKeysFromSprintStatus(projectRoot)
+  if (sprintKeys.length > 0) {
+    const merged = new Set(allKeys)
+    for (const k of sprintKeys) merged.add(k)
+    allKeys = sortStoryKeys([...merged])
   }
 
   if (allKeys.length === 0) return []
@@ -347,8 +356,8 @@ function collectExistingStoryKeys(projectRoot: string): Set<string> {
     return existing
   }
 
-  // Match filenames like N-M-slug.md  (e.g. 7-2-human-turn-loop.md)
-  const filePattern = /^(\d+-\d+)-/
+  // Match filenames like N-Ma-slug.md  (e.g. 7-2-human-turn-loop.md, 1-1a-turborepo.md)
+  const filePattern = /^([A-Za-z0-9]+-[A-Za-z0-9]+)-/
 
   for (const entry of entries) {
     if (!entry.endsWith('.md')) continue
@@ -359,6 +368,44 @@ function collectExistingStoryKeys(projectRoot: string): Set<string> {
   }
 
   return existing
+}
+
+/**
+ * Parse story keys from sprint-status.yaml.
+ * Reads the development_status map and extracts keys that match the
+ * alphanumeric story key pattern (e.g., 1-1a, NEW-26, E5-accessibility).
+ * Filters out epic status entries (epic-N) and retrospective entries.
+ */
+function parseStoryKeysFromSprintStatus(projectRoot: string): string[] {
+  const candidates = [
+    join(projectRoot, '_bmad-output', 'implementation-artifacts', 'sprint-status.yaml'),
+    join(projectRoot, '_bmad-output', 'sprint-status.yaml'),
+  ]
+  const statusPath = candidates.find((p) => existsSync(p))
+  if (!statusPath) return []
+
+  try {
+    const content = readFileSync(statusPath, 'utf-8')
+    const keys: string[] = []
+    // Match YAML keys that look like story identifiers (alphanumeric-alphanumeric-optional-slug)
+    // but filter out epic-N, retrospective, and metadata entries
+    const linePattern = /^\s{2}([A-Za-z0-9]+-[A-Za-z0-9]+(?:-[A-Za-z0-9-]*)?)\s*:/gm
+    let match: RegExpExecArray | null
+    while ((match = linePattern.exec(content)) !== null) {
+      const fullKey = match[1]!
+      // Skip epic status entries and retrospectives
+      if (/^epic-\d+$/.test(fullKey)) continue
+      if (fullKey.includes('retrospective')) continue
+      // Extract the short story key (first two segments): "1-1a-turborepo-..." → "1-1a"
+      const segments = fullKey.split('-')
+      if (segments.length >= 2) {
+        keys.push(`${segments[0]}-${segments[1]}`)
+      }
+    }
+    return [...new Set(keys)]
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -396,15 +443,29 @@ async function getCompletedStoryKeys(db: DatabaseAdapter): Promise<Set<string>> 
 }
 
 /**
- * Sort story keys numerically by epic number (primary) then story number (secondary).
- * E.g. ["10-1", "1-2", "2-1"] → ["1-2", "2-1", "10-1"]
+ * Sort story keys: numeric keys first (by epic then story number),
+ * then alphabetic-prefix keys (NEW-*, E-*) sorted lexicographically.
+ * E.g. ["10-1", "1-2a", "1-2", "NEW-26", "E5-acc"] → ["1-2", "1-2a", "10-1", "E5-acc", "NEW-26"]
  */
 function sortStoryKeys(keys: string[]): string[] {
   return keys.slice().sort((a, b) => {
-    const [ae, as_] = a.split('-').map(Number)
-    const [be, bs] = b.split('-').map(Number)
-    const epicDiff = (ae ?? 0) - (be ?? 0)
-    if (epicDiff !== 0) return epicDiff
-    return (as_ ?? 0) - (bs ?? 0)
+    const aParts = a.split('-')
+    const bParts = b.split('-')
+    const aNum = Number(aParts[0])
+    const bNum = Number(bParts[0])
+    // Both numeric prefix: sort by epic number then story segment
+    if (!isNaN(aNum) && !isNaN(bNum)) {
+      if (aNum !== bNum) return aNum - bNum
+      // Compare second segment: try numeric, fall back to string
+      const aStory = Number(aParts[1])
+      const bStory = Number(bParts[1])
+      if (!isNaN(aStory) && !isNaN(bStory) && aStory !== bStory) return aStory - bStory
+      return (aParts[1] ?? '').localeCompare(bParts[1] ?? '')
+    }
+    // Non-numeric prefixes sort after numeric
+    if (!isNaN(aNum)) return -1
+    if (!isNaN(bNum)) return 1
+    // Both non-numeric: lexicographic
+    return a.localeCompare(b)
   })
 }

@@ -418,13 +418,26 @@ function readEpicShardFromFile(projectRoot: string, epicId: string): string {
     const content = readFileSync(epicsPath, 'utf-8')
     // Extract the numeric part of epicId (e.g., '7' from '7' or 'epic-7')
     const epicNum = epicId.replace(/^epic-/i, '')
-    // Match "#{2,4} Epic N" or "#{2,4} N." or "#{2,4} N:" section until the next #{2,4} heading or EOF
-    const pattern = new RegExp(
-      `^#{2,4}\\s+(?:Epic\\s+)?${epicNum}[.:\\s].*?(?=\\n#{2,4}\\s|$)`,
-      'ms',
+    // Step 1: Find the epic heading and detect its heading level (##, ###, or ####)
+    const headingPattern = new RegExp(
+      `^(#{2,4})\\s+(?:Epic\\s+)?${epicNum}[.:\\s]`,
+      'm',
     )
-    const match = pattern.exec(content)
-    return match ? match[0].trim() : ''
+    const headingMatch = headingPattern.exec(content)
+    if (!headingMatch) return ''
+
+    const startIdx = headingMatch.index
+    const headingLevel = headingMatch[1].length // 2, 3, or 4
+
+    // Step 2: Find the next heading at the same or higher level (fewer or equal #'s)
+    // This ensures story sub-headings (###, ####) within the epic are included.
+    const hashes = '#'.repeat(headingLevel)
+    const endPattern = new RegExp(`\\n${hashes}\\s`, 'g')
+    endPattern.lastIndex = startIdx + headingMatch[0].length
+    const endMatch = endPattern.exec(content)
+    const endIdx = endMatch ? endMatch.index : content.length
+
+    return content.slice(startIdx, endIdx).trim()
   } catch (err) {
     logger.warn({ epicId, error: err instanceof Error ? err.message : String(err) }, 'File-based epic shard fallback failed')
     return ''

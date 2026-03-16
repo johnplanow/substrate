@@ -452,6 +452,18 @@ export interface OrchestratorEvents {
   }
 
   // -------------------------------------------------------------------------
+  // Post-run project profile staleness warning
+  // -------------------------------------------------------------------------
+
+  /** Project profile may be outdated relative to the actual project structure */
+  'pipeline:profile-stale': {
+    /** Human-readable message describing the staleness indicators found */
+    message: string
+    /** List of staleness indicators detected */
+    indicators: string[]
+  }
+
+  // -------------------------------------------------------------------------
   // Post-sprint contract verification events (Story 25-6)
   // -------------------------------------------------------------------------
 

@@ -20,7 +20,7 @@ import type { ZodSchema } from 'zod'
 // Known anchor keys that indicate the start of a YAML result block
 // ---------------------------------------------------------------------------
 
-const YAML_ANCHOR_KEYS = ['result:', 'verdict:', 'story_file:']
+const YAML_ANCHOR_KEYS = ['result:', 'verdict:', 'story_file:', 'expansion_priority:']
 
 // ---------------------------------------------------------------------------
 // extractYamlBlock

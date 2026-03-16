@@ -99,8 +99,8 @@ export const BMAD_BASELINE_TOKENS_FULL = 56_800
 /** BMAD baseline token total for create+dev+review comparison */
 export const BMAD_BASELINE_TOKENS = 23_800
 
-/** Story key pattern: <epic>-<story> e.g. "10-1" */
-export const STORY_KEY_PATTERN = /^\d+-\d+$/
+/** Story key pattern: <epic>-<story> e.g. "10-1", "1-1a", "NEW-26" */
+export const STORY_KEY_PATTERN = /^[A-Za-z0-9]+-[A-Za-z0-9]+$/
 
 /**
  * Top-level keys in .claude/settings.json that substrate owns.

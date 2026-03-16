@@ -418,19 +418,20 @@ async function compileBmadAgents(bmadDir: string): Promise<number> {
   return compiled
 }
 
-// Minimal type interfaces for bmad-method CJS generators
-interface BmadArtifact { type: string; name: string; [key: string]: unknown }
+// Minimal type interfaces for bmad-method CJS generators.
+// writeDashArtifacts is optional — removed in bmad-method >=6.2.0.
+interface BmadArtifact { type: string; name: string; content?: string; relativePath?: string; [key: string]: unknown }
 interface BmadAgentGenerator {
   collectAgentArtifacts(bmadDir: string, modules: string[]): Promise<{ artifacts: BmadArtifact[] }>
-  writeDashArtifacts(dir: string, artifacts: BmadArtifact[]): Promise<number>
+  writeDashArtifacts?(dir: string, artifacts: BmadArtifact[]): Promise<number>
 }
 interface BmadWorkflowGenerator {
   collectWorkflowArtifacts(bmadDir: string): Promise<{ artifacts: BmadArtifact[] }>
-  writeDashArtifacts(dir: string, artifacts: BmadArtifact[]): Promise<number>
+  writeDashArtifacts?(dir: string, artifacts: BmadArtifact[]): Promise<number>
 }
 interface BmadTaskToolGenerator {
   collectTaskToolArtifacts(bmadDir: string): Promise<{ artifacts: BmadArtifact[] }>
-  writeDashArtifacts(dir: string, artifacts: BmadArtifact[]): Promise<number>
+  writeDashArtifacts?(dir: string, artifacts: BmadArtifact[]): Promise<number>
 }
 interface BmadManifestGenerator {
   generateManifests(
@@ -439,6 +440,10 @@ interface BmadManifestGenerator {
     files: unknown[],
     options: { ides: string[] },
   ): Promise<unknown>
+}
+// toDashPath from bmad-method path-utils; loaded at runtime via _require.
+interface BmadPathUtils {
+  toDashPath(relativePath: string): string
 }
 
 export async function scaffoldClaudeCommands(
@@ -493,6 +498,35 @@ export async function scaffoldClaudeCommands(
     const manifestMod = _require(join(installerLibPath, 'core', 'manifest-generator.js')) as Record<string, unknown>
     const ManifestGenerator = resolveExport<new () => BmadManifestGenerator>(manifestMod, 'ManifestGenerator')
 
+    // Load toDashPath for the fallback writer (used when writeDashArtifacts is absent).
+    const pathUtilsMod = _require(join(installerLibPath, 'ide', 'shared', 'path-utils.js')) as Record<string, unknown>
+    const pathUtils: BmadPathUtils = {
+      toDashPath: (pathUtilsMod.toDashPath ??
+        ((pathUtilsMod.default as Record<string, unknown> | undefined)?.toDashPath)) as BmadPathUtils['toDashPath'],
+    }
+
+    // Fallback writer for generators that no longer ship writeDashArtifacts
+    // (removed in bmad-method >=6.2.0). Writes each artifact's content to a
+    // flat dash-named file, matching the behaviour of the removed method.
+    const writeDashFallback = async (
+      baseDir: string,
+      artifacts: BmadArtifact[],
+      acceptTypes: string[],
+    ): Promise<number> => {
+      let written = 0
+      for (const artifact of artifacts) {
+        if (!acceptTypes.includes(artifact.type)) continue
+        const content = artifact.content as string | undefined
+        if (!content || !artifact.relativePath) continue
+        const flatName = pathUtils.toDashPath(artifact.relativePath)
+        const dest = join(baseDir, flatName)
+        mkdirSync(dirname(dest), { recursive: true })
+        writeFileSync(dest, content, 'utf-8')
+        written++
+      }
+      return written
+    }
+
     const nonCoreModules = scanBmadModules(bmadDir)
     const allModules = ['core', ...nonCoreModules]
 
@@ -509,15 +543,21 @@ export async function scaffoldClaudeCommands(
 
     const agentGen = new AgentCommandGenerator('_bmad')
     const { artifacts: agentArtifacts } = await agentGen.collectAgentArtifacts(bmadDir, nonCoreModules)
-    const agentCount = await agentGen.writeDashArtifacts(commandsDir, agentArtifacts)
+    const agentCount = typeof agentGen.writeDashArtifacts === 'function'
+      ? await agentGen.writeDashArtifacts(commandsDir, agentArtifacts)
+      : await writeDashFallback(commandsDir, agentArtifacts, ['agent-launcher'])
 
     const workflowGen = new WorkflowCommandGenerator('_bmad')
     const { artifacts: workflowArtifacts } = await workflowGen.collectWorkflowArtifacts(bmadDir)
-    const workflowCount = await workflowGen.writeDashArtifacts(commandsDir, workflowArtifacts)
+    const workflowCount = typeof workflowGen.writeDashArtifacts === 'function'
+      ? await workflowGen.writeDashArtifacts(commandsDir, workflowArtifacts)
+      : await writeDashFallback(commandsDir, workflowArtifacts, ['workflow-command', 'workflow-launcher'])
 
     const taskToolGen = new TaskToolCommandGenerator('_bmad')
     const { artifacts: taskToolArtifacts } = await taskToolGen.collectTaskToolArtifacts(bmadDir)
-    const taskToolCount = await taskToolGen.writeDashArtifacts(commandsDir, taskToolArtifacts)
+    const taskToolCount = typeof taskToolGen.writeDashArtifacts === 'function'
+      ? await taskToolGen.writeDashArtifacts(commandsDir, taskToolArtifacts)
+      : await writeDashFallback(commandsDir, taskToolArtifacts, ['task', 'tool'])
 
     const total = agentCount + workflowCount + taskToolCount
     if (outputFormat !== 'json') {

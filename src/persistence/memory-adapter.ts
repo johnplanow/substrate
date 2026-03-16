@@ -191,8 +191,12 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter {
       return [this._evalSelectExprs(m[1]!.trim())]
     }
 
+    // Strip ORDER BY and LIMIT clauses (not supported but shouldn't break parsing)
+    const stripped = sql.replace(/\s+ORDER\s+BY\s+.+?(?=\s+LIMIT\s|\s*$)/is, '')
+      .replace(/\s+LIMIT\s+\d+\s*$/is, '')
+
     // SELECT cols FROM tableName [WHERE ...]
-    const m = /SELECT\s+(.+?)\s+FROM\s+(\w+)(?:\s+WHERE\s+(.+))?$/is.exec(sql)
+    const m = /SELECT\s+(.+?)\s+FROM\s+(\w+)(?:\s+WHERE\s+(.+))?$/is.exec(stripped)
     if (!m) return []
 
     const colsStr = m[1]!.trim()
@@ -208,6 +212,11 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter {
 
     if (colsStr === '*') {
       return rows
+    }
+
+    // Detect aggregate functions (SUM, COALESCE, COUNT, etc.)
+    if (/\b(?:SUM|COALESCE|COUNT|AVG|MIN|MAX)\s*\(/i.test(colsStr)) {
+      return [this._evalAggregate(colsStr, rows)]
     }
 
     // Project specific columns
@@ -314,6 +323,19 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter {
         continue
       }
 
+      // col LIKE 'pattern' (supports % wildcard)
+      const likeM = /^(\w+)\s+LIKE\s+'(.*)'$/is.exec(trimmed)
+      if (likeM) {
+        const colVal = row[likeM[1]!]
+        if (colVal === null || colVal === undefined) return false
+        const pattern = likeM[2]!.replace(/''/g, "'")
+        // Convert SQL LIKE pattern to regex: % → .*, _ → .
+        const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, (ch) => ch === '%' || ch === '_' ? ch : '\\' + ch)
+        const regex = new RegExp('^' + escaped.replace(/%/g, '.*').replace(/_/g, '.') + '$', 's')
+        if (!regex.test(String(colVal))) return false
+        continue
+      }
+
       // Unrecognised condition: skip (treat as matching)
     }
 
@@ -326,8 +348,7 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter {
 
   private _projectCols(colsStr: string, row: Row): Row {
     const result: Row = {}
-    // Split by comma (simple — assumes no commas inside function calls)
-    const cols = colsStr.split(',').map((c) => c.trim())
+    const cols = this._splitTopLevelCommas(colsStr)
     for (const col of cols) {
       // Handle "expr AS alias" or plain "col"
       const aliasM = /^(.+?)\s+AS\s+(\w+)$/i.exec(col)
@@ -346,7 +367,7 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter {
 
   private _evalSelectExprs(exprs: string): Row {
     const result: Row = {}
-    const parts = exprs.split(',').map((p) => p.trim())
+    const parts = this._splitTopLevelCommas(exprs)
     for (const part of parts) {
       const aliasM = /^(.+?)\s+AS\s+(\w+)$/i.exec(part)
       if (aliasM) {
@@ -374,6 +395,118 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter {
     // If it looks like an identifier (word chars only) and exists in row, use it
     if (/^\w+$/.test(expr) && expr in row) return row[expr]
     return literal
+  }
+
+  // -------------------------------------------------------------------------
+  // Helpers: parenthesis-aware comma splitting
+  // -------------------------------------------------------------------------
+
+  /**
+   * Split a string by commas that are NOT inside parentheses.
+   * E.g. "COALESCE(SUM(x), 0) as a, y" → ["COALESCE(SUM(x), 0) as a", "y"]
+   */
+  private _splitTopLevelCommas(str: string): string[] {
+    const parts: string[] = []
+    let current = ''
+    let depth = 0
+    let inStr = false
+
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i]!
+      if (ch === "'" && !inStr) {
+        inStr = true
+        current += ch
+      } else if (ch === "'" && inStr) {
+        if (str[i + 1] === "'") {
+          current += "''"
+          i++
+        } else {
+          inStr = false
+          current += ch
+        }
+      } else if (!inStr && ch === '(') {
+        depth++
+        current += ch
+      } else if (!inStr && ch === ')') {
+        depth--
+        current += ch
+      } else if (!inStr && ch === ',' && depth === 0) {
+        parts.push(current.trim())
+        current = ''
+      } else {
+        current += ch
+      }
+    }
+    if (current.trim() !== '') parts.push(current.trim())
+    return parts
+  }
+
+  // -------------------------------------------------------------------------
+  // Helpers: aggregate evaluation
+  // -------------------------------------------------------------------------
+
+  /**
+   * Evaluate aggregate SELECT expressions (SUM, COALESCE, COUNT) across
+   * a set of filtered rows, returning a single result row.
+   */
+  private _evalAggregate(colsStr: string, rows: Row[]): Row {
+    const result: Row = {}
+    const cols = this._splitTopLevelCommas(colsStr)
+
+    for (const col of cols) {
+      const aliasM = /^(.+?)\s+AS\s+(\w+)$/i.exec(col)
+      const expr = aliasM ? aliasM[1]!.trim() : col.trim()
+      const alias = aliasM ? aliasM[2]! : col.trim()
+      result[alias] = this._evalAggregateExpr(expr, rows)
+    }
+
+    return result
+  }
+
+  /**
+   * Evaluate a single aggregate expression against a set of rows.
+   * Supports: SUM(col), COALESCE(expr, default), COUNT(*).
+   */
+  private _evalAggregateExpr(expr: string, rows: Row[]): unknown {
+    const trimmed = expr.trim()
+
+    // COALESCE(expr, default)
+    const coalesceM = /^COALESCE\((.+)\)$/i.exec(trimmed)
+    if (coalesceM) {
+      const args = this._splitTopLevelCommas(coalesceM[1]!)
+      for (const arg of args) {
+        const val = this._evalAggregateExpr(arg.trim(), rows)
+        if (val !== null && val !== undefined) return val
+      }
+      return null
+    }
+
+    // SUM(col)
+    const sumM = /^SUM\((\w+)\)$/i.exec(trimmed)
+    if (sumM) {
+      const col = sumM[1]!
+      if (rows.length === 0) return null
+      let total = 0
+      for (const row of rows) {
+        total += Number(row[col] ?? 0)
+      }
+      return total
+    }
+
+    // COUNT(*)
+    if (/^COUNT\(\*\)$/i.test(trimmed)) {
+      return rows.length
+    }
+
+    // COUNT(col)
+    const countM = /^COUNT\((\w+)\)$/i.exec(trimmed)
+    if (countM) {
+      const col = countM[1]!
+      return rows.filter((r) => r[col] !== null && r[col] !== undefined).length
+    }
+
+    // Literal value (e.g. the 0 in COALESCE(SUM(x), 0))
+    return this._evalLiteral(trimmed)
   }
 
   // -------------------------------------------------------------------------

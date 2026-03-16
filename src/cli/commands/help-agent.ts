@@ -407,6 +407,16 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'verdict', type: 'pass|fail', description: 'Overall verification result.' },
     ],
   },
+  {
+    type: 'pipeline:profile-stale',
+    description: 'Project profile may be outdated. Non-blocking warning — run `substrate init --force` to re-detect.',
+    when: 'After all stories complete, before pipeline:complete. Emitted when staleness indicators are found.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'message', type: 'string', description: 'Human-readable staleness warning message.' },
+      { name: 'indicators', type: 'string[]', description: 'List of staleness indicators (e.g., "turbo.json exists but profile says type: single").' },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------
