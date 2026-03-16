@@ -38,6 +38,7 @@ Implement the story above completely. Follow tasks in exact order. Do not stop u
    - Write failing tests first
    - Make tests pass with minimal code
    - Refactor while keeping tests green
+   - **If you import a new package that is not already in package.json, install it immediately** (`npm install <package>` or the appropriate workspace command). The build verification gate runs after dev-story — missing dependencies will fail the build and escalate the story.
 
 3. **After each task**:
    - Verify tests pass
