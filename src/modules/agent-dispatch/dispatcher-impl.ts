@@ -62,6 +62,11 @@ const MIN_FREE_MEMORY_BYTES = (() => {
 // How often (ms) to re-check memory when the queue is held due to pressure
 const MEMORY_PRESSURE_POLL_MS = 10_000
 
+// Maximum time (ms) to hold the dispatch queue due to memory pressure before
+// forcing dispatch with a warning. Prevents indefinite stalls when the system
+// is persistently pressured (e.g., macOS with many concurrent processes).
+const MEMORY_PRESSURE_MAX_HOLD_MS = 300_000 // 5 minutes
+
 // Tracks the most recently observed macOS kernel pressure level (1=normal,
 // 2=warn, 4=critical). Updated inside getAvailableMemory() on darwin.
 // Read by _isMemoryPressured() to include in the warn log (Story 23-8, AC3).
@@ -201,6 +206,7 @@ export class DispatcherImpl implements Dispatcher {
 
   private _shuttingDown: boolean = false
   private _memoryPressureTimer: ReturnType<typeof setInterval> | null = null
+  private _memoryPressureHoldStart: number | null = null
 
   constructor(
     eventBus: TypedEventBus,
@@ -744,17 +750,39 @@ export class DispatcherImpl implements Dispatcher {
   private _isMemoryPressured(): boolean {
     const free = getAvailableMemory()
     if (free < MIN_FREE_MEMORY_BYTES) {
+      const now = Date.now()
+      if (this._memoryPressureHoldStart === null) {
+        this._memoryPressureHoldStart = now
+      }
+      const holdDurationMs = now - this._memoryPressureHoldStart
+      // If we've been holding for too long, force dispatch with a warning
+      if (holdDurationMs >= MEMORY_PRESSURE_MAX_HOLD_MS) {
+        logger.warn(
+          {
+            freeMB: Math.round(free / 1024 / 1024),
+            thresholdMB: Math.round(MIN_FREE_MEMORY_BYTES / 1024 / 1024),
+            pressureLevel: _lastKnownPressureLevel,
+            holdDurationMs,
+          },
+          'Memory pressure hold exceeded max duration — forcing dispatch',
+        )
+        this._memoryPressureHoldStart = null
+        return false
+      }
       // AC3 (Story 23-8): log freeMB, thresholdMB, and pressureLevel at warn
       logger.warn(
         {
           freeMB: Math.round(free / 1024 / 1024),
           thresholdMB: Math.round(MIN_FREE_MEMORY_BYTES / 1024 / 1024),
           pressureLevel: _lastKnownPressureLevel,
+          holdDurationMs,
         },
         'Memory pressure detected — holding dispatch queue',
       )
       return true
     }
+    // Memory cleared — reset hold timer
+    this._memoryPressureHoldStart = null
     return false
   }
 
