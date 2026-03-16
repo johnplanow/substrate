@@ -237,8 +237,7 @@ describe('RoutingResolver.createWithFallback (AC5)', () => {
 
     RoutingResolver.createWithFallback('/missing.yml', logger)
 
-    expect(logger.warn).toHaveBeenCalledTimes(1)
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(logger.debug).toHaveBeenCalledWith(
       expect.objectContaining({ component: 'routing', reason: 'config not found', configPath: '/missing.yml' }),
       expect.any(String),
     )

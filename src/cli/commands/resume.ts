@@ -260,6 +260,8 @@ export interface FullPipelineFromPhaseOptions {
   registry?: AdapterRegistry
   /** Explicit story keys to scope this run to (prevents unscoped ready_stories discovery). */
   stories?: string[]
+  /** Maximum number of review cycles per story (default: 2) */
+  maxReviewCycles?: number
 }
 
 export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): Promise<number> {
@@ -278,6 +280,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     projectRoot,
     registry: injectedRegistry,
     stories: explicitStories,
+    maxReviewCycles = 2,
   } = options
 
   if (!existsSync(dbDir)) {

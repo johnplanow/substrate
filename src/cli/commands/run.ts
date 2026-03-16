@@ -1099,8 +1099,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           type: 'pipeline:pre-flight-failure',
           ts: new Date().toISOString(),
           exitCode: payload.exitCode,
-          output: payload.output,
-          suggestion: 'Tip: Use --skip-preflight to bypass, or check your build command in .substrate/project-profile.yaml',
+          output: payload.output + '\nTip: Use --skip-preflight to bypass, or check your build command in .substrate/project-profile.yaml',
         })
       })
 
