@@ -22,6 +22,7 @@ import { TestExpansionResultSchema } from './schemas.js'
 import type { WorkflowDeps, TestExpansionParams, TestExpansionResult } from './types.js'
 import { getGitDiffForFiles, getGitDiffStatSummary } from './git-helpers.js'
 import { getTokenCeiling } from './token-ceiling.js'
+import { resolveDefaultTestPatterns } from './default-test-patterns.js'
 
 const logger = createLogger('compiled-workflows:test-expansion')
 
@@ -101,6 +102,22 @@ export async function runTestExpansion(
   // Step 3: Query architecture constraints from decision store
   const archConstraintsContent = await getArchConstraints(deps)
 
+  // Step 3b: Query test-pattern decisions; fall back to stack-aware defaults (Story 37-6)
+  let testPatternsContent = ''
+  try {
+    const solutioningDecisions = await getDecisionsByPhase(deps.db, 'solutioning')
+    const testPatternDecisions = solutioningDecisions.filter(d => d.category === 'test-patterns')
+    if (testPatternDecisions.length > 0) {
+      testPatternsContent = '## Test Patterns\n' + testPatternDecisions.map(d => `- ${d.key}: ${d.value}`).join('\n')
+      logger.debug({ storyKey, count: testPatternDecisions.length }, 'Loaded test patterns from decision store')
+    } else {
+      testPatternsContent = resolveDefaultTestPatterns(deps.projectRoot)
+      logger.debug({ storyKey }, 'No test-pattern decisions — using stack-aware defaults')
+    }
+  } catch {
+    testPatternsContent = resolveDefaultTestPatterns(deps.projectRoot)
+  }
+
   // Step 4: Capture scoped git diff (files modified by dev-story) with stat-only fallback
   let gitDiffContent = ''
   if (filesModified && filesModified.length > 0) {
@@ -131,6 +148,7 @@ export async function runTestExpansion(
   const sections = [
     { name: 'story_content', content: storyContent, priority: 'required' as const },
     { name: 'git_diff', content: gitDiffContent, priority: 'important' as const },
+    { name: 'test_patterns', content: testPatternsContent, priority: 'optional' as const },
     { name: 'arch_constraints', content: archConstraintsContent, priority: 'optional' as const },
   ]
 

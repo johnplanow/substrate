@@ -248,6 +248,11 @@ async function getImplementationDecisions(deps: WorkflowDeps): Promise<Decision[
  *
  * Returns the matched section content (from heading to next story heading or end),
  * or null if no matching section is found (caller falls back to full shard).
+ *
+ * @deprecated Used only as a migration shim for pre-37-0 projects that have
+ * per-epic (key=epicId) shards in the decision store. Post-37-0 shards are
+ * keyed by storyKey directly and do not need extraction. Do not delete until
+ * all per-epic shards have been superseded by per-story shards (AC6).
  */
 export function extractStorySection(shardContent: string, storyKey: string): string | null {
   if (!shardContent || !storyKey) return null
@@ -287,24 +292,39 @@ export function extractStorySection(shardContent: string, storyKey: string): str
 
 /**
  * Retrieve the epic shard from the pre-fetched implementation decisions.
- * Looks for decisions with category='epic-shard', key=epicId.
- * Falls back to reading _bmad-output/epics.md on disk if decisions are empty.
  *
- * When storyKey is provided, extracts only the section for that story (AC3).
+ * Lookup order (post-37-0 schema):
+ *   1. Direct per-story lookup: category='epic-shard', key=storyKey  → AC4
+ *      If found, return content immediately — no extractStorySection() needed.
+ *   2. Migration shim (pre-37-0 fallback): category='epic-shard', key=epicId
+ *      + extractStorySection() to narrow to the requested story.            → AC6
+ *   3. File-based fallback: read epics.md from disk + extractStorySection(). → AC6
  */
 function getEpicShard(decisions: Decision[], epicId: string, projectRoot?: string, storyKey?: string): string {
   try {
+    // AC4: Direct per-story lookup (post-37-0 schema — key = storyKey)
+    if (storyKey) {
+      const perStoryShard = decisions.find(
+        (d: Decision) => d.category === 'epic-shard' && d.key === storyKey
+      )
+      if (perStoryShard?.value) {
+        logger.debug({ epicId, storyKey }, 'Found per-story epic shard (direct lookup)')
+        return perStoryShard.value
+      }
+    }
+
+    // AC6 migration shim — fall back to per-epic lookup for pre-37-0 projects
     const epicShard = decisions.find(
       (d: Decision) => d.category === 'epic-shard' && d.key === epicId
     )
     const shardContent = epicShard?.value
 
     if (shardContent) {
-      // AC3: If storyKey is provided, extract only the story-specific section
+      // If storyKey is provided, extract only the story-specific section
       if (storyKey) {
         const storySection = extractStorySection(shardContent, storyKey)
         if (storySection) {
-          logger.debug({ epicId, storyKey }, 'Extracted per-story section from epic shard')
+          logger.debug({ epicId, storyKey }, 'Extracted per-story section from epic shard (pre-37-0 fallback)')
           return storySection
         }
         logger.debug({ epicId, storyKey }, 'No matching story section found — using full epic shard')

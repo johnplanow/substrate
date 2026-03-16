@@ -42,7 +42,7 @@ vi.mock('../../../utils/logger.js', () => ({
   })),
 }))
 
-import { seedMethodologyContext } from '../seed-methodology-context.js'
+import { seedMethodologyContext, parseStorySubsections, detectTestPatterns } from '../seed-methodology-context.js'
 import { getDecisionsByPhase } from '../../../persistence/queries/decisions.js'
 
 // ---------------------------------------------------------------------------
@@ -404,15 +404,402 @@ describe('Integration: h3 headings, full seed-modify-re-seed flow', () => {
     expect(hashDecision?.value).toBe(sha256(MODIFIED_H3))
   })
 
-  it('returns correct per-story section for a known story key (AC3 integration)', async () => {
-    // The per-story extraction is tested directly in create-story tests,
-    // but verify that the shard content seeded contains story sections
+  it('seeds per-story shards when epic has markdown story headings (AC1 integration)', async () => {
+    // Post-37-0: epics with ### Story N-N headings produce one shard per story
     setupEpicsFile(EPICS_WITH_STORY_SECTIONS)
     await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
 
     const decisions = await getDecisionsByPhase(adapter, 'implementation')
-    const shard23 = decisions.find((d) => d.category === 'epic-shard' && d.key === '23')
-    expect(shard23?.value).toContain('Story 23-1')
-    expect(shard23?.value).toContain('Story 23-2')
+    const epicShards = decisions.filter((d) => d.category === 'epic-shard')
+
+    // Should have produced per-story shards (key='23-1' and key='23-2')
+    // rather than a single per-epic shard (key='23')
+    const shard23_1 = epicShards.find((d) => d.key === '23-1')
+    const shard23_2 = epicShards.find((d) => d.key === '23-2')
+    expect(shard23_1).toBeDefined()
+    expect(shard23_2).toBeDefined()
+    expect(shard23_1?.value).toContain('Epic Shard Overhaul')
+    expect(shard23_2?.value).toContain('Dispatch Error Separation')
+    // No per-epic fallback key should exist (stories were found)
+    const shard23 = epicShards.find((d) => d.key === '23')
+    expect(shard23).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 5: Unit tests for parseStorySubsections() — AC1, AC2, AC3, AC7
+// ---------------------------------------------------------------------------
+
+describe('parseStorySubsections()', () => {
+  // AC1 + AC2: h3 story headings → per-story shards with correct keys and boundaries
+  it('returns per-story shards from h3 story headings (AC1, AC2)', () => {
+    const epicContent = `## Epic 37: Polyglot Project Support
+
+### Story 37-1: Project Profile
+Content for 37-1.
+- Task A
+- Task B
+
+### Story 37-2: Build Gate
+Content for 37-2.
+- Task C
+`
+    const result = parseStorySubsections('37', epicContent)
+    expect(result).toHaveLength(2)
+    expect(result[0]?.key).toBe('37-1')
+    expect(result[1]?.key).toBe('37-2')
+    // AC2: boundary — 37-1 section must NOT include 37-2 content
+    expect(result[0]?.content).toContain('Content for 37-1')
+    expect(result[0]?.content).not.toContain('Content for 37-2')
+    expect(result[1]?.content).toContain('Content for 37-2')
+    expect(result[1]?.content).not.toContain('Content for 37-1')
+  })
+
+  // AC2: h4 story headings → same boundary assertion
+  it('returns per-story shards from h4 story headings (AC2)', () => {
+    const epicContent = `## Epic 10: Workflows
+
+#### Story 10-1: First Story
+First story content.
+
+#### Story 10-2: Second Story
+Second story content.
+`
+    const result = parseStorySubsections('10', epicContent)
+    expect(result).toHaveLength(2)
+    expect(result[0]?.key).toBe('10-1')
+    expect(result[1]?.key).toBe('10-2')
+    expect(result[0]?.content).toContain('First story content')
+    expect(result[0]?.content).not.toContain('Second story content')
+  })
+
+  // AC3: no story headings → single per-epic fallback entry keyed by epicId
+  it('returns single per-epic fallback when no story headings found (AC3)', () => {
+    const epicContent = `## Epic 5: Simple Epic
+Some high-level description.
+No story subsections here.
+`
+    const result = parseStorySubsections('5', epicContent)
+    expect(result).toHaveLength(1)
+    expect(result[0]?.key).toBe('5') // keyed by epicId
+    expect(result[0]?.content).toContain('Simple Epic')
+    expect(result[0]?.content).toContain('No story subsections here')
+  })
+
+  // AC7: large epic content split into per-story shards, each well under 12K
+  it('each per-story shard is well under 12K chars for large epics (AC7)', () => {
+    // Build an epic whose total content exceeds 12K characters
+    const storyCount = 5
+    let epicContent = '## Epic 99: Large Epic\n\n'
+    for (let i = 1; i <= storyCount; i++) {
+      epicContent += `### Story 99-${i}: Story Title ${i}\n`
+      epicContent += 'x'.repeat(3_000) + '\n\n' // 3K per story, 15K total > 12K limit
+    }
+
+    const result = parseStorySubsections('99', epicContent)
+    expect(result).toHaveLength(storyCount)
+
+    // AC7: each shard must be complete and under 12K chars
+    for (const shard of result) {
+      expect(shard.content.length).toBeLessThan(12_000)
+      expect(shard.content.length).toBeGreaterThan(0)
+    }
+  })
+
+  // Bold **Story N-N** pattern
+  it('parses bold **Story N-N** story headings', () => {
+    const epicContent = `## Epic 3
+
+**Story 3-1** First bold story
+Some content.
+
+**Story 3-2** Second bold story
+More content.
+`
+    const result = parseStorySubsections('3', epicContent)
+    expect(result).toHaveLength(2)
+    expect(result[0]?.key).toBe('3-1')
+    expect(result[1]?.key).toBe('3-2')
+  })
+
+  // Bare key pattern  e.g. "37-1: Title"
+  it('parses bare key N-N: story headings at line start', () => {
+    const epicContent = `## Epic 4
+
+37-1: Project Profile
+Bare key content.
+
+37-2: Build Gate
+Other content.
+`
+    const result = parseStorySubsections('4', epicContent)
+    expect(result).toHaveLength(2)
+    expect(result[0]?.key).toBe('37-1')
+    expect(result[1]?.key).toBe('37-2')
+  })
+
+  // Last section extends to EOF (no next heading)
+  it('last story section extends to end of content', () => {
+    const epicContent = `## Epic 6
+
+### Story 6-1: Only Story
+This is the only story and goes to end.
+Line 2.
+Line 3.
+`
+    const result = parseStorySubsections('6', epicContent)
+    expect(result).toHaveLength(1)
+    expect(result[0]?.key).toBe('6-1')
+    expect(result[0]?.content).toContain('Line 3')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 6: Integration tests for seed-and-retrieve round trip — AC4, AC5, AC6
+// ---------------------------------------------------------------------------
+
+describe('Integration: seed-and-retrieve round trip (Story 37-0)', () => {
+  let adapter: WasmSqliteDatabaseAdapter
+
+  beforeEach(async () => {
+    adapter = await createTestDb()
+  })
+  afterEach(async () => {
+    await adapter.close()
+  })
+
+  it('AC4: seeding epic with story subsections stores per-storyKey decisions', async () => {
+    setupEpicsFile(EPICS_WITH_STORY_SECTIONS)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
+    // Direct per-story lookup should succeed
+    const shard23_1 = decisions.find((d) => d.category === 'epic-shard' && d.key === '23-1')
+    const shard23_2 = decisions.find((d) => d.category === 'epic-shard' && d.key === '23-2')
+    expect(shard23_1).toBeDefined()
+    expect(shard23_2).toBeDefined()
+    expect(shard23_1?.value).toContain('Epic Shard Overhaul')
+    expect(shard23_2?.value).toContain('Dispatch Error Separation')
+  })
+
+  it('AC5: re-seed deletes all prior epic-shard rows (both per-story and per-epic)', async () => {
+    // First seed: EPICS_WITH_STORY_SECTIONS (produces per-story shards 23-1, 23-2)
+    setupEpicsFile(EPICS_WITH_STORY_SECTIONS)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+
+    // Verify initial state
+    let decisions = await getDecisionsByPhase(adapter, 'implementation')
+    let shards = decisions.filter((d) => d.category === 'epic-shard')
+    const initialKeys = shards.map((s) => s.key)
+    expect(initialKeys).toContain('23-1')
+    expect(initialKeys).toContain('23-2')
+
+    // Modify file to change content → triggers re-seed
+    const MODIFIED_CONTENT = EPICS_WITH_STORY_SECTIONS + '\n## Epic 99: New Epic\nStory 99-1: Added\n'
+    setupEpicsFile(MODIFIED_CONTENT)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+
+    // All prior per-story shards deleted; new ones plus epic 99 should be present
+    decisions = await getDecisionsByPhase(adapter, 'implementation')
+    shards = decisions.filter((d) => d.category === 'epic-shard')
+    const newKeys = shards.map((s) => s.key)
+    // 23-1 and 23-2 should still exist (re-seeded from same sections)
+    expect(newKeys).toContain('23-1')
+    expect(newKeys).toContain('23-2')
+    // Epic 99 has no story headings → per-epic fallback
+    expect(newKeys).toContain('99')
+  })
+
+  it('AC6: backward compat — old per-epic shard (key=epicId) still queryable', async () => {
+    // Simulate pre-37-0 state: seed a per-epic shard (key=epicId, not storyKey)
+    setupEpicsFile(EPICS_H2) // EPICS_H2 has no story heading patterns → per-epic fallback
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
+    // Should have per-epic shards (backward compat)
+    const shard1 = decisions.find((d) => d.category === 'epic-shard' && d.key === '1')
+    const shard2 = decisions.find((d) => d.category === 'epic-shard' && d.key === '2')
+    expect(shard1).toBeDefined()
+    expect(shard2).toBeDefined()
+    expect(shard1?.value).toContain('Foundation')
+    expect(shard2?.value).toContain('Core Features')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 37-5: Polyglot test pattern detection
+// ---------------------------------------------------------------------------
+
+const PROJECT_ROOT = '/project'
+const PROFILE_PATH = `${PROJECT_ROOT}/.substrate/project-profile.yaml`
+
+/**
+ * Helper: set up mocks for a project with only the given files present.
+ * `files` is a map from file path to content (string). All other paths → false.
+ */
+function setupPolyglotMocks(files: Record<string, string>): void {
+  mockExistsSync.mockImplementation((p: unknown) => {
+    const path = String(p)
+    return Object.prototype.hasOwnProperty.call(files, path)
+  })
+  mockReadFileSync.mockImplementation((p: unknown) => {
+    const path = String(p)
+    if (Object.prototype.hasOwnProperty.call(files, path)) return files[path]
+    throw new Error(`ENOENT: no such file: ${path}`)
+  })
+}
+
+describe('detectTestPatterns: Story 37-5 polyglot detection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  // AC1: Profile with go testCommand → Go patterns
+  it('AC1: profile testCommand go test → seeds Go patterns via seedMethodologyContext()', async () => {
+    const adapter = await createTestDb()
+    try {
+      const profileYaml = `project:\n  type: single\n  language: go\n  testCommand: "go test ./..."\n  packages: []\n`
+      setupPolyglotMocks({
+        [PROFILE_PATH]: profileYaml,
+        // no package.json, no go.mod — profile takes precedence
+      })
+
+      await seedMethodologyContext(adapter, PROJECT_ROOT)
+
+      const decisions = await getDecisionsByPhase(adapter, 'solutioning')
+      const testPatterns = decisions.find((d) => d.category === 'test-patterns')
+      expect(testPatterns).toBeDefined()
+      expect(testPatterns?.value).toContain('go test')
+    } finally {
+      await adapter.close()
+    }
+  })
+
+  // AC2: go.mod filesystem probe → Go patterns
+  it('AC2: go.mod present → returns Go test patterns', () => {
+    setupPolyglotMocks({
+      [`${PROJECT_ROOT}/go.mod`]: `module example.com/app\ngo 1.22\n`,
+    })
+
+    const result = detectTestPatterns(PROJECT_ROOT)
+    expect(result).toBeDefined()
+    expect(result).toContain('go test ./...')
+  })
+
+  // AC2b: go.mod with testify → mentions testify
+  it('AC2b: go.mod with testify → result mentions testify', () => {
+    setupPolyglotMocks({
+      [`${PROJECT_ROOT}/go.mod`]: `module example.com/app\ngo 1.22\n\nrequire github.com/stretchr/testify v1.8.4\n`,
+    })
+
+    const result = detectTestPatterns(PROJECT_ROOT)
+    expect(result).toBeDefined()
+    expect(result).toContain('testify')
+  })
+
+  // AC3: build.gradle.kts with junit-jupiter → Gradle JUnit 5 patterns
+  it('AC3: build.gradle.kts with junit-jupiter → Gradle patterns', () => {
+    setupPolyglotMocks({
+      [`${PROJECT_ROOT}/build.gradle.kts`]: `plugins { id("org.springframework.boot") }\ndependencies { testImplementation("org.junit.jupiter:junit-jupiter") }\n`,
+    })
+
+    const result = detectTestPatterns(PROJECT_ROOT)
+    expect(result).toBeDefined()
+    expect(result).toContain('./gradlew test')
+    expect(result).toContain('@Test')
+  })
+
+  // AC4: pyproject.toml with [tool.pytest] → pytest patterns
+  it('AC4: pyproject.toml with [tool.pytest] → pytest patterns', () => {
+    setupPolyglotMocks({
+      [`${PROJECT_ROOT}/pyproject.toml`]: `[tool.pytest.ini_options]\ntestpaths = ["tests"]\n`,
+    })
+
+    const result = detectTestPatterns(PROJECT_ROOT)
+    expect(result).toBeDefined()
+    expect(result).toContain('pytest')
+    expect(result).toContain('fixture')
+  })
+
+  // AC4-negative: pyproject.toml WITHOUT [tool.pytest] → no pytest patterns
+  it('AC4-negative: pyproject.toml without [tool.pytest] → returns undefined', () => {
+    setupPolyglotMocks({
+      [`${PROJECT_ROOT}/pyproject.toml`]: `[tool.poetry]\nname = "my-lib"\nversion = "0.1.0"\n`,
+    })
+
+    const result = detectTestPatterns(PROJECT_ROOT)
+    expect(result).toBeUndefined()
+  })
+
+  // AC4b: conftest.py only → pytest patterns
+  it('AC4b: conftest.py only → pytest patterns', () => {
+    setupPolyglotMocks({
+      [`${PROJECT_ROOT}/conftest.py`]: `import pytest\n`,
+    })
+
+    const result = detectTestPatterns(PROJECT_ROOT)
+    expect(result).toBeDefined()
+    expect(result).toContain('pytest')
+  })
+
+  // AC5: Cargo.toml → Rust patterns
+  it('AC5: Cargo.toml present → Rust test patterns', () => {
+    setupPolyglotMocks({
+      [`${PROJECT_ROOT}/Cargo.toml`]: `[package]\nname = "my-app"\nversion = "0.1.0"\n`,
+    })
+
+    const result = detectTestPatterns(PROJECT_ROOT)
+    expect(result).toBeDefined()
+    expect(result).toContain('cargo test')
+    expect(result).toContain('#[test]')
+  })
+
+  // AC6: monorepo profile with Go + TypeScript packages → combined patterns
+  it('AC6: monorepo profile with Go + TypeScript → combined patterns seeded', async () => {
+    const adapter = await createTestDb()
+    try {
+      const profileYaml = [
+        'project:',
+        '  type: monorepo',
+        '  tool: turborepo',
+        '  buildCommand: "turbo build"',
+        '  testCommand: "turbo test"',
+        '  packages:',
+        '    - path: apps/lock-service',
+        '      language: go',
+        '    - path: apps/web',
+        '      language: typescript',
+        '      framework: nextjs',
+      ].join('\n')
+
+      setupPolyglotMocks({
+        [PROFILE_PATH]: profileYaml,
+      })
+
+      await seedMethodologyContext(adapter, PROJECT_ROOT)
+
+      const decisions = await getDecisionsByPhase(adapter, 'solutioning')
+      const testPatterns = decisions.find((d) => d.category === 'test-patterns')
+      expect(testPatterns).toBeDefined()
+      expect(testPatterns?.value).toContain('go test')
+      expect(testPatterns?.value).toMatch(/vitest|npm/)
+    } finally {
+      await adapter.close()
+    }
+  })
+
+  // AC7: no regression — vitest detection unchanged when only package.json is present
+  it('AC7: package.json with vitest → Vitest patterns, no Go', () => {
+    setupPolyglotMocks({
+      [`${PROJECT_ROOT}/package.json`]: JSON.stringify({
+        devDependencies: { vitest: '^1.0.0' },
+        scripts: {},
+      }),
+    })
+
+    const result = detectTestPatterns(PROJECT_ROOT)
+    expect(result).toBeDefined()
+    expect(result).toContain('vitest')
+    expect(result).not.toContain('go test')
   })
 })

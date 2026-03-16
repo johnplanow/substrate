@@ -27,6 +27,7 @@ import { getProjectFindings } from '../implementation-orchestrator/project-findi
 import { getTokenCeiling } from './token-ceiling.js'
 import { computeStoryComplexity, resolveDevStoryMaxTurns, logComplexityResult } from './story-complexity.js'
 import { stripDeprecatedStatusField, detectDeprecatedStatusField } from '../work-graph/index.js'
+import { resolveDefaultTestPatterns } from './default-test-patterns.js'
 
 const logger = createLogger('compiled-workflows:dev-story')
 
@@ -39,17 +40,8 @@ const logger = createLogger('compiled-workflows:dev-story')
 /** Default timeout for dev-story dispatches in milliseconds (30 min) */
 const DEFAULT_TIMEOUT_MS = 1_800_000
 
-/** Default Vitest test patterns injected when no test-pattern decisions exist */
-const DEFAULT_VITEST_PATTERNS = `## Test Patterns (defaults)
-- Framework: Vitest (NOT jest — --testPathPattern flag does not work, use -- "pattern")
-- Mock approach: vi.mock() with hoisting for module-level mocks
-- Assertion style: expect().toBe(), expect().toEqual(), expect().toThrow()
-- Test structure: describe/it blocks with beforeEach/afterEach
-- Coverage: 80% enforced
-- IMPORTANT: During development, run ONLY your relevant tests to save memory:
-  npx vitest run --no-coverage -- "your-module-name"
-- Final validation ONLY: npm test 2>&1 | grep -E "Test Files|Tests " | tail -3
-- Do NOT run the full suite (npm test) repeatedly — it consumes excessive memory when multiple agents run in parallel`
+// DEFAULT_VITEST_PATTERNS moved to default-test-patterns.ts (Story 37-6)
+// Use resolveDefaultTestPatterns(projectRoot) for stack-aware fallback.
 
 // ---------------------------------------------------------------------------
 // runDevStory
@@ -188,13 +180,13 @@ export async function runDevStory(
         testPatternDecisions.map((d) => `- ${d.key}: ${d.value}`).join('\n')
       logger.debug({ storyKey, count: testPatternDecisions.length }, 'Loaded test patterns from decision store')
     } else {
-      testPatternsContent = DEFAULT_VITEST_PATTERNS
-      logger.debug({ storyKey }, 'No test-pattern decisions found — using default Vitest patterns')
+      testPatternsContent = resolveDefaultTestPatterns(deps.projectRoot)
+      logger.debug({ storyKey }, 'No test-pattern decisions — using stack-aware defaults')
     }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     logger.warn({ storyKey, error }, 'Failed to load test patterns — using defaults')
-    testPatternsContent = DEFAULT_VITEST_PATTERNS
+    testPatternsContent = resolveDefaultTestPatterns(deps.projectRoot)
   }
 
   // ---------------------------------------------------------------------------

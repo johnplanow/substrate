@@ -34,6 +34,7 @@ vi.mock('../../../utils/logger.js', () => ({
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   createDecision: vi.fn(),
   getDecisionsByCategory: vi.fn(),
+  getDecisionsByPhase: vi.fn().mockResolvedValue([]),
 }))
 
 // ---------------------------------------------------------------------------
@@ -45,15 +46,27 @@ vi.mock('node:fs/promises', () => ({
 }))
 
 // ---------------------------------------------------------------------------
+// Mock resolveDefaultTestPatterns (Story 37-6) — prevents real file I/O
+// ---------------------------------------------------------------------------
+
+vi.mock('../default-test-patterns.js', () => ({
+  resolveDefaultTestPatterns: vi.fn().mockReturnValue('VITEST_DEFAULT_MOCK'),
+  VITEST_DEFAULT_PATTERNS: 'VITEST_DEFAULT_MOCK',
+}))
+
+// ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
 import { readFile } from 'node:fs/promises'
-import { createDecision } from '../../../persistence/queries/decisions.js'
+import { createDecision, getDecisionsByPhase } from '../../../persistence/queries/decisions.js'
 import { TEST_PLAN } from '../../../persistence/schemas/operational.js'
+import { resolveDefaultTestPatterns } from '../default-test-patterns.js'
 
 const mockReadFile = vi.mocked(readFile)
 const mockCreateDecision = vi.mocked(createDecision)
+const mockGetDecisionsByPhase = vi.mocked(getDecisionsByPhase)
+const mockResolveDefaultTestPatterns = vi.mocked(resolveDefaultTestPatterns)
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -565,5 +578,95 @@ describe('projectRoot injection', () => {
 
     const call = vi.mocked(dispatcher.dispatch).mock.calls[0][0]
     expect(call).not.toHaveProperty('workingDirectory')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 37-6: Test pattern injection
+// ---------------------------------------------------------------------------
+
+describe('Story 37-6: test pattern injection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockReadFile.mockResolvedValue(STORY_CONTENT as unknown as string)
+    mockCreateDecision.mockReturnValue({
+      id: 'decision-1',
+      pipeline_run_id: 'run-123',
+      phase: 'implementation',
+      category: TEST_PLAN,
+      key: DEFAULT_STORY_KEY,
+      value: '{}',
+      rationale: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    mockGetDecisionsByPhase.mockResolvedValue([])
+    mockResolveDefaultTestPatterns.mockReturnValue('VITEST_DEFAULT_MOCK')
+  })
+
+  it('AC4: test_patterns section injected into prompt from decision store decisions', async () => {
+    // Second call to getDecisionsByPhase returns test-pattern decisions
+    mockGetDecisionsByPhase
+      .mockResolvedValueOnce([]) // getArchConstraints call
+      .mockResolvedValueOnce([
+        {
+          id: 'tp-1',
+          phase: 'solutioning',
+          category: 'test-patterns',
+          key: 'framework',
+          value: 'Go test (stdlib)',
+          pipeline_run_id: null,
+          rationale: null,
+          created_at: '',
+          updated_at: '',
+        },
+      ])
+
+    // Use a template that includes the {{test_patterns}} placeholder
+    const pack = makePack('Test Plan\n\n{{story_content}}\n\n{{test_patterns}}\n\nEmit YAML.')
+    const dispatcher = makeDispatcher(makeSuccessDispatchResult())
+    const deps = makeDeps({ dispatcher, pack })
+    let capturedPrompt = ''
+    vi.mocked(dispatcher.dispatch).mockImplementation((req) => {
+      capturedPrompt = req.prompt
+      return {
+        id: 'dispatch-1',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(makeSuccessDispatchResult()),
+      }
+    })
+
+    await runTestPlan(deps, defaultParams)
+
+    expect(capturedPrompt).toContain('Go test (stdlib)')
+    // Resolver should NOT be called since decisions were found
+    expect(mockResolveDefaultTestPatterns).not.toHaveBeenCalled()
+  })
+
+  it('AC5: stack-aware defaults used when no test-pattern decisions exist', async () => {
+    // Both calls return empty (no arch constraints, no test-patterns)
+    mockGetDecisionsByPhase.mockResolvedValue([])
+    mockResolveDefaultTestPatterns.mockReturnValue('STACK_AWARE_FALLBACK')
+
+    // Use a template that includes the {{test_patterns}} placeholder
+    const pack = makePack('Test Plan\n\n{{story_content}}\n\n{{test_patterns}}\n\nEmit YAML.')
+    const dispatcher = makeDispatcher(makeSuccessDispatchResult())
+    const deps = makeDeps({ dispatcher, pack, projectRoot: '/some/project' })
+    let capturedPrompt = ''
+    vi.mocked(dispatcher.dispatch).mockImplementation((req) => {
+      capturedPrompt = req.prompt
+      return {
+        id: 'dispatch-1',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(makeSuccessDispatchResult()),
+      }
+    })
+
+    await runTestPlan(deps, defaultParams)
+
+    expect(capturedPrompt).toContain('STACK_AWARE_FALLBACK')
+    expect(mockResolveDefaultTestPatterns).toHaveBeenCalledWith('/some/project')
   })
 })

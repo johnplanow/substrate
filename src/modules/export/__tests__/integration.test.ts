@@ -531,25 +531,25 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
     expect(result.skippedCategories).not.toContain('epic-shard')
 
     // Verify epic-shard decisions were created in seedDb
+    // Post-37-0: renderEpics uses ### Story N-N headings, so per-story shards are produced
     const epicShards = (await getDecisionsByPhase(seedAdapter, 'implementation')).filter(
       (d) => d.category === 'epic-shard',
     )
-    expect(epicShards.length).toBe(2) // one shard per epic
+    // One story per epic → 2 per-story shards (key='1-1' and key='2-1')
+    expect(epicShards.length).toBe(2)
 
-    // Epic shard keys should be the epic numbers
+    // Epic shard keys should be the story keys (post-37-0 schema)
     const epicShardKeys = epicShards.map((d) => d.key).sort()
-    expect(epicShardKeys).toEqual(['1', '2'])
+    expect(epicShardKeys).toEqual(['1-1', '2-1'])
 
-    // Each shard should contain the epic heading and story content
-    const shard1 = epicShards.find((d) => d.key === '1')
-    expect(shard1).toBeDefined()
-    expect(shard1!.value).toContain('Epic 1')
-    expect(shard1!.value).toContain('Foundation')
+    // Each shard should contain the story content (starts at story heading, not epic heading)
+    const shard1_1 = epicShards.find((d) => d.key === '1-1')
+    expect(shard1_1).toBeDefined()
+    expect(shard1_1!.value).toContain('Database setup') // story title from Epic 1
 
-    const shard2 = epicShards.find((d) => d.key === '2')
-    expect(shard2).toBeDefined()
-    expect(shard2!.value).toContain('Epic 2')
-    expect(shard2!.value).toContain('API Layer')
+    const shard2_1 = epicShards.find((d) => d.key === '2-1')
+    expect(shard2_1).toBeDefined()
+    expect(shard2_1!.value).toContain('Search endpoint') // story title from Epic 2
   })
 
   it('T12c: full round-trip — both architecture.md and epics.md seeded correctly', async () => {
@@ -589,12 +589,14 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
     expect(archDecisions.length).toBeGreaterThan(0)
 
     // Epic shard decisions should exist
+    // Post-37-0: renderEpics uses ### Story N-N headings, so per-story shards are produced
     const epicShards = (await getDecisionsByPhase(seedAdapter, 'implementation')).filter(
       (d) => d.category === 'epic-shard',
     )
+    // One story (1-1) under one epic → one per-story shard keyed by storyKey
     expect(epicShards.length).toBe(1)
-    expect(epicShards[0]!.key).toBe('1')
-    expect(epicShards[0]!.value).toContain('Bootstrap')
+    expect(epicShards[0]!.key).toBe('1-1')
+    // Per-story shard starts at story heading, not epic heading — check story title
     expect(epicShards[0]!.value).toContain('Project scaffold')
   })
 
@@ -650,24 +652,33 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
     // Seed into fresh DB
     const result = await seedMethodologyContext(seedAdapter, tempProjectRoot)
 
+    // Post-37-0: renderEpics uses ### Story N-N headings, so per-story shards are produced.
+    // 2 epics × 2 stories each = 4 per-story shards
     const epicShards = (await getDecisionsByPhase(seedAdapter, 'implementation')).filter(
       (d) => d.category === 'epic-shard',
     )
-    expect(epicShards.length).toBe(2)
+    expect(epicShards.length).toBe(4)
 
-    // Shard 1 should contain stories 1-1 and 1-2 but NOT 2-1 or 2-2
-    const shard1 = epicShards.find((d) => d.key === '1')!
-    expect(shard1.value).toContain('Upload endpoint')
-    expect(shard1.value).toContain('Indexing job')
-    expect(shard1.value).toContain('Accepts PDF')
-    // Should not contain epic 2 stories
-    expect(shard1.value).not.toContain('## Epic 2')
+    // Shard for story 1-1 should contain its own content but NOT epic 2 content
+    const shard1_1 = epicShards.find((d) => d.key === '1-1')!
+    expect(shard1_1.value).toContain('Upload endpoint')
+    expect(shard1_1.value).toContain('Accepts PDF')
+    expect(shard1_1.value).not.toContain('## Epic 2')
+    expect(shard1_1.value).not.toContain('Search API')
 
-    // Shard 2 should contain stories 2-1 and 2-2 but NOT 1-1 or 1-2
-    const shard2 = epicShards.find((d) => d.key === '2')!
-    expect(shard2.value).toContain('Search API')
-    expect(shard2.value).toContain('Result ranking')
-    expect(shard2.value).not.toContain('## Epic 1')
+    // Shard for story 1-2 should contain its own content but NOT epic 2 content
+    const shard1_2 = epicShards.find((d) => d.key === '1-2')!
+    expect(shard1_2.value).toContain('Indexing job')
+    expect(shard1_2.value).not.toContain('## Epic 2')
+
+    // Shard for story 2-1 should contain its own content but NOT epic 1 content
+    const shard2_1 = epicShards.find((d) => d.key === '2-1')!
+    expect(shard2_1.value).toContain('Search API')
+    expect(shard2_1.value).not.toContain('## Epic 1')
+
+    // Shard for story 2-2 should contain its own content
+    const shard2_2 = epicShards.find((d) => d.key === '2-2')!
+    expect(shard2_2.value).toContain('Result ranking')
   })
 })
 

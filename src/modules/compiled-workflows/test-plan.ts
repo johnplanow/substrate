@@ -21,6 +21,7 @@ import type { Decision } from '../../persistence/queries/decisions.js'
 import { TEST_PLAN } from '../../persistence/schemas/operational.js'
 import { createLogger } from '../../utils/logger.js'
 import { getTokenCeiling } from './token-ceiling.js'
+import { resolveDefaultTestPatterns } from './default-test-patterns.js'
 
 const logger = createLogger('compiled-workflows:test-plan')
 
@@ -97,6 +98,26 @@ export async function runTestPlan(
   const archConstraintsContent = await getArchConstraints(deps)
 
   // ---------------------------------------------------------------------------
+  // Step 3b: Query test-pattern decisions (seeded by Story 37-5); fall back to
+  // stack-aware defaults when no decisions exist (Story 37-6)
+  // ---------------------------------------------------------------------------
+
+  let testPatternsContent = ''
+  try {
+    const solutioningDecisions = await getDecisionsByPhase(deps.db, 'solutioning')
+    const testPatternDecisions = solutioningDecisions.filter(d => d.category === 'test-patterns')
+    if (testPatternDecisions.length > 0) {
+      testPatternsContent = '## Test Patterns\n' + testPatternDecisions.map(d => `- ${d.key}: ${d.value}`).join('\n')
+      logger.debug({ storyKey, count: testPatternDecisions.length }, 'Loaded test patterns from decision store')
+    } else {
+      testPatternsContent = resolveDefaultTestPatterns(deps.projectRoot)
+      logger.debug({ storyKey }, 'No test-pattern decisions — using stack-aware defaults')
+    }
+  } catch {
+    testPatternsContent = resolveDefaultTestPatterns(deps.projectRoot)
+  }
+
+  // ---------------------------------------------------------------------------
   // Step 4: Assemble prompt with token budget enforcement
   // ---------------------------------------------------------------------------
 
@@ -105,6 +126,7 @@ export async function runTestPlan(
     [
       { name: 'story_content', content: storyContent, priority: 'required' },
       { name: 'architecture_constraints', content: archConstraintsContent, priority: 'optional' },
+      { name: 'test_patterns', content: testPatternsContent, priority: 'optional' as const },
     ],
     TOKEN_CEILING,
   )

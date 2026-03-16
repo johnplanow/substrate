@@ -1182,3 +1182,139 @@ This is 23-1 content.
     expect(result).not.toContain('Some Other Story')
   })
 })
+
+// ---------------------------------------------------------------------------
+// AC4 (Story 37-0): Direct per-storyKey lookup in getEpicShard()
+// ---------------------------------------------------------------------------
+
+describe('AC4 (37-0): Direct per-storyKey epic shard lookup', () => {
+  it('uses per-story shard (key=storyKey) directly without extraction when available', async () => {
+    const capturedPrompts: string[] = []
+    const perStoryContent = '### Story 37-1: Project Profile\nThis is the per-story shard content.'
+
+    // Simulate post-37-0 schema: shard keyed by storyKey '37-1'
+    mockGetDecisionsByPhase.mockImplementation((_, phase: string) => {
+      if (phase === 'implementation') {
+        return [makeDecision('implementation', 'epic-shard', '37-1', perStoryContent)]
+      }
+      return []
+    })
+
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher }),
+      { epicId: '37', storyKey: '37-1' }
+    )
+
+    // Per-story shard content must appear directly in the prompt
+    expect(capturedPrompts[0]).toContain(perStoryContent)
+  })
+
+  it('per-story shard lookup takes priority over per-epic shard', async () => {
+    const capturedPrompts: string[] = []
+    const perStoryContent = 'PER_STORY_CONTENT_37-1'
+    const perEpicContent = 'PER_EPIC_CONTENT_37'
+
+    // Both types present: per-story should win
+    mockGetDecisionsByPhase.mockImplementation((_, phase: string) => {
+      if (phase === 'implementation') {
+        return [
+          makeDecision('implementation', 'epic-shard', '37', perEpicContent),
+          makeDecision('implementation', 'epic-shard', '37-1', perStoryContent),
+        ]
+      }
+      return []
+    })
+
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher }),
+      { epicId: '37', storyKey: '37-1' }
+    )
+
+    expect(capturedPrompts[0]).toContain(perStoryContent)
+    expect(capturedPrompts[0]).not.toContain(perEpicContent)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC6 (Story 37-0): Backward-compat fallback for pre-37-0 per-epic shards
+// ---------------------------------------------------------------------------
+
+describe('AC6 (37-0): Backward-compat fallback for pre-37-0 per-epic shards', () => {
+  it('falls back to per-epic shard + extractStorySection when no per-story shard exists', async () => {
+    const capturedPrompts: string[] = []
+
+    // Simulate pre-37-0 state: only per-epic shard (key = epicId)
+    const perEpicShard = `## Epic 23: Test Epic
+
+### Story 23-1: Target Story
+This is the target story content.
+
+### Story 23-2: Other Story
+Other story content.
+`
+    mockGetDecisionsByPhase.mockImplementation((_, phase: string) => {
+      if (phase === 'implementation') {
+        return [makeDecision('implementation', 'epic-shard', '23', perEpicShard)]
+      }
+      return []
+    })
+
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher }),
+      { epicId: '23', storyKey: '23-1' }
+    )
+
+    // Should inject the story-specific section (extracted from per-epic shard)
+    expect(capturedPrompts[0]).toContain('Target Story')
+    // Must NOT include the other story's content
+    expect(capturedPrompts[0]).not.toContain('Other story content')
+  })
+})

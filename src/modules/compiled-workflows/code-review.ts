@@ -72,6 +72,11 @@ function defaultFailResult(error: string, tokenUsage: { input: number; output: n
  * @param params - Story key, story file path, working directory, pipeline run ID
  * @returns Promise resolving to CodeReviewResult
  */
+// Audited Story 37-6: no Node.js-specific test instructions in prompt assembly.
+// code-review.ts assembles: story_content, git_diff, previous_findings,
+// arch_constraints, repo_context, prior_findings — none of these contain
+// hardcoded Vitest/Jest/npm instructions. The prompt template (from pack.getPrompt)
+// focuses on adversarial review dimensions rather than test framework specifics.
 export async function runCodeReview(
   deps: WorkflowDeps,
   params: CodeReviewParams,

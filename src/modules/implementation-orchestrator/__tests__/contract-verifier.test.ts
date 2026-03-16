@@ -15,6 +15,7 @@ import type { ContractDeclaration } from '../conflict-detector.js'
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
+  readFileSync: vi.fn(),
 }))
 
 vi.mock('node:child_process', () => ({
@@ -25,12 +26,13 @@ vi.mock('node:child_process', () => ({
 // Import after mocks
 // ---------------------------------------------------------------------------
 
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { verifyContracts } from '../contract-verifier.js'
 
 const mockExistsSync = vi.mocked(existsSync)
 const mockExecSync = vi.mocked(execSync)
+const mockReadFileSync = vi.mocked(readFileSync)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -366,5 +368,145 @@ describe('verifyContracts: edge cases', () => {
     // All mismatches should have the same contract
     const uniqueContracts = new Set(result.map((r) => r.contractName))
     expect(uniqueContracts.size).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tests: AC (Story 37-4) non-TypeScript profile skips tsc
+// ---------------------------------------------------------------------------
+
+const PROFILE_PATH = `${PROJECT_ROOT}/.substrate/project-profile.yaml`
+const TSCONFIG_PATH = `${PROJECT_ROOT}/tsconfig.json`
+const TSC_BIN_PATH = `${PROJECT_ROOT}/node_modules/.bin/tsc`
+const EXPORT_FILE_PATH = `${PROJECT_ROOT}/src/modules/judge/types.ts`
+
+describe("verifyContracts: AC (Story 37-4) non-TypeScript profile skips tsc", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('AC1: non-TypeScript buildCommand (go build) skips tsc even when tsconfig and tsc binary exist', () => {
+    mockExistsSync.mockImplementation((path: unknown) => {
+      const p = path as string
+      return (
+        p === PROFILE_PATH ||
+        p === TSCONFIG_PATH ||
+        p === TSC_BIN_PATH ||
+        p === EXPORT_FILE_PATH
+      )
+    })
+    mockReadFileSync.mockReturnValue(
+      "project:\n  type: single\n  buildCommand: 'go build ./...'\n  packages: []\n" as unknown as Buffer,
+    )
+
+    const result = verifyContracts([makeExportDecl(), makeImportDecl()], PROJECT_ROOT)
+
+    expect(mockExecSync).not.toHaveBeenCalled()
+    expect(result).toEqual([])
+  })
+
+  it('AC2: TypeScript buildCommand (npm run build) keeps tsc enabled', () => {
+    mockExistsSync.mockImplementation((path: unknown) => {
+      const p = path as string
+      return (
+        p === PROFILE_PATH ||
+        p === TSCONFIG_PATH ||
+        p === TSC_BIN_PATH ||
+        p === EXPORT_FILE_PATH
+      )
+    })
+    mockReadFileSync.mockReturnValue(
+      "project:\n  type: single\n  buildCommand: 'npm run build'\n  packages: []\n" as unknown as Buffer,
+    )
+    mockExecSync.mockReturnValue('' as unknown as Buffer)
+
+    verifyContracts([makeExportDecl(), makeImportDecl()], PROJECT_ROOT)
+
+    expect(mockExecSync).toHaveBeenCalled()
+  })
+
+  it('AC3: monorepo with mixed packages (typescript + go) keeps tsc enabled', () => {
+    mockExistsSync.mockImplementation((path: unknown) => {
+      const p = path as string
+      return (
+        p === PROFILE_PATH ||
+        p === TSCONFIG_PATH ||
+        p === TSC_BIN_PATH ||
+        p === EXPORT_FILE_PATH
+      )
+    })
+    mockReadFileSync.mockReturnValue(
+      "project:\n  type: monorepo\n  buildCommand: 'turbo build'\n  packages:\n    - path: apps/web\n      language: typescript\n    - path: apps/lock-service\n      language: go\n" as unknown as Buffer,
+    )
+    mockExecSync.mockReturnValue('' as unknown as Buffer)
+
+    verifyContracts([makeExportDecl(), makeImportDecl()], PROJECT_ROOT)
+
+    expect(mockExecSync).toHaveBeenCalled()
+  })
+
+  it('AC4: all-non-TypeScript monorepo (go + rust) skips tsc even when tsconfig and tsc binary exist', () => {
+    mockExistsSync.mockImplementation((path: unknown) => {
+      const p = path as string
+      return (
+        p === PROFILE_PATH ||
+        p === TSCONFIG_PATH ||
+        p === TSC_BIN_PATH ||
+        p === EXPORT_FILE_PATH
+      )
+    })
+    mockReadFileSync.mockReturnValue(
+      "project:\n  type: monorepo\n  packages:\n    - path: apps/service\n      language: go\n    - path: apps/worker\n      language: rust\n" as unknown as Buffer,
+    )
+
+    verifyContracts([makeExportDecl(), makeImportDecl()], PROJECT_ROOT)
+
+    expect(mockExecSync).not.toHaveBeenCalled()
+  })
+
+  it('AC5: no profile present falls through to existing behavior (tsc runs)', () => {
+    mockExistsSync.mockImplementation((path: unknown) => {
+      const p = path as string
+      // Profile does NOT exist, but tsconfig, tsc binary, and export file do
+      return (
+        p === TSCONFIG_PATH ||
+        p === TSC_BIN_PATH ||
+        p === EXPORT_FILE_PATH
+      )
+    })
+    mockExecSync.mockReturnValue('' as unknown as Buffer)
+
+    verifyContracts([makeExportDecl(), makeImportDecl()], PROJECT_ROOT)
+
+    expect(mockExecSync).toHaveBeenCalled()
+  })
+
+  it('AC6: malformed YAML in profile does not throw; tsc proceeds conservatively', () => {
+    mockExistsSync.mockImplementation((path: unknown) => {
+      const p = path as string
+      return p === PROFILE_PATH
+    })
+    mockReadFileSync.mockReturnValue(':::invalid yaml:::' as unknown as Buffer)
+
+    expect(() =>
+      verifyContracts([makeExportDecl(), makeImportDecl()], PROJECT_ROOT),
+    ).not.toThrow()
+  })
+
+  it('AC7: non-TypeScript profile + missing exported file still reports Exported file not found mismatch', () => {
+    mockExistsSync.mockImplementation((path: unknown) => {
+      const p = path as string
+      // Only the profile exists; export file, tsconfig, and tsc binary are all absent
+      return p === PROFILE_PATH
+    })
+    mockReadFileSync.mockReturnValue(
+      "project:\n  type: single\n  buildCommand: 'go build ./...'\n  packages: []\n" as unknown as Buffer,
+    )
+
+    const result = verifyContracts([makeExportDecl(), makeImportDecl()], PROJECT_ROOT)
+
+    expect(result.length).toBeGreaterThan(0)
+    expect(result[0]!.mismatchDescription).toContain('Exported file not found')
+    expect(mockExecSync).not.toHaveBeenCalled()
   })
 })

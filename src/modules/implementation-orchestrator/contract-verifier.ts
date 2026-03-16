@@ -10,11 +10,62 @@
  * are satisfied (or there were no declarations to check).
  */
 
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { join } from 'node:path'
+import yaml from 'js-yaml'
 import type { ContractDeclaration } from './conflict-detector.js'
 import type { ContractMismatch } from './types.js'
+
+// ---------------------------------------------------------------------------
+// shouldRunTscCheck
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads .substrate/project-profile.yaml (Story 37-1) and determines whether
+ * TypeScript type-checking is appropriate for this project.
+ *
+ * Detection order:
+ *   1. No profile → true (preserve pre-37-4 behavior)
+ *   2. `packages` array non-empty → true iff any package is typescript/javascript
+ *   3. `packages` empty/absent → infer from `buildCommand` — true for npm/pnpm/yarn/bun/turbo/tsc
+ *   4. Parse error → true (conservative, allow tsc)
+ *
+ * Uses synchronous I/O to avoid making verifyContracts async (Story 37-3 pattern).
+ * Does NOT import from src/modules/project-profile/ to avoid circular-dependency risk.
+ */
+function shouldRunTscCheck(projectRoot: string): boolean {
+  const profilePath = join(projectRoot, '.substrate', 'project-profile.yaml')
+  if (!existsSync(profilePath)) return true
+
+  try {
+    const raw = readFileSync(profilePath, 'utf-8')
+    const parsed = yaml.load(raw) as Record<string, unknown> | null
+    if (!parsed) return true
+
+    const project = (parsed as { project?: Record<string, unknown> })?.project
+    if (!project) return true
+
+    // Tier 1: explicit packages list — any TypeScript/JavaScript package → keep tsc
+    const packages = project['packages'] as Array<{ language?: string }> | undefined
+    if (Array.isArray(packages) && packages.length > 0) {
+      return packages.some(
+        (p) => p.language === 'typescript' || p.language === 'javascript',
+      )
+    }
+
+    // Tier 2: no packages array — infer from buildCommand
+    const buildCommand = project['buildCommand'] as string | undefined
+    if (typeof buildCommand === 'string' && buildCommand.length > 0) {
+      const tsIndicators = ['npm', 'pnpm', 'yarn', 'bun', 'tsc', 'turbo']
+      return tsIndicators.some((ind) => buildCommand.includes(ind))
+    }
+
+    return true // unknown shape → conservative
+  } catch {
+    return true // parse failure → conservative
+  }
+}
 
 // ---------------------------------------------------------------------------
 // verifyContracts
@@ -76,12 +127,14 @@ export function verifyContracts(
   // Check 2: TypeScript type-check (AC3)
   //
   // Only runs when:
+  //   - Project profile indicates TypeScript is in use (or no profile exists)
   //   - tsconfig.json exists in the project root
   //   - The local tsc binary is available (node_modules/.bin/tsc)
   //
   // Runs tsc --noEmit once for the project and maps errors back to the
   // declared contract file paths.
   // ---------------------------------------------------------------------------
+  if (shouldRunTscCheck(projectRoot)) {
   const tsconfigPath = join(projectRoot, 'tsconfig.json')
   const tscBinPath = join(projectRoot, 'node_modules', '.bin', 'tsc')
 
@@ -186,6 +239,7 @@ export function verifyContracts(
       }
     }
   }
+  } // end shouldRunTscCheck guard
 
   return mismatches
 }

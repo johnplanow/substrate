@@ -44,10 +44,22 @@ vi.mock('../../../utils/logger.js', () => ({
 }))
 
 // ---------------------------------------------------------------------------
+// Mock resolveDefaultTestPatterns (Story 37-6) — prevents real file I/O
+// ---------------------------------------------------------------------------
+
+vi.mock('../default-test-patterns.js', () => ({
+  resolveDefaultTestPatterns: vi.fn().mockReturnValue('VITEST_DEFAULT_MOCK'),
+  VITEST_DEFAULT_PATTERNS: 'VITEST_DEFAULT_MOCK',
+}))
+
+// ---------------------------------------------------------------------------
 // Import after mocks
 // ---------------------------------------------------------------------------
 
 import { runTestExpansion } from '../test-expansion.js'
+import { resolveDefaultTestPatterns } from '../default-test-patterns.js'
+
+const mockResolveDefaultTestPatterns = vi.mocked(resolveDefaultTestPatterns)
 import type { WorkflowDeps, TestExpansionParams } from '../types.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
@@ -536,5 +548,84 @@ describe('runTestExpansion', () => {
     const result = await runTestExpansion(deps, DEFAULT_PARAMS)
 
     expect(result.tokenUsage).toEqual({ input: 450, output: 130 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 37-6: Test pattern injection
+// ---------------------------------------------------------------------------
+
+describe('Story 37-6: test pattern injection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockReadFile.mockResolvedValue('## Story\nAs a pipeline agent...\n\n## Acceptance Criteria\n### AC1: ...')
+    mockGetGitDiffForFiles.mockResolvedValue('diff --git a/src/foo.ts\n+line added\n')
+    mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
+    mockResolveDefaultTestPatterns.mockReturnValue('VITEST_DEFAULT_MOCK')
+  })
+
+  it('AC6: test_patterns injected into prompt from decision store decisions', async () => {
+    // Set up db to return test-pattern decisions
+    const testPatternDecisions = [
+      {
+        id: 'tp-1',
+        phase: 'solutioning',
+        category: 'test-patterns',
+        key: 'framework',
+        value: 'Go test (stdlib)',
+        rationale: null,
+        pipeline_run_id: null,
+        created_at: '',
+        updated_at: '',
+      },
+    ]
+    const dbOverride = {
+      query: vi.fn().mockResolvedValue(testPatternDecisions),
+    }
+
+    // Use a template that includes the {{test_patterns}} placeholder
+    const templateWithPatterns = '## Mission\n{{story_content}}\n\n## Git Changes\n{{git_diff}}\n\n## Test Patterns\n{{test_patterns}}\n\n## Arch\n{{arch_constraints}}'
+    const getPromptFn = vi.fn().mockResolvedValue(templateWithPatterns)
+
+    const dispatchFn = vi.fn().mockReturnValue({
+      id: 'test-id',
+      status: 'running',
+      cancel: vi.fn(),
+      result: Promise.resolve(makeMockDispatchResult({
+        parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
+      })),
+    })
+
+    const deps = makeMockDeps({ dispatch: dispatchFn, db: dbOverride as Partial<DatabaseAdapter>, getPrompt: getPromptFn })
+    await runTestExpansion(deps, DEFAULT_PARAMS)
+
+    const callArgs = dispatchFn.mock.calls[0][0] as { prompt: string }
+    expect(callArgs.prompt).toContain('Go test (stdlib)')
+    // Resolver should NOT be called since decisions were found
+    expect(mockResolveDefaultTestPatterns).not.toHaveBeenCalled()
+  })
+
+  it('AC6: stack-aware defaults used when no test-pattern decisions exist', async () => {
+    // db returns empty (default)
+    mockResolveDefaultTestPatterns.mockReturnValue('RESOLVER_PATTERNS_MOCK')
+
+    // Use a template that includes the {{test_patterns}} placeholder
+    const templateWithPatterns = '## Mission\n{{story_content}}\n\n## Git Changes\n{{git_diff}}\n\n## Test Patterns\n{{test_patterns}}\n\n## Arch\n{{arch_constraints}}'
+    const getPromptFn = vi.fn().mockResolvedValue(templateWithPatterns)
+
+    const dispatchFn = vi.fn().mockReturnValue({
+      id: 'test-id',
+      status: 'running',
+      cancel: vi.fn(),
+      result: Promise.resolve(makeMockDispatchResult({
+        parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
+      })),
+    })
+
+    const deps: WorkflowDeps = { ...makeMockDeps({ dispatch: dispatchFn, getPrompt: getPromptFn }), projectRoot: '/some/project' }
+    await runTestExpansion(deps, DEFAULT_PARAMS)
+
+    const callArgs = dispatchFn.mock.calls[0][0] as { prompt: string }
+    expect(callArgs.prompt).toContain('RESOLVER_PATTERNS_MOCK')
   })
 })

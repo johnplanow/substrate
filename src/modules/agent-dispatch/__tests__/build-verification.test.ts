@@ -45,9 +45,10 @@ vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
 }))
 
-// Mock node:fs so existsSync never touches the real filesystem.
+// Mock node:fs so existsSync/readFileSync never touch the real filesystem.
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
+  readFileSync: vi.fn(),
 }))
 
 // Mock node:os so platform() returns 'linux' (avoids vm_stat calls in
@@ -64,10 +65,11 @@ vi.mock('node:os', async () => {
 // Import the mocked helpers AFTER vi.mock() declarations (hoisting ensures
 // the mock is applied before module code runs).
 import { execSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 
 const mockExecSync = vi.mocked(execSync)
 const mockExistsSync = vi.mocked(existsSync)
+const mockReadFileSync = vi.mocked(readFileSync)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -109,6 +111,7 @@ describe('runBuildVerification', () => {
     // Default: no lockfiles present (existsSync returns false)
     mockExistsSync.mockReset()
     mockExistsSync.mockReturnValue(false)
+    mockReadFileSync.mockReset()
   })
 
   // -------------------------------------------------------------------------
@@ -364,6 +367,8 @@ describe('detectPackageManager', () => {
   beforeEach(() => {
     mockExistsSync.mockReset()
     mockExistsSync.mockReturnValue(false)
+    mockReadFileSync.mockReset()
+    mockExecSync.mockReset()
   })
 
   it('returns pnpm run build when pnpm-lock.yaml exists (AC1)', () => {
@@ -493,5 +498,136 @@ describe('detectPackageManager', () => {
     detectPackageManager('/my/project')
 
     expect(calls.some((p) => p.startsWith('/my/project'))).toBe(true)
+  })
+
+  // -------------------------------------------------------------------------
+  // Profile override (Story 37-3)
+  // -------------------------------------------------------------------------
+
+  describe('profile override (Story 37-3)', () => {
+    it('AC1: returns buildCommand from profile when project-profile.yaml exists with buildCommand', () => {
+      mockExistsSync.mockImplementation((p: unknown) =>
+        String(p).endsWith('project-profile.yaml'),
+      )
+      mockReadFileSync.mockReturnValue('project:\n  buildCommand: "turbo build"\n')
+
+      const result = detectPackageManager(projectRoot)
+
+      expect(result.command).toBe('turbo build')
+      expect(result.lockfile).toBe('project-profile.yaml')
+      expect(result.packageManager).toBe('none')
+    })
+
+    it('AC5: falls through gracefully when no profile exists (no lockfiles → skip)', () => {
+      mockExistsSync.mockReturnValue(false)
+
+      const result = detectPackageManager(projectRoot)
+
+      expect(result.command).toBe('')
+      expect(result.packageManager).toBe('none')
+    })
+
+    it('AC7: malformed YAML in profile falls through to lockfile detection', () => {
+      mockExistsSync.mockImplementation((p: unknown) => {
+        const path = String(p)
+        // profile exists, pnpm-lock.yaml also exists
+        return path.endsWith('project-profile.yaml') || path.endsWith('pnpm-lock.yaml')
+      })
+      mockReadFileSync.mockReturnValue(':::invalid yaml:::')
+
+      const result = detectPackageManager(projectRoot)
+
+      // Should fall through past malformed profile to pnpm lockfile detection
+      expect(result.command).toBe('pnpm run build')
+      expect(result.packageManager).toBe('pnpm')
+    })
+
+    it('AC7: profile missing buildCommand field falls through to lockfile detection', () => {
+      mockExistsSync.mockImplementation((p: unknown) => {
+        const path = String(p)
+        return path.endsWith('project-profile.yaml') || path.endsWith('pnpm-lock.yaml')
+      })
+      mockReadFileSync.mockReturnValue('project:\n  type: single\n')
+
+      const result = detectPackageManager(projectRoot)
+
+      // buildCommand field missing → fall through to pnpm lockfile
+      expect(result.command).toBe('pnpm run build')
+      expect(result.packageManager).toBe('pnpm')
+    })
+
+    it('AC6: profile buildCommand runs through runBuildVerification and calls execSync', () => {
+      mockExistsSync.mockImplementation((p: unknown) =>
+        String(p).endsWith('project-profile.yaml'),
+      )
+      mockReadFileSync.mockReturnValue('project:\n  buildCommand: "go build ./..."\n')
+      mockExecSync.mockReturnValue('')
+
+      const result = runBuildVerification({ projectRoot })
+
+      expect(mockExecSync).toHaveBeenCalledWith(
+        'go build ./...',
+        expect.objectContaining({ cwd: projectRoot }),
+      )
+      expect(result.status).toBe('passed')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Turborepo detection (Story 37-3)
+  // -------------------------------------------------------------------------
+
+  describe('turborepo detection (Story 37-3)', () => {
+    it('AC2: returns turbo build when turbo.json exists and no profile', () => {
+      mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('turbo.json'))
+
+      const result = detectPackageManager(projectRoot)
+
+      expect(result.command).toBe('turbo build')
+      expect(result.packageManager).toBe('none')
+      expect(result.lockfile).toBe('turbo.json')
+    })
+
+    it('AC3: returns pnpm run build when no profile and no turbo.json but pnpm-lock.yaml exists', () => {
+      mockExistsSync.mockImplementation((p: unknown) => {
+        const path = String(p)
+        return !path.endsWith('project-profile.yaml') &&
+          !path.endsWith('turbo.json') &&
+          path.endsWith('pnpm-lock.yaml')
+      })
+
+      const result = detectPackageManager(projectRoot)
+
+      expect(result.command).toBe('pnpm run build')
+      expect(result.packageManager).toBe('pnpm')
+    })
+
+    it('AC4: skips build when no profile and no turbo.json but go.mod exists', () => {
+      mockExistsSync.mockImplementation((p: unknown) => {
+        const path = String(p)
+        return !path.endsWith('project-profile.yaml') &&
+          !path.endsWith('turbo.json') &&
+          path.endsWith('go.mod')
+      })
+      mockExecSync.mockReturnValue('')
+
+      const result = runBuildVerification({ projectRoot })
+
+      expect(result.status).toBe('skipped')
+      expect(mockExecSync).not.toHaveBeenCalled()
+    })
+
+    it('profile wins over turbo.json when both exist', () => {
+      mockExistsSync.mockImplementation((p: unknown) => {
+        const path = String(p)
+        return path.endsWith('project-profile.yaml') || path.endsWith('turbo.json')
+      })
+      mockReadFileSync.mockReturnValue('project:\n  buildCommand: "custom build"\n')
+
+      const result = detectPackageManager(projectRoot)
+
+      expect(result.command).toBe('custom build')
+      expect(result.lockfile).toBe('project-profile.yaml')
+    })
   })
 })

@@ -51,6 +51,14 @@ import {
   getSubstrateDefaultSettings,
   formatOutput,
 } from './pipeline-shared.js'
+import { detectProjectProfile } from '../../modules/project-profile/detect.js'
+import { writeProjectProfile } from '../../modules/project-profile/writer.js'
+import type { ProjectProfile } from '../../modules/project-profile/project-profile.js'
+import {
+  buildStackAwareDevNotes,
+  DEV_WORKFLOW_START_MARKER,
+  DEV_WORKFLOW_END_MARKER,
+} from '../templates/build-dev-notes.js'
 
 const logger = createLogger('init')
 const __dirname = dirname(new URL(import.meta.url).pathname)
@@ -135,7 +143,13 @@ export async function scaffoldBmadFramework(
 export const CLAUDE_MD_START_MARKER = '<!-- substrate:start -->'
 export const CLAUDE_MD_END_MARKER = '<!-- substrate:end -->'
 
-export async function scaffoldClaudeMd(projectRoot: string): Promise<void> {
+export const DEV_WORKFLOW_CLAUDE_MD_START = DEV_WORKFLOW_START_MARKER
+export const DEV_WORKFLOW_CLAUDE_MD_END = DEV_WORKFLOW_END_MARKER
+
+export async function scaffoldClaudeMd(
+  projectRoot: string,
+  profile?: ProjectProfile | null,
+): Promise<void> {
   const claudeMdPath = join(projectRoot, 'CLAUDE.md')
   const pkgRoot = findPackageRoot(__dirname)
   const templateName = 'claude-md-substrate-section.md'
@@ -156,6 +170,9 @@ export async function scaffoldClaudeMd(projectRoot: string): Promise<void> {
     sectionContent += '\n'
   }
 
+  // Build the stack-aware dev workflow section (empty string if no profile)
+  const devNotesSection = buildStackAwareDevNotes(profile ?? null)
+
   let existingContent = ''
   let claudeMdExists = false
 
@@ -166,20 +183,65 @@ export async function scaffoldClaudeMd(projectRoot: string): Promise<void> {
     // File does not exist — will create it
   }
 
+  // Determine final substrate section content (unchanged logic)
   let newContent: string
 
   if (!claudeMdExists) {
-    newContent = sectionContent
-  } else if (existingContent.includes(CLAUDE_MD_START_MARKER)) {
-    newContent = existingContent.replace(
-      new RegExp(
-        `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
-      ),
-      sectionContent.trimEnd(),
-    )
+    // New file: prepend dev workflow section if present, then substrate section
+    if (devNotesSection) {
+      newContent = devNotesSection + '\n\n' + sectionContent
+    } else {
+      newContent = sectionContent
+    }
   } else {
-    const separator = existingContent.endsWith('\n') ? '\n' : '\n\n'
-    newContent = existingContent + separator + sectionContent
+    // Existing file: update substrate section in place
+    let updatedExisting: string
+    if (existingContent.includes(CLAUDE_MD_START_MARKER)) {
+      updatedExisting = existingContent.replace(
+        new RegExp(
+          `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+        ),
+        sectionContent.trimEnd(),
+      )
+    } else {
+      const separator = existingContent.endsWith('\n') ? '\n' : '\n\n'
+      updatedExisting = existingContent + separator + sectionContent
+    }
+
+    // Now handle dev workflow section in the (potentially updated) content
+    if (devNotesSection) {
+      if (updatedExisting.includes(DEV_WORKFLOW_START_MARKER)) {
+        // Replace existing dev workflow block
+        newContent = updatedExisting.replace(
+          new RegExp(
+            `${DEV_WORKFLOW_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${DEV_WORKFLOW_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+          ),
+          devNotesSection,
+        )
+      } else {
+        // Prepend dev workflow section before substrate section
+        if (updatedExisting.includes(CLAUDE_MD_START_MARKER)) {
+          newContent = updatedExisting.replace(
+            CLAUDE_MD_START_MARKER,
+            devNotesSection + '\n\n' + CLAUDE_MD_START_MARKER,
+          )
+        } else {
+          // Append at the front (or use separator)
+          const sep = updatedExisting.endsWith('\n') ? '\n' : '\n\n'
+          newContent = devNotesSection + sep + updatedExisting
+        }
+      }
+    } else if (updatedExisting.includes(DEV_WORKFLOW_START_MARKER)) {
+      // Profile is null but dev workflow block exists — remove it
+      newContent = updatedExisting.replace(
+        new RegExp(
+          `${DEV_WORKFLOW_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${DEV_WORKFLOW_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n?`,
+        ),
+        '',
+      )
+    } else {
+      newContent = updatedExisting
+    }
   }
 
   await writeFile(claudeMdPath, newContent, 'utf8')
@@ -509,6 +571,66 @@ function buildProviderConfig(
 }
 
 // ---------------------------------------------------------------------------
+// Profile display + prompting helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Formats a detected project profile as a human-readable string.
+ * For single projects: shows stack, build, and test commands.
+ * For monorepos: shows the tool, root commands, and per-package breakdown.
+ */
+function formatProjectProfile(profile: ProjectProfile): string {
+  const lines: string[] = ['', '  Detected project profile:']
+  const { project } = profile
+
+  if (project.type === 'monorepo') {
+    lines.push(`  Type:  monorepo (${project.tool ?? 'unknown'})`)
+    lines.push(`  Build: ${project.buildCommand}`)
+    lines.push(`  Test:  ${project.testCommand}`)
+    if (project.packages && project.packages.length > 0) {
+      lines.push('  Packages:')
+      for (const pkg of project.packages) {
+        lines.push(`    ${pkg.path}  ${pkg.language}`)
+      }
+    }
+  } else {
+    const lang = project.language ?? 'unknown'
+    const stackStr = project.framework ? `${lang} (${project.framework})` : lang
+    lines.push(`  Stack: ${stackStr}`)
+    lines.push(`  Build: ${project.buildCommand}`)
+    lines.push(`  Test:  ${project.testCommand}`)
+  }
+
+  return lines.join('\n')
+}
+
+/**
+ * Prompts the user to accept or decline the detected project profile.
+ * In non-interactive mode, always returns true (auto-accept).
+ */
+async function promptProfileConfirmation(nonInteractive: boolean): Promise<boolean> {
+  if (nonInteractive) return true
+
+  const readline = await import('readline')
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  })
+
+  return new Promise<boolean>((resolve) => {
+    rl.question('\n  Accept detected project profile? [Y/n]: ', (answer) => {
+      rl.close()
+      const trimmed = answer.trim().toLowerCase()
+      if (trimmed === '' || trimmed === 'y' || trimmed === 'yes') {
+        resolve(true)
+      } else {
+        resolve(false)
+      }
+    })
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Interactive prompting
 // ---------------------------------------------------------------------------
 
@@ -712,6 +834,60 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     await writeFile(routingPolicyPath, routingHeader + yaml.dump(routingPolicy), 'utf-8')
 
     // ---------------------------------------------------------------
+    // Step 1b: Detect and write project profile
+    // ---------------------------------------------------------------
+    const projectProfilePath = join(substrateDir, 'project-profile.yaml')
+    let detectedProfile: ProjectProfile | null = null
+    let projectProfileWritten = false
+
+    try {
+      detectedProfile = await detectProjectProfile(dbRoot)
+    } catch (err) {
+      logger.warn({ err }, 'Project profile detection failed; skipping')
+    }
+
+    if (detectedProfile === null) {
+      if (outputFormat !== 'json') {
+        process.stdout.write(
+          '  No project stack detected. Create .substrate/project-profile.yaml manually to enable polyglot support.\n',
+        )
+      }
+    } else {
+      if (outputFormat !== 'json') {
+        process.stdout.write(formatProjectProfile(detectedProfile) + '\n')
+      }
+
+      // Check if profile already exists (and no --force)
+      let profileExists = false
+      try {
+        await access(projectProfilePath)
+        profileExists = true
+      } catch {
+        // file does not exist — will write
+      }
+
+      if (profileExists && !force) {
+        if (outputFormat !== 'json') {
+          process.stdout.write(
+            '  .substrate/project-profile.yaml already exists — skipping (use --force to overwrite)\n',
+          )
+        }
+      } else {
+        const accepted = await promptProfileConfirmation(nonInteractive)
+        if (accepted) {
+          await writeProjectProfile(projectProfilePath, detectedProfile)
+          projectProfileWritten = true
+        } else {
+          if (outputFormat !== 'json') {
+            process.stdout.write(
+              '  Profile not written. Create .substrate/project-profile.yaml manually to enable polyglot support.\n',
+            )
+          }
+        }
+      }
+    }
+
+    // ---------------------------------------------------------------
     // Step 2: Scaffold BMAD framework
     // ---------------------------------------------------------------
     await scaffoldBmadFramework(projectRoot, force, outputFormat)
@@ -771,7 +947,7 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     // ---------------------------------------------------------------
     // Step 5: Scaffold CLAUDE.md, statusline, settings, commands
     // ---------------------------------------------------------------
-    await scaffoldClaudeMd(projectRoot)
+    await scaffoldClaudeMd(projectRoot, detectedProfile)
     await scaffoldStatuslineScript(projectRoot)
     await scaffoldClaudeSettings(projectRoot)
     await scaffoldClaudeCommands(projectRoot, outputFormat)
@@ -816,7 +992,16 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     const successMsg = `Pack '${packName}' and database initialized successfully at ${dbPath}`
     if (outputFormat === 'json') {
       process.stdout.write(
-        formatOutput({ pack: packName, dbPath, scaffolded, configPath, routingPolicyPath, doltInitialized }, 'json', true) + '\n',
+        formatOutput({
+          pack: packName,
+          dbPath,
+          scaffolded,
+          configPath,
+          routingPolicyPath,
+          doltInitialized,
+          projectProfile: detectedProfile ?? null,
+          projectProfileWritten,
+        }, 'json', true) + '\n',
       )
     } else {
       process.stdout.write(`\n  Substrate initialized successfully!\n\n`)

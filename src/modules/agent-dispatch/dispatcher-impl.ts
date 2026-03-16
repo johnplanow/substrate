@@ -14,8 +14,9 @@
  */
 
 import { spawn, execSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import yaml from 'js-yaml'
 import { freemem, platform } from 'node:os'
 import type { DispatcherMemoryState } from './types.js'
 import { randomUUID } from 'node:crypto'
@@ -813,18 +814,40 @@ export interface PackageManagerDetectionResult {
 /**
  * Detect the package manager / build system used in a project.
  *
- * Checks for language-specific markers in priority order:
- *   1. Node.js lockfiles → corresponding `<pm> run build`
- *   2. Python markers (pyproject.toml, poetry.lock, setup.py) → skip (no universal build step)
- *   3. Rust (Cargo.toml) → cargo build
- *   4. Go (go.mod) → go build ./...
- *   5. No markers found → skip (empty command)
+ * Checks for build system markers in priority order:
+ *   0. `.substrate/project-profile.yaml` → `project.buildCommand` field (most explicit, wins)
+ *   1. `turbo.json` → `turbo build`
+ *   2. Node.js lockfiles → corresponding `<pm> run build`
+ *   3. Python markers (pyproject.toml, poetry.lock, setup.py) → skip (no universal build step)
+ *   4. Rust (Cargo.toml) → skip
+ *   5. Go (go.mod) → skip
+ *   6. No markers found → skip (empty command)
  *
  * When a non-Node.js project is detected (or nothing is recognized), the
  * returned command is '' which causes runBuildVerification() to skip.
  */
 export function detectPackageManager(projectRoot: string): PackageManagerDetectionResult {
-  // Node.js lockfiles — checked first, return a build command
+  // Priority 0: read build_command from .substrate/project-profile.yaml (Story 37-3)
+  const profilePath = join(projectRoot, '.substrate', 'project-profile.yaml')
+  if (existsSync(profilePath)) {
+    try {
+      const raw = readFileSync(profilePath, 'utf-8')
+      const parsed = yaml.load(raw) as Record<string, unknown> | null
+      const buildCommand = (parsed as { project?: { buildCommand?: string } })?.project?.buildCommand
+      if (typeof buildCommand === 'string' && buildCommand.length > 0) {
+        return { packageManager: 'none', lockfile: 'project-profile.yaml', command: buildCommand }
+      }
+    } catch {
+      // malformed YAML — fall through to auto-detection
+    }
+  }
+
+  // Priority 1: Turborepo monorepo — detect turbo.json before Node.js lockfiles (Story 37-3)
+  if (existsSync(join(projectRoot, 'turbo.json'))) {
+    return { packageManager: 'none', lockfile: 'turbo.json', command: 'turbo build' }
+  }
+
+  // Node.js lockfiles — checked next, return a build command
   const nodeCandidates: Array<{
     file: string
     packageManager: 'pnpm' | 'yarn' | 'bun' | 'npm'

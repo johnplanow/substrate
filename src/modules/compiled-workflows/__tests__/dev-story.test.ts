@@ -54,16 +54,29 @@ vi.mock('../git-helpers.js', () => ({
 }))
 
 // ---------------------------------------------------------------------------
+// Mock resolveDefaultTestPatterns (Story 37-6) — prevents real file I/O
+// ---------------------------------------------------------------------------
+
+vi.mock('../default-test-patterns.js', () => ({
+  resolveDefaultTestPatterns: vi.fn().mockReturnValue(
+    '## Test Patterns (defaults)\n- Framework: Vitest (NOT jest)\n- Mock approach: vi.mock() with hoisting',
+  ),
+  VITEST_DEFAULT_PATTERNS: '## Test Patterns (defaults)\n- Framework: Vitest (NOT jest)\n- Mock approach: vi.mock() with hoisting',
+}))
+
+// ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
 import { readFile } from 'node:fs/promises'
 import { getDecisionsByPhase } from '../../../persistence/queries/decisions.js'
 import { getGitChangedFiles } from '../git-helpers.js'
+import { resolveDefaultTestPatterns } from '../default-test-patterns.js'
 
 const mockReadFile = vi.mocked(readFile)
 const mockGetDecisionsByPhase = vi.mocked(getDecisionsByPhase)
 const mockGetGitChangedFiles = vi.mocked(getGitChangedFiles)
+const mockResolveDefaultTestPatterns = vi.mocked(resolveDefaultTestPatterns)
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1223,6 +1236,84 @@ describe('runDevStory', () => {
       expect(result.ac_met).toHaveLength(8)
       expect(result.tests).toBe('pass')
       expect(result.tokenUsage.input).toBeGreaterThan(0)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Story 37-6: Stack-aware test pattern fallback
+  // ---------------------------------------------------------------------------
+
+  describe('Story 37-6: stack-aware test pattern fallback', () => {
+    function makeDispatch() {
+      return {
+        id: 'test-id',
+        status: 'queued' as const,
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(createSuccessDispatchResult()),
+      }
+    }
+
+    it('AC1: resolver called with projectRoot when no test-pattern decisions exist and Go patterns returned', async () => {
+      mockGetDecisionsByPhase.mockReturnValue([])
+      mockResolveDefaultTestPatterns.mockReturnValue('GO_PATTERNS_MOCK')
+
+      const deps = createMockDeps({ projectRoot: '/my/go/project' })
+      let capturedPrompt = ''
+      vi.mocked(deps.dispatcher.dispatch).mockImplementation((req) => {
+        capturedPrompt = req.prompt
+        return makeDispatch()
+      })
+
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(capturedPrompt).toContain('GO_PATTERNS_MOCK')
+      expect(mockResolveDefaultTestPatterns).toHaveBeenCalledWith('/my/go/project')
+    })
+
+    it('AC2: resolver returns Vitest text when no profile → Vitest patterns in prompt', async () => {
+      mockGetDecisionsByPhase.mockReturnValue([])
+      mockResolveDefaultTestPatterns.mockReturnValue('vitest-mock-patterns')
+
+      const deps = createMockDeps()
+      let capturedPrompt = ''
+      vi.mocked(deps.dispatcher.dispatch).mockImplementation((req) => {
+        capturedPrompt = req.prompt
+        return makeDispatch()
+      })
+
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(capturedPrompt).toContain('vitest-mock-patterns')
+    })
+
+    it('AC3: seeded decisions take priority — resolver NOT called', async () => {
+      mockGetDecisionsByPhase.mockReturnValue([
+        {
+          id: '1',
+          phase: 'solutioning',
+          category: 'test-patterns',
+          key: 'framework',
+          value: 'Go test (stdlib)',
+          pipeline_run_id: null,
+          rationale: null,
+          created_at: '',
+          updated_at: '',
+        },
+      ])
+
+      const deps = createMockDeps()
+      let capturedPrompt = ''
+      vi.mocked(deps.dispatcher.dispatch).mockImplementation((req) => {
+        capturedPrompt = req.prompt
+        return makeDispatch()
+      })
+
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      // Seeded decision value should appear in prompt
+      expect(capturedPrompt).toContain('Go test (stdlib)')
+      // Resolver must NOT have been called since decisions were found
+      expect(mockResolveDefaultTestPatterns).not.toHaveBeenCalled()
     })
   })
 })
