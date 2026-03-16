@@ -231,8 +231,8 @@ export async function detectMonorepoProfile(rootDir: string): Promise<ProjectPro
     project: {
       type: 'monorepo',
       tool: 'turborepo',
-      buildCommand: 'turbo build',
-      testCommand: 'turbo test',
+      buildCommand: 'npx turbo build',
+      testCommand: 'npx turbo test',
       packages,
     },
   }

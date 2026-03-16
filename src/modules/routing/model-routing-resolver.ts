@@ -134,7 +134,7 @@ export class RoutingResolver {
       return new RoutingResolver(config, logger)
     } catch (err) {
       if (err instanceof RoutingConfigError && err.code === 'CONFIG_NOT_FOUND') {
-        logger.warn(
+        logger.debug(
           { configPath: filePath, component: 'routing', reason: 'config not found' },
           `Model routing config not found at "${filePath}"; using fallback mode (all resolveModel calls will return null)`,
         )

@@ -177,8 +177,8 @@ describe('detectMonorepoProfile', () => {
     expect(result).not.toBeNull()
     expect(result?.project.type).toBe('monorepo')
     expect(result?.project.tool).toBe('turborepo')
-    expect(result?.project.buildCommand).toBe('turbo build')
-    expect(result?.project.testCommand).toBe('turbo test')
+    expect(result?.project.buildCommand).toBe('npx turbo build')
+    expect(result?.project.testCommand).toBe('npx turbo test')
   })
 
   it('detects Turborepo monorepo when turbo.json is present (v2 tasks key)', async () => {

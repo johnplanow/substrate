@@ -146,6 +146,8 @@ export interface RunOptions {
   epic?: number
   /** When true, preview routing and repo-map injection without dispatching (Story 28-9) */
   dryRun?: boolean
+  /** Maximum number of review cycles per story (default: 2) */
+  maxReviewCycles?: number
   /** Optional pre-initialized registry; if omitted, a new registry is created and discovered */
   registry?: AdapterRegistry
 }
@@ -170,6 +172,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     skipPreflight,
     epic: epicNumber,
     dryRun,
+    maxReviewCycles = 2,
     registry: injectedRegistry,
   } = options
 
@@ -372,6 +375,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(epicNumber !== undefined ? { epic: epicNumber } : {}),
       ...(injectedRegistry !== undefined ? { registry: injectedRegistry } : {}),
       ...(telemetryEnabled ? { telemetryEnabled: true, telemetryPort } : {}),
+      maxReviewCycles,
     })
   }
 
@@ -1096,6 +1100,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           ts: new Date().toISOString(),
           exitCode: payload.exitCode,
           output: payload.output,
+          suggestion: 'Tip: Use --skip-preflight to bypass, or check your build command in .substrate/project-profile.yaml',
         })
       })
 
@@ -1183,7 +1188,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       eventBus,
       config: {
         maxConcurrency: concurrency,
-        maxReviewCycles: 2,
+        maxReviewCycles,
         pipelineRunId: pipelineRun.id,
         // Only enable heartbeat/watchdog timer when --events mode is active (AC1/Issue 5)
         enableHeartbeat: eventsFlag === true,
@@ -1401,6 +1406,8 @@ export interface FullPipelineOptions {
   skipResearch?: boolean
   /** When true, skip the pre-flight build check (Story 25-2) */
   skipPreflight?: boolean
+  /** Maximum number of review cycles per story (default: 2) */
+  maxReviewCycles?: number
   /** Optional per-workflow token ceiling overrides from config (Story 25-1) */
   tokenCeilings?: TokenCeilings
   /** Explicit story keys from --stories flag (passed through to implementation phase) */
@@ -1414,7 +1421,7 @@ export interface FullPipelineOptions {
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, maxReviewCycles = 2, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort } =
     options
 
   // Ensure database directory
@@ -1733,7 +1740,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           eventBus,
           config: {
             maxConcurrency: concurrency,
-            maxReviewCycles: 2,
+            maxReviewCycles,
             pipelineRunId: runId,
             // Skip pre-flight build check when --skip-preflight is set (Story 25-2)
             skipPreflight: skipPreflight === true,
@@ -1952,6 +1959,7 @@ export function registerRunCommand(
     .option('--research', 'Enable the research phase even if not set in the pack manifest')
     .option('--skip-research', 'Skip the research phase even if enabled in the pack manifest')
     .option('--skip-preflight', 'Skip the pre-flight build check (escape hatch for known-broken projects)')
+    .option('--max-review-cycles <n>', 'Maximum review cycles per story (default: 2)', (v: string) => parseInt(v, 10), 2)
     .option('--dry-run', 'Preview routing and repo-map injection without dispatching (Story 28-9)')
     .action(
       async (opts: {
@@ -1973,6 +1981,7 @@ export function registerRunCommand(
         research?: boolean
         skipResearch?: boolean
         skipPreflight?: boolean
+        maxReviewCycles: number
         dryRun?: boolean
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
@@ -2017,6 +2026,7 @@ export function registerRunCommand(
           research: opts.research,
           skipResearch: opts.skipResearch,
           skipPreflight: opts.skipPreflight,
+          maxReviewCycles: opts.maxReviewCycles,
           dryRun: opts.dryRun,
           registry,
         })

@@ -115,7 +115,7 @@ export function detectInterfaceChanges(options: {
       let grepOutput = ''
       try {
         grepOutput = execSync(
-          `grep -r --include="*.test.ts" --include="*.spec.ts" -l "${name}" .`,
+          `grep -r --include="*.test.ts" --include="*.spec.ts" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=.next --exclude-dir=coverage -l "${name}" .`,
           {
             cwd: projectRoot,
             encoding: 'utf-8',

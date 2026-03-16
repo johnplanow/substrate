@@ -844,7 +844,7 @@ export function detectPackageManager(projectRoot: string): PackageManagerDetecti
 
   // Priority 1: Turborepo monorepo — detect turbo.json before Node.js lockfiles (Story 37-3)
   if (existsSync(join(projectRoot, 'turbo.json'))) {
-    return { packageManager: 'none', lockfile: 'turbo.json', command: 'turbo build' }
+    return { packageManager: 'none', lockfile: 'turbo.json', command: 'npx turbo build' }
   }
 
   // Node.js lockfiles — checked next, return a build command

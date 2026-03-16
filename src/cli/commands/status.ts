@@ -167,7 +167,7 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
       const errorMsg =
         runId !== undefined
           ? `Pipeline run '${runId}' not found.`
-          : 'No pipeline runs found. Run `substrate run` first.'
+          : 'No pipeline runs found. Run `substrate run --events` to start a pipeline first.'
       if (outputFormat === 'json') {
         process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
       } else {

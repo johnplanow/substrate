@@ -624,12 +624,12 @@ describe('detectPackageManager', () => {
   // -------------------------------------------------------------------------
 
   describe('turborepo detection (Story 37-3)', () => {
-    it('AC2: returns turbo build when turbo.json exists and no profile', () => {
+    it('AC2: returns npx turbo build when turbo.json exists and no profile', () => {
       mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('turbo.json'))
 
       const result = detectPackageManager(projectRoot)
 
-      expect(result.command).toBe('turbo build')
+      expect(result.command).toBe('npx turbo build')
       expect(result.packageManager).toBe('none')
       expect(result.lockfile).toBe('turbo.json')
     })

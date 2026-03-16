@@ -92,10 +92,12 @@ export interface ResumeOptions {
   registry?: AdapterRegistry
   /** Explicit story keys to scope the resumed run to (prevents unscoped discovery). */
   stories?: string[]
+  /** Maximum number of review cycles per story (default: 2) */
+  maxReviewCycles?: number
 }
 
 export async function runResumeAction(options: ResumeOptions): Promise<number> {
-  const { runId: specifiedRunId, stopAfter, outputFormat, projectRoot, concurrency, pack: packName, events: eventsFlag, registry } = options
+  const { runId: specifiedRunId, stopAfter, outputFormat, projectRoot, concurrency, pack: packName, events: eventsFlag, registry, maxReviewCycles = 2 } = options
 
   // Validate --stop-after phase (before any DB writes) (AC7)
   if (stopAfter !== undefined && !VALID_PHASES.includes(stopAfter)) {
@@ -443,7 +445,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           eventBus,
           config: {
             maxConcurrency: concurrency,
-            maxReviewCycles: 2,
+            maxReviewCycles,
             pipelineRunId: runId,
             enableHeartbeat: eventsFlag === true,
           },
@@ -721,6 +723,7 @@ export function registerResumeCommand(
       'human',
     )
     .option('--events', 'Emit structured NDJSON events on stdout for programmatic consumption')
+    .option('--max-review-cycles <n>', 'Maximum review cycles per story (default: 2)', (v: string) => parseInt(v, 10), 2)
     .action(
       async (opts: {
         runId?: string
@@ -730,6 +733,7 @@ export function registerResumeCommand(
         projectRoot: string
         outputFormat: string
         events?: boolean
+        maxReviewCycles: number
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         const exitCode = await runResumeAction({
@@ -740,6 +744,7 @@ export function registerResumeCommand(
           concurrency: opts.concurrency,
           pack: opts.pack,
           events: opts.events,
+          maxReviewCycles: opts.maxReviewCycles,
           registry,
         })
         process.exitCode = exitCode

@@ -14,6 +14,7 @@ import type { TypedEventBus } from '../../core/event-bus.js'
 import type { TokenCeilings } from '../config/config-schema.js'
 import { readFile } from 'node:fs/promises'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 import { join, basename } from 'node:path'
 import yaml from 'js-yaml'
 import { updatePipelineRun, getDecisionsByPhase, getDecisionsByCategory, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
@@ -61,6 +62,14 @@ import { TelemetryPipeline } from '../telemetry/telemetry-pipeline.js'
 import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
+
+// ---------------------------------------------------------------------------
+// Cost estimation helper (Claude pricing: $3/1M input, $15/1M output)
+// ---------------------------------------------------------------------------
+
+function estimateDispatchCost(input: number, output: number): number {
+  return (input * 3 + output * 15) / 1_000_000
+}
 
 // ---------------------------------------------------------------------------
 // OrchestratorDeps
@@ -1029,7 +1038,7 @@ export function createImplementationOrchestrator(
             agent: 'create-story',
             input_tokens: createResult.tokenUsage.input,
             output_tokens: createResult.tokenUsage.output,
-            cost_usd: 0,
+            cost_usd: estimateDispatchCost(createResult.tokenUsage.input, createResult.tokenUsage.output),
             metadata: JSON.stringify({ storyKey }),
           })
         } catch (tokenErr) {
@@ -1238,7 +1247,7 @@ export function createImplementationOrchestrator(
           agent: 'test-plan',
           input_tokens: testPlanTokenUsage.input,
           output_tokens: testPlanTokenUsage.output,
-          cost_usd: 0,
+          cost_usd: estimateDispatchCost(testPlanTokenUsage.input, testPlanTokenUsage.output),
           metadata: JSON.stringify({ storyKey }),
         })
       } catch (tokenErr) {
@@ -1378,7 +1387,7 @@ export function createImplementationOrchestrator(
                 agent: `batch-${batch.batchIndex}`,
                 input_tokens: batchResult.tokenUsage.input,
                 output_tokens: batchResult.tokenUsage.output,
-                cost_usd: 0,
+                cost_usd: estimateDispatchCost(batchResult.tokenUsage.input, batchResult.tokenUsage.output),
                 metadata: JSON.stringify({
                   storyKey,
                   batchIndex: batch.batchIndex,
@@ -1436,7 +1445,7 @@ export function createImplementationOrchestrator(
               agent: 'dev-story',
               input_tokens: devResult.tokenUsage.input,
               output_tokens: devResult.tokenUsage.output,
-              cost_usd: 0,
+              cost_usd: estimateDispatchCost(devResult.tokenUsage.input, devResult.tokenUsage.output),
               metadata: JSON.stringify({ storyKey }),
             })
           } catch (tokenErr) {
@@ -1718,7 +1727,7 @@ export function createImplementationOrchestrator(
               agent: useBatchedReview ? 'code-review-batched' : 'code-review',
               input_tokens: reviewResult.tokenUsage.input,
               output_tokens: reviewResult.tokenUsage.output,
-              cost_usd: 0,
+              cost_usd: estimateDispatchCost(reviewResult.tokenUsage.input, reviewResult.tokenUsage.output),
               metadata: JSON.stringify({ storyKey, reviewCycle: reviewCycles }),
             })
           } catch (tokenErr) {
@@ -2201,13 +2210,27 @@ export function createImplementationOrchestrator(
             archConstraints = constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
           } catch { /* arch constraints are optional */ }
 
+          // Compute git diff of modified files for rework context
+          let gitDiffContent = ''
+          try {
+            const diffFiles = checkGitDiffFiles(projectRoot ?? process.cwd())
+            if (diffFiles.length > 0) {
+              gitDiffContent = execSync(`git diff HEAD -- ${diffFiles.map((f) => `"${f}"`).join(' ')}`, {
+                cwd: projectRoot ?? process.cwd(),
+                encoding: 'utf-8',
+                timeout: 10000,
+                stdio: ['ignore', 'pipe', 'pipe'],
+              }).trim()
+            }
+          } catch { /* graceful degradation — fall back to empty diff */ }
+
           // Build sections based on template type
           const sections = isMajorRework
             ? [
                 { name: 'story_content', content: storyContent, priority: 'required' as const },
                 { name: 'review_findings', content: reviewFeedback, priority: 'required' as const },
                 { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
-                { name: 'git_diff', content: '', priority: 'optional' as const },
+                { name: 'git_diff', content: gitDiffContent, priority: 'optional' as const },
               ]
             : (() => {
                 const targetedFilesContent = buildTargetedFilesContent(issueList)
