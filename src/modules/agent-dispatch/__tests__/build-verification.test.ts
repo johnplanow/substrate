@@ -722,13 +722,13 @@ describe('deriveTurboFilters', () => {
     expect(result).toEqual(['--filter=web'])
   })
 
-  it('falls back to directory basename when package.json is missing', () => {
+  it('skips directories without package.json (e.g., Go apps)', () => {
     mockReadFileSync.mockImplementation(() => { throw new Error('ENOENT') })
 
     const result = deriveTurboFilters(
-      ['apps/web/src/foo.ts'],
+      ['apps/lock-service/internal/handler.go'],
       '/fake/project',
     )
-    expect(result).toEqual(['--filter=web'])
+    expect(result).toEqual([])
   })
 })

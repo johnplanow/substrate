@@ -967,9 +967,8 @@ export function deriveTurboFilters(changedFiles: string[], projectRoot: string):
         filters.push(`--filter=${pkg.name}`)
       }
     } catch {
-      // No package.json or parse error — use directory basename as filter
-      const basename = dir.split('/').pop()
-      if (basename) filters.push(`--filter=${basename}`)
+      // No package.json (e.g., Go apps) — skip this directory.
+      // Turbo can only filter by workspace package names.
     }
   }
 
