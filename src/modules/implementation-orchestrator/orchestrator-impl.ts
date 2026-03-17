@@ -2458,20 +2458,26 @@ export function createImplementationOrchestrator(
    */
   async function runWithConcurrency(groups: string[][], maxConcurrency: number): Promise<void> {
     const queue = [...groups]
-    const running: Promise<void>[] = []
+    const running = new Set<Promise<void>>()
 
     function enqueue(): void {
       const group = queue.shift()
       if (group === undefined) return
 
       const p: Promise<void> = processConflictGroup(group).finally(() => {
-        const idx = running.indexOf(p)
-        if (idx !== -1) running.splice(idx, 1)
+        running.delete(p)
+        // Immediately fill open concurrency slots when a story completes.
+        // This callback-based approach avoids Promise.race timing issues
+        // where .finally() mutations to the running set were invisible to
+        // the awaiting code.
+        while (running.size < maxConcurrency && queue.length > 0) {
+          enqueue()
+        }
       })
-      running.push(p)
+      running.add(p)
       // Track peak actual concurrency
-      if (running.length > _maxConcurrentActual) {
-        _maxConcurrentActual = running.length
+      if (running.size > _maxConcurrentActual) {
+        _maxConcurrentActual = running.size
       }
     }
 
@@ -2481,18 +2487,10 @@ export function createImplementationOrchestrator(
       enqueue()
     }
 
-    // Drain remaining groups: wait for one to finish, then fill all open slots
-    while (queue.length > 0) {
+    // Wait for all promises to settle (enqueue chains via .finally callbacks)
+    while (running.size > 0) {
       await Promise.race(running)
-      // Fill ALL available concurrency slots (not just one) — multiple stories
-      // may have completed near-simultaneously, each freeing a slot.
-      while (running.length < maxConcurrency && queue.length > 0) {
-        enqueue()
-      }
     }
-
-    // Wait for all remaining
-    await Promise.all(running)
   }
 
   // -- public interface --
