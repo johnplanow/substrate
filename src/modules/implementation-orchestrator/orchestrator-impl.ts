@@ -1543,6 +1543,7 @@ export function createImplementationOrchestrator(
             verifyCommand: pack.manifest.verifyCommand,
             verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
             projectRoot: projectRoot ?? process.cwd(),
+            changedFiles: gitDiffFiles,
           })
 
       if (buildVerifyResult.status === 'passed') {
@@ -1590,6 +1591,7 @@ export function createImplementationOrchestrator(
               verifyCommand: pack.manifest.verifyCommand,
               verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
               projectRoot: resolvedRoot,
+              changedFiles: gitDiffFiles,
             })
 
             if (retryResult.status === 'passed') {

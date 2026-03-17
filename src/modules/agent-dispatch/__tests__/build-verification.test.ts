@@ -677,3 +677,58 @@ describe('detectPackageManager', () => {
     })
   })
 })
+
+describe('deriveTurboFilters', () => {
+  // Import the function under test — it's pure (no mocks needed except readFileSync)
+  let deriveTurboFilters: typeof import('../dispatcher-impl.js').deriveTurboFilters
+
+  beforeEach(async () => {
+    const mod = await import('../dispatcher-impl.js')
+    deriveTurboFilters = mod.deriveTurboFilters
+  })
+
+  it('maps apps/<name>/... paths to --filter flags using package.json name', () => {
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (String(p).includes('apps/web/package.json')) return '{"name":"web"}'
+      if (String(p).includes('packages/db/package.json')) return '{"name":"@nextgen/db"}'
+      throw new Error('ENOENT')
+    })
+
+    const result = deriveTurboFilters(
+      ['apps/web/src/foo.ts', 'packages/db/src/bar.ts'],
+      '/fake/project',
+    )
+
+    expect(result).toContain('--filter=web')
+    expect(result).toContain('--filter=@nextgen/db')
+    expect(result).toHaveLength(2)
+  })
+
+  it('returns empty array for non-package paths', () => {
+    const result = deriveTurboFilters(
+      ['README.md', '.github/workflows/ci.yaml'],
+      '/fake/project',
+    )
+    expect(result).toEqual([])
+  })
+
+  it('deduplicates when multiple files are in the same package', () => {
+    mockReadFileSync.mockReturnValue('{"name":"web"}')
+
+    const result = deriveTurboFilters(
+      ['apps/web/src/a.ts', 'apps/web/src/b.ts', 'apps/web/src/c.ts'],
+      '/fake/project',
+    )
+    expect(result).toEqual(['--filter=web'])
+  })
+
+  it('falls back to directory basename when package.json is missing', () => {
+    mockReadFileSync.mockImplementation(() => { throw new Error('ENOENT') })
+
+    const result = deriveTurboFilters(
+      ['apps/web/src/foo.ts'],
+      '/fake/project',
+    )
+    expect(result).toEqual(['--filter=web'])
+  })
+})

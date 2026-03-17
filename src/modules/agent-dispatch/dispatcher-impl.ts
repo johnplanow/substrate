@@ -937,12 +937,56 @@ export interface BuildVerificationResult {
 }
 
 /**
+ * Derive turbo --filter flags from changed file paths.
+ *
+ * Maps file paths like "apps/web/src/foo.ts" or "packages/db/src/bar.ts"
+ * to turbo package filters like "--filter=web" or "--filter=@nextgen/db".
+ * Falls back to reading package.json in each directory to get the real
+ * package name. Returns empty array if no turbo-scoped packages detected.
+ */
+export function deriveTurboFilters(changedFiles: string[], projectRoot: string): string[] {
+  const packageDirs = new Set<string>()
+
+  for (const file of changedFiles) {
+    // Match apps/<name>/... or packages/<name>/...
+    const match = file.match(/^((?:apps|packages)\/[^/]+)\//)
+    if (match) {
+      packageDirs.add(match[1])
+    }
+  }
+
+  if (packageDirs.size === 0) return []
+
+  const filters: string[] = []
+  for (const dir of packageDirs) {
+    try {
+      const pkgJsonPath = join(projectRoot, dir, 'package.json')
+      const raw = readFileSync(pkgJsonPath, 'utf-8')
+      const pkg = JSON.parse(raw) as { name?: string }
+      if (pkg.name) {
+        filters.push(`--filter=${pkg.name}`)
+      }
+    } catch {
+      // No package.json or parse error — use directory basename as filter
+      const basename = dir.split('/').pop()
+      if (basename) filters.push(`--filter=${basename}`)
+    }
+  }
+
+  return filters
+}
+
+/**
  * Run the build verification gate synchronously.
  *
  * Executes the configured verifyCommand (default: "npm run build") in the
  * project root directory, capturing stdout and stderr. On success (exit 0)
  * returns { status: 'passed' }. On failure or timeout, returns a structured
  * result with status, exitCode, output, and reason.
+ *
+ * When changedFiles is provided and the command is a turbo build, the build
+ * is scoped to only the affected packages via --filter flags. This prevents
+ * cascading failures from other concurrent stories' modifications.
  *
  * AC4/5: reads verifyCommand from options (or defaults to 'npm run build').
  * AC6: if verifyCommand is empty string or false, returns { status: 'skipped' }.
@@ -952,8 +996,9 @@ export function runBuildVerification(options: {
   verifyCommand?: string | false
   verifyTimeoutMs?: number
   projectRoot: string
+  changedFiles?: string[]
 }): BuildVerificationResult {
-  const { verifyCommand, verifyTimeoutMs, projectRoot } = options
+  const { verifyCommand, verifyTimeoutMs, projectRoot, changedFiles } = options
 
   // Resolve the build command:
   // - undefined → auto-detect from lockfile (AC1, AC4, AC5)
@@ -978,6 +1023,19 @@ export function runBuildVerification(options: {
   // AC6: skip if explicitly disabled (false or empty string)
   if (!cmd) {
     return { status: 'skipped' }
+  }
+
+  // Scope turbo builds to only affected packages when changedFiles are available.
+  // This prevents cascading build failures from other concurrent stories.
+  if (changedFiles && changedFiles.length > 0 && typeof cmd === 'string' && cmd.includes('turbo')) {
+    const filters = deriveTurboFilters(changedFiles, projectRoot)
+    if (filters.length > 0) {
+      cmd = `${cmd} ${filters.join(' ')}`
+      logger.info(
+        { filters, originalCmd: options.verifyCommand ?? '(auto-detected)' },
+        'Build verification: scoped turbo build to affected packages',
+      )
+    }
   }
 
   const timeoutMs = verifyTimeoutMs ?? DEFAULT_VERIFY_TIMEOUT_MS
