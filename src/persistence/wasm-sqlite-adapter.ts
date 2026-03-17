@@ -172,9 +172,14 @@ export class SyncDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
     this._db = db
   }
 
+  /** Normalize MySQL/Dolt-flavored SQL to SQLite equivalents */
+  private _normalizeSql(sql: string): string {
+    return sql.replace(/\bAUTO_INCREMENT\b/g, 'AUTOINCREMENT')
+  }
+
   // Synchronous query path (implements SyncAdapter)
   querySync<T = unknown>(sql: string, params?: unknown[]): T[] {
-    const stmt = this._db.prepare(sql)
+    const stmt = this._db.prepare(this._normalizeSql(sql))
     if (stmt.reader) {
       return (params && params.length > 0 ? stmt.all(...params) : stmt.all()) as T[]
     }
@@ -188,7 +193,7 @@ export class SyncDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
 
   // Synchronous exec path (implements SyncAdapter)
   execSync(sql: string): void {
-    this._db.exec(sql)
+    this._db.exec(this._normalizeSql(sql))
   }
 
   async query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {

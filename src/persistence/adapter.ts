@@ -10,12 +10,14 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { createRequire } from 'node:module'
 
 import { createLogger } from '../utils/logger.js'
 import { DoltDatabaseAdapter } from './dolt-adapter.js'
 import { InMemoryDatabaseAdapter } from './memory-adapter.js'
+import { SyncDatabaseAdapter } from './wasm-sqlite-adapter.js'
 import { DoltClient } from '../modules/state/dolt-client.js'
 
 const logger = createLogger('persistence:adapter')
@@ -154,13 +156,36 @@ export function createDatabaseAdapter(config: DatabaseAdapterConfig = { backend:
     return new InMemoryDatabaseAdapter()
   }
 
-  // 'auto': probe for Dolt, fall back to in-memory
+  // 'auto': probe for Dolt, then try file-backed SQLite, fall back to in-memory
   if (isDoltAvailable(basePath)) {
     logger.debug('Dolt detected, using DoltDatabaseAdapter')
     const client = new DoltClient({ repoPath: doltRepoPath })
     return new DoltDatabaseAdapter(client)
   }
 
-  logger.debug('Dolt not available, using InMemoryDatabaseAdapter')
-  return new InMemoryDatabaseAdapter()
+  // Try file-backed SQLite via better-sqlite3 (native C++ addon).
+  // better-sqlite3's Database implements prepare/exec which matches
+  // the SyncDatabaseLike interface used by SyncDatabaseAdapter.
+  const sqliteDbPath = join(basePath, '.substrate', 'substrate.db')
+  try {
+    const require = createRequire(import.meta.url)
+    const BetterSqlite3 = require('better-sqlite3') as new (path: string) => {
+      pragma(stmt: string): void
+      prepare(sql: string): { reader: boolean; all(...params: unknown[]): unknown[]; run(...params: unknown[]): unknown }
+      exec(sql: string): void
+      close(): void
+    }
+    const substrateDir = join(basePath, '.substrate')
+    if (!existsSync(substrateDir)) {
+      mkdirSync(substrateDir, { recursive: true })
+    }
+    const db = new BetterSqlite3(sqliteDbPath)
+    db.pragma('journal_mode = WAL')
+    db.pragma('foreign_keys = ON')
+    logger.debug({ path: sqliteDbPath }, 'Using file-backed SQLite via better-sqlite3')
+    return new SyncDatabaseAdapter(db)
+  } catch (err) {
+    logger.debug({ err }, 'better-sqlite3 not available, using InMemoryDatabaseAdapter')
+    return new InMemoryDatabaseAdapter()
+  }
 }
