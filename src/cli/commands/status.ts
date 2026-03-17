@@ -164,6 +164,24 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
     }
 
     if (run === undefined) {
+      // Check if a process is alive even without a DB run record
+      const { inspectProcessTree } = await import('./health.js')
+      const substrateDirPath = join(projectRoot, '.substrate')
+      const processInfo = inspectProcessTree({ projectRoot, substrateDirPath })
+      if (processInfo.orchestrator_pid !== null) {
+        const syntheticStatus = {
+          status: 'running' as const,
+          message: 'Pipeline process detected (no DB state available)',
+          process: processInfo,
+        }
+        if (outputFormat === 'json') {
+          process.stdout.write(formatOutput(syntheticStatus, 'json', true) + '\n')
+        } else {
+          process.stdout.write(`Pipeline is running (PID ${processInfo.orchestrator_pid}) but no DB state available.\n`)
+        }
+        return 0
+      }
+
       const errorMsg =
         runId !== undefined
           ? `Pipeline run '${runId}' not found.`

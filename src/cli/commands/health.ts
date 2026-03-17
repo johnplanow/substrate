@@ -117,11 +117,12 @@ export function isOrchestratorProcessLine(line: string, projectRoot?: string): b
   else if (line.includes('index.js run')) isOrchestrator = true
   // Match node processes where 'run' is a complete argument token (not a substring
   // of another word like 'dry-run-tool'). Require whitespace before 'run' and
-  // whitespace or end-of-string after 'run'.
+  // whitespace or end-of-string after 'run'. Also match processes with substrate
+  // CLI path patterns (dist/cli/index.js, substrate-ai).
   else if (
     line.includes('node') &&
     /\srun(\s|$)/.test(line) &&
-    (line.includes('--events') || line.includes('--stories'))
+    (line.includes('substrate') || line.includes('--events') || line.includes('--stories'))
   ) {
     isOrchestrator = true
   }
@@ -412,6 +413,24 @@ export async function getAutoHealthData(options: {
     }
 
     if (run === undefined) {
+      // No DB run record — but check if a process is alive anyway.
+      // The pipeline may not write to the DB (e.g., cross-project runs with
+      // adapter issues) while still actively running.
+      const substrateDirPath = join(dbRoot, '.substrate')
+      const fallbackProcessInfo = inspectProcessTree({ projectRoot: dbRoot, substrateDirPath })
+      if (fallbackProcessInfo.orchestrator_pid !== null) {
+        return {
+          verdict: 'HEALTHY',
+          run_id: null,
+          status: 'running',
+          current_phase: 'implementation',
+          staleness_seconds: 0,
+          last_activity: new Date().toISOString(),
+          process: fallbackProcessInfo,
+          stories: { active: 0, completed: 0, escalated: 0, details: {} },
+          ...(doltStateInfo !== undefined ? { dolt_state: doltStateInfo } : {}),
+        }
+      }
       return NO_PIPELINE
     }
 
