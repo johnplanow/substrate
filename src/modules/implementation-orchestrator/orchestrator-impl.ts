@@ -2479,10 +2479,14 @@ export function createImplementationOrchestrator(
       enqueue()
     }
 
-    // Drain remaining groups: wait for one to finish, then start another
+    // Drain remaining groups: wait for one to finish, then fill all open slots
     while (queue.length > 0) {
       await Promise.race(running)
-      enqueue()
+      // Fill ALL available concurrency slots (not just one) — multiple stories
+      // may have completed near-simultaneously, each freeing a slot.
+      while (running.length < maxConcurrency && queue.length > 0) {
+        enqueue()
+      }
     }
 
     // Wait for all remaining
