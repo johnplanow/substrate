@@ -46,6 +46,8 @@ import type {
 import { addTokenUsage } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 import { seedMethodologyContext } from './seed-methodology-context.js'
+import { capturePackageSnapshot, detectPackageChanges, restorePackageSnapshot } from './package-snapshot.js'
+import type { PackageSnapshotData } from './package-snapshot.js'
 import { sleep } from '../../utils/helpers.js'
 import { runBuildVerification, checkGitDiffFiles } from '../agent-dispatch/dispatcher-impl.js'
 import { detectInterfaceChanges } from '../agent-dispatch/interface-change-detector.js'
@@ -396,6 +398,9 @@ export function createImplementationOrchestrator(
 
   // -- actual peak concurrency observed during runWithConcurrency --
   let _maxConcurrentActual = 0
+
+  // -- package snapshot for node_modules protection (set in run(), used in processStory) --
+  let _packageSnapshot: PackageSnapshotData | undefined
 
   // -- post-sprint contract verification mismatches (Story 25-6) --
   let _contractMismatches: ContractMismatch[] | undefined
@@ -1553,8 +1558,40 @@ export function createImplementationOrchestrator(
         const truncatedOutput = (buildVerifyResult.output ?? '').slice(0, 2000)
         const reason = buildVerifyResult.reason ?? 'build-verification-failed'
 
-        // -- build-fix retry: attempt to auto-fix missing npm packages before escalating --
+        // -- package snapshot restore: detect cross-story node_modules pollution --
         let retryPassed = false
+
+        if (_packageSnapshot !== undefined && buildVerifyResult.status !== 'timeout') {
+          const resolvedRoot = projectRoot ?? process.cwd()
+          const hasChanges = detectPackageChanges(_packageSnapshot, resolvedRoot)
+          if (hasChanges) {
+            logger.warn({ storyKey }, 'Package files changed since snapshot — restoring to prevent cascade')
+            const restoreResult = restorePackageSnapshot(_packageSnapshot, { projectRoot: resolvedRoot })
+            if (restoreResult.restored) {
+              const retryAfterRestore = runBuildVerification({
+                verifyCommand: pack.manifest.verifyCommand,
+                verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
+                projectRoot: resolvedRoot,
+                changedFiles: gitDiffFiles,
+              })
+              if (retryAfterRestore.status === 'passed') {
+                retryPassed = true
+                eventBus.emit('story:build-verification-passed', { storyKey })
+                logger.warn(
+                  { storyKey, filesRestored: restoreResult.filesRestored },
+                  'Build passed after package snapshot restore — cross-story pollution detected and cleaned',
+                )
+              } else {
+                logger.warn(
+                  { storyKey, filesRestored: restoreResult.filesRestored },
+                  'Build still fails after snapshot restore — story has its own build errors',
+                )
+              }
+            }
+          }
+        }
+
+        // -- build-fix retry: attempt to auto-fix missing npm packages before escalating --
         const fullOutput = buildVerifyResult.output ?? ''
         const missingPkgMatch = fullOutput.match(
           /Cannot find (?:module|package) ['"]([^'"]+)['"]/
@@ -2732,6 +2769,23 @@ export function createImplementationOrchestrator(
 
       // Log startup timing breakdown for latency profiling (Fix 5)
       logger.info(_startupTimings, 'Orchestrator startup timings (ms)')
+
+      // Package snapshot for concurrent-story node_modules protection.
+      // When concurrency > 1, snapshot all package.json/lockfiles before dispatching
+      // so we can restore if a story pollutes node_modules with bad transitive deps.
+      const totalGroups = batches.reduce((sum, b) => sum + b.length, 0)
+      const actualConcurrency = Math.min(config.maxConcurrency, totalGroups)
+      if (actualConcurrency > 1 && projectRoot !== undefined) {
+        try {
+          _packageSnapshot = capturePackageSnapshot({ projectRoot })
+          logger.info(
+            { fileCount: _packageSnapshot.files.size, installCommand: _packageSnapshot.installCommand },
+            'Package snapshot captured for concurrent story protection',
+          )
+        } catch (snapErr) {
+          logger.warn({ err: snapErr }, 'Failed to capture package snapshot — continuing without protection')
+        }
+      }
 
       try {
         // Story 25-5: Run batches sequentially (contract ordering), groups within each batch in parallel.

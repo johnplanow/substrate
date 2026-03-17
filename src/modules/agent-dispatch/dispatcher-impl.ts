@@ -1179,6 +1179,23 @@ export function checkGitDiffFiles(workingDir: string = process.cwd()): string[] 
     // staged diff failed — continue with whatever we have
   }
 
+  // Also capture untracked files (new files created by dev agent that aren't in git yet)
+  try {
+    const untracked = execSync('git ls-files --others --exclude-standard', {
+      cwd: workingDir,
+      encoding: 'utf-8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    untracked
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .forEach((f) => results.add(f))
+  } catch {
+    // untracked listing failed — continue with whatever we have
+  }
+
   return Array.from(results)
 }
 
