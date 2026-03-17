@@ -273,15 +273,18 @@ describe('validateStoryKey', () => {
     expect(validateStoryKey('1-1a')).toBe(true)
     expect(validateStoryKey('NEW-26')).toBe(true)
     expect(validateStoryKey('E5-accessibility')).toBe(true)
+    expect(validateStoryKey('E6')).toBe(true)
+    expect(validateStoryKey('E7')).toBe(true)
+    expect(validateStoryKey('abc')).toBe(true)
   })
 
   it('rejects invalid story keys', () => {
-    expect(validateStoryKey('abc')).toBe(false)
-    expect(validateStoryKey('10')).toBe(false)
     expect(validateStoryKey('10-1-extra')).toBe(false)
     expect(validateStoryKey('')).toBe(false)
     expect(validateStoryKey('10-')).toBe(false)
     expect(validateStoryKey('-10')).toBe(false)
+    expect(validateStoryKey('bad!key')).toBe(false)
+    expect(validateStoryKey('has space')).toBe(false)
   })
 })
 
@@ -761,7 +764,7 @@ describe('runRunAction', () => {
 
     const exitCode = await runRunAction({
       pack: 'bmad',
-      stories: 'abc',
+      stories: 'bad!key',
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
@@ -770,7 +773,7 @@ describe('runRunAction', () => {
 
     expect(exitCode).toBe(1)
     expect(stderrWrite).toHaveBeenCalledWith(
-      expect.stringContaining("Story key 'abc' is not a valid format"),
+      expect.stringContaining("Story key 'bad!key' is not a valid format"),
     )
     stderrWrite.mockRestore()
   })

@@ -297,7 +297,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
     for (const key of parsedStoryKeys) {
       if (!validateStoryKey(key)) {
-        const errorMsg = `Story key '${key}' is not a valid format. Expected: <epic>-<story> (e.g., 10-1, 1-1a, NEW-26)`
+        const errorMsg = `Story key '${key}' is not a valid format. Expected: <key> or <epic>-<story> (e.g., E6, 10-1, 1-1a, NEW-26)`
         if (outputFormat === 'json') {
           process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
         } else {

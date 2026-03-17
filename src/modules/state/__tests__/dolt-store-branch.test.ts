@@ -457,17 +457,18 @@ describe('Story key validation', () => {
     await expect(store.rollbackStory('26/7')).rejects.toThrow('Invalid story key')
   })
 
-  it('diffStory rejects story key without dash separator', async () => {
+  it('diffStory rejects story key with special characters', async () => {
     const store = makeStore(makeMockClient())
-    await expect(store.diffStory('nodash')).rejects.toThrow('Invalid story key')
+    await expect(store.diffStory('bad!key')).rejects.toThrow('Invalid story key')
   })
 
-  it('diffStory accepts alphanumeric story keys like abc-def, 1-1a, NEW-26', async () => {
+  it('diffStory accepts alphanumeric story keys like abc-def, 1-1a, NEW-26, E6', async () => {
     const store = makeStore(makeMockClient())
-    // These should not throw validation — abc-def is now a valid key format
+    // These should not throw validation — single-segment and hyphenated keys are valid
     await expect(store.diffStory('abc-def')).resolves.toBeDefined()
     await expect(store.diffStory('1-1a')).resolves.toBeDefined()
     await expect(store.diffStory('NEW-26')).resolves.toBeDefined()
+    await expect(store.diffStory('E6')).resolves.toBeDefined()
   })
 
   it('accepts valid story keys like 26-7, 1-1, 100-999', async () => {
