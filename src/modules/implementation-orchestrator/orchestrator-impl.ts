@@ -2725,11 +2725,15 @@ export function createImplementationOrchestrator(
         groupCount: batches.reduce((sum, b) => sum + b.length, 0),
         batchCount: batches.length,
         maxConcurrency: config.maxConcurrency,
+        batchStructure: batches.map((batch, i) => ({
+          batch: i,
+          groups: batch.map((g) => g.join(',')),
+        })),
       }, 'Orchestrator starting')
 
       logger.info(
         { storyCount: storyKeys.length, conflictGroups: batches.length, maxConcurrency: config.maxConcurrency },
-        `Story dispatch plan: ${storyKeys.length} stories in ${batches.length} conflict groups (max concurrency: ${config.maxConcurrency})`,
+        `Story dispatch plan: ${storyKeys.length} stories in ${batches.reduce((s, b) => s + b.length, 0)} groups across ${batches.length} batches (max concurrency: ${config.maxConcurrency})`,
       )
 
       if (config.skipPreflight !== true) {
