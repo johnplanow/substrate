@@ -222,8 +222,9 @@ describe('checkGitDiffFiles()', () => {
   })
 
   it('returns file list from git diff --name-only HEAD (unstaged changes)', () => {
-    // First call (unstaged), second call (staged) returns empty
+    // hasCommits() call, then unstaged, then staged returns empty
     mockExecSync
+      .mockReturnValueOnce('abc123\n')
       .mockReturnValueOnce('src/foo.ts\nsrc/bar.ts\n')
       .mockReturnValueOnce('')
 
@@ -234,8 +235,9 @@ describe('checkGitDiffFiles()', () => {
   })
 
   it('returns file list from git diff --cached --name-only (staged changes only)', () => {
-    // First call (unstaged) returns empty, second call (staged) returns files
+    // hasCommits(), then unstaged returns empty, then staged returns files
     mockExecSync
+      .mockReturnValueOnce('abc123\n')
       .mockReturnValueOnce('')
       .mockReturnValueOnce('src/staged.ts\n')
 
@@ -245,8 +247,9 @@ describe('checkGitDiffFiles()', () => {
   })
 
   it('deduplicates files that appear in both unstaged and staged diffs', () => {
-    // Same file appears in both HEAD diff and cached diff
+    // hasCommits(), then same file appears in both HEAD diff and cached diff
     mockExecSync
+      .mockReturnValueOnce('abc123\n')
       .mockReturnValueOnce('src/foo.ts\n')
       .mockReturnValueOnce('src/foo.ts\nsrc/bar.ts\n')
 
@@ -259,7 +262,9 @@ describe('checkGitDiffFiles()', () => {
   })
 
   it('returns empty array when neither diff has changes (zero-diff)', () => {
+    // hasCommits(), then both diffs return empty
     mockExecSync
+      .mockReturnValueOnce('abc123\n')
       .mockReturnValueOnce('')
       .mockReturnValueOnce('')
 
@@ -269,8 +274,9 @@ describe('checkGitDiffFiles()', () => {
   })
 
   it('handles git command failure gracefully and returns empty array', () => {
-    // Both calls throw (e.g., not a git repo)
+    // hasCommits() throws (not a git repo), then both diff calls also throw
     mockExecSync
+      .mockImplementationOnce(() => { throw new Error('not a git repository') })
       .mockImplementationOnce(() => { throw new Error('not a git repository') })
       .mockImplementationOnce(() => { throw new Error('not a git repository') })
 
@@ -363,8 +369,9 @@ describe('orchestrator: zero-diff detection gate', () => {
     mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('24-1'))
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
-    // First call (HEAD diff) returns empty, second call (staged) returns files
+    // hasCommits() succeeds, HEAD diff returns empty, staged returns files
     mockExecSync
+      .mockReturnValueOnce('abc123\n')
       .mockReturnValueOnce('')
       .mockReturnValueOnce('src/staged-change.ts\n')
 
