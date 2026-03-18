@@ -1018,8 +1018,12 @@ export async function runInitAction(options: InitOptions): Promise<number> {
             process.stderr.write(`✗ Dolt initialization failed: ${msg}\n`)
             return INIT_EXIT_ERROR
           }
-          // auto mode: warn but don't fail
-          logger.warn({ error: msg }, 'Dolt auto-init failed (non-blocking)')
+          // auto mode: print clearly so users know state persistence is broken
+          process.stderr.write(
+            `⚠  Dolt state store initialization failed: ${msg}\n` +
+            `   Pipeline metrics, cost tracking, and health monitoring will not persist.\n` +
+            `   Fix the issue and re-run: substrate init --dolt\n`,
+          )
         }
       }
     } else {

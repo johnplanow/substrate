@@ -135,6 +135,56 @@ export async function runDoltCommand(args: string[], cwd: string): Promise<void>
   })
 }
 
+/**
+ * Ensure that Dolt has a global user identity configured.
+ * `dolt init` and `dolt commit` fail with "empty ident name not allowed"
+ * when no identity exists. This function checks for an existing identity
+ * and configures a default one if absent.
+ */
+async function ensureDoltIdentity(): Promise<void> {
+  const hasIdentity = await doltConfigGet('user.name')
+  if (hasIdentity) return
+
+  // Configure a default identity for substrate state commits
+  await runDoltConfigSet('user.name', 'substrate')
+  await runDoltConfigSet('user.email', 'substrate@localhost')
+}
+
+/**
+ * Check if a Dolt global config key has a value set.
+ */
+async function doltConfigGet(key: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const child = spawn('dolt', ['config', '--global', '--get', key], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+    })
+    child.on('error', () => resolve(false))
+    child.on('close', (code) => resolve(code === 0))
+  })
+}
+
+/**
+ * Set a Dolt global config value.
+ */
+async function runDoltConfigSet(key: string, value: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn('dolt', ['config', '--global', '--add', key, value], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+    const stderrChunks: Buffer[] = []
+    child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk))
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve()
+      } else {
+        const stderr = Buffer.concat(stderrChunks).toString('utf8').trim()
+        reject(new DoltInitError(['config', '--global', '--add', key, value], code ?? -1, stderr))
+      }
+    })
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -165,7 +215,12 @@ export async function initializeDolt(config: DoltInitConfig): Promise<void> {
   // 2. Create the state directory (recursive — idempotent)
   await mkdir(statePath, { recursive: true })
 
-  // 3. Initialize Dolt repo only if .dolt/ does not already exist
+  // 3. Ensure Dolt has a user identity configured (required for `dolt init`
+  //    and `dolt commit`). If no global identity exists, configure one
+  //    automatically so init doesn't fail with "empty ident name not allowed".
+  await ensureDoltIdentity()
+
+  // 4. Initialize Dolt repo only if .dolt/ does not already exist
   const doltDir = join(statePath, '.dolt')
   let doltDirExists = false
   try {
@@ -179,10 +234,10 @@ export async function initializeDolt(config: DoltInitConfig): Promise<void> {
     await runDoltCommand(['init'], statePath)
   }
 
-  // 4. Apply the DDL (idempotent via IF NOT EXISTS / INSERT IGNORE)
+  // 5. Apply the DDL (idempotent via IF NOT EXISTS / INSERT IGNORE)
   await runDoltCommand(['sql', '-f', schemaPath], statePath)
 
-  // 5. Create the initial commit only if no commits exist yet
+  // 6. Create the initial commit only if no commits exist yet
   let hasCommits = false
   try {
     await runDoltCommand(['log', '--oneline'], statePath)
