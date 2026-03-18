@@ -47,6 +47,8 @@ Implement the story above completely. Follow tasks in exact order. Do not stop u
    - Update the story File List with all new/modified files
 
 4. **After all tasks complete**:
+   - Run the project build to verify type checking: `{{verify_command}}`
+   - Fix any type errors or compilation failures before proceeding
    - Run the full test suite one final time
    - Update story Status to `review`
 

@@ -290,6 +290,7 @@ export async function runDevStory(
     { name: 'test_patterns', content: testPatternsContent, priority: 'optional' },
     { name: 'test_plan', content: testPlanContent, priority: 'optional' },
     { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' },
+    { name: 'verify_command', content: deps.pack.manifest.verifyCommand !== false ? (deps.pack.manifest.verifyCommand ?? 'npx turbo build') : '', priority: 'optional' },
   ]
 
   const { prompt, tokenCount, truncated } = assemblePrompt(template, sections, TOKEN_CEILING)

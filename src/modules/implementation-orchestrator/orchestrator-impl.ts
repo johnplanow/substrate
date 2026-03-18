@@ -1654,31 +1654,101 @@ export function createImplementationOrchestrator(
         }
 
         if (!retryPassed) {
-          eventBus.emit('story:build-verification-failed', {
-            storyKey,
-            exitCode: buildVerifyResult.exitCode ?? 1,
-            output: truncatedOutput,
-          })
+          // -- build-fix dispatch: attempt agent-driven fix before escalating --
+          // Mirrors the code-review fix cycle: dispatch a focused fix agent with
+          // the build error output, then re-verify. Only for type/compile errors
+          // (not timeouts or missing build scripts).
+          let buildFixPassed = false
+          if (
+            buildVerifyResult.status === 'failed' &&
+            storyFilePath !== undefined
+          ) {
+            try {
+              logger.info({ storyKey }, 'Dispatching build-fix agent')
+              startPhase(storyKey, 'build-fix')
 
-          logger.warn(
-            { storyKey, reason, exitCode: buildVerifyResult.exitCode },
-            'Build verification failed — escalating story',
-          )
+              const storyContent = await readFile(storyFilePath, 'utf-8')
+              let buildFixTemplate: string
+              try {
+                buildFixTemplate = await pack.getPrompt('build-fix')
+              } catch {
+                buildFixTemplate = [
+                  '## Build Error Output\n{{build_errors}}',
+                  '## Story File Content\n{{story_content}}',
+                  '---',
+                  'Fix the build errors above. Make minimal changes. Run the build to verify.',
+                ].join('\n\n')
+              }
 
-          updateStory(storyKey, {
-            phase: 'ESCALATED' as StoryPhase,
-            error: reason,
-            completedAt: new Date().toISOString(),
-          })
-          await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
-          await emitEscalation({
-            storyKey,
-            lastVerdict: reason,
-            reviewCycles: 0,
-            issues: [truncatedOutput],
-          })
-          await persistState()
-          return
+              const buildFixPrompt = buildFixTemplate
+                .replace('{{build_errors}}', truncatedOutput)
+                .replace('{{story_content}}', storyContent.slice(0, 4000))
+
+              incrementDispatches(storyKey)
+              const fixHandle = dispatcher.dispatch<unknown>({
+                prompt: buildFixPrompt,
+                agent: 'claude-code',
+                taskType: 'build-fix',
+                maxTurns: 15,
+                workingDirectory: projectRoot ?? process.cwd(),
+                ...(config.perStoryContextCeilings?.[storyKey] !== undefined
+                  ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
+                  : {}),
+                ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
+              })
+
+              await fixHandle.result
+
+              endPhase(storyKey, 'build-fix')
+
+              // Re-verify build after fix
+              const retryAfterFix = runBuildVerification({
+                verifyCommand: pack.manifest.verifyCommand,
+                verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
+                projectRoot: projectRoot ?? process.cwd(),
+                changedFiles: gitDiffFiles,
+              })
+
+              if (retryAfterFix.status === 'passed') {
+                buildFixPassed = true
+                eventBus.emit('story:build-verification-passed', { storyKey })
+                logger.info({ storyKey }, 'Build passed after build-fix dispatch')
+              } else {
+                logger.warn({ storyKey }, 'Build still fails after build-fix dispatch — escalating')
+              }
+            } catch (fixErr) {
+              const fixMsg = fixErr instanceof Error ? fixErr.message : String(fixErr)
+              logger.warn({ storyKey, error: fixMsg }, 'Build-fix dispatch failed — escalating')
+            }
+          }
+
+          if (!buildFixPassed) {
+            eventBus.emit('story:build-verification-failed', {
+              storyKey,
+              exitCode: buildVerifyResult.exitCode ?? 1,
+              output: truncatedOutput,
+            })
+
+            logger.warn(
+              { storyKey, reason, exitCode: buildVerifyResult.exitCode },
+              'Build verification failed — escalating story',
+            )
+
+            updateStory(storyKey, {
+              phase: 'ESCALATED' as StoryPhase,
+              error: reason,
+              completedAt: new Date().toISOString(),
+            })
+            await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+            await emitEscalation({
+              storyKey,
+              lastVerdict: reason,
+              reviewCycles: 0,
+              issues: [truncatedOutput],
+            })
+            await persistState()
+            return
+          }
         }
       }
       // status === 'skipped': gate disabled — proceed directly to code-review
