@@ -26,7 +26,7 @@ const logger = createLogger('persistence:adapter')
 
 /**
  * Optional synchronous query extension for adapters backed by synchronous engines
- * (e.g., WasmSqliteDatabaseAdapter). Consumers that require a synchronous
+ * (e.g., InMemoryDatabaseAdapter). Consumers that require a synchronous
  * interface (like MonitorDatabaseImpl) use this to avoid async cascades.
  */
 export interface SyncAdapter {
@@ -82,7 +82,7 @@ export interface DatabaseAdapter {
    * Returns `[]` when:
    *   - The `ready_stories` view does not exist (story 31-1 schema not applied)
    *   - The `stories` table is empty (story 31-2 ingestion has not run)
-   *   - The adapter does not support the work graph (InMemory, WasmSqlite)
+   *   - The adapter does not support the work graph (InMemory)
    *
    * Callers should treat `[]` as a signal to fall through to the legacy
    * story discovery chain (decisions table → epic-shard → epics.md).

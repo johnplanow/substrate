@@ -38,21 +38,21 @@ import {
   formatDeltaDocument,
 } from '../../src/modules/delta-document/index.js'
 import { runPostPhaseSupersessionDetection } from '../../src/cli/commands/amend.js'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../src/persistence/memory-adapter.js'
 import { initSchema } from '../../src/persistence/schema.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function openMigratedDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter }> {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function openMigratedDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return { adapter }
 }
 
 function insertRun(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   id: string,
   status: string = 'completed',
   parentRunId: string | null = null,
@@ -64,7 +64,7 @@ function insertRun(
 }
 
 function insertDecision(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   id: string,
   runId: string,
   overrides: {
@@ -93,7 +93,7 @@ function insertDecision(
 // ---------------------------------------------------------------------------
 
 describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 12-10)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
@@ -298,7 +298,7 @@ describe('Supersession Detection → Delta Document Integration (Stories 12-9 + 
 // ---------------------------------------------------------------------------
 
 describe('Context Handler → Delta Document: handler feeds generateDeltaDocument correctly', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
@@ -424,7 +424,7 @@ describe('Context Handler → Delta Document: handler feeds generateDeltaDocumen
 // ---------------------------------------------------------------------------
 
 describe('Full Amendment Pipeline: amendment run → delta doc → validation', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
@@ -549,7 +549,7 @@ describe('Full Amendment Pipeline: amendment run → delta doc → validation', 
 // ---------------------------------------------------------------------------
 
 describe('formatDeltaDocument: Markdown output is well-formed with real DB data', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
@@ -717,7 +717,7 @@ describe('formatDeltaDocument: Markdown output is well-formed with real DB data'
 // ---------------------------------------------------------------------------
 
 describe('runPostPhaseSupersessionDetection: real DB + handler state integration', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()

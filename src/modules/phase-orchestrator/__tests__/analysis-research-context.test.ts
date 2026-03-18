@@ -19,11 +19,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
 import { z } from 'zod'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
@@ -41,11 +38,10 @@ import type { Dispatcher, DispatchResult } from '../../agent-dispatch/types.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'analysis-research-context-'))
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
-  return { adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -192,20 +188,17 @@ function buildVisionStepWithResearch(): StepDefinition {
 // ---------------------------------------------------------------------------
 
 describe('resolveContext() — decision: source with no matching entries (Task 3)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('returns empty string when decision store has no entries for the specified phase+category', async () => {
@@ -260,20 +253,17 @@ describe('resolveContext() — decision: source with no matching entries (Task 3
 // ---------------------------------------------------------------------------
 
 describe('analysis-step-1-vision — research-enabled path (Task 4)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('assembled prompt contains seeded research findings when decision store is populated', async () => {
@@ -377,20 +367,17 @@ describe('analysis-step-1-vision — research-enabled path (Task 4)', () => {
 // ---------------------------------------------------------------------------
 
 describe('analysis-step-1-vision — research-disabled path (Task 5)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('assembled prompt does NOT contain research finding strings when no findings in store', async () => {

@@ -14,13 +14,13 @@
  *  - updateAggregates(): updates last_updated timestamp (AC7)
  *  - performance_aggregates schema has all required columns (AC7)
  *
- * Uses WASM SQLite (sql.js) via WasmSqliteDatabaseAdapter for no-native-deps testing.
+ * Uses InMemoryDatabaseAdapter for no-native-deps testing.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { MonitorDatabaseImpl } from '../monitor-database.js'
 import type { DatabaseAdapter } from '../adapter.js'
-import { createWasmSqliteAdapter } from '../wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../memory-adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,7 +60,7 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
   let db: MonitorDatabaseImpl
 
   beforeEach(async () => {
-    adapter = await createWasmSqliteAdapter()
+    adapter = new InMemoryDatabaseAdapter()
     db = new MonitorDatabaseImpl(adapter)
   })
 

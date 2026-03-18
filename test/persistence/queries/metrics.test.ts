@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { createWasmSqliteAdapter } from '../../../src/persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../src/persistence/memory-adapter.js'
 import type { DatabaseAdapter } from '../../../src/persistence/adapter.js'
 import { initSchema } from '../../../src/persistence/schema.js'
 import {
@@ -23,7 +23,7 @@ import {
 } from '../../../src/persistence/queries/metrics.js'
 
 async function openMemoryDb(): Promise<{ adapter: DatabaseAdapter }> {
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return { adapter }
 }

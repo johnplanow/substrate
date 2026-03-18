@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createDecision, getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
@@ -20,7 +20,7 @@ describe('AC6: metrics command includes story-level data from decisions', () => 
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
-    adapter = await createWasmSqliteAdapter()
+    adapter = new InMemoryDatabaseAdapter()
     await initSchema(adapter)
   })
 

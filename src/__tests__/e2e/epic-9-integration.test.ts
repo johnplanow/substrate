@@ -24,7 +24,7 @@ import {
   createConstraint,
   createPipelineRun,
 } from '../../persistence/queries/decisions.js'
-import { createWasmSqliteAdapter } from '../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../persistence/memory-adapter.js'
 import type { DatabaseAdapter } from '../../persistence/adapter.js'
 
 // Context Compiler (9-2)
@@ -58,7 +58,7 @@ import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 // ---------------------------------------------------------------------------
 
 async function openDb(): Promise<{ adapter: DatabaseAdapter }> {
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return { adapter }
 }

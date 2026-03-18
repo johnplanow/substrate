@@ -6,9 +6,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
 import { z } from 'zod'
 import { initSchema } from '../../../persistence/schema.js'
 import {
@@ -22,18 +19,17 @@ import type { PhaseDeps } from '../phases/types.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchResult } from '../../agent-dispatch/types.js'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'critique-integration-test-'))
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
-  return { adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -129,20 +125,17 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('critique loop integration with step-runner', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('runs critique loop when step has critique: true (AC1)', async () => {

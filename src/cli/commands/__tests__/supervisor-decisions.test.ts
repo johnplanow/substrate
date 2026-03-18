@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { createDecision, getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { OPERATIONAL_FINDING } from '../../../persistence/schemas/operational.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
@@ -46,8 +46,8 @@ vi.mock('../../../utils/git-root.js', () => ({
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function openTestDb(): Promise<WasmSqliteDatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function openTestDb(): Promise<InMemoryDatabaseAdapter> {
+  const adapter = new InMemoryDatabaseAdapter()
   const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
   await realInitSchema(adapter)
   return adapter
@@ -77,7 +77,7 @@ function makeHealthStalled(overrides?: Partial<PipelineHealthOutput>): PipelineH
 // ---------------------------------------------------------------------------
 
 describe('AC1: Supervisor writes stall findings to decision store', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openTestDb()
@@ -232,7 +232,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC2: Supervisor run-level summary to decision store', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openTestDb()
@@ -339,7 +339,7 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
   let runId: string
   let stdoutChunks: string[]
   let writeSpy: ReturnType<typeof vi.spyOn>
-  let smokeAdapter: WasmSqliteDatabaseAdapter
+  let smokeAdapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     tempProjectRoot = join(tmpdir(), `substrate-supervisor-smoke-${randomUUID()}`)
@@ -350,7 +350,7 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
     dbPath = join(substrateDir, 'substrate.db')
     writeFileSync(dbPath, '')
 
-    smokeAdapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+    smokeAdapter = new InMemoryDatabaseAdapter()
     const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
     await realInitSchema(smokeAdapter)
     const run = await createPipelineRun(smokeAdapter, { methodology: 'bmad' })

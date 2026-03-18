@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
@@ -23,7 +23,7 @@ import { getAutoHealthData } from '../health.js'
 // ---------------------------------------------------------------------------
 
 async function createTestDb(): Promise<DatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return adapter
 }

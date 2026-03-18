@@ -29,7 +29,7 @@ import {
 } from '../../src/modules/stop-after/index.js'
 import type { PhaseName } from '../../src/modules/stop-after/index.js'
 import { createPhaseOrchestrator } from '../../src/modules/phase-orchestrator/index.js'
-import { createWasmSqliteAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../src/persistence/memory-adapter.js'
 import { initSchema } from '../../src/persistence/schema.js'
 import type { DatabaseAdapter } from '../../src/persistence/adapter.js'
 
@@ -38,7 +38,7 @@ import type { DatabaseAdapter } from '../../src/persistence/adapter.js'
 // ---------------------------------------------------------------------------
 
 async function createTestDb(): Promise<{ adapter: DatabaseAdapter }> {
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return { adapter }
 }

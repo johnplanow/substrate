@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
@@ -24,14 +24,14 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<WasmSqliteDatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<InMemoryDatabaseAdapter> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return adapter
 }
 
 async function createTestRun(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   overrides: { token_usage_json?: string | null; config_json?: string | null } = {},
 ): Promise<PipelineRun> {
   const run = await createPipelineRun(adapter, {
@@ -69,7 +69,7 @@ function makeStoryState(
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC5+AC6: state deserialization', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   afterEach(async () => {
     await adapter.close()
@@ -134,7 +134,7 @@ describe('buildPipelineStatusOutput — AC5+AC6: state deserialization', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC1: per-story details', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   afterEach(async () => {
     await adapter.close()
@@ -195,7 +195,7 @@ describe('buildPipelineStatusOutput — AC1: per-story details', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   afterEach(async () => {
     await adapter.close()
@@ -309,7 +309,7 @@ describe('buildPipelineStatusOutput — AC2: sprint progress counts', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   afterEach(async () => {
     await adapter.close()
@@ -387,7 +387,7 @@ describe('buildPipelineStatusOutput — AC3: elapsed_seconds', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   afterEach(async () => {
     await adapter.close()
@@ -553,7 +553,7 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelineStatusOutput — active_dispatches backward compatibility', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   afterEach(async () => {
     await adapter.close()

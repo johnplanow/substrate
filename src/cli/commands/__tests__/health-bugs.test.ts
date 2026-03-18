@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
@@ -23,7 +23,7 @@ import type { PipelineHealthOutput } from '../health.js'
 // ---------------------------------------------------------------------------
 
 async function createTestDb(): Promise<DatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
   await realInitSchema(adapter)
   return adapter

@@ -6,10 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { registerArtifact, createPipelineRun } from '../../../persistence/queries/decisions.js'
@@ -29,11 +26,10 @@ import type { MethodologyPack } from '../../methodology-pack/types.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'built-in-phases-test-'))
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
-  return { adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -61,20 +57,17 @@ async function registerArtifactForRun(
 // ---------------------------------------------------------------------------
 
 describe('Built-in Phase Definitions', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const result = await createTestDb()
     adapter = result.adapter
-    tmpDir = result.tmpDir
     runId = await createTestRun(adapter)
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   // -------------------------------------------------------------------------
@@ -407,20 +400,17 @@ describe('createBuiltInPhases - conditional UX design registration (T8)', () => 
 })
 
 describe('createUxDesignPhaseDefinition (T8)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const result = await createTestDb()
     adapter = result.adapter
-    tmpDir = result.tmpDir
     runId = await createTestRun(adapter)
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('has name "ux-design"', () => {
@@ -476,18 +466,15 @@ describe('createUxDesignPhaseDefinition (T8)', () => {
 })
 
 describe('PhaseOrchestrator - conditional UX design registration (T8)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const result = await createTestDb()
     adapter = result.adapter
-    tmpDir = result.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('registers 4 phases when pack manifest has uxDesign: false', () => {
@@ -578,20 +565,17 @@ describe('PhaseOrchestrator - conditional UX design registration (T8)', () => {
 // ---------------------------------------------------------------------------
 
 describe('createResearchPhaseDefinition (Story 20.1)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const result = await createTestDb()
     adapter = result.adapter
-    tmpDir = result.tmpDir
     runId = await createTestRun(adapter)
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('has name "research"', () => {
@@ -704,20 +688,17 @@ describe('createBuiltInPhases - conditional research registration (Story 20.1)',
 })
 
 describe('createAnalysisPhaseDefinition - conditional research entry gate (Story 20.1)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const result = await createTestDb()
     adapter = result.adapter
-    tmpDir = result.tmpDir
     runId = await createTestRun(adapter)
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('has no entry gates when requiresResearch is not set', () => {
@@ -752,18 +733,15 @@ describe('createAnalysisPhaseDefinition - conditional research entry gate (Story
 })
 
 describe('PhaseOrchestrator - conditional research registration (Story 20.1)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const result = await createTestDb()
     adapter = result.adapter
-    tmpDir = result.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('registers 4 phases when pack manifest has research: false', () => {

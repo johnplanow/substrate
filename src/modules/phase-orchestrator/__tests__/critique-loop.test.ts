@@ -12,10 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import {
@@ -33,11 +30,10 @@ import type { Dispatcher, DispatchResult } from '../../agent-dispatch/types.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'critique-loop-test-'))
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
-  return { adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -127,20 +123,17 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('runCritiqueLoop', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   // -------------------------------------------------------------------------

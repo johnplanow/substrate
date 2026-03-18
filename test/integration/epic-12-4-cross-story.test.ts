@@ -14,7 +14,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { randomUUID } from 'crypto'
 import { type DatabaseAdapter } from '../../src/persistence/adapter.js'
-import { createWasmSqliteAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../src/persistence/memory-adapter.js'
 import { initSchema } from '../../src/persistence/schema.js'
 import {
   createAmendmentRun,
@@ -40,7 +40,7 @@ import type { Dispatcher, DispatchHandle, DispatchResult } from '../../src/modul
 // ---------------------------------------------------------------------------
 
 async function openMigratedDb(): Promise<{ adapter: DatabaseAdapter }> {
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return { adapter }
 }

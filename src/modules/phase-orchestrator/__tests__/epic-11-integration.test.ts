@@ -18,10 +18,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import {
   createPipelineRun,
@@ -46,11 +43,10 @@ import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'epic11-integration-'))
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
-  return { adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter, startPhase = 'analysis'): Promise<string> {
@@ -205,18 +201,15 @@ const STORY_GENERATION_OUTPUT = {
 // ---------------------------------------------------------------------------
 
 describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const r = await createTestDb()
     adapter = r.adapter
-    tmpDir = r.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('planning prompt contains product brief text written by analysis phase', async () => {
@@ -326,18 +319,15 @@ describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const r = await createTestDb()
     adapter = r.adapter
-    tmpDir = r.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('architecture prompt contains functional requirements written by planning phase', async () => {
@@ -480,18 +470,15 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-1)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const r = await createTestDb()
     adapter = r.adapter
-    tmpDir = r.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('orchestrator can advance after real analysis phase creates product-brief artifact', async () => {
@@ -617,18 +604,15 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
 // ---------------------------------------------------------------------------
 
 describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11-4)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const r = await createTestDb()
     adapter = r.adapter
-    tmpDir = r.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('decisions accumulate across all three phases in the same run', async () => {
@@ -776,18 +760,15 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
 // ---------------------------------------------------------------------------
 
 describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const r = await createTestDb()
     adapter = r.adapter
-    tmpDir = r.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('resumes at planning after analysis completed (product-brief artifact exists)', async () => {
@@ -854,18 +835,15 @@ describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Gap 6: parseConfigJson used by orchestrator lifecycle (11-1)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const r = await createTestDb()
     adapter = r.adapter
-    tmpDir = r.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('parseConfigJson handles new-format config_json written by startRun', () => {
@@ -960,18 +938,15 @@ describe('Gap 6: parseConfigJson used by orchestrator lifecycle (11-1)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1 + 11-5)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const r = await createTestDb()
     adapter = r.adapter
-    tmpDir = r.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('buildPipelineStatusOutput shows correct phases after real orchestrator progression', async () => {
@@ -1048,7 +1023,7 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
   })
 
   it('buildPipelineStatusOutput correctly sums token usage from multiple phases', async () => {
-    const adapter2 = await createWasmSqliteAdapter()
+    const adapter2 = new InMemoryDatabaseAdapter()
     await initSchema(adapter2)
 
     const run = await createPipelineRun(adapter2, {
@@ -1091,18 +1066,15 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
 // ---------------------------------------------------------------------------
 
 describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const r = await createTestDb()
     adapter = r.adapter
-    tmpDir = r.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('readiness gate passes when stories cover all functional requirements', async () => {

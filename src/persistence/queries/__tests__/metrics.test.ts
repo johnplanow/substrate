@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../memory-adapter.js'
 import { initSchema } from '../../schema.js'
 import {
   writeRunMetrics,
@@ -32,12 +32,12 @@ import type { RunMetricsInput, StoryMetricsInput } from '../metrics.js'
 // ---------------------------------------------------------------------------
 
 async function openDb() {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return adapter
 }
 
-function insertPipelineRun(adapter: WasmSqliteDatabaseAdapter, id: string, status = 'completed'): void {
+function insertPipelineRun(adapter: InMemoryDatabaseAdapter, id: string, status = 'completed'): void {
   adapter.querySync(
     `INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
      VALUES (?, 'bmad', ?, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
@@ -46,7 +46,7 @@ function insertPipelineRun(adapter: WasmSqliteDatabaseAdapter, id: string, statu
 }
 
 async function seedRunMetrics(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   overrides: Partial<RunMetricsInput> & { run_id: string },
 ): Promise<void> {
   const { run_id, ...rest } = overrides
@@ -64,7 +64,7 @@ async function seedRunMetrics(
 // ---------------------------------------------------------------------------
 
 describe('writeRunMetrics (T9)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -148,7 +148,7 @@ describe('writeRunMetrics (T9)', () => {
 })
 
 describe('writeStoryMetrics (T9)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -219,7 +219,7 @@ describe('writeStoryMetrics (T9)', () => {
 })
 
 describe('aggregateTokenUsageForRun (T9)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -275,7 +275,7 @@ describe('aggregateTokenUsageForRun (T9)', () => {
 // ---------------------------------------------------------------------------
 
 describe('listRunMetrics (T10)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -324,7 +324,7 @@ describe('listRunMetrics (T10)', () => {
 })
 
 describe('tagRunAsBaseline / getBaselineRunMetrics (T10)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -369,7 +369,7 @@ describe('tagRunAsBaseline / getBaselineRunMetrics (T10)', () => {
 })
 
 describe('compareRunMetrics (T10)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -467,7 +467,7 @@ describe('compareRunMetrics (T10)', () => {
 })
 
 describe('getRunSummaryForSupervisor (T10 / AC5)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -549,7 +549,7 @@ describe('getRunSummaryForSupervisor (T10 / AC5)', () => {
 // ---------------------------------------------------------------------------
 
 describe('aggregateTokenUsageForStory', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -560,7 +560,7 @@ describe('aggregateTokenUsageForStory', () => {
   })
 
   function insertTokenUsageWithMetadata(
-    adapter: WasmSqliteDatabaseAdapter,
+    adapter: InMemoryDatabaseAdapter,
     runId: string,
     phase: string,
     input: number,
@@ -645,7 +645,7 @@ describe('aggregateTokenUsageForStory', () => {
 // ---------------------------------------------------------------------------
 
 describe('incrementRunRestarts', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()

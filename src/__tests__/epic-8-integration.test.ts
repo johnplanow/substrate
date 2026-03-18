@@ -25,7 +25,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { MonitorAgentImpl } from '../modules/monitor/monitor-agent-impl.js'
 import { MonitorDatabaseImpl } from '../persistence/monitor-database.js'
-import { createWasmSqliteAdapter } from '../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../persistence/memory-adapter.js'
 import type { SyncAdapter } from '../persistence/adapter.js'
 import { createEventBus } from '../core/event-bus.js'
 import type { TypedEventBus } from '../core/event-bus.js'
@@ -48,7 +48,7 @@ async function createTestSetup(): Promise<{
   agent: MonitorAgentImpl
 }> {
   const eventBus = createEventBus()
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   const monitorDb = new MonitorDatabaseImpl(adapter)
   const agent = new MonitorAgentImpl(eventBus, monitorDb, { retentionDays: 90 })
   return { eventBus, monitorDb, agent }
@@ -179,7 +179,7 @@ describe('Gap 2: task events flow into performance aggregates and are queryable 
   let monitorDb: MonitorDatabaseImpl
 
   beforeEach(async () => {
-    const adapter = await createWasmSqliteAdapter()
+    const adapter = new InMemoryDatabaseAdapter()
     monitorDb = new MonitorDatabaseImpl(adapter)
   })
 
@@ -374,7 +374,7 @@ describe('Gap 4: Monitor reset roundtrip — seed, reset, verify empty', () => {
   let monitorDb: MonitorDatabaseImpl
 
   beforeEach(async () => {
-    const adapter = await createWasmSqliteAdapter()
+    const adapter = new InMemoryDatabaseAdapter()
     monitorDb = new MonitorDatabaseImpl(adapter)
   })
 
@@ -706,7 +706,7 @@ describe('Gap 7: pruneOldData + rebuildAggregates followed by report generation'
   let monitorDb: MonitorDatabaseImpl
 
   beforeEach(async () => {
-    const adapter = await createWasmSqliteAdapter()
+    const adapter = new InMemoryDatabaseAdapter()
     monitorDb = new MonitorDatabaseImpl(adapter)
   })
 

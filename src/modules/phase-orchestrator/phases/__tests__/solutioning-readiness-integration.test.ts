@@ -23,7 +23,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { createWasmSqliteAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import {
   createPipelineRun,
@@ -46,7 +46,7 @@ import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 // ---------------------------------------------------------------------------
 
 async function createTestDb(): Promise<{ adapter: DatabaseAdapter }> {
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return { adapter }
 }

@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createDecision, createRequirement, createConstraint } from '../../../persistence/queries/decisions.js'
@@ -27,7 +27,7 @@ import type { ContextTemplate, ContextCompiler, TaskDescriptor } from '../types.
 // ---------------------------------------------------------------------------
 
 async function openTestDb(): Promise<DatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return adapter
 }

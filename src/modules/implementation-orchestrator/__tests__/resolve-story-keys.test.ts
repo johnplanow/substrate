@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { resolveStoryKeys } from '../story-discovery.js'
 
@@ -33,8 +33,8 @@ vi.mock('node:fs', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<WasmSqliteDatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<InMemoryDatabaseAdapter> {
+  const adapter = new InMemoryDatabaseAdapter()
   adapter.execSync(`
     CREATE TABLE decisions (
       id TEXT PRIMARY KEY,
@@ -61,7 +61,7 @@ async function createTestDb(): Promise<WasmSqliteDatabaseAdapter> {
 }
 
 function insertStoryDecision(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   key: string,
   runId?: string,
 ): void {
@@ -78,7 +78,7 @@ function insertStoryDecision(
 }
 
 function insertEpicShard(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   shardKey: string,
   content: string,
   runId?: string,
@@ -91,7 +91,7 @@ function insertEpicShard(
 }
 
 function insertCompletedRun(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   completedStories: string[],
 ): void {
   const state = {
@@ -110,7 +110,7 @@ function insertCompletedRun(
 // ---------------------------------------------------------------------------
 
 describe('resolveStoryKeys', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     vi.clearAllMocks()
@@ -291,7 +291,7 @@ describe('resolveStoryKeys', () => {
 
   describe('error resilience', () => {
     it('handles DB with missing decisions table gracefully', async () => {
-      const brokenAdapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+      const brokenAdapter = new InMemoryDatabaseAdapter()
       // No tables created — queries will throw
       mockExistsSync.mockReturnValue(false)
 
@@ -301,7 +301,7 @@ describe('resolveStoryKeys', () => {
     })
 
     it('falls through from broken DB to epics.md', async () => {
-      const brokenAdapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+      const brokenAdapter = new InMemoryDatabaseAdapter()
       mockExistsSync.mockImplementation((p: string) => {
         if (p.endsWith('epics.md')) return true
         return false

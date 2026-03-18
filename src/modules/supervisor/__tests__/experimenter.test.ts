@@ -34,7 +34,7 @@ import type {
   ExperimentResult,
 } from '../experimenter.js'
 import type { RunMetricsRow, StoryMetricsRow } from '../../../persistence/queries/metrics.js'
-import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
@@ -1143,7 +1143,7 @@ describe('AutoSupervisorOptions includes experiment flag (AC1)', () => {
 describe('Story 21-1 AC3: experiment result written to decision store', () => {
   it('createDecision inserts experiment-result decision with real DB on IMPROVED verdict', async () => {
     // Use a real in-memory DB instead of the mock object
-    const adapter = await createWasmSqliteAdapter()
+    const adapter = new InMemoryDatabaseAdapter()
     await initSchema(adapter)
 
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })

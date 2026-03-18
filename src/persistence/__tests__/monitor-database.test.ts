@@ -9,14 +9,15 @@
  *  - getAggregates returns filtered results
  *  - updateAggregates correctly upserts aggregate rows
  *
- * Uses WASM SQLite (sql.js) via WasmSqliteDatabaseAdapter for no-native-deps testing.
+ * Uses InMemoryDatabaseAdapter for no-native-deps testing.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { MonitorDatabaseImpl } from '../monitor-database.js'
 import type { TaskMetricsRow } from '../monitor-database.js'
 import type { DatabaseAdapter } from '../adapter.js'
-import { createWasmSqliteAdapter } from '../wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../memory-adapter.js'
+import { initSchema } from '../schema.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -49,7 +50,8 @@ describe('MonitorDatabaseImpl', () => {
   let db: MonitorDatabaseImpl
 
   beforeEach(async () => {
-    adapter = await createWasmSqliteAdapter()
+    adapter = new InMemoryDatabaseAdapter()
+    await initSchema(adapter)
     db = new MonitorDatabaseImpl(adapter)
   })
 
@@ -360,7 +362,8 @@ describe('MonitorDatabaseImpl', () => {
 
   it('createMonitorDatabase with adapter creates a working MonitorDatabase', async () => {
     // Use the adapter-based constructor (Epic 29 — string path no longer supported)
-    const testAdapter = await createWasmSqliteAdapter()
+    const testAdapter = new InMemoryDatabaseAdapter()
+    await initSchema(testAdapter)
     const monitorDb = new MonitorDatabaseImpl(testAdapter)
     expect(monitorDb).toBeDefined()
     // Should not throw on basic operations

@@ -17,7 +17,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MonitorAgentImpl } from '../modules/monitor/monitor-agent-impl.js'
 import { MonitorDatabaseImpl } from '../persistence/monitor-database.js'
-import { createWasmSqliteAdapter } from '../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../persistence/memory-adapter.js'
 import { RoutingEngineImpl } from '../modules/routing/routing-engine-impl.js'
 import { createEventBus } from '../core/event-bus.js'
 import type { TypedEventBus } from '../core/event-bus.js'
@@ -99,7 +99,7 @@ describe('Monitor → Routing Engine E2E Integration', () => {
 
   beforeEach(async () => {
     eventBus = createEventBus()
-    monitorDb = new MonitorDatabaseImpl(await createWasmSqliteAdapter())
+    monitorDb = new MonitorDatabaseImpl(new InMemoryDatabaseAdapter())
 
     // Seed performance data before creating the monitor agent
     // so recommendations are immediately available

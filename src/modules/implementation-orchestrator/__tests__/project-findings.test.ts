@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { getProjectFindings } from '../project-findings.js'
 import { createDecision } from '../../../persistence/queries/decisions.js'
 import { STORY_OUTCOME, ESCALATION_DIAGNOSIS, STORY_METRICS, OPERATIONAL_FINDING, ADVISORY_NOTES } from '../../../persistence/schemas/operational.js'
 
 describe('getProjectFindings', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
-    adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+    adapter = new InMemoryDatabaseAdapter()
     adapter.execSync(`
       CREATE TABLE decisions (
         id TEXT PRIMARY KEY,

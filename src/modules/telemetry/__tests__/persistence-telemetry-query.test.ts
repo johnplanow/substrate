@@ -6,14 +6,14 @@
  * - getEfficiencyScore(storyKey) — returns correct record and null for unknown key
  * - getAllRecommendations(limit?) — ordering: critical first, then by savings DESC
  *
- * Uses WASM SQLite (sql.js) in-memory database. No real Dolt required.
+ * Uses InMemoryDatabaseAdapter. No real Dolt required.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 
 import { TelemetryPersistence } from '../persistence.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import type { EfficiencyScore, ModelEfficiency, SourceEfficiency, Recommendation } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -21,7 +21,7 @@ import type { EfficiencyScore, ModelEfficiency, SourceEfficiency, Recommendation
 // ---------------------------------------------------------------------------
 
 async function createTestAdapter(): Promise<DatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   const persistence = new TelemetryPersistence(adapter)
   await persistence.initSchema()
   return adapter

@@ -15,11 +15,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { readFileSync } from 'fs'
 import { join } from 'path'
 import { z } from 'zod'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import {
   createPipelineRun,
@@ -42,11 +41,10 @@ import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 // Helpers — test DB setup
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'elicitation-integration-test-'))
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
-  return { adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -503,20 +501,17 @@ describe('Integration: Elicitation prompt template loading and filling (AC3)', (
 // ---------------------------------------------------------------------------
 
 describe('Integration: Elicitation results stored in decision store (AC4)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('stores elicitation method name and insights for round 1', async () => {
@@ -706,20 +701,17 @@ describe('Integration: elicitate: true steps in phase definitions (AC5)', () => 
 // ---------------------------------------------------------------------------
 
 describe('Integration: End-to-end elicitation round', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('simulates a full elicitation round: select → fill prompt → dispatch → store results', async () => {

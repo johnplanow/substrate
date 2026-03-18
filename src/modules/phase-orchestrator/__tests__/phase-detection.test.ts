@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { detectStartPhase } from '../phase-detection.js'
 
 // Mock node:fs for discoverPendingStoryKeys fallback
@@ -21,8 +21,8 @@ vi.mock('node:fs', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<WasmSqliteDatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<InMemoryDatabaseAdapter> {
+  const adapter = new InMemoryDatabaseAdapter()
   adapter.execSync(`
     CREATE TABLE decisions (
       id TEXT PRIMARY KEY,
@@ -60,7 +60,7 @@ async function createTestDb(): Promise<WasmSqliteDatabaseAdapter> {
 }
 
 function insertArtifact(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   phase: string,
   type: string,
 ): void {
@@ -72,7 +72,7 @@ function insertArtifact(
 }
 
 function insertStoryDecision(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   key: string,
 ): void {
   adapter.querySync(
@@ -87,7 +87,7 @@ function insertStoryDecision(
 // ---------------------------------------------------------------------------
 
 describe('detectStartPhase', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     vi.clearAllMocks()
@@ -191,7 +191,7 @@ describe('detectStartPhase', () => {
   })
 
   it('handles DB without artifacts table gracefully', async () => {
-    const brokenAdapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+    const brokenAdapter = new InMemoryDatabaseAdapter()
     // Only create decisions table (no artifacts)
     brokenAdapter.execSync(`
       CREATE TABLE decisions (

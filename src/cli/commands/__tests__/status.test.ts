@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import { runStatusAction } from '../status.js'
@@ -60,8 +60,8 @@ vi.mock('../../../utils/logger.js', () => ({
 // Helper functions
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<WasmSqliteDatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<InMemoryDatabaseAdapter> {
+  const adapter = new InMemoryDatabaseAdapter()
   // Initialize all standard schema tables (pipeline_runs, decisions, etc.)
   await initSchema(adapter)
   // Create wg_stories and story_dependencies tables (work graph schema)
@@ -101,7 +101,7 @@ function makeStory(overrides: Partial<WgStory> = {}): WgStory {
 // ---------------------------------------------------------------------------
 
 describe('Story 31-5: work graph in status command (JSON output)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
   let stdoutChunks: string[]
 
   beforeEach(async () => {
@@ -270,7 +270,7 @@ describe('Story 31-5: work graph in status command (JSON output)', () => {
   it('swallows WorkGraphRepository errors — exit code 0, rest of output unaffected (AC6)', async () => {
     // Use a fresh adapter with only the standard schema (no wg_stories table)
     // so the work graph query throws a "table not found" error.
-    const noWgAdapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+    const noWgAdapter = new InMemoryDatabaseAdapter()
     await initSchema(noWgAdapter)
     const run = await createPipelineRun(noWgAdapter, { methodology: 'bmad' })
     _injectedAdapter = noWgAdapter
@@ -302,7 +302,7 @@ describe('Story 31-5: work graph in status command (JSON output)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Story 31-5: work graph in status command (human output)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
   let stdoutChunks: string[]
   let stderrChunks: string[]
 

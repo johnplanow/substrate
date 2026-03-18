@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun, getDecisionsByCategory } from '../../../persistence/queries/decisions.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
@@ -114,11 +114,11 @@ function createMockEventBus(): TypedEventBus {
 // ---------------------------------------------------------------------------
 
 describe('Smoke: orchestrator writes story-metrics decision through real DB', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
-    adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+    adapter = new InMemoryDatabaseAdapter()
     await initSchema(adapter)
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     runId = run.id

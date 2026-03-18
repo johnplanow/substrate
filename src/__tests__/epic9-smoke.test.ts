@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createWasmSqliteAdapter } from '../persistence/wasm-sqlite-adapter.js';
+import { InMemoryDatabaseAdapter } from '../persistence/memory-adapter.js';
 import type { DatabaseAdapter } from '../persistence/adapter.js';
 import { initSchema } from '../persistence/schema.js';
 import { createContextCompiler } from '../modules/context-compiler/index.js';
@@ -14,7 +14,7 @@ const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 let adapter: DatabaseAdapter;
 
 beforeAll(async () => {
-  adapter = await createWasmSqliteAdapter();
+  adapter = new InMemoryDatabaseAdapter();
   await initSchema(adapter);
 });
 

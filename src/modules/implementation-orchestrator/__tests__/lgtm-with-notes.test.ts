@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createDecision, getDecisionsByCategory } from '../../../persistence/queries/decisions.js'
 import { writeStoryMetrics } from '../../../persistence/queries/metrics.js'
@@ -20,8 +20,8 @@ import { getProjectFindings } from '../project-findings.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function openTestDb(): Promise<WasmSqliteDatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function openTestDb(): Promise<InMemoryDatabaseAdapter> {
+  const adapter = new InMemoryDatabaseAdapter()
   adapter.execSync(`
     CREATE TABLE decisions (
       id TEXT PRIMARY KEY,
@@ -62,7 +62,7 @@ async function openTestDb(): Promise<WasmSqliteDatabaseAdapter> {
 // ---------------------------------------------------------------------------
 
 describe('AC2: Advisory notes persisted on LGTM_WITH_NOTES', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openTestDb()
@@ -115,7 +115,7 @@ describe('AC2: Advisory notes persisted on LGTM_WITH_NOTES', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC4: Advisory notes in getProjectFindings output', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openTestDb()
@@ -171,7 +171,7 @@ describe('AC4: Advisory notes in getProjectFindings output', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC5: LGTM_WITH_NOTES tracked distinctly in story_metrics', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openTestDb()

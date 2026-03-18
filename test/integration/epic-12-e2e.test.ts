@@ -37,22 +37,22 @@ import {
   VALID_PHASES,
 } from '../../src/modules/stop-after/index.js'
 import { registerBrainstormCommand } from '../../src/cli/commands/brainstorm.js'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../src/persistence/memory-adapter.js'
 import { initSchema } from '../../src/persistence/schema.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function openMigratedDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter }> {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function openMigratedDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return { adapter }
 }
 
 /** Insert a pipeline_run using a real UUID for id, for Zod schema compatibility. */
 function insertRun(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   id: string,
   status: string = 'completed',
   parentRunId: string | null = null,
@@ -65,7 +65,7 @@ function insertRun(
 
 /** Insert a decision using real UUIDs for id and runId, for Zod schema compatibility. */
 function insertDecision(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   id: string,
   runId: string,
   overrides: {
@@ -97,7 +97,7 @@ function insertDecision(
 // ---------------------------------------------------------------------------
 
 describe('Data Layer Integration: Migration 008 + Zod schemas + amendment queries', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
@@ -265,7 +265,7 @@ describe('Data Layer Integration: Migration 008 + Zod schemas + amendment querie
 // ---------------------------------------------------------------------------
 
 describe('Amendment Pipeline Integration: queries + context handler + delta document', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()

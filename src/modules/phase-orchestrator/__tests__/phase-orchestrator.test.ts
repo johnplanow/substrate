@@ -7,10 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { registerArtifact, getPipelineRunById } from '../../../persistence/queries/decisions.js'
@@ -23,11 +20,10 @@ import { runGates, serializePhaseHistory, deserializePhaseHistory, parseConfigJs
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'phase-orch-test-'))
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
-  return { adapter, tmpDir }
+  return { adapter }
 }
 
 function createMockPack(name = 'test-pack'): MethodologyPack {
@@ -105,18 +101,15 @@ async function registerStoriesArtifact(adapter: DatabaseAdapter, runId: string):
 // ---------------------------------------------------------------------------
 
 describe('PhaseOrchestrator — core', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const result = await createTestDb()
     adapter = result.adapter
-    tmpDir = result.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   // -------------------------------------------------------------------------

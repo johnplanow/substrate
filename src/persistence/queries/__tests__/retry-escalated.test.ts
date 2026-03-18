@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../memory-adapter.js'
 import { initSchema } from '../../schema.js'
 import { createDecision } from '../decisions.js'
 import { getRetryableEscalations } from '../retry-escalated.js'
@@ -19,7 +19,7 @@ import type { EscalationDiagnosis } from '../../../modules/implementation-orches
 // ---------------------------------------------------------------------------
 
 async function openDb() {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return adapter
 }
@@ -41,7 +41,7 @@ function makeDiagnosis(recommendedAction: EscalationDiagnosis['recommendedAction
 }
 
 async function insertDecision(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   storyKey: string,
   runId: string,
   recommendedAction: EscalationDiagnosis['recommendedAction'],
@@ -59,7 +59,7 @@ async function insertDecision(
 // ---------------------------------------------------------------------------
 
 describe('getRetryableEscalations', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()

@@ -13,10 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun, registerArtifact } from '../../../persistence/queries/decisions.js'
 import { createPhaseOrchestrator } from '../phase-orchestrator-impl.js'
@@ -32,11 +29,10 @@ import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'research-integration-'))
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
-  return { adapter, tmpDir }
+  return { adapter }
 }
 
 async function registerArtifactForRun(
@@ -124,18 +120,15 @@ describe('createBuiltInPhases - research enabled', () => {
 // ---------------------------------------------------------------------------
 
 describe('PhaseOrchestrator - research enabled', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const r = await createTestDb()
     adapter = r.adapter
-    tmpDir = r.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('registers 5 phases when pack has research: true', () => {
@@ -170,21 +163,18 @@ describe('PhaseOrchestrator - research enabled', () => {
 // ---------------------------------------------------------------------------
 
 describe('research gate enforcement', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const r = await createTestDb()
     adapter = r.adapter
-    tmpDir = r.tmpDir
     const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'research' })
     runId = run.id
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('research phase has no entry gates (always can be entered)', async () => {
@@ -212,18 +202,15 @@ describe('research gate enforcement', () => {
 // ---------------------------------------------------------------------------
 
 describe('Full pipeline advance with research enabled', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const r = await createTestDb()
     adapter = r.adapter
-    tmpDir = r.tmpDir
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('advances from research to analysis', async () => {

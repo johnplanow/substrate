@@ -1,15 +1,15 @@
 /**
  * Integration tests for TelemetryPersistence efficiency_scores.
  *
- * Uses WASM SQLite (sql.js) in-memory database with schema applied
- * before each test. No better-sqlite3 or real Dolt binary required.
+ * Uses InMemoryDatabaseAdapter with schema applied
+ * before each test. No Dolt binary required.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 
 import { TelemetryPersistence } from '../persistence.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import type {
   EfficiencyScore,
   ModelEfficiency,
@@ -25,7 +25,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 async function createTestAdapter(): Promise<DatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   // Apply the telemetry schema
   const persistence = new TelemetryPersistence(adapter)
   await persistence.initSchema()

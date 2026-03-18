@@ -21,7 +21,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { randomUUID } from 'crypto'
 import { type DatabaseAdapter } from '../../src/persistence/adapter.js'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../src/persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../src/persistence/memory-adapter.js'
 import { initSchema } from '../../src/persistence/schema.js'
 import {
   PipelineRunSchema,
@@ -48,8 +48,8 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function openMigratedDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter }> {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function openMigratedDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return { adapter }
 }
@@ -60,7 +60,7 @@ async function openMigratedDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter }>
 // ---------------------------------------------------------------------------
 
 describe('Gap 1: stopped status — decisions.ts API + DB + Zod schema round-trip', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
@@ -127,7 +127,7 @@ describe('Gap 1: stopped status — decisions.ts API + DB + Zod schema round-tri
 // ---------------------------------------------------------------------------
 
 describe('Gap 2: createDecision (decisions.ts) interoperates with loadParentRunDecisions (amendments.ts)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
@@ -217,7 +217,7 @@ describe('Gap 2: createDecision (decisions.ts) interoperates with loadParentRunD
 // ---------------------------------------------------------------------------
 
 describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filtered) divergence', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
   let originalDecId: string
   let supersedingDecId: string
@@ -299,7 +299,7 @@ describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filt
 // ---------------------------------------------------------------------------
 
 describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + amendments.ts)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
@@ -402,6 +402,8 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
   it('amendment run inserted by createAmendmentRun is retrievable by getLatestCompletedRun after completion', async () => {
     const parentRun = await createPipelineRun(adapter, { methodology: 'bmad' })
     await updatePipelineRun(adapter, parentRun.id, { status: 'completed' })
+    // Set an explicit earlier timestamp so the amendment run is strictly later
+    await adapter.query('UPDATE pipeline_runs SET created_at = ? WHERE id = ?', ['2024-01-01T00:00:00.000Z', parentRun.id])
 
     const amendRunId = randomUUID()
     await createAmendmentRun(adapter, {
@@ -436,7 +438,7 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
 // ---------------------------------------------------------------------------
 
 describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_id populated', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()
@@ -499,7 +501,7 @@ describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_
 // ---------------------------------------------------------------------------
 
 describe('Gap 6: decisions.ts query functions return migration 008 columns correctly', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     const setup = await openMigratedDb()

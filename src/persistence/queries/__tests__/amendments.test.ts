@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../memory-adapter.js'
 import { initSchema } from '../../schema.js'
 import {
   createAmendmentRun,
@@ -36,7 +36,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 async function openMemoryDb() {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return adapter
 }
@@ -45,7 +45,7 @@ async function openMemoryDb() {
  * Insert a pipeline run directly with a given status.
  */
 function insertRun(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   id: string,
   status: string = 'running',
   parentRunId: string | null = null,
@@ -61,7 +61,7 @@ function insertRun(
  * Insert a decision for a given run.
  */
 function insertDecision(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   id: string,
   runId: string,
   overrides: {
@@ -92,7 +92,7 @@ function insertDecision(
 // ---------------------------------------------------------------------------
 
 describe('createAmendmentRun()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openMemoryDb()
@@ -219,7 +219,7 @@ describe('createAmendmentRun()', () => {
 // ---------------------------------------------------------------------------
 
 describe('loadParentRunDecisions()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openMemoryDb()
@@ -303,7 +303,7 @@ describe('loadParentRunDecisions()', () => {
 // ---------------------------------------------------------------------------
 
 describe('supersedeDecision()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openMemoryDb()
@@ -370,7 +370,7 @@ describe('supersedeDecision()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getActiveDecisions()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openMemoryDb()
@@ -483,7 +483,7 @@ describe('getActiveDecisions()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getAmendmentRunChain()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openMemoryDb()
@@ -592,7 +592,7 @@ describe('getAmendmentRunChain()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getLatestCompletedRun()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openMemoryDb()
@@ -673,7 +673,7 @@ describe('getLatestCompletedRun()', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC7: Parameterized query safety', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openMemoryDb()

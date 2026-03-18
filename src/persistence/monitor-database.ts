@@ -162,12 +162,10 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
   constructor(databasePathOrAdapter: string | DatabaseAdapter) {
     if (typeof databasePathOrAdapter === 'string') {
       // String-path construction is no longer supported — SQLite was removed in Epic 29.
-      // Use createWasmSqliteAdapter() from src/persistence/wasm-sqlite-adapter.ts
-      // and pass the resulting DatabaseAdapter to this constructor instead.
+      // Pass a DatabaseAdapter instance (e.g., InMemoryDatabaseAdapter) directly.
       throw new Error(
         'MonitorDatabaseImpl: string path constructor is no longer supported (Epic 29 SQLite removal). ' +
-        'Use createWasmSqliteAdapter() and pass the adapter directly: ' +
-        'new MonitorDatabaseImpl(await createWasmSqliteAdapter())',
+        'Pass a DatabaseAdapter directly: new MonitorDatabaseImpl(new InMemoryDatabaseAdapter())',
       )
     } else {
       this._path = '<adapter>'
@@ -180,7 +178,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
     if (this._syncAdapter === null) {
       throw new Error(
         'MonitorDatabaseImpl: adapter must implement SyncAdapter (querySync/execSync). ' +
-        'Use createWasmSqliteAdapter() from src/persistence/wasm-sqlite-adapter.ts.'
+        'Use InMemoryDatabaseAdapter or another SyncAdapter-compatible adapter.'
       )
     }
 
@@ -594,9 +592,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
       // Clear aggregates first
       this._mutateSync(`DELETE FROM performance_aggregates`)
 
-      // Recompute from task_metrics
-      // Note: GROUP BY aggregation using raw SQL. InMemoryAdapter may not
-      // support complex aggregates — for production Dolt/SQLite this works fully.
+      // Recompute from task_metrics using GROUP BY aggregation
       const rows = this._querySync<{
         agent: string
         task_type: string

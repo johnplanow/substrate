@@ -26,7 +26,7 @@ import { EfficiencyScorer } from '../efficiency-scorer.js'
 import { Recommender } from '../recommender.js'
 import { TelemetryPersistence } from '../persistence.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { createLogger } from '../../../utils/logger.js'
 
 // ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ import { createLogger } from '../../../utils/logger.js'
 // ---------------------------------------------------------------------------
 
 async function createTestAdapter(): Promise<DatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   const persistence = new TelemetryPersistence(adapter)
   await persistence.initSchema()
   return adapter

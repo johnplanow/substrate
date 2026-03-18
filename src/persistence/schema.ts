@@ -483,7 +483,7 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   `)
 
   // -- Views ----------------------------------------------------------------
-  // NOTE: Views use JOINs and aggregation. They work with sql.js and Dolt
+  // NOTE: Views use JOINs and aggregation. They work with Dolt
   // but NOT with InMemoryDatabaseAdapter. For InMemory backend, views are
   // skipped silently (CREATE VIEW is an unknown statement to InMemory).
 

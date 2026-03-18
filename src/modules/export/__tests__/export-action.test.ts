@@ -12,7 +12,7 @@ import { mkdirSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import {
   createDecision,
@@ -68,7 +68,7 @@ describe('T13: runExportAction --output-format json', () => {
     mkdirSync(substrateDir, { recursive: true })
 
     // Create a WASM in-memory adapter and seed it with decisions
-    seededAdapter = await createWasmSqliteAdapter()
+    seededAdapter = new InMemoryDatabaseAdapter()
     await initSchema(seededAdapter)
 
     const run = await createPipelineRun(seededAdapter, { methodology: 'bmad' })

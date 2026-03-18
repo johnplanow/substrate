@@ -13,10 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
 import { createPipelineRun } from '../../../../persistence/queries/decisions.js'
@@ -37,11 +34,10 @@ vi.mock('../../../implementation-orchestrator/project-findings.js', () => ({
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
-  const tmpDir = mkdtempSync(join(tmpdir(), 'analysis-phase-test-'))
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
-  return { adapter, tmpDir }
+  return { adapter }
 }
 
 async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
@@ -136,20 +132,17 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('runAnalysisPhase()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
     const setup = await createTestDb()
     adapter = setup.adapter
-    tmpDir = setup.tmpDir
     runId = await createTestRun(adapter)
   })
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   // -------------------------------------------------------------------------
@@ -634,15 +627,12 @@ describe('runAnalysisPhase()', () => {
 // ---------------------------------------------------------------------------
 
 describe('runAnalysisPhase() — single-dispatch: prior findings injection', () => {
-  let adapter: WasmSqliteDatabaseAdapter
-  let tmpDir: string
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'analysis-findings-test-'))
-    adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+    adapter = new InMemoryDatabaseAdapter()
     await initSchema(adapter)
-    tmpDir = tmp
     const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
     runId = run.id
     // Reset mock to default (no findings) before each test
@@ -651,7 +641,6 @@ describe('runAnalysisPhase() — single-dispatch: prior findings injection', () 
 
   afterEach(async () => {
     await adapter.close()
-    rmSync(tmpDir, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
 

@@ -14,7 +14,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { writeRunMetrics, writeStoryMetrics } from '../../../persistence/queries/metrics.js'
 import { runMetricsAction } from '../metrics.js'
 import type { MetricsOptions } from '../metrics.js'
@@ -79,7 +79,7 @@ async function createTempProject(): Promise<{ projectRoot: string; adapter: Data
   const doltStateDir = join(dbDir, 'state', '.dolt')
   mkdirSync(doltStateDir, { recursive: true })
 
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   await realInitSchema(adapter)
 
   // Inject mock adapter so production code reuses the same DB

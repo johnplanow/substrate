@@ -2,11 +2,9 @@
 /**
  * Real Dolt binary integration test for DoltStateStore.
  *
- * Requires a real `dolt` binary on PATH. Gated by DOLT_INTEGRATION_TEST=1.
+ * Runs automatically when `dolt` binary is on PATH. Skips gracefully otherwise.
  * Tests the full lifecycle: init repo → CRUD → branch → merge → rollback →
  * diff → history against an actual Dolt database in a temp directory.
- *
- * Run: DOLT_INTEGRATION_TEST=1 npx vitest run src/modules/state/__tests__/dolt-real-integration.test.ts
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
@@ -18,9 +16,7 @@ import { DoltClient } from '../dolt-client.js'
 import { DoltStateStore } from '../dolt-store.js'
 import { DoltMergeConflictError } from '../errors.js'
 
-const SKIP = process.env.DOLT_INTEGRATION_TEST !== '1'
-
-// Check dolt binary availability
+// Auto-detect: run when dolt is available, skip gracefully when it isn't
 function doltAvailable(): boolean {
   try {
     execFileSync('dolt', ['version'], { stdio: 'pipe' })
@@ -30,7 +26,7 @@ function doltAvailable(): boolean {
   }
 }
 
-describe.skipIf(SKIP || !doltAvailable())('DoltStateStore — real Dolt binary integration', () => {
+describe.skipIf(!doltAvailable())('DoltStateStore — real Dolt binary integration', () => {
   let tempDir: string
   let client: DoltClient
   let store: DoltStateStore
@@ -278,6 +274,6 @@ describe.skipIf(SKIP || !doltAvailable())('DoltStateStore — real Dolt binary i
   it('rejects invalid story keys to prevent SQL injection', async () => {
     await expect(store.branchForStory("'; DROP TABLE stories;--")).rejects.toThrow('Invalid story key')
     await expect(store.diffStory('../../etc/passwd')).rejects.toThrow('Invalid story key')
-    await expect(store.mergeStory('abc')).rejects.toThrow('Invalid story key')
+    await expect(store.mergeStory('abc/../def')).rejects.toThrow('Invalid story key')
   })
 })

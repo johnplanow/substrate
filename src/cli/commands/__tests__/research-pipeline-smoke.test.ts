@@ -28,7 +28,7 @@ import {
   getDecisionsByPhaseForRun,
 } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { createBuiltInPhases } from '../../../modules/phase-orchestrator/built-in-phases.js'
 import { createPhaseOrchestrator } from '../../../modules/phase-orchestrator/index.js'
 import { buildResearchSteps, runResearchPhase } from '../../../modules/phase-orchestrator/phases/research.js'
@@ -47,15 +47,15 @@ import type { Dispatcher, DispatchResult } from '../../../modules/agent-dispatch
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createTestDb(): Promise<{ adapter: WasmSqliteDatabaseAdapter; tmpDir: string }> {
+async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter; tmpDir: string }> {
   const tmpDir = join(tmpdir(), `research-smoke-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return { adapter, tmpDir }
 }
 
 async function createTestRun(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   startPhase = 'research',
 ): Promise<string> {
   const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: startPhase })
@@ -164,7 +164,7 @@ function makeContextCompiler(): ContextCompiler {
 }
 
 function makeDeps(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   dispatcher: Dispatcher,
   pack: MethodologyPack,
 ): PhaseDeps {
@@ -260,7 +260,7 @@ describe('Manifest flag precedence (effectiveResearch logic)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research → Analysis gate enforcement', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {
@@ -325,7 +325,7 @@ describe('Research → Analysis gate enforcement', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research phase decision store persistence', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
   let tmpDir: string
   let runId: string
 
@@ -462,7 +462,7 @@ describe('Research phase decision store persistence', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research → Analysis context handoff', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
   let tmpDir: string
   let runId: string
 
@@ -565,7 +565,7 @@ describe('Research → Analysis context handoff', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research phase token usage tracking', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
   let tmpDir: string
   let runId: string
 
@@ -610,7 +610,7 @@ describe('Research phase token usage tracking', () => {
 // ---------------------------------------------------------------------------
 
 describe('Research phase failure propagation', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
   let tmpDir: string
   let runId: string
 
@@ -785,7 +785,7 @@ describe('Research schema validation edge cases', () => {
 // ---------------------------------------------------------------------------
 
 describe('Backwards compatibility: pipeline without research', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
   let tmpDir: string
 
   beforeEach(async () => {

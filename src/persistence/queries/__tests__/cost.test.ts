@@ -2,7 +2,7 @@
  * Unit tests for src/persistence/queries/cost.ts
  *
  * Uses in-memory SQLite database seeded with all migrations.
- * All test functions use WasmSqliteDatabaseAdapter, satisfying AC3 and AC6.
+ * All test functions use InMemoryDatabaseAdapter, satisfying AC3 and AC6.
  *
  * Covers:
  *  - recordCostEntry: inserts a row, returns portable auto-increment ID
@@ -20,7 +20,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../memory-adapter.js'
 import { initSchema } from '../../schema.js'
 import {
   recordCostEntry,
@@ -43,13 +43,13 @@ import type { CreateCostEntryInput } from '../cost.js'
 // ---------------------------------------------------------------------------
 
 async function openDb() {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return adapter
 }
 
 /** Insert a session row (required FK for cost_entries.session_id). */
-function insertSession(adapter: WasmSqliteDatabaseAdapter, id: string): void {
+function insertSession(adapter: InMemoryDatabaseAdapter, id: string): void {
   adapter.querySync(
     `INSERT INTO sessions (id, graph_file, status, created_at, updated_at)
      VALUES (?, 'test.json', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
@@ -58,7 +58,7 @@ function insertSession(adapter: WasmSqliteDatabaseAdapter, id: string): void {
 }
 
 /** Insert a task row (required FK when cost_entries.task_id is non-null). */
-function insertTask(adapter: WasmSqliteDatabaseAdapter, sessionId: string, taskId: string): void {
+function insertTask(adapter: InMemoryDatabaseAdapter, sessionId: string, taskId: string): void {
   adapter.querySync(
     `INSERT INTO tasks (id, session_id, name, prompt, status, cost_usd, created_at, updated_at)
      VALUES (?, ?, 'test-task', 'test-prompt', 'completed', 0.0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
@@ -72,7 +72,7 @@ function insertTask(adapter: WasmSqliteDatabaseAdapter, sessionId: string, taskI
  * or set values that are not exposed through recordCostEntry.
  */
 function insertCostEntryDirect(
-  adapter: WasmSqliteDatabaseAdapter,
+  adapter: InMemoryDatabaseAdapter,
   sessionId: string,
   opts: {
     agent?: string
@@ -130,7 +130,7 @@ function makeEntry(sessionId: string, overrides: Partial<CreateCostEntryInput> =
 // ---------------------------------------------------------------------------
 
 describe('recordCostEntry()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -141,7 +141,7 @@ describe('recordCostEntry()', () => {
     await adapter.close()
   })
 
-  it('AC1/AC2: accepts WasmSqliteDatabaseAdapter and returns a Promise<number>', async () => {
+  it('AC1/AC2: accepts InMemoryDatabaseAdapter and returns a Promise<number>', async () => {
     const id = await recordCostEntry(adapter, makeEntry('sess-rec'))
     expect(typeof id).toBe('number')
     expect(id).toBeGreaterThan(0)
@@ -179,7 +179,7 @@ describe('recordCostEntry()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getCostEntryById()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -239,7 +239,7 @@ describe('getCostEntryById()', () => {
 // ---------------------------------------------------------------------------
 
 describe('incrementTaskCost()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -271,7 +271,7 @@ describe('incrementTaskCost()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getSessionCostSummary()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -334,7 +334,7 @@ describe('getSessionCostSummary()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getSessionCostSummaryFiltered()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -365,7 +365,7 @@ describe('getSessionCostSummaryFiltered()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTaskCostSummary()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -420,7 +420,7 @@ describe('getTaskCostSummary()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getAgentCostBreakdown()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -462,7 +462,7 @@ describe('getAgentCostBreakdown()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getAllCostEntries()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -508,7 +508,7 @@ describe('getAllCostEntries()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getAllCostEntriesFiltered()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -542,7 +542,7 @@ describe('getAllCostEntriesFiltered()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getPlanningCostTotal()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -576,7 +576,7 @@ describe('getPlanningCostTotal()', () => {
 // ---------------------------------------------------------------------------
 
 describe('getSessionCost() [legacy]', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()
@@ -611,7 +611,7 @@ describe('getSessionCost() [legacy]', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTaskCost() [legacy]', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await openDb()

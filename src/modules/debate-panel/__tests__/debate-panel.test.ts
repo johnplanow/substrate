@@ -10,7 +10,7 @@ import { DebatePanelImpl, createDebatePanel } from '../debate-panel-impl.js'
 import type { PerspectiveGeneratorFn } from '../debate-panel-impl.js'
 import type { Perspective, DecisionRequest } from '../types.js'
 import type { Dispatcher } from '../../agent-dispatch/types.js'
-import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
@@ -341,7 +341,7 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
   let adapter: DatabaseAdapter
 
   beforeEach(async () => {
-    adapter = await createWasmSqliteAdapter()
+    adapter = new InMemoryDatabaseAdapter()
     await initSchema(adapter)
   })
 

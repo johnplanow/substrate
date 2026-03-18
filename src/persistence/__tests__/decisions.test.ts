@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../memory-adapter.js'
 import { initSchema } from '../schema.js'
 import {
   createDecision,
@@ -52,7 +52,7 @@ import {
 // ---------------------------------------------------------------------------
 
 async function openTestDb() {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return adapter
 }
@@ -62,7 +62,7 @@ async function openTestDb() {
 // ---------------------------------------------------------------------------
 
 describe('AC1: Migration 007 creates all required tables', () => {
-  let db: WasmSqliteDatabaseAdapter
+  let db: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
@@ -151,7 +151,7 @@ describe('AC1: Migration 007 creates all required tables', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC2: Decisions table CRUD', () => {
-  let db: WasmSqliteDatabaseAdapter
+  let db: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
@@ -253,7 +253,7 @@ describe('AC2: Decisions table CRUD', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC3: Requirements table CRUD', () => {
-  let db: WasmSqliteDatabaseAdapter
+  let db: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
@@ -366,7 +366,7 @@ describe('AC3: Requirements table CRUD', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC4: Constraints table CRUD', () => {
-  let db: WasmSqliteDatabaseAdapter
+  let db: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
@@ -413,7 +413,7 @@ describe('AC4: Constraints table CRUD', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC5: Artifacts table CRUD', () => {
-  let db: WasmSqliteDatabaseAdapter
+  let db: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
@@ -485,7 +485,7 @@ describe('AC5: Artifacts table CRUD', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC6: Pipeline runs table CRUD', () => {
-  let db: WasmSqliteDatabaseAdapter
+  let db: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()
@@ -665,7 +665,7 @@ describe('AC7: Zod schemas validate inputs at persistence boundary', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC8: Token usage tracking', () => {
-  let db: WasmSqliteDatabaseAdapter
+  let db: InMemoryDatabaseAdapter
   let runId: string
 
   beforeEach(async () => {
@@ -890,7 +890,7 @@ describe('Story 12-6: DecisionSchema includes superseded_by', () => {
 // ---------------------------------------------------------------------------
 
 describe('upsertDecision — decision deduplication on retry', () => {
-  let db: WasmSqliteDatabaseAdapter
+  let db: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     db = await openTestDb()

@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { createWasmSqliteAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import {
@@ -42,7 +42,7 @@ import type { Decision } from '../../../persistence/queries/decisions.js'
 // ---------------------------------------------------------------------------
 
 async function openTestDb(): Promise<DatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter()
+  const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return adapter
 }

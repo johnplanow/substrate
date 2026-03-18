@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
@@ -117,13 +117,13 @@ function createMockDispatcher(): Dispatcher {
 // ---------------------------------------------------------------------------
 
 describe('AC8: story:metrics event emitted on terminal state', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
   let runId: string
   let emittedEvents: Array<{ event: string; payload: unknown }>
   let eventBus: TypedEventBus
 
   beforeEach(async () => {
-    adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+    adapter = new InMemoryDatabaseAdapter()
     await initSchema(adapter)
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     runId = run.id

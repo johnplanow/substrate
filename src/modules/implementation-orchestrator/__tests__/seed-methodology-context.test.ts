@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createWasmSqliteAdapter, WasmSqliteDatabaseAdapter } from '../../../persistence/wasm-sqlite-adapter.js'
+import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { createHash } from 'node:crypto'
 
@@ -63,8 +63,8 @@ const CREATE_DECISIONS_TABLE = `
   )
 `
 
-async function createTestDb(): Promise<WasmSqliteDatabaseAdapter> {
-  const adapter = await createWasmSqliteAdapter() as WasmSqliteDatabaseAdapter
+async function createTestDb(): Promise<InMemoryDatabaseAdapter> {
+  const adapter = new InMemoryDatabaseAdapter()
   adapter.execSync(CREATE_DECISIONS_TABLE)
   return adapter
 }
@@ -160,7 +160,7 @@ function setupEpicsFile(content: string): void {
 // ---------------------------------------------------------------------------
 
 describe('AC4: Relaxed Heading Regex — parseEpicShards()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await createTestDb()
@@ -229,7 +229,7 @@ describe('AC4: Relaxed Heading Regex — parseEpicShards()', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC7: MAX_EPIC_SHARD_CHARS = 12,000', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await createTestDb()
@@ -255,7 +255,7 @@ describe('AC7: MAX_EPIC_SHARD_CHARS = 12,000', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC1/AC2/AC6: Content-hash comparison in seedEpicShards()', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await createTestDb()
@@ -363,7 +363,7 @@ Story 3-1: New
 // ---------------------------------------------------------------------------
 
 describe('Integration: h3 headings, full seed-modify-re-seed flow', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await createTestDb()
@@ -559,7 +559,7 @@ Line 3.
 // ---------------------------------------------------------------------------
 
 describe('Integration: seed-and-retrieve round trip (Story 37-0)', () => {
-  let adapter: WasmSqliteDatabaseAdapter
+  let adapter: InMemoryDatabaseAdapter
 
   beforeEach(async () => {
     adapter = await createTestDb()
