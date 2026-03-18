@@ -409,6 +409,9 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     const telemetryPersistence = telemetryEnabled
       ? new AdapterTelemetryPersistence(adapter)
       : undefined
+    if (telemetryPersistence !== undefined) {
+      await telemetryPersistence.initSchema()
+    }
 
     // Load methodology pack
     const packLoader = createPackLoader()
@@ -1746,6 +1749,9 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         const fpTelemetryPersistence = fullTelemetryEnabled
           ? new AdapterTelemetryPersistence(adapter)
           : undefined
+        if (fpTelemetryPersistence !== undefined) {
+          await fpTelemetryPersistence.initSchema()
+        }
 
         // Run implementation orchestrator
         const orchestrator = createImplementationOrchestrator({

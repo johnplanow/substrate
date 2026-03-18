@@ -227,7 +227,7 @@ async function seedEpicShards(db: DatabaseAdapter, projectRoot: string): Promise
   // Use delete + create (not upsertDecision) because upsertDecision's SQL
   // `pipeline_run_id = ?` with null never matches existing NULL rows in SQLite.
   await db.exec(
-    "DELETE FROM decisions WHERE phase = 'implementation' AND category = 'epic-shard-hash' AND key = 'epics-file'",
+    "DELETE FROM decisions WHERE phase = 'implementation' AND category = 'epic-shard-hash' AND `key` = 'epics-file'",
   )
   await createDecision(db, {
     pipeline_run_id: null,

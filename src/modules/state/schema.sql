@@ -142,6 +142,8 @@ CREATE TABLE IF NOT EXISTS efficiency_scores (
   cache_hit_sub_score           DOUBLE       NOT NULL DEFAULT 0,
   io_ratio_sub_score            DOUBLE       NOT NULL DEFAULT 0,
   context_management_sub_score  DOUBLE       NOT NULL DEFAULT 0,
+  token_density_sub_score       DOUBLE       NOT NULL DEFAULT 0,
+  cold_start_turns_excluded     INTEGER      NOT NULL DEFAULT 0,
   avg_cache_hit_rate            DOUBLE       NOT NULL DEFAULT 0,
   avg_io_ratio                  DOUBLE       NOT NULL DEFAULT 0,
   context_spike_count           INTEGER      NOT NULL DEFAULT 0,
