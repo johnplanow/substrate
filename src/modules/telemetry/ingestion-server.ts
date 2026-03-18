@@ -154,6 +154,7 @@ export class IngestionServer {
   /**
    * Start the HTTP ingestion server.
    * Resolves when the server is listening and ready to accept connections.
+   * On EADDRINUSE, retries up to 10 consecutive ports before failing.
    */
   async start(): Promise<void> {
     if (this._server !== null) {
@@ -161,18 +162,41 @@ export class IngestionServer {
       return
     }
 
+    const maxRetries = 10
+    let lastErr: Error | undefined
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const port = this._port + attempt
+      try {
+        await this._tryListen(port)
+        return
+      } catch (err) {
+        const nodeErr = err as NodeJS.ErrnoException
+        if (nodeErr.code === 'EADDRINUSE' && attempt < maxRetries) {
+          logger.warn({ port, attempt: attempt + 1 }, `Port ${port} in use — trying ${port + 1}`)
+          lastErr = nodeErr
+          continue
+        }
+        throw err
+      }
+    }
+
+    throw lastErr ?? new Error('IngestionServer: exhausted port retry attempts')
+  }
+
+  private _tryListen(port: number): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const server = createServer(this._handleRequest.bind(this))
 
       server.on('error', (err) => {
-        logger.error({ err }, 'IngestionServer failed to start')
+        server.close()
         reject(err)
       })
 
-      server.listen(this._port, '127.0.0.1', () => {
+      server.listen(port, '127.0.0.1', () => {
         this._server = server
         const addr = server.address() as AddressInfo
-        logger.info({ port: addr.port }, 'IngestionServer listening')
+        logger.info({ port: addr.port, requestedPort: this._port }, 'IngestionServer listening')
 
         // Start the batch buffer timer (if pipeline is wired)
         this._buffer?.start()

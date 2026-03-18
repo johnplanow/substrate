@@ -1144,7 +1144,16 @@ export function runBuildVerification(options: {
 export function checkGitDiffFiles(workingDir: string = process.cwd()): string[] {
   const results = new Set<string>()
 
+  // Guard: skip HEAD-based diff on repos with no commits (avoids fatal: bad revision 'HEAD')
+  let repoHasCommits = true
   try {
+    execSync('git rev-parse --verify HEAD', { cwd: workingDir, stdio: ['ignore', 'pipe', 'pipe'], timeout: 3000 })
+  } catch {
+    repoHasCommits = false
+  }
+
+  try {
+    if (!repoHasCommits) throw new Error('no commits — skip HEAD diff')
     const unstaged = execSync('git diff --name-only HEAD', {
       cwd: workingDir,
       encoding: 'utf-8',

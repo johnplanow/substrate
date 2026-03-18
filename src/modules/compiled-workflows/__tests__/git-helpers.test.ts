@@ -55,6 +55,9 @@ vi.mock('node:child_process', () => ({
     spawnCalls.push({ proc: fp })
     return fp.proc
   }),
+  // hasCommits() uses execSync('git rev-parse --verify HEAD') — return a truthy
+  // value to simulate a repo that has at least one commit.
+  execSync: vi.fn(() => 'abc123\n'),
 }))
 
 // Mock node:fs — existsSync defaults to true so stageIntentToAdd passes files through

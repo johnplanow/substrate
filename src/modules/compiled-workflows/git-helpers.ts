@@ -5,11 +5,25 @@
  * Uses child_process.spawn (ADR-005) for subprocess management.
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('compiled-workflows:git-helpers')
+
+/**
+ * Check whether the repo at `cwd` has at least one commit (HEAD resolves).
+ * Returns false for fresh repos with no commits, avoiding `fatal: bad revision 'HEAD'`.
+ * Synchronous (execSync) to keep it simple — this is a fast local check.
+ */
+function hasCommits(cwd: string): boolean {
+  try {
+    execSync('git rev-parse --verify HEAD', { cwd, stdio: ['ignore', 'pipe', 'pipe'], timeout: 3000 })
+    return true
+  } catch {
+    return false
+  }
+}
 
 // ---------------------------------------------------------------------------
 // getGitDiffSummary
@@ -29,6 +43,10 @@ const logger = createLogger('compiled-workflows:git-helpers')
  * @returns The diff output string, or '' on error
  */
 export async function getGitDiffSummary(workingDirectory: string = process.cwd()): Promise<string> {
+  if (!hasCommits(workingDirectory)) {
+    logger.debug({ cwd: workingDirectory }, 'No commits in repo — returning empty diff')
+    return ''
+  }
   return runGitCommand(['diff', 'HEAD'], workingDirectory, 'git-diff-summary')
 }
 
@@ -47,6 +65,10 @@ export async function getGitDiffSummary(workingDirectory: string = process.cwd()
  * @returns The stat summary string, or '' on error
  */
 export async function getGitDiffStatSummary(workingDirectory: string = process.cwd()): Promise<string> {
+  if (!hasCommits(workingDirectory)) {
+    logger.debug({ cwd: workingDirectory }, 'No commits in repo — returning empty stat')
+    return ''
+  }
   return runGitCommand(['diff', '--stat', 'HEAD'], workingDirectory, 'git-diff-stat')
 }
 
@@ -73,6 +95,10 @@ export async function getGitDiffForFiles(
   workingDirectory: string = process.cwd(),
 ): Promise<string> {
   if (files.length === 0) return ''
+  if (!hasCommits(workingDirectory)) {
+    logger.debug({ cwd: workingDirectory }, 'No commits in repo — returning empty diff for files')
+    return ''
+  }
   // Mark untracked files for intent-to-add so they appear in git diff
   await stageIntentToAdd(files, workingDirectory)
   return runGitCommand(['diff', 'HEAD', '--', ...files], workingDirectory, 'git-diff-files')
@@ -100,6 +126,10 @@ export async function getGitDiffStatForFiles(
   workingDirectory: string = process.cwd(),
 ): Promise<string> {
   if (files.length === 0) return ''
+  if (!hasCommits(workingDirectory)) {
+    logger.debug({ cwd: workingDirectory }, 'No commits in repo — returning empty stat for files')
+    return ''
+  }
   return runGitCommand(['diff', '--stat', 'HEAD', '--', ...files], workingDirectory, 'git-diff-stat-files')
 }
 
