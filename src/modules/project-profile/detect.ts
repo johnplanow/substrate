@@ -20,6 +20,7 @@ interface StackMarker {
   buildTool: BuildTool
   buildCommand: string
   testCommand: string
+  installCommand: string
 }
 
 /**
@@ -33,6 +34,7 @@ const STACK_MARKERS: StackMarker[] = [
     buildTool: 'go',
     buildCommand: 'go build ./...',
     testCommand: 'go test ./...',
+    installCommand: 'go get <package>',
   },
   {
     file: 'build.gradle.kts',
@@ -40,6 +42,7 @@ const STACK_MARKERS: StackMarker[] = [
     buildTool: 'gradle',
     buildCommand: './gradlew build',
     testCommand: './gradlew test',
+    installCommand: 'add dependency to build.gradle.kts',
   },
   {
     file: 'build.gradle',
@@ -47,6 +50,7 @@ const STACK_MARKERS: StackMarker[] = [
     buildTool: 'gradle',
     buildCommand: './gradlew build',
     testCommand: './gradlew test',
+    installCommand: 'add dependency to build.gradle',
   },
   {
     file: 'pom.xml',
@@ -54,6 +58,7 @@ const STACK_MARKERS: StackMarker[] = [
     buildTool: 'maven',
     buildCommand: 'mvn compile',
     testCommand: 'mvn test',
+    installCommand: 'add dependency to pom.xml',
   },
   {
     file: 'Cargo.toml',
@@ -61,6 +66,7 @@ const STACK_MARKERS: StackMarker[] = [
     buildTool: 'cargo',
     buildCommand: 'cargo build',
     testCommand: 'cargo test',
+    installCommand: 'cargo add <package>',
   },
   {
     file: 'pyproject.toml',
@@ -69,6 +75,7 @@ const STACK_MARKERS: StackMarker[] = [
     buildTool: 'pip',
     buildCommand: 'pip install -e .',
     testCommand: 'pytest',
+    installCommand: 'pip install <package>',
   },
   {
     file: 'package.json',
@@ -77,6 +84,7 @@ const STACK_MARKERS: StackMarker[] = [
     buildTool: 'npm',
     buildCommand: 'npm run build',
     testCommand: 'npm test',
+    installCommand: 'npm install <package>',
   },
 ]
 
@@ -101,17 +109,18 @@ async function detectNodeBuildTool(dir: string): Promise<{
   buildTool: BuildTool
   buildCommand: string
   testCommand: string
+  installCommand: string
 }> {
   if (await fileExists(path.join(dir, 'pnpm-lock.yaml'))) {
-    return { buildTool: 'pnpm', buildCommand: 'pnpm run build', testCommand: 'pnpm test' }
+    return { buildTool: 'pnpm', buildCommand: 'pnpm run build', testCommand: 'pnpm test', installCommand: 'pnpm add <package>' }
   }
   if (await fileExists(path.join(dir, 'yarn.lock'))) {
-    return { buildTool: 'yarn', buildCommand: 'yarn build', testCommand: 'yarn test' }
+    return { buildTool: 'yarn', buildCommand: 'yarn build', testCommand: 'yarn test', installCommand: 'yarn add <package>' }
   }
   if (await fileExists(path.join(dir, 'bun.lockb'))) {
-    return { buildTool: 'bun', buildCommand: 'bun run build', testCommand: 'bun test' }
+    return { buildTool: 'bun', buildCommand: 'bun run build', testCommand: 'bun test', installCommand: 'bun add <package>' }
   }
-  return { buildTool: 'npm', buildCommand: 'npm run build', testCommand: 'npm test' }
+  return { buildTool: 'npm', buildCommand: 'npm run build', testCommand: 'npm test', installCommand: 'npm install <package>' }
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +153,7 @@ export async function detectSingleProjectStack(dir: string): Promise<PackageEntr
         buildTool: nodeInfo.buildTool,
         buildCommand: nodeInfo.buildCommand,
         testCommand: nodeInfo.testCommand,
+        installCommand: nodeInfo.installCommand,
       }
     }
 
@@ -156,6 +166,7 @@ export async function detectSingleProjectStack(dir: string): Promise<PackageEntr
         buildTool: hasPoetry ? 'poetry' : 'pip',
         buildCommand: hasPoetry ? 'poetry build' : 'pip install -e .',
         testCommand: 'pytest',
+        installCommand: hasPoetry ? 'poetry add <package>' : 'pip install <package>',
       }
     }
 
@@ -166,6 +177,7 @@ export async function detectSingleProjectStack(dir: string): Promise<PackageEntr
       buildTool: marker.buildTool,
       buildCommand: marker.buildCommand,
       testCommand: marker.testCommand,
+      installCommand: marker.installCommand,
     }
   }
 
@@ -176,6 +188,7 @@ export async function detectSingleProjectStack(dir: string): Promise<PackageEntr
     buildTool: 'npm',
     buildCommand: 'npm run build',
     testCommand: 'npm test',
+    installCommand: 'npm install <package>',
   }
 }
 
@@ -233,6 +246,7 @@ export async function detectMonorepoProfile(rootDir: string): Promise<ProjectPro
       tool: 'turborepo',
       buildCommand: 'npx turbo build',
       testCommand: 'npx turbo test',
+      installCommand: 'npm install <package>',
       packages,
     },
   }
@@ -288,6 +302,7 @@ export async function detectProjectProfile(rootDir: string): Promise<ProjectProf
       framework: stackEntry.framework,
       buildCommand: stackEntry.buildCommand ?? 'npm run build',
       testCommand: stackEntry.testCommand ?? 'npm test',
+      installCommand: stackEntry.installCommand ?? 'npm install <package>',
       packages: [],
     },
   }

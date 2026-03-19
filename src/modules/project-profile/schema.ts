@@ -42,6 +42,7 @@ export const PackageEntrySchema = z.object({
   tools: z.array(z.string()).optional(),
   buildCommand: z.string().optional(),
   testCommand: z.string().optional(),
+  installCommand: z.string().optional(),
 })
 
 /** Zod schema for the full ProjectProfile object. */
@@ -54,6 +55,7 @@ export const ProjectProfileSchema = z.object({
     framework: z.string().optional(),
     buildCommand: z.string(),
     testCommand: z.string(),
+    installCommand: z.string().optional(),
     packages: z.array(PackageEntrySchema).optional(),
   }),
 })

@@ -28,6 +28,7 @@ import { getTokenCeiling } from './token-ceiling.js'
 import { computeStoryComplexity, resolveDevStoryMaxTurns, logComplexityResult } from './story-complexity.js'
 import { stripDeprecatedStatusField, detectDeprecatedStatusField } from '../work-graph/index.js'
 import { resolveDefaultTestPatterns } from './default-test-patterns.js'
+import { resolveInstallCommand } from './install-command.js'
 
 const logger = createLogger('compiled-workflows:dev-story')
 
@@ -291,6 +292,7 @@ export async function runDevStory(
     { name: 'test_plan', content: testPlanContent, priority: 'optional' },
     { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' },
     { name: 'verify_command', content: deps.pack.manifest.verifyCommand !== false ? (deps.pack.manifest.verifyCommand ?? 'npx turbo build') : '', priority: 'optional' },
+    { name: 'install_command', content: resolveInstallCommand(deps.projectRoot), priority: 'optional' },
   ]
 
   const { prompt, tokenCount, truncated } = assemblePrompt(template, sections, TOKEN_CEILING)

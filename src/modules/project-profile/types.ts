@@ -48,6 +48,8 @@ export interface PackageEntry {
   buildCommand?: string
   /** Per-package test command override */
   testCommand?: string
+  /** Per-package install command override */
+  installCommand?: string
 }
 
 /**
@@ -70,6 +72,8 @@ export interface ProjectProfile {
     buildCommand: string
     /** Root-level test command */
     testCommand: string
+    /** Root-level install command for adding new dependencies */
+    installCommand?: string
     /** Package entries (populated for monorepos) */
     packages?: PackageEntry[]
   }
