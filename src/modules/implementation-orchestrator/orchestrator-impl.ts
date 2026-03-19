@@ -1779,7 +1779,7 @@ export function createImplementationOrchestrator(
     // wasting a review cycle. Respects skipBuildVerify — independent from
     // skipPreflight so pre-flight and per-story gates can be toggled separately.
     {
-      const buildVerifyResult = config.skipBuildVerify === true
+      let buildVerifyResult = config.skipBuildVerify === true
         ? { status: 'skipped' as const }
         : runBuildVerification({
             verifyCommand: pack.manifest.verifyCommand,
@@ -1787,6 +1787,35 @@ export function createImplementationOrchestrator(
             projectRoot: projectRoot ?? process.cwd(),
             changedFiles: gitDiffFiles,
           })
+
+      if (buildVerifyResult.status === 'passed') {
+        // Secondary typecheck: catch type errors the bundler may skip (e.g., empty modules)
+        const resolvedRootForTsc = projectRoot ?? process.cwd()
+        const tscBin = join(resolvedRootForTsc, 'node_modules', '.bin', 'tsc')
+        const hasTsc = existsSync(tscBin) && existsSync(join(resolvedRootForTsc, 'tsconfig.json'))
+        if (hasTsc) {
+          try {
+            execSync(`"${tscBin}" --noEmit`, {
+              cwd: resolvedRootForTsc,
+              timeout: 120_000,
+              encoding: 'utf-8',
+              stdio: ['pipe', 'pipe', 'pipe'],
+            })
+            logger.info({ storyKey }, 'Secondary typecheck (tsc --noEmit) passed')
+          } catch (tscErr) {
+            const tscOutput = tscErr instanceof Error && 'stdout' in tscErr
+              ? String((tscErr as { stdout?: string }).stdout ?? '').slice(0, 2000)
+              : ''
+            logger.warn({ storyKey, tscOutput }, 'Secondary typecheck (tsc --noEmit) failed — treating as build failure')
+            buildVerifyResult = {
+              status: 'failed',
+              exitCode: 2,
+              output: `tsc --noEmit failed:\n${tscOutput}`,
+              reason: 'build-verification-failed',
+            }
+          }
+        }
+      }
 
       if (buildVerifyResult.status === 'passed') {
         eventBus.emit('story:build-verification-passed', { storyKey })

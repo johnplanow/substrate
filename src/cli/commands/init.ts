@@ -21,7 +21,7 @@
 
 import type { Command } from 'commander'
 import { mkdir, writeFile, access, readFile } from 'fs/promises'
-import { mkdirSync, writeFileSync, existsSync, readFileSync, cpSync, chmodSync, readdirSync, unlinkSync } from 'fs'
+import { mkdirSync, writeFileSync, existsSync, readFileSync, cpSync, chmodSync, readdirSync, unlinkSync, appendFileSync } from 'fs'
 import { join, resolve, dirname } from 'path'
 import yaml from 'js-yaml'
 import { createRequire } from 'node:module'
@@ -991,6 +991,21 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     await scaffoldStatuslineScript(projectRoot)
     await scaffoldClaudeSettings(projectRoot)
     await scaffoldClaudeCommands(projectRoot, outputFormat)
+
+    // Ensure substrate runtime files are gitignored
+    const gitignorePath = join(projectRoot, '.gitignore')
+    const runtimeEntries = ['.substrate/orchestrator.pid', '.substrate/current-run-id']
+    try {
+      const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf-8') : ''
+      const missing = runtimeEntries.filter((e) => !existing.includes(e))
+      if (missing.length > 0) {
+        const block = '\n# Substrate runtime files\n' + missing.join('\n') + '\n'
+        appendFileSync(gitignorePath, block)
+        logger.info({ entries: missing }, 'Added substrate runtime files to .gitignore')
+      }
+    } catch (err) {
+      logger.debug({ err }, 'Could not update .gitignore (non-fatal)')
+    }
 
     // ---------------------------------------------------------------
     // Step 7: Dolt bootstrapping
