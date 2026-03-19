@@ -36,6 +36,11 @@ export interface StoryRecord {
   completedAt?: string
   /** Sprint identifier, e.g. "sprint-1" */
   sprint?: string
+  /**
+   * Number of files modified at the time of a dev-story timeout checkpoint.
+   * Only set when phase === 'CHECKPOINT'.
+   */
+  checkpointFilesCount?: number
 }
 
 // ---------------------------------------------------------------------------

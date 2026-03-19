@@ -556,4 +556,34 @@ export interface OrchestratorEvents {
     reviewCycles: number
     dispatches: number
   }
+
+  // -------------------------------------------------------------------------
+  // Checkpoint events (Story 39-5)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted when a dev-story timeout has partial work on disk and the
+   * orchestrator captures it as a checkpoint for retry (Story 39-5).
+   */
+  'story:checkpoint-saved': {
+    /** Story key that timed out with partial work */
+    storyKey: string
+    /** Number of files modified before the timeout */
+    filesCount: number
+    /** Approximate byte length of the git diff captured */
+    diffSizeBytes: number
+  }
+
+  /**
+   * Emitted when the orchestrator dispatches a checkpoint retry for a story
+   * that timed out with partial work (Story 39-6).
+   */
+  'story:checkpoint-retry': {
+    /** Story key being retried */
+    storyKey: string
+    /** Number of files modified in the partial work captured at checkpoint */
+    filesCount: number
+    /** Retry attempt number (always 2 — first retry after initial timeout) */
+    attempt: number
+  }
 }

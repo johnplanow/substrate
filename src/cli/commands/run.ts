@@ -16,7 +16,7 @@
 
 import type { Command } from 'commander'
 import { join } from 'path'
-import { mkdirSync, existsSync, writeFileSync, unlinkSync } from 'fs'
+import { mkdirSync, existsSync, writeFileSync, unlinkSync, readdirSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { createEventEmitter } from '../../modules/implementation-orchestrator/event-emitter.js'
 import { createProgressRenderer } from '../../modules/implementation-orchestrator/progress-renderer.js'
@@ -116,6 +116,234 @@ function mapInternalPhaseToEventPhase(internalPhase: string): PipelinePhase | nu
     default:
       return null
   }
+}
+
+/**
+ * Wire all NDJSON event subscriptions from the event bus to the emitter.
+ * Shared helper called from both the implementation-only path and the full
+ * pipeline path (AC2: shared event subscription logic).
+ */
+function wireNdjsonEmitter(
+  eventBus: ReturnType<typeof createEventBus>,
+  ndjsonEmitter: ReturnType<typeof createEventEmitter>,
+): void {
+  // story:phase events for each pipeline phase (in_progress on start)
+  eventBus.on('orchestrator:story-phase-start', (payload) => {
+    const phase = mapInternalPhaseToEventPhase(payload.phase)
+    if (phase !== null) {
+      ndjsonEmitter.emit({
+        type: 'story:phase',
+        ts: new Date().toISOString(),
+        key: payload.storyKey,
+        phase,
+        status: 'in_progress',
+      })
+    }
+  })
+
+  // story:phase events for each pipeline phase (complete on finish)
+  eventBus.on('orchestrator:story-phase-complete', (payload) => {
+    const phase = mapInternalPhaseToEventPhase(payload.phase)
+    if (phase !== null) {
+      const result = payload.result as {
+        story_file?: string
+        verdict?: string
+      }
+      ndjsonEmitter.emit({
+        type: 'story:phase',
+        ts: new Date().toISOString(),
+        key: payload.storyKey,
+        phase,
+        status: 'complete',
+        ...(phase === 'code-review' && result?.verdict !== undefined
+          ? { verdict: result.verdict }
+          : {}),
+        ...(phase === 'create-story' && result?.story_file !== undefined
+          ? { file: result.story_file }
+          : {}),
+      })
+    }
+  })
+
+  // Emit routing:model-selected as NDJSON event for observability
+  eventBus.on('routing:model-selected', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'routing:model-selected',
+      ts: new Date().toISOString(),
+      dispatch_id: payload.dispatchId,
+      task_type: payload.taskType,
+      phase: payload.phase,
+      model: payload.model,
+      source: payload.source,
+    })
+  })
+
+  // story:done events on story completion
+  eventBus.on('orchestrator:story-complete', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'story:done',
+      ts: new Date().toISOString(),
+      key: payload.storyKey,
+      result: 'success',
+      review_cycles: payload.reviewCycles,
+    })
+  })
+
+  // story:escalation events on escalation (+ Story 22-3: include diagnosis)
+  eventBus.on('orchestrator:story-escalated', (payload) => {
+    const rawIssues = Array.isArray(payload.issues) ? payload.issues : []
+    const issues = rawIssues.map((issue) => {
+      const iss = issue as { severity?: string; file?: string; description?: string; desc?: string }
+      return {
+        severity: (iss.severity ?? 'unknown') as 'blocker' | 'major' | 'minor' | 'unknown',
+        file: iss.file ?? '',
+        desc: iss.desc ?? iss.description ?? '',
+      }
+    })
+    ndjsonEmitter.emit({
+      type: 'story:escalation',
+      ts: new Date().toISOString(),
+      key: payload.storyKey,
+      reason: payload.lastVerdict ?? 'escalated',
+      cycles: payload.reviewCycles ?? 0,
+      issues,
+      ...(payload.diagnosis !== undefined ? { diagnosis: payload.diagnosis } : {}),
+    })
+  })
+
+  // story:warn events for non-fatal warnings
+  eventBus.on('orchestrator:story-warn', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'story:warn',
+      ts: new Date().toISOString(),
+      key: payload.storyKey,
+      msg: payload.msg,
+    })
+  })
+
+  // Heartbeat events (Story 16-7 AC1)
+  eventBus.on('orchestrator:heartbeat', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'pipeline:heartbeat',
+      ts: new Date().toISOString(),
+      run_id: payload.runId,
+      active_dispatches: payload.activeDispatches,
+      completed_dispatches: payload.completedDispatches,
+      queued_dispatches: payload.queuedDispatches,
+    })
+  })
+
+  // Stall detection events (Story 16-7 AC2, Story 23-7 AC5)
+  eventBus.on('orchestrator:stall', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'story:stall',
+      ts: new Date().toISOString(),
+      run_id: payload.runId,
+      story_key: payload.storyKey,
+      phase: payload.phase,
+      elapsed_ms: payload.elapsedMs,
+      child_pids: payload.childPids,
+      child_active: payload.childActive,
+    })
+  })
+
+  // Zero-diff detection gate (Story 24-1)
+  eventBus.on('orchestrator:zero-diff-escalation', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'story:zero-diff-escalation',
+      ts: new Date().toISOString(),
+      storyKey: payload.storyKey,
+      reason: payload.reason,
+    })
+  })
+
+  // Build verification gate (Story 24-2)
+  eventBus.on('story:build-verification-passed', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'story:build-verification-passed',
+      ts: new Date().toISOString(),
+      storyKey: payload.storyKey,
+    })
+  })
+
+  eventBus.on('story:build-verification-failed', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'story:build-verification-failed',
+      ts: new Date().toISOString(),
+      storyKey: payload.storyKey,
+      exitCode: payload.exitCode,
+      output: payload.output,
+    })
+  })
+
+  // Interface change detection warning (Story 24-3)
+  eventBus.on('story:interface-change-warning', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'story:interface-change-warning',
+      ts: new Date().toISOString(),
+      storyKey: payload.storyKey,
+      modifiedInterfaces: payload.modifiedInterfaces,
+      potentiallyAffectedTests: payload.potentiallyAffectedTests,
+    })
+  })
+
+  // Story metrics snapshot on terminal state (Story 24-4)
+  eventBus.on('story:metrics', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'story:metrics',
+      ts: new Date().toISOString(),
+      storyKey: payload.storyKey,
+      wallClockMs: payload.wallClockMs,
+      phaseBreakdown: payload.phaseBreakdown,
+      tokens: payload.tokens,
+      reviewCycles: payload.reviewCycles,
+      dispatches: payload.dispatches,
+    })
+  })
+
+  // Pre-flight build failure (Story 25-2): pipeline-level abort before any story dispatch
+  eventBus.on('pipeline:pre-flight-failure', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'pipeline:pre-flight-failure',
+      ts: new Date().toISOString(),
+      exitCode: payload.exitCode,
+      output: payload.output + '\nTip: Use --skip-preflight to bypass, or check your build command in .substrate/project-profile.yaml',
+    })
+  })
+
+  // Post-sprint contract verification mismatch (Story 25-6): non-blocking warning
+  eventBus.on('pipeline:contract-mismatch', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'pipeline:contract-mismatch',
+      ts: new Date().toISOString(),
+      exporter: payload.exporter,
+      importer: payload.importer,
+      contractName: payload.contractName,
+      mismatchDescription: payload.mismatchDescription,
+    })
+  })
+
+  // Contract verification summary: consolidated pass/fail result
+  eventBus.on('pipeline:contract-verification-summary', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'pipeline:contract-verification-summary',
+      ts: new Date().toISOString(),
+      verified: payload.verified,
+      stalePruned: payload.stalePruned,
+      mismatches: payload.mismatches,
+      verdict: payload.verdict,
+    })
+  })
+
+  // Project profile staleness warning: non-blocking post-run check
+  eventBus.on('pipeline:profile-stale', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'pipeline:profile-stale',
+      ts: new Date().toISOString(),
+      message: payload.message,
+      indicators: payload.indicators,
+    })
+  })
 }
 
 export interface RunOptions {
@@ -313,42 +541,76 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   let effectiveStartPhase: PhaseName | undefined = startPhase
 
   if (effectiveStartPhase === undefined) {
-    // Auto-detect: open DB temporarily to inspect pipeline state
-    mkdirSync(dbDir, { recursive: true })
-    try {
-      const detectAdapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
+    // Story 39-2: If --stories is provided, skip phase detection entirely.
+    // The user is explicitly specifying what to run — the answer is always "implementation".
+    if (parsedStoryKeys.length > 0) {
+      // Validate story files exist for the provided keys (AC4).
+      // Uses the _bmad-output/implementation-artifacts/ convention from the orchestrator.
+      const artifactsDir = join(projectRoot, '_bmad-output', 'implementation-artifacts')
+      if (existsSync(artifactsDir)) {
+        let files: string[] | undefined
+        try {
+          const result = readdirSync(artifactsDir, { encoding: 'utf-8' })
+          if (Array.isArray(result)) {
+            files = result as string[]
+          }
+        } catch {
+          // Ignore directory read errors — skip validation gracefully
+        }
+        if (files !== undefined) {
+          for (const key of parsedStoryKeys) {
+            const found = files.some((f) => f.startsWith(`${key}-`) && f.endsWith('.md'))
+            if (!found) {
+              const errorMsg = `Story file not found for key: ${key}`
+              if (outputFormat === 'json') {
+                process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+              } else {
+                process.stderr.write(`Error: ${errorMsg}\n`)
+              }
+              return 1
+            }
+          }
+        }
+      }
+      // effectiveStartPhase remains undefined — falls through to direct implementation path
+    } else {
+      // Auto-detect: open DB temporarily to inspect pipeline state
+      mkdirSync(dbDir, { recursive: true })
       try {
-        await initSchema(detectAdapter)
-        const detection = await detectStartPhase(detectAdapter, projectRoot, epicNumber)
+        const detectAdapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
+        try {
+          await initSchema(detectAdapter)
+          const detection = await detectStartPhase(detectAdapter, projectRoot, epicNumber)
 
-        if (detection.phase !== 'implementation') {
-          // Pipeline needs earlier phases — route through full pipeline
-          effectiveStartPhase = detection.phase as PhaseName
+          if (detection.phase !== 'implementation') {
+            // Pipeline needs earlier phases — route through full pipeline
+            effectiveStartPhase = detection.phase as PhaseName
 
-          if (outputFormat === 'human') {
+            if (outputFormat === 'human') {
+              process.stdout.write(`[AUTO-DETECT] ${detection.reason}\n`)
+            }
+
+            // If concept is needed and not provided, give an actionable error
+            if (detection.needsConcept && concept === undefined) {
+              const errorMsg = `Pipeline needs to start from ${detection.phase} phase, which requires a concept.\nProvide --concept "your idea" or --concept-file path/to/brief.md`
+              if (outputFormat === 'json') {
+                process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+              } else {
+                process.stderr.write(`Error: ${errorMsg}\n`)
+              }
+              await detectAdapter.close()
+              return 1
+            }
+          } else if (outputFormat === 'human') {
             process.stdout.write(`[AUTO-DETECT] ${detection.reason}\n`)
           }
-
-          // If concept is needed and not provided, give an actionable error
-          if (detection.needsConcept && concept === undefined) {
-            const errorMsg = `Pipeline needs to start from ${detection.phase} phase, which requires a concept.\nProvide --concept "your idea" or --concept-file path/to/brief.md`
-            if (outputFormat === 'json') {
-              process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
-            } else {
-              process.stderr.write(`Error: ${errorMsg}\n`)
-            }
-            await detectAdapter.close()
-            return 1
-          }
-        } else if (outputFormat === 'human') {
-          process.stdout.write(`[AUTO-DETECT] ${detection.reason}\n`)
+        } finally {
+          await detectAdapter.close()
         }
-      } finally {
-        await detectAdapter.close()
+      } catch {
+        // DB not initialized — fall through to legacy path
+        // (which will also fail with "run substrate init" message)
       }
-    } catch {
-      // DB not initialized — fall through to legacy path
-      // (which will also fail with "run substrate init" message)
     }
   }
 
@@ -526,6 +788,25 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       start_phase: 'implementation',
       config_json: JSON.stringify({ storyKeys, concurrency, ...(parsedStoryKeys.length > 0 ? { explicitStories: parsedStoryKeys } : {}) }),
     })
+
+    // Write current run ID file so `substrate status` and `substrate health` can
+    // immediately identify this run without relying on timestamp ordering (Story 39-3 AC1, AC4).
+    const runIdFilePath = join(dbDir, 'current-run-id')
+    try {
+      writeFileSync(runIdFilePath, pipelineRun.id, 'utf-8')
+      const cleanupRunIdFile = () => {
+        try { unlinkSync(runIdFilePath) } catch { /* ignore */ }
+      }
+      // Clean up on normal exit (covers most graceful shutdowns).
+      process.on('exit', cleanupRunIdFile)
+      // Also clean up on SIGTERM and SIGINT so stale run ID files don't persist
+      // after signal-based termination. SIGKILL cannot be caught — status falls
+      // back to getLatestRun() in that case.
+      process.once('SIGTERM', () => { cleanupRunIdFile(); process.exit(0) })
+      process.once('SIGINT', () => { cleanupRunIdFile(); process.exit(130) })
+    } catch {
+      // Non-fatal: status/health fall back to getLatestRun()
+    }
 
     // Create dependencies
     const eventBus = createEventBus()
@@ -917,228 +1198,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         concurrency,
       })
 
-      // AC3: story:phase events for each pipeline phase (in_progress on start)
-      eventBus.on('orchestrator:story-phase-start', (payload) => {
-        const phase = mapInternalPhaseToEventPhase(payload.phase)
-        if (phase !== null) {
-          ndjsonEmitter!.emit({
-            type: 'story:phase',
-            ts: new Date().toISOString(),
-            key: payload.storyKey,
-            phase,
-            status: 'in_progress',
-          })
-        }
-      })
-
-      // AC3: story:phase events for each pipeline phase (complete on finish)
-      eventBus.on('orchestrator:story-phase-complete', (payload) => {
-        // Map internal phase names to event protocol phase names
-        const phase = mapInternalPhaseToEventPhase(payload.phase)
-        if (phase !== null) {
-          const result = payload.result as {
-            story_file?: string
-            verdict?: string
-          }
-          ndjsonEmitter!.emit({
-            type: 'story:phase',
-            ts: new Date().toISOString(),
-            key: payload.storyKey,
-            phase,
-            status: 'complete',
-            ...(phase === 'code-review' && result?.verdict !== undefined
-              ? { verdict: result.verdict }
-              : {}),
-            ...(phase === 'create-story' && result?.story_file !== undefined
-              ? { file: result.story_file }
-              : {}),
-          })
-        }
-      })
-
-      // Emit routing:model-selected as NDJSON event for observability
-      eventBus.on('routing:model-selected', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'routing:model-selected',
-          ts: new Date().toISOString(),
-          dispatch_id: payload.dispatchId,
-          task_type: payload.taskType,
-          phase: payload.phase,
-          model: payload.model,
-          source: payload.source,
-        })
-      })
-
-      // AC4: story:done events on story completion
-      eventBus.on('orchestrator:story-complete', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'story:done',
-          ts: new Date().toISOString(),
-          key: payload.storyKey,
-          result: 'success',
-          review_cycles: payload.reviewCycles,
-        })
-      })
-
-      // AC5: story:escalation events on escalation (+ Story 22-3: include diagnosis)
-      eventBus.on('orchestrator:story-escalated', (payload) => {
-        const rawIssues = Array.isArray(payload.issues) ? payload.issues : []
-        const issues = rawIssues.map((issue) => {
-          const iss = issue as { severity?: string; file?: string; description?: string; desc?: string }
-          return {
-            severity: (iss.severity ?? 'unknown') as 'blocker' | 'major' | 'minor' | 'unknown',
-            file: iss.file ?? '',
-            desc: iss.desc ?? iss.description ?? '',
-          }
-        })
-        ndjsonEmitter!.emit({
-          type: 'story:escalation',
-          ts: new Date().toISOString(),
-          key: payload.storyKey,
-          reason: payload.lastVerdict ?? 'escalated',
-          cycles: payload.reviewCycles ?? 0,
-          issues,
-          ...(payload.diagnosis !== undefined ? { diagnosis: payload.diagnosis } : {}),
-        })
-      })
-
-      // AC6: story:warn events for non-fatal warnings
-      eventBus.on('orchestrator:story-warn', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'story:warn',
-          ts: new Date().toISOString(),
-          key: payload.storyKey,
-          msg: payload.msg,
-        })
-      })
-
-      // Heartbeat events (Story 16-7 AC1)
-      eventBus.on('orchestrator:heartbeat', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'pipeline:heartbeat',
-          ts: new Date().toISOString(),
-          run_id: payload.runId,
-          active_dispatches: payload.activeDispatches,
-          completed_dispatches: payload.completedDispatches,
-          queued_dispatches: payload.queuedDispatches,
-        })
-      })
-
-      // Stall detection events (Story 16-7 AC2, Story 23-7 AC5)
-      eventBus.on('orchestrator:stall', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'story:stall',
-          ts: new Date().toISOString(),
-          run_id: payload.runId,
-          story_key: payload.storyKey,
-          phase: payload.phase,
-          elapsed_ms: payload.elapsedMs,
-          child_pids: payload.childPids,
-          child_active: payload.childActive,
-        })
-      })
-
-      // Zero-diff detection gate (Story 24-1)
-      eventBus.on('orchestrator:zero-diff-escalation', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'story:zero-diff-escalation',
-          ts: new Date().toISOString(),
-          storyKey: payload.storyKey,
-          reason: payload.reason,
-        })
-      })
-
-      // Build verification gate (Story 24-2)
-      // These events are emitted as 'story:*' directly by the orchestrator (no
-      // 'orchestrator:' prefix), so they need explicit handlers here — there is
-      // no catch-all routing.
-      eventBus.on('story:build-verification-passed', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'story:build-verification-passed',
-          ts: new Date().toISOString(),
-          storyKey: payload.storyKey,
-        })
-      })
-
-      eventBus.on('story:build-verification-failed', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'story:build-verification-failed',
-          ts: new Date().toISOString(),
-          storyKey: payload.storyKey,
-          exitCode: payload.exitCode,
-          output: payload.output,
-        })
-      })
-
-      // Interface change detection warning (Story 24-3)
-      // Non-blocking: emitted after build verification, before code-review.
-      eventBus.on('story:interface-change-warning', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'story:interface-change-warning',
-          ts: new Date().toISOString(),
-          storyKey: payload.storyKey,
-          modifiedInterfaces: payload.modifiedInterfaces,
-          potentiallyAffectedTests: payload.potentiallyAffectedTests,
-        })
-      })
-
-      // Story metrics snapshot on terminal state (Story 24-4)
-      eventBus.on('story:metrics', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'story:metrics',
-          ts: new Date().toISOString(),
-          storyKey: payload.storyKey,
-          wallClockMs: payload.wallClockMs,
-          phaseBreakdown: payload.phaseBreakdown,
-          tokens: payload.tokens,
-          reviewCycles: payload.reviewCycles,
-          dispatches: payload.dispatches,
-        })
-      })
-
-      // Pre-flight build failure (Story 25-2): pipeline-level abort before any story dispatch
-      eventBus.on('pipeline:pre-flight-failure', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'pipeline:pre-flight-failure',
-          ts: new Date().toISOString(),
-          exitCode: payload.exitCode,
-          output: payload.output + '\nTip: Use --skip-preflight to bypass, or check your build command in .substrate/project-profile.yaml',
-        })
-      })
-
-      // Post-sprint contract verification mismatch (Story 25-6): non-blocking warning
-      eventBus.on('pipeline:contract-mismatch', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'pipeline:contract-mismatch',
-          ts: new Date().toISOString(),
-          exporter: payload.exporter,
-          importer: payload.importer,
-          contractName: payload.contractName,
-          mismatchDescription: payload.mismatchDescription,
-        })
-      })
-
-      // Contract verification summary: consolidated pass/fail result
-      eventBus.on('pipeline:contract-verification-summary', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'pipeline:contract-verification-summary',
-          ts: new Date().toISOString(),
-          verified: payload.verified,
-          stalePruned: payload.stalePruned,
-          mismatches: payload.mismatches,
-          verdict: payload.verdict,
-        })
-      })
-
-      // Project profile staleness warning: non-blocking post-run check
-      eventBus.on('pipeline:profile-stale', (payload) => {
-        ndjsonEmitter!.emit({
-          type: 'pipeline:profile-stale',
-          ts: new Date().toISOString(),
-          message: payload.message,
-          indicators: payload.indicators,
-        })
-      })
+      // AC2: Wire all event subscriptions via shared helper
+      wireNdjsonEmitter(eventBus, ndjsonEmitter)
     }
 
     // Create OTLP ingestion server if telemetry is enabled (Story 27-9).
@@ -1511,6 +1572,24 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     const startedAt = Date.now()
     const runId = await phaseOrchestrator.startRun(concept ?? '', startPhase)
 
+    // Write current run ID file so `substrate status` and `substrate health` can
+    // immediately identify this run without relying on timestamp ordering (Story 39-3 AC1, AC4).
+    const runIdFilePath = join(dbDir, 'current-run-id')
+    try {
+      writeFileSync(runIdFilePath, runId, 'utf-8')
+      const cleanupRunIdFile = () => {
+        try { unlinkSync(runIdFilePath) } catch { /* ignore */ }
+      }
+      // Clean up on normal exit (covers most graceful shutdowns).
+      process.on('exit', cleanupRunIdFile)
+      // Also clean up on SIGTERM and SIGINT so stale run ID files don't persist
+      // after signal-based termination.
+      process.once('SIGTERM', () => { cleanupRunIdFile(); process.exit(0) })
+      process.once('SIGINT', () => { cleanupRunIdFile(); process.exit(130) })
+    } catch {
+      // Non-fatal: status/health fall back to getLatestRun()
+    }
+
     // Persist original CLI scope flags so supervisor can replay them on restart
     if (explicitStories !== undefined && explicitStories.length > 0 || options.epic !== undefined) {
       const existingRun = (await adapter.query<{ config_json: string | null }>('SELECT config_json FROM pipeline_runs WHERE id = ?', [runId]))[0]
@@ -1528,6 +1607,21 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
       process.stdout.write(`Pipeline run ID: ${runId}\n`)
     }
 
+    // Wire NDJSON emitter for --events mode (AC1, AC2)
+    let fullPipelineNdjsonEmitter: ReturnType<typeof createEventEmitter> | undefined
+    if (eventsFlag === true) {
+      fullPipelineNdjsonEmitter = createEventEmitter(process.stdout)
+      fullPipelineNdjsonEmitter.emit({
+        type: 'pipeline:start',
+        ts: new Date().toISOString(),
+        run_id: runId,
+        stories: explicitStories ?? [],
+        concurrency,
+      })
+      // Wire all event subscriptions via shared helper (AC2)
+      wireNdjsonEmitter(eventBus, fullPipelineNdjsonEmitter)
+    }
+
     // Execute phases in order starting from startPhase
     // Include 'research' before analysis when research is enabled
     // Include 'ux-design' between planning and solutioning when the pack has it enabled
@@ -1538,8 +1632,22 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     phaseOrder.push('solutioning', 'implementation')
     const startIdx = phaseOrder.indexOf(startPhase)
 
+    // Story outcome buckets for pipeline:complete event — populated by the implementation phase
+    const fpSucceededKeys: string[] = []
+    const fpFailedKeys: string[] = []
+    const fpEscalatedKeys: string[] = []
+
     for (let i = startIdx; i < phaseOrder.length; i++) {
       const currentPhase = phaseOrder[i]
+
+      // AC3: Emit pipeline:phase-start event before executing each phase
+      if (fullPipelineNdjsonEmitter !== undefined) {
+        fullPipelineNdjsonEmitter.emit({
+          type: 'pipeline:phase-start',
+          ts: new Date().toISOString(),
+          phase: currentPhase,
+        })
+      }
 
       if (outputFormat === 'human') {
         process.stdout.write(`\n[${currentPhase.toUpperCase()}] Starting...\n`)
@@ -1831,11 +1939,31 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           )
         }
 
-        await orchestrator.run(storyKeys)
+        const implStatus = await orchestrator.run(storyKeys)
 
         if (outputFormat === 'human') {
           process.stdout.write('[IMPLEMENTATION] Complete\n')
         }
+
+        // Compute story outcome buckets from orchestrator status (for pipeline:complete event)
+        for (const [key, s] of Object.entries(implStatus.stories)) {
+          if (s.phase === 'COMPLETE') fpSucceededKeys.push(key)
+          else if (s.phase === 'ESCALATED') {
+            if (s.error !== undefined) fpFailedKeys.push(key)
+            else fpEscalatedKeys.push(key)
+          } else {
+            fpFailedKeys.push(key)
+          }
+        }
+      }
+
+      // AC3: Emit pipeline:phase-complete event after each phase succeeds
+      if (fullPipelineNdjsonEmitter !== undefined) {
+        fullPipelineNdjsonEmitter.emit({
+          type: 'pipeline:phase-complete',
+          ts: new Date().toISOString(),
+          phase: currentPhase,
+        })
       }
 
       // Evaluate stop-after gate after each phase completes (AC8: between phases, not mid-phase)
@@ -1922,6 +2050,17 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
       )
       process.stdout.write('\n')
       process.stdout.write(formatTokenTelemetry(tokenSummary, BMAD_BASELINE_TOKENS_FULL) + '\n')
+    }
+
+    // AC1: Emit pipeline:complete event (last event in --events mode)
+    if (fullPipelineNdjsonEmitter !== undefined) {
+      fullPipelineNdjsonEmitter.emit({
+        type: 'pipeline:complete',
+        ts: new Date().toISOString(),
+        succeeded: fpSucceededKeys,
+        failed: fpFailedKeys,
+        escalated: fpEscalatedKeys,
+      })
     }
 
     return 0

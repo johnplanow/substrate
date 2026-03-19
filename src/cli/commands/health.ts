@@ -69,6 +69,10 @@ interface ProcessInfo {
   orchestrator_pid: number | null
   child_pids: number[]
   zombies: number[]
+  /** True when the PID file existed and contained a valid PID, but that PID was
+   *  not alive in `ps`. Distinguishes "PID file found, process dead" (AC2 → STALLED)
+   *  from "no PID file" (AC3 → fall through to existing heuristics). */
+  pid_file_dead?: boolean
 }
 
 export interface PipelineHealthOutput {
@@ -197,9 +201,11 @@ export function inspectProcessTree(opts?: InspectProcessTreeOptions): ProcessInf
           })
           if (isAlive) {
             result.orchestrator_pid = pid
+          } else {
+            // PID file exists but process is dead — flag so verdict logic can
+            // return STALLED per AC2, even when DB is fresh and active=0.
+            result.pid_file_dead = true
           }
-          // If PID file exists but process is dead, orchestrator_pid stays null
-          // (process crashed without cleanup) — stale detection handles this
         }
       } catch {
         // PID file doesn't exist or can't be read — fall through to command-line matching
@@ -328,6 +334,8 @@ export async function getAutoHealthData(options: {
   projectRoot: string
   stateStore?: StateStore
   stateStoreConfig?: { backend?: string; basePath?: string }
+  /** @internal test-only: override process tree inspection result */
+  _processInfoOverride?: ProcessInfo
 }): Promise<PipelineHealthOutput> {
   const { runId, projectRoot, stateStore, stateStoreConfig } = options
 
@@ -409,7 +417,28 @@ export async function getAutoHealthData(options: {
     if (runId !== undefined) {
       run = await getPipelineRunById(adapter, runId)
     } else {
-      run = await getLatestRun(adapter)
+      // AC2: Try current-run-id file before falling back to getLatestRun() (Story 39-3)
+      // This ensures health reports on the correct active run, not a stale one.
+      let currentRunId: string | undefined
+      try {
+        const currentRunIdPath = join(dbRoot, '.substrate', 'current-run-id')
+        const content = readFileSync(currentRunIdPath, 'utf-8').trim()
+        // Validate UUID format to guard against corrupted file content (Story 39-3 AC2)
+        const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        if (UUID_RE.test(content)) {
+          currentRunId = content
+        }
+      } catch {
+        // File doesn't exist or can't be read — fall through to getLatestRun()
+      }
+
+      if (currentRunId !== undefined) {
+        run = await getPipelineRunById(adapter, currentRunId)
+      }
+      if (run === undefined) {
+        // AC3: Fallback to getLatestRun() for backward compatibility
+        run = await getLatestRun(adapter)
+      }
     }
 
     if (run === undefined) {
@@ -470,31 +499,38 @@ export async function getAutoHealthData(options: {
     // by `substrate run` — this is the primary fix for cross-project detection
     // where --project-root may not appear in the process command line (AC1, AC3).
     const substrateDirPath = join(dbRoot, '.substrate')
-    const processInfo = inspectProcessTree({ projectRoot, substrateDirPath })
+    const processInfo = options._processInfoOverride ?? inspectProcessTree({ projectRoot, substrateDirPath })
 
     // Derive verdict
-    // AC4: NO_PIPELINE_RUNNING is only reported when the DB status is terminal
-    // (completed/failed/stopped) or when there is no pipeline run at all.
-    // It must NOT be reported solely based on failing to detect the process
-    // when run.status === 'running' — that was incorrectly returned when
-    // process detection was broken.
+    // Priority order (AC1 → AC2 → AC3 heuristics):
+    //
+    // AC1/AC4/AC5: orchestrator_pid alive → HEALTHY regardless of child count,
+    //   zombies, or DB staleness. The live PID is the authoritative health signal.
+    // AC2: PID file found but process dead (pid_file_dead=true) → STALLED, with no
+    //   carve-outs for fresh DB or zero active stories.
+    // AC3: No PID file → fall through to existing heuristics (zombies, DB staleness,
+    //   active story count). Fresh DB + 0 active + no PID file → HEALTHY (optimistic).
     let verdict: HealthVerdict = 'NO_PIPELINE_RUNNING'
     if (run.status === 'running') {
-      if (processInfo.zombies.length > 0) {
-        verdict = 'STALLED'
-      } else if (processInfo.orchestrator_pid !== null && processInfo.child_pids.length > 0 && stalenessSeconds > DEFAULT_STALL_THRESHOLD_SECONDS) {
-        // Children are alive and not zombies — pipeline is actively working even
-        // though DB hasn't been updated (agent mid-execution). Treat as HEALTHY.
+      if (processInfo.orchestrator_pid !== null) {
+        // AC1: Orchestrator is alive — HEALTHY regardless of zombie children,
+        // child count, or DB staleness (AC4, AC5).
         verdict = 'HEALTHY'
+      } else if (processInfo.pid_file_dead === true) {
+        // AC2: PID file existed but process is dead — STALLED with no carve-outs.
+        verdict = 'STALLED'
+      } else if (processInfo.zombies.length > 0) {
+        // AC3 heuristic: zombie children with no live orchestrator → STALLED
+        verdict = 'STALLED'
       } else if (stalenessSeconds > DEFAULT_STALL_THRESHOLD_SECONDS) {
+        // AC3 heuristic: no orchestrator found + DB is stale → STALLED
         verdict = 'STALLED'
-      } else if (processInfo.orchestrator_pid !== null && processInfo.child_pids.length === 0 && active > 0) {
-        verdict = 'STALLED'
-      } else if (processInfo.orchestrator_pid === null && active > 0) {
-        // Orchestrator process is dead but stories are still active — the
-        // pipeline crashed without reaching terminal state.
+      } else if (active > 0) {
+        // AC3 heuristic: no orchestrator found but stories actively tracked
+        // (process died without cleanup)
         verdict = 'STALLED'
       } else {
+        // AC3 heuristic: no PID file, fresh DB, 0 active — optimistic HEALTHY
         verdict = 'HEALTHY'
       }
     } else if (run.status === 'completed' || run.status === 'failed' || run.status === 'stopped') {

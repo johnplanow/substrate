@@ -30,6 +30,7 @@ export type StoryPhase =
   | 'NEEDS_FIXES'
   | 'COMPLETE'
   | 'ESCALATED'
+  | 'CHECKPOINT'
 
 // ---------------------------------------------------------------------------
 // StoryState
@@ -51,6 +52,11 @@ export interface StoryState {
   startedAt?: string
   /** ISO timestamp when this story's processing completed or was escalated */
   completedAt?: string
+  /**
+   * Number of files modified at the time of a dev-story timeout checkpoint.
+   * Only set when phase === 'CHECKPOINT'.
+   */
+  checkpointFilesCount?: number
 }
 
 // ---------------------------------------------------------------------------

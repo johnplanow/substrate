@@ -51,7 +51,7 @@ import type { PackageSnapshotData } from './package-snapshot.js'
 import { sleep } from '../../utils/helpers.js'
 import { runBuildVerification, checkGitDiffFiles } from '../agent-dispatch/dispatcher-impl.js'
 import { detectInterfaceChanges } from '../agent-dispatch/interface-change-detector.js'
-import { computeStoryComplexity, resolveFixStoryMaxTurns, logComplexityResult } from '../compiled-workflows/story-complexity.js'
+import { computeStoryComplexity, resolveFixStoryMaxTurns, resolveDevStoryMaxTurns, logComplexityResult } from '../compiled-workflows/story-complexity.js'
 import { parseInterfaceContracts } from '../compiled-workflows/interface-contracts.js'
 import { verifyContracts } from './contract-verifier.js'
 import type { ContractMismatch } from './types.js'
@@ -253,6 +253,7 @@ function wgStatusForPhase(phase: StoryPhase): WgStoryStatus | null {
     case 'IN_DEV':
     case 'IN_REVIEW':
     case 'NEEDS_FIXES':
+    case 'CHECKPOINT':
       return 'in_progress'
     case 'COMPLETE':
       return 'complete'
@@ -413,6 +414,21 @@ export function createImplementationOrchestrator(
   // Populated from stateStore.queryStories() after initialization for resume scenarios.
   // In-memory _stories always takes precedence over this cache.
   const _stateStoreCache = new Map<string, import('../state/types.js').StoryRecord>()
+
+  // -- Checkpoint context (Story 39-5) --
+  // Ephemeral in-memory store for partial work captured on dev-story timeout.
+  // Keyed by storyKey; consumed by retry logic (Story 39-6).
+  // NOT persisted to Dolt — only needed for immediate retry within the same run.
+  interface CheckpointContext {
+    /** Files modified before the timeout (from checkGitDiffFiles) */
+    filesModified: string[]
+    /** Git diff of modified files at time of timeout */
+    gitDiff: string
+    /** Error message from the timed-out dispatch (for debugging) */
+    partialOutput: string
+  }
+  const _checkpoints = new Map<string, CheckpointContext>()
+
 
   // -- memory pressure backoff (Story 23-8, AC1) --
   // Exponential backoff intervals (ms) before retrying a story dispatch
@@ -659,6 +675,7 @@ export function createImplementationOrchestrator(
           error: record.error,
           startedAt: record.startedAt,
           completedAt: record.completedAt,
+          checkpointFilesCount: record.checkpointFilesCount,
         }
       }
     }
@@ -755,6 +772,7 @@ export function createImplementationOrchestrator(
         startedAt: state.startedAt,
         completedAt: state.completedAt,
         sprint: config.sprint,
+        checkpointFilesCount: state.checkpointFilesCount,
       }
       await stateStore.setStoryState(storyKey, record)
     } catch (err) {
@@ -1465,17 +1483,236 @@ export function createImplementationOrchestrator(
         })
         await persistState()
 
-        if (devResult.result === 'success') {
-          devStoryWasSuccess = true
-        } else {
-          // Dev agent failed but may have produced code (common when agent
-          // exhausts turns or exits non-zero after partial work). Proceed to
-          // code review — the reviewer will assess actual code state.
-          logger.warn({
+        // -- Story 39-5 / 39-6: dev-story timeout checkpoint + retry --
+        // Detect timeout before generic failure handling. runDevStory coerces
+        // dispatch timeout into result:'failed' with error:'dispatch_timeout after Xms'.
+        // checkpointHandled is set to true when retry completes so the subsequent
+        // devResult success check is skipped (we already set devStoryWasSuccess from
+        // the retry result).
+        let checkpointHandled = false
+        if (devResult.result === 'failed' && devResult.error?.startsWith('dispatch_timeout')) {
+          endPhase(storyKey, 'dev-story')
+          const timeoutFiles = checkGitDiffFiles(projectRoot ?? process.cwd())
+
+          if (timeoutFiles.length === 0) {
+            // AC3: No partial files on disk — escalate immediately (nothing to retry from)
+            logger.warn(
+              { storyKey },
+              'Dev-story timeout with zero modified files — escalating immediately (no checkpoint)',
+            )
+            updateStory(storyKey, {
+              phase: 'ESCALATED' as StoryPhase,
+              error: 'timeout-no-files',
+              completedAt: new Date().toISOString(),
+            })
+            await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+            await emitEscalation({
+              storyKey,
+              lastVerdict: 'timeout-no-files',
+              reviewCycles: 0,
+              issues: ['dev-story timed out with no partial files — nothing to checkpoint'],
+            })
+            await persistState()
+            return
+          }
+
+          // AC1, AC2: Partial files exist — capture checkpoint
+          logger.info(
+            { storyKey, filesCount: timeoutFiles.length },
+            'Dev-story timeout with partial files — capturing checkpoint',
+          )
+
+          let gitDiff = ''
+          try {
+            gitDiff = execSync(
+              `git diff HEAD -- ${timeoutFiles.map((f) => `"${f}"`).join(' ')}`,
+              {
+                cwd: projectRoot ?? process.cwd(),
+                encoding: 'utf-8',
+                timeout: 10_000,
+                stdio: ['ignore', 'pipe', 'pipe'],
+              },
+            ).trim()
+          } catch (diffErr) {
+            logger.warn(
+              { storyKey, error: diffErr instanceof Error ? diffErr.message : String(diffErr) },
+              'Failed to capture git diff for checkpoint — proceeding with empty diff',
+            )
+          }
+
+          _checkpoints.set(storyKey, {
+            filesModified: timeoutFiles,
+            gitDiff,
+            partialOutput: devResult.error ?? '',
+          })
+
+          // AC2: Set story phase to CHECKPOINT (AC5: store filesCount for status display)
+          updateStory(storyKey, { phase: 'CHECKPOINT' as StoryPhase, checkpointFilesCount: timeoutFiles.length })
+
+          // AC4: Emit checkpoint event
+          const diffSizeBytes = Buffer.byteLength(gitDiff, 'utf-8')
+          eventBus.emit('story:checkpoint-saved', {
             storyKey,
-            error: devResult.error,
-            filesModified: devFilesModified.length,
-          }, 'Dev-story reported failure, proceeding to code review')
+            filesCount: timeoutFiles.length,
+            diffSizeBytes,
+          })
+
+          // AC6: Record dispatch_log entry with result: 'timeout'
+          if (stateStore !== undefined) {
+            stateStore.recordMetric({
+              storyKey,
+              taskType: 'dev-story',
+              result: 'timeout',
+              recordedAt: new Date().toISOString(),
+              sprint: config.sprint,
+            }).catch((storeErr: unknown) => {
+              logger.warn({ err: storeErr, storyKey }, 'Failed to record timeout metric to StateStore (best-effort)')
+            })
+          }
+
+          await persistState()
+
+          // -- Story 39-6: Checkpoint retry --
+          // Instead of stopping at CHECKPOINT, dispatch a retry with the partial
+          // work context injected so the agent can pick up where it left off.
+          // If the retry also times out, escalate (handled below via checkpointRetryResult.status).
+
+          // AC6: Emit checkpoint-retry event before dispatching
+          eventBus.emit('story:checkpoint-retry', {
+            storyKey,
+            filesCount: timeoutFiles.length,
+            attempt: 2,
+          })
+
+          // AC2: Assemble checkpoint retry prompt (dev-story template + partial work context)
+          const checkpointData = _checkpoints.get(storyKey)!
+          let checkpointRetryPrompt: string
+          let checkpointRetryMaxTurns: number | undefined
+          try {
+            const devStoryTemplate = await pack.getPrompt('dev-story')
+            const storyContent = await readFile(storyFilePath ?? '', 'utf-8')
+
+            // AC3: Same turn budget as original dev-story dispatch
+            const complexity = computeStoryComplexity(storyContent)
+            checkpointRetryMaxTurns = resolveDevStoryMaxTurns(complexity.complexityScore)
+            logComplexityResult(storyKey, complexity, checkpointRetryMaxTurns)
+
+            let archConstraints = ''
+            try {
+              const decisions = await getDecisionsByPhase(db, 'solutioning')
+              const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
+              archConstraints = constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
+            } catch { /* arch constraints are optional */ }
+
+            const checkpointContext = [
+              'Your prior attempt timed out. Here is the work you completed:',
+              '',
+              `Files modified (${checkpointData.filesModified.length}):`,
+              ...checkpointData.filesModified.map((f) => `- ${f}`),
+              '',
+              '```diff',
+              checkpointData.gitDiff || '(no diff available)',
+              '```',
+              '',
+              'Continue from where you left off. Do not redo completed work.',
+            ].join('\n')
+
+            const sections = [
+              { name: 'story_content', content: storyContent, priority: 'required' as const },
+              { name: 'checkpoint_context', content: checkpointContext, priority: 'required' as const },
+              { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
+            ]
+            const assembled = assemblePrompt(devStoryTemplate, sections, 24000)
+            checkpointRetryPrompt = assembled.prompt
+          } catch {
+            checkpointRetryPrompt = `Continue story ${storyKey} from checkpoint. Your prior attempt timed out. Do not redo completed work.`
+            logger.warn({ storyKey }, 'Failed to assemble checkpoint retry prompt — using fallback')
+          }
+
+          // AC3: Dispatch retry with same taskType: 'dev-story' (same timeout + turn budget)
+          logger.info(
+            { storyKey, filesCount: checkpointData.filesModified.length },
+            'Dispatching checkpoint retry for timed-out story',
+          )
+          incrementDispatches(storyKey)
+          updateStory(storyKey, { phase: 'IN_DEV' as StoryPhase })
+          startPhase(storyKey, 'dev-story-retry')
+
+          const checkpointRetryHandle = dispatcher.dispatch({
+            prompt: checkpointRetryPrompt,
+            agent: 'claude-code',
+            taskType: 'dev-story',
+            outputSchema: DevStoryResultSchema,
+            ...(checkpointRetryMaxTurns !== undefined ? { maxTurns: checkpointRetryMaxTurns } : {}),
+            ...(projectRoot !== undefined ? { workingDirectory: projectRoot } : {}),
+            ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
+            ...(config.perStoryContextCeilings?.[storyKey] !== undefined
+              ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
+              : {}),
+            storyKey,
+          })
+          const checkpointRetryResult = await checkpointRetryHandle.result
+          endPhase(storyKey, 'dev-story-retry')
+
+          eventBus.emit('orchestrator:story-phase-complete', {
+            storyKey,
+            phase: 'IN_DEV',
+            result: {
+              tokenUsage: checkpointRetryResult.tokenEstimate
+                ? { input: checkpointRetryResult.tokenEstimate.input, output: checkpointRetryResult.tokenEstimate.output }
+                : undefined,
+            },
+          })
+
+          if (checkpointRetryResult.status === 'timeout') {
+            // AC4: Second timeout → escalate (no infinite retry loop)
+            // NOTE: do NOT call endPhase(storyKey, 'dev-story') here — it was already
+            // called at the start of the timeout handler (before entering checkpoint logic).
+            // Calling it again would overwrite the first end timestamp and inflate phase duration.
+            logger.warn({ storyKey }, 'Checkpoint retry dispatch timed out — escalating story')
+            updateStory(storyKey, {
+              phase: 'ESCALATED' as StoryPhase,
+              error: 'checkpoint-retry-timeout',
+              completedAt: new Date().toISOString(),
+            })
+            await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+            await emitEscalation({
+              storyKey,
+              lastVerdict: 'checkpoint-retry-timeout',
+              reviewCycles: 0,
+              issues: ['checkpoint retry timed out — no infinite retry loop'],
+            })
+            await persistState()
+            return
+          }
+
+          // AC5: Retry completed (success or failure) — proceed to code review
+          const retryParsed = checkpointRetryResult.parsed
+          devFilesModified = retryParsed?.files_modified ?? checkGitDiffFiles(projectRoot ?? process.cwd())
+          if (checkpointRetryResult.status === 'completed' && retryParsed?.result === 'success') {
+            devStoryWasSuccess = true
+          } else {
+            logger.warn(
+              { storyKey, status: checkpointRetryResult.status },
+              'Checkpoint retry completed with failure — proceeding to code review',
+            )
+          }
+          checkpointHandled = true
+        }
+
+        if (!checkpointHandled) {
+          if (devResult.result === 'success') {
+            devStoryWasSuccess = true
+          } else {
+            // Dev agent failed but may have produced code (common when agent
+            // exhausts turns or exits non-zero after partial work). Proceed to
+            // code review — the reviewer will assess actual code state.
+            logger.warn({
+              storyKey,
+              error: devResult.error,
+              filesModified: devFilesModified.length,
+            }, 'Dev-story reported failure, proceeding to code review')
+          }
         }
       }
     } catch (err) {
