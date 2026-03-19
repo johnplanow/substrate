@@ -640,6 +640,36 @@ export interface RoutingModelSelectedEvent {
 }
 
 // ---------------------------------------------------------------------------
+// PipelinePhaseStartEvent (Story 39-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when a pipeline phase starts during full pipeline execution.
+ */
+export interface PipelinePhaseStartEvent {
+  type: 'pipeline:phase-start'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Phase name (e.g., 'analysis', 'implementation') */
+  phase: string
+}
+
+// ---------------------------------------------------------------------------
+// PipelinePhaseCompleteEvent (Story 39-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when a pipeline phase completes during full pipeline execution.
+ */
+export interface PipelinePhaseCompleteEvent {
+  type: 'pipeline:phase-complete'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Phase name (e.g., 'analysis', 'implementation') */
+  phase: string
+}
+
+// ---------------------------------------------------------------------------
 // PipelineEvent discriminated union
 // ---------------------------------------------------------------------------
 
@@ -687,6 +717,8 @@ export type PipelineEvent =
   | SupervisorExperimentCompleteEvent
   | SupervisorExperimentErrorEvent
   | RoutingModelSelectedEvent
+  | PipelinePhaseStartEvent
+  | PipelinePhaseCompleteEvent
 
 // ---------------------------------------------------------------------------
 // Compile-time source of truth for all event type discriminants
@@ -745,6 +777,9 @@ export const EVENT_TYPE_NAMES = [
   'supervisor:experiment:error',
   // Epic 28: model routing observability
   'routing:model-selected',
+  // Story 39-1: full pipeline phase lifecycle events
+  'pipeline:phase-start',
+  'pipeline:phase-complete',
 ] as const
 
 /**

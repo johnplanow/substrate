@@ -558,6 +558,22 @@ export interface OrchestratorEvents {
   }
 
   // -------------------------------------------------------------------------
+  // Pipeline phase lifecycle events (Story 39-1)
+  // -------------------------------------------------------------------------
+
+  /** A pipeline phase has started (emitted by full pipeline path for NDJSON visibility) */
+  'pipeline:phase-start': {
+    phase: string
+    ts: string
+  }
+
+  /** A pipeline phase has completed (emitted by full pipeline path for NDJSON visibility) */
+  'pipeline:phase-complete': {
+    phase: string
+    ts: string
+  }
+
+  // -------------------------------------------------------------------------
   // Checkpoint events (Story 39-5)
   // -------------------------------------------------------------------------
 

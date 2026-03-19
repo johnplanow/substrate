@@ -105,6 +105,9 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'routing:model-selected',
       // Profile staleness warning (post-run check)
       'pipeline:profile-stale',
+      // Story 39-1: full pipeline phase lifecycle events
+      'pipeline:phase-start',
+      'pipeline:phase-complete',
     ]
     const actualTypes = PIPELINE_EVENT_METADATA.map((e) => e.type)
     for (const t of expectedTypes) {
@@ -452,7 +455,7 @@ describe('generateHelpAgentOutput', () => {
     const output = generateHelpAgentOutput('0.1.14')
     const tokenCount = approximateTokenCount(output)
     // Conservative check: approximate token count < 2000 (threshold scales with event count)
-    expect(tokenCount).toBeLessThan(3050)
+    expect(tokenCount).toBeLessThan(3200)
   })
 
   it('output is valid markdown (AC2)', () => {
@@ -545,6 +548,6 @@ describe('runHelpAgent', () => {
     const written = stdoutSpy.mock.calls[0][0] as string
     const tokenCount = approximateTokenCount(written)
     // Conservative check: approximate token count < 2000 (threshold scales with event count)
-    expect(tokenCount).toBeLessThan(3050)
+    expect(tokenCount).toBeLessThan(3200)
   })
 })

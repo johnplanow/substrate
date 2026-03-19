@@ -319,6 +319,24 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     ],
   },
   {
+    type: 'pipeline:phase-start',
+    description: 'A pipeline phase has started during full pipeline execution.',
+    when: 'When --from is used and a phase begins (analysis, planning, solutioning, implementation).',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'phase', type: 'string', description: 'Phase name (e.g., analysis, implementation).' },
+    ],
+  },
+  {
+    type: 'pipeline:phase-complete',
+    description: 'A pipeline phase has completed during full pipeline execution.',
+    when: 'When --from is used and a phase finishes successfully.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'phase', type: 'string', description: 'Phase name (e.g., analysis, implementation).' },
+    ],
+  },
+  {
     type: 'pipeline:pre-flight-failure',
     description: 'Pre-flight build check failed before any story was dispatched. Pipeline aborts immediately.',
     when: 'When the build command exits with a non-zero code before the first story dispatch.',
