@@ -44,6 +44,7 @@
     "README.md"
   ],
   "scripts": {
+    "agent-memory:bootstrap": "node scripts/bootstrap-agent-memory.mjs",
     "build": "tsdown",
     "postbuild": "cp -r src/cli/templates dist/cli/templates && cp src/modules/state/schema.sql dist/schema.sql",
     "dev": "tsx watch src/cli/index.ts",
