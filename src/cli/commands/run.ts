@@ -557,18 +557,12 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         } catch {
           // Ignore directory read errors — skip validation gracefully
         }
+        // Story file validation is informational — the orchestrator's create-story
+        // phase generates missing files. Only log which stories need creation.
         if (files !== undefined) {
-          for (const key of parsedStoryKeys) {
-            const found = files.some((f) => f.startsWith(`${key}-`) && f.endsWith('.md'))
-            if (!found) {
-              const errorMsg = `Story file not found for key: ${key}`
-              if (outputFormat === 'json') {
-                process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
-              } else {
-                process.stderr.write(`Error: ${errorMsg}\n`)
-              }
-              return 1
-            }
+          const missing = parsedStoryKeys.filter((key) => !files!.some((f) => f.startsWith(`${key}-`) && f.endsWith('.md')))
+          if (missing.length > 0) {
+            logger.info({ missing }, `Story files not found for ${missing.length} key(s) — create-story phase will generate them`)
           }
         }
       }

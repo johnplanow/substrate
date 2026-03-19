@@ -458,11 +458,10 @@ describe('Story 39-2: --stories bypasses phase detection', () => {
     })
   })
 
-  describe('AC4: missing story file emits clear error', () => {
-    it('emits "Story file not found" error when --stories key has no matching file', async () => {
-      // readdirSync returns empty list — no story files exist
+  describe('AC4: missing story files are non-blocking (create-story generates them)', () => {
+    it('proceeds with missing story files — create-story phase will generate them', async () => {
+      // readdirSync returns empty list — no story files exist yet
       mockReaddirSync.mockReturnValue([])
-      const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
       const exitCode = await runRunAction({
         pack: 'bmad',
@@ -473,17 +472,12 @@ describe('Story 39-2: --stories bypasses phase detection', () => {
         registry: mockRegistry,
       })
 
-      expect(exitCode).toBe(1)
-      expect(stderrWrite).toHaveBeenCalledWith(
-        expect.stringContaining('Story file not found for key: H2-1'),
-      )
-
-      stderrWrite.mockRestore()
+      // Should NOT fail — missing story files are expected before create-story runs
+      expect(exitCode).toBe(0)
     })
 
-    it('emits structured JSON error in json output mode', async () => {
+    it('proceeds in json output mode with missing story files', async () => {
       mockReaddirSync.mockReturnValue([])
-      const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
       const exitCode = await runRunAction({
         pack: 'bmad',
@@ -494,15 +488,7 @@ describe('Story 39-2: --stories bypasses phase detection', () => {
         registry: mockRegistry,
       })
 
-      expect(exitCode).toBe(1)
-      const calls = stdoutWrite.mock.calls.map((c) => String(c[0]))
-      const jsonLine = calls.find((c) => c.includes('"success"'))
-      expect(jsonLine).toBeDefined()
-      const parsed = JSON.parse(jsonLine!)
-      expect(parsed.success).toBe(false)
-      expect(parsed.error).toContain('Story file not found for key: H2-1')
-
-      stdoutWrite.mockRestore()
+      expect(exitCode).toBe(0)
     })
 
     it('skips validation and proceeds when artifacts directory does not exist', async () => {
