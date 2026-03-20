@@ -49,14 +49,19 @@ const CHARS_PER_TOKEN = 4
 // Minimum free system memory (bytes) required before spawning a new agent.
 // When free memory is below this threshold, dispatches are held in the queue
 // and retried periodically until memory recovers.
-// Override with SUBSTRATE_MEMORY_THRESHOLD_MB env var (e.g. "256" for 256 MB).
+// Override with SUBSTRATE_MEMORY_THRESHOLD_MB env var (e.g. "128" for 128 MB).
+//
+// History: originally 256MB when concurrent test suite runs caused OOM.
+// Lowered to 128MB in v0.8.5 — concurrent dispatch is now controlled by
+// concurrency slots, and the test suite has been optimized. Only level 4
+// (critical) kernel pressure hard-gates to 0.
 const MIN_FREE_MEMORY_BYTES = (() => {
   const envMB = process.env.SUBSTRATE_MEMORY_THRESHOLD_MB
   if (envMB) {
     const parsed = parseInt(envMB, 10)
     if (!isNaN(parsed) && parsed >= 0) return parsed * 1024 * 1024
   }
-  return 256 * 1024 * 1024 // 256 MB default
+  return 128 * 1024 * 1024 // 128 MB default
 })()
 
 // How often (ms) to re-check memory when the queue is held due to pressure
@@ -88,10 +93,12 @@ let _lastKnownPressureLevel = 0
  *    Note: level 2 fires frequently on macOS when the compressor is active,
  *    even with gigabytes of reclaimable memory. Hard-gating at 2 caused
  *    false stalls on 24GB+ machines with >50% free RAM.
- * 2. Use a conservative page calculation: free + purgeable + speculative.
- *    These categories are truly reclaimable without I/O or decompression.
- *    Inactive pages are excluded because they may require disk I/O,
- *    decompression, or may already be backing the compressor.
+ * 2. Use page calculation: free + inactive + purgeable + speculative.
+ *    These categories are reclaimable by the OS — matching macOS Activity
+ *    Monitor's definition of available memory (Physical - Used).
+ *    Inactive pages ("Cached Files") are included because macOS reclaims
+ *    them transparently. Excluding them caused substrate to see ~3 GB
+ *    available when Activity Monitor showed ~8 GB on a 24 GB machine.
  */
 function getAvailableMemory(): number {
   if (platform() === 'darwin') {
@@ -118,9 +125,10 @@ function getAvailableMemory(): number {
       const vmstat = execSync('vm_stat', { timeout: 2000, encoding: 'utf-8' })
       const pageSize = parseInt(vmstat.match(/page size of (\d+)/)?.[1] ?? '4096', 10)
       const free = parseInt(vmstat.match(/Pages free:\s+(\d+)/)?.[1] ?? '0', 10)
+      const inactive = parseInt(vmstat.match(/Pages inactive:\s+(\d+)/)?.[1] ?? '0', 10)
       const purgeable = parseInt(vmstat.match(/Pages purgeable:\s+(\d+)/)?.[1] ?? '0', 10)
       const speculative = parseInt(vmstat.match(/Pages speculative:\s+(\d+)/)?.[1] ?? '0', 10)
-      const available = (free + purgeable + speculative) * pageSize
+      const available = (free + inactive + purgeable + speculative) * pageSize
       // At warn level (2), log but trust the vm_stat estimate as-is.
       // Level 2 fires frequently on macOS when the compressor is active,
       // even with gigabytes of reclaimable memory. Halving caused false
