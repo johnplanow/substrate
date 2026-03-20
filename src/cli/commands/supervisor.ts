@@ -380,10 +380,13 @@ export async function handleStallRecovery(
 
   // Phase-aware threshold: code review phases get 2x the threshold since
   // review agents read many files without producing output tokens (Finding 2).
+  // Exception: if the orchestrator has 0 child processes but stories are in-progress,
+  // the agent is dead and there's nothing to wait for — use base threshold.
   const REVIEW_PHASES = new Set(['IN_REVIEW', 'code-review'])
   const activePhases = Object.values(health.stories.details ?? {}).map((s: any) => s.phase)
   const inReviewPhase = activePhases.some((p: string) => REVIEW_PHASES.has(p))
-  const effectiveThreshold = inReviewPhase ? stallThreshold * 2 : stallThreshold
+  const orchestratorIdle = health.process.child_pids.length === 0 && health.stories.active > 0
+  const effectiveThreshold = (inReviewPhase && !orchestratorIdle) ? stallThreshold * 2 : stallThreshold
 
   if (health.staleness_seconds < effectiveThreshold) return null
 

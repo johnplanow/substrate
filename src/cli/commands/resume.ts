@@ -193,11 +193,17 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
       process.stdout.write(`Resuming from phase: ${resumePhase}\n`)
     }
 
-    // Get concept from config_json
+    // Get concept and explicit story scope from config_json.
+    // When `substrate run --stories X,Y` persists explicitStories in config_json,
+    // resume reads them back so it doesn't re-discover all stories from epic files.
     let concept = ''
+    let scopedStories: string[] | undefined
     try {
-      const config = JSON.parse(run.config_json ?? '{}') as { concept?: string }
+      const config = JSON.parse(run.config_json ?? '{}') as { concept?: string; explicitStories?: string[] }
       concept = config.concept ?? ''
+      if (Array.isArray(config.explicitStories) && config.explicitStories.length > 0) {
+        scopedStories = config.explicitStories
+      }
     } catch {
       // ignore
     }
@@ -205,7 +211,7 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
     // Determine db directory from db path
     const dbDir = dbPath.replace('/substrate.db', '')
 
-    // Execute remaining phases
+    // Execute remaining phases — prefer CLI --stories, then persisted scope, then full discovery
     return runFullPipelineFromPhase({
       packName,
       packPath,
@@ -220,7 +226,7 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
       existingRunId: runId,
       projectRoot,
       registry,
-      stories: options.stories,
+      stories: options.stories ?? scopedStories,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
