@@ -506,7 +506,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     const configSystem = createConfigSystem({ projectConfigDir: dbDir })
     await configSystem.load()
     const cfg = configSystem.getConfig()
-    tokenCeilings = cfg.token_ceilings
+    tokenCeilings = cfg.token_ceilings as typeof tokenCeilings
     if (cfg.telemetry?.enabled === true) {
       telemetryEnabled = true
       telemetryPort = cfg.telemetry.port ?? 4318

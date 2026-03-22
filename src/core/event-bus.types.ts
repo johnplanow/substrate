@@ -26,6 +26,8 @@ export interface RoutingDecision {
   fallbackChain?: string[]
   estimatedCostUsd?: number
   rateLimit?: { tokensUsedInWindow: number; limit: number }
+  monitorRecommendation?: import('@substrate-ai/core').MonitorRecommendation
+  monitorInfluenced: boolean
 }
 
 // ---------------------------------------------------------------------------
