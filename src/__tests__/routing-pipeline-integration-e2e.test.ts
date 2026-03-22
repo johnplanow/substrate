@@ -76,6 +76,7 @@ vi.mock('node:child_process', () => ({
     return fp ? fp.proc : createFakeProcess().proc
   }),
   execSync: vi.fn(),
+  exec: vi.fn(),
 }))
 
 // Report abundant free memory so memory-pressure gate never blocks

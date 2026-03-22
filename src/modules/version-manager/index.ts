@@ -1,12 +1,10 @@
 /**
- * version-manager module — barrel exports
- *
- * Re-exports all public types and classes for the version management subsystem.
+ * Re-export shim: version-manager module → @substrate-ai/core
+ * Implementation migrated to packages/core/src/version-manager/ (Story 41-8)
  */
-
-export type { VersionManager, VersionCheckResult, UpgradePreview } from './version-manager.js'
-export type { VersionManagerDeps } from './version-manager-impl.js'
-export { VersionManagerImpl, createVersionManager } from './version-manager-impl.js'
-export { UpdateChecker, UpdateCheckError } from './update-checker.js'
-export type { VersionCacheEntry } from './version-cache.js'
-export { VersionCache } from './version-cache.js'
+export type { VersionManager, VersionCheckResult, UpgradePreview } from '@substrate-ai/core'
+export type { VersionManagerDeps } from '@substrate-ai/core'
+export { VersionManagerImpl, createVersionManager } from '@substrate-ai/core'
+export { UpdateChecker, UpdateCheckError } from '@substrate-ai/core'
+export type { VersionCacheEntry } from '@substrate-ai/core'
+export { VersionCache } from '@substrate-ai/core'

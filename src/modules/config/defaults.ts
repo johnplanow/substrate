@@ -1,60 +1,20 @@
 /**
- * Built-in default values for the Substrate configuration system.
+ * Re-export shim for config defaults.
  *
- * These are the lowest-priority defaults; they are overridden by:
- *   global config → project config → environment variables → CLI flags
+ * DEFAULT_CONFIG and per-provider/global defaults are now in @substrate-ai/core.
+ * DEFAULT_ROUTING_POLICY is defined locally here (config-level routing type,
+ * distinct from the routing module's RoutingPolicy).
  */
 
-import type {
-  SubstrateConfig,
-  ProviderConfig,
-  GlobalSettings,
-  RoutingPolicy,
-} from './config-schema.js'
+export {
+  DEFAULT_CONFIG,
+  DEFAULT_CLAUDE_PROVIDER,
+  DEFAULT_CODEX_PROVIDER,
+  DEFAULT_GEMINI_PROVIDER,
+  DEFAULT_GLOBAL_SETTINGS,
+} from '@substrate-ai/core'
 
-// ---------------------------------------------------------------------------
-// Per-provider defaults
-// ---------------------------------------------------------------------------
-
-export const DEFAULT_CLAUDE_PROVIDER: ProviderConfig = {
-  enabled: false,
-  subscription_routing: 'auto',
-  max_concurrent: 2,
-  rate_limit: {
-    // 220 000 tokens per 5-hour window (architecture section 2)
-    tokens: 220_000,
-    window_seconds: 18_000,
-  },
-  api_key_env: 'ANTHROPIC_API_KEY',
-  api_billing: false,
-}
-
-export const DEFAULT_CODEX_PROVIDER: ProviderConfig = {
-  enabled: false,
-  subscription_routing: 'api',
-  max_concurrent: 2,
-  api_key_env: 'OPENAI_API_KEY',
-  api_billing: true,
-}
-
-export const DEFAULT_GEMINI_PROVIDER: ProviderConfig = {
-  enabled: false,
-  subscription_routing: 'api',
-  max_concurrent: 2,
-  api_key_env: 'GOOGLE_API_KEY',
-  api_billing: true,
-}
-
-// ---------------------------------------------------------------------------
-// Global settings defaults
-// ---------------------------------------------------------------------------
-
-export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
-  log_level: 'info',
-  max_concurrent_tasks: 4,
-  budget_cap_tokens: 0,
-  budget_cap_usd: 0,
-}
+import type { RoutingPolicy } from './config-schema.js'
 
 // ---------------------------------------------------------------------------
 // Default routing policy
@@ -79,23 +39,4 @@ export const DEFAULT_ROUTING_POLICY: RoutingPolicy = {
       fallback_providers: ['gemini'],
     },
   ],
-}
-
-// ---------------------------------------------------------------------------
-// Full default config document
-// ---------------------------------------------------------------------------
-
-export const DEFAULT_CONFIG: SubstrateConfig = {
-  config_format_version: '1',
-  task_graph_version: '1',
-  global: DEFAULT_GLOBAL_SETTINGS,
-  providers: {
-    claude: DEFAULT_CLAUDE_PROVIDER,
-    codex: DEFAULT_CODEX_PROVIDER,
-    gemini: DEFAULT_GEMINI_PROVIDER,
-  },
-  telemetry: {
-    enabled: true,
-    port: 4318,
-  },
 }

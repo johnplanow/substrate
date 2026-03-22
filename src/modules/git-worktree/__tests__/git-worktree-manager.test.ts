@@ -37,11 +37,12 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 import * as fsp from 'node:fs/promises'
 
 // ---------------------------------------------------------------------------
-// Mock git-utils
+// Mock git-utils — target the core package's git-utils directly so that
+// GitWorktreeManagerImpl (which imports ./git-utils.js internally) sees the mock.
 // ---------------------------------------------------------------------------
 
-vi.mock(import('../git-utils.js'), async (importOriginal) => {
-  const actual = await importOriginal()
+vi.mock('../../../../packages/core/src/git/git-utils.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../packages/core/src/git/git-utils.js')>()
   return {
     ...actual,
     verifyGitVersion: vi.fn(async () => {}),
@@ -54,8 +55,8 @@ vi.mock(import('../git-utils.js'), async (importOriginal) => {
   }
 })
 
-// Import mocked module
-import * as gitUtils from '../git-utils.js'
+// Import mocked module via the core path to get the spy references
+import * as gitUtils from '../../../../packages/core/src/git/git-utils.js'
 
 // ---------------------------------------------------------------------------
 // Helpers

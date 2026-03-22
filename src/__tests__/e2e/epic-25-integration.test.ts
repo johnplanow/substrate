@@ -105,6 +105,7 @@ vi.mock('../../modules/agent-dispatch/dispatcher-impl.js', async (importOriginal
 
 vi.mock('node:child_process', () => ({
   execSync: vi.fn().mockReturnValue('src/some-modified-file.ts\n'),
+  exec: vi.fn(),
 }))
 
 vi.mock('node:fs', () => ({

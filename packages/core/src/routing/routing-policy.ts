@@ -1,5 +1,5 @@
 /**
- * RoutingPolicy — Zod schema for the routing policy YAML file.
+ * RoutingPolicy — Zod schema, types, and loader for the routing policy YAML file.
  *
  * The routing policy YAML (default: .substrate/routing-policy.yaml) controls:
  *  - Which agents are preferred for which task types
@@ -13,6 +13,8 @@
  *  - NFR13: Schema validation with Zod
  */
 
+import { readFileSync } from 'node:fs'
+import { load as yamlLoad } from 'js-yaml'
 import { z } from 'zod'
 
 // ---------------------------------------------------------------------------
@@ -116,4 +118,87 @@ export class RoutingPolicyValidationError extends Error {
     this.name = 'RoutingPolicyValidationError'
     Object.setPrototypeOf(this, new.target.prototype)
   }
+}
+
+// ---------------------------------------------------------------------------
+// loadRoutingPolicy
+// ---------------------------------------------------------------------------
+
+/**
+ * Load and validate a routing policy YAML file.
+ *
+ * @param filePath - Absolute or relative path to the routing policy YAML
+ * @returns Parsed and validated RoutingPolicy object
+ * @throws {RoutingPolicyValidationError} if the file cannot be parsed or the schema is invalid
+ *
+ * @example
+ * const policy = loadRoutingPolicy('.substrate/routing-policy.yaml')
+ */
+export function loadRoutingPolicy(filePath: string): RoutingPolicy {
+  // Read the file
+  let rawContent: string
+  try {
+    rawContent = readFileSync(filePath, 'utf-8')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    throw new RoutingPolicyValidationError(
+      `Cannot read routing policy file at "${filePath}": ${message}`
+    )
+  }
+
+  // Parse YAML
+  let rawObject: unknown
+  try {
+    rawObject = yamlLoad(rawContent)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    throw new RoutingPolicyValidationError(
+      `Invalid YAML in routing policy file at "${filePath}": ${message}`
+    )
+  }
+
+  if (rawObject === null || typeof rawObject !== 'object') {
+    throw new RoutingPolicyValidationError(
+      `Routing policy file at "${filePath}" must contain a YAML object`
+    )
+  }
+
+  // Validate with Zod
+  const result = RoutingPolicySchema.safeParse(rawObject)
+  if (!result.success) {
+    // Zod v4 uses `.issues` instead of deprecated `.errors`
+    const issues = result.error.issues ?? (result.error as unknown as { errors?: { path: PropertyKey[]; message: string }[] }).errors ?? []
+    const details = issues
+      .map((e) => `  - ${e.path.join('.')}: ${e.message}`)
+      .join('\n')
+    throw new RoutingPolicyValidationError(
+      `Routing policy validation failed for "${filePath}":\n${details}`,
+      details
+    )
+  }
+
+  // Validate that all task_type agents exist in providers
+  const policy = result.data
+  const providerNames = new Set(Object.keys(policy.providers))
+
+  for (const [taskType, taskPolicy] of Object.entries(policy.task_types ?? {})) {
+    for (const agent of taskPolicy.preferred_agents) {
+      if (!providerNames.has(agent)) {
+        throw new RoutingPolicyValidationError(
+          `Task type "${taskType}" references agent "${agent}" which is not defined in the providers section`
+        )
+      }
+    }
+  }
+
+  // Validate default agents
+  for (const agent of policy.default.preferred_agents) {
+    if (!providerNames.has(agent)) {
+      throw new RoutingPolicyValidationError(
+        `Default routing references agent "${agent}" which is not defined in the providers section`
+      )
+    }
+  }
+
+  return policy
 }

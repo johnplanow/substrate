@@ -48,3 +48,7 @@ Thumbs.db
 # Test artifacts
 test.db
 *.db
+
+# Substrate runtime files
+.substrate/orchestrator.pid
+.substrate/current-run-id

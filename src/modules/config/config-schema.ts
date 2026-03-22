@@ -1,126 +1,68 @@
 /**
- * Zod validation schemas for the Substrate configuration system.
+ * Re-export shim for config schemas.
  *
- * Defines schemas for all config sections:
- *  - provider config (claude, codex, gemini)
- *  - global settings
- *  - routing policy
- *  - full config document
+ * Most schemas are now defined in @substrate-ai/core. This shim re-exports
+ * them plus defines the following locally (not in core):
+ *  - RoutingPolicySchema / RoutingPolicy / RoutingRuleSchema / RoutingRule
+ *    (config-level routing distinct from routing module's RoutingPolicy)
+ *  - TokenCeilingsSchema / TokenCeilings (SDLC-specific, excluded from core)
+ *  - SubstrateConfigSchema / SubstrateConfig (extended with token_ceilings, strict)
+ *  - PartialSubstrateConfigSchema / PartialSubstrateConfig (extended with token_ceilings, strict)
  */
 
 import { z } from 'zod'
+import {
+  SubscriptionRoutingSchema,
+  RateLimitSchema,
+  ProviderConfigSchema,
+  ProvidersSchema,
+  LogLevelSchema,
+  GlobalSettingsSchema,
+  CostTrackerConfigSchema,
+  BudgetConfigSchema,
+  TelemetryConfigSchema,
+  PartialProviderConfigSchema,
+  PartialGlobalSettingsSchema,
+  CURRENT_CONFIG_FORMAT_VERSION,
+  CURRENT_TASK_GRAPH_VERSION,
+  SUPPORTED_CONFIG_FORMAT_VERSIONS,
+  SUPPORTED_TASK_GRAPH_VERSIONS,
+} from '@substrate-ai/core'
+
+// Re-export all core schemas and types
+export {
+  SubscriptionRoutingSchema,
+  RateLimitSchema,
+  ProviderConfigSchema,
+  ProvidersSchema,
+  LogLevelSchema,
+  GlobalSettingsSchema,
+  CostTrackerConfigSchema,
+  BudgetConfigSchema,
+  TelemetryConfigSchema,
+  PartialProviderConfigSchema,
+  PartialGlobalSettingsSchema,
+  CURRENT_CONFIG_FORMAT_VERSION,
+  CURRENT_TASK_GRAPH_VERSION,
+  SUPPORTED_CONFIG_FORMAT_VERSIONS,
+  SUPPORTED_TASK_GRAPH_VERSIONS,
+}
+
+export type {
+  SubscriptionRouting,
+  ProviderConfig,
+  ProvidersConfig,
+  LogLevelValue,
+  GlobalSettings,
+  CostTrackerConfig,
+  BudgetConfig,
+  TelemetryConfig,
+  PartialProviderConfig,
+  PartialGlobalSettings,
+} from '@substrate-ai/core'
 
 // ---------------------------------------------------------------------------
-// Provider-level schema
-// ---------------------------------------------------------------------------
-
-/** Subscription routing modes */
-export const SubscriptionRoutingSchema = z.enum(['auto', 'subscription', 'api', 'disabled'])
-export type SubscriptionRouting = z.infer<typeof SubscriptionRoutingSchema>
-
-/** Rate limit configuration for a provider */
-export const RateLimitSchema = z
-  .object({
-    tokens: z.number().int().positive(),
-    window_seconds: z.number().int().positive(),
-  })
-  .strict()
-
-export type RateLimitConfig = z.infer<typeof RateLimitSchema>
-
-/** Per-provider configuration */
-export const ProviderConfigSchema = z
-  .object({
-    enabled: z.boolean(),
-    /** Path to the CLI binary — resolved at runtime; never used for api keys */
-    cli_path: z.string().optional(),
-    subscription_routing: SubscriptionRoutingSchema,
-    max_concurrent: z.number().int().min(1).max(32),
-    rate_limit: RateLimitSchema.optional(),
-    /** Name of the environment variable that holds the API key */
-    api_key_env: z.string().optional(),
-    /** Whether API billing is enabled for this provider */
-    api_billing: z.boolean(),
-  })
-  .strict()
-
-export type ProviderConfig = z.infer<typeof ProviderConfigSchema>
-
-/** Map of all known providers */
-export const ProvidersSchema = z
-  .object({
-    claude: ProviderConfigSchema.optional(),
-    codex: ProviderConfigSchema.optional(),
-    gemini: ProviderConfigSchema.optional(),
-  })
-  .strict()
-
-export type ProvidersConfig = z.infer<typeof ProvidersSchema>
-
-// ---------------------------------------------------------------------------
-// Global / project settings
-// ---------------------------------------------------------------------------
-
-export const LogLevelSchema = z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
-export type LogLevelValue = z.infer<typeof LogLevelSchema>
-
-export const GlobalSettingsSchema = z
-  .object({
-    log_level: LogLevelSchema,
-    max_concurrent_tasks: z.number().int().min(1).max(64),
-    /** Max total tokens per orchestration session (0 = unlimited) */
-    budget_cap_tokens: z.number().int().min(0),
-    /** Max approximate USD cost per session (0 = unlimited) */
-    budget_cap_usd: z.number().min(0),
-    /** Working directory for temporary files */
-    workspace_dir: z.string().optional(),
-    /** Whether to perform automatic background update checks (default: true) */
-    update_check: z.boolean().optional(),
-  })
-  .strict()
-
-export type GlobalSettings = z.infer<typeof GlobalSettingsSchema>
-
-// ---------------------------------------------------------------------------
-// Cost tracker config schema
-// ---------------------------------------------------------------------------
-
-export const CostTrackerConfigSchema = z
-  .object({
-    /** Enable cost tracking (default: true) */
-    enabled: z.boolean(),
-    /** Source for token rates: 'builtin' uses built-in table, 'custom' uses injected custom rates */
-    token_rates_provider: z.enum(['builtin', 'custom']),
-    /** Whether to track planning/orchestration costs in addition to task costs */
-    track_planning_costs: z.boolean(),
-    /** Whether to include savings summary in cost reports (FR28) */
-    savings_reporting: z.boolean(),
-  })
-  .strict()
-
-export type CostTrackerConfig = z.infer<typeof CostTrackerConfigSchema>
-
-// ---------------------------------------------------------------------------
-// Budget enforcer config schema
-// ---------------------------------------------------------------------------
-
-export const BudgetConfigSchema = z
-  .object({
-    /** Default per-task budget cap in USD if task has no explicit cap (0 = unlimited) */
-    default_task_budget_usd: z.number().min(0),
-    /** Default session budget cap in USD (0 = unlimited) */
-    default_session_budget_usd: z.number().min(0),
-    /** When true, planning/orchestration costs count toward session budget */
-    planning_costs_count_against_budget: z.boolean(),
-    /** Percentage threshold at which budget:warning is emitted (0-100) */
-    warning_threshold_percent: z.number().min(0).max(100),
-  })
-  .strict()
-
-export type BudgetConfig = z.infer<typeof BudgetConfigSchema>
-
-// ---------------------------------------------------------------------------
-// Routing policy schema
+// RoutingPolicy — defined locally (config-level, different from routing module)
 // ---------------------------------------------------------------------------
 
 export const RoutingRuleSchema = z
@@ -143,7 +85,7 @@ export const RoutingPolicySchema = z
 export type RoutingPolicy = z.infer<typeof RoutingPolicySchema>
 
 // ---------------------------------------------------------------------------
-// Token ceilings schema (Story 24-7)
+// TokenCeilingsSchema — SDLC-specific, excluded from core
 // ---------------------------------------------------------------------------
 
 /**
@@ -162,35 +104,8 @@ export const TokenCeilingsSchema = z.object({
 export type TokenCeilings = z.infer<typeof TokenCeilingsSchema>
 
 // ---------------------------------------------------------------------------
-// Telemetry config schema (Story 27-9)
+// SubstrateConfigSchema — strict and includes token_ceilings (SDLC full schema)
 // ---------------------------------------------------------------------------
-
-export const TelemetryConfigSchema = z
-  .object({
-    /** Whether OTLP telemetry ingestion is enabled */
-    enabled: z.boolean().default(false),
-    /** Port for the local OTLP HTTP ingestion server (1–65535) */
-    port: z.number().int().min(1).max(65535).default(4318),
-  })
-  .strict()
-
-export type TelemetryConfig = z.infer<typeof TelemetryConfigSchema>
-
-// ---------------------------------------------------------------------------
-// Top-level configuration document
-// ---------------------------------------------------------------------------
-
-/** Current supported config format version */
-export const CURRENT_CONFIG_FORMAT_VERSION = '1'
-
-/** Current supported task graph version */
-export const CURRENT_TASK_GRAPH_VERSION = '1'
-
-/** All config format versions this toolkit can read and validate */
-export const SUPPORTED_CONFIG_FORMAT_VERSIONS: readonly string[] = ['1']
-
-/** All task graph format versions this toolkit can read and validate */
-export const SUPPORTED_TASK_GRAPH_VERSIONS: readonly string[] = ['1']
 
 export const SubstrateConfigSchema = z
   .object({
@@ -214,14 +129,8 @@ export const SubstrateConfigSchema = z
 export type SubstrateConfig = z.infer<typeof SubstrateConfigSchema>
 
 // ---------------------------------------------------------------------------
-// Partial / merged config (allows partial during load before merging)
+// PartialSubstrateConfigSchema — strict and includes token_ceilings
 // ---------------------------------------------------------------------------
-
-export const PartialProviderConfigSchema = ProviderConfigSchema.partial()
-export type PartialProviderConfig = z.infer<typeof PartialProviderConfigSchema>
-
-export const PartialGlobalSettingsSchema = GlobalSettingsSchema.partial()
-export type PartialGlobalSettings = z.infer<typeof PartialGlobalSettingsSchema>
 
 export const PartialSubstrateConfigSchema = z
   .object({

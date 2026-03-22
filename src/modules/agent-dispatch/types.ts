@@ -274,10 +274,9 @@ export interface Dispatcher {
 
 /**
  * Error thrown when dispatch is attempted on a shutting-down dispatcher.
+ *
+ * Re-exported from @substrate-ai/core — the canonical implementation.
+ * Maintaining as a re-export ensures instanceof checks work correctly
+ * when the error is thrown by the core DispatcherImpl.
  */
-export class DispatcherShuttingDownError extends Error {
-  constructor() {
-    super('Dispatcher is shutting down and cannot accept new requests')
-    this.name = 'DispatcherShuttingDownError'
-  }
-}
+export { DispatcherShuttingDownError } from '@substrate-ai/core'

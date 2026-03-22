@@ -71,6 +71,7 @@ vi.mock('../../modules/agent-dispatch/dispatcher-impl.js', async (importOriginal
 // Mock execSync so the zero-diff gate always sees non-empty diff.
 vi.mock('node:child_process', () => ({
   execSync: vi.fn().mockReturnValue('src/some-modified-file.ts\n'),
+  exec: vi.fn(),
 }))
 
 // Mock fs so checkGitDiffFiles (interface-change detection) doesn't hit real disk.

@@ -85,9 +85,13 @@ vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
   detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 // execSync controlled per-test for git diff capture
-vi.mock('node:child_process', () => ({
-  execSync: vi.fn().mockReturnValue(''),
-}))
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return {
+    ...actual,
+    execSync: vi.fn().mockReturnValue(''),
+  }
+})
 
 // ---------------------------------------------------------------------------
 // Import mocked modules after vi.mock() calls

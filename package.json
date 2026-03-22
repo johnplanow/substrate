@@ -1,6 +1,6 @@
 {
   "name": "substrate-ai",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Substrate — multi-agent orchestration daemon for AI coding agents",
   "type": "module",
   "license": "MIT",
@@ -61,7 +61,7 @@
     "lint:fix": "eslint src test --fix",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "typecheck": "tsc --noEmit",
     "typecheck:gate": "tsc --noEmit -p tsconfig.typecheck.json",
     "clean": "rm -rf dist",
     "substrate:dev": "node dist/cli/index.js"

@@ -23,9 +23,13 @@ vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
 }))
 
-vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
-}))
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return {
+    ...actual,
+    execSync: vi.fn(),
+  }
+})
 
 vi.mock('../../../utils/logger.js', () => ({
   createLogger: vi.fn(() => ({

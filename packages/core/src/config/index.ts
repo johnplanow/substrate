@@ -1,11 +1,15 @@
 /**
- * Barrel export for config types, Zod schemas, and interfaces.
+ * Barrel export for config types, Zod schemas, interfaces, and implementations.
  *
  * NOTE: RateLimitConfig is intentionally not re-exported at the barrel level to
  * avoid a naming collision with the routing module's RateLimitConfig (which has a
  * different shape: tokens_per_window vs. tokens). The config-specific RateLimitConfig
  * remains available via direct import from packages/core/src/config/types.ts.
  */
+
+// -----------------------------------------------------------------------
+// Types / schemas / interfaces
+// -----------------------------------------------------------------------
 
 export {
   SubscriptionRoutingSchema,
@@ -21,6 +25,11 @@ export {
   PartialProviderConfigSchema,
   PartialGlobalSettingsSchema,
   PartialSubstrateConfigSchema,
+  // Version constants
+  CURRENT_CONFIG_FORMAT_VERSION,
+  CURRENT_TASK_GRAPH_VERSION,
+  SUPPORTED_CONFIG_FORMAT_VERSIONS,
+  SUPPORTED_TASK_GRAPH_VERSIONS,
 } from './types.js'
 
 export type {
@@ -41,3 +50,63 @@ export type {
   ConfigSystemOptions,
   ConfigSystem,
 } from './types.js'
+
+// -----------------------------------------------------------------------
+// Error classes (canonical source — monolith re-exports from here)
+// -----------------------------------------------------------------------
+
+export { AdtError, ConfigError, ConfigIncompatibleFormatError } from './errors.js'
+
+// -----------------------------------------------------------------------
+// Version utilities
+// -----------------------------------------------------------------------
+
+export {
+  parseVersion,
+  isVersionSupported,
+  getNextVersion,
+  formatUnsupportedVersionError,
+} from './version-utils.js'
+
+// -----------------------------------------------------------------------
+// Defaults
+// -----------------------------------------------------------------------
+
+export {
+  DEFAULT_CONFIG,
+  DEFAULT_CLAUDE_PROVIDER,
+  DEFAULT_CODEX_PROVIDER,
+  DEFAULT_GEMINI_PROVIDER,
+  DEFAULT_GLOBAL_SETTINGS,
+} from './defaults.js'
+
+// -----------------------------------------------------------------------
+// ConfigMigrator
+// -----------------------------------------------------------------------
+
+export { ConfigMigrator, defaultConfigMigrator } from './config-migrator.js'
+export type { MigrationResult } from './config-migrator.js'
+
+// -----------------------------------------------------------------------
+// ConfigWatcher
+// -----------------------------------------------------------------------
+
+export {
+  createConfigWatcher,
+  flattenObject,
+  computeChangedKeys,
+} from './config-watcher.js'
+export type { ConfigWatcher, ConfigWatcherOptions } from './config-watcher.js'
+
+// -----------------------------------------------------------------------
+// ConfigSystemImpl + factory + utilities
+// -----------------------------------------------------------------------
+
+export {
+  ConfigSystemImpl,
+  createConfigSystem,
+  deepMerge,
+  getByPath,
+  setByPath,
+  getVersionCompatibility,
+} from './config-system-impl.js'

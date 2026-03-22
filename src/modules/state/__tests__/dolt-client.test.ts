@@ -22,9 +22,13 @@ vi.mock('node:fs/promises', () => ({
 // Mock the raw (callback-style) execFile.
 // dolt-client.ts uses runExecFile() which internally calls execFileCb(cmd, args, opts, callback),
 // so the mock must invoke the callback when called.
-vi.mock('node:child_process', () => ({
-  execFile: vi.fn(),
-}))
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return {
+    ...actual,
+    execFile: vi.fn(),
+  }
+})
 
 vi.mock('mysql2/promise', () => ({
   createPool: vi.fn(),

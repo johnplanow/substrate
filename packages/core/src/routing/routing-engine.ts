@@ -18,11 +18,18 @@ import type { ProviderStatus } from './provider-status.js'
 
 /**
  * Minimal task shape required for routing decisions.
- * Structural subtype of the monolith TaskNode — avoids importing monolith types.
+ * Structural subtype designed to accommodate both the core's simple RoutingTask usage
+ * and the monolith's TaskNode (which has agentId and metadata).
+ * All fields beyond `id` are optional to allow assignment from both sources.
  */
 export interface RoutingTask {
   id: string
-  type: string
+  /** Task type string. May also be provided via `metadata.taskType` for backward compat. */
+  type?: string
+  /** Optional explicit agent assignment (from TaskNode.agentId) */
+  agentId?: string
+  /** Arbitrary task metadata — RoutingEngineImpl reads `metadata.taskType` for routing */
+  metadata?: Record<string, unknown>
 }
 
 // ---------------------------------------------------------------------------

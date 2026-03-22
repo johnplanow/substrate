@@ -50,6 +50,7 @@ vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
 }))
 vi.mock('node:child_process', () => ({
   execSync: vi.fn().mockReturnValue('src/some-modified-file.ts\n'),
+  exec: vi.fn(),
 }))
 
 import { runCreateStory } from '../../compiled-workflows/create-story.js'

@@ -13,9 +13,13 @@ const mockSpawnSync = vi.hoisted(() => vi.fn())
 const mockExistsSync = vi.hoisted(() => vi.fn())
 const mockDebug = vi.hoisted(() => vi.fn())
 
-vi.mock('node:child_process', () => ({
-  spawnSync: mockSpawnSync,
-}))
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return {
+    ...actual,
+    spawnSync: mockSpawnSync,
+  }
+})
 
 vi.mock('node:fs', () => ({
   existsSync: mockExistsSync,

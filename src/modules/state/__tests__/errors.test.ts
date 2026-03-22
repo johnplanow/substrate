@@ -42,14 +42,13 @@ describe('DoltQueryError', () => {
   it('stores sql and detail', () => {
     const err = new DoltQueryError('SELECT 1', 'connection refused')
     expect(err.name).toBe('DoltQueryError')
-    expect(err.code).toBe('DOLT_QUERY_ERROR')
     expect(err.sql).toBe('SELECT 1')
     expect(err.detail).toBe('connection refused')
     expect(err.message).toContain('connection refused')
   })
 
-  it('is an instance of StateStoreError', () => {
-    expect(new DoltQueryError('', '')).toBeInstanceOf(StateStoreError)
+  it('is an instance of Error', () => {
+    expect(new DoltQueryError('', '')).toBeInstanceOf(Error)
   })
 })
 

@@ -15,6 +15,17 @@
 import { z } from 'zod'
 
 // ---------------------------------------------------------------------------
+// ModelPricing
+// ---------------------------------------------------------------------------
+
+export interface ModelPricing {
+  inputPerMToken: number
+  outputPerMToken: number
+  cacheReadPerMToken: number
+  cacheCreationPerMToken: number
+}
+
+// ---------------------------------------------------------------------------
 // NormalizedSpan
 // ---------------------------------------------------------------------------
 
@@ -353,13 +364,43 @@ export interface RawOtlpPayload {
 }
 
 // ---------------------------------------------------------------------------
+// RecommenderContext
+// ---------------------------------------------------------------------------
+
+/**
+ * Context passed to the Recommender when generating recommendations.
+ * The caller fetches each field from TelemetryPersistence.
+ */
+export interface RecommenderContext {
+  storyKey: string
+  sprintId?: string
+  /** ISO timestamp (pinned externally for determinism) */
+  generatedAt: string
+  turns: TurnAnalysis[]
+  categories: CategoryStats[]
+  consumers: ConsumerStats[]
+  efficiencyScore: EfficiencyScore
+  allSpans: NormalizedSpan[]
+  /** Per-dispatch efficiency scores (Story 30-3). When present, enables cache_delta_regression rule. */
+  dispatchScores?: EfficiencyScore[]
+}
+
+// ---------------------------------------------------------------------------
+// IRecommender
+// ---------------------------------------------------------------------------
+
+export interface IRecommender {
+  analyze(context: RecommenderContext): Recommendation[]
+}
+
+// ---------------------------------------------------------------------------
 // ITelemetryPersistence
 // ---------------------------------------------------------------------------
 
 /**
  * Interface for telemetry data persistence.
  * Implementations may target SQLite, Dolt, or in-memory storage.
- * Declares the 5 core write methods used by the telemetry pipeline.
+ * Declares the 6 core write methods used by the telemetry pipeline.
  */
 export interface ITelemetryPersistence {
   /** Batch-insert all turns for a story, serializing childSpans to JSON. */
@@ -376,6 +417,12 @@ export interface ITelemetryPersistence {
 
   /** Batch-insert all recommendations for a story in a single transaction. */
   saveRecommendations(storyKey: string, recs: Recommendation[]): Promise<void>
+
+  /**
+   * Delete all telemetry data for a story.
+   * Called before persisting new data for a re-run story to prevent stale data.
+   */
+  purgeStoryTelemetry(storyKey: string): Promise<void>
 }
 
 // ---------------------------------------------------------------------------

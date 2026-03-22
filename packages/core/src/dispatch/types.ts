@@ -6,6 +6,7 @@
  */
 
 import type { ZodSchema } from "zod"
+import type { BillingMode } from "../types.js"
 
 // ---------------------------------------------------------------------------
 // Routing abstraction (re-exported from routing module)
@@ -266,4 +267,87 @@ export class DispatcherShuttingDownError extends Error {
     super("Dispatcher is shutting down and cannot accept new requests")
     this.name = "DispatcherShuttingDownError"
   }
+}
+
+// ---------------------------------------------------------------------------
+// Adapter interfaces (AC2, AC3 — for DispatcherImpl migration)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal spawn command descriptor used by DispatcherImpl.
+ * The concrete SpawnCommand from src/adapters/types satisfies this structurally.
+ */
+export interface ISpawnCommand {
+  /** The binary to execute */
+  binary: string
+  /** Arguments to pass to the binary */
+  args: string[]
+  /** Working directory for the process */
+  cwd: string
+  /** Optional environment variable overrides */
+  env?: Record<string, string>
+  /** Optional list of environment variable keys to unset in the child process */
+  unsetEnvKeys?: string[]
+}
+
+/**
+ * Minimal options passed to ICliAdapter.buildCommand().
+ * The concrete AdapterOptions from src/adapters/types satisfies this structurally.
+ */
+export interface IAdapterOptions {
+  /** Path to the git worktree for this task */
+  worktreePath: string
+  /** Billing mode to use for this execution */
+  billingMode: BillingMode
+  /** Optional model identifier override */
+  model?: string
+  /** Optional maximum agentic turns */
+  maxTurns?: number
+  /** Optional maximum context tokens */
+  maxContextTokens?: number
+  /** Optional OTLP endpoint URL for telemetry export */
+  otlpEndpoint?: string
+  /** Optional story key for OTEL resource attribute tagging */
+  storyKey?: string
+  /** Optional optimization directives */
+  optimizationDirectives?: string
+  /** Task type for OTLP attribution */
+  taskType?: string
+  /** Unique dispatch ID for per-dispatch telemetry correlation */
+  dispatchId?: string
+}
+
+/**
+ * Minimal CLI adapter interface.
+ * Only defines the methods DispatcherImpl actually calls.
+ * The concrete WorkerAdapter from src/adapters satisfies this structurally.
+ */
+export interface ICliAdapter {
+  buildCommand(prompt: string, options: IAdapterOptions): ISpawnCommand
+}
+
+/**
+ * Minimal adapter registry interface.
+ * Only defines the methods DispatcherImpl and RoutingEngineImpl actually call.
+ * The concrete AdapterRegistry from src/adapters satisfies this structurally.
+ */
+export interface IAdapterRegistry {
+  get(id: string): ICliAdapter | undefined
+  /**
+   * Return all registered adapters.
+   * Optional — only needed for RoutingEngineImpl's no-policy fallback path.
+   * The concrete AdapterRegistry always has this method.
+   */
+  getAll?(): Array<{ id: string }>
+}
+
+/**
+ * Logger interface compatible with both pino-style loggers and console.
+ * Methods accept any argument pattern: (msg: string) or (obj: unknown, msg?: string).
+ */
+export interface ILogger {
+  info(...args: unknown[]): void
+  warn(...args: unknown[]): void
+  error(...args: unknown[]): void
+  debug(...args: unknown[]): void
 }

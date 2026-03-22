@@ -157,6 +157,7 @@ vi.mock('../../modules/agent-dispatch/interface-change-detector.js', () => ({
 
 vi.mock('node:child_process', () => ({
   execSync: vi.fn().mockReturnValue(''),
+  exec: vi.fn(),
   execFile: vi.fn(),
   spawnSync: vi.fn().mockReturnValue({ error: new Error('mock'), status: 1 }),
 }))

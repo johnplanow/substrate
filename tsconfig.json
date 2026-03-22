@@ -27,8 +27,7 @@
       "@cli/*": ["src/cli/*"]
     }
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "test", "src/**/__tests__/**", "src/**/*.test.ts"],
+  "files": [],
   "references": [
     { "path": "packages/core" },
     { "path": "packages/sdlc" },

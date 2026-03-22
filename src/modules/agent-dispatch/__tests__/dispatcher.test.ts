@@ -72,17 +72,21 @@ function createFakeProcess(): FakeProcess {
 const fakeProcesses: FakeProcess[] = []
 let nextFakeProcessIndex = 0
 
-vi.mock('node:child_process', () => ({
-  spawn: vi.fn(() => {
-    const fp = fakeProcesses[nextFakeProcessIndex]
-    nextFakeProcessIndex++
-    if (fp === undefined) {
-      // fallback
-      return createFakeProcess().proc
-    }
-    return fp.proc
-  }),
-}))
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return {
+    ...actual,
+    spawn: vi.fn(() => {
+      const fp = fakeProcesses[nextFakeProcessIndex]
+      nextFakeProcessIndex++
+      if (fp === undefined) {
+        // fallback
+        return createFakeProcess().proc
+      }
+      return fp.proc
+    }),
+  }
+})
 
 // Report abundant free memory so the memory-pressure circuit breaker never
 // holds the dispatch queue during tests (CI runners may have limited RAM).

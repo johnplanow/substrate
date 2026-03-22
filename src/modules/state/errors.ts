@@ -22,17 +22,8 @@ export class DoltNotInitializedError extends StateStoreError {
   }
 }
 
-export class DoltQueryError extends StateStoreError {
-  sql: string
-  detail: string
-
-  constructor(sql: string, detail: string) {
-    super('DOLT_QUERY_ERROR', `Dolt query failed: ${detail}`)
-    this.name = 'DoltQueryError'
-    this.sql = sql
-    this.detail = detail
-  }
-}
+// DoltQueryError implementation moved to @substrate-ai/core (story 41-10)
+export { DoltQueryError } from '@substrate-ai/core'
 
 export class DoltMergeConflictError extends StateStoreError {
   table: string

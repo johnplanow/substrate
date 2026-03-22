@@ -16,9 +16,13 @@ import type { StoryRecord, MetricRecord, ContractRecord, ContractVerificationRec
 // ---------------------------------------------------------------------------
 
 // Mock the raw callback-style execFile. Real promisify wraps it into a promise.
-vi.mock('node:child_process', () => ({
-  execFile: vi.fn(),
-}))
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return {
+    ...actual,
+    execFile: vi.fn(),
+  }
+})
 
 // Hoist the info spy so it can be referenced in both the vi.mock factory and test assertions.
 const { mockLogInfo } = vi.hoisted(() => ({

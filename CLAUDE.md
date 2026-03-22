@@ -25,6 +25,17 @@ Example: `npm run substrate:dev -- run --events --stories 10-1`
 - **NEVER run tests in background** — always foreground with timeout. Background runs lose output.
 - **Confirm results by checking for "Test Files" in output** — exit code 0 alone is insufficient (a pipe exit code ≠ test exit code).
 
+<!-- dev-workflow:start -->
+## Dev Workflow
+
+**Build:** `npm run build`
+**Test:** `npm test`
+
+### Testing Notes
+- Run targeted tests during development to avoid slow feedback loops
+- Run the full suite before merging
+<!-- dev-workflow:end -->
+
 <!-- substrate:start -->
 ## Substrate Pipeline
 
@@ -70,7 +81,7 @@ For long-running pipelines, attach the **supervisor** for automatic stall detect
 substrate supervisor --output-format json
 ```
 
-**CRITICAL: Only attach a supervisor to runs you started in the same session.** Attaching a supervisor to another session's run risks killing healthy dispatches and restarting with incorrect scope. The supervisor inherits story keys from the health snapshot on restart, but cross-session interference can still cause unexpected behavior.
+**CRITICAL: Only attach a supervisor to runs you started in the same session.** Attaching a supervisor to another session's run risks killing healthy dispatches and restarting with incorrect scope. The supervisor inherits story keys from the health snapshot on restart, but cross-session interference can cause unexpected behavior.
 
 **Interpreting silence:** No output for 5 minutes = normal (agent is working). No output for 15+ minutes = likely stalled. Use `substrate health` to confirm, then consider killing and resuming.
 
@@ -99,4 +110,10 @@ substrate supervisor --output-format json
 | `substrate metrics --output-format json` | View historical run metrics |
 | `substrate resume` | Resume an interrupted pipeline run |
 | `substrate run --help-agent` | Full agent instruction reference (487 lines) |
+| `substrate diff <story>` | Show row-level state changes for a story (requires Dolt) |
+| `substrate history` | View Dolt commit log for pipeline state changes (requires Dolt) |
+
+### State Backend
+
+Substrate uses Dolt for versioned pipeline state by default. Run `substrate init` to set it up automatically if Dolt is on PATH. Features that require Dolt: `substrate diff`, `substrate history`, OTEL observability persistence, and context engineering repo-map storage.
 <!-- substrate:end -->

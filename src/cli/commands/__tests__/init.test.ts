@@ -215,7 +215,7 @@ describe('Dolt bootstrapping', () => {
     expect(exitCode).toBe(INIT_EXIT_SUCCESS)
     expect(mockCheckDoltInstalled).toHaveBeenCalledOnce()
     expect(mockInitializeDolt).toHaveBeenCalledOnce()
-    expect(mockInitializeDolt).toHaveBeenCalledWith({ projectRoot: '/test/project' })
+    expect(mockInitializeDolt).toHaveBeenCalledWith(expect.objectContaining({ projectRoot: '/test/project' }))
   })
 
   it('AC5/AC7: doltMode auto + Dolt installed — output includes Dolt status line', async () => {
@@ -415,7 +415,7 @@ describe('Dolt bootstrapping', () => {
     // checkDoltInstalled should NOT be called in force mode (initializeDolt is called directly)
     expect(mockCheckDoltInstalled).not.toHaveBeenCalled()
     expect(mockInitializeDolt).toHaveBeenCalledOnce()
-    expect(mockInitializeDolt).toHaveBeenCalledWith({ projectRoot: '/test/project' })
+    expect(mockInitializeDolt).toHaveBeenCalledWith(expect.objectContaining({ projectRoot: '/test/project' }))
   })
 
   // -------------------------------------------------------------------------

@@ -40,10 +40,14 @@ vi.mock('../../../utils/logger.js', () => ({
 
 // Mock node:child_process so execSync never runs a real process.
 // Also provides spawn (used by DispatcherImpl) to avoid module errors.
-vi.mock('node:child_process', () => ({
-  spawn: vi.fn(),
-  execSync: vi.fn(),
-}))
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return {
+    ...actual,
+    spawn: vi.fn(),
+    execSync: vi.fn(),
+  }
+})
 
 // Mock node:fs so existsSync/readFileSync never touch the real filesystem.
 vi.mock('node:fs', () => ({

@@ -70,6 +70,7 @@ vi.mock('../../modules/agent-dispatch/dispatcher-impl.js', async (importOriginal
 // Mock execSync so the zero-diff gate (Story 24-1) always sees non-empty diff.
 vi.mock('node:child_process', () => ({
   execSync: vi.fn().mockReturnValue('src/some-modified-file.ts\n'),
+  exec: vi.fn(),
 }))
 
 // ---------------------------------------------------------------------------

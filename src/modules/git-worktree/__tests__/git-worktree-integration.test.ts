@@ -35,7 +35,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }
 })
 
-vi.mock('../git-utils.js', () => ({
+// Mock the core path directly (see epic-3-integration.test.ts for rationale)
+vi.mock('../../../../packages/core/src/git/git-utils.js', () => ({
   verifyGitVersion: vi.fn(async () => {}),
   createWorktree: vi.fn(
     async (projectRoot: string, taskId: string, _branchName: string, _baseBranch: string) => ({
@@ -47,7 +48,7 @@ vi.mock('../git-utils.js', () => ({
   getOrphanedWorktrees: vi.fn(async () => []),
 }))
 
-import * as gitUtils from '../git-utils.js'
+import * as gitUtils from '../../../../packages/core/src/git/git-utils.js'
 
 // ---------------------------------------------------------------------------
 // Mock child_process for worker pool tests
@@ -78,6 +79,8 @@ let currentFakeProcess: ReturnType<typeof createFakeProcess>
 
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(() => currentFakeProcess.proc),
+  exec: vi.fn(),
+  execSync: vi.fn(),
 }))
 
 // ---------------------------------------------------------------------------

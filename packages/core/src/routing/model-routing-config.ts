@@ -1,5 +1,5 @@
 /**
- * ModelRoutingConfig — Zod schema, types, and error for substrate.routing.yml.
+ * ModelRoutingConfig — Zod schema, types, error, and loader for substrate.routing.yml.
  *
  * The routing config YAML controls which model is used for each pipeline phase
  * (explore / generate / review) and supports per-task-type overrides.
@@ -8,6 +8,8 @@
  *  - Epic 28, Story 28-4: Model Routing Configuration Schema
  */
 
+import { readFileSync } from 'node:fs'
+import { load as yamlLoad } from 'js-yaml'
 import { z } from 'zod'
 
 // ---------------------------------------------------------------------------
@@ -85,4 +87,64 @@ export class RoutingConfigError extends Error {
     this.code = code
     Object.setPrototypeOf(this, new.target.prototype)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Loader
+// ---------------------------------------------------------------------------
+
+/**
+ * Load and validate a model routing config YAML file.
+ *
+ * @param filePath - Absolute or relative path to substrate.routing.yml
+ * @returns Parsed and validated ModelRoutingConfig object
+ * @throws {RoutingConfigError} with code CONFIG_NOT_FOUND if the file cannot be read
+ * @throws {RoutingConfigError} with code INVALID_YAML if the file contains invalid YAML
+ * @throws {RoutingConfigError} with code SCHEMA_INVALID if validation fails
+ *
+ * @example
+ * const config = loadModelRoutingConfig('.substrate/routing.yml')
+ */
+export function loadModelRoutingConfig(filePath: string): ModelRoutingConfig {
+  // Read the file
+  let rawContent: string
+  try {
+    rawContent = readFileSync(filePath, 'utf-8')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    throw new RoutingConfigError(
+      `Cannot read routing config file at "${filePath}": ${message}`,
+      'CONFIG_NOT_FOUND',
+      { filePath },
+    )
+  }
+
+  // Parse YAML
+  let rawObject: unknown
+  try {
+    rawObject = yamlLoad(rawContent)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    throw new RoutingConfigError(
+      `Invalid YAML in routing config file at "${filePath}": ${message}`,
+      'INVALID_YAML',
+      { filePath },
+    )
+  }
+
+  // Validate with Zod
+  const result = ModelRoutingConfigSchema.safeParse(rawObject)
+  if (!result.success) {
+    const issues = result.error.issues
+    const details = issues
+      .map((e) => `  - ${e.path.join('.')}: ${e.message}`)
+      .join('\n')
+    throw new RoutingConfigError(
+      `Routing config validation failed for "${filePath}":\n${details}`,
+      'SCHEMA_INVALID',
+      { filePath },
+    )
+  }
+
+  return result.data
 }

@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.9.0] — 2026-03-22
+
+### Feature: @substrate-ai/core package extraction (Epic 41)
+
+The `@substrate-ai/core` npm workspace package now contains all general-purpose agent
+infrastructure modules previously embedded in the Substrate monolith. Downstream packages
+(SDLC, factory) can import from `@substrate-ai/core` without coupling to SDLC-specific types.
+
+Stories 41-1 through 41-12 migrated the following module groups into `packages/core/src/`:
+adapters, config, dispatch, events, git, persistence, routing, telemetry, supervisor, budget,
+cost-tracker, monitor, and version-manager.
+
+**Backward-compatibility shim strategy:** Every `src/` module in the monolith that was migrated
+retains a thin re-export shim (e.g., `src/events/index.ts` re-exports from `@substrate-ai/core`)
+so that existing internal import paths continue to resolve without modification. No call sites
+outside `packages/core/` were changed.
+
+**Who is affected:**
+- Downstream packages that previously imported from `substrate-ai` internals and now want
+  transport-agnostic types: import from `@substrate-ai/core` directly.
+- CI and integration test environments: no change required — the shim layer is transparent.
+
+**Who is NOT affected:**
+- Existing CLI users — the `substrate` command behavior is unchanged.
+- Projects importing from `substrate-ai` top-level exports — all public API surface is intact.
+
 ## [0.5.0] — 2026-03-14
 
 ### Breaking: Full SQLite removal — better-sqlite3 removed (Epic 29)

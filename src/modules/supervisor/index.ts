@@ -1,15 +1,13 @@
 /**
- * Supervisor module barrel export (Stories 17-3 and 17-4).
+ * Supervisor module barrel export — shim re-exporting from @substrate-ai/core (Story 41-7).
  *
- * Re-exports the supervisor analysis engine types/functions and the
- * experimentation framework types/functions.
+ * analyzeReviewCycles, ReviewCycleFinding, and ReviewCycleAnalysis are SDLC-specific
+ * and NOT in @substrate-ai/core. They are re-exported from ./review-cycle-analysis.js.
  */
 
 export type {
   PhaseDurations,
   TokenEfficiencyFinding,
-  ReviewCycleFinding,
-  ReviewCycleAnalysis,
   TimingFinding,
   TimingAnalysis,
   RecommendationType,
@@ -17,18 +15,6 @@ export type {
   AnalysisSummary,
   AnalysisFindings,
   AnalysisReport,
-} from './analysis.js'
-
-export {
-  analyzeTokenEfficiency,
-  analyzeReviewCycles,
-  analyzeTimings,
-  generateRecommendations,
-  generateAnalysisReport,
-  writeAnalysisReport,
-} from './analysis.js'
-
-export type {
   SupervisorRecommendation,
   ExperimentPhase,
   ExperimentVerdict,
@@ -40,14 +26,24 @@ export type {
   ExperimenterDeps,
   Experimenter,
   SpawnFn,
-} from './experimenter.js'
+} from '@substrate-ai/core'
 
 export {
+  analyzeTokenEfficiency,
+  analyzeTimings,
+  generateRecommendations,
+  generateAnalysisReport,
+  writeAnalysisReport,
   buildBranchName,
+  buildWorktreePath,
   buildModificationDirective,
   resolvePromptFile,
   determineVerdict,
   buildPRBody,
   buildAuditLogEntry,
   createExperimenter,
-} from './experimenter.js'
+} from '@substrate-ai/core'
+
+// SDLC-specific review cycle analysis — not in @substrate-ai/core
+export type { ReviewCycleFinding, ReviewCycleAnalysis } from './review-cycle-analysis.js'
+export { analyzeReviewCycles } from './review-cycle-analysis.js'

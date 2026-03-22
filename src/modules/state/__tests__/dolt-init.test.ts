@@ -29,8 +29,9 @@ const spawnState: SpawnMockState = { exitCode: 0, stdout: '' }
 // Keep track of all spawn calls for assertion
 const spawnCalls: Array<{ cmd: string; args: string[]; cwd?: string }> = []
 
-vi.mock('node:child_process', () => {
-  const { EventEmitter } = require('node:events')
+vi.mock('node:child_process', async (importOriginal) => {
+  const { EventEmitter } = await import('node:events')
+  const actual = await importOriginal<typeof import('node:child_process')>()
 
   function mockSpawn(cmd: string, args: string[], options?: { cwd?: string }) {
     spawnCalls.push({ cmd, args, cwd: options?.cwd })
@@ -59,7 +60,7 @@ vi.mock('node:child_process', () => {
     return ee
   }
 
-  return { spawn: mockSpawn }
+  return { ...actual, spawn: mockSpawn }
 })
 
 // fs/promises mock — only mock mkdir and access, allow readFile to pass through
@@ -152,7 +153,7 @@ describe('initializeDolt — first run', () => {
   it('calls dolt init when .dolt/ does not exist', async () => {
     // Override stdout for dolt log to return empty (no commits)
     // We'll use a simple approach: all commands exit 0, log returns empty stdout
-    await initializeDolt({ projectRoot: '/fake/project' })
+    await initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
 
     const initCall = spawnCalls.find((c) => c.args[0] === 'init')
     expect(initCall).toBeDefined()
@@ -160,7 +161,7 @@ describe('initializeDolt — first run', () => {
   })
 
   it('calls dolt sql -f <schemaPath> after init', async () => {
-    await initializeDolt({ projectRoot: '/fake/project' })
+    await initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
 
     const sqlCall = spawnCalls.find((c) => c.args[0] === 'sql')
     expect(sqlCall).toBeDefined()
@@ -169,7 +170,7 @@ describe('initializeDolt — first run', () => {
 
   it('calls dolt add -A and dolt commit when no commits exist', async () => {
     // log returns empty output → no commits → should commit
-    await initializeDolt({ projectRoot: '/fake/project' })
+    await initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
 
     const addCall = spawnCalls.find((c) => c.args[0] === 'add')
     expect(addCall).toBeDefined()
@@ -181,7 +182,7 @@ describe('initializeDolt — first run', () => {
   })
 
   it('calls mkdir with { recursive: true } on statePath', async () => {
-    await initializeDolt({ projectRoot: '/fake/project' })
+    await initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
     expect(mkdirMock).toHaveBeenCalledWith(
       expect.stringContaining('.substrate'),
       { recursive: true },
@@ -189,7 +190,7 @@ describe('initializeDolt — first run', () => {
   })
 
   it('commands run in correct order: init → sql → log → add → commit', async () => {
-    await initializeDolt({ projectRoot: '/fake/project' })
+    await initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
     const commands = spawnCalls.map((c) => c.args[0])
     const initIdx = commands.indexOf('init')
     const sqlIdx = commands.indexOf('sql')
@@ -217,19 +218,19 @@ describe('initializeDolt — idempotency', () => {
   })
 
   it('does NOT call dolt init when .dolt/ already exists', async () => {
-    await initializeDolt({ projectRoot: '/fake/project' })
+    await initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
     const initCall = spawnCalls.find((c) => c.args[0] === 'init')
     expect(initCall).toBeUndefined()
   })
 
   it('still calls dolt sql -f to apply DDL', async () => {
-    await initializeDolt({ projectRoot: '/fake/project' })
+    await initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
     const sqlCall = spawnCalls.find((c) => c.args[0] === 'sql')
     expect(sqlCall).toBeDefined()
   })
 
   it('still checks for existing commits via dolt log', async () => {
-    await initializeDolt({ projectRoot: '/fake/project' })
+    await initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
     const logCall = spawnCalls.find((c) => c.args[0] === 'log')
     expect(logCall).toBeDefined()
   })
@@ -238,7 +239,7 @@ describe('initializeDolt — idempotency', () => {
     // Return a non-empty log (has commits)
     setSpawnExit(0, undefined, 'abc123 Initialize substrate state schema v1\n')
 
-    await initializeDolt({ projectRoot: '/fake/project' })
+    await initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
 
     const commitCall = spawnCalls.find((c) => c.args[0] === 'commit')
     expect(commitCall).toBeUndefined()
@@ -258,7 +259,7 @@ describe('initializeDolt — error propagation', () => {
 
   it('propagates DoltNotInstalled when spawn emits ENOENT on version check', async () => {
     setSpawnExit(0, 'ENOENT')
-    await expect(initializeDolt({ projectRoot: '/fake/project' })).rejects.toBeInstanceOf(
+    await expect(initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })).rejects.toBeInstanceOf(
       DoltNotInstalled,
     )
   })
@@ -267,14 +268,14 @@ describe('initializeDolt — error propagation', () => {
     // checkDoltInstalled resolves even on exit 1 (binary found but unhealthy).
     // runDoltCommand('init') with exit 1 throws DoltInitError.
     setSpawnExit(1)
-    await expect(initializeDolt({ projectRoot: '/fake/project' })).rejects.toBeInstanceOf(
+    await expect(initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })).rejects.toBeInstanceOf(
       DoltInitError,
     )
   })
 
   it('DoltInitError message contains the failing command', async () => {
     setSpawnExit(1)
-    await expect(initializeDolt({ projectRoot: '/fake/project' })).rejects.toThrow('dolt')
+    await expect(initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })).rejects.toThrow('dolt')
   })
 })
 

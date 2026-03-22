@@ -35,7 +35,8 @@ import * as fsp from 'node:fs/promises'
 // Mock git-utils
 // ---------------------------------------------------------------------------
 
-vi.mock(import('../../modules/git-worktree/git-utils.js'), async (importOriginal) => {
+// Mock the core path directly (see epic-3-integration.test.ts for rationale)
+vi.mock('../../../packages/core/src/git/git-utils.js', async (importOriginal) => {
   const actual = await importOriginal()
   return {
     ...actual,
@@ -52,7 +53,7 @@ vi.mock(import('../../modules/git-worktree/git-utils.js'), async (importOriginal
   }
 })
 
-import * as gitUtils from '../../modules/git-worktree/git-utils.js'
+import * as gitUtils from '../../../packages/core/src/git/git-utils.js'
 
 // ---------------------------------------------------------------------------
 // Helpers

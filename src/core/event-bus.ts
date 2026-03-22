@@ -1,58 +1,44 @@
 /**
- * TypedEventBus — typed internal pub/sub for decoupled module communication.
+ * TypedEventBus — backward-compatible re-export shim.
  *
- * Built on top of Node.js EventEmitter (per ADR-004: chosen over RxJS).
+ * The full generic implementation now lives in @substrate-ai/core.
+ * This shim specializes the generic types to OrchestratorEvents so that
+ * all existing monolith callers continue to compile without modification.
  *
- * Key design constraints:
- *  - Event dispatch is SYNCHRONOUS — handlers run immediately when emit() is called.
- *  - No async/Promise-based dispatch; async work should be scheduled separately.
- *  - TypeScript `keyof` constraint enforces handler type safety at compile time.
- *  - Zero circular dependencies: EventBus cannot depend on any module.
+ * New cross-package callers should import directly from '@substrate-ai/core'
+ * and parameterize with their own event map types.
  */
 
-import { EventEmitter } from 'node:events'
 import type { OrchestratorEvents } from './event-bus.types.js'
+import {
+  TypedEventBusImpl as GenericImpl,
+  createEventBus as _create,
+} from '@substrate-ai/core'
+import type { TypedEventBus as GenericBus } from '@substrate-ai/core'
 
 // ---------------------------------------------------------------------------
-// TypedEventBus interface
+// TypedEventBus — specialized type alias for OrchestratorEvents
 // ---------------------------------------------------------------------------
 
 /**
- * A typed publish-subscribe bus.
+ * Backward-compatible type alias: TypedEventBus specialized to OrchestratorEvents.
  *
- * All event names and payload types are enforced by the `OrchestratorEvents` map.
+ * Existing monolith code declares `let bus: TypedEventBus` (non-generic).
+ * This alias ensures those declarations continue to enforce OrchestratorEvents
+ * handler types rather than defaulting to Record<string, unknown>.
  */
-export interface TypedEventBus {
-  /**
-   * Emit an event with a strongly-typed payload.
-   * Dispatch is synchronous — all registered handlers run before emit() returns.
-   */
-  emit<K extends keyof OrchestratorEvents>(event: K, payload: OrchestratorEvents[K]): void
-
-  /**
-   * Subscribe to an event. The handler is called synchronously on each emit.
-   */
-  on<K extends keyof OrchestratorEvents>(
-    event: K,
-    handler: (payload: OrchestratorEvents[K]) => void
-  ): void
-
-  /**
-   * Unsubscribe a previously registered handler.
-   * If the handler was not registered, this is a no-op.
-   */
-  off<K extends keyof OrchestratorEvents>(
-    event: K,
-    handler: (payload: OrchestratorEvents[K]) => void
-  ): void
-}
+export type TypedEventBus = GenericBus<OrchestratorEvents>
 
 // ---------------------------------------------------------------------------
-// TypedEventBusImpl
+// TypedEventBusImpl — sub-class specialized to OrchestratorEvents
 // ---------------------------------------------------------------------------
 
 /**
- * Concrete implementation of TypedEventBus backed by Node.js EventEmitter.
+ * Concrete implementation specialized to OrchestratorEvents.
+ *
+ * Sub-classing the generic impl preserves the non-generic surface that
+ * existing tests and callers rely on:
+ *   bus = new TypedEventBusImpl()  // no type param needed
  *
  * @example
  * const bus = new TypedEventBusImpl()
@@ -61,41 +47,14 @@ export interface TypedEventBus {
  * })
  * bus.emit('task:complete', { taskId: 'abc', result: { exitCode: 0 } })
  */
-export class TypedEventBusImpl implements TypedEventBus {
-  private readonly _emitter: EventEmitter
-
-  constructor() {
-    this._emitter = new EventEmitter()
-    // Raise limit to avoid spurious warnings in large systems with many subscribers
-    this._emitter.setMaxListeners(100)
-  }
-
-  emit<K extends keyof OrchestratorEvents>(event: K, payload: OrchestratorEvents[K]): void {
-    this._emitter.emit(event as string, payload)
-  }
-
-  on<K extends keyof OrchestratorEvents>(
-    event: K,
-    handler: (payload: OrchestratorEvents[K]) => void
-  ): void {
-    // EventEmitter passes arguments as rest params; cast to satisfy TypeScript
-    this._emitter.on(event as string, handler as (arg: unknown) => void)
-  }
-
-  off<K extends keyof OrchestratorEvents>(
-    event: K,
-    handler: (payload: OrchestratorEvents[K]) => void
-  ): void {
-    this._emitter.off(event as string, handler as (arg: unknown) => void)
-  }
-}
+export class TypedEventBusImpl extends GenericImpl<OrchestratorEvents> {}
 
 // ---------------------------------------------------------------------------
-// Factory function
+// Factory function — specialized to OrchestratorEvents
 // ---------------------------------------------------------------------------
 
 /**
- * Create a new TypedEventBus instance.
+ * Create a new TypedEventBus instance specialized to OrchestratorEvents.
  *
  * @example
  * const bus = createEventBus()

@@ -1,9 +1,17 @@
 /**
- * Barrel exports for the config module.
+ * Barrel re-export shim for the config module.
+ *
+ * Implementation has moved to @substrate-ai/core. This shim re-exports
+ * all symbols that monolith callers depend on, pulling from core for
+ * implementation files and from local shims for SDLC-extended schemas
+ * (token_ceilings) and monolith-specific types (RoutingPolicy).
  */
 
-export { createConfigSystem, ConfigSystemImpl } from './config-system-impl.js'
-export type { ConfigSystem, ConfigSystemOptions } from './config-system.js'
+// Implementation symbols from core
+export { createConfigSystem, ConfigSystemImpl } from '@substrate-ai/core'
+export type { ConfigSystem, ConfigSystemOptions } from '@substrate-ai/core'
+
+// Schemas — re-export from local shim which includes token_ceilings + strict
 export {
   SubstrateConfigSchema,
   PartialSubstrateConfigSchema,
@@ -13,16 +21,22 @@ export {
   SUPPORTED_TASK_GRAPH_VERSIONS,
 } from './config-schema.js'
 export type { SubstrateConfig, PartialSubstrateConfig } from './config-schema.js'
+
+// Defaults
 export { DEFAULT_CONFIG } from './defaults.js'
-export { ConfigWatcher } from './config-watcher.js'
-export {
-  ConfigMigrator,
-  defaultConfigMigrator,
-} from './config-migrator.js'
-export type { MigrationResult } from './config-migrator.js'
+
+// ConfigWatcher (interface + factory from core)
+export type { ConfigWatcher } from '@substrate-ai/core'
+export { createConfigWatcher, flattenObject, computeChangedKeys } from '@substrate-ai/core'
+
+// ConfigMigrator from core
+export { ConfigMigrator, defaultConfigMigrator } from '@substrate-ai/core'
+export type { MigrationResult } from '@substrate-ai/core'
+
+// Version utilities from core
 export {
   parseVersion,
   isVersionSupported,
   getNextVersion,
   formatUnsupportedVersionError,
-} from './version-utils.js'
+} from '@substrate-ai/core'

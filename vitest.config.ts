@@ -50,6 +50,9 @@ export default defineConfig({
       '@engine': resolve(__dirname, 'src/engine'),
       '@utils': resolve(__dirname, 'src/utils'),
       '@cli': resolve(__dirname, 'src/cli'),
+      '@substrate-ai/core': resolve(__dirname, 'packages/core/src/index.ts'),
+      '@substrate-ai/sdlc': resolve(__dirname, 'packages/sdlc/src/index.ts'),
+      '@substrate-ai/factory': resolve(__dirname, 'packages/factory/src/index.ts'),
     },
   },
 })

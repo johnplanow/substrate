@@ -1,5 +1,5 @@
 /**
- * RoutingDecision — type definition for routing decisions.
+ * RoutingDecision — type definition and factory for routing decisions.
  *
  * A RoutingDecision is the output of the RoutingEngine.routeTask() method.
  * It captures which agent was selected, the billing mode, and the rationale
@@ -11,13 +11,35 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Minimal advisory recommendation from monitor agent.
+ * Advisory recommendation from monitor agent.
  * Defined locally to avoid importing the monitor module into core.
+ *
+ * The core fields mirror the monitor module's concrete Recommendation type
+ * (all required) so that:
+ *  1. monitor.Recommendation is structurally assignable to MonitorRecommendation ✓
+ *  2. MonitorRecommendation is structurally assignable to monitor.Recommendation ✓
+ *     (extra optional fields `model` and `rationale` are permitted by structural typing)
+ *
+ * This bidirectional compatibility prevents TypeScript errors when callers store
+ * `decision.monitorRecommendation` in a Recommendation-typed variable (AC2, Story 41-4).
  */
 export interface MonitorRecommendation {
+  task_type: string
+  current_agent: string
+  recommended_agent: string
+  reason: string
+  /** Confidence tier — 'low', 'medium', or 'high' */
+  confidence: 'low' | 'medium' | 'high'
+  current_success_rate: number
+  recommended_success_rate: number
+  current_avg_tokens: number
+  recommended_avg_tokens: number
+  improvement_percentage: number
+  sample_size_current: number
+  sample_size_recommended: number
+  /** Optional model override suggestion (used in some contexts) */
   model?: string
   rationale?: string
-  confidence?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -65,4 +87,117 @@ export interface RoutingDecision {
    * recommendation was available.
    */
   monitorInfluenced: boolean
+}
+
+// ---------------------------------------------------------------------------
+// RoutingDecisionBuilder
+// ---------------------------------------------------------------------------
+
+/**
+ * Builder for constructing RoutingDecision objects with a fluent API.
+ *
+ * @example
+ * const decision = makeRoutingDecision('task-1')
+ *   .withAgent('claude', 'subscription')
+ *   .withRationale('Subscription-first: Claude subscription available')
+ *   .withFallbackChain(['claude', 'codex'])
+ *   .build()
+ */
+export class RoutingDecisionBuilder {
+  private readonly _taskId: string
+  private _agent = ''
+  private _billingMode: 'subscription' | 'api' | 'unavailable' = 'unavailable'
+  private _model?: string
+  private _rationale = ''
+  private _fallbackChain?: string[]
+  private _estimatedCostUsd?: number
+  private _rateLimit?: { tokensUsedInWindow: number; limit: number }
+  private _monitorRecommendation?: MonitorRecommendation
+  private _monitorInfluenced = false
+
+  constructor(taskId: string) {
+    this._taskId = taskId
+  }
+
+  withAgent(agent: string, billingMode: 'subscription' | 'api' | 'unavailable'): this {
+    this._agent = agent
+    this._billingMode = billingMode
+    return this
+  }
+
+  withModel(model: string): this {
+    this._model = model
+    return this
+  }
+
+  withRationale(rationale: string): this {
+    this._rationale = rationale
+    return this
+  }
+
+  withFallbackChain(chain: string[]): this {
+    this._fallbackChain = chain
+    return this
+  }
+
+  withEstimatedCost(costUsd: number): this {
+    this._estimatedCostUsd = costUsd
+    return this
+  }
+
+  withRateLimit(tokensUsedInWindow: number, limit: number): this {
+    this._rateLimit = { tokensUsedInWindow, limit }
+    return this
+  }
+
+  withMonitorRecommendation(recommendation: MonitorRecommendation): this {
+    this._monitorRecommendation = recommendation
+    this._monitorInfluenced = true
+    return this
+  }
+
+  withMonitorInfluenced(influenced: boolean): this {
+    this._monitorInfluenced = influenced
+    return this
+  }
+
+  unavailable(rationale: string): this {
+    this._billingMode = 'unavailable'
+    this._agent = 'none'
+    this._rationale = rationale
+    return this
+  }
+
+  build(): RoutingDecision {
+    const decision: RoutingDecision = {
+      taskId: this._taskId,
+      agent: this._agent,
+      billingMode: this._billingMode,
+      rationale: this._rationale,
+      monitorInfluenced: this._monitorInfluenced,
+    }
+    if (this._model !== undefined) decision.model = this._model
+    if (this._fallbackChain !== undefined) decision.fallbackChain = this._fallbackChain
+    if (this._estimatedCostUsd !== undefined) decision.estimatedCostUsd = this._estimatedCostUsd
+    if (this._rateLimit !== undefined) decision.rateLimit = this._rateLimit
+    if (this._monitorRecommendation !== undefined) decision.monitorRecommendation = this._monitorRecommendation
+    return decision
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Factory function
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a new RoutingDecisionBuilder for the given taskId.
+ *
+ * @example
+ * const decision = makeRoutingDecision(task.id)
+ *   .withAgent('claude', 'subscription')
+ *   .withRationale('Subscription-first: tokens within limit')
+ *   .build()
+ */
+export function makeRoutingDecision(taskId: string): RoutingDecisionBuilder {
+  return new RoutingDecisionBuilder(taskId)
 }

@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod'
+import type { ILogger } from '../dispatch/types.js'
 
 // ---------------------------------------------------------------------------
 // Provider-level schema
@@ -140,6 +141,29 @@ export type TelemetryConfig = z.infer<typeof TelemetryConfigSchema>
 // (token_ceilings intentionally excluded — SDLC-specific, see file header)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Config format version constants
+// ---------------------------------------------------------------------------
+
+/** Current supported config format version */
+export const CURRENT_CONFIG_FORMAT_VERSION = '1'
+
+/** Current supported task graph version */
+export const CURRENT_TASK_GRAPH_VERSION = '1'
+
+/** All config format versions this toolkit can read and validate */
+export const SUPPORTED_CONFIG_FORMAT_VERSIONS: readonly string[] = ['1']
+
+/** All task graph format versions this toolkit can read and validate */
+export const SUPPORTED_TASK_GRAPH_VERSIONS: readonly string[] = ['1']
+
+// ---------------------------------------------------------------------------
+// Top-level configuration document
+// (token_ceilings intentionally excluded — SDLC-specific, see file header)
+// .passthrough() allows SDLC/factory packages to extend the config shape
+// (e.g. with token_ceilings) without core validation stripping unknown keys.
+// ---------------------------------------------------------------------------
+
 export const SubstrateConfigSchema = z
   .object({
     /** Schema version for migration support */
@@ -155,7 +179,7 @@ export const SubstrateConfigSchema = z
     /** OTLP telemetry ingestion settings */
     telemetry: TelemetryConfigSchema.optional(),
   })
-  .strict()
+  .passthrough()
 
 export type SubstrateConfig = z.infer<typeof SubstrateConfigSchema>
 
@@ -186,7 +210,7 @@ export const PartialSubstrateConfigSchema = z
     budget: BudgetConfigSchema.partial().optional(),
     telemetry: TelemetryConfigSchema.partial().optional(),
   })
-  .strict()
+  .passthrough()
 
 export type PartialSubstrateConfig = z.infer<typeof PartialSubstrateConfigSchema>
 
@@ -207,6 +231,11 @@ export interface ConfigSystemOptions {
    * Typically populated from CLI flags.
    */
   cliOverrides?: PartialSubstrateConfig
+  /**
+   * Logger instance for config system messages.
+   * Defaults to console if not provided.
+   */
+  logger?: ILogger
 }
 
 // ---------------------------------------------------------------------------

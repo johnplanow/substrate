@@ -1,8 +1,13 @@
 /**
- * Routing token analysis and telemetry types — interface definitions only, no implementations.
+ * Routing token analysis and telemetry types — interface definitions, no implementations.
+ *
+ * Also contains duck-typed interfaces for external dependencies used by routing
+ * implementations in packages/core. These interfaces decouple the core package
+ * from monolith modules (config, monitor, telemetry, state).
  *
  * References:
  *  - Epic 28, Story 28-6: Routing Telemetry — Per-Phase Token Tracking and OTEL Spans
+ *  - Story 41-4: Routing Engine Migration
  */
 
 // ---------------------------------------------------------------------------
@@ -108,4 +113,71 @@ export interface TuneLogEntry {
   estimatedSavingsPct: number
   /** ISO 8601 timestamp when the change was applied */
   appliedAt: string
+}
+
+// ---------------------------------------------------------------------------
+// Duck-typed interfaces for external dependencies
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal configuration system interface.
+ * Only captures the methods that RoutingEngineImpl actually calls.
+ * The concrete ConfigSystem from src/modules/config satisfies this structurally.
+ */
+export interface IConfigSystem {
+  /**
+   * Return a single value by dot-notation key.
+   * @returns the value, or undefined if the key does not exist.
+   */
+  get(key: string): unknown
+}
+
+/**
+ * Minimal monitor agent interface.
+ * Only captures the methods that RoutingEngineImpl actually calls.
+ * The concrete MonitorAgent from src/modules/monitor satisfies this structurally.
+ */
+export interface IMonitorAgent {
+  /**
+   * Get a routing recommendation for a specific task type.
+   * Returns null if no meaningful recommendation is available.
+   */
+  getRecommendation(taskType: string): import('./routing-decision.js').MonitorRecommendation | null
+}
+
+/**
+ * Minimal telemetry persistence interface.
+ * Only captures the methods that RoutingTelemetry actually calls.
+ * The concrete IRoutingTelemetryPersistence from src/modules/telemetry satisfies this structurally.
+ */
+export interface IRoutingTelemetryPersistence {
+  /**
+   * Record a named span with arbitrary attributes.
+   * Used by RoutingTelemetry to emit routing spans.
+   */
+  recordSpan(span: { name: string; attributes: Record<string, unknown> }): void
+}
+
+/**
+ * Alias for IRoutingTelemetryPersistence.
+ * AC2 (Story 41-4) specifies this name; IRoutingTelemetryPersistence is the canonical name.
+ * Both names are exported so external code referencing either name resolves correctly.
+ */
+export type ITelemetryPersistence = IRoutingTelemetryPersistence
+
+/**
+ * Minimal state store interface.
+ * Only captures the methods that RoutingTokenAccumulator and RoutingTuner actually call.
+ * The concrete StateStore from src/modules/state satisfies this structurally.
+ */
+export interface IStateStore {
+  /**
+   * Retrieve a metric value by scope and key.
+   */
+  getMetric(scopeKey: string, metricKey: string): Promise<unknown>
+
+  /**
+   * Persist a metric value by scope and key.
+   */
+  setMetric(scopeKey: string, metricKey: string, value: unknown): Promise<void>
 }

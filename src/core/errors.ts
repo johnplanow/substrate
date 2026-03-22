@@ -1,39 +1,18 @@
 /**
  * Error definitions for Substrate
  * Provides structured error hierarchy for all toolkit operations
+ *
+ * AdtError, ConfigError, and ConfigIncompatibleFormatError are defined in
+ * @substrate-ai/core and re-exported here as the canonical source. All other
+ * error classes extend the re-exported AdtError so that instanceof checks
+ * work correctly across the monolith/core boundary.
  */
 
-/** Base error class for all Substrate errors */
-export class AdtError extends Error {
-  public readonly code: string
-  public readonly context: Record<string, unknown>
+// AdtError, ConfigError, and ConfigIncompatibleFormatError are defined in core.
+// Re-export them so monolith callers and tests use the same class instances.
+import { AdtError } from '@substrate-ai/core'
 
-  constructor(
-    message: string,
-    code: string,
-    context: Record<string, unknown> = {}
-  ) {
-    super(message)
-    this.name = 'AdtError'
-    this.code = code
-    this.context = context
-    // Maintains proper stack trace for V8 (not available in all environments)
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, AdtError)
-    }
-  }
-
-  toJSON(): Record<string, unknown> {
-    return {
-      name: this.name,
-      message: this.message,
-      code: this.code,
-      context: this.context,
-      stack: this.stack,
-    }
-  }
-}
+export { AdtError, ConfigError, ConfigIncompatibleFormatError } from '@substrate-ai/core'
 
 /** Error thrown when task configuration is invalid */
 export class TaskConfigError extends AdtError {
@@ -103,27 +82,11 @@ export class GitError extends AdtError {
   }
 }
 
-/** Error thrown when configuration is invalid or missing */
-export class ConfigError extends AdtError {
-  constructor(message: string, context: Record<string, unknown> = {}) {
-    super(message, 'CONFIG_ERROR', context)
-    this.name = 'ConfigError'
-  }
-}
-
 /** Error thrown when state recovery fails */
 export class RecoveryError extends AdtError {
   constructor(message: string, context: Record<string, unknown> = {}) {
     super(message, 'RECOVERY_ERROR', context)
     this.name = 'RecoveryError'
-  }
-}
-
-/** Error thrown when a config file uses an incompatible format version */
-export class ConfigIncompatibleFormatError extends AdtError {
-  constructor(message: string, context: Record<string, unknown> = {}) {
-    super(message, 'CONFIG_INCOMPATIBLE_FORMAT', context)
-    this.name = 'ConfigIncompatibleFormatError'
   }
 }
 

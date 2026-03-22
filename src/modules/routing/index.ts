@@ -1,21 +1,30 @@
 /**
- * Routing module — barrel export.
+ * Re-export shim — routing/index.ts
+ *
+ * All routing module exports have moved to @substrate-ai/core.
+ * This file exists for backwards compatibility with existing monolith imports.
  *
  * Public API for the routing module:
  *  - RoutingEngine interface and factory
  *  - RoutingDecision type and builder
  *  - ProviderStatus type and tracker
  *  - RoutingPolicy schema and loader
+ *  - RoutingEngineImpl and factory
+ *  - ModelRoutingConfig schema and loader
+ *  - RoutingResolver and related constants
+ *  - Token tracking, telemetry, recommender, and tuner
  */
 
-export type { RoutingEngine, RoutingEngineOptions } from './routing-engine.js'
-export { createRoutingEngine } from './routing-engine.js'
+export type { RoutingEngine } from '@substrate-ai/core'
+// RoutingEngineOptions alias for backwards compatibility
+export type { RoutingEngineImplOptions as RoutingEngineOptions } from '@substrate-ai/core'
+export { createRoutingEngine } from '@substrate-ai/core'
 
-export type { RoutingDecision } from './routing-decision.js'
-export { makeRoutingDecision, RoutingDecisionBuilder } from './routing-decision.js'
+export type { RoutingDecision } from '@substrate-ai/core'
+export { makeRoutingDecision, RoutingDecisionBuilder } from '@substrate-ai/core'
 
-export type { ProviderStatus } from './provider-status.js'
-export { ProviderStatusTracker } from './provider-status.js'
+export type { ProviderStatus } from '@substrate-ai/core'
+export { ProviderStatusTracker } from '@substrate-ai/core'
 
 export type {
   RoutingPolicy,
@@ -24,29 +33,30 @@ export type {
   DefaultRoutingPolicy,
   ApiBillingConfig,
   RateLimitConfig,
-} from './routing-policy.js'
+} from '@substrate-ai/core'
 export {
   RoutingPolicySchema,
   ProviderPolicySchema,
   loadRoutingPolicy,
   RoutingPolicyValidationError,
-} from './routing-policy.js'
+} from '@substrate-ai/core'
 
-export type { RoutingEngineImplOptions } from './routing-engine-impl.js'
-export { RoutingEngineImpl, createRoutingEngineImpl } from './routing-engine-impl.js'
+export type { RoutingEngineImplOptions } from '@substrate-ai/core'
+export { RoutingEngineImpl, createRoutingEngineImpl } from '@substrate-ai/core'
 
-export type { ModelRoutingConfig, ModelPhaseConfig } from './model-routing-config.js'
+export type { ModelRoutingConfig, ModelPhaseConfig } from '@substrate-ai/core'
 export {
   ModelRoutingConfigSchema,
   RoutingConfigError,
   loadModelRoutingConfig,
-} from './model-routing-config.js'
+} from '@substrate-ai/core'
 
-export type { ModelResolution } from './model-routing-resolver.js'
+export type { ModelResolution } from '@substrate-ai/core'
 export {
   RoutingResolver,
   TASK_TYPE_PHASE_MAP,
-} from './model-routing-resolver.js'
+  ROUTING_RESOLVER_LOGGER_NAME,
+} from '@substrate-ai/core'
 
 export type {
   PhaseTokenEntry,
@@ -54,14 +64,14 @@ export type {
   RoutingRecommendation,
   RoutingAnalysis,
   TuneLogEntry,
-} from './types.js'
+} from '@substrate-ai/core'
 
-export { RoutingTokenAccumulator } from './routing-token-accumulator.js'
+export { RoutingTokenAccumulator } from '@substrate-ai/core'
 
-export { RoutingTelemetry } from './routing-telemetry.js'
+export { RoutingTelemetry } from '@substrate-ai/core'
 
-export { RoutingRecommender } from './routing-recommender.js'
+export { RoutingRecommender } from '@substrate-ai/core'
 
-export { RoutingTuner } from './routing-tuner.js'
+export { RoutingTuner } from '@substrate-ai/core'
 
-export { getModelTier } from './model-tier.js'
+export { getModelTier } from '@substrate-ai/core'

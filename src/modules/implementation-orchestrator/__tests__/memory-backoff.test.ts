@@ -79,9 +79,13 @@ vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
 }))
-vi.mock('node:child_process', () => ({
-  execSync: vi.fn().mockReturnValue('src/some-modified-file.ts\n'),
-}))
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return {
+    ...actual,
+    execSync: vi.fn().mockReturnValue('src/some-modified-file.ts\n'),
+  }
+})
 
 // ---------------------------------------------------------------------------
 // Import mocked modules after vi.mock() calls

@@ -1,13 +1,10 @@
 /**
- * git-worktree module — barrel export.
- *
- * Exports the public interface, types, and factory for GitWorktreeManager.
- * Internal helpers (git-utils) are not re-exported; import directly if needed.
+ * Re-export shim: git-worktree module → @substrate-ai/core
+ * Implementation migrated to packages/core/src/git/ (Story 41-8)
  */
-
-export type { GitWorktreeManager, WorktreeInfo, ConflictReport, MergeResult } from './git-worktree-manager.js'
+export type { GitWorktreeManager, WorktreeInfo, ConflictReport, MergeResult } from '@substrate-ai/core'
 export {
   GitWorktreeManagerImpl,
   createGitWorktreeManager,
-} from './git-worktree-manager-impl.js'
-export type { GitWorktreeManagerOptions } from './git-worktree-manager-impl.js'
+} from '@substrate-ai/core'
+export type { GitWorktreeManagerOptions } from '@substrate-ai/core'

@@ -1,30 +1,20 @@
 /**
- * CostTracker module — barrel export.
+ * CostTracker module barrel export — shim re-exporting from @substrate-ai/core (Story 41-7).
  *
- * Public API for the cost-tracker module:
- *  - CostTracker interface and implementation
- *  - Token rate lookup and cost estimation utilities
- *  - All shared types (CostEntry, TaskCostSummary, SessionCostSummary, etc.)
+ * Note: `estimateCost` exported here is the cost-tracker variant (provider, model, inputTokens, outputTokens).
+ * The @substrate-ai/core root exports the telemetry version under the plain `estimateCost` name
+ * and the cost-tracker version under the `estimateCostForProvider` alias.
  */
-
-export type { CostTracker } from './cost-tracker-impl.js'
-export { CostTrackerImpl, createCostTracker } from './cost-tracker-impl.js'
-export type { CostTrackerOptions } from './cost-tracker-impl.js'
-
-export { CostTrackerSubscriber, createCostTrackerSubscriber } from './cost-tracker-subscriber.js'
-export type { CostTrackerSubscriberOptions } from './cost-tracker-subscriber.js'
-
-export type {
-  CostEntry,
-  TaskCostSummary,
-  SessionCostSummary,
-  AgentCostBreakdown,
-} from './types.js'
-
-export type { TokenRates, ModelRates } from './token-rates.js'
+export type { CostTracker, CostTrackerOptions } from '@substrate-ai/core'
+export { CostTrackerImpl, createCostTracker } from '@substrate-ai/core'
+export { CostTrackerSubscriber, createCostTrackerSubscriber } from '@substrate-ai/core'
+export type { CostTrackerSubscriberOptions } from '@substrate-ai/core'
+export type { CostEntry, TaskCostSummary, SessionCostSummary, AgentCostBreakdown } from '@substrate-ai/core'
+export type { TokenRates, ModelRates } from '@substrate-ai/core'
 export {
   TOKEN_RATES,
+  PROVIDER_ALIASES,
   getTokenRate,
-  estimateCost,
+  estimateCostForProvider as estimateCost,
   estimateCostSafe,
-} from './token-rates.js'
+} from '@substrate-ai/core'
