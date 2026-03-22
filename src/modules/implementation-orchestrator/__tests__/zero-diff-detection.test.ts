@@ -309,11 +309,23 @@ describe('orchestrator: zero-diff detection gate', () => {
     config = defaultConfig()
   })
 
-  it('AC2: escalates story when dev-story reports success but git diff is empty', async () => {
+  it('AC2: escalates story when dev-story reports success but git diff is empty and HEAD unchanged', async () => {
     mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('24-1'))
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
-    // execSync returns empty string → zero diff detected
-    mockExecSync.mockReturnValue('')
+    // execSync call sequence:
+    //   1. baseline capture: git rev-parse HEAD → aaa111
+    //   2. checkGitDiffFiles: git rev-parse --verify HEAD → aaa111 (hasCommits)
+    //   3. checkGitDiffFiles: git diff --name-only HEAD → '' (empty)
+    //   4. checkGitDiffFiles: git diff --cached --name-only → '' (empty)
+    //   5. checkGitDiffFiles: git ls-files --others → '' (empty)
+    //   6. zero-diff gate: git rev-parse HEAD → aaa111 (same as baseline)
+    mockExecSync
+      .mockReturnValueOnce('aaa111\n')   // baseline capture
+      .mockReturnValueOnce('aaa111\n')   // checkGitDiffFiles: hasCommits
+      .mockReturnValueOnce('')            // checkGitDiffFiles: unstaged
+      .mockReturnValueOnce('')            // checkGitDiffFiles: staged
+      .mockReturnValueOnce('')            // checkGitDiffFiles: untracked
+      .mockReturnValueOnce('aaa111\n')   // zero-diff gate: HEAD re-check
 
     const orchestrator = createImplementationOrchestrator({
       db, pack, contextCompiler, dispatcher, eventBus, config,
@@ -330,7 +342,14 @@ describe('orchestrator: zero-diff detection gate', () => {
   it('AC6: emits orchestrator:zero-diff-escalation event on zero-diff detection', async () => {
     mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('24-1'))
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
-    mockExecSync.mockReturnValue('')
+    // Same sequence as AC2 — HEAD unchanged, empty diff → genuine zero-diff
+    mockExecSync
+      .mockReturnValueOnce('aaa111\n')   // baseline capture
+      .mockReturnValueOnce('aaa111\n')   // checkGitDiffFiles: hasCommits
+      .mockReturnValueOnce('')            // checkGitDiffFiles: unstaged
+      .mockReturnValueOnce('')            // checkGitDiffFiles: staged
+      .mockReturnValueOnce('')            // checkGitDiffFiles: untracked
+      .mockReturnValueOnce('aaa111\n')   // zero-diff gate: HEAD re-check
 
     const orchestrator = createImplementationOrchestrator({
       db, pack, contextCompiler, dispatcher, eventBus, config,
@@ -346,6 +365,49 @@ describe('orchestrator: zero-diff detection gate', () => {
     const payload = zeroEvent![1] as { storyKey: string; reason: string }
     expect(payload.storyKey).toBe('24-1')
     expect(payload.reason).toBe('zero-diff-on-complete')
+  })
+
+  it('skips zero-diff escalation when agent committed work (HEAD moved)', async () => {
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('24-1'))
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+    // Baseline capture returns SHA-A, then checkGitDiffFiles calls return
+    // empty (clean working tree), then the zero-diff gate's HEAD re-check
+    // returns SHA-B (different) → agent committed its work.
+    //
+    // execSync call sequence:
+    //   1. baseline: git rev-parse HEAD → aaa111
+    //   2. checkGitDiffFiles: git rev-parse --verify HEAD → bbb222
+    //   3. checkGitDiffFiles: git diff --name-only HEAD → '' (empty)
+    //   4. checkGitDiffFiles: git diff --cached --name-only → '' (empty)
+    //   5. checkGitDiffFiles: git ls-files --others → '' (empty)
+    //   6. zero-diff gate: git rev-parse HEAD → bbb222
+    //   7+ build verification + code-review related calls
+    mockExecSync
+      .mockReturnValueOnce('aaa111\n')   // baseline capture
+      .mockReturnValueOnce('bbb222\n')   // checkGitDiffFiles: rev-parse --verify HEAD
+      .mockReturnValueOnce('')            // checkGitDiffFiles: git diff --name-only HEAD
+      .mockReturnValueOnce('')            // checkGitDiffFiles: git diff --cached
+      .mockReturnValueOnce('')            // checkGitDiffFiles: git ls-files --others
+      .mockReturnValueOnce('bbb222\n')   // zero-diff gate: rev-parse HEAD
+      .mockReturnValue('')                // remaining calls (build verification etc.)
+
+    const orchestrator = createImplementationOrchestrator({
+      db, pack, contextCompiler, dispatcher, eventBus, config,
+    })
+
+    const status = await orchestrator.run(['24-1'])
+
+    // Should NOT escalate — agent committed work
+    expect(status.stories['24-1']?.phase).toBe('COMPLETE')
+    expect(mockRunCodeReview).toHaveBeenCalledOnce()
+    // Zero-diff-escalation event should NOT have been emitted
+    const mockEmit = vi.mocked(eventBus.emit)
+    const zeroEvent = mockEmit.mock.calls.find(
+      ([eventName]) => eventName === 'orchestrator:zero-diff-escalation',
+    )
+    expect(zeroEvent).toBeUndefined()
   })
 
   it('AC3: proceeds to code-review when dev-story success has non-zero diff', async () => {
@@ -369,11 +431,13 @@ describe('orchestrator: zero-diff detection gate', () => {
     mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('24-1'))
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
-    // hasCommits() succeeds, HEAD diff returns empty, staged returns files
+    // baseline capture, then hasCommits() succeeds, HEAD diff returns empty, staged returns files
     mockExecSync
-      .mockReturnValueOnce('abc123\n')
-      .mockReturnValueOnce('')
-      .mockReturnValueOnce('src/staged-change.ts\n')
+      .mockReturnValueOnce('abc123\n')   // baseline capture
+      .mockReturnValueOnce('abc123\n')   // checkGitDiffFiles: rev-parse --verify HEAD
+      .mockReturnValueOnce('')            // checkGitDiffFiles: git diff --name-only HEAD
+      .mockReturnValueOnce('src/staged-change.ts\n')  // checkGitDiffFiles: git diff --cached
+      .mockReturnValue('')                // remaining calls
 
     const orchestrator = createImplementationOrchestrator({
       db, pack, contextCompiler, dispatcher, eventBus, config,

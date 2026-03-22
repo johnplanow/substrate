@@ -1300,6 +1300,23 @@ export function createImplementationOrchestrator(
     // the zero-diff detection gate (Story 24-1) below.
     let devStoryWasSuccess = false
 
+    // Capture baseline HEAD SHA before dispatch so the zero-diff gate can
+    // detect committed work (not just uncommitted changes).  Fixes the
+    // false-escalation bug where an agent commits its work, leaving a clean
+    // working tree that was incorrectly treated as zero-diff.
+    let baselineHeadSha: string | undefined
+    try {
+      baselineHeadSha = execSync('git rev-parse HEAD', {
+        cwd: projectRoot ?? process.cwd(),
+        encoding: 'utf-8',
+        timeout: 3000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim()
+    } catch {
+      // No commits yet or git unavailable — leave undefined; zero-diff gate
+      // will fall back to working-tree-only check.
+    }
+
     try {
       // Analyze story complexity to determine whether batching is needed (AC1, AC7)
       let storyContentForAnalysis = ''
@@ -1744,29 +1761,54 @@ export function createImplementationOrchestrator(
     if (devStoryWasSuccess) {
       gitDiffFiles = checkGitDiffFiles(projectRoot ?? process.cwd())
       if (gitDiffFiles.length === 0) {
-        logger.warn(
-          { storyKey },
-          'Zero-diff detected after COMPLETE dev-story — no file changes in git working tree',
-        )
-        eventBus.emit('orchestrator:zero-diff-escalation', {
-          storyKey,
-          reason: 'zero-diff-on-complete',
-        })
-        endPhase(storyKey, 'dev-story')
-        updateStory(storyKey, {
-          phase: 'ESCALATED' as StoryPhase,
-          error: 'zero-diff-on-complete',
-          completedAt: new Date().toISOString(),
-        })
-        await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
-        await emitEscalation({
-          storyKey,
-          lastVerdict: 'zero-diff-on-complete',
-          reviewCycles: 0,
-          issues: ['dev-story completed with COMPLETE verdict but no file changes detected in git diff'],
-        })
-        await persistState()
-        return
+        // Before escalating, check whether HEAD has moved since baseline.
+        // If the agent committed its work, the working tree is clean but
+        // new commits exist — that's real work, not a phantom completion.
+        let hasNewCommits = false
+        if (baselineHeadSha) {
+          try {
+            const currentHead = execSync('git rev-parse HEAD', {
+              cwd: projectRoot ?? process.cwd(),
+              encoding: 'utf-8',
+              timeout: 3000,
+              stdio: ['ignore', 'pipe', 'pipe'],
+            }).trim()
+            hasNewCommits = currentHead !== baselineHeadSha
+          } catch {
+            // git failed — fall through to escalation
+          }
+        }
+
+        if (hasNewCommits) {
+          logger.info(
+            { storyKey, baselineHeadSha },
+            'Working tree clean but new commits detected since dispatch — skipping zero-diff escalation',
+          )
+        } else {
+          logger.warn(
+            { storyKey },
+            'Zero-diff detected after COMPLETE dev-story — no file changes and no new commits',
+          )
+          eventBus.emit('orchestrator:zero-diff-escalation', {
+            storyKey,
+            reason: 'zero-diff-on-complete',
+          })
+          endPhase(storyKey, 'dev-story')
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            error: 'zero-diff-on-complete',
+            completedAt: new Date().toISOString(),
+          })
+          await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+          await emitEscalation({
+            storyKey,
+            lastVerdict: 'zero-diff-on-complete',
+            reviewCycles: 0,
+            issues: ['dev-story completed with COMPLETE verdict but no file changes detected in git diff'],
+          })
+          await persistState()
+          return
+        }
       }
     }
 
