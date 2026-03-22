@@ -1,9 +1,12 @@
 {
   "name": "substrate-ai",
-  "version": "0.8.6",
+  "version": "0.9.0",
   "description": "Substrate — multi-agent orchestration daemon for AI coding agents",
   "type": "module",
   "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
   "author": "AI Dev Toolkit Contributors",
   "repository": {
     "type": "git",
@@ -45,8 +48,9 @@
   ],
   "scripts": {
     "agent-memory:bootstrap": "node scripts/bootstrap-agent-memory.mjs",
-    "build": "tsdown",
+    "build": "tsc --build packages/core packages/sdlc packages/factory && tsdown",
     "postbuild": "cp -r src/cli/templates dist/cli/templates && cp src/modules/state/schema.sql dist/schema.sql",
+    "check:circular": "dpdm --no-warning --exit-code circular:1 packages/core/src/index.ts packages/sdlc/src/index.ts packages/factory/src/index.ts",
     "dev": "tsx watch src/cli/index.ts",
     "test": "vitest run --coverage",
     "test:fast": "vitest run --exclude 'src/__tests__/e2e/**' --exclude '**/*integration*' --exclude '**/*e2e*'",
@@ -57,7 +61,7 @@
     "lint:fix": "eslint src test --fix",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "typecheck:gate": "tsc --noEmit -p tsconfig.typecheck.json",
     "clean": "rm -rf dist",
     "substrate:dev": "node dist/cli/index.js"
@@ -86,6 +90,7 @@
     "@typescript-eslint/parser": "^8.18.0",
     "@vitest/coverage-v8": "^2.1.8",
     "@vitest/ui": "^2.1.8",
+    "dpdm": "^4.0.1",
     "eslint": "^9.17.0",
     "pino-pretty": "^13.0.0",
     "prettier": "^3.4.2",

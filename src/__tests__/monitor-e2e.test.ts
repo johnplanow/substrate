@@ -45,7 +45,7 @@ function getRowCount(db: MonitorDatabaseImpl, table: string): number {
 // ---------------------------------------------------------------------------
 
 describe('Monitor Agent E2E Integration', () => {
-  let setup: ReturnType<typeof createTestSetup>
+  let setup: Awaited<ReturnType<typeof createTestSetup>>
 
   beforeEach(async () => {
     setup = await createTestSetup()

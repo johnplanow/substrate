@@ -26,6 +26,7 @@ amendment-delta-*.md
 dist/
 coverage/
 *.tgz
+*.tsbuildinfo
 
 # Dependencies
 node_modules/

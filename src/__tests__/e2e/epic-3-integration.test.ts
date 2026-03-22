@@ -484,7 +484,7 @@ describe('GAP-E3-4: DB worktree field consistency through full lifecycle', () =>
     const eventBus = createRealEventBus()
     const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT, '.substrate-worktrees', db)
 
-    const dbPrepareMock = db.db.prepare as ReturnType<typeof vi.fn>
+    const dbPrepareMock = db.db!.prepare as ReturnType<typeof vi.fn>
 
     // createWorktree should NOT call DB (task record tracking removed)
     await manager.createWorktree('task-db-lifecycle')
@@ -500,7 +500,7 @@ describe('GAP-E3-4: DB worktree field consistency through full lifecycle', () =>
     const eventBus = createRealEventBus()
     const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT, '.substrate-worktrees', db)
 
-    const dbPrepareMock = db.db.prepare as ReturnType<typeof vi.fn>
+    const dbPrepareMock = db.db!.prepare as ReturnType<typeof vi.fn>
 
     vi.mocked(gitUtils.getMergedFiles).mockResolvedValueOnce(['merged.ts'])
     await manager.mergeWorktree('task-db-merge', 'main')

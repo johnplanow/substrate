@@ -119,8 +119,8 @@ describe('Item 6: Debate Panel DB write', () => {
     // Verify the rationale stored in DB is valid JSON
     const [row] = await adapter.query<{ rationale: string }>("SELECT rationale FROM decisions WHERE key = 'smoke-db-decision'");
     expect(row, 'decision not persisted to DB').toBeDefined();
-    expect(() => JSON.parse(row.rationale)).not.toThrow();
-    const parsed = JSON.parse(row.rationale);
+    expect(() => JSON.parse(row!.rationale)).not.toThrow();
+    const parsed = JSON.parse(row!.rationale);
     expect(parsed).toHaveProperty('tier');
     expect(parsed).toHaveProperty('perspectives');
   });

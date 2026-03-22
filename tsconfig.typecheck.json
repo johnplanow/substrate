@@ -4,5 +4,6 @@
     "exactOptionalPropertyTypes": false,
     "noUncheckedIndexedAccess": false
   },
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "test", "src/**/__tests__/**", "src/**/*.test.ts"]
 }

@@ -28,5 +28,10 @@
     }
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "test"]
+  "exclude": ["node_modules", "dist", "test", "src/**/__tests__/**", "src/**/*.test.ts"],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/sdlc" },
+    { "path": "packages/factory" }
+  ]
 }
