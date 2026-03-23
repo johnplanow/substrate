@@ -92,6 +92,15 @@ export type RunDevStoryFn = (deps: unknown, params: DevStoryParams) => Promise<D
  * dev notes for testability. At runtime, the CLI composition root injects the real
  * runDevStory from src/modules/compiled-workflows/dev-story.ts.
  */
+/** Result of a build verification check (injectable). */
+export interface BuildVerifyResult {
+  status: 'passed' | 'failed' | 'timeout' | 'skipped'
+  output?: string
+}
+
+/** Injectable build verification function. */
+export type BuildVerifierFn = (projectRoot: string) => BuildVerifyResult
+
 export interface SdlcDevStoryHandlerOptions {
   /** Workflow dependencies — passed through as-is to runDevStory. */
   deps: unknown
@@ -99,6 +108,13 @@ export interface SdlcDevStoryHandlerOptions {
   eventBus: TypedEventBus<SdlcEvents>
   /** Compiled workflow function — injectable for testing. */
   runDevStory: RunDevStoryFn
+  /**
+   * Optional build verification to run after a successful dev-story.
+   * Injected by the CLI composition root — runs `npm run build` + `tsc --noEmit`
+   * to catch compile errors before code-review wastes a review cycle.
+   * If omitted, no build verification is performed (backward-compatible).
+   */
+  buildVerifier?: BuildVerifierFn
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +188,26 @@ export function createSdlcDevStoryHandler(options: SdlcDevStoryHandlerOptions): 
       const workflowResult = await options.runDevStory(options.deps, devStoryParams)
 
       if (workflowResult.result === 'success') {
+        // Build verification gate: catch compile errors before code-review
+        if (options.buildVerifier) {
+          const projectRoot = context.getString('projectRoot', '')
+          if (projectRoot) {
+            const buildResult = options.buildVerifier(projectRoot)
+            if (buildResult.status === 'failed' || buildResult.status === 'timeout') {
+              outcome = {
+                status: 'FAILURE',
+                failureReason: `build verification failed after dev-story: ${buildResult.output?.slice(0, 500) ?? 'no output'}`,
+                contextUpdates: {
+                  filesModified: workflowResult.files_modified,
+                  devStoryFilesModified: workflowResult.files_modified,
+                  devStoryAcFailures: ['build-verification'],
+                },
+              }
+              return outcome
+            }
+          }
+        }
+
         // AC2: Map success result to SUCCESS Outcome with implementation artifacts
         outcome = {
           status: 'SUCCESS',

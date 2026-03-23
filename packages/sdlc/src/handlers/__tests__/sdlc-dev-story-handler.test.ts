@@ -619,6 +619,87 @@ describe('createSdlcDevStoryHandler — telemetry (AC5)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Build verification gate
+// ---------------------------------------------------------------------------
+
+describe('createSdlcDevStoryHandler — build verification gate', () => {
+  it('returns FAILURE when buildVerifier reports failed after successful dev-story', async () => {
+    const mockRunDevStory = vi.fn<RunDevStoryFn>().mockResolvedValue(successResult)
+    const mockBuildVerifier = vi.fn().mockReturnValue({ status: 'failed', output: 'tsc error: missing export' })
+    const mockEventBus = makeEventBus()
+    const options: SdlcDevStoryHandlerOptions = {
+      deps: {},
+      eventBus: mockEventBus,
+      runDevStory: mockRunDevStory,
+      buildVerifier: mockBuildVerifier,
+    }
+
+    const context = makeContext({ storyKey: '43-4', storyFilePath: '/stories/43-4.md', projectRoot: '/test' })
+    const handler = createSdlcDevStoryHandler(options)
+    const result = await handler(stubNode, context, stubGraph)
+
+    expect(result.status).toBe('FAILURE')
+    expect(result.failureReason).toContain('build verification failed')
+    expect(mockBuildVerifier).toHaveBeenCalledWith('/test')
+  })
+
+  it('returns SUCCESS when buildVerifier passes', async () => {
+    const mockRunDevStory = vi.fn<RunDevStoryFn>().mockResolvedValue(successResult)
+    const mockBuildVerifier = vi.fn().mockReturnValue({ status: 'passed' })
+    const mockEventBus = makeEventBus()
+    const options: SdlcDevStoryHandlerOptions = {
+      deps: {},
+      eventBus: mockEventBus,
+      runDevStory: mockRunDevStory,
+      buildVerifier: mockBuildVerifier,
+    }
+
+    const context = makeContext({ storyKey: '43-4', storyFilePath: '/stories/43-4.md', projectRoot: '/test' })
+    const handler = createSdlcDevStoryHandler(options)
+    const result = await handler(stubNode, context, stubGraph)
+
+    expect(result.status).toBe('SUCCESS')
+  })
+
+  it('skips build verification when buildVerifier is not provided', async () => {
+    const mockRunDevStory = vi.fn<RunDevStoryFn>().mockResolvedValue(successResult)
+    const mockEventBus = makeEventBus()
+    const options: SdlcDevStoryHandlerOptions = {
+      deps: {},
+      eventBus: mockEventBus,
+      runDevStory: mockRunDevStory,
+      // no buildVerifier
+    }
+
+    const context = makeContext({ storyKey: '43-4', storyFilePath: '/stories/43-4.md', projectRoot: '/test' })
+    const handler = createSdlcDevStoryHandler(options)
+    const result = await handler(stubNode, context, stubGraph)
+
+    expect(result.status).toBe('SUCCESS')
+  })
+
+  it('emits phase-complete even when build verification fails', async () => {
+    const mockRunDevStory = vi.fn<RunDevStoryFn>().mockResolvedValue(successResult)
+    const mockBuildVerifier = vi.fn().mockReturnValue({ status: 'failed', output: 'err' })
+    const mockEventBus = makeEventBus()
+    const options: SdlcDevStoryHandlerOptions = {
+      deps: {},
+      eventBus: mockEventBus,
+      runDevStory: mockRunDevStory,
+      buildVerifier: mockBuildVerifier,
+    }
+
+    const context = makeContext({ storyKey: '43-4', storyFilePath: '/stories/43-4.md', projectRoot: '/test' })
+    const handler = createSdlcDevStoryHandler(options)
+    await handler(stubNode, context, stubGraph)
+
+    const emitMock = vi.mocked(mockEventBus.emit)
+    const phaseCompleteCalls = emitMock.mock.calls.filter(([e]) => e === 'orchestrator:story-phase-complete')
+    expect(phaseCompleteCalls).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // AC7: Export from sdlc package handlers
 // ---------------------------------------------------------------------------
 

@@ -141,13 +141,19 @@ export function createSdlcEventBridge(opts: SdlcEventBridgeOptions): { teardown(
   }
 
   const onGoalGateUnsatisfied = (data: unknown): void => {
-    const { nodeId } = data as { nodeId: string }
-    if (nodeId === 'dev_story') {
+    const evt = data as {
+      nodeId: string
+      lastVerdict?: string
+      issues?: string[]
+      reviewCycles?: number
+      failingNodes?: unknown
+    }
+    if (evt.nodeId === 'dev_story') {
       sdlcBus.emit('orchestrator:story-escalated', {
         storyKey,
-        lastVerdict: 'NEEDS_MAJOR_REWORK',
-        reviewCycles: devStoryRetries,
-        issues: [],
+        lastVerdict: evt.lastVerdict ?? 'NEEDS_MAJOR_REWORK',
+        reviewCycles: evt.reviewCycles ?? devStoryRetries,
+        issues: evt.issues ?? [],
       })
     }
   }

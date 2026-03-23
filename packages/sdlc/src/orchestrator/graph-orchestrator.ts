@@ -153,7 +153,7 @@ export interface GraphOrchestratorConfig {
  * Story 43-10: added for normalisation by the CLI composition root.
  */
 export interface GraphStoryOutcome {
-  outcome: 'SUCCESS' | 'FAILED'
+  outcome: 'SUCCESS' | 'FAILED' | 'ESCALATED'
   error?: string
 }
 
@@ -234,6 +234,10 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
           })
         : undefined
 
+    // Track whether the executor escalated this story (goal gate unsatisfied after max retries)
+    let escalated = false
+    factoryBus.on('graph:goal-gate-unsatisfied', () => { escalated = true })
+
     let result: GraphRunResult | undefined
     try {
       result = await config.executor.run(config.graph, {
@@ -246,7 +250,7 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
     } catch (err: unknown) {
       // Record failure — bridge teardown happens in finally
       const errMsg = err instanceof Error ? err.message : String(err)
-      summary.stories[storyKey] = { outcome: 'FAILED', error: errMsg }
+      summary.stories[storyKey] = { outcome: escalated ? 'ESCALATED' : 'FAILED', error: errMsg }
       summary.f++
     } finally {
       // Always teardown the bridge to remove graph event listeners (AC7)
@@ -261,6 +265,9 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
     if (result.status === 'SUCCESS') {
       summary.stories[storyKey] = { outcome: 'SUCCESS' }
       summary.s++
+    } else if (escalated) {
+      summary.stories[storyKey] = { outcome: 'ESCALATED' }
+      summary.f++
     } else {
       summary.stories[storyKey] = { outcome: 'FAILED' }
       summary.f++

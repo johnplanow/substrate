@@ -197,6 +197,40 @@ describe('AC4: graph:goal-gate-unsatisfied → orchestrator:story-escalated', ()
     )
   })
 
+  it('forwards lastVerdict and issues from event data when present', () => {
+    const { graphEvents, sdlcBus } = makeFixture()
+    graphEvents.emit('graph:goal-gate-unsatisfied', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      retryTarget: null,
+      lastVerdict: 'NEEDS_MINOR_FIXES',
+      issues: ['Missing null check in handler', 'Test coverage below threshold'],
+      reviewCycles: 2,
+    })
+    expect(sdlcBus.emit).toHaveBeenCalledWith(
+      'orchestrator:story-escalated',
+      expect.objectContaining({
+        storyKey: '43-9',
+        lastVerdict: 'NEEDS_MINOR_FIXES',
+        reviewCycles: 2,
+        issues: ['Missing null check in handler', 'Test coverage below threshold'],
+      }),
+    )
+  })
+
+  it('defaults to NEEDS_MAJOR_REWORK and empty issues when event data has no extras', () => {
+    const { graphEvents, sdlcBus } = makeFixture()
+    graphEvents.emit('graph:goal-gate-unsatisfied', { runId: 'r1', nodeId: 'dev_story', retryTarget: null })
+    expect(sdlcBus.emit).toHaveBeenCalledWith(
+      'orchestrator:story-escalated',
+      expect.objectContaining({
+        storyKey: '43-9',
+        lastVerdict: 'NEEDS_MAJOR_REWORK',
+        issues: [],
+      }),
+    )
+  })
+
   it('does NOT emit story-escalated for non-dev_story nodes', () => {
     const { graphEvents, sdlcBus } = makeFixture()
     graphEvents.emit('graph:goal-gate-unsatisfied', { runId: 'r1', nodeId: 'code_review', retryTarget: null })

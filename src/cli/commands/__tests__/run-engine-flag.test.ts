@@ -575,6 +575,21 @@ describe('Story 43-10: --engine flag routing', () => {
       stdoutWrite.mockRestore()
     })
 
+    it('calls applyConfigToGraph with maxReviewCycles before creating orchestrator', async () => {
+      const { applyConfigToGraph: mockApply } = await import('@substrate-ai/sdlc') as any
+      const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+      await runRunAction(makeBaseOptions({ engine: 'graph', maxReviewCycles: 5 }))
+
+      expect(mockApply).toHaveBeenCalledOnce()
+      expect(mockApply).toHaveBeenCalledWith(
+        expect.anything(), // parsed graph
+        { maxReviewCycles: 5 },
+      )
+
+      stdoutWrite.mockRestore()
+    })
+
     it('passes maxConcurrency: 1 and maxReviewCycles: 2 (defaults) to createGraphOrchestrator', async () => {
       const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 

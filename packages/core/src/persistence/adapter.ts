@@ -10,13 +10,32 @@ import type { DoltClientLike } from './dolt-adapter.js'
 import { DoltDatabaseAdapter } from './dolt-adapter.js'
 import { InMemoryDatabaseAdapter } from './memory-adapter.js'
 
-function isDoltAvailable(basePath: string): boolean {
+function isDoltBinaryAvailable(): boolean {
   const result = spawnSync('dolt', ['version'], { stdio: 'ignore' })
-  if (result.error != null || result.status !== 0) {
+  return result.error == null && result.status === 0
+}
+
+function isDoltAvailable(basePath: string): boolean {
+  const stateDoltDir = join(basePath, '.substrate', 'state', '.dolt')
+  if (!existsSync(stateDoltDir)) {
     return false
   }
-  const stateDoltDir = join(basePath, '.substrate', 'state', '.dolt')
-  return existsSync(stateDoltDir)
+
+  if (isDoltBinaryAvailable()) {
+    return true
+  }
+
+  // Dolt directory exists but binary failed — retry once after 1s
+  // (handles lock contention from concurrent processes)
+  console.warn('[persistence:adapter] Dolt directory found but dolt binary unavailable — retrying once...')
+  spawnSync('sleep', ['1'], { stdio: 'ignore' })
+
+  if (isDoltBinaryAvailable()) {
+    return true
+  }
+
+  console.warn('[persistence:adapter] Dolt still unavailable after retry — falling back to InMemoryDatabaseAdapter. Telemetry and cost data will NOT persist.')
+  return false
 }
 
 export function createDatabaseAdapter(

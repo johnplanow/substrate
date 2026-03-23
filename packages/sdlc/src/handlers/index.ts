@@ -32,6 +32,8 @@ export type {
   DevStoryParams,
   DevStoryResult,
   RunDevStoryFn,
+  BuildVerifyResult,
+  BuildVerifierFn,
 } from './sdlc-dev-story-handler.js'
 
 // Story 43-5: SDLC code-review handler

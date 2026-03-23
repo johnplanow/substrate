@@ -274,6 +274,11 @@ CREATE TABLE IF NOT EXISTS story_dependencies (
   PRIMARY KEY (story_key, depends_on)
 );
 
+-- Migration: add created_at to story_dependencies (added in v0.12.0)
+SET @_sd_created_at_exists = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'story_dependencies' AND COLUMN_NAME = 'created_at');
+SET @_sql = IF(@_sd_created_at_exists = 0, 'ALTER TABLE story_dependencies ADD COLUMN created_at DATETIME DEFAULT NULL', 'SELECT 1');
+PREPARE _add_col FROM @_sql; EXECUTE _add_col; DEALLOCATE PREPARE _add_col;
+
 -- ---------------------------------------------------------------------------
 -- ready_stories view (Epic 31-1)
 -- ---------------------------------------------------------------------------

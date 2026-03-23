@@ -1397,6 +1397,48 @@ describe('handleStallRecovery — helper unit tests', () => {
     expect(killPid).toHaveBeenCalled()
   })
 
+  it('returns null (no kill) when health run_id differs from supervisor runId', async () => {
+    const health = makeStalled(700, { run_id: 'run-xyz' })
+    const state: ProjectCycleState = { projectRoot: '/tmp/test', runId: 'run-abc', restartCount: 0 }
+    const killPid = vi.fn()
+    const result = await handleStallRecovery(
+      health,
+      state,
+      { stallThreshold: 600, maxRestarts: 3, pack: 'bmad', outputFormat: 'json' },
+      {
+        killPid,
+        resumePipeline: vi.fn().mockResolvedValue(0),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        incrementRestarts: vi.fn(),
+        getAllDescendants: vi.fn().mockReturnValue([]),
+      },
+      { emitEvent: vi.fn(), log: vi.fn() },
+    )
+    expect(result).toBeNull()
+    expect(killPid).not.toHaveBeenCalled()
+  })
+
+  it('proceeds with kill when supervisor has no runId set (undefined)', async () => {
+    const health = makeStalled(700)
+    const state: ProjectCycleState = { projectRoot: '/tmp/test', restartCount: 0 }
+    const killPid = vi.fn()
+    const result = await handleStallRecovery(
+      health,
+      state,
+      { stallThreshold: 600, maxRestarts: 3, pack: 'bmad', outputFormat: 'json' },
+      {
+        killPid,
+        resumePipeline: vi.fn().mockResolvedValue(0),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        incrementRestarts: vi.fn(),
+        getAllDescendants: vi.fn().mockReturnValue([]),
+      },
+      { emitEvent: vi.fn(), log: vi.fn() },
+    )
+    expect(result).not.toBeNull()
+    expect(killPid).toHaveBeenCalled()
+  })
+
   it('returns maxRestartsExceeded when limit hit', async () => {
     const health = makeStalled(700)
     const state: ProjectCycleState = { projectRoot: '/tmp/test', restartCount: 3 }

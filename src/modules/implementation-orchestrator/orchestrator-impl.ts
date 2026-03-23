@@ -1729,6 +1729,12 @@ export function createImplementationOrchestrator(
               error: devResult.error,
               filesModified: devFilesModified.length,
             }, 'Dev-story reported failure, proceeding to code review')
+
+            // Distinguish non-timeout agent crashes from timeouts (which are handled above)
+            if (!devResult.error?.startsWith('dispatch_timeout')) {
+              logger.warn({ storyKey, error: devResult.error }, 'Agent process failure (non-timeout) — story will proceed to code review with partial work')
+              eventBus.emit('orchestrator:story-warn', { storyKey, msg: 'agent process failure (non-timeout)' })
+            }
           }
         }
       }
@@ -1831,13 +1837,20 @@ export function createImplementationOrchestrator(
           })
 
       if (buildVerifyResult.status === 'passed') {
-        // Secondary typecheck: catch type errors the bundler may skip (e.g., empty modules)
+        // Secondary typecheck: catch type errors the bundler may skip (e.g., empty modules).
+        // Uses tsconfig.typecheck.json when available — it includes src/**/*.ts which catches
+        // monolith-level type mismatches that project-reference-only builds miss.
         const resolvedRootForTsc = projectRoot ?? process.cwd()
         const tscBin = join(resolvedRootForTsc, 'node_modules', '.bin', 'tsc')
-        const hasTsc = existsSync(tscBin) && existsSync(join(resolvedRootForTsc, 'tsconfig.json'))
+        const typecheckConfig = join(resolvedRootForTsc, 'tsconfig.typecheck.json')
+        const defaultConfig = join(resolvedRootForTsc, 'tsconfig.json')
+        const tscConfigFlag = existsSync(typecheckConfig)
+          ? ` -p ${typecheckConfig}`
+          : ''
+        const hasTsc = existsSync(tscBin) && (existsSync(typecheckConfig) || existsSync(defaultConfig))
         if (hasTsc) {
           try {
-            execSync(`"${tscBin}" --noEmit`, {
+            execSync(`"${tscBin}" --noEmit${tscConfigFlag}`, {
               cwd: resolvedRootForTsc,
               timeout: 120_000,
               encoding: 'utf-8',

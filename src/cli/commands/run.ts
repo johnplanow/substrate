@@ -115,6 +115,7 @@ import { buildSdlcHandlerRegistry } from './sdlc-graph-setup.js'
 import { runCreateStory } from '../../modules/compiled-workflows/create-story.js'
 import { runDevStory } from '../../modules/compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../modules/compiled-workflows/code-review.js'
+import { runBuildVerification } from '../../modules/agent-dispatch/dispatcher-impl.js'
 
 const logger = createLogger('run-cmd')
 
@@ -134,7 +135,7 @@ type EngineType = (typeof VALID_ENGINES)[number]
  * This allows the post-run logic (metrics, summary, exit code) to be reused
  * unchanged for both engine paths.
  */
-function normalizeGraphSummaryToStatus(summary: GraphRunSummary): {
+export function normalizeGraphSummaryToStatus(summary: GraphRunSummary): {
   stories: Record<string, { phase: string; error?: string }>
   maxConcurrentActual?: number
 } {
@@ -142,7 +143,7 @@ function normalizeGraphSummaryToStatus(summary: GraphRunSummary): {
   for (const [key, s] of Object.entries(summary.stories)) {
     if (s.outcome === 'SUCCESS') {
       stories[key] = { phase: 'COMPLETE' }
-    } else if ((s.outcome as string) === 'ESCALATED') {
+    } else if (s.outcome === 'ESCALATED') {
       stories[key] = { phase: 'ESCALATED' }
     } else {
       stories[key] = { phase: 'FAILED', ...(s.error !== undefined ? { error: s.error } : {}) }
@@ -1357,6 +1358,11 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           deps: workflowDeps,
           eventBus: sdlcEventBus,
           runDevStory: runDevStory as unknown as RunDevStoryFn,
+          buildVerifier: (root: string) => runBuildVerification({
+            verifyCommand: pack.manifest.verifyCommand,
+            verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
+            projectRoot: root,
+          }),
         },
         codeReviewOptions: {
           deps: workflowDeps,

@@ -390,6 +390,12 @@ export async function handleStallRecovery(
 
   if (health.staleness_seconds < effectiveThreshold) return null
 
+  // Guard: do not kill a foreign pipeline run (cross-session protection)
+  if (state.runId !== undefined && health.run_id !== null && health.run_id !== state.runId) {
+    log('Supervisor skipping kill — active pipeline belongs to a different session')
+    return null
+  }
+
   const directPids = [
     ...(health.process.orchestrator_pid !== null ? [health.process.orchestrator_pid] : []),
     ...health.process.child_pids,
