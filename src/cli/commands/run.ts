@@ -16,7 +16,7 @@
 
 import type { Command } from 'commander'
 import { join } from 'path'
-import { mkdirSync, existsSync, writeFileSync, unlinkSync, readdirSync } from 'fs'
+import { mkdirSync, existsSync, writeFileSync, unlinkSync, readdirSync, readFileSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { createEventEmitter } from '../../modules/implementation-orchestrator/event-emitter.js'
 import { createProgressRenderer } from '../../modules/implementation-orchestrator/progress-renderer.js'
@@ -91,7 +91,65 @@ import {
   parseDbTimestampAsUtc,
 } from './pipeline-shared.js'
 
+// ---------------------------------------------------------------------------
+// Story 43-10: Graph engine imports (ADR-003: CLI as composition root)
+// ---------------------------------------------------------------------------
+import {
+  createGraphOrchestrator,
+  resolveGraphPath,
+  applyConfigToGraph,
+} from '@substrate-ai/sdlc'
+import type {
+  GraphShape,
+  IGraphExecutorLocal,
+  GraphRunSummary,
+  RunCreateStoryFn,
+  RunDevStoryFn,
+  RunCodeReviewFn,
+  PhaseRunnerFn,
+} from '@substrate-ai/sdlc'
+import type { SdlcEvents } from '@substrate-ai/sdlc'
+import type { TypedEventBus } from '@substrate-ai/core'
+import { parseGraph, createGraphExecutor } from '@substrate-ai/factory'
+import { buildSdlcHandlerRegistry } from './sdlc-graph-setup.js'
+import { runCreateStory } from '../../modules/compiled-workflows/create-story.js'
+import { runDevStory } from '../../modules/compiled-workflows/dev-story.js'
+import { runCodeReview } from '../../modules/compiled-workflows/code-review.js'
+
 const logger = createLogger('run-cmd')
+
+// ---------------------------------------------------------------------------
+// Story 43-10: Engine routing constants
+// ---------------------------------------------------------------------------
+const VALID_ENGINES = ['linear', 'graph'] as const
+type EngineType = (typeof VALID_ENGINES)[number]
+
+// ---------------------------------------------------------------------------
+// Story 43-10: normalizeGraphSummaryToStatus
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalizes a `GraphRunSummary` (from GraphOrchestrator.run()) into the same
+ * `{ stories, maxConcurrentActual }` shape returned by the linear orchestrator.
+ * This allows the post-run logic (metrics, summary, exit code) to be reused
+ * unchanged for both engine paths.
+ */
+function normalizeGraphSummaryToStatus(summary: GraphRunSummary): {
+  stories: Record<string, { phase: string; error?: string }>
+  maxConcurrentActual?: number
+} {
+  const stories: Record<string, { phase: string; error?: string }> = {}
+  for (const [key, s] of Object.entries(summary.stories)) {
+    if (s.outcome === 'SUCCESS') {
+      stories[key] = { phase: 'COMPLETE' }
+    } else if ((s.outcome as string) === 'ESCALATED') {
+      stories[key] = { phase: 'ESCALATED' }
+    } else {
+      stories[key] = { phase: 'FAILED', ...(s.error !== undefined ? { error: s.error } : {}) }
+    }
+  }
+  return { stories }
+}
 
 // ---------------------------------------------------------------------------
 // auto run action
@@ -376,6 +434,11 @@ export interface RunOptions {
   dryRun?: boolean
   /** Maximum number of review cycles per story (default: 2) */
   maxReviewCycles?: number
+  /**
+   * Execution engine: 'linear' (default linear orchestrator) or 'graph' (graph-based SDLC
+   * executor via GraphOrchestrator). Validated in runRunAction — story 43-10.
+   */
+  engine?: string
   /** Optional pre-initialized registry; if omitted, a new registry is created and discovered */
   registry?: AdapterRegistry
 }
@@ -401,8 +464,21 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     epic: epicNumber,
     dryRun,
     maxReviewCycles = 2,
+    engine,
     registry: injectedRegistry,
   } = options
+
+  // Validate --engine flag (story 43-10): must be 'linear' or 'graph' when provided
+  const resolvedEngine = (engine ?? 'linear') as EngineType
+  if (!VALID_ENGINES.includes(resolvedEngine)) {
+    const errorMsg = `Invalid engine '${engine}'. Valid values: ${VALID_ENGINES.join(', ')}`
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${errorMsg}\n`)
+    }
+    return 1
+  }
 
   // Validate --from phase
   if (startPhase !== undefined && !VALID_PHASES.includes(startPhase)) {
@@ -1244,40 +1320,116 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       }
     }
 
-    // Create orchestrator
-    const orchestrator = createImplementationOrchestrator({
-      db: adapter,
-      pack,
-      contextCompiler,
-      dispatcher,
-      eventBus,
-      config: {
+    // Create and run orchestrator — linear (default) or graph engine (story 43-10)
+    let status: { stories: Record<string, { phase: string; error?: string }>; maxConcurrentActual?: number }
+
+    if (resolvedEngine === 'graph') {
+      // ── Graph engine branch (story 43-10) ───────────────────────────────────
+      // Wire the four SDLC handlers into a HandlerRegistry via the CLI composition
+      // root (ADR-003: this is the only file that imports both sdlc and factory).
+      const dotSource = readFileSync(resolveGraphPath(), 'utf-8')
+      const parsedGraph = parseGraph(dotSource)
+      // Story 43-8: Map --max-review-cycles to dev_story.maxRetries in the graph
+      applyConfigToGraph(parsedGraph as unknown as Parameters<typeof applyConfigToGraph>[0], { maxReviewCycles })
+      const executor = createGraphExecutor()
+
+      const phaseOrchestrator = createPhaseOrchestrator({ db: adapter, pack })
+      const workflowDeps = { db: adapter, pack, contextCompiler, dispatcher, projectRoot }
+      // Cast the monolith event bus to TypedEventBus<SdlcEvents> — structurally compatible.
+      const sdlcEventBus = eventBus as unknown as TypedEventBus<SdlcEvents>
+
+      const handlerRegistry = buildSdlcHandlerRegistry({
+        phaseHandlerDeps: {
+          orchestrator: phaseOrchestrator,
+          phaseDeps: { db: adapter, pack, contextCompiler, dispatcher },
+          phases: {
+            analysis: runAnalysisPhase as unknown as PhaseRunnerFn,
+            planning: runPlanningPhase as unknown as PhaseRunnerFn,
+            solutioning: runSolutioningPhase as unknown as PhaseRunnerFn,
+          },
+        },
+        createStoryOptions: {
+          deps: workflowDeps,
+          eventBus: sdlcEventBus,
+          runCreateStory: runCreateStory as unknown as RunCreateStoryFn,
+        },
+        devStoryOptions: {
+          deps: workflowDeps,
+          eventBus: sdlcEventBus,
+          runDevStory: runDevStory as unknown as RunDevStoryFn,
+        },
+        codeReviewOptions: {
+          deps: workflowDeps,
+          eventBus: sdlcEventBus,
+          runCodeReview: runCodeReview as unknown as RunCodeReviewFn,
+        },
+      })
+
+      // Logs root for per-story graph run checkpoints
+      const logsRoot = join(dbRoot, '.substrate', 'logs')
+      mkdirSync(logsRoot, { recursive: true })
+
+      const graphOrchestrator = createGraphOrchestrator({
+        graph: parsedGraph as unknown as GraphShape,
+        executor: executor as unknown as IGraphExecutorLocal,
+        handlerRegistry,
+        projectRoot,
+        methodologyPack: packName,
         maxConcurrency: concurrency,
-        maxReviewCycles,
+        logsRoot,
+        runId: pipelineRun.id,
+        eventBus,
         pipelineRunId: pipelineRun.id,
-        // Only enable heartbeat/watchdog timer when --events mode is active (AC1/Issue 5)
-        enableHeartbeat: eventsFlag === true,
-        // Skip pre-flight build check when --skip-preflight is set (Story 25-2)
-        skipPreflight: skipPreflight === true,
-      },
-      projectRoot,
-      tokenCeilings,
-      ...(ingestionServer !== undefined ? { ingestionServer } : {}),
-      ...(telemetryPersistence !== undefined ? { telemetryPersistence } : {}),
-      ...(repoMapInjector !== undefined ? { repoMapInjector, maxRepoMapTokens: MAX_REPO_MAP_TOKENS } : {}),
-    })
+        maxReviewCycles,
+        gcPauseMs: 0,
+      })
 
-    // Display startup header (only in legacy human mode without progress renderer or NDJSON emitter)
-    if (outputFormat === 'human' && progressRenderer === undefined && ndjsonEmitter === undefined) {
-      process.stdout.write(
-        `Starting pipeline: ${storyKeys.length} story/stories, concurrency=${concurrency}\n`,
-      )
-      process.stdout.write(`Pipeline run ID: ${pipelineRun.id}\n`)
-      process.stdout.write(`Stories: ${storyKeys.join(', ')}\n`)
+      // Display startup header for graph mode
+      if (outputFormat === 'human' && progressRenderer === undefined && ndjsonEmitter === undefined) {
+        process.stdout.write(
+          `Starting pipeline (graph engine): ${storyKeys.length} story/stories, concurrency=${concurrency}\n`,
+        )
+        process.stdout.write(`Pipeline run ID: ${pipelineRun.id}\n`)
+        process.stdout.write(`Stories: ${storyKeys.join(', ')}\n`)
+      }
+
+      const graphSummary = await graphOrchestrator.run(storyKeys)
+      status = normalizeGraphSummaryToStatus(graphSummary)
+    } else {
+      // ── Linear engine branch (default — unchanged from pre-43-10 baseline) ──
+      const orchestrator = createImplementationOrchestrator({
+        db: adapter,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config: {
+          maxConcurrency: concurrency,
+          maxReviewCycles,
+          pipelineRunId: pipelineRun.id,
+          // Only enable heartbeat/watchdog timer when --events mode is active (AC1/Issue 5)
+          enableHeartbeat: eventsFlag === true,
+          // Skip pre-flight build check when --skip-preflight is set (Story 25-2)
+          skipPreflight: skipPreflight === true,
+        },
+        projectRoot,
+        tokenCeilings,
+        ...(ingestionServer !== undefined ? { ingestionServer } : {}),
+        ...(telemetryPersistence !== undefined ? { telemetryPersistence } : {}),
+        ...(repoMapInjector !== undefined ? { repoMapInjector, maxRepoMapTokens: MAX_REPO_MAP_TOKENS } : {}),
+      })
+
+      // Display startup header (only in legacy human mode without progress renderer or NDJSON emitter)
+      if (outputFormat === 'human' && progressRenderer === undefined && ndjsonEmitter === undefined) {
+        process.stdout.write(
+          `Starting pipeline: ${storyKeys.length} story/stories, concurrency=${concurrency}\n`,
+        )
+        process.stdout.write(`Pipeline run ID: ${pipelineRun.id}\n`)
+        process.stdout.write(`Stories: ${storyKeys.join(', ')}\n`)
+      }
+
+      status = await orchestrator.run(storyKeys)
     }
-
-    // Run the orchestrator
-    const status = await orchestrator.run(storyKeys)
 
     // AC3 (Story 28-6): Flush phase token breakdown to StateStore at run completion
     if (routingTokenAccumulator !== undefined) {
@@ -2116,6 +2268,7 @@ export function registerRunCommand(
     .option('--skip-preflight', 'Skip the pre-flight build check (escape hatch for known-broken projects)')
     .option('--max-review-cycles <n>', 'Maximum review cycles per story (default: 2)', (v: string) => parseInt(v, 10), 2)
     .option('--dry-run', 'Preview routing and repo-map injection without dispatching (Story 28-9)')
+    .option('--engine <type>', 'Execution engine: linear (default) or graph')
     .action(
       async (opts: {
         pack: string
@@ -2138,6 +2291,7 @@ export function registerRunCommand(
         skipPreflight?: boolean
         maxReviewCycles: number
         dryRun?: boolean
+        engine?: string
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -2183,6 +2337,7 @@ export function registerRunCommand(
           skipPreflight: opts.skipPreflight,
           maxReviewCycles: opts.maxReviewCycles,
           dryRun: opts.dryRun,
+          engine: opts.engine,
           registry,
         })
         process.exitCode = exitCode

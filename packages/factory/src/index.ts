@@ -8,3 +8,9 @@ export { createValidator, isStartNode, isExitNode } from './graph/validator.js'
 export { selectEdge, normalizeLabel, bestByWeightThenLexical } from './graph/index.js'
 // Backend module (story 42-18)
 export * from './backend/index.js'
+// Handler registry — exported for CLI composition root (story 43-6)
+export { HandlerRegistry, createDefaultRegistry } from './handlers/index.js'
+export type { IHandlerRegistry, NodeHandler } from './handlers/index.js'
+// Graph executor — exported for CLI composition root (story 43-10)
+export { createGraphExecutor } from './graph/executor.js'
+export type { GraphExecutor, GraphExecutorConfig } from './graph/executor.js'

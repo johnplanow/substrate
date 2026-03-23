@@ -1,0 +1,42 @@
+/**
+ * SDLC Pipeline DOT Graph Definition
+ *
+ * Encodes the existing linear SDLC pipeline topology so the graph executor
+ * can drive the same pipeline logic as an alternative to the linear orchestrator.
+ *
+ * Story 43-1
+ */
+
+digraph sdlc_pipeline {
+  graph [
+    goal="Implement SDLC pipeline stories end-to-end",
+    label="SDLC Pipeline"
+  ]
+
+  // ── Entry / exit terminals ─────────────────────────────────────────────────
+  start [shape=Mdiamond, label="Start"]
+  exit  [shape=Msquare,  label="Exit"]
+
+  // ── Phase nodes ────────────────────────────────────────────────────────────
+  analysis   [type="sdlc.phase",        label="Analysis Phase"]
+  planning   [type="sdlc.phase",        label="Planning Phase"]
+  solutioning [type="sdlc.phase",       label="Solutioning Phase"]
+
+  // ── Story lifecycle nodes ──────────────────────────────────────────────────
+  create_story [type="sdlc.create-story", label="Create Story"]
+  dev_story    [type="sdlc.dev-story",    label="Dev Story",
+                goal_gate=true, retry_target=dev_story, max_retries=2]
+  code_review  [type="sdlc.code-review",  label="Code Review", shape=diamond]
+
+  // ── Linear happy-path edges ────────────────────────────────────────────────
+  start        -> analysis
+  analysis     -> planning
+  planning     -> solutioning
+  solutioning  -> create_story
+  create_story -> dev_story
+  dev_story    -> code_review
+
+  // ── Conditional edges from code_review ────────────────────────────────────
+  code_review -> exit      [condition="outcome=success"]
+  code_review -> dev_story [condition="outcome=fail"]
+}

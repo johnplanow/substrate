@@ -6,7 +6,7 @@
  * gates and artifact flow through the decision store.
  */
 
-import type { PhaseDefinition, PhaseRunStatus, AdvancePhaseResult } from './types.js'
+import type { PhaseDefinition, PhaseRunStatus, AdvancePhaseResult, GateRunResult } from './types.js'
 
 // ---------------------------------------------------------------------------
 // PhaseOrchestrator
@@ -88,6 +88,18 @@ export interface PhaseOrchestrator {
    * @returns Array of phase definitions in execution order
    */
   getPhases(): PhaseDefinition[]
+
+  /**
+   * Evaluate entry gates for the current phase without advancing.
+   *
+   * Used by the SDLC graph handler (story 43-13) to check whether the
+   * current phase's entry gates pass before dispatching the phase runner.
+   * Unlike advancePhase(), this method does NOT modify pipeline state.
+   *
+   * @param runId - The pipeline run ID
+   * @returns Gate evaluation result with pass/fail and any failure details
+   */
+  evaluateEntryGates(runId: string): Promise<GateRunResult>
 
   /**
    * Mark the current phase as failed in the pipeline run status.

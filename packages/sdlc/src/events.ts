@@ -67,6 +67,7 @@ export type SdlcEvents = CoreEvents & {
   'orchestrator:story-phase-start': {
     storyKey: string
     phase: string
+    pipelineRunId?: string
   }
 
   /** A story phase has completed within the implementation orchestrator */
@@ -74,6 +75,7 @@ export type SdlcEvents = CoreEvents & {
     storyKey: string
     phase: string
     result: unknown
+    pipelineRunId?: string
   }
 
   /** A story has completed the full pipeline with SHIP_IT verdict */

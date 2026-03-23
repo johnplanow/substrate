@@ -10,5 +10,6 @@
   "files": ["dist"],
   "dependencies": {
     "@substrate-ai/core": "*"
-  }
+  },
+  "devDependencies": {}
 }

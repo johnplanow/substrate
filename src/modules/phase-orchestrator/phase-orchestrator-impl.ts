@@ -309,6 +309,27 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
   }
 
   // -------------------------------------------------------------------------
+  // evaluateEntryGates
+  // -------------------------------------------------------------------------
+
+  async evaluateEntryGates(runId: string): Promise<GateRunResult> {
+    const run = await getPipelineRunById(this._db, runId)
+    if (!run) {
+      return { passed: false, failures: [{ gate: 'run-exists', error: `Pipeline run '${runId}' not found` }] }
+    }
+
+    const currentPhaseName = run.current_phase ?? this._phases[0]?.name ?? 'analysis'
+    const currentPhaseIdx = this._phases.findIndex((p) => p.name === currentPhaseName)
+
+    if (currentPhaseIdx === -1) {
+      return { passed: false, failures: [{ gate: 'phase-exists', error: `Phase '${currentPhaseName}' not found` }] }
+    }
+
+    const currentPhaseDef = this._phases[currentPhaseIdx]
+    return runGates(currentPhaseDef.entryGates, this._db, runId)
+  }
+
+  // -------------------------------------------------------------------------
   // resumeRun
   // -------------------------------------------------------------------------
 

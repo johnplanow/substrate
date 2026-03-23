@@ -16,6 +16,11 @@ const KNOWN_HANDLER_TYPES = new Set([
   'conditional',
   'start',
   'exit',
+  // SDLC pipeline node types (story 43-1)
+  'sdlc.phase',
+  'sdlc.create-story',
+  'sdlc.dev-story',
+  'sdlc.code-review',
 ])
 
 const VALID_FIDELITY_VALUES = new Set(['high', 'medium', 'low', 'draft'])
