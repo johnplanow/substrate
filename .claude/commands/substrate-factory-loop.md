@@ -17,10 +17,10 @@ Execute this loop continuously until all stories are complete or party mode esca
    - If `auto`: read `_bmad-output/planning-artifacts/epics-and-stories-software-factory.md`, find the next epic whose dependencies are met, extract all story keys for that epic
 2. Run the pipeline:
    ```bash
-   substrate run --events --stories <keys>
+   substrate run --events --max-review-cycles 3 --stories <keys>
    ```
    - Use `run_in_background: true` or `timeout: 600000`
-   - Attach supervisor in parallel: `substrate supervisor --output-format json`
+   - Optionally attach supervisor for long runs: `substrate supervisor --output-format json`
 3. Monitor to completion:
    - Poll `substrate status --output-format json` every 60-90 seconds
    - Use `substrate health --output-format json` if quiet for >5 minutes
@@ -55,8 +55,9 @@ After party mode applies fixes:
 
 1. Verify no vitest running: `pgrep -f vitest` returns nothing
 2. Build: `npm run build` (timeout: 120000)
-3. Run full test suite: `npm test` (timeout: 300000) — NOT test:fast, the FULL suite with e2e and coverage
-4. Confirm results by checking for "Test Files" line in output
+3. Typecheck: `npm run typecheck:gate` (timeout: 120000) — catches type mismatches that the bundler misses
+4. Run full test suite: `npm test` (timeout: 300000) — NOT test:fast, the FULL suite with e2e and coverage
+5. Confirm results by checking for "Test Files" line in output
 
 If tests fail, invoke `/bmad-party-mode`:
 
