@@ -1,0 +1,25 @@
+digraph trycycle {
+  graph [
+    goal         = "Implement the feature so all holdout scenarios pass",
+    label        = "Convergence Loop Cross-Project Validation Fixture",
+    retry_target = "implement"
+  ]
+
+  start       [shape=Mdiamond]
+  implement   [shape=box,
+               goal_gate    = "true",
+               retry_target = "implement",
+               prompt       = "Implement the feature based on the failing scenarios"]
+  validate    [shape=parallelogram,
+               type         = "tool",
+               tool_command = "substrate scenarios run --format json",
+               label        = "Validate against holdout scenarios"]
+  conditional [shape=diamond]
+  exit        [shape=Msquare]
+
+  start       -> implement
+  implement   -> validate
+  validate    -> conditional
+  conditional -> exit        [condition="satisfaction_score>=0.8"]
+  conditional -> implement
+}

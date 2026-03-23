@@ -238,3 +238,13 @@ export function createMockSpawnProcess(options: {
 export function readFixtureDot(): string {
   return readFileSync(join(__helpers_dirname, 'fixtures', 'pipeline.dot'), 'utf8')
 }
+
+/**
+ * Read a named DOT fixture file synchronously.
+ * The fixture lives at `fixtures/{name}` relative to this file.
+ *
+ * @param name - Fixture filename (e.g. 'trycycle.dot'). Added in story 45-10.
+ */
+export function readNamedFixtureDot(name: string): string {
+  return readFileSync(join(__helpers_dirname, 'fixtures', name), 'utf8')
+}

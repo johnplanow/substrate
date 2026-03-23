@@ -23,7 +23,16 @@ import { RunStateManager, type NodeArtifacts } from './run-state.js'
 import type { IHandlerRegistry } from '../handlers/types.js'
 import type { TypedEventBus } from '@substrate-ai/core'
 import type { FactoryEvents, Outcome } from '../events.js'
-import { createConvergenceController } from '../convergence/index.js'
+import {
+  createConvergenceController,
+  SessionBudgetManager,
+  PipelineBudgetManager,
+  createPlateauDetector,
+  checkPlateauAndEmit,
+  buildRemediationContext,
+  injectRemediationContext,
+  computeBackoffDelay,
+} from '../convergence/index.js'
 import type { ScenarioStore, ScenarioManifest } from '../scenarios/index.js'
 
 // ---------------------------------------------------------------------------
@@ -62,6 +71,33 @@ export interface GraphExecutorConfig {
    * Also enables per-node artifact writing via RunStateManager (story 44-7).
    */
   dotSource?: string
+
+  // ---------------------------------------------------------------------------
+  // Convergence loop budget and plateau configuration (story 45-8)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Session wall-clock budget in milliseconds (0 = unlimited).
+   * Checked at the top of each main loop iteration — highest budget priority.
+   * Wired to FactoryConfig.wall_clock_cap_ms in the factory run command.
+   */
+  wallClockCapMs?: number
+  /**
+   * Pipeline cost budget in USD (0 = unlimited).
+   * Checked after the session budget — second-highest priority.
+   * Accumulates per-node costs read from context key 'factory.lastNodeCostUsd'.
+   */
+  pipelineBudgetCapUsd?: number
+  /**
+   * Plateau detector window size — number of satisfaction scores to compare.
+   * Defaults to 3 when omitted. Passed to createPlateauDetector().
+   */
+  plateauWindow?: number
+  /**
+   * Plateau detector threshold — max−min delta below which plateau is declared.
+   * Defaults to 0.05 when omitted. Passed to createPlateauDetector().
+   */
+  plateauThreshold?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -114,23 +150,6 @@ function normalizeOutcomeStatus(raw: GraphOutcome): Outcome {
     ...(raw as unknown as Outcome),
     status,
   }
-}
-
-// ---------------------------------------------------------------------------
-// computeBackoffDelay
-// ---------------------------------------------------------------------------
-
-/**
- * Compute exponential backoff delay with ±50% jitter.
- *
- * @param attempt - Zero-indexed attempt number (0 = first retry, 1 = second, etc.)
- * @returns Delay in milliseconds, floored at 0 and capped at 60,000ms
- */
-function computeBackoffDelay(attempt: number): number {
-  const rawDelay = Math.min(200 * Math.pow(2, attempt), 60_000)
-  // ±50% jitter of rawDelay
-  const jitter = rawDelay * 0.5 * (2 * Math.random() - 1)
-  return Math.max(0, rawDelay + jitter)
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +245,15 @@ export function createGraphExecutor(): GraphExecutor {
       // ConvergenceController for goal gate evaluation (story 42-16)
       const controller = createConvergenceController()
 
+      // Convergence budget and plateau managers (story 45-8)
+      const sessionManager = new SessionBudgetManager()
+      const pipelineManager = new PipelineBudgetManager()
+      const plateauDetector = createPlateauDetector({
+        ...(config.plateauWindow !== undefined ? { window: config.plateauWindow } : {}),
+        ...(config.plateauThreshold !== undefined ? { threshold: config.plateauThreshold } : {}),
+      })
+      let convergenceIteration = 0
+
       // Execution state
       let completedNodes: string[] = []
       let nodeRetries: Record<string, number> = {}
@@ -320,28 +348,72 @@ export function createGraphExecutor(): GraphExecutor {
       // -----------------------------------------------------------------------
 
       while (true) {
+        // --- Budget checks (story 45-8): session budget (highest priority), then pipeline ---
+        // Budget enforcement priority order: session > pipeline > per-node retries (dispatchWithRetry)
+        const sessionResult = sessionManager.checkBudget((config.wallClockCapMs ?? 0) / 1000)
+        if (!sessionResult.allowed) {
+          config.eventBus?.emit('convergence:budget-exhausted', {
+            runId: config.runId,
+            level: 'session',
+            reason: sessionResult.reason,
+          })
+          return { status: 'FAIL', failureReason: `Session budget exceeded: ${sessionResult.reason}` }
+        }
+        const pipelineResult = pipelineManager.checkBudget(config.pipelineBudgetCapUsd ?? 0)
+        if (!pipelineResult.allowed) {
+          config.eventBus?.emit('convergence:budget-exhausted', {
+            runId: config.runId,
+            level: 'pipeline',
+            reason: pipelineResult.reason,
+          })
+          return { status: 'FAIL', failureReason: `Pipeline budget exceeded: ${pipelineResult.reason}` }
+        }
+
         // Exit condition: arrived at the exit node → evaluate goal gates (story 42-16)
         const exitNode = graph.exitNode()
         if (currentNode.id === exitNode.id) {
-          const gateResult = controller.evaluateGates(graph)
+          const gateResult = controller.checkGoalGates(graph, config.runId, config.eventBus)
           if (!gateResult.satisfied) {
-            // Goal gate unsatisfied — resolve retry target chain (story 42-16 §Dev Notes)
-            const failingNodeId = gateResult.failingNodes[0]!
+            // Use ConvergenceController.resolveRetryTarget (story 45-8 — replaces inline 4-step chain)
+            const failingNodeId = gateResult.failedGates[0]!
             const failingGateNode = graph.nodes.get(failingNodeId)
-            const retryTarget =
-              failingGateNode?.retryTarget ||
-              failingGateNode?.fallbackRetryTarget ||
-              graph.retryTarget ||
-              graph.fallbackRetryTarget
-            if (retryTarget) {
-              const retryNode = graph.nodes.get(retryTarget)
-              if (!retryNode) {
-                throw new Error(`Retry target node "${retryTarget}" not found in graph`)
-              }
-              currentNode = retryNode
-              continue
+            const retryTargetId = failingGateNode
+              ? controller.resolveRetryTarget(failingGateNode, graph)
+              : null
+            if (!retryTargetId) {
+              return { status: 'FAIL', failureReason: 'Goal gate failed: no retry target' }
             }
-            return { status: 'FAIL', failureReason: 'Goal gate failed: no retry target' }
+            const retryNode = graph.nodes.get(retryTargetId)
+            if (!retryNode) {
+              throw new Error(`Retry target node "${retryTargetId}" not found in graph`)
+            }
+            // Increment convergence iteration and record satisfaction score for plateau detection
+            convergenceIteration++
+            const satisfactionScore = context.getNumber('satisfaction_score', 0.0)
+            plateauDetector.recordScore(convergenceIteration, satisfactionScore)
+            // Check for plateau (story 45-8, AC5)
+            const plateauResult = checkPlateauAndEmit(plateauDetector, {
+              runId: config.runId,
+              nodeId: retryTargetId,
+              ...(config.eventBus ? { eventBus: config.eventBus } : {}),
+            })
+            if (plateauResult.plateaued) {
+              return {
+                status: 'FAIL',
+                failureReason: `Convergence plateau detected after ${convergenceIteration} iteration(s): scores plateaued at [${plateauResult.scores.join(', ')}]`,
+              }
+            }
+            // Build and inject remediation context before routing to retry target (story 45-8, AC6)
+            const remediation = buildRemediationContext({
+              previousFailureReason: `Goal gate unsatisfied: ${gateResult.failedGates.join(', ')}`,
+              iterationCount: convergenceIteration,
+              satisfactionScoreHistory: plateauResult.scores,
+            })
+            injectRemediationContext(context, remediation)
+            // Route to retry target; suppress cycle check for convergence loop retry
+            skipCycleCheck = true
+            currentNode = retryNode
+            continue
           }
           return { status: 'SUCCESS' }
         }
@@ -517,6 +589,17 @@ export function createGraphExecutor(): GraphExecutor {
         }
 
         // ----------------------------------------------------------------
+        // Accumulate per-node cost for pipeline budget tracking (story 45-8)
+        // Convention: CodergenBackend writes 'factory.lastNodeCostUsd' to contextUpdates.
+        // The key holds only the LAST node's cost; PipelineBudgetManager owns the running total.
+        // This must run AFTER contextUpdates are applied so context.getNumber reflects latest output.
+        // ----------------------------------------------------------------
+        const nodeCost = context.getNumber('factory.lastNodeCostUsd', 0)
+        if (nodeCost > 0) {
+          pipelineManager.addCost(nodeCost)
+        }
+
+        // ----------------------------------------------------------------
         // Push completed node (skip for loopRestart re-entry nodes)
         // ----------------------------------------------------------------
         if (!skipCompletedPush) {
@@ -545,11 +628,8 @@ export function createGraphExecutor(): GraphExecutor {
         // the node-level retryTarget chain or return FAIL immediately.
         // ----------------------------------------------------------------
         if (outcome.status === 'FAIL') {
-          const retryTarget =
-            currentNode.retryTarget ||
-            currentNode.fallbackRetryTarget ||
-            graph.retryTarget ||
-            graph.fallbackRetryTarget
+          // Resolves via 4-level chain: node.retryTarget → node.fallbackRetryTarget → graph.retryTarget → graph.fallbackRetryTarget → null (story 45-2)
+          const retryTarget = controller.resolveRetryTarget(currentNode, graph)
           if (retryTarget) {
             const retryNode = graph.nodes.get(retryTarget)
             if (!retryNode) {

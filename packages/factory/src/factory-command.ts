@@ -142,6 +142,13 @@ export function registerFactoryCommand(program: Command): void {
         const stateManager = new RunStateManager({ runDir: logsRoot })
         await stateManager.initRun(dotSource)
 
+        // Load factory config for convergence budget and plateau configuration (story 45-10).
+        // Called here separately from resolveGraphPath so config loading stays idempotent —
+        // resolveGraphPath already loaded config for graph-path resolution; loading again here
+        // is acceptable since loadFactoryConfig is a pure read with no side effects.
+        /** wallClockCapMs: FactoryConfig.wall_clock_cap_seconds × 1000 (story 45-10) */
+        const factoryConfig = await loadFactoryConfig(projectDir, opts.config)
+
         const executor = createGraphExecutor()
         await executor.run(graph, {
           runId,
@@ -149,6 +156,14 @@ export function registerFactoryCommand(program: Command): void {
           handlerRegistry: createDefaultRegistry(),
           eventBus,
           dotSource,
+          /** wallClockCapMs derived from FactoryConfig.wall_clock_cap_seconds × 1000 (story 45-10) */
+          wallClockCapMs: (factoryConfig.factory?.wall_clock_cap_seconds ?? 0) * 1000,
+          /** pipelineBudgetCapUsd forwarded as-is from FactoryConfig.budget_cap_usd (story 45-10) */
+          pipelineBudgetCapUsd: factoryConfig.factory?.budget_cap_usd ?? 0,
+          /** plateauWindow forwarded as-is from FactoryConfig.plateau_window (story 45-10) */
+          plateauWindow: factoryConfig.factory?.plateau_window ?? 3,
+          /** plateauThreshold forwarded as-is from FactoryConfig.plateau_threshold (story 45-10) */
+          plateauThreshold: factoryConfig.factory?.plateau_threshold ?? 0.05,
         })
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)

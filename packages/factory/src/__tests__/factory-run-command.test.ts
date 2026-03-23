@@ -260,6 +260,129 @@ describe('substrate factory run command', () => {
     expect(event.nodeId).toBe('node-1')
   })
 
+  // -------------------------------------------------------------------------
+  // AC1 (story 45-10): convergence config wiring from FactoryConfig to GraphExecutorConfig
+  // -------------------------------------------------------------------------
+
+  describe('convergence config wiring (story 45-10)', () => {
+    it('AC1a: factory run wires wallClockCapMs from FactoryConfig.wall_clock_cap_seconds', async () => {
+      const { loadFactoryConfig } = await import('../config.js')
+      vi.mocked(loadFactoryConfig).mockResolvedValue({
+        ...defaultConfig,
+        factory: {
+          graph: 'pipeline.dot',
+          scenario_dir: '.substrate/scenarios/',
+          satisfaction_threshold: 0.8,
+          budget_cap_usd: 0,
+          wall_clock_cap_seconds: 60,
+          plateau_window: 3,
+          plateau_threshold: 0.05,
+          backend: 'cli' as const,
+        },
+      } as never)
+
+      const { createGraphExecutor } = await import('../graph/executor.js')
+      let capturedConfig: Record<string, unknown> | null = null
+      vi.mocked(createGraphExecutor).mockReturnValue({
+        run: vi.fn().mockImplementation(async (_graph, config) => {
+          capturedConfig = config as Record<string, unknown>
+          return { status: 'SUCCESS' }
+        }),
+      })
+
+      await runCmd(['--graph', 'pipeline.dot'])
+
+      expect(capturedConfig).not.toBeNull()
+      expect(capturedConfig!['wallClockCapMs']).toBe(60000)
+    })
+
+    it('AC1b: factory run wires pipelineBudgetCapUsd from FactoryConfig.budget_cap_usd', async () => {
+      const { loadFactoryConfig } = await import('../config.js')
+      vi.mocked(loadFactoryConfig).mockResolvedValue({
+        ...defaultConfig,
+        factory: {
+          graph: 'pipeline.dot',
+          scenario_dir: '.substrate/scenarios/',
+          satisfaction_threshold: 0.8,
+          budget_cap_usd: 5.0,
+          wall_clock_cap_seconds: 0,
+          plateau_window: 3,
+          plateau_threshold: 0.05,
+          backend: 'cli' as const,
+        },
+      } as never)
+
+      const { createGraphExecutor } = await import('../graph/executor.js')
+      let capturedConfig: Record<string, unknown> | null = null
+      vi.mocked(createGraphExecutor).mockReturnValue({
+        run: vi.fn().mockImplementation(async (_graph, config) => {
+          capturedConfig = config as Record<string, unknown>
+          return { status: 'SUCCESS' }
+        }),
+      })
+
+      await runCmd(['--graph', 'pipeline.dot'])
+
+      expect(capturedConfig).not.toBeNull()
+      expect(capturedConfig!['pipelineBudgetCapUsd']).toBe(5.0)
+    })
+
+    it('AC1c: factory run wires plateauWindow and plateauThreshold from FactoryConfig', async () => {
+      const { loadFactoryConfig } = await import('../config.js')
+      vi.mocked(loadFactoryConfig).mockResolvedValue({
+        ...defaultConfig,
+        factory: {
+          graph: 'pipeline.dot',
+          scenario_dir: '.substrate/scenarios/',
+          satisfaction_threshold: 0.8,
+          budget_cap_usd: 0,
+          wall_clock_cap_seconds: 0,
+          plateau_window: 4,
+          plateau_threshold: 0.03,
+          backend: 'cli' as const,
+        },
+      } as never)
+
+      const { createGraphExecutor } = await import('../graph/executor.js')
+      let capturedConfig: Record<string, unknown> | null = null
+      vi.mocked(createGraphExecutor).mockReturnValue({
+        run: vi.fn().mockImplementation(async (_graph, config) => {
+          capturedConfig = config as Record<string, unknown>
+          return { status: 'SUCCESS' }
+        }),
+      })
+
+      await runCmd(['--graph', 'pipeline.dot'])
+
+      expect(capturedConfig).not.toBeNull()
+      expect(capturedConfig!['plateauWindow']).toBe(4)
+      expect(capturedConfig!['plateauThreshold']).toBe(0.03)
+    })
+
+    it('AC1d: factory run uses defaults when FactoryConfig factory section is absent', async () => {
+      const { loadFactoryConfig } = await import('../config.js')
+      // defaultConfig has factory: undefined
+      vi.mocked(loadFactoryConfig).mockResolvedValue(defaultConfig as never)
+
+      const { createGraphExecutor } = await import('../graph/executor.js')
+      let capturedConfig: Record<string, unknown> | null = null
+      vi.mocked(createGraphExecutor).mockReturnValue({
+        run: vi.fn().mockImplementation(async (_graph, config) => {
+          capturedConfig = config as Record<string, unknown>
+          return { status: 'SUCCESS' }
+        }),
+      })
+
+      await runCmd(['--graph', 'pipeline.dot'])
+
+      expect(capturedConfig).not.toBeNull()
+      expect(capturedConfig!['wallClockCapMs']).toBe(0)
+      expect(capturedConfig!['pipelineBudgetCapUsd']).toBe(0)
+      expect(capturedConfig!['plateauWindow']).toBe(3)
+      expect(capturedConfig!['plateauThreshold']).toBe(0.05)
+    })
+  })
+
   it('AC7: without --events flag, no NDJSON event lines are written to stdout', async () => {
     const { createGraphExecutor } = await import('../graph/executor.js')
 

@@ -31,9 +31,11 @@ const { mockSave, mockLoad, mockResume } = vi.hoisted(() => ({
   mockResume: vi.fn(),
 }))
 
-const { mockEvaluateGates, mockRecordOutcome } = vi.hoisted(() => ({
+const { mockEvaluateGates, mockRecordOutcome, mockCheckGoalGates, mockResolveRetryTarget } = vi.hoisted(() => ({
   mockEvaluateGates: vi.fn().mockReturnValue({ satisfied: true, failingNodes: [] }),
   mockRecordOutcome: vi.fn(),
+  mockCheckGoalGates: vi.fn().mockReturnValue({ satisfied: true, failedGates: [] }),
+  mockResolveRetryTarget: vi.fn().mockReturnValue(null),
 }))
 
 // Mock CheckpointManager to avoid real file I/O in executor tests
@@ -48,11 +50,41 @@ vi.mock('../checkpoint.js', () => ({
 // Mock ConvergenceController to avoid implicit reliance on goalGate=false for all nodes.
 // Explicit mock ensures tests are not fragile to future nodes with goalGate=true.
 // Path is relative to this test file: __tests__/../../convergence/index.js → src/convergence/index.js
+// Budget/plateau managers are mocked as no-ops so existing traversal tests are not affected (story 45-8).
 vi.mock('../../convergence/index.js', () => ({
   createConvergenceController: vi.fn().mockImplementation(() => ({
     evaluateGates: mockEvaluateGates,
     recordOutcome: mockRecordOutcome,
+    checkGoalGates: mockCheckGoalGates,
+    resolveRetryTarget: mockResolveRetryTarget,
   })),
+  SessionBudgetManager: vi.fn().mockImplementation(() => ({
+    checkBudget: vi.fn().mockReturnValue({ allowed: true }),
+    getElapsedMs: vi.fn().mockReturnValue(0),
+    reset: vi.fn(),
+  })),
+  PipelineBudgetManager: vi.fn().mockImplementation(() => ({
+    checkBudget: vi.fn().mockReturnValue({ allowed: true }),
+    addCost: vi.fn(),
+    getTotalCost: vi.fn().mockReturnValue(0),
+    reset: vi.fn(),
+  })),
+  createPlateauDetector: vi.fn().mockReturnValue({
+    recordScore: vi.fn(),
+    isPlateaued: vi.fn().mockReturnValue(false),
+    getWindow: vi.fn().mockReturnValue(3),
+    getScores: vi.fn().mockReturnValue([]),
+  }),
+  checkPlateauAndEmit: vi.fn().mockReturnValue({ plateaued: false, scores: [] }),
+  buildRemediationContext: vi.fn().mockReturnValue({
+    previousFailureReason: '',
+    scenarioDiff: '',
+    iterationCount: 0,
+    satisfactionScoreHistory: [],
+    fixScope: '',
+  }),
+  injectRemediationContext: vi.fn(),
+  computeBackoffDelay: vi.fn().mockImplementation((attempt: number) => Math.min(1000 * 2 ** attempt, 30000)),
 }))
 
 // Import AFTER mocking
@@ -174,6 +206,8 @@ beforeEach(() => {
   mockSave.mockResolvedValue(undefined)
   // Reset convergence mocks to default passing state
   mockEvaluateGates.mockReturnValue({ satisfied: true, failingNodes: [] })
+  mockCheckGoalGates.mockReturnValue({ satisfied: true, failedGates: [] })
+  mockResolveRetryTarget.mockReturnValue(null)
 })
 
 // ---------------------------------------------------------------------------

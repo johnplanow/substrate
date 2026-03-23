@@ -52,7 +52,7 @@ Run BEFORE each epic to establish a clean baseline:
    substrate run --events --max-review-cycles 3 --stories <keys>
    ```
    - Use `run_in_background: true` or `timeout: 600000`
-   - Attach supervisor for runs with 10+ stories: `substrate supervisor --output-format json`
+   - Attach supervisor for runs with 10+ stories: `substrate supervisor --run-id <run_id> --output-format json` (always pass `--run-id` to prevent cross-session kills)
    - Do NOT attach supervisor if Dolt telemetry persistence has issues (check Phase 0 step 4)
 4. Monitor to completion:
    - Poll `substrate status --output-format json` every 90-120 seconds
@@ -86,6 +86,38 @@ After party mode applies fixes:
 - Monitor to completion
 - If escalations again → invoke party mode again (max 2 retry cycles, then escalate to human)
 
+### Phase 2.5: INFRASTRUCTURE & QUALITY AUDIT
+
+Run automated checks on the pipeline output and working tree. Only invoke party mode if issues are detected.
+
+**Automated checks (no LLM needed):**
+
+1. **Adapter fallback**: Search pipeline output for `"InMemoryDatabaseAdapter"`. If found, flag: "Dolt adapter fell back to InMemory — cost and telemetry data was NOT persisted for this run."
+2. **Process failure ratio**: Count stories where pipeline said "failed" but implementation files + tests exist and pass. If >10% are process failures (agent crash/timeout, not code issues), flag: "High process failure rate ([X]%) — investigate dispatch timeouts and agent stability."
+3. **Orphaned processes**: Run `pgrep -fa "claude.*max-turns"` — if any claude agents are still running after pipeline completion, flag and kill them.
+4. **Rogue working tree changes**: Compare `git status --short` against expected files. Flag any unexpected modifications outside the epic's package scope.
+5. **Test coverage for new files**: For each new source file in `git diff --name-only`, check if a corresponding `*.test.ts` file exists. Flag any new source files without test coverage.
+6. **Independent typecheck**: Run `npm run typecheck:gate` (timeout: 120000). Do NOT rely on the pipeline's build verification alone — the pipeline may use a different tsconfig.
+
+**If any checks fail:**
+Invoke `/bmad-party-mode` with:
+
+```
+Infrastructure audit found [N] issues after pipeline run for Epic [X]:
+
+[List each flagged issue with details]
+
+Your job:
+1. For each issue: determine if it's a real problem or acceptable
+2. For real problems: fix them directly (code changes, process cleanup, etc.)
+3. For infrastructure issues (Dolt, adapter): determine if data integrity is affected
+4. For test coverage gaps: write the missing tests
+
+Apply all fixes, re-run typecheck:gate to confirm, then say "AUDIT CLEAN" or "STUCK: [reason]".
+```
+
+**If all checks pass:** Log "Infrastructure audit: CLEAN" and proceed to Phase 3.
+
 ### Phase 3: AUTOMATED TESTS
 
 1. Verify no vitest running: `pgrep -f vitest` returns nothing
@@ -113,6 +145,8 @@ If you cannot resolve the failures, say "STUCK: [reason]" and I will escalate to
 After fixes: re-run `npm run typecheck:gate` AND `npm test`. Loop until both green (max 3 cycles, then escalate to human).
 
 ### Phase 4: REVIEW & SMOKE TEST
+
+**MANDATORY: This phase is NEVER skipped.** Even if all tests pass and no issues were found in Phase 2.5/3, the review must run. Pipeline agents are good at writing isolated code but weak at verifying end-to-end integration. The review is what catches dead code, unwired functions, type mismatches between packages, and behavioral divergences.
 
 Invoke `/bmad-party-mode` with this prompt:
 
@@ -226,3 +260,6 @@ When escalating to human:
 - **Use exact version for global install** — `npm install -g substrate-ai@<version>` not `@latest` (avoids cache staleness)
 - **Record baseline commit in state file** — survives session boundaries for accurate diffs
 - **Verify Dolt before attaching supervisor** — supervisor interprets telemetry write failures as stalls
+- **Always pass `--run-id` when attaching supervisor** — prevents cross-session kills
+- **NEVER skip Phase 4 (Review)** — pipeline agents write isolated code well but miss integration issues; review catches dead code, unwired functions, and type mismatches
+- **No shortcuts, no tech debt** — never defer known issues to "fix later"; fix all issues before advancing to the next epic; rank decisions by correctness, not speed
