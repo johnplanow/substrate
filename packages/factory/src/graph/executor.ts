@@ -656,6 +656,16 @@ export function createGraphExecutor(): GraphExecutor {
         )
 
         // ----------------------------------------------------------------
+        // Hot-spin guard: if the handler completed in under 50ms (e.g., default
+        // handler returning instantly), yield the event loop to prevent CPU
+        // saturation in convergence loops with no-op handlers. In real pipelines
+        // handlers take minutes, so this never fires.
+        // ----------------------------------------------------------------
+        if (Date.now() - startedAt < 50) {
+          await new Promise<void>((r) => setTimeout(r, 50))
+        }
+
+        // ----------------------------------------------------------------
         // allowPartial demotion (story 42-16, AC2/AC3)
         // After the retry loop exits and the final outcome is determined:
         // if the node does not accept PARTIAL_SUCCESS, demote to FAIL.

@@ -74,7 +74,7 @@ describe('FactoryConfigSchema', () => {
     expect(result.scenario_dir).toBe('.substrate/scenarios/')
     expect(result.satisfaction_threshold).toBe(0.8)
     expect(result.budget_cap_usd).toBe(0)
-    expect(result.wall_clock_cap_seconds).toBe(0)
+    expect(result.wall_clock_cap_seconds).toBe(3600)
     expect(result.plateau_window).toBe(3)
     expect(result.plateau_threshold).toBe(0.05)
     expect(result.backend).toBe('cli')

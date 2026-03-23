@@ -33,8 +33,8 @@ export const FactoryConfigSchema = z
     satisfaction_threshold: z.number().min(0).max(1).default(0.8),
     /** Maximum USD budget for the factory run (0 = unlimited) */
     budget_cap_usd: z.number().min(0).default(0),
-    /** Maximum wall-clock seconds for the factory run (0 = unlimited) */
-    wall_clock_cap_seconds: z.number().min(0).default(0),
+    /** Maximum wall-clock seconds for the factory run (default: 3600 = 1 hour; 0 = unlimited) */
+    wall_clock_cap_seconds: z.number().min(0).default(3600),
     /** Number of consecutive iterations to consider for plateau detection (≥2) */
     plateau_window: z.number().int().min(2).default(3),
     /** Minimum score improvement required to avoid plateau detection (0–1) */
