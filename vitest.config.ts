@@ -12,7 +12,7 @@ export default defineConfig({
       LOG_LEVEL: 'silent',
     },
     teardownTimeout: 5000,
-    include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
+    include: ['test/**/*.test.ts', 'src/**/*.test.ts', 'packages/**/*.test.ts'],
     pool: 'forks',
     poolOptions: {
       forks: {

@@ -83,3 +83,7 @@ export { TOKEN_RATES, PROVIDER_ALIASES, getTokenRate, estimateCostSafe } from '.
 // MonitorRecommendation: monitor module's Recommendation interface (distinct from telemetry's Zod type)
 export type { Recommendation as MonitorRecommendation } from './monitor/recommendation-types.js'
 export * from './monitor/index.js'
+
+// LLM client: callLLM, LLMCallParams, LLMCallResult (story 42-10)
+export { callLLM } from './llm/client.js'
+export type { LLMCallParams, LLMCallResult } from './llm/client.js'
