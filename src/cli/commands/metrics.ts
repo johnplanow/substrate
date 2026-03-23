@@ -40,6 +40,8 @@ import type { OutputFormat } from './pipeline-shared.js'
 import { formatOutput } from './pipeline-shared.js'
 import { AdapterTelemetryPersistence } from '../../modules/telemetry/index.js'
 import type { EfficiencyScore, Recommendation, TurnAnalysis, CategoryStats, ConsumerStats } from '../../modules/telemetry/index.js'
+import { getFactoryRunSummaries, getScenarioResultsForRun, listGraphRuns } from '@substrate-ai/factory'
+import type { FactoryRunSummary, ScenarioResultRow } from '@substrate-ai/factory'
 
 const logger = createLogger('metrics-cmd')
 
@@ -80,6 +82,10 @@ export interface MetricsOptions {
   compareStories?: [string, string]
   /** Show routing recommendations derived from phase token breakdown history */
   routingRecommendations?: boolean
+  /** Show per-iteration score history for a specific factory run (full run_id or unique prefix) */
+  run?: string
+  /** Show only factory graph run metrics (excludes SDLC runs) */
+  factory?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -206,8 +212,31 @@ function printCategoryTable(stats: CategoryStats[], label: string): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Factory run table printer
+// ---------------------------------------------------------------------------
+
+function printFactoryRunTable(runs: FactoryRunSummary[]): void {
+  process.stdout.write(`\nFactory Runs (${runs.length} records)\n`)
+  process.stdout.write('─'.repeat(80) + '\n')
+  process.stdout.write(
+    `  ${'run_id'.padEnd(10)} ${'score'.padStart(7)} ${'passes'.padStart(7)} ${'started_at'.padEnd(20)} ${'cost_usd'.padStart(10)} ${'status'.padEnd(16)}\n`,
+  )
+  process.stdout.write('  ' + '─'.repeat(74) + '\n')
+  for (const run of runs) {
+    const scoreStr = run.satisfaction_score !== null ? `${(run.satisfaction_score * 100).toFixed(1)}%` : '—'
+    const passesStr = run.passes !== null ? (run.passes ? '✓' : '✗') : '—'
+    const startedAt = run.started_at.slice(0, 19)
+    const costStr = `$${run.total_cost_usd.toFixed(4)}`
+    const statusStr = run.convergence_status ?? '—'
+    process.stdout.write(
+      `  ${run.run_id.slice(0, 8).padEnd(10)} ${scoreStr.padStart(7)} ${passesStr.padStart(7)} ${startedAt.padEnd(20)} ${costStr.padStart(10)} ${statusStr.padEnd(16)}\n`,
+    )
+  }
+}
+
 export async function runMetricsAction(options: MetricsOptions): Promise<number> {
-  const { outputFormat, projectRoot, limit = 10, compare, tagBaseline, analysis, sprint, story, taskType, since, aggregate, efficiency, recommendations, turns, consumers, categories, compareStories, routingRecommendations } = options
+  const { outputFormat, projectRoot, limit = 10, compare, tagBaseline, analysis, sprint, story, taskType, since, aggregate, efficiency, recommendations, turns, consumers, categories, compareStories, routingRecommendations, run, factory } = options
 
   // ---------------------------------------------------------------------------
   // Flag conflict detection for telemetry modes
@@ -543,7 +572,9 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const doltStateDir = join(dbRoot, '.substrate', 'state', '.dolt')
 
-  if (!existsSync(doltStateDir)) {
+  // When --factory or --run is specified, bypass the dolt-state check and try to open
+  // the adapter directly for factory queries (factory tables may exist even without SDLC Dolt state).
+  if (!existsSync(doltStateDir) && factory !== true && run === undefined) {
     if (outputFormat === 'json') {
       process.stdout.write(formatOutput({ runs: [], message: 'No metrics yet — no pipeline database found. Initialize Dolt with `substrate init`.' }, 'json', true) + '\n')
     } else {
@@ -555,6 +586,73 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
   const adapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
   try {
     await initSchema(adapter)
+
+    // --run mode: show per-iteration score history for a specific factory run (AC3)
+    if (run !== undefined) {
+      let rows: ScenarioResultRow[] = []
+      let resolvedRunId = run
+      try {
+        rows = await getScenarioResultsForRun(adapter, run)
+        // If exact match found nothing and the input looks like a prefix, try prefix matching
+        if (rows.length === 0 && run.length < 36) {
+          const allRuns = await listGraphRuns(adapter, 100)
+          const matching = allRuns.filter((r) => r.id.startsWith(run))
+          if (matching.length === 1 && matching[0] !== undefined) {
+            resolvedRunId = matching[0].id
+            rows = await getScenarioResultsForRun(adapter, resolvedRunId)
+          }
+        }
+      } catch (err) {
+        logger.debug({ err }, 'getScenarioResultsForRun failed')
+      }
+      if (rows.length === 0) {
+        const msg = `No factory run found with id: ${run}`
+        if (outputFormat === 'json') {
+          process.stdout.write(formatOutput({ message: msg }, 'json', true) + '\n')
+        } else {
+          process.stderr.write(`Error: ${msg}\n`)
+        }
+        return 1
+      }
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput({ run_id: resolvedRunId, type: 'factory', iterations: rows }, 'json', true) + '\n')
+      } else {
+        process.stdout.write(`\nFactory Run: ${resolvedRunId}\n`)
+        process.stdout.write('─'.repeat(80) + '\n')
+        process.stdout.write(`  ${'#'.padStart(3)} ${'score'.padStart(7)} ${'passes'.padStart(7)} ${'passed/total'.padStart(13)} ${'executed_at'.padEnd(20)}\n`)
+        process.stdout.write('  ' + '─'.repeat(54) + '\n')
+        for (const r of rows) {
+          const scoreStr = `${(r.satisfaction_score * 100).toFixed(1)}%`
+          const passesStr = r.passes ? '✓' : '✗'
+          const passedTotal = `${r.passed}/${r.total_scenarios}`
+          const execAt = String(r.executed_at).slice(0, 19)
+          process.stdout.write(
+            `  ${String(r.iteration).padStart(3)} ${scoreStr.padStart(7)} ${passesStr.padStart(7)} ${passedTotal.padStart(13)} ${execAt.padEnd(20)}\n`,
+          )
+        }
+      }
+      return 0
+    }
+
+    // --factory mode: show only factory graph run metrics (AC7)
+    if (factory === true) {
+      let factoryRuns: FactoryRunSummary[] = []
+      try {
+        factoryRuns = await getFactoryRunSummaries(adapter, limit)
+      } catch (err) {
+        logger.debug({ err }, 'getFactoryRunSummaries failed in factory-only mode')
+      }
+      if (outputFormat === 'json') {
+        process.stdout.write(formatOutput({ graph_runs: factoryRuns }, 'json', true) + '\n')
+      } else {
+        if (factoryRuns.length === 0) {
+          process.stdout.write('No factory runs recorded yet.\n')
+        } else {
+          printFactoryRunTable(factoryRuns)
+        }
+      }
+      return 0
+    }
 
     // Tag-baseline mode (AC4)
     if (tagBaseline !== undefined) {
@@ -693,13 +791,22 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       // Non-fatal: fall back to null for all runs
     }
 
+    // Story 46-4: Fetch factory run summaries to include in metrics output
+    let factoryRuns: FactoryRunSummary[] = []
+    try {
+      factoryRuns = await getFactoryRunSummaries(adapter, limit)
+    } catch (err) {
+      logger.debug({ err }, 'getFactoryRunSummaries failed — table may not exist in older databases')
+    }
+
     if (outputFormat === 'json') {
-      // Enrich each run with its phase_token_breakdown field
+      // Enrich each run with its phase_token_breakdown field; add type discriminator
       const runsWithBreakdown = runs.map((run) => ({
         ...run,
+        type: 'sdlc' as const,
         phase_token_breakdown: phaseBreakdownMap[run.run_id] ?? null,
       }))
-      const jsonPayload: Record<string, unknown> = { runs: runsWithBreakdown, story_metrics: storyMetrics }
+      const jsonPayload: Record<string, unknown> = { runs: runsWithBreakdown, graph_runs: factoryRuns, story_metrics: storyMetrics }
       if (doltMetrics !== undefined) {
         if (aggregate) {
           // Aggregate mode: output as properly-named AggregateMetricResult objects with totals
@@ -724,7 +831,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       }
       process.stdout.write(formatOutput(jsonPayload, 'json', true) + '\n')
     } else {
-      if (runs.length === 0 && storyMetrics.length === 0 && (doltMetrics === undefined || doltMetrics.length === 0)) {
+      if (runs.length === 0 && storyMetrics.length === 0 && (doltMetrics === undefined || doltMetrics.length === 0) && factoryRuns.length === 0) {
         process.stdout.write('No run metrics recorded yet. Run `substrate run` to generate metrics.\n')
         return 0
       }
@@ -814,6 +921,10 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           }
         }
       }
+      // Story 46-4: Print factory run table if any factory runs exist
+      if (factoryRuns.length > 0) {
+        printFactoryRunTable(factoryRuns)
+      }
     }
     return 0
   } catch (err) {
@@ -868,6 +979,8 @@ export function registerMetricsCommand(
     .option('--categories', 'Show category stats (optionally scoped by --story <storyKey>)')
     .option('--compare-stories <storyA,storyB>', 'Compare efficiency scores of two stories side-by-side (comma-separated keys)')
     .option('--routing-recommendations', 'Show routing recommendations derived from phase token breakdown history')
+    .option('--run <run-id>', 'Show per-iteration score history for a specific factory run')
+    .option('--factory', 'Show only factory graph run metrics (excludes SDLC runs)')
     .action(
       async (opts: {
         projectRoot: string
@@ -888,6 +1001,8 @@ export function registerMetricsCommand(
         categories?: boolean
         compareStories?: string
         routingRecommendations?: boolean
+        run?: string
+        factory?: boolean
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         let compareIds: [string, string] | undefined
@@ -927,6 +1042,8 @@ export function registerMetricsCommand(
           ...(opts.categories !== undefined && { categories: opts.categories }),
           ...(compareStoriesIds !== undefined && { compareStories: compareStoriesIds }),
           ...(opts.routingRecommendations !== undefined && { routingRecommendations: opts.routingRecommendations }),
+          ...(opts.run !== undefined && { run: opts.run }),
+          ...(opts.factory !== undefined && { factory: opts.factory }),
         }
         const exitCode = await runMetricsAction(metricsOpts)
         process.exitCode = exitCode

@@ -49,6 +49,8 @@ function isScenarioRunResult(parsed: unknown): parsed is ScenarioRunResult {
 export interface ToolHandlerOptions {
   /** Override the default working directory (used when `workingDirectory` is absent from context). */
   defaultWorkingDir?: string
+  /** Override the satisfaction threshold passed to computeSatisfactionScore() (default 0.8 when omitted). */
+  satisfactionThreshold?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +99,7 @@ export function createToolHandler(options?: ToolHandlerOptions): NodeHandler {
           }
 
           if (isScenarioRunResult(parsed)) {
-            const scored = computeSatisfactionScore(parsed)
+            const scored = computeSatisfactionScore(parsed, options?.satisfactionThreshold)
             resolve({
               status: 'SUCCESS',
               contextUpdates: { satisfaction_score: scored.score },

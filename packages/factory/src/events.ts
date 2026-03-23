@@ -144,6 +144,12 @@ export type FactoryEvents = CoreEvents & {
   /** Scenario integrity check failed — one or more files were tampered with */
   'scenario:integrity-failed': { runId: string; nodeId: string; tampered: string[] }
 
+  /** Dual-signal score computed — code review verdict compared against scenario score — story 46-5 */
+  'scenario:score-computed': { runId: string; score: number; threshold: number; passes: boolean; agreement: 'AGREE' | 'DISAGREE'; codeReviewPassed: boolean; scenarioPassed: boolean; authoritativeDecision: string }
+
+  /** Code review verdict logged as advisory when scenario is the authoritative decision-maker — story 46-6 */
+  'scenario:advisory-computed': { runId: string; verdict: string; codeReviewPassed: boolean; score: number; threshold: number; agreement: 'AGREE' | 'DISAGREE' }
+
   // -------------------------------------------------------------------------
   // Convergence events
   // -------------------------------------------------------------------------

@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createConvergenceController } from '../controller.js'
 import type { ConvergenceController } from '../controller.js'
-import type { Graph, GraphNode } from '../../graph/types.js'
+import type { Graph, GraphNode, IGraphContext } from '../../graph/types.js'
 import { TypedEventBusImpl } from '@substrate-ai/core'
 import type { FactoryEvents } from '../../events.js'
 
@@ -553,5 +553,181 @@ describe('checkGoalGates()', () => {
 
     expect(result.satisfied).toBe(false)
     expect(result.failedGates).toContain('gate-node')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// checkGoalGates() — satisfaction threshold (story 46-2)
+// ---------------------------------------------------------------------------
+
+describe("checkGoalGates() — satisfaction threshold (story 46-2)", () => {
+  /** Map-backed IGraphContext helper — avoids cross-package import of GraphContext class. */
+  function makeContext(score: number): IGraphContext {
+    const store = new Map<string, unknown>([['satisfaction_score', score]])
+    return {
+      get: (k) => store.get(k),
+      set: (k, v) => { store.set(k, v) },
+      getString: (k, d = '') => String(store.get(k) ?? d),
+      getNumber: (k, d = 0) => Number(store.get(k) ?? d),
+      getBoolean: (k, d = false) => Boolean(store.get(k) ?? d),
+      applyUpdates: (u) => { for (const [k, v] of Object.entries(u)) store.set(k, v) },
+      snapshot: () => Object.fromEntries(store),
+      clone: () => makeContext(score),
+    }
+  }
+
+  // AC1: score below threshold fails gate
+  it('AC1: score=0.79 below threshold=0.8 → satisfied: false, gate node in failedGates', () => {
+    const gate = makeGateNode('gate-node')
+    const graph = makeGraph([gate])
+    const ctx = makeContext(0.79)
+
+    const result = controller.checkGoalGates(graph, 'run-1', undefined, {
+      context: ctx,
+      satisfactionThreshold: 0.8,
+    })
+
+    expect(result.satisfied).toBe(false)
+    expect(result.failedGates).toContain('gate-node')
+  })
+
+  // AC2: score at threshold passes (>= not >)
+  it('AC2: score=0.80 at threshold=0.8 → satisfied: true, failedGates: []', () => {
+    const gate = makeGateNode('gate-node')
+    const graph = makeGraph([gate])
+    const ctx = makeContext(0.80)
+
+    const result = controller.checkGoalGates(graph, 'run-1', undefined, {
+      context: ctx,
+      satisfactionThreshold: 0.8,
+    })
+
+    expect(result.satisfied).toBe(true)
+    expect(result.failedGates).toEqual([])
+  })
+
+  // AC2b: score exactly equals threshold (0.5)
+  it('AC2b: score=0.5 at threshold=0.5 → satisfied: true (inclusive boundary)', () => {
+    const gate = makeGateNode('gate-node')
+    const graph = makeGraph([gate])
+    const ctx = makeContext(0.5)
+
+    const result = controller.checkGoalGates(graph, 'run-1', undefined, {
+      context: ctx,
+      satisfactionThreshold: 0.5,
+    })
+
+    expect(result.satisfied).toBe(true)
+    expect(result.failedGates).toEqual([])
+  })
+
+  // AC3: relaxed threshold passes with lower score
+  it('AC3: score=0.6 above relaxed threshold=0.5 → satisfied: true', () => {
+    const gate = makeGateNode('gate-node')
+    const graph = makeGraph([gate])
+    const ctx = makeContext(0.6)
+
+    const result = controller.checkGoalGates(graph, 'run-1', undefined, {
+      context: ctx,
+      satisfactionThreshold: 0.5,
+    })
+
+    expect(result.satisfied).toBe(true)
+    expect(result.failedGates).toEqual([])
+  })
+
+  // AC4: hot-reload — threshold read fresh on each call (no caching)
+  it('AC4a: threshold=0.8 score=0.6 → satisfied: false', () => {
+    const gate = makeGateNode('gate-node')
+    const graph = makeGraph([gate])
+    const ctx = makeContext(0.6)
+
+    const result = controller.checkGoalGates(graph, 'run-1', undefined, {
+      context: ctx,
+      satisfactionThreshold: 0.8,
+    })
+
+    expect(result.satisfied).toBe(false)
+  })
+
+  it('AC4b: same controller — threshold=0.5 score=0.6 → satisfied: true (no cached threshold)', () => {
+    const gate = makeGateNode('gate-node')
+    const graph = makeGraph([gate])
+    const ctx = makeContext(0.6)
+
+    // First call with high threshold (fails)
+    controller.checkGoalGates(graph, 'run-1', undefined, {
+      context: ctx,
+      satisfactionThreshold: 0.8,
+    })
+
+    // Second call with lower threshold (passes)
+    const result = controller.checkGoalGates(graph, 'run-1', undefined, {
+      context: ctx,
+      satisfactionThreshold: 0.5,
+    })
+
+    expect(result.satisfied).toBe(true)
+  })
+
+  // AC6: backward compatibility — no options uses outcome-status path
+  it('AC6a: no options, goalGate node with SUCCESS outcome → satisfied: true (outcome-status path)', () => {
+    const gate = makeGateNode('gate-node')
+    const graph = makeGraph([gate])
+
+    controller.recordOutcome('gate-node', 'SUCCESS')
+    const result = controller.checkGoalGates(graph, 'run-1')
+
+    expect(result.satisfied).toBe(true)
+    expect(result.failedGates).toEqual([])
+  })
+
+  it('AC6b: no options, goalGate node with FAILURE outcome → satisfied: false (outcome-status path preserved)', () => {
+    const gate = makeGateNode('gate-node')
+    const graph = makeGraph([gate])
+
+    controller.recordOutcome('gate-node', 'FAILURE')
+    const result = controller.checkGoalGates(graph, 'run-1')
+
+    expect(result.satisfied).toBe(false)
+    expect(result.failedGates).toContain('gate-node')
+  })
+
+  // AC7: score included in event when threshold is used
+  it('AC7: score=0.65, threshold=0.7 → event payload has score=0.65 and satisfied=false', () => {
+    const gate = makeGateNode('gate-node')
+    const graph = makeGraph([gate])
+    const eventBus = new TypedEventBusImpl<FactoryEvents>()
+    const emitted: Array<{ runId: string; nodeId: string; satisfied: boolean; score?: number }> = []
+    eventBus.on('graph:goal-gate-checked', (payload) => {
+      emitted.push({ runId: payload.runId, nodeId: payload.nodeId, satisfied: payload.satisfied, ...(payload.score !== undefined ? { score: payload.score } : {}) })
+    })
+    const ctx = makeContext(0.65)
+
+    controller.checkGoalGates(graph, 'run-1', eventBus, {
+      context: ctx,
+      satisfactionThreshold: 0.7,
+    })
+
+    expect(emitted).toHaveLength(1)
+    expect(emitted[0]?.score).toBe(0.65)
+    expect(emitted[0]?.satisfied).toBe(false)
+  })
+
+  // AC7b: backward-compat path — event emitted without score field
+  it('AC7b: no threshold (backward-compat) → event emitted without score (or score is undefined)', () => {
+    const gate = makeGateNode('gate-node')
+    const graph = makeGraph([gate])
+    const eventBus = new TypedEventBusImpl<FactoryEvents>()
+    const emitted: Array<{ score?: number }> = []
+    eventBus.on('graph:goal-gate-checked', (payload) => {
+      emitted.push({ ...(payload.score !== undefined ? { score: payload.score } : {}) })
+    })
+
+    controller.recordOutcome('gate-node', 'SUCCESS')
+    controller.checkGoalGates(graph, 'run-1', eventBus)
+
+    expect(emitted).toHaveLength(1)
+    expect(emitted[0]?.score).toBeUndefined()
   })
 })

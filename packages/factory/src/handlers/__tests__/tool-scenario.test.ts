@@ -11,6 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'events'
+import { computeSatisfactionScore } from '../../scenarios/scorer.js'
 
 // vi.mock is hoisted automatically by Vitest.
 vi.mock('child_process', () => ({
@@ -227,5 +228,62 @@ describe('tool handler — non-zero exit code → FAILURE (existing behavior)', 
     const outcome = await handler(makeNode(), ctx, stubGraph)
 
     expect(outcome.contextUpdates).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ToolHandlerOptions.satisfactionThreshold (story 46-2)
+// ---------------------------------------------------------------------------
+
+describe('ToolHandlerOptions.satisfactionThreshold (story 46-2)', () => {
+  // AC5a: threshold=0.5, 3/5 pass (score=0.6) → passes=true, satisfaction_score=0.6 in context
+  it('AC5a: satisfactionThreshold=0.5 with 3/5 passing (score=0.6) → passes=true, satisfaction_score=0.6', async () => {
+    const result = makeScenarioRunResult(5, 3)
+    const resultJson = JSON.stringify(result)
+    mockSpawn.mockReturnValueOnce(
+      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>,
+    )
+    const handler = createToolHandler({ satisfactionThreshold: 0.5 })
+    const ctx = new GraphContext()
+    const outcome = await handler(makeNode(), ctx, stubGraph)
+
+    expect(outcome.status).toBe('SUCCESS')
+    expect(outcome.contextUpdates?.['satisfaction_score']).toBe(0.6)
+    // Verify computeSatisfactionScore with threshold 0.5 returns passes=true for score 0.6
+    const scored = computeSatisfactionScore(result, 0.5)
+    expect(scored.passes).toBe(true)
+    expect(scored.score).toBe(0.6)
+  })
+
+  // AC5b: threshold=0.8, 3/5 pass (score=0.6) → score is still written; passes=false internally
+  it('AC5b: satisfactionThreshold=0.8 with 3/5 passing → satisfaction_score=0.6 written to context', async () => {
+    const result = makeScenarioRunResult(5, 3)
+    const resultJson = JSON.stringify(result)
+    mockSpawn.mockReturnValueOnce(
+      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>,
+    )
+    const handler = createToolHandler({ satisfactionThreshold: 0.8 })
+    const ctx = new GraphContext()
+    const outcome = await handler(makeNode(), ctx, stubGraph)
+
+    expect(outcome.status).toBe('SUCCESS')
+    expect(outcome.contextUpdates?.['satisfaction_score']).toBe(0.6)
+    // Verify internally passes=false at threshold 0.8
+    const scored = computeSatisfactionScore(result, 0.8)
+    expect(scored.passes).toBe(false)
+  })
+
+  // AC5c: no satisfactionThreshold in options → default 0.8 used by scorer, score still written
+  it('AC5c: no satisfactionThreshold in options → same behavior as existing tests (default 0.8, satisfaction_score written)', async () => {
+    const resultJson = JSON.stringify(makeScenarioRunResult(5, 3))
+    mockSpawn.mockReturnValueOnce(
+      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>,
+    )
+    const handler = createToolHandler()
+    const ctx = new GraphContext()
+    const outcome = await handler(makeNode(), ctx, stubGraph)
+
+    expect(outcome.status).toBe('SUCCESS')
+    expect(outcome.contextUpdates?.['satisfaction_score']).toBe(0.6)
   })
 })

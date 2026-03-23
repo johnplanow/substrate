@@ -27,3 +27,6 @@ export type { FactoryConfig, FactoryExtendedConfig } from './config.js'
 
 // Convergence subsystem — ConvergenceController + per-node budget (stories 42-16, 45-3)
 export * from './convergence/index.js'
+
+// Factory persistence query functions (story 46-3)
+export * from './persistence/factory-queries.js'

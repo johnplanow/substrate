@@ -41,6 +41,15 @@ export const FactoryConfigSchema = z
     plateau_threshold: z.number().min(0).max(1).default(0.05),
     /** Backend to use for factory execution */
     backend: z.enum(['cli', 'direct']).default('cli'),
+    /**
+     * Quality mode determines which signal is authoritative for goal gate decisions.
+     * Story 46-6.
+     *   'code-review'      — code review verdict drives the gate (legacy Phase 2)
+     *   'dual-signal'      — both signals required; default
+     *   'scenario-primary' — satisfaction score is authoritative; code review is advisory
+     *   'scenario-only'    — satisfaction score only; code review skipped entirely
+     */
+    quality_mode: z.enum(['code-review', 'dual-signal', 'scenario-primary', 'scenario-only']).default('dual-signal'),
   })
   .strict()
 

@@ -8,9 +8,20 @@
  * Story 42-16.
  */
 
-import type { Graph, GraphNode, OutcomeStatus } from '../graph/types.js'
+import type { Graph, GraphNode, IGraphContext, OutcomeStatus } from '../graph/types.js'
 import type { TypedEventBus } from '@substrate-ai/core'
 import type { FactoryEvents } from '../events.js'
+
+/**
+ * Options for checkGoalGates() — enables score-based gate evaluation.
+ * Story 46-2.
+ */
+export interface CheckGoalGatesOptions {
+  /** Pipeline context for reading satisfaction_score. Required when satisfactionThreshold is set. */
+  context?: IGraphContext
+  /** Threshold for satisfaction gate: gate passes when satisfaction_score >= satisfactionThreshold. */
+  satisfactionThreshold?: number
+}
 
 /**
  * Result of evaluating all goal gate nodes in a graph.
@@ -37,6 +48,11 @@ export interface ConvergenceController {
    * `PARTIAL_SUCCESS`. Nodes with no recorded outcome are treated as unsatisfied.
    * Graphs with no goal gate nodes are vacuously satisfied.
    *
+   * NOTE: This is the simpler, event-free predecessor to `checkGoalGates()`.
+   * The executor uses `checkGoalGates()` exclusively (which adds event emission
+   * and score-based evaluation). `evaluateGates()` is retained for direct
+   * controller unit tests and Attractor spec compliance tests (Section 3.4).
+   *
    * @returns `{ satisfied: true, failingNodes: [] }` if all gates pass;
    *          `{ satisfied: false, failingNodes: [id, ...] }` listing each
    *          gate node that was not satisfied.
@@ -47,8 +63,12 @@ export interface ConvergenceController {
    * Evaluate all goal gate nodes and emit graph:goal-gate-checked for each.
    * Returns satisfied=true only when every goalGate=true node recorded
    * SUCCESS or PARTIAL_SUCCESS. Graphs with no goal gate nodes are vacuously satisfied.
+   *
+   * When options.satisfactionThreshold and options.context are both provided,
+   * satisfaction is determined by comparing satisfaction_score from context against
+   * the threshold (score >= threshold). Otherwise falls back to outcome-status evaluation.
    */
-  checkGoalGates(graph: Graph, runId: string, eventBus?: TypedEventBus<FactoryEvents>): GoalGateResult
+  checkGoalGates(graph: Graph, runId: string, eventBus?: TypedEventBus<FactoryEvents>, options?: CheckGoalGatesOptions): GoalGateResult
 
   /**
    * Resolve the retry target after an unsatisfied goal gate by walking a
@@ -99,16 +119,23 @@ export function createConvergenceController(): ConvergenceController {
       return { satisfied: failingNodes.length === 0, failingNodes }
     },
 
-    checkGoalGates(graph: Graph, runId: string, eventBus?: TypedEventBus<FactoryEvents>): GoalGateResult {
+    checkGoalGates(graph: Graph, runId: string, eventBus?: TypedEventBus<FactoryEvents>, options?: CheckGoalGatesOptions): GoalGateResult {
       const failedGates: string[] = []
 
       for (const [id, node] of graph.nodes) {
         if (!node.goalGate) continue
-        const status = outcomes.get(id)
-        const satisfied = status === 'SUCCESS' || status === 'PARTIAL_SUCCESS'
-        eventBus?.emit('graph:goal-gate-checked', { runId, nodeId: id, satisfied })
-        if (!satisfied) {
-          failedGates.push(id)
+        if (options?.satisfactionThreshold !== undefined && options?.context !== undefined) {
+          const score = options.context.getNumber('satisfaction_score', 0)
+          const satisfied = score >= options.satisfactionThreshold
+          eventBus?.emit('graph:goal-gate-checked', { runId, nodeId: id, satisfied, score })
+          if (!satisfied) failedGates.push(id)
+        } else {
+          const status = outcomes.get(id)
+          const satisfied = status === 'SUCCESS' || status === 'PARTIAL_SUCCESS'
+          eventBus?.emit('graph:goal-gate-checked', { runId, nodeId: id, satisfied })
+          if (!satisfied) {
+            failedGates.push(id)
+          }
         }
       }
 

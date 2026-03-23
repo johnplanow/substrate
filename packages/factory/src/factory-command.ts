@@ -25,8 +25,10 @@ import { createGraphExecutor } from './graph/executor.js'
 import { createDefaultRegistry } from './handlers/index.js'
 import { RunStateManager } from './graph/run-state.js'
 import { loadFactoryConfig } from './config.js'
-import { TypedEventBusImpl } from '@substrate-ai/core'
+import { factorySchema } from './persistence/factory-schema.js'
+import { TypedEventBusImpl, createDatabaseAdapter } from '@substrate-ai/core'
 import type { FactoryEvents } from './events.js'
+import type { ValidationDiagnostic } from './graph/types.js'
 
 // ---------------------------------------------------------------------------
 // resolveGraphPath
@@ -76,6 +78,17 @@ async function resolveGraphPath(
 }
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Total number of validation rules loaded by `createValidator()`.
+ * 8 error rules + 5 warning rules = 13 total (stories 42-4, 42-5).
+ * This is a fixed constant — the GraphValidator interface does not expose a rule count.
+ */
+const TOTAL_RULE_COUNT = 13
+
+// ---------------------------------------------------------------------------
 // registerFactoryCommand
 // ---------------------------------------------------------------------------
 
@@ -84,6 +97,7 @@ async function resolveGraphPath(
  *
  * Story 44-8: registers the `scenarios` subcommand.
  * Story 44-9: registers the `run` subcommand.
+ * Story 46-7: registers the `validate` subcommand.
  */
 export function registerFactoryCommand(program: Command): void {
   const factoryCmd = program
@@ -149,6 +163,12 @@ export function registerFactoryCommand(program: Command): void {
         /** wallClockCapMs: FactoryConfig.wall_clock_cap_seconds × 1000 (story 45-10) */
         const factoryConfig = await loadFactoryConfig(projectDir, opts.config)
 
+        // Initialize persistence adapter and factory schema (story 46-3).
+        // Uses auto-detection: Dolt if available, otherwise in-memory fallback.
+        // factorySchema is idempotent — safe to call on every run.
+        const adapter = createDatabaseAdapter({ backend: 'auto', basePath: projectDir })
+        await factorySchema(adapter)
+
         const executor = createGraphExecutor()
         await executor.run(graph, {
           runId,
@@ -156,6 +176,7 @@ export function registerFactoryCommand(program: Command): void {
           handlerRegistry: createDefaultRegistry(),
           eventBus,
           dotSource,
+          adapter,
           /** wallClockCapMs derived from FactoryConfig.wall_clock_cap_seconds × 1000 (story 45-10) */
           wallClockCapMs: (factoryConfig.factory?.wall_clock_cap_seconds ?? 0) * 1000,
           /** pipelineBudgetCapUsd forwarded as-is from FactoryConfig.budget_cap_usd (story 45-10) */
@@ -164,10 +185,94 @@ export function registerFactoryCommand(program: Command): void {
           plateauWindow: factoryConfig.factory?.plateau_window ?? 3,
           /** plateauThreshold forwarded as-is from FactoryConfig.plateau_threshold (story 45-10) */
           plateauThreshold: factoryConfig.factory?.plateau_threshold ?? 0.05,
+          /** satisfactionThreshold forwarded from FactoryConfig.satisfaction_threshold (story 46-6) */
+          satisfactionThreshold: factoryConfig.factory?.satisfaction_threshold ?? 0.8,
+          /** qualityMode forwarded from FactoryConfig.quality_mode (story 46-6) */
+          qualityMode: factoryConfig.factory?.quality_mode ?? 'dual-signal',
         })
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         process.stderr.write(`Error: ${msg}\n`)
+        process.exit(1)
+      }
+    })
+
+  // Story 46-7: factory validate
+  factoryCmd
+    .command('validate <graph-file>')
+    .description('Parse and lint a DOT graph against all 13 validation rules')
+    .option('--output-format <format>', 'Output format: json | text', 'text')
+    .action(async (graphFile: string, opts: { outputFormat: string }) => {
+      // Task 2: Read the file
+      let source: string
+      try {
+        source = await readFile(graphFile, 'utf-8')
+      } catch (err: unknown) {
+        const isEnoent =
+          err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT'
+        if (isEnoent) {
+          process.stderr.write(`Error: file not found: ${graphFile}\n`)
+        } else {
+          const msg = err instanceof Error ? err.message : String(err)
+          process.stderr.write(`Error: file not found: ${graphFile} (${msg})\n`)
+        }
+        process.exit(2)
+        return
+      }
+
+      // Task 2: Parse the DOT graph
+      let graph: ReturnType<typeof parseGraph>
+      try {
+        graph = parseGraph(source)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`Error: failed to parse graph: ${msg}\n`)
+        process.exit(2)
+        return
+      }
+
+      // Task 3: Run validation and compute statistics
+      const diagnostics: ValidationDiagnostic[] = createValidator().validate(graph)
+      const errors = diagnostics.filter((d) => d.severity === 'error')
+      const warnings = diagnostics.filter((d) => d.severity === 'warning')
+      const firedRuleIds = new Set(diagnostics.map((d) => d.ruleId))
+      const passedCount = TOTAL_RULE_COUNT - firedRuleIds.size
+
+      // Task 5: JSON output mode
+      if (opts.outputFormat === 'json') {
+        process.stdout.write(JSON.stringify(diagnostics, null, 2) + '\n')
+        if (errors.length > 0) {
+          process.exit(1)
+        }
+        return
+      }
+
+      // Task 4: Human-readable text output
+      if (diagnostics.length > 0) {
+        for (const d of diagnostics) {
+          const nodeStr = d.nodeId ? ` [node: ${d.nodeId}]` : ''
+          const edgeStr = d.edgeIndex !== undefined ? ` [edge: ${d.edgeIndex}]` : ''
+          process.stdout.write(
+            `  ${d.severity.padEnd(7)}  ${d.ruleId.padEnd(24)}  ${d.message}${nodeStr}${edgeStr}\n`,
+          )
+        }
+        process.stdout.write('\n')
+      }
+
+      const errLabel = errors.length !== 1 ? 'errors' : 'error'
+      const warnLabel = warnings.length !== 1 ? 'warnings' : 'warning'
+      if (diagnostics.length === 0) {
+        process.stdout.write(
+          `✓ ${TOTAL_RULE_COUNT}/${TOTAL_RULE_COUNT} rules passed, 0 errors, 0 warnings\n`,
+        )
+      } else {
+        process.stdout.write(
+          `✗ ${passedCount}/${TOTAL_RULE_COUNT} rules passed, ${errors.length} ${errLabel}, ${warnings.length} ${warnLabel}\n`,
+        )
+      }
+
+      // Task 6: Exit codes
+      if (errors.length > 0) {
         process.exit(1)
       }
     })

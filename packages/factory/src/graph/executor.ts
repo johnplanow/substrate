@@ -21,8 +21,8 @@ import { selectEdge } from './edge-selector.js'
 import { CheckpointManager } from './checkpoint.js'
 import { RunStateManager, type NodeArtifacts } from './run-state.js'
 import type { IHandlerRegistry } from '../handlers/types.js'
-import type { TypedEventBus } from '@substrate-ai/core'
-import type { FactoryEvents, Outcome } from '../events.js'
+import type { TypedEventBus, DatabaseAdapter } from '@substrate-ai/core'
+import type { FactoryEvents, Outcome, ScenarioRunResult } from '../events.js'
 import {
   createConvergenceController,
   SessionBudgetManager,
@@ -32,8 +32,13 @@ import {
   buildRemediationContext,
   injectRemediationContext,
   computeBackoffDelay,
+  createDualSignalCoordinator,
+  CONTEXT_KEY_CODE_REVIEW_VERDICT,
 } from '../convergence/index.js'
+import type { QualityMode, DualSignalVerdict } from '../convergence/index.js'
 import type { ScenarioStore, ScenarioManifest } from '../scenarios/index.js'
+import { computeSatisfactionScore } from '../scenarios/scorer.js'
+import { upsertGraphRun, insertGraphNodeResult, insertScenarioResult } from '../persistence/factory-queries.js'
 
 // ---------------------------------------------------------------------------
 // GraphExecutorConfig
@@ -98,6 +103,32 @@ export interface GraphExecutorConfig {
    * Defaults to 0.05 when omitted. Passed to createPlateauDetector().
    */
   plateauThreshold?: number
+  /**
+   * Satisfaction score threshold for goal gate evaluation (0–1).
+   * When set, checkGoalGates() compares satisfaction_score from context against
+   * this threshold. Wired from FactoryConfig.satisfaction_threshold in the factory run command.
+   */
+  satisfactionThreshold?: number
+
+  /**
+   * Quality mode for goal gate evaluation — wired from FactoryConfig.quality_mode. Story 46-6.
+   *   'scenario-primary' — satisfaction score is authoritative; code review is advisory only.
+   *   'dual-signal'      — default; falls back to outcome-status-based evaluation.
+   *   'code-review'      — code review verdict drives the gate (legacy Phase 2).
+   *   'scenario-only'    — satisfaction score only; code review skipped.
+   */
+  qualityMode?: QualityMode
+
+  // ---------------------------------------------------------------------------
+  // Persistence configuration (story 46-3)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Optional database adapter for persisting graph run and node result records.
+   * When omitted, all persistence is skipped (backward-compatible default).
+   * Must be imported as a type only — do not import concrete adapter implementations.
+   */
+  adapter?: DatabaseAdapter
 }
 
 // ---------------------------------------------------------------------------
@@ -254,6 +285,34 @@ export function createGraphExecutor(): GraphExecutor {
       })
       let convergenceIteration = 0
 
+      // Persistence state (story 46-3)
+      const runStartedAt = new Date().toISOString()
+      // Tracks which node is currently executing — used by scenario:completed handler
+      // to populate node_id in scenario_results rows (event payload has no nodeId field).
+      let lastScenarioNodeId = ''
+
+      // Helper: persist a run exit (success or failure) when adapter is present.
+      // Called at every `return` path that terminates the run.
+      // Persistence errors must not crash the executor — swallow and log silently.
+      const persistExit = async (finalStatus: 'completed' | 'failed', finalOutcome: string): Promise<void> => {
+        if (!config.adapter) return
+        try {
+          await upsertGraphRun(config.adapter, {
+            id: config.runId,
+            graph_file: graph.id || config.runId,
+            ...(graph.goal ? { graph_goal: graph.goal } : {}),
+            status: finalStatus,
+            started_at: runStartedAt,
+            completed_at: new Date().toISOString(),
+            final_outcome: finalOutcome,
+            total_cost_usd: pipelineManager.getTotalCost(),
+            node_count: graph.nodes.size,
+          })
+        } catch {
+          // Persistence errors must not crash the executor — swallow silently
+        }
+      }
+
       // Execution state
       let completedNodes: string[] = []
       let nodeRetries: Record<string, number> = {}
@@ -286,6 +345,56 @@ export function createGraphExecutor(): GraphExecutor {
         : null
       if (runStateManager) {
         await runStateManager.initRun(config.dotSource!)
+      }
+
+      // -----------------------------------------------------------------------
+      // Persistence: subscribe to scenario:completed for score tracking (story 46-3)
+      // The event payload does not include nodeId, so we use lastScenarioNodeId
+      // which is set to currentNode.id each time a node starts executing.
+      // -----------------------------------------------------------------------
+      if (config.adapter && config.eventBus) {
+        const persistAdapter = config.adapter
+        const scenarioHandler = (payload: { runId: string; results: ScenarioRunResult; iteration: number }): void => {
+          const threshold = config.satisfactionThreshold ?? 0.8
+          const scored = computeSatisfactionScore(payload.results, threshold)
+          insertScenarioResult(persistAdapter, {
+            run_id: config.runId,
+            node_id: lastScenarioNodeId || 'unknown',
+            iteration: payload.iteration,
+            total_scenarios: payload.results.summary.total,
+            passed: payload.results.summary.passed,
+            failed: payload.results.summary.failed,
+            satisfaction_score: scored.score,
+            threshold: scored.threshold,
+            passes: scored.passes,
+            details: JSON.stringify(scored.breakdown),
+            executed_at: new Date().toISOString(),
+          }).catch((err: unknown) => {
+            // Persistence errors must not crash the executor — log at debug level only
+            const msg = err instanceof Error ? err.message : String(err)
+            console.debug(`[executor] scenario:completed persistence failed for run ${config.runId}: ${msg}`)
+          })
+        }
+        config.eventBus.on('scenario:completed', scenarioHandler)
+      }
+
+      // -----------------------------------------------------------------------
+      // Persistence: insert graph_runs row at run start (story 46-3)
+      // Persistence errors must not crash the executor — swallow silently.
+      // -----------------------------------------------------------------------
+      if (config.adapter) {
+        try {
+          await upsertGraphRun(config.adapter, {
+            id: config.runId,
+            graph_file: graph.id || config.runId,
+            ...(graph.goal ? { graph_goal: graph.goal } : {}),
+            status: 'running',
+            started_at: runStartedAt,
+            node_count: graph.nodes.size,
+          })
+        } catch {
+          // Persistence errors must not crash the executor — swallow silently
+        }
       }
 
       // -----------------------------------------------------------------------
@@ -357,6 +466,7 @@ export function createGraphExecutor(): GraphExecutor {
             level: 'session',
             reason: sessionResult.reason,
           })
+          await persistExit('failed', `Session budget exceeded: ${sessionResult.reason}`)
           return { status: 'FAIL', failureReason: `Session budget exceeded: ${sessionResult.reason}` }
         }
         const pipelineResult = pipelineManager.checkBudget(config.pipelineBudgetCapUsd ?? 0)
@@ -366,13 +476,37 @@ export function createGraphExecutor(): GraphExecutor {
             level: 'pipeline',
             reason: pipelineResult.reason,
           })
+          await persistExit('failed', `Pipeline budget exceeded: ${pipelineResult.reason}`)
           return { status: 'FAIL', failureReason: `Pipeline budget exceeded: ${pipelineResult.reason}` }
         }
 
         // Exit condition: arrived at the exit node → evaluate goal gates (story 42-16)
         const exitNode = graph.exitNode()
         if (currentNode.id === exitNode.id) {
-          const gateResult = controller.checkGoalGates(graph, config.runId, config.eventBus)
+          // scenario-primary mode forces satisfaction score as the authoritative gate signal (story 46-6)
+          const useScenarioPrimary = config.qualityMode === 'scenario-primary'
+          const gateResult = controller.checkGoalGates(
+            graph,
+            config.runId,
+            config.eventBus,
+            (useScenarioPrimary || config.satisfactionThreshold !== undefined)
+              ? { context, satisfactionThreshold: config.satisfactionThreshold ?? 0.8 }
+              : undefined,
+          )
+          // Emit scenario:advisory-computed when code review verdict is in context and mode is scenario-primary (story 46-6)
+          if (useScenarioPrimary && config.eventBus) {
+            const rawVerdict = context.getString(CONTEXT_KEY_CODE_REVIEW_VERDICT, '')
+            if (rawVerdict !== '') {
+              const codeReviewVerdict = rawVerdict as DualSignalVerdict
+              const coordinator = createDualSignalCoordinator({
+                eventBus: config.eventBus,
+                threshold: config.satisfactionThreshold ?? 0.8,
+                qualityMode: 'scenario-primary',
+              })
+              const score = context.getNumber('satisfaction_score', 0)
+              coordinator.evaluate(codeReviewVerdict, score, config.runId)
+            }
+          }
           if (!gateResult.satisfied) {
             // Use ConvergenceController.resolveRetryTarget (story 45-8 — replaces inline 4-step chain)
             const failingNodeId = gateResult.failedGates[0]!
@@ -381,6 +515,7 @@ export function createGraphExecutor(): GraphExecutor {
               ? controller.resolveRetryTarget(failingGateNode, graph)
               : null
             if (!retryTargetId) {
+              await persistExit('failed', 'Goal gate failed: no retry target')
               return { status: 'FAIL', failureReason: 'Goal gate failed: no retry target' }
             }
             const retryNode = graph.nodes.get(retryTargetId)
@@ -398,6 +533,7 @@ export function createGraphExecutor(): GraphExecutor {
               ...(config.eventBus ? { eventBus: config.eventBus } : {}),
             })
             if (plateauResult.plateaued) {
+              await persistExit('failed', `Convergence plateau detected after ${convergenceIteration} iteration(s)`)
               return {
                 status: 'FAIL',
                 failureReason: `Convergence plateau detected after ${convergenceIteration} iteration(s): scores plateaued at [${plateauResult.scores.join(', ')}]`,
@@ -415,6 +551,7 @@ export function createGraphExecutor(): GraphExecutor {
             currentNode = retryNode
             continue
           }
+          await persistExit('completed', 'SUCCESS')
           return { status: 'SUCCESS' }
         }
 
@@ -424,6 +561,7 @@ export function createGraphExecutor(): GraphExecutor {
           // Cast to GraphOutcome (types.ts:Outcome) as required by selectEdge API.
           const skipEdge = selectEdge(currentNode, { status: 'SUCCESS' } as GraphOutcome, context, graph)
           if (!skipEdge) {
+            await persistExit('failed', `No outgoing edge from node ${currentNode.id}`)
             return {
               status: 'FAIL',
               failureReason: `No outgoing edge from node ${currentNode.id}`,
@@ -466,6 +604,7 @@ export function createGraphExecutor(): GraphExecutor {
               nodeId: currentNode.id,
               tampered: integrityResult.tampered,
             })
+            await persistExit('failed', `Scenario integrity violation before node "${currentNode.id}"`)
             return {
               status: 'FAIL',
               failureReason: `Scenario integrity violation detected before node "${currentNode.id}": tampered files: ${integrityResult.tampered.join(', ')}`,
@@ -477,6 +616,12 @@ export function createGraphExecutor(): GraphExecutor {
             scenarioCount: scenarioManifest.scenarios.length,
           })
         }
+
+        // ----------------------------------------------------------------
+        // Track current node ID for scenario:completed event handler (story 46-3)
+        // The scenario:completed event payload has no nodeId field, so we capture it here.
+        // ----------------------------------------------------------------
+        lastScenarioNodeId = currentNode.id
 
         // ----------------------------------------------------------------
         // Emit graph:node-started before handler invocation
@@ -600,6 +745,30 @@ export function createGraphExecutor(): GraphExecutor {
         }
 
         // ----------------------------------------------------------------
+        // Persistence: write per-node result row (story 46-3, AC4)
+        // Written after allowPartial demotion (outcome.status is final here)
+        // and after cost accumulation so cost_usd reflects the actual node cost.
+        // ----------------------------------------------------------------
+        if (config.adapter) {
+          const nodeCompletedAt = Date.now()
+          try {
+            await insertGraphNodeResult(config.adapter, {
+              run_id: config.runId,
+              node_id: nodeToDispatch.id,
+              attempt: (nodeRetries[nodeToDispatch.id] ?? 0) + 1,
+              status: outcome.status,
+              started_at: new Date(startedAt).toISOString(),
+              completed_at: new Date(nodeCompletedAt).toISOString(),
+              duration_ms: nodeCompletedAt - startedAt,
+              cost_usd: nodeCost,
+              ...(outcome.failureReason !== undefined ? { failure_reason: outcome.failureReason } : {}),
+            })
+          } catch {
+            // Persistence errors must not crash the executor — swallow silently
+          }
+        }
+
+        // ----------------------------------------------------------------
         // Push completed node (skip for loopRestart re-entry nodes)
         // ----------------------------------------------------------------
         if (!skipCompletedPush) {
@@ -639,6 +808,7 @@ export function createGraphExecutor(): GraphExecutor {
             currentNode = retryNode
             continue
           }
+          await persistExit('failed', outcome.failureReason ?? 'FAIL')
           return {
             status: 'FAIL',
             ...(outcome.failureReason !== undefined && { failureReason: outcome.failureReason }),
@@ -651,6 +821,7 @@ export function createGraphExecutor(): GraphExecutor {
         // Cast outcome to GraphOutcome (types.ts:Outcome) as required by selectEdge API.
         const edge = selectEdge(currentNode, outcome as unknown as GraphOutcome, context, graph)
         if (!edge) {
+          await persistExit('failed', `No outgoing edge from node ${currentNode.id}`)
           return {
             status: 'FAIL',
             failureReason: `No outgoing edge from node ${currentNode.id}`,

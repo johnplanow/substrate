@@ -113,6 +113,39 @@ describe('FactoryConfigSchema', () => {
     const result = FactoryConfigSchema.parse({ backend: 'cli' })
     expect(result.backend).toBe('cli')
   })
+
+  // ---------------------------------------------------------------------------
+  // quality_mode field — story 46-6 (AC1)
+  // ---------------------------------------------------------------------------
+
+  it('AC1 (46-6): quality_mode defaults to dual-signal when omitted', () => {
+    const result = FactoryConfigSchema.parse({})
+    expect(result.quality_mode).toBe('dual-signal')
+  })
+
+  it('AC1 (46-6): quality_mode scenario-primary parses correctly', () => {
+    const result = FactoryConfigSchema.parse({ quality_mode: 'scenario-primary' })
+    expect(result.quality_mode).toBe('scenario-primary')
+  })
+
+  it('AC1 (46-6): quality_mode dual-signal parses correctly', () => {
+    const result = FactoryConfigSchema.parse({ quality_mode: 'dual-signal' })
+    expect(result.quality_mode).toBe('dual-signal')
+  })
+
+  it('AC1 (46-6): quality_mode code-review parses correctly', () => {
+    const result = FactoryConfigSchema.parse({ quality_mode: 'code-review' })
+    expect(result.quality_mode).toBe('code-review')
+  })
+
+  it('AC1 (46-6): quality_mode scenario-only parses correctly', () => {
+    const result = FactoryConfigSchema.parse({ quality_mode: 'scenario-only' })
+    expect(result.quality_mode).toBe('scenario-only')
+  })
+
+  it('AC1 (46-6): invalid quality_mode value throws ZodError', () => {
+    expect(() => FactoryConfigSchema.parse({ quality_mode: 'invalid-mode' })).toThrow(ZodError)
+  })
 })
 
 // ---------------------------------------------------------------------------

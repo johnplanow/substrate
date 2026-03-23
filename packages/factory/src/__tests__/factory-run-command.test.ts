@@ -383,6 +383,131 @@ describe('substrate factory run command', () => {
     })
   })
 
+  // -------------------------------------------------------------------------
+  // AC6 (story 46-6): quality_mode and satisfaction_threshold wiring
+  // Verifies that FactoryConfig.quality_mode and .satisfaction_threshold are
+  // forwarded as qualityMode and satisfactionThreshold to GraphExecutorConfig.
+  // -------------------------------------------------------------------------
+
+  describe('quality_mode and satisfactionThreshold wiring (story 46-6)', () => {
+    it('AC6a: factory run forwards quality_mode as qualityMode to executor', async () => {
+      const { loadFactoryConfig } = await import('../config.js')
+      vi.mocked(loadFactoryConfig).mockResolvedValue({
+        ...defaultConfig,
+        factory: {
+          graph: 'pipeline.dot',
+          scenario_dir: '.substrate/scenarios/',
+          satisfaction_threshold: 0.85,
+          budget_cap_usd: 0,
+          wall_clock_cap_seconds: 0,
+          plateau_window: 3,
+          plateau_threshold: 0.05,
+          backend: 'cli' as const,
+          quality_mode: 'scenario-primary' as const,
+        },
+      } as never)
+
+      const { createGraphExecutor } = await import('../graph/executor.js')
+      let capturedConfig: Record<string, unknown> | null = null
+      vi.mocked(createGraphExecutor).mockReturnValue({
+        run: vi.fn().mockImplementation(async (_graph, config) => {
+          capturedConfig = config as Record<string, unknown>
+          return { status: 'SUCCESS' }
+        }),
+      })
+
+      await runCmd(['--graph', 'pipeline.dot'])
+
+      expect(capturedConfig).not.toBeNull()
+      expect(capturedConfig!['qualityMode']).toBe('scenario-primary')
+    })
+
+    it('AC6b: factory run forwards satisfaction_threshold as satisfactionThreshold to executor', async () => {
+      const { loadFactoryConfig } = await import('../config.js')
+      vi.mocked(loadFactoryConfig).mockResolvedValue({
+        ...defaultConfig,
+        factory: {
+          graph: 'pipeline.dot',
+          scenario_dir: '.substrate/scenarios/',
+          satisfaction_threshold: 0.85,
+          budget_cap_usd: 0,
+          wall_clock_cap_seconds: 0,
+          plateau_window: 3,
+          plateau_threshold: 0.05,
+          backend: 'cli' as const,
+          quality_mode: 'scenario-primary' as const,
+        },
+      } as never)
+
+      const { createGraphExecutor } = await import('../graph/executor.js')
+      let capturedConfig: Record<string, unknown> | null = null
+      vi.mocked(createGraphExecutor).mockReturnValue({
+        run: vi.fn().mockImplementation(async (_graph, config) => {
+          capturedConfig = config as Record<string, unknown>
+          return { status: 'SUCCESS' }
+        }),
+      })
+
+      await runCmd(['--graph', 'pipeline.dot'])
+
+      expect(capturedConfig).not.toBeNull()
+      expect(capturedConfig!['satisfactionThreshold']).toBe(0.85)
+    })
+
+    it('AC6c: defaults to qualityMode=dual-signal and satisfactionThreshold=0.8 when factory section is absent', async () => {
+      const { loadFactoryConfig } = await import('../config.js')
+      // defaultConfig has factory: undefined
+      vi.mocked(loadFactoryConfig).mockResolvedValue(defaultConfig as never)
+
+      const { createGraphExecutor } = await import('../graph/executor.js')
+      let capturedConfig: Record<string, unknown> | null = null
+      vi.mocked(createGraphExecutor).mockReturnValue({
+        run: vi.fn().mockImplementation(async (_graph, config) => {
+          capturedConfig = config as Record<string, unknown>
+          return { status: 'SUCCESS' }
+        }),
+      })
+
+      await runCmd(['--graph', 'pipeline.dot'])
+
+      expect(capturedConfig).not.toBeNull()
+      expect(capturedConfig!['qualityMode']).toBe('dual-signal')
+      expect(capturedConfig!['satisfactionThreshold']).toBe(0.8)
+    })
+
+    it('AC6d: dual-signal quality_mode forwarded correctly', async () => {
+      const { loadFactoryConfig } = await import('../config.js')
+      vi.mocked(loadFactoryConfig).mockResolvedValue({
+        ...defaultConfig,
+        factory: {
+          graph: 'pipeline.dot',
+          scenario_dir: '.substrate/scenarios/',
+          satisfaction_threshold: 0.8,
+          budget_cap_usd: 0,
+          wall_clock_cap_seconds: 0,
+          plateau_window: 3,
+          plateau_threshold: 0.05,
+          backend: 'cli' as const,
+          quality_mode: 'dual-signal' as const,
+        },
+      } as never)
+
+      const { createGraphExecutor } = await import('../graph/executor.js')
+      let capturedConfig: Record<string, unknown> | null = null
+      vi.mocked(createGraphExecutor).mockReturnValue({
+        run: vi.fn().mockImplementation(async (_graph, config) => {
+          capturedConfig = config as Record<string, unknown>
+          return { status: 'SUCCESS' }
+        }),
+      })
+
+      await runCmd(['--graph', 'pipeline.dot'])
+
+      expect(capturedConfig).not.toBeNull()
+      expect(capturedConfig!['qualityMode']).toBe('dual-signal')
+    })
+  })
+
   it('AC7: without --events flag, no NDJSON event lines are written to stdout', async () => {
     const { createGraphExecutor } = await import('../graph/executor.js')
 

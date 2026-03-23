@@ -6,8 +6,8 @@ export type { ScenarioEntry, ScenarioManifest, ScenarioStoreVerifyResult } from 
 // Runner (story 44-2 / 44-5)
 export { createScenarioRunner } from './runner.js'
 export type { ScenarioRunner, ScenarioRunnerOptions } from './runner.js'
-// Scorer (story 44-5)
-export { computeSatisfactionScore } from './scorer.js'
-export type { SatisfactionScore } from './scorer.js'
+// Scorer (stories 44-5, 46-1)
+export { computeSatisfactionScore, createSatisfactionScorer } from './scorer.js'
+export type { SatisfactionScore, SatisfactionScorer, ScenarioScoreDetail, ScenarioWeights } from './scorer.js'
 // CLI subcommand (story 44-5)
 export { registerScenariosCommand } from './cli-command.js'
