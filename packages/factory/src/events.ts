@@ -77,6 +77,8 @@ export interface ScenarioRunResult {
  * CoreEvents graph:* = task-graph dispatcher lifecycle.
  * FactoryEvents graph:* = factory graph execution engine lifecycle.
  * These are distinct namespaces and do NOT conflict.
+ *
+ * Twin lifecycle events (story 47-2): twin:started, twin:stopped
  */
 export type FactoryEvents = CoreEvents & {
   // -------------------------------------------------------------------------
@@ -162,4 +164,38 @@ export type FactoryEvents = CoreEvents & {
 
   /** Convergence budget has been exhausted at the given level */
   'convergence:budget-exhausted': { runId: string; level: 'node' | 'pipeline' | 'session'; reason: string }
+
+  // -------------------------------------------------------------------------
+  // Twin lifecycle events (story 47-2)
+  // -------------------------------------------------------------------------
+
+  /** Twin container started successfully and health check passed (story 47-2) */
+  'twin:started': {
+    runId?: string
+    twinName: string
+    ports: Array<{ host: number; container: number }>
+    healthStatus: 'healthy' | 'unknown'
+  }
+
+  /** Twin container stopped and cleaned up (story 47-2) */
+  'twin:stopped': {
+    twinName: string
+  }
+
+  // story 47-6
+  /** Twin health check failed mid-run but has not yet exhausted retries (story 47-6) */
+  'twin:health-warning': {
+    runId?: string
+    twinName: string
+    error: string
+    consecutiveFailures: number
+  }
+
+  // story 47-6
+  /** Twin confirmed unhealthy — consecutive failure limit exhausted (story 47-6) */
+  'twin:health-failed': {
+    runId?: string
+    twinName: string
+    error: string
+  }
 }

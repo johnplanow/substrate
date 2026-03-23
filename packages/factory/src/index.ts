@@ -30,3 +30,6 @@ export * from './convergence/index.js'
 
 // Factory persistence query functions (story 46-3)
 export * from './persistence/factory-queries.js'
+
+// Twin Registry + Docker Compose orchestration (stories 47-1, 47-2)
+export * from './twins/index.js'

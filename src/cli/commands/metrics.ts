@@ -40,8 +40,8 @@ import type { OutputFormat } from './pipeline-shared.js'
 import { formatOutput } from './pipeline-shared.js'
 import { AdapterTelemetryPersistence } from '../../modules/telemetry/index.js'
 import type { EfficiencyScore, Recommendation, TurnAnalysis, CategoryStats, ConsumerStats } from '../../modules/telemetry/index.js'
-import { getFactoryRunSummaries, getScenarioResultsForRun, listGraphRuns } from '@substrate-ai/factory'
-import type { FactoryRunSummary, ScenarioResultRow } from '@substrate-ai/factory'
+import { getFactoryRunSummaries, getScenarioResultsForRun, listGraphRuns, getTwinRunsForRun } from '@substrate-ai/factory'
+import type { FactoryRunSummary, ScenarioResultRow, PortMapping } from '@substrate-ai/factory'
 
 const logger = createLogger('metrics-cmd')
 
@@ -629,6 +629,24 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           process.stdout.write(
             `  ${String(r.iteration).padStart(3)} ${scoreStr.padStart(7)} ${passesStr.padStart(7)} ${passedTotal.padStart(13)} ${execAt.padEnd(20)}\n`,
           )
+        }
+        // Display twin lifecycle info for this run (story 47-7)
+        try {
+          const twinRuns = await getTwinRunsForRun(adapter, resolvedRunId)
+          if (twinRuns.length > 0) {
+            process.stdout.write('\nTwins:\n')
+            for (const twin of twinRuns) {
+              const ports = twin.ports.map((p: PortMapping) => `${p.host}:${p.container}`).join(', ')
+              const stoppedAt = twin.stopped_at ?? 'still running'
+              process.stdout.write(
+                `  ${twin.twin_name} [${twin.status}] ports: ${ports || 'none'} ` +
+                `started: ${twin.started_at} stopped: ${stoppedAt} ` +
+                `health failures: ${twin.health_failure_count}\n`,
+              )
+            }
+          }
+        } catch (err) {
+          logger.debug({ err }, 'getTwinRunsForRun failed — twin_runs table may not exist yet')
         }
       }
       return 0

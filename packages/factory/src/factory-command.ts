@@ -10,15 +10,29 @@
  *       --graph <path>    — execute a DOT graph pipeline
  *       --events          — emit NDJSON events to stdout
  *       --config <path>   — path to config.yaml (default: auto-detect)
+ *     twins
+ *       templates         — list available built-in twin templates
+ *       init --template   — initialize a twin definition file from a template
+ *       start             — start all discovered twins via Docker Compose
+ *       stop              — stop all running twins and clean up
+ *       status            — show each twin's name, status, and port mappings
+ *       list              — list all discovered twin definitions
  *
- * Story 44-8 (scenarios), Story 44-9 (factory run).
+ * Story 44-8 (scenarios), Story 44-9 (factory run), Story 46-7 (validate),
+ * Story 47-4 (twins init/templates), Story 47-5 (twins lifecycle).
  */
 
 import type { Command } from 'commander'
-import { readFile } from 'node:fs/promises'
+import { readFile, mkdir, writeFile, access } from 'node:fs/promises'
+import { execSync } from 'node:child_process'
+import { rmSync } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import yaml from 'js-yaml'
 import { registerScenariosCommand } from './scenarios/cli-command.js'
+import { getTwinTemplate, listTwinTemplates, createTwinRegistry } from './twins/index.js'
+import { createTwinManager } from './twins/docker-compose.js'
+import { readRunState, writeRunState, clearRunState } from './twins/run-state.js'
 import { parseGraph } from './graph/parser.js'
 import { createValidator } from './graph/validator.js'
 import { createGraphExecutor } from './graph/executor.js'
@@ -273,6 +287,246 @@ export function registerFactoryCommand(program: Command): void {
 
       // Task 6: Exit codes
       if (errors.length > 0) {
+        process.exit(1)
+      }
+    })
+
+  // Story 47-4: factory twins
+  const twinsCmd = factoryCmd
+    .command('twins')
+    .description('Digital twin template management')
+
+  twinsCmd
+    .command('templates')
+    .description('List available built-in twin templates')
+    .action(() => {
+      const templates = listTwinTemplates()
+      for (const t of templates) {
+        process.stdout.write(`  ${t.name.padEnd(16)}  ${t.description}\n`)
+      }
+    })
+
+  twinsCmd
+    .command('init')
+    .description('Initialize a twin definition file from a built-in template')
+    .requiredOption('--template <name>', 'Template name (e.g. localstack, wiremock)')
+    .option('--force', 'Overwrite existing file if it already exists')
+    .action(async (opts: { template: string; force?: boolean }) => {
+      try {
+        const entry = getTwinTemplate(opts.template)
+        if (!entry) {
+          const available = listTwinTemplates()
+            .map((t) => t.name)
+            .join(', ')
+          process.stderr.write(
+            `Error: Unknown template '${opts.template}'. Available: ${available}\n`,
+          )
+          process.exit(1)
+          return
+        }
+
+        const targetPath = path.join(
+          process.cwd(),
+          '.substrate',
+          'twins',
+          `${opts.template}.yaml`,
+        )
+
+        if (!opts.force) {
+          try {
+            await access(targetPath)
+            // File exists — error without --force
+            process.stderr.write(
+              `Error: File already exists: ${targetPath} — use --force to overwrite\n`,
+            )
+            process.exit(1)
+            return
+          } catch {
+            // access() threw → file does not exist → proceed
+          }
+        }
+
+        await mkdir(path.dirname(targetPath), { recursive: true })
+        const yamlContent = yaml.dump(entry.definition)
+        await writeFile(targetPath, yamlContent, 'utf-8')
+        process.stdout.write(`Created ${targetPath}\n`)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`Error: ${msg}\n`)
+        process.exit(1)
+      }
+    })
+
+  // Story 47-5: twins start
+  twinsCmd
+    .command('start')
+    .description('Start all discovered twin definitions via Docker Compose')
+    .action(async () => {
+      try {
+        const projectDir = process.cwd()
+        const twinsDir = path.join(projectDir, '.substrate', 'twins')
+
+        const registry = createTwinRegistry()
+        try {
+          await registry.discover(twinsDir)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          process.stderr.write(`Error: ${msg}\n`)
+          process.exit(1)
+          return
+        }
+
+        const twins = registry.list()
+        if (twins.length === 0) {
+          process.stderr.write('No twin definitions found in .substrate/twins/\n')
+          process.exit(1)
+          return
+        }
+
+        const eventBus = new TypedEventBusImpl<FactoryEvents>()
+        eventBus.on('twin:started', (e) => {
+          process.stdout.write(`  Started: ${e.twinName}\n`)
+        })
+
+        const manager = createTwinManager(eventBus)
+        try {
+          await manager.start(twins)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          process.stderr.write(`Error: ${msg}\n`)
+          process.exit(1)
+          return
+        }
+
+        const composeDir = manager.getComposeDir()!
+        await writeRunState(projectDir, {
+          composeDir,
+          twinNames: twins.map((t) => t.name),
+          startedAt: new Date().toISOString(),
+        })
+
+        process.stdout.write('\nAll twins started successfully.\n')
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`Error: ${msg}\n`)
+        process.exit(1)
+      }
+    })
+
+  // Story 47-5: twins stop
+  twinsCmd
+    .command('stop')
+    .description('Stop all running twins')
+    .action(async () => {
+      try {
+        const projectDir = process.cwd()
+        const state = await readRunState(projectDir)
+
+        if (!state) {
+          process.stderr.write('No twins are currently running\n')
+          process.exit(1)
+          return
+        }
+
+        try {
+          execSync('docker compose down --remove-orphans', {
+            cwd: state.composeDir,
+            stdio: 'pipe',
+          })
+        } catch {
+          // Best-effort shutdown; still proceed to cleanup
+        }
+
+        rmSync(state.composeDir, { recursive: true, force: true })
+        await clearRunState(projectDir)
+
+        process.stdout.write(`Stopped twins: ${state.twinNames.join(', ')}\n`)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`Error: ${msg}\n`)
+        process.exit(1)
+      }
+    })
+
+  // Story 47-5: twins status
+  twinsCmd
+    .command('status')
+    .description('Show status of all discovered twins')
+    .action(async () => {
+      try {
+        const projectDir = process.cwd()
+        const state = await readRunState(projectDir)
+        const runningNames = new Set(state?.twinNames ?? [])
+
+        const registry = createTwinRegistry()
+        let twins: ReturnType<typeof registry.list> = []
+        try {
+          await registry.discover(path.join(projectDir, '.substrate', 'twins'))
+          twins = registry.list()
+        } catch {
+          // Discovery failure — show empty list with a message
+        }
+
+        if (twins.length === 0) {
+          process.stdout.write('No twin definitions found in .substrate/twins/\n')
+          return
+        }
+
+        for (const twin of twins) {
+          const status = runningNames.has(twin.name) ? 'running' : 'stopped'
+          const portsStr =
+            twin.ports.length > 0
+              ? twin.ports.map((p) => `${p.host}:${p.container}`).join(', ')
+              : '—'
+          process.stdout.write(
+            `  ${twin.name.padEnd(20)}  ${status.padEnd(10)}  ${portsStr}\n`,
+          )
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`Error: ${msg}\n`)
+        process.exit(1)
+      }
+    })
+
+  // Story 47-5: twins list
+  twinsCmd
+    .command('list')
+    .description('List all discovered twin definitions')
+    .action(async () => {
+      try {
+        const projectDir = process.cwd()
+
+        const registry = createTwinRegistry()
+        let twins: ReturnType<typeof registry.list> = []
+        try {
+          await registry.discover(path.join(projectDir, '.substrate', 'twins'))
+          twins = registry.list()
+        } catch {
+          // Discovery failure — treat as no twins found
+        }
+
+        if (twins.length === 0) {
+          process.stdout.write('No twin definitions found in .substrate/twins/\n')
+          return
+        }
+
+        process.stdout.write(
+          '  NAME                 IMAGE                                  PORTS           HEALTHCHECK\n',
+        )
+        for (const twin of twins) {
+          const ports =
+            twin.ports.length > 0
+              ? twin.ports.map((p) => `${p.host}:${p.container}`).join(', ')
+              : '—'
+          const healthcheck = twin.healthcheck?.url ?? '—'
+          process.stdout.write(
+            `  ${twin.name.padEnd(20)}  ${twin.image.padEnd(38)}  ${ports.padEnd(16)}  ${healthcheck}\n`,
+          )
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`Error: ${msg}\n`)
         process.exit(1)
       }
     })

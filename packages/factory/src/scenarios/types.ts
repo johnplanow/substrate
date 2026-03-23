@@ -23,6 +23,12 @@ export interface ScenarioManifest {
   scenarios: ScenarioEntry[]
   /** Unix timestamp in milliseconds (Date.now()) when the manifest was captured */
   capturedAt: number
+  /**
+   * Names of digital twins required for scenario execution.
+   * Populated from the .substrate/twins/ registry.
+   * Omit or leave empty when no twins are needed.
+   */
+  twins?: string[]
 }
 
 /**

@@ -67,4 +67,31 @@ export async function factorySchema(adapter: DatabaseAdapter): Promise<void> {
     )
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_scenario_results_run ON scenario_results(run_id)')
+
+  // -- twin_runs (AC1) --------------------------------------------------------
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS twin_runs (
+      id          VARCHAR(255) PRIMARY KEY,
+      run_id      VARCHAR(255),
+      twin_name   TEXT NOT NULL,
+      started_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      stopped_at  DATETIME,
+      status      VARCHAR(32) NOT NULL DEFAULT 'running',
+      ports_json  TEXT
+    )
+  `)
+
+  // -- twin_health_failures (AC2) ---------------------------------------------
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS twin_health_failures (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      twin_name     TEXT NOT NULL,
+      run_id        VARCHAR(255),
+      checked_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      error_message TEXT NOT NULL
+    )
+  `)
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_twin_health_failures_twin ON twin_health_failures(twin_name)',
+  )
 }
