@@ -1,16 +1,25 @@
 /**
  * Shared helpers for graph engine integration tests.
  * Story 42-15: Graph Engine Integration Tests.
+ * Story 44-10: Scenario Store Integration Test (additions).
  */
 
 import { vi } from 'vitest'
 import { mkdir, rm } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { EventEmitter } from 'node:events'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import type { GraphNode, Graph, IGraphContext, Outcome } from '../../graph/types.js'
 import type { IHandlerRegistry, NodeHandler } from '../../handlers/types.js'
 import type { TypedEventBus } from '@substrate-ai/core'
-import type { FactoryEvents } from '../../events.js'
+import type { FactoryEvents, ScenarioRunResult } from '../../events.js'
+import type { ChildProcess } from 'node:child_process'
+
+// Resolve __dirname for ESM (used by readFixtureDot)
+const __helpers_dirname = dirname(fileURLToPath(import.meta.url))
 
 // ---------------------------------------------------------------------------
 // Temp-directory helpers
@@ -171,4 +180,61 @@ export function getNodeStartedIds(events: SpyEvent[]): string[] {
  */
 export function countCheckpointSaved(events: SpyEvent[]): number {
   return events.filter((e) => e.event === 'graph:checkpoint-saved').length
+}
+
+// ---------------------------------------------------------------------------
+// Story 44-10: Scenario store integration test helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a full ScenarioRunResult with per-scenario entries.
+ *
+ * @param passed - Number of scenarios that should pass
+ * @param total  - Total number of scenarios
+ */
+export function buildScenarioRunResult(passed: number, total: number): ScenarioRunResult {
+  const failed = total - passed
+  return {
+    scenarios: Array.from({ length: total }, (_, i) => ({
+      name: `scenario-${i + 1}`,
+      status: i < passed ? 'pass' : 'fail',
+      exitCode: i < passed ? 0 : 1,
+      stdout: '',
+      stderr: '',
+      durationMs: 50,
+    })),
+    summary: { total, passed, failed },
+    durationMs: total * 50,
+  }
+}
+
+/**
+ * Create a mock ChildProcess-like object that emits stdout data and a close event.
+ * Uses setImmediate to defer emission, simulating async process behaviour.
+ *
+ * @param options.stdout   - String to emit on the stdout 'data' event
+ * @param options.exitCode - Exit code to emit with the 'close' event
+ */
+export function createMockSpawnProcess(options: {
+  stdout: string
+  exitCode: number
+}): ChildProcess {
+  const proc = new EventEmitter()
+  const stdoutEmitter = new EventEmitter()
+  const stderrEmitter = new EventEmitter()
+  ;(proc as unknown as Record<string, unknown>).stdout = stdoutEmitter
+  ;(proc as unknown as Record<string, unknown>).stderr = stderrEmitter
+  setImmediate(() => {
+    stdoutEmitter.emit('data', options.stdout)
+    proc.emit('close', options.exitCode)
+  })
+  return proc as unknown as ChildProcess
+}
+
+/**
+ * Read the pipeline DOT fixture synchronously.
+ * The fixture lives at `fixtures/pipeline.dot` relative to this file.
+ */
+export function readFixtureDot(): string {
+  return readFileSync(join(__helpers_dirname, 'fixtures', 'pipeline.dot'), 'utf8')
 }

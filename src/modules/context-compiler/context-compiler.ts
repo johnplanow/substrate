@@ -32,4 +32,11 @@ export interface ContextCompiler {
    * Returns `undefined` if no template has been registered for that type.
    */
   getTemplate(taskType: string): ContextTemplate | undefined
+
+  /**
+   * Returns the list of excluded paths configured for this compiler.
+   * Sections whose formatted text contains any of these path strings
+   * will be filtered out during compilation.
+   */
+  getExcludedPaths(): readonly string[]
 }

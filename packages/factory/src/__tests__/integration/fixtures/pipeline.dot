@@ -1,0 +1,17 @@
+digraph pipeline {
+  graph [goal="Test scenario validation convergence", label="Epic 44 Integration Test Graph"]
+
+  start     [shape=Mdiamond]
+  implement [shape=box, prompt="Implement the feature"]
+  validate  [shape=parallelogram, type="tool",
+             tool_command="substrate scenarios run --format json",
+             label="Validate against holdout scenarios"]
+  route     [shape=diamond]
+  exit      [shape=Msquare]
+
+  start     -> implement
+  implement -> validate
+  validate  -> route
+  route     -> exit     [condition="satisfaction_score>=0.8"]
+  route     -> implement
+}

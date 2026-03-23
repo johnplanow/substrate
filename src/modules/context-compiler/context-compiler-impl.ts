@@ -91,10 +91,16 @@ async function processSection(
 export class ContextCompilerImpl implements ContextCompiler {
   private readonly _db: DatabaseAdapter
   private readonly _templates: Map<string, ContextTemplate>
+  private readonly _excludedPaths: readonly string[]
 
-  constructor(options: { db: DatabaseAdapter; templates?: Map<string, ContextTemplate> }) {
+  constructor(options: {
+    db: DatabaseAdapter
+    templates?: Map<string, ContextTemplate>
+    excludedPaths?: string[]
+  }) {
     this._db = options.db
     this._templates = options.templates ? new Map(options.templates) : new Map()
+    this._excludedPaths = options.excludedPaths ? [...options.excludedPaths] : []
   }
 
   // -------------------------------------------------------------------------
@@ -107,6 +113,27 @@ export class ContextCompilerImpl implements ContextCompiler {
 
   getTemplate(taskType: string): ContextTemplate | undefined {
     return this._templates.get(taskType)
+  }
+
+  getExcludedPaths(): readonly string[] {
+    return this._excludedPaths
+  }
+
+  // -------------------------------------------------------------------------
+  // Exclusion filter
+  // -------------------------------------------------------------------------
+
+  private _applyExclusionFilter(text: string, sectionName: string): string {
+    for (const excludedPath of this._excludedPaths) {
+      if (text.includes(excludedPath)) {
+        logger.warn(
+          { sectionName, excludedPath },
+          'ContextCompiler: section excluded — contains path from exclusion list',
+        )
+        return ''
+      }
+    }
+    return text
   }
 
   // -------------------------------------------------------------------------
@@ -132,7 +159,24 @@ export class ContextCompilerImpl implements ContextCompiler {
     const ordered = sortByPriority(template.sections)
 
     for (const section of ordered) {
-      const { text, tokens } = await processSection(this._db, section)
+      const { text: rawText, tokens: rawTokens } = await processSection(this._db, section)
+
+      // Apply exclusion filter before token accounting — ensures budget remains accurate
+      const text = this._applyExclusionFilter(rawText, section.name)
+      const tokens = text === rawText ? rawTokens : countTokens(text)
+
+      // If the entire section was excluded by the filter, record it as excluded
+      if (text === '' && rawText !== '') {
+        anyTruncated = true
+        sectionReports.push({
+          name: section.name,
+          priority: section.priority,
+          tokens: 0,
+          included: false,
+          truncated: true,
+        })
+        continue
+      }
 
       if (section.priority === 'required') {
         // Required sections are always included; never truncated
@@ -261,6 +305,7 @@ function sortByPriority(sections: TemplateSection[]): TemplateSection[] {
 export interface ContextCompilerOptions {
   db: DatabaseAdapter
   templates?: Map<string, ContextTemplate>
+  excludedPaths?: string[]
 }
 
 /**

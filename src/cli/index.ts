@@ -36,6 +36,8 @@ import { registerRepoMapCommand } from './commands/repo-map.js'
 import { registerRoutingCommand } from './commands/routing.js'
 import { registerIngestEpicCommand } from './commands/ingest-epic.js'
 import { registerEpicStatusCommand } from './commands/epic-status.js'
+import { registerScenariosCommand } from './commands/scenarios.js'
+import { registerFactoryCommand } from './commands/factory.js'
 
 // Increase max listeners before any commands or transports register their handlers.
 // With CLI commands registered, pino-pretty workers and Commander exit handlers
@@ -144,6 +146,12 @@ export async function createProgram(): Promise<Command> {
   // Work-graph commands (Epic 31)
   registerIngestEpicCommand(program)
   registerEpicStatusCommand(program)
+
+  // Factory scenario management (Epic 44, story 44-5)
+  registerScenariosCommand(program)
+
+  // Factory command group — scenarios list/run + future factory run (Epic 44, story 44-8)
+  registerFactoryCommand(program)
 
   // Maintenance
   registerUpgradeCommand(program)

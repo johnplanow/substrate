@@ -5,12 +5,39 @@
  * AC2: Failing command → FAILURE with stderr as failureReason
  * AC3: Working directory resolved from context (falls back to defaultWorkingDir or cwd)
  *
- * Story 42-11.
+ * Extended in story 44-5: if stdout is a valid ScenarioRunResult (detected via duck-typing),
+ * the handler computes a satisfaction score and writes `satisfaction_score` to context
+ * instead of `{node.id}.output`.
+ *
+ * Story 42-11, extended in story 44-5.
  */
 
 import { spawn } from 'child_process'
 import type { GraphNode, Graph, IGraphContext, Outcome } from '../graph/types.js'
 import type { NodeHandler } from './types.js'
+import { computeSatisfactionScore } from '../scenarios/scorer.js'
+import type { ScenarioRunResult } from '../events.js'
+
+// ---------------------------------------------------------------------------
+// ScenarioRunResult detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Duck-typing guard: returns true if `parsed` conforms to the ScenarioRunResult
+ * shape (has summary.total and summary.passed as numbers).
+ *
+ * Detection is intentionally command-agnostic — it operates on the JSON shape
+ * alone, not on the value of `node.toolCommand`.
+ */
+function isScenarioRunResult(parsed: unknown): parsed is ScenarioRunResult {
+  if (typeof parsed !== 'object' || parsed === null) return false
+  const p = parsed as Record<string, unknown>
+  const summary = p['summary'] as Record<string, unknown> | undefined
+  return (
+    typeof summary?.['total'] === 'number' &&
+    typeof summary?.['passed'] === 'number'
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Option types
@@ -60,12 +87,29 @@ export function createToolHandler(options?: ToolHandlerOptions): NodeHandler {
 
       child.on('close', (code: number | null) => {
         if (code === 0) {
-          resolve({
-            status: 'SUCCESS',
-            contextUpdates: {
-              [`${node.id}.output`]: stdoutBuf.trim(),
-            },
-          })
+          // Attempt to detect ScenarioRunResult JSON via duck-typing.
+          // If detected, write satisfaction_score to context (not {node.id}.output).
+          let parsed: unknown
+          try {
+            parsed = JSON.parse(stdoutBuf.trim())
+          } catch {
+            // Not JSON — fall through to default output handling
+          }
+
+          if (isScenarioRunResult(parsed)) {
+            const scored = computeSatisfactionScore(parsed)
+            resolve({
+              status: 'SUCCESS',
+              contextUpdates: { satisfaction_score: scored.score },
+            })
+          } else {
+            resolve({
+              status: 'SUCCESS',
+              contextUpdates: {
+                [`${node.id}.output`]: stdoutBuf.trim(),
+              },
+            })
+          }
         } else {
           resolve({
             status: 'FAILURE',

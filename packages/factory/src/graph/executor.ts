@@ -19,10 +19,12 @@ import type { Graph, GraphNode, IGraphContext, Checkpoint, ResumeState, Outcome 
 import { GraphContext } from './context.js'
 import { selectEdge } from './edge-selector.js'
 import { CheckpointManager } from './checkpoint.js'
+import { RunStateManager, type NodeArtifacts } from './run-state.js'
 import type { IHandlerRegistry } from '../handlers/types.js'
 import type { TypedEventBus } from '@substrate-ai/core'
 import type { FactoryEvents, Outcome } from '../events.js'
 import { createConvergenceController } from '../convergence/index.js'
+import type { ScenarioStore, ScenarioManifest } from '../scenarios/index.js'
 
 // ---------------------------------------------------------------------------
 // GraphExecutorConfig
@@ -48,6 +50,18 @@ export interface GraphExecutorConfig {
    * from the last completed node rather than starting at the start node.
    */
   checkpointPath?: string
+  /**
+   * When provided, the executor captures a scenario manifest at run start and
+   * verifies integrity before each `tool` node executes (story 44-4).
+   * Omit to skip all scenario integrity checks (backward-compatible default).
+   */
+  scenarioStore?: ScenarioStore
+  /**
+   * Raw DOT source string of the executed graph.
+   * When provided, written to `graph.dot` in the run directory at execution start.
+   * Also enables per-node artifact writing via RunStateManager (story 44-7).
+   */
+  dotSource?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +244,22 @@ export function createGraphExecutor(): GraphExecutor {
       let skipCycleCheck = false
       let skipCompletedPush = false
 
+      // Capture scenario manifest for integrity checks (story 44-4).
+      // Only runs when scenarioStore is configured; otherwise skipped (backward-compatible).
+      let scenarioManifest: ScenarioManifest | null = null
+      if (config.scenarioStore) {
+        scenarioManifest = await config.scenarioStore.discover()
+      }
+
+      // RunStateManager for per-run artifact persistence (story 44-7).
+      // Opt-in: only instantiated when dotSource is provided. Backward-compatible.
+      const runStateManager = config.dotSource
+        ? new RunStateManager({ runDir: config.logsRoot })
+        : null
+      if (runStateManager) {
+        await runStateManager.initRun(config.dotSource!)
+      }
+
       // -----------------------------------------------------------------------
       // Determine starting node (normal start or resume)
       // -----------------------------------------------------------------------
@@ -355,6 +385,27 @@ export function createGraphExecutor(): GraphExecutor {
         }
         skipCycleCheck = false
 
+        // Integrity check: verify scenario files before dispatching any tool node (story 44-4)
+        if (currentNode.type === 'tool' && config.scenarioStore && scenarioManifest) {
+          const integrityResult = await config.scenarioStore.verifyIntegrity(scenarioManifest)
+          if (!integrityResult.valid) {
+            config.eventBus?.emit('scenario:integrity-failed', {
+              runId: config.runId,
+              nodeId: currentNode.id,
+              tampered: integrityResult.tampered,
+            })
+            return {
+              status: 'FAIL',
+              failureReason: `Scenario integrity violation detected before node "${currentNode.id}": tampered files: ${integrityResult.tampered.join(', ')}`,
+            }
+          }
+          config.eventBus?.emit('scenario:integrity-passed', {
+            runId: config.runId,
+            nodeId: currentNode.id,
+            scenarioCount: scenarioManifest.scenarios.length,
+          })
+        }
+
         // ----------------------------------------------------------------
         // Emit graph:node-started before handler invocation
         // ----------------------------------------------------------------
@@ -372,6 +423,9 @@ export function createGraphExecutor(): GraphExecutor {
             ? { ...currentNode, fidelity: firstResumedFidelity }
             : currentNode
         firstResumedFidelity = '' // clear after first use
+
+        // Record dispatch start time for artifact timing (story 44-7)
+        const startedAt = Date.now()
 
         // ----------------------------------------------------------------
         // Dispatch handler with retry logic
@@ -398,6 +452,28 @@ export function createGraphExecutor(): GraphExecutor {
               ? `${outcome.failureReason} (PARTIAL_SUCCESS not accepted: allowPartial=false)`
               : 'PARTIAL_SUCCESS not accepted: allowPartial=false',
           }
+        }
+
+        // ----------------------------------------------------------------
+        // Write per-node artifacts (story 44-7)
+        // Called after allowPartial demotion so the persisted status reflects the final outcome.
+        // ----------------------------------------------------------------
+        if (runStateManager) {
+          const completedAt = Date.now()
+          const nodeArtifacts: NodeArtifacts = {
+            nodeId: nodeToDispatch.id,
+            nodeType: nodeToDispatch.type,
+            status: outcome.status,
+            startedAt,
+            completedAt,
+            durationMs: completedAt - startedAt,
+          }
+          if (nodeToDispatch.type === 'codergen') {
+            const rawPrompt = nodeToDispatch.prompt || nodeToDispatch.label
+            if (rawPrompt) nodeArtifacts.prompt = rawPrompt
+            if (typeof outcome.notes === 'string') nodeArtifacts.response = outcome.notes
+          }
+          await runStateManager.writeNodeArtifacts(nodeArtifacts)
         }
 
         // ----------------------------------------------------------------

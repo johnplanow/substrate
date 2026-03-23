@@ -993,9 +993,13 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     await scaffoldClaudeSettings(projectRoot)
     await scaffoldClaudeCommands(projectRoot, outputFormat)
 
-    // Ensure substrate runtime files are gitignored
+    // Ensure substrate runtime and factory files are gitignored
     const gitignorePath = join(projectRoot, '.gitignore')
-    const runtimeEntries = ['.substrate/orchestrator.pid', '.substrate/current-run-id']
+    const runtimeEntries = [
+      '.substrate/orchestrator.pid',
+      '.substrate/current-run-id',
+      '.substrate/scenarios/',
+    ]
     try {
       const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf-8') : ''
       const missing = runtimeEntries.filter((e) => !existing.includes(e))

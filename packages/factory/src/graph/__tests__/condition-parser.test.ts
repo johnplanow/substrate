@@ -391,3 +391,96 @@ describe('AC7: condition_syntax rule uses parseCondition', () => {
     expect(diags[0]!.edgeIndex).toBe(1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Numeric comparison operators (story 44-5, AC5, AC6)
+// ---------------------------------------------------------------------------
+
+describe('parseCondition — numeric operators (story 44-5)', () => {
+  it('parses >= operator correctly', () => {
+    const result = parseCondition('satisfaction_score>=0.8')
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({ key: 'satisfaction_score', op: '>=', value: '0.8' })
+  })
+
+  it('parses <= operator correctly', () => {
+    const result = parseCondition('score<=0.5')
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({ key: 'score', op: '<=', value: '0.5' })
+  })
+
+  it('parses > operator correctly', () => {
+    const result = parseCondition('iteration>3')
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({ key: 'iteration', op: '>', value: '3' })
+  })
+
+  it('parses < operator correctly', () => {
+    const result = parseCondition('error_count<10')
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({ key: 'error_count', op: '<', value: '10' })
+  })
+
+  it('parses >= without spaces around operator', () => {
+    const result = parseCondition('satisfaction_score>=0.8')
+    expect(result[0]?.op).toBe('>=')
+    expect(result[0]?.value).toBe('0.8')
+  })
+
+  it('parses >= with spaces around operator', () => {
+    const result = parseCondition('satisfaction_score >= 0.8')
+    expect(result[0]?.op).toBe('>=')
+    expect(result[0]?.value).toBe('0.8')
+  })
+})
+
+describe('evaluateCondition — numeric operators (story 44-5)', () => {
+  it('AC5: >= evaluates true when context value exceeds threshold', () => {
+    expect(evaluateCondition('satisfaction_score>=0.8', { satisfaction_score: 0.9 })).toBe(true)
+  })
+
+  it('AC5: >= evaluates true when context value equals threshold exactly', () => {
+    expect(evaluateCondition('satisfaction_score>=0.8', { satisfaction_score: 0.8 })).toBe(true)
+  })
+
+  it('AC5: >= evaluates false when context value is below threshold', () => {
+    expect(evaluateCondition('satisfaction_score>=0.8', { satisfaction_score: 0.75 })).toBe(false)
+  })
+
+  it('AC6: >= false → unlabelled (retry) edge is chosen instead', () => {
+    // The condition itself returns false — router picks the unlabelled edge
+    expect(evaluateCondition('satisfaction_score>=0.8', { satisfaction_score: 0.6 })).toBe(false)
+  })
+
+  it('<= evaluates true when context value is at or below threshold', () => {
+    expect(evaluateCondition('score<=0.5', { score: 0.4 })).toBe(true)
+    expect(evaluateCondition('score<=0.5', { score: 0.5 })).toBe(true)
+    expect(evaluateCondition('score<=0.5', { score: 0.6 })).toBe(false)
+  })
+
+  it('> evaluates correctly', () => {
+    expect(evaluateCondition('iteration>3', { iteration: 4 })).toBe(true)
+    expect(evaluateCondition('iteration>3', { iteration: 3 })).toBe(false)
+    expect(evaluateCondition('iteration>3', { iteration: 2 })).toBe(false)
+  })
+
+  it('< evaluates correctly', () => {
+    expect(evaluateCondition('error_count<10', { error_count: 5 })).toBe(true)
+    expect(evaluateCondition('error_count<10', { error_count: 10 })).toBe(false)
+    expect(evaluateCondition('error_count<10', { error_count: 15 })).toBe(false)
+  })
+
+  it('absent context key → NaN → numeric comparison returns false', () => {
+    expect(evaluateCondition('satisfaction_score>=0.8', {})).toBe(false)
+  })
+
+  it('numeric context value stored as a number (not string) evaluates correctly', () => {
+    // satisfaction_score stored as 0.9 (Number) — AC5 scenario
+    expect(evaluateCondition('satisfaction_score>=0.8', { satisfaction_score: 0.9 })).toBe(true)
+  })
+
+  it('string operators (= and !=) are unaffected by numeric operator extension', () => {
+    expect(evaluateCondition('outcome=success', { outcome: 'success' })).toBe(true)
+    expect(evaluateCondition('outcome!=fail', { outcome: 'success' })).toBe(true)
+  })
+})

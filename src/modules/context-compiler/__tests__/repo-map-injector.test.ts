@@ -237,4 +237,37 @@ describe('RepoMapInjector', () => {
       expect(result.truncated).toBe(true)
     })
   })
+
+  // -------------------------------------------------------------------------
+  // AC5: .substrate/ path guard — explicit src/ filter
+  // -------------------------------------------------------------------------
+  describe('AC5 — .substrate/ path exclusion guard', () => {
+    it('does not query repo-map engine for .substrate/scenarios/ paths in story content', async () => {
+      const storyContent =
+        'Story references .substrate/scenarios/scenario-login.sh for context.'
+      queryMock.mockResolvedValue(makeQueryResult())
+
+      await injector.buildContext(storyContent)
+
+      // The .substrate/ path should not be included — query should not be called
+      // (the regex only matches src/ paths, so no query should be made)
+      expect(queryMock).not.toHaveBeenCalled()
+    })
+
+    it('queries only src/ paths when story content contains both src/ and .substrate/ paths', async () => {
+      const storyContent =
+        'Modify src/modules/foo/bar.ts and see .substrate/scenarios/x.sh for test data.'
+      queryMock.mockResolvedValue(makeQueryResult())
+
+      await injector.buildContext(storyContent)
+
+      expect(queryMock).toHaveBeenCalledOnce()
+      const callArgs = queryMock.mock.calls[0][0]
+      // Only src/ paths should be queried
+      expect(callArgs.files).toContain('src/modules/foo/bar.ts')
+      // .substrate/ paths must not be in the files list
+      const hasSubstratePath = callArgs.files.some((f: string) => f.includes('.substrate/'))
+      expect(hasSubstratePath).toBe(false)
+    })
+  })
 })

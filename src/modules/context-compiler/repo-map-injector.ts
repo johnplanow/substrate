@@ -43,8 +43,9 @@ export class RepoMapInjector {
   async buildContext(storyContent: string, tokenBudget = 2000): Promise<InjectionResult> {
     // Extract src/ file references from story content
     const matches = storyContent.match(/\bsrc\/[\w/.-]+\.tsx?\b/g) ?? []
+    // Only src/ paths are queried — .substrate/, node_modules/, dist/ excluded by design
     const dedupedPaths = [...new Set(matches)].filter(
-      (p) => !p.endsWith('.test.ts') && !p.endsWith('.test.tsx'),
+      (p) => p.startsWith('src/') && !p.endsWith('.test.ts') && !p.endsWith('.test.tsx'),
     )
 
     // No file refs found — skip query

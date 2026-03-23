@@ -9,6 +9,7 @@
   },
   "files": ["dist"],
   "dependencies": {
-    "@substrate-ai/core": "*"
+    "@substrate-ai/core": "*",
+    "js-yaml": "^4.1.1"
   }
 }

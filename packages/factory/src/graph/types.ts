@@ -166,16 +166,20 @@ export interface Graph {
 /**
  * A single parsed clause of an edge condition expression.
  *
- * Grammar reference (Attractor Spec §10):
+ * Grammar reference (Attractor Spec §10, extended in story 44-5):
  *   condition  ::= clause ('&&' clause)*
  *   clause     ::= key op value
  *   key        ::= [a-zA-Z_][a-zA-Z0-9_]*
- *   op         ::= '=' | '!='
+ *   op         ::= '=' | '!=' | '>=' | '<=' | '>' | '<'
  *   value      ::= quoted_string | unquoted_token
+ *
+ * Numeric comparison operators (>=, <=, >, <) compare context values as
+ * numbers via Number(). String operators (=, !=) retain string-equality
+ * semantics unchanged.
  */
 export interface ConditionClause {
   key: string
-  op: '=' | '!='
+  op: '=' | '!=' | '>=' | '<=' | '>' | '<'
   value: string
 }
 

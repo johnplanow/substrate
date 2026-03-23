@@ -14,3 +14,13 @@ export type { IHandlerRegistry, NodeHandler } from './handlers/index.js'
 // Graph executor — exported for CLI composition root (story 43-10)
 export { createGraphExecutor } from './graph/executor.js'
 export type { GraphExecutor, GraphExecutorConfig } from './graph/executor.js'
+// Scenario store, runner, scorer, and CLI command (stories 44-1, 44-5)
+// Includes: ScenarioStore, ScenarioRunner, computeSatisfactionScore, SatisfactionScore,
+//           registerScenariosCommand (all via scenarios/index.js)
+export * from './scenarios/index.js'
+// Factory CLI command group (story 44-8)
+export { registerFactoryCommand } from './factory-command.js'
+
+// Factory config schema (story 44-9)
+export { FactoryConfigSchema, FactoryExtendedConfigSchema, loadFactoryConfig } from './config.js'
+export type { FactoryConfig, FactoryExtendedConfig } from './config.js'

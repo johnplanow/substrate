@@ -46,6 +46,12 @@ export interface ScenarioResult {
   stdout: string
   stderr: string
   durationMs: number
+  /**
+   * Parsed JSON output when the scenario writes valid JSON to stdout.
+   * Omitted (not set to null) when stdout is plain text or empty.
+   * Added in story 44-2.
+   */
+  parsedOutput?: unknown
 }
 
 /**
@@ -131,6 +137,12 @@ export type FactoryEvents = CoreEvents & {
 
   /** Scenario validation run has completed */
   'scenario:completed': { runId: string; results: ScenarioRunResult; iteration: number }
+
+  /** Scenario integrity check passed — files unmodified since manifest capture */
+  'scenario:integrity-passed': { runId: string; nodeId: string; scenarioCount: number }
+
+  /** Scenario integrity check failed — one or more files were tampered with */
+  'scenario:integrity-failed': { runId: string; nodeId: string; tampered: string[] }
 
   // -------------------------------------------------------------------------
   // Convergence events

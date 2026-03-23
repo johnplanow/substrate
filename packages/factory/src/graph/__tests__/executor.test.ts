@@ -12,6 +12,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import path from 'node:path'
+import os from 'node:os'
 import type { Graph, GraphNode, GraphEdge } from '../types.js'
 import type { IHandlerRegistry, NodeHandler } from '../../handlers/types.js'
 import type { TypedEventBus } from '@substrate-ai/core'
@@ -736,6 +739,77 @@ describe('Context updates: applied after each node', () => {
 // ---------------------------------------------------------------------------
 // allowPartial semantics (story 42-16, AC2/AC3)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// AC6: RunStateManager integration — graph.dot and per-node artifacts
+// ---------------------------------------------------------------------------
+
+describe('AC6: RunStateManager integration — dotSource writes graph.dot and node artifacts', () => {
+  let tmpDir: string
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(path.join(os.tmpdir(), 'executor-ac6-test-'))
+  })
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it('writes graph.dot with dotSource content and per-node status.json for each dispatched node', async () => {
+    const dotSource = 'digraph G { start -> exit }'
+    const successHandler = vi.fn().mockResolvedValue({ status: 'SUCCESS' as const })
+    const registry = makeRegistry(successHandler as unknown as NodeHandler)
+
+    const startNode = makeNode('start')
+    const exitNode = makeNode('exit')
+    const edges = [makeEdge('start', 'exit')]
+    const graph = makeGraph([startNode, exitNode], edges, 'start', 'exit')
+
+    const executor = createGraphExecutor()
+    const outcome = await executor.run(
+      graph,
+      makeConfig(registry, { logsRoot: tmpDir, dotSource }),
+    )
+
+    expect(outcome.status).toBe('SUCCESS')
+
+    // AC6 behavior 1: RunStateManager instantiated with logsRoot and initRun called
+    // before main loop → graph.dot written with dotSource content
+    const graphDotContent = await readFile(path.join(tmpDir, 'graph.dot'), 'utf8')
+    expect(graphDotContent).toBe(dotSource)
+
+    // AC6 behavior 2: writeNodeArtifacts called per completed node → status.json written
+    // Only 'start' is dispatched (exit terminates the loop without dispatch)
+    const statusJsonRaw = await readFile(path.join(tmpDir, 'start', 'status.json'), 'utf8')
+    const statusJson = JSON.parse(statusJsonRaw) as Record<string, unknown>
+    expect(statusJson).toMatchObject({
+      nodeId: 'start',
+      status: 'SUCCESS',
+    })
+    expect(typeof statusJson['startedAt']).toBe('number')
+    expect(typeof statusJson['completedAt']).toBe('number')
+    expect(typeof statusJson['durationMs']).toBe('number')
+  })
+
+  it('does not write graph.dot when dotSource is omitted (backward-compatible)', async () => {
+    const successHandler = vi.fn().mockResolvedValue({ status: 'SUCCESS' as const })
+    const registry = makeRegistry(successHandler as unknown as NodeHandler)
+
+    const startNode = makeNode('start')
+    const exitNode = makeNode('exit')
+    const edges = [makeEdge('start', 'exit')]
+    const graph = makeGraph([startNode, exitNode], edges, 'start', 'exit')
+
+    // No dotSource — RunStateManager should not be instantiated
+    const executor = createGraphExecutor()
+    const outcome = await executor.run(graph, makeConfig(registry, { logsRoot: tmpDir }))
+
+    expect(outcome.status).toBe('SUCCESS')
+
+    // graph.dot must NOT exist (RunStateManager was never created)
+    await expect(readFile(path.join(tmpDir, 'graph.dot'), 'utf8')).rejects.toThrow()
+  })
+})
 
 describe('allowPartial semantics', () => {
   it('node with allowPartial=false, handler returns PARTIAL_SUCCESS → executor treats final node outcome as FAILURE (run returns FAIL)', async () => {
