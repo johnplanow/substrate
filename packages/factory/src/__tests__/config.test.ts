@@ -9,8 +9,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import path from 'node:path'
 import { ZodError } from 'zod'
-import { FactoryConfigSchema, FactoryExtendedConfigSchema, loadFactoryConfig } from '../config.js'
+import { FactoryConfigSchema, FactoryExtendedConfigSchema, loadFactoryConfig, resolveConfigPath } from '../config.js'
 
 // ---------------------------------------------------------------------------
 // Module mocks (hoisted before imports in vitest)
@@ -242,5 +243,21 @@ describe('loadFactoryConfig', () => {
     vi.mocked(readFile).mockRejectedValueOnce(parseError)
 
     await expect(loadFactoryConfig('/project')).rejects.toThrow('YAML parse error')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolveConfigPath
+// ---------------------------------------------------------------------------
+
+describe('resolveConfigPath', () => {
+  it('returns explicit path when provided and file exists', () => {
+    // Use package.json as a known-existing file
+    const knownFile = path.join(process.cwd(), 'package.json')
+    expect(resolveConfigPath('/unused', knownFile)).toBe(knownFile)
+  })
+
+  it('returns null when no config files exist', () => {
+    expect(resolveConfigPath('/nonexistent-dir-abc123')).toBeNull()
   })
 })

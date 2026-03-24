@@ -40,6 +40,7 @@ vi.mock('../handlers/index.js', () => ({
 
 vi.mock('../config.js', () => ({
   loadFactoryConfig: vi.fn(),
+  resolveConfigPath: vi.fn().mockReturnValue(null),
 }))
 
 vi.mock('../scenarios/cli-command.js', () => ({

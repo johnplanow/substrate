@@ -23,7 +23,7 @@ export { registerFactoryCommand } from './factory-command.js'
 export type { FactoryCommandOptions } from './factory-command.js'
 
 // Factory config schema (story 44-9)
-export { FactoryConfigSchema, FactoryExtendedConfigSchema, loadFactoryConfig } from './config.js'
+export { FactoryConfigSchema, FactoryExtendedConfigSchema, loadFactoryConfig, resolveConfigPath } from './config.js'
 export type { FactoryConfig, FactoryExtendedConfig } from './config.js'
 
 // Convergence subsystem — ConvergenceController + per-node budget (stories 42-16, 45-3)

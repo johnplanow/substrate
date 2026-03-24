@@ -25,7 +25,7 @@
 import type { Command } from 'commander'
 import { readFile, mkdir, writeFile, access } from 'node:fs/promises'
 import { execSync } from 'node:child_process'
-import { rmSync } from 'node:fs'
+import { rmSync, watchFile, unwatchFile } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import yaml from 'js-yaml'
@@ -38,7 +38,7 @@ import { createValidator } from './graph/validator.js'
 import { createGraphExecutor } from './graph/executor.js'
 import { createDefaultRegistry } from './handlers/index.js'
 import { RunStateManager } from './graph/run-state.js'
-import { loadFactoryConfig } from './config.js'
+import { loadFactoryConfig, resolveConfigPath } from './config.js'
 import { factorySchema } from './persistence/factory-schema.js'
 import { TypedEventBusImpl, createDatabaseAdapter } from '@substrate-ai/core'
 import type { DatabaseAdapter } from '@substrate-ai/core'
@@ -194,26 +194,59 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
         await factorySchema(adapter)
 
         const executor = createGraphExecutor()
-        const result = await executor.run(graph, {
+        const executorConfig = {
           runId,
           logsRoot,
           handlerRegistry: createDefaultRegistry(),
           eventBus,
           dotSource,
           adapter,
-          /** wallClockCapMs derived from FactoryConfig.wall_clock_cap_seconds × 1000 (story 45-10) */
           wallClockCapMs: (factoryConfig.factory?.wall_clock_cap_seconds ?? 0) * 1000,
-          /** pipelineBudgetCapUsd forwarded as-is from FactoryConfig.budget_cap_usd (story 45-10) */
           pipelineBudgetCapUsd: factoryConfig.factory?.budget_cap_usd ?? 0,
-          /** plateauWindow forwarded as-is from FactoryConfig.plateau_window (story 45-10) */
           plateauWindow: factoryConfig.factory?.plateau_window ?? 3,
-          /** plateauThreshold forwarded as-is from FactoryConfig.plateau_threshold (story 45-10) */
           plateauThreshold: factoryConfig.factory?.plateau_threshold ?? 0.05,
-          /** satisfactionThreshold forwarded from FactoryConfig.satisfaction_threshold (story 46-6) */
           satisfactionThreshold: factoryConfig.factory?.satisfaction_threshold ?? 0.8,
-          /** qualityMode forwarded from FactoryConfig.quality_mode (story 46-6) */
           qualityMode: factoryConfig.factory?.quality_mode ?? 'dual-signal',
-        })
+        }
+
+        // Story 46-2 AC4: Hot-reload satisfaction threshold from config file.
+        // Watches the config file every 2 seconds and updates executorConfig.satisfactionThreshold
+        // when the value changes. The executor reads the threshold from the config object by
+        // reference on every convergence iteration, so mutations take effect immediately.
+        const configPath = resolveConfigPath(projectDir, opts.config)
+        let watchingConfig = false
+        if (configPath) {
+          try {
+            watchFile(configPath, { interval: 2000 }, async () => {
+            try {
+              const updated = await loadFactoryConfig(projectDir, opts.config)
+              const newThreshold = updated.factory?.satisfaction_threshold ?? 0.8
+              if (newThreshold !== executorConfig.satisfactionThreshold) {
+                const oldThreshold = executorConfig.satisfactionThreshold
+                executorConfig.satisfactionThreshold = newThreshold
+                process.stderr.write(
+                  `[hot-reload] satisfaction_threshold changed: ${oldThreshold} → ${newThreshold}\n`,
+                )
+              }
+            } catch {
+              // Ignore parse errors during hot-reload — keep the previous threshold
+            }
+          })
+          watchingConfig = true
+          } catch {
+            // watchFile may fail if path doesn't exist — skip hot-reload
+          }
+        }
+
+        let result
+        try {
+          result = await executor.run(graph, executorConfig)
+        } finally {
+          // Always stop watching regardless of success/failure
+          if (watchingConfig && configPath) {
+            try { unwatchFile(configPath) } catch { /* ignore */ }
+          }
+        }
 
         if (result.status === 'SUCCESS') {
           process.stdout.write('Pipeline completed successfully.\n')

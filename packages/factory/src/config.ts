@@ -9,6 +9,7 @@
 
 import { z } from 'zod'
 import { readFile } from 'node:fs/promises'
+import { accessSync } from 'node:fs'
 import path from 'node:path'
 import yaml from 'js-yaml'
 import { SubstrateConfigSchema, DEFAULT_GLOBAL_SETTINGS } from '@substrate-ai/core'
@@ -87,6 +88,32 @@ export type FactoryExtendedConfig = z.infer<typeof FactoryExtendedConfigSchema>
  * @param explicitConfigPath - Optional explicit path to the config file (e.g. from `--config` flag).
  * @returns Parsed and validated `FactoryExtendedConfig` with all defaults applied.
  */
+/**
+ * Resolve the config file path without loading it.
+ * Returns the first existing path, or null if no config file found.
+ */
+export function resolveConfigPath(
+  projectDir: string,
+  explicitConfigPath?: string,
+): string | null {
+  const candidates = explicitConfigPath
+    ? [explicitConfigPath]
+    : [
+        path.join(projectDir, '.substrate', 'config.yaml'),
+        path.join(projectDir, 'config.yaml'),
+      ]
+
+  for (const candidate of candidates) {
+    try {
+      accessSync(candidate)
+      return candidate
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
 export async function loadFactoryConfig(
   projectDir: string,
   explicitConfigPath?: string,
