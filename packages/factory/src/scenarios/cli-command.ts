@@ -41,15 +41,15 @@ export function registerScenariosCommand(program: Command): void {
       const results = await runner.run(manifest, process.cwd())
 
       if (opts.format === 'json') {
-        console.log(JSON.stringify(results))
+        process.stdout.write(JSON.stringify(results) + '\n')
       } else {
         const { total, passed, failed } = results.summary
-        console.log(`Scenarios: ${passed} passed, ${failed} failed, ${total} total`)
+        process.stdout.write(`Scenarios: ${passed} passed, ${failed} failed, ${total} total\n`)
         for (const scenario of results.scenarios) {
           const statusMark = scenario.status === 'pass' ? 'PASS' : 'FAIL'
-          console.log(`  [${statusMark}] ${scenario.name} (${scenario.durationMs}ms)`)
+          process.stdout.write(`  [${statusMark}] ${scenario.name} (${scenario.durationMs}ms)\n`)
           if (scenario.status === 'fail' && scenario.stderr) {
-            console.log(`         Error: ${scenario.stderr}`)
+            process.stdout.write(`         Error: ${scenario.stderr}\n`)
           }
         }
       }
@@ -63,12 +63,12 @@ export function registerScenariosCommand(program: Command): void {
       const manifest = await store.discover(process.cwd())
 
       if (manifest.scenarios.length === 0) {
-        console.log('No scenarios found in .substrate/scenarios/')
+        process.stdout.write('No scenarios found in .substrate/scenarios/\n')
         return
       }
 
       for (const entry of manifest.scenarios) {
-        console.log(`${entry.name}\t${entry.checksum}`)
+        process.stdout.write(`${entry.name}\t${entry.checksum}\n`)
       }
     })
 }

@@ -194,7 +194,7 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
         await factorySchema(adapter)
 
         const executor = createGraphExecutor()
-        await executor.run(graph, {
+        const result = await executor.run(graph, {
           runId,
           logsRoot,
           handlerRegistry: createDefaultRegistry(),
@@ -214,6 +214,12 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
           /** qualityMode forwarded from FactoryConfig.quality_mode (story 46-6) */
           qualityMode: factoryConfig.factory?.quality_mode ?? 'dual-signal',
         })
+
+        if (result.status === 'SUCCESS') {
+          process.stdout.write('Pipeline completed successfully.\n')
+        } else {
+          process.stderr.write('Pipeline failed: ' + (result.failureReason ?? result.status) + '\n')
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         process.stderr.write(`Error: ${msg}\n`)

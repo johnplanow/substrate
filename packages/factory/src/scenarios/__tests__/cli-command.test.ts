@@ -62,11 +62,18 @@ const SCENARIO_RUN_RESULT: ScenarioRunResult = {
 // ---------------------------------------------------------------------------
 
 /**
- * Spy on console.log and return the spy instance.
+ * Spy on process.stdout.write and return the spy instance.
  * Callers are responsible for restoring in afterEach.
  */
-function captureConsoleLog() {
-  return vi.spyOn(console, 'log').mockImplementation(() => {})
+function captureStdoutWrite() {
+  return vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+}
+
+/**
+ * Extract lines written to the spy, stripping trailing newlines.
+ */
+function getWrittenLines(spy: ReturnType<typeof captureStdoutWrite>): string[] {
+  return spy.mock.calls.map((c) => String(c[0]).replace(/\n$/, ''))
 }
 
 /**
@@ -85,10 +92,10 @@ async function runCmd(args: string[]) {
 // ---------------------------------------------------------------------------
 
 describe('scenarios run --format json (AC1 — story 44-5)', () => {
-  let spy: ReturnType<typeof captureConsoleLog>
+  let spy: ReturnType<typeof captureStdoutWrite>
 
   beforeEach(() => {
-    spy = captureConsoleLog()
+    spy = captureStdoutWrite()
   })
 
   afterEach(() => {
@@ -132,7 +139,7 @@ describe('scenarios run --format json (AC1 — story 44-5)', () => {
     expect(mockRun).toHaveBeenCalledTimes(1)
   })
 
-  it('writes JSON-serialized ScenarioRunResult to stdout via console.log', async () => {
+  it('writes JSON-serialized ScenarioRunResult to stdout via process.stdout.write', async () => {
     const { ScenarioStore } = await import('../store.js')
     const { createScenarioRunner } = await import('../runner.js')
 
@@ -147,8 +154,8 @@ describe('scenarios run --format json (AC1 — story 44-5)', () => {
 
     await runCmd(['run', '--format', 'json'])
 
-    const logged = spy.mock.calls.map((c) => c[0] as string)
-    // One of the console.log calls must be parseable JSON with ScenarioRunResult shape
+    const logged = getWrittenLines(spy)
+    // One of the process.stdout.write calls must be parseable JSON with ScenarioRunResult shape
     const jsonLine = logged.find((l) => {
       try {
         const parsed = JSON.parse(l) as Record<string, unknown>
@@ -176,7 +183,7 @@ describe('scenarios run --format json (AC1 — story 44-5)', () => {
 
     await runCmd(['run', '--format', 'json'])
 
-    const logged = spy.mock.calls.map((c) => c[0] as string)
+    const logged = getWrittenLines(spy)
     const jsonLine = logged.find((l) => {
       try {
         JSON.parse(l)
@@ -209,7 +216,7 @@ describe('scenarios run --format json (AC1 — story 44-5)', () => {
 
     await runCmd(['run', '--format', 'json'])
 
-    const logged = spy.mock.calls.map((c) => c[0] as string)
+    const logged = getWrittenLines(spy)
     const jsonLine = logged.find((l) => {
       try {
         JSON.parse(l)
@@ -241,7 +248,7 @@ describe('scenarios run --format json (AC1 — story 44-5)', () => {
 
     await runCmd(['run', '--format', 'json'])
 
-    const logged = spy.mock.calls.map((c) => c[0] as string)
+    const logged = getWrittenLines(spy)
     const jsonLine = logged.find((l) => {
       try {
         JSON.parse(l)
@@ -264,10 +271,10 @@ describe('scenarios run --format json (AC1 — story 44-5)', () => {
 // ---------------------------------------------------------------------------
 
 describe('scenarios run --format json — empty scenario directory (AC1 edge case)', () => {
-  let spy: ReturnType<typeof captureConsoleLog>
+  let spy: ReturnType<typeof captureStdoutWrite>
 
   beforeEach(() => {
-    spy = captureConsoleLog()
+    spy = captureStdoutWrite()
   })
 
   afterEach(() => {
@@ -294,7 +301,7 @@ describe('scenarios run --format json — empty scenario directory (AC1 edge cas
 
     await runCmd(['run', '--format', 'json'])
 
-    const logged = spy.mock.calls.map((c) => c[0] as string)
+    const logged = getWrittenLines(spy)
     const jsonLine = logged.find((l) => {
       try {
         const p = JSON.parse(l) as Record<string, unknown>

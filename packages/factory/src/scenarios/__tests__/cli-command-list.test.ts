@@ -36,11 +36,18 @@ vi.mock('../runner.js', () => ({
 // ---------------------------------------------------------------------------
 
 /**
- * Spy on console.log and return the spy instance.
+ * Spy on process.stdout.write and return the spy instance.
  * Callers are responsible for restoring in afterEach.
  */
-function captureConsoleLog() {
-  return vi.spyOn(console, 'log').mockImplementation(() => {})
+function captureStdoutWrite() {
+  return vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+}
+
+/**
+ * Extract lines written to the spy, stripping trailing newlines.
+ */
+function getWrittenLines(spy: ReturnType<typeof captureStdoutWrite>): string[] {
+  return spy.mock.calls.map((c) => String(c[0]).replace(/\n$/, ''))
 }
 
 /**
@@ -59,10 +66,10 @@ async function runCmd(args: string[]) {
 // ---------------------------------------------------------------------------
 
 describe('scenarios list subcommand', () => {
-  let spy: ReturnType<typeof captureConsoleLog>
+  let spy: ReturnType<typeof captureStdoutWrite>
 
   beforeEach(() => {
-    spy = captureConsoleLog()
+    spy = captureStdoutWrite()
   })
 
   afterEach(() => {
@@ -86,7 +93,7 @@ describe('scenarios list subcommand', () => {
 
     await runCmd(['list'])
 
-    const logged = spy.mock.calls.map((c) => c[0] as string)
+    const logged = getWrittenLines(spy)
     expect(logged).toContain('scenario-a.sh\tabc123')
     expect(logged).toContain('scenario-b.py\tdef456')
   })
@@ -104,7 +111,7 @@ describe('scenarios list subcommand', () => {
 
     await runCmd(['list'])
 
-    const logged = spy.mock.calls.map((c) => c[0] as string)
+    const logged = getWrittenLines(spy)
     expect(logged).toContain('No scenarios found in .substrate/scenarios/')
   })
 
@@ -123,17 +130,17 @@ describe('scenarios list subcommand', () => {
 
     await runCmd(['list'])
 
-    const logged = spy.mock.calls.map((c) => c[0] as string)
+    const logged = getWrittenLines(spy)
     expect(logged).toHaveLength(1)
     expect(logged[0]).toBe('scenario-only.ts\tdeadbeef')
   })
 })
 
 describe('AC7: top-level scenarios run backward compatibility', () => {
-  let spy: ReturnType<typeof captureConsoleLog>
+  let spy: ReturnType<typeof captureStdoutWrite>
 
   beforeEach(() => {
-    spy = captureConsoleLog()
+    spy = captureStdoutWrite()
   })
 
   afterEach(() => {
@@ -177,7 +184,7 @@ describe('AC7: top-level scenarios run backward compatibility', () => {
       // Invoke the top-level path — must still work per AC7
       await program.parseAsync(['node', 'substrate', 'scenarios', 'run'])
 
-      const logged = spy.mock.calls.map((c) => c[0] as string)
+      const logged = getWrittenLines(spy)
       expect(logged.some((l) => l.includes('Scenarios:'))).toBe(true)
       expect(logged.some((l) => l.includes('[PASS]'))).toBe(true)
     },
@@ -185,10 +192,10 @@ describe('AC7: top-level scenarios run backward compatibility', () => {
 })
 
 describe('scenarios run subcommand', () => {
-  let spy: ReturnType<typeof captureConsoleLog>
+  let spy: ReturnType<typeof captureStdoutWrite>
 
   beforeEach(() => {
-    spy = captureConsoleLog()
+    spy = captureStdoutWrite()
   })
 
   afterEach(() => {
@@ -225,7 +232,7 @@ describe('scenarios run subcommand', () => {
 
     await runCmd(['run'])
 
-    const logged = spy.mock.calls.map((c) => c[0] as string)
+    const logged = getWrittenLines(spy)
     expect(logged.some((l) => l.includes('Scenarios: 1 passed, 1 failed, 2 total'))).toBe(true)
     expect(logged.some((l) => l.includes('[PASS]') && l.includes('s.sh'))).toBe(true)
     expect(logged.some((l) => l.includes('[FAIL]') && l.includes('f.sh'))).toBe(true)
@@ -256,7 +263,7 @@ describe('scenarios run subcommand', () => {
 
     await runCmd(['run', '--format', 'json'])
 
-    const logged = spy.mock.calls.map((c) => c[0] as string)
+    const logged = getWrittenLines(spy)
     // At least one call must be parseable JSON with summary.total
     const jsonLine = logged.find((l) => {
       try {
