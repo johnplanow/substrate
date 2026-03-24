@@ -34,8 +34,8 @@ export async function factorySchema(adapter: DatabaseAdapter): Promise<void> {
   // -- graph_node_results (AC2, AC4) ------------------------------------------
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS graph_node_results (
-      id               INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id           VARCHAR(255) NOT NULL REFERENCES graph_runs(id),
+      id               INTEGER PRIMARY KEY AUTO_INCREMENT,
+      run_id           VARCHAR(255) NOT NULL ,
       node_id          VARCHAR(255) NOT NULL,
       attempt          INTEGER NOT NULL DEFAULT 1,
       status           VARCHAR(32) NOT NULL,
@@ -52,8 +52,8 @@ export async function factorySchema(adapter: DatabaseAdapter): Promise<void> {
   // -- scenario_results (AC3, AC4) --------------------------------------------
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS scenario_results (
-      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id             VARCHAR(255) NOT NULL REFERENCES graph_runs(id),
+      id                 INTEGER PRIMARY KEY AUTO_INCREMENT,
+      run_id             VARCHAR(255) NOT NULL ,
       node_id            VARCHAR(255) NOT NULL,
       iteration          INTEGER NOT NULL DEFAULT 1,
       total_scenarios    INTEGER NOT NULL,
@@ -73,7 +73,7 @@ export async function factorySchema(adapter: DatabaseAdapter): Promise<void> {
     CREATE TABLE IF NOT EXISTS twin_runs (
       id          VARCHAR(255) PRIMARY KEY,
       run_id      VARCHAR(255),
-      twin_name   TEXT NOT NULL,
+      twin_name   VARCHAR(255) NOT NULL,
       started_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       stopped_at  DATETIME,
       status      VARCHAR(32) NOT NULL DEFAULT 'running',
@@ -84,8 +84,8 @@ export async function factorySchema(adapter: DatabaseAdapter): Promise<void> {
   // -- twin_health_failures (AC2) ---------------------------------------------
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS twin_health_failures (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      twin_name     TEXT NOT NULL,
+      id            INTEGER PRIMARY KEY AUTO_INCREMENT,
+      twin_name     VARCHAR(255) NOT NULL,
       run_id        VARCHAR(255),
       checked_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       error_message TEXT NOT NULL
