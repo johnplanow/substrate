@@ -20,6 +20,7 @@ export type { GraphExecutor, GraphExecutorConfig } from './graph/executor.js'
 export * from './scenarios/index.js'
 // Factory CLI command group (story 44-8)
 export { registerFactoryCommand } from './factory-command.js'
+export type { FactoryCommandOptions } from './factory-command.js'
 
 // Factory config schema (story 44-9)
 export { FactoryConfigSchema, FactoryExtendedConfigSchema, loadFactoryConfig } from './config.js'

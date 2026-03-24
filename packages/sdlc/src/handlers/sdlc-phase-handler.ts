@@ -61,6 +61,35 @@ export function createSdlcPhaseHandler(deps: SdlcPhaseHandlerDeps): SdlcNodeHand
     // AC1: concept is only needed for the analysis phase
     const concept = phaseName === 'analysis' ? context.getString('concept', '') : ''
 
+    // Phase-skip check: if the phase's output artifact already exists (from a prior run or
+    // from the linear engine having completed it), skip dispatch and return SUCCESS.
+    // This gives the graph engine behavioral parity with the linear engine's detectStartPhase().
+    const PHASE_ARTIFACT_TYPES: Record<string, string> = {
+      analysis: 'product-brief',
+      planning: 'prd',
+      solutioning: 'stories',
+    }
+    const artifactType = PHASE_ARTIFACT_TYPES[phaseName]
+    if (artifactType !== undefined) {
+      try {
+        const db = (deps.phaseDeps as { db?: { query: (sql: string, params?: unknown[]) => Promise<unknown[]> } }).db
+        if (db) {
+          const rows = await db.query(
+            'SELECT id FROM artifacts WHERE phase = ? AND type = ? LIMIT 1',
+            [phaseName, artifactType],
+          )
+          if (Array.isArray(rows) && rows.length > 0) {
+            return {
+              status: 'SUCCESS',
+              notes: `Phase ${phaseName} already complete — artifact '${artifactType}' exists, skipping dispatch`,
+            }
+          }
+        }
+      } catch {
+        // DB query failed — proceed with normal dispatch (don't block on skip check failure)
+      }
+    }
+
     // Build phase-specific params (analysis requires concept; others only runId)
     const params: Record<string, unknown> =
       phaseName === 'analysis' ? { runId, concept } : { runId }

@@ -41,6 +41,7 @@ import { RunStateManager } from './graph/run-state.js'
 import { loadFactoryConfig } from './config.js'
 import { factorySchema } from './persistence/factory-schema.js'
 import { TypedEventBusImpl, createDatabaseAdapter } from '@substrate-ai/core'
+import type { DatabaseAdapter } from '@substrate-ai/core'
 import type { FactoryEvents } from './events.js'
 import type { ValidationDiagnostic } from './graph/types.js'
 
@@ -106,6 +107,13 @@ const TOTAL_RULE_COUNT = 13
 // registerFactoryCommand
 // ---------------------------------------------------------------------------
 
+/** Options for registerFactoryCommand — allows CLI composition root to inject dependencies. */
+export interface FactoryCommandOptions {
+  /** Optional adapter factory. When provided, used instead of core's createDatabaseAdapter
+   *  to create a Dolt-capable adapter. The monolith CLI injects this with DoltClient. */
+  createAdapter?: (basePath: string) => DatabaseAdapter
+}
+
 /**
  * Register the `factory` command group on the provided Commander program.
  *
@@ -113,7 +121,7 @@ const TOTAL_RULE_COUNT = 13
  * Story 44-9: registers the `run` subcommand.
  * Story 46-7: registers the `validate` subcommand.
  */
-export function registerFactoryCommand(program: Command): void {
+export function registerFactoryCommand(program: Command, options?: FactoryCommandOptions): void {
   const factoryCmd = program
     .command('factory')
     .description('Factory pipeline and scenario management commands')
@@ -180,7 +188,9 @@ export function registerFactoryCommand(program: Command): void {
         // Initialize persistence adapter and factory schema (story 46-3).
         // Uses auto-detection: Dolt if available, otherwise in-memory fallback.
         // factorySchema is idempotent — safe to call on every run.
-        const adapter = createDatabaseAdapter({ backend: 'auto', basePath: projectDir })
+        const adapter = options?.createAdapter
+          ? options.createAdapter(projectDir)
+          : createDatabaseAdapter({ backend: 'auto', basePath: projectDir })
         await factorySchema(adapter)
 
         const executor = createGraphExecutor()

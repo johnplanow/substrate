@@ -666,3 +666,62 @@ describe('Story 43-13 AC3: exit gate and runner error prefix guard', () => {
     expect(outcome.failureReason).not.toContain('exit gate failed')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Phase-skip: already-completed phases return SUCCESS without dispatch
+// ---------------------------------------------------------------------------
+
+describe('Phase-skip: skip dispatch when phase artifact already exists', () => {
+  it('skips analysis dispatch when product-brief artifact exists', async () => {
+    const mockDb = {
+      query: vi.fn().mockResolvedValue([{ id: 'artifact-123' }]),
+    }
+    const deps = makeDeps({ phaseDeps: { db: mockDb } })
+    const handler = createSdlcPhaseHandler(deps)
+    const context = makeContext(defaultContextValues)
+
+    const outcome = await handler(makeNode('analysis'), context, stubGraph)
+
+    expect(outcome.status).toBe('SUCCESS')
+    expect(outcome.notes).toContain('already complete')
+    expect(deps.phases.analysis).not.toHaveBeenCalled()
+  })
+
+  it('skips planning dispatch when prd artifact exists', async () => {
+    const mockDb = {
+      query: vi.fn().mockResolvedValue([{ id: 'artifact-456' }]),
+    }
+    const deps = makeDeps({ phaseDeps: { db: mockDb } })
+    const handler = createSdlcPhaseHandler(deps)
+    const context = makeContext(defaultContextValues)
+
+    const outcome = await handler(makeNode('planning'), context, stubGraph)
+
+    expect(outcome.status).toBe('SUCCESS')
+    expect(outcome.notes).toContain('already complete')
+    expect(deps.phases.planning).not.toHaveBeenCalled()
+  })
+
+  it('dispatches analysis normally when no artifact exists', async () => {
+    const mockDb = {
+      query: vi.fn().mockResolvedValue([]),
+    }
+    const deps = makeDeps({ phaseDeps: { db: mockDb } })
+    const handler = createSdlcPhaseHandler(deps)
+    const context = makeContext(defaultContextValues)
+
+    const outcome = await handler(makeNode('analysis'), context, stubGraph)
+
+    expect(deps.phases.analysis).toHaveBeenCalled()
+  })
+
+  it('proceeds normally when phaseDeps has no db (backward compat)', async () => {
+    const deps = makeDeps({ phaseDeps: {} })
+    const handler = createSdlcPhaseHandler(deps)
+    const context = makeContext(defaultContextValues)
+
+    const outcome = await handler(makeNode('analysis'), context, stubGraph)
+
+    expect(deps.phases.analysis).toHaveBeenCalled()
+  })
+})

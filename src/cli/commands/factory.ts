@@ -1,11 +1,18 @@
 /**
  * `substrate factory` command group — factory pipeline and scenario management.
  *
- * Delegates to `registerFactoryCommand` from @substrate-ai/factory, which
- * registers the `factory scenarios list` and `factory scenarios run [--format json|text]`
- * subcommands.
+ * Composition root: injects DoltClient-capable adapter factory into the
+ * factory command so persistence uses Dolt when available.
  *
  * Story 44-8.
  */
 
-export { registerFactoryCommand } from '@substrate-ai/factory'
+import type { Command } from 'commander'
+import { registerFactoryCommand as _registerFactoryCommand } from '@substrate-ai/factory'
+import { createDatabaseAdapter } from '../../persistence/adapter.js'
+
+export function registerFactoryCommand(program: Command): void {
+  _registerFactoryCommand(program, {
+    createAdapter: (basePath: string) => createDatabaseAdapter({ backend: 'auto', basePath }),
+  })
+}
