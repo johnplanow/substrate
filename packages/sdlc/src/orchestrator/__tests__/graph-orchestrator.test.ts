@@ -332,4 +332,49 @@ describe('applyConfigToGraph — Story 43-8', () => {
       "applyConfigToGraph: graph does not contain a 'dev_story' node",
     )
   })
+
+  it('sets graph.defaultMaxRetries to maxReviewCycles so failRouteCount cap respects --max-review-cycles', () => {
+    const graph = makePatchableGraph(2)
+    applyConfigToGraph(graph, { maxReviewCycles: 5 })
+    expect((graph as { defaultMaxRetries?: number }).defaultMaxRetries).toBe(5)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// epicId derivation in initialContext
+// ---------------------------------------------------------------------------
+
+describe('epicId derivation in initialContext', () => {
+  it('derives epicId from story key "48-1" → "48"', async () => {
+    const executor: IGraphExecutorLocal = {
+      run: vi.fn().mockResolvedValue({ status: 'SUCCESS' } as GraphRunResult),
+    }
+    const orch = createGraphOrchestrator(makeBaseConfig({ executor, gcPauseMs: 0 }))
+    await orch.run(['48-1'])
+    const call = (executor.run as ReturnType<typeof vi.fn>).mock.calls[0]
+    const config = call[1] as { initialContext?: Record<string, unknown> }
+    expect(config.initialContext?.epicId).toBe('48')
+  })
+
+  it('derives epicId from story key "3-12" → "3"', async () => {
+    const executor: IGraphExecutorLocal = {
+      run: vi.fn().mockResolvedValue({ status: 'SUCCESS' } as GraphRunResult),
+    }
+    const orch = createGraphOrchestrator(makeBaseConfig({ executor, gcPauseMs: 0 }))
+    await orch.run(['3-12'])
+    const call = (executor.run as ReturnType<typeof vi.fn>).mock.calls[0]
+    const config = call[1] as { initialContext?: Record<string, unknown> }
+    expect(config.initialContext?.epicId).toBe('3')
+  })
+
+  it('derives empty epicId from malformed key "noprefix" → ""', async () => {
+    const executor: IGraphExecutorLocal = {
+      run: vi.fn().mockResolvedValue({ status: 'SUCCESS' } as GraphRunResult),
+    }
+    const orch = createGraphOrchestrator(makeBaseConfig({ executor, gcPauseMs: 0 }))
+    await orch.run(['noprefix'])
+    const call = (executor.run as ReturnType<typeof vi.fn>).mock.calls[0]
+    const config = call[1] as { initialContext?: Record<string, unknown> }
+    expect(config.initialContext?.epicId).toBe('noprefix')
+  })
 })

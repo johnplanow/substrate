@@ -373,6 +373,7 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
  */
 interface PatchableGraph {
   nodes: { get(id: string): { maxRetries?: number } | undefined }
+  defaultMaxRetries?: number
 }
 
 /**
@@ -400,4 +401,8 @@ export function applyConfigToGraph(graph: PatchableGraph, options: ApplyConfigOp
     throw new Error("applyConfigToGraph: graph does not contain a 'dev_story' node")
   }
   devStoryNode.maxRetries = options.maxReviewCycles
+  // Also set graph-level defaultMaxRetries so the executor's failRouteCount safeguard
+  // (which bounds conditional edge loops like code_review → dev_story) respects
+  // the --max-review-cycles value instead of using a hardcoded default.
+  graph.defaultMaxRetries = options.maxReviewCycles
 }

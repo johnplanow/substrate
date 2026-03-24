@@ -757,6 +757,9 @@ export function createGraphExecutor(): GraphExecutor {
         // Set 'outcome' in context so conditional edges (e.g. condition="outcome=success")
         // can reference the handler's result. Status is lowercased for consistency with
         // DOT convention (outcome=success, outcome=fail).
+        // NOTE: This overwrites on every node. For sequential graphs this is correct — each
+        // node's outcome is available to its outgoing edge conditions. For future parallel
+        // subgraphs (Epic 50), this would need to be scoped per-subgraph to avoid clobbering.
         context.set('outcome', outcome.status.toLowerCase())
 
         // ----------------------------------------------------------------

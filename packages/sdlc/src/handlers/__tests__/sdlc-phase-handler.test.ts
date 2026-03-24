@@ -725,3 +725,118 @@ describe('Phase-skip: skip dispatch when phase artifact already exists', () => {
     expect(deps.phases.analysis).toHaveBeenCalled()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story-key skip: explicit story dispatch skips pre-implementation phases
+// ---------------------------------------------------------------------------
+
+describe('Story-key skip: explicit story dispatch skips pre-implementation phases', () => {
+  it('skips analysis when storyKey is present in context', async () => {
+    const deps = makeDeps()
+    const handler = createSdlcPhaseHandler(deps)
+    const context = makeContext({ ...defaultContextValues, storyKey: '48-1' })
+
+    const outcome = await handler(makeNode('analysis'), context, stubGraph)
+
+    expect(outcome.status).toBe('SUCCESS')
+    expect(outcome.notes).toContain('skipped')
+    expect(outcome.notes).toContain('explicit story dispatch')
+    expect(deps.phases.analysis).not.toHaveBeenCalled()
+  })
+
+  it('skips planning when storyKey is present in context', async () => {
+    const deps = makeDeps()
+    const handler = createSdlcPhaseHandler(deps)
+    const context = makeContext({ ...defaultContextValues, storyKey: '48-1' })
+
+    const outcome = await handler(makeNode('planning'), context, stubGraph)
+
+    expect(outcome.status).toBe('SUCCESS')
+    expect(outcome.notes).toContain('skipped')
+    expect(deps.phases.planning).not.toHaveBeenCalled()
+  })
+
+  it('skips solutioning when storyKey is present in context', async () => {
+    const deps = makeDeps()
+    const handler = createSdlcPhaseHandler(deps)
+    const context = makeContext({ ...defaultContextValues, storyKey: '48-1' })
+
+    const outcome = await handler(makeNode('solutioning'), context, stubGraph)
+
+    expect(outcome.status).toBe('SUCCESS')
+    expect(outcome.notes).toContain('skipped')
+    expect(deps.phases.solutioning).not.toHaveBeenCalled()
+  })
+
+  it('does NOT skip when storyKey is empty', async () => {
+    const deps = makeDeps()
+    const handler = createSdlcPhaseHandler(deps)
+    const context = makeContext({ ...defaultContextValues, storyKey: '' })
+
+    await handler(makeNode('analysis'), context, stubGraph)
+
+    expect(deps.phases.analysis).toHaveBeenCalled()
+  })
+
+  it('does NOT skip when storyKey is absent from context', async () => {
+    const deps = makeDeps()
+    const handler = createSdlcPhaseHandler(deps)
+    const context = makeContext(defaultContextValues) // no storyKey
+
+    await handler(makeNode('analysis'), context, stubGraph)
+
+    expect(deps.phases.analysis).toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Phase-skip artifact registration: registers artifacts for current pipeline run
+// ---------------------------------------------------------------------------
+
+describe('Phase-skip artifact registration for current pipeline run', () => {
+  it('registers artifact for current run when pipelineRunId is in context', async () => {
+    const mockDb = {
+      query: vi.fn()
+        // First call: check if artifact exists globally → yes
+        .mockResolvedValueOnce([{ id: 'a1', path: '/brief.md', content_hash: 'abc', summary: 'brief' }])
+        // Second call: check if already registered for current run → no
+        .mockResolvedValueOnce([{ id: 'a1', path: '/brief.md', content_hash: 'abc', summary: 'brief' }])
+        // Third call: check alreadyRegistered → empty
+        .mockResolvedValueOnce([])
+        // Fourth call: INSERT
+        .mockResolvedValueOnce([]),
+    }
+    const deps = makeDeps({ phaseDeps: { db: mockDb } })
+    const handler = createSdlcPhaseHandler(deps)
+    const context = makeContext({ ...defaultContextValues, pipelineRunId: 'run-xyz' })
+
+    const outcome = await handler(makeNode('analysis'), context, stubGraph)
+
+    expect(outcome.status).toBe('SUCCESS')
+    expect(outcome.notes).toContain('already complete')
+    // Should have called INSERT with pipelineRunId
+    const insertCall = mockDb.query.mock.calls.find(
+      (call) => typeof call[0] === 'string' && (call[0] as string).includes('INSERT'),
+    )
+    expect(insertCall).toBeDefined()
+    expect(insertCall![1]).toContain('run-xyz')
+  })
+
+  it('does NOT attempt INSERT when pipelineRunId is absent', async () => {
+    const mockDb = {
+      query: vi.fn()
+        .mockResolvedValueOnce([{ id: 'a1' }]), // artifact exists globally
+    }
+    const deps = makeDeps({ phaseDeps: { db: mockDb } })
+    const handler = createSdlcPhaseHandler(deps)
+    const context = makeContext(defaultContextValues) // no pipelineRunId
+
+    const outcome = await handler(makeNode('analysis'), context, stubGraph)
+
+    expect(outcome.status).toBe('SUCCESS')
+    const insertCall = mockDb.query.mock.calls.find(
+      (call) => typeof call[0] === 'string' && (call[0] as string).includes('INSERT'),
+    )
+    expect(insertCall).toBeUndefined()
+  })
+})

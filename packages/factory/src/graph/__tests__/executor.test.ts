@@ -907,3 +907,143 @@ describe('allowPartial semantics', () => {
     expect(outcome.status).toBe('SUCCESS')
   })
 })
+
+// ---------------------------------------------------------------------------
+// outcome context injection: executor sets 'outcome' key in context
+// ---------------------------------------------------------------------------
+
+describe('outcome context injection', () => {
+  it('sets outcome=success in context after SUCCESS handler, enabling condition="outcome=success" edges', async () => {
+    // Graph: start → conditional_node → exit (condition="outcome=success")
+    const startNode = makeNode('start')
+    const conditionalNode = makeNode('conditional')
+    const exitNode = makeNode('exit')
+    const edges = [
+      makeEdge('start', 'conditional'),
+      makeEdge('conditional', 'exit', { condition: 'outcome=success' }),
+    ]
+    const graph = makeGraph([startNode, conditionalNode, exitNode], edges, 'start', 'exit')
+
+    const successHandler = vi.fn().mockResolvedValue({ status: 'SUCCESS' as const })
+    const registry = makeRegistry(successHandler as unknown as NodeHandler)
+
+    const executor = createGraphExecutor()
+    const outcome = await executor.run(graph, makeConfig(registry))
+
+    // Edge condition "outcome=success" matches because executor sets context.outcome = "success"
+    expect(outcome.status).toBe('SUCCESS')
+  })
+
+  it('sets outcome=fail in context after FAIL handler, enabling condition="outcome=fail" edges', async () => {
+    // Graph: start → conditional_node → retry_node (condition="outcome=fail") → exit
+    const startNode = makeNode('start')
+    const conditionalNode = makeNode('conditional')
+    const retryNode = makeNode('retry')
+    const exitNode = makeNode('exit')
+    const edges = [
+      makeEdge('start', 'conditional'),
+      makeEdge('conditional', 'retry', { condition: 'outcome=fail' }),
+      makeEdge('conditional', 'exit', { condition: 'outcome=success' }),
+      makeEdge('retry', 'exit'),
+    ]
+    const graph = makeGraph([startNode, conditionalNode, retryNode, exitNode], edges, 'start', 'exit')
+
+    let callCount = 0
+    const handler = vi.fn().mockImplementation(async () => {
+      callCount++
+      // First call (start): SUCCESS. Second call (conditional): FAIL. Third (retry): SUCCESS.
+      if (callCount === 2) return { status: 'FAILURE' }
+      return { status: 'SUCCESS' }
+    })
+    const registry = makeRegistry(handler as unknown as NodeHandler)
+
+    const executor = createGraphExecutor()
+    const outcome = await executor.run(graph, makeConfig(registry))
+
+    // conditional returned FAIL → outcome=fail edge routes to retry → retry SUCCESS → exit
+    expect(outcome.status).toBe('SUCCESS')
+    expect(handler).toHaveBeenCalledTimes(3) // start, conditional, retry
+  })
+})
+
+// ---------------------------------------------------------------------------
+// FAIL routing: conditional edge fallthrough
+// ---------------------------------------------------------------------------
+
+describe('FAIL routing conditional edge fallthrough', () => {
+  it('returns FAIL immediately when node has no conditional outgoing edges', async () => {
+    const startNode = makeNode('start')
+    const exitNode = makeNode('exit')
+    const edges = [makeEdge('start', 'exit')]
+    const graph = makeGraph([startNode, exitNode], edges, 'start', 'exit')
+
+    const failHandler = vi.fn().mockResolvedValue({ status: 'FAILURE', failureReason: 'test fail' })
+    const registry = makeRegistry(failHandler as unknown as NodeHandler)
+
+    const executor = createGraphExecutor()
+    const outcome = await executor.run(graph, makeConfig(registry))
+
+    expect(outcome.status).toBe('FAIL')
+  })
+
+  it('falls through to edge selection when node has conditional edges', async () => {
+    // Graph: start → conditional (FAIL) → fallback (condition=outcome=fail) → exit
+    const startNode = makeNode('start')
+    const conditionalNode = makeNode('conditional')
+    const fallbackNode = makeNode('fallback')
+    const exitNode = makeNode('exit')
+    const edges = [
+      makeEdge('start', 'conditional'),
+      makeEdge('conditional', 'fallback', { condition: 'outcome=fail' }),
+      makeEdge('conditional', 'exit', { condition: 'outcome=success' }),
+      makeEdge('fallback', 'exit'),
+    ]
+    const graph = makeGraph([startNode, conditionalNode, fallbackNode, exitNode], edges, 'start', 'exit')
+
+    let callCount = 0
+    const handler = vi.fn().mockImplementation(async () => {
+      callCount++
+      if (callCount === 2) return { status: 'FAILURE', failureReason: 'needs fixes' }
+      return { status: 'SUCCESS' }
+    })
+    const registry = makeRegistry(handler as unknown as NodeHandler)
+
+    const executor = createGraphExecutor()
+    const outcome = await executor.run(graph, makeConfig(registry))
+
+    // conditional FAIL → falls through to edge selection → outcome=fail → fallback → exit
+    expect(outcome.status).toBe('SUCCESS')
+  })
+
+  it('failRouteCount caps at defaultMaxRetries and returns FAIL', async () => {
+    // Graph with a loop: start → conditional (always FAIL) → conditional (condition=outcome=fail)
+    const startNode = makeNode('start')
+    const conditionalNode = makeNode('conditional')
+    const exitNode = makeNode('exit')
+    const edges = [
+      makeEdge('start', 'conditional'),
+      makeEdge('conditional', 'conditional', { condition: 'outcome=fail' }),
+      makeEdge('conditional', 'exit', { condition: 'outcome=success' }),
+    ]
+    // defaultMaxRetries=2 → failRouteCount cap = max(2, 3) = 3
+    const graph = makeGraph([startNode, conditionalNode, exitNode], edges, 'start', 'exit')
+    graph.defaultMaxRetries = 2
+
+    let callCount = 0
+    const handler = vi.fn().mockImplementation(async () => {
+      callCount++
+      // start (call 1) → SUCCESS, conditional (all subsequent) → FAILURE
+      if (callCount === 1) return { status: 'SUCCESS' }
+      return { status: 'FAILURE', failureReason: 'always fails' }
+    })
+    const registry = makeRegistry(handler as unknown as NodeHandler)
+
+    const executor = createGraphExecutor()
+    const outcome = await executor.run(graph, makeConfig(registry))
+
+    // Should return FAIL after exhausting fail route count (cap = max(2, 3) = 3)
+    expect(outcome.status).toBe('FAIL')
+    // start(1) + conditional initial(1) + 3 conditional retries via edge = 5
+    expect(handler).toHaveBeenCalledTimes(5)
+  })
+})
