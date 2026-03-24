@@ -12,7 +12,9 @@
  */
 
 import { EventEmitter } from 'node:events'
+import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createSdlcEventBridge } from '../handlers/event-bridge.js'
 
@@ -25,12 +27,38 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 /**
  * Returns the absolute path to the bundled SDLC pipeline DOT file.
  *
- * Exported for use by the CLI composition root (story 43-10) — preferred over
- * ad-hoc path construction with createRequire because `__dirname` is already
- * resolved here relative to the installed package.
+ * Resolution order:
+ *   1. Relative to __dirname (works in source/unbundled: __dirname = packages/sdlc/src/orchestrator/)
+ *   2. Via createRequire to locate @substrate-ai/sdlc package.json, then graphs/ relative to it
+ *      (works when bundled: __dirname points to dist/ but createRequire finds the real package)
+ *
+ * @throws {Error} if the DOT file cannot be found by any method.
  */
 export function resolveGraphPath(): string {
-  return join(__dirname, '../../graphs/sdlc-pipeline.dot')
+  const candidates = [
+    // Method 1: relative to source file (works in unbundled / workspace mode)
+    join(__dirname, '../../graphs/sdlc-pipeline.dot'),
+    // Method 2: relative to dist/ directory (works when bundled via tsdown postbuild copy)
+    join(__dirname, '../graphs/sdlc-pipeline.dot'),
+    join(__dirname, 'graphs/sdlc-pipeline.dot'),
+  ]
+
+  // Method 3: resolve via createRequire (works in npm-installed mode)
+  try {
+    const require = createRequire(import.meta.url)
+    const sdlcPkgPath = require.resolve('@substrate-ai/sdlc/package.json')
+    candidates.push(join(dirname(sdlcPkgPath), 'graphs', 'sdlc-pipeline.dot'))
+  } catch {
+    // createRequire resolution failed — continue with other candidates
+  }
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate
+  }
+
+  throw new Error(
+    `Cannot locate sdlc-pipeline.dot. Searched:\n${candidates.map((c) => `  ${c}`).join('\n')}`,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +241,7 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
       storyKey,
       projectRoot: config.projectRoot,
       methodologyPack: config.methodologyPack,
+      ...(config.pipelineRunId !== undefined ? { runId: config.pipelineRunId, pipelineRunId: config.pipelineRunId } : {}),
     }
 
     // Create a per-story factory event bus so each story's graph events are scoped

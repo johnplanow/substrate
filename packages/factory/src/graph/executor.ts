@@ -129,6 +129,13 @@ export interface GraphExecutorConfig {
    * Must be imported as a type only — do not import concrete adapter implementations.
    */
   adapter?: DatabaseAdapter
+
+  /**
+   * Optional initial key-value pairs seeded into the GraphContext at execution start.
+   * Used by the SDLC graph orchestrator to inject storyKey, runId, projectRoot, etc.
+   * into the context before the first node handler executes.
+   */
+  initialContext?: Record<string, unknown>
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +323,7 @@ export function createGraphExecutor(): GraphExecutor {
       // Execution state
       let completedNodes: string[] = []
       let nodeRetries: Record<string, number> = {}
-      let context: IGraphContext = new GraphContext()
+      let context: IGraphContext = new GraphContext(config.initialContext)
       let step = 0
 
       // Cycle detection: counts how many times each node is visited

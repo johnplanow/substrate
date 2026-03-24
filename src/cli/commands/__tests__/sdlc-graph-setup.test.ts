@@ -283,7 +283,7 @@ describe('AC4: handler factories are called with correct sub-options from deps',
 // AC5: No default handler — unregistered types throw HandlerRegistry error
 // ---------------------------------------------------------------------------
 
-describe('AC5: no inadvertent default handler', () => {
+describe('AC5: default handler from createDefaultRegistry', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockCreateSdlcPhaseHandler.mockReturnValue(mockPhaseHandler)
@@ -292,18 +292,24 @@ describe('AC5: no inadvertent default handler', () => {
     mockCreateSdlcCodeReviewHandler.mockReturnValue(mockCodeReviewHandler)
   })
 
-  it('resolving an unregistered node type throws HandlerRegistrys standard error', () => {
+  it('resolving an unregistered node type returns the codergen default handler (not throw)', () => {
     const registry = buildSdlcHandlerRegistry(makeDeps())
-    expect(() =>
-      registry.resolve({ id: 'unknown_node', type: 'sdlc.unknown', label: '', prompt: '' }),
-    ).toThrow()
+    // createDefaultRegistry sets codergen as the default handler for unrecognised types.
+    // SDLC registry inherits this — structural nodes (start/exit) use shape-based resolution.
+    const handler = registry.resolve({ id: 'unknown_node', type: 'sdlc.unknown', label: '', prompt: '' })
+    expect(typeof handler).toBe('function')
   })
 
-  it('resolving an unregistered type throws with the node id in the error message', () => {
+  it('resolving start shape returns a handler (shape-based resolution via Mdiamond)', () => {
     const registry = buildSdlcHandlerRegistry(makeDeps())
-    expect(() =>
-      registry.resolve({ id: 'unknown_node', type: 'sdlc.unknown', label: '', prompt: '' }),
-    ).toThrowError(/unknown_node/)
+    const handler = registry.resolve({ id: 'start', type: '', shape: 'Mdiamond', label: '', prompt: '' })
+    expect(typeof handler).toBe('function')
+  })
+
+  it('resolving exit shape returns a handler (shape-based resolution via Msquare)', () => {
+    const registry = buildSdlcHandlerRegistry(makeDeps())
+    const handler = registry.resolve({ id: 'exit', type: '', shape: 'Msquare', label: '', prompt: '' })
+    expect(typeof handler).toBe('function')
   })
 })
 

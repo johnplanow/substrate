@@ -10,7 +10,7 @@
  */
 
 // Composition root: this file is the ONLY place that imports from both packages.
-import { HandlerRegistry } from '@substrate-ai/factory'
+import { createDefaultRegistry } from '@substrate-ai/factory'
 import type { NodeHandler } from '@substrate-ai/factory'
 import {
   createSdlcPhaseHandler,
@@ -72,9 +72,13 @@ export interface SdlcRegistryDeps {
  * @param deps - Handler factory options, one per SDLC node type.
  * @returns A HandlerRegistry with all four SDLC handlers registered.
  */
-export function buildSdlcHandlerRegistry(deps: SdlcRegistryDeps): HandlerRegistry {
-  const registry = new HandlerRegistry()
+export function buildSdlcHandlerRegistry(deps: SdlcRegistryDeps) {
+  // Start from the default registry which includes start/exit/conditional handlers,
+  // shape mappings (Mdiamond→start, Msquare→exit, diamond→conditional), and
+  // the codergen default handler. Then overlay the SDLC-specific handlers.
+  const registry = createDefaultRegistry()
 
+  // SDLC pipeline handlers
   registry.register(
     'sdlc.phase',
     createSdlcPhaseHandler(deps.phaseHandlerDeps) as unknown as NodeHandler,
