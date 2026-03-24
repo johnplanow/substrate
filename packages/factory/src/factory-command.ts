@@ -165,6 +165,7 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
           eventBus.on('graph:node-completed', (e) => emit({ type: 'graph:node-completed', ...e }))
           eventBus.on('graph:started', (e) => emit({ type: 'graph:started', ...e }))
           eventBus.on('graph:completed', (e) => emit({ type: 'graph:completed', ...e }))
+          eventBus.on('factory:config-reloaded', (e) => emit({ type: 'factory:config-reloaded', ...e }))
         }
 
         // Print start confirmation
@@ -227,6 +228,12 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
                 process.stderr.write(
                   `[hot-reload] satisfaction_threshold changed: ${oldThreshold} → ${newThreshold}\n`,
                 )
+                // Emit as a factory event for NDJSON consumers
+                eventBus.emit('factory:config-reloaded', {
+                  key: 'satisfaction_threshold',
+                  oldValue: oldThreshold,
+                  newValue: newThreshold,
+                })
               }
             } catch {
               // Ignore parse errors during hot-reload — keep the previous threshold

@@ -300,7 +300,7 @@ export function createGraphExecutor(): GraphExecutor {
 
       // Helper: persist a run exit (success or failure) when adapter is present.
       // Called at every `return` path that terminates the run.
-      // Persistence errors must not crash the executor — swallow and log silently.
+      // Persistence errors must not crash the executor — log as warnings.
       const persistExit = async (finalStatus: 'completed' | 'failed', finalOutcome: string): Promise<void> => {
         if (!config.adapter) return
         try {
@@ -315,8 +315,9 @@ export function createGraphExecutor(): GraphExecutor {
             total_cost_usd: pipelineManager.getTotalCost(),
             node_count: graph.nodes.size,
           })
-        } catch {
-          // Persistence errors must not crash the executor — swallow silently
+        } catch (persistErr: unknown) {
+          const msg = persistErr instanceof Error ? persistErr.message : String(persistErr)
+          console.warn(`[executor] graph_runs upsert failed for run ${config.runId}: ${msg}`)
         }
       }
 
@@ -379,7 +380,7 @@ export function createGraphExecutor(): GraphExecutor {
           }).catch((err: unknown) => {
             // Persistence errors must not crash the executor — log at debug level only
             const msg = err instanceof Error ? err.message : String(err)
-            console.debug(`[executor] scenario:completed persistence failed for run ${config.runId}: ${msg}`)
+            console.warn(`[executor] scenario_results persistence failed for run ${config.runId}: ${msg}`)
           })
         }
         config.eventBus.on('scenario:completed', scenarioHandler)
@@ -399,8 +400,9 @@ export function createGraphExecutor(): GraphExecutor {
             started_at: runStartedAt,
             node_count: graph.nodes.size,
           })
-        } catch {
-          // Persistence errors must not crash the executor — swallow silently
+        } catch (persistErr: unknown) {
+          const msg = persistErr instanceof Error ? persistErr.message : String(persistErr)
+          console.warn(`[executor] graph_runs insert failed for run ${config.runId}: ${msg}`)
         }
       }
 
@@ -780,8 +782,9 @@ export function createGraphExecutor(): GraphExecutor {
               cost_usd: nodeCost,
               ...(outcome.failureReason !== undefined ? { failure_reason: outcome.failureReason } : {}),
             })
-          } catch {
-            // Persistence errors must not crash the executor — swallow silently
+          } catch (persistErr: unknown) {
+            const msg = persistErr instanceof Error ? persistErr.message : String(persistErr)
+            console.warn(`[executor] graph_node_results insert failed for node ${currentNode.id}: ${msg}`)
           }
         }
 

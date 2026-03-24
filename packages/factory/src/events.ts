@@ -198,4 +198,15 @@ export type FactoryEvents = CoreEvents & {
     twinName: string
     error: string
   }
+
+  // -------------------------------------------------------------------------
+  // Config hot-reload events (story 46-2 AC4)
+  // -------------------------------------------------------------------------
+
+  /** Factory config value changed during execution via hot-reload */
+  'factory:config-reloaded': {
+    key: string
+    oldValue: unknown
+    newValue: unknown
+  }
 }
