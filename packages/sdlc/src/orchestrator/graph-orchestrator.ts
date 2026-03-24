@@ -93,6 +93,7 @@ export interface GraphRunConfig {
  */
 export interface GraphRunResult {
   status: 'SUCCESS' | 'FAIL' | 'PARTIAL_SUCCESS' | 'RETRY' | 'SKIPPED' | string
+  failureReason?: string
 }
 
 /**
@@ -237,8 +238,12 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
     storyKey: string,
     summary: { s: number; f: number; stories: Record<string, GraphStoryOutcome> },
   ): Promise<void> {
+    // Derive epicId from story key (e.g. "48-1" → "48")
+    const epicId = storyKey.split('-')[0] ?? ''
+
     const initialContext = {
       storyKey,
+      epicId,
       projectRoot: config.projectRoot,
       methodologyPack: config.methodologyPack,
       ...(config.pipelineRunId !== undefined ? { runId: config.pipelineRunId, pipelineRunId: config.pipelineRunId } : {}),
@@ -279,6 +284,7 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
     } catch (err: unknown) {
       // Record failure — bridge teardown happens in finally
       const errMsg = err instanceof Error ? err.message : String(err)
+      process.stderr.write(`[graph-orchestrator] Story ${storyKey} failed: ${errMsg}\n`)
       summary.stories[storyKey] = { outcome: escalated ? 'ESCALATED' : 'FAILED', error: errMsg }
       summary.f++
     } finally {
@@ -298,7 +304,9 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
       summary.stories[storyKey] = { outcome: 'ESCALATED' }
       summary.f++
     } else {
-      summary.stories[storyKey] = { outcome: 'FAILED' }
+      const reason = result.failureReason ?? `status=${result.status}`
+      process.stderr.write(`[graph-orchestrator] Story ${storyKey} failed: ${reason}\n`)
+      summary.stories[storyKey] = { outcome: 'FAILED', error: reason }
       summary.f++
     }
   }

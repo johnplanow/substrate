@@ -61,27 +61,79 @@ export function createSdlcPhaseHandler(deps: SdlcPhaseHandlerDeps): SdlcNodeHand
     // AC1: concept is only needed for the analysis phase
     const concept = phaseName === 'analysis' ? context.getString('concept', '') : ''
 
+    // Story-key skip: when --stories is provided (explicit story dispatch), the linear
+    // engine skips analysis/planning/solutioning entirely. Mirror that behavior in the
+    // graph engine by checking for storyKey in context — its presence means we're
+    // targeting implementation directly and early phases should be skipped.
+    const PRE_IMPL_PHASES = ['analysis', 'planning', 'solutioning']
+    const storyKey = context.getString('storyKey', '')
+    if (storyKey && PRE_IMPL_PHASES.includes(phaseName)) {
+      return {
+        status: 'SUCCESS',
+        notes: `Phase ${phaseName} skipped — explicit story dispatch (storyKey=${storyKey})`,
+      }
+    }
+
     // Phase-skip check: if the phase's output artifact already exists (from a prior run or
     // from the linear engine having completed it), skip dispatch and return SUCCESS.
     // This gives the graph engine behavioral parity with the linear engine's detectStartPhase().
-    const PHASE_ARTIFACT_TYPES: Record<string, string> = {
-      analysis: 'product-brief',
-      planning: 'prd',
-      solutioning: 'stories',
+    //
+    // When skipping, we also register the artifact(s) for the CURRENT pipeline run so that
+    // downstream entry gates (which filter by pipeline_run_id) can find them. Without this,
+    // the implementation phase's entry gate would fail because it only sees artifacts from
+    // the current run.
+    const PHASE_ARTIFACT_TYPES: Record<string, string[]> = {
+      analysis: ['product-brief'],
+      planning: ['prd'],
+      solutioning: ['architecture', 'stories'],
     }
-    const artifactType = PHASE_ARTIFACT_TYPES[phaseName]
-    if (artifactType !== undefined) {
+    const artifactTypes = PHASE_ARTIFACT_TYPES[phaseName]
+    if (artifactTypes !== undefined) {
       try {
         const db = (deps.phaseDeps as { db?: { query: (sql: string, params?: unknown[]) => Promise<unknown[]> } }).db
         if (db) {
-          const rows = await db.query(
-            'SELECT id FROM artifacts WHERE phase = ? AND type = ? LIMIT 1',
-            [phaseName, artifactType],
-          )
-          if (Array.isArray(rows) && rows.length > 0) {
+          // Check if ALL required artifacts for this phase exist globally
+          let allExist = true
+          for (const at of artifactTypes) {
+            const rows = await db.query(
+              'SELECT id, path, content_hash, summary FROM artifacts WHERE phase = ? AND type = ? ORDER BY created_at DESC LIMIT 1',
+              [phaseName, at],
+            )
+            if (!Array.isArray(rows) || rows.length === 0) {
+              allExist = false
+              break
+            }
+          }
+          if (allExist) {
+            // Register each artifact for the current pipeline run so downstream entry gates pass.
+            // The pipelineRunId comes from context (set by the graph orchestrator).
+            const pipelineRunId = context.getString('pipelineRunId', '')
+            if (pipelineRunId) {
+              for (const at of artifactTypes) {
+                const existing = await db.query(
+                  'SELECT id, path, content_hash, summary FROM artifacts WHERE phase = ? AND type = ? ORDER BY created_at DESC LIMIT 1',
+                  [phaseName, at],
+                ) as Array<{ id: string; path: string; content_hash?: string; summary?: string }>
+                const src = existing[0] as { path: string; content_hash?: string; summary?: string } | undefined
+                if (src) {
+                  // Check if we've already registered this for the current run
+                  const alreadyRegistered = await db.query(
+                    'SELECT id FROM artifacts WHERE pipeline_run_id = ? AND phase = ? AND type = ? LIMIT 1',
+                    [pipelineRunId, phaseName, at],
+                  )
+                  if (!Array.isArray(alreadyRegistered) || alreadyRegistered.length === 0) {
+                    const newId = crypto.randomUUID()
+                    await db.query(
+                      'INSERT INTO artifacts (id, pipeline_run_id, phase, type, path, content_hash, summary) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                      [newId, pipelineRunId, phaseName, at, src.path, src.content_hash ?? null, src.summary ?? null],
+                    )
+                  }
+                }
+              }
+            }
             return {
               status: 'SUCCESS',
-              notes: `Phase ${phaseName} already complete — artifact '${artifactType}' exists, skipping dispatch`,
+              notes: `Phase ${phaseName} already complete — artifact(s) exist, skipping dispatch`,
             }
           }
         }

@@ -329,6 +329,8 @@ export function createGraphExecutor(): GraphExecutor {
 
       // Cycle detection: counts how many times each node is visited
       const visitCount = new Map<string, number>()
+      // Tracks FAIL-outcome conditional edge routing count per node (bounds review loops)
+      const failRouteCount = new Map<string, number>()
 
       // Resume state (non-null when config.checkpointPath is set)
       let resumeCompletedSet: Set<string> | null = null
@@ -752,6 +754,11 @@ export function createGraphExecutor(): GraphExecutor {
           }
         }
 
+        // Set 'outcome' in context so conditional edges (e.g. condition="outcome=success")
+        // can reference the handler's result. Status is lowercased for consistency with
+        // DOT convention (outcome=success, outcome=fail).
+        context.set('outcome', outcome.status.toLowerCase())
+
         // ----------------------------------------------------------------
         // Accumulate per-node cost for pipeline budget tracking (story 45-8)
         // Convention: CodergenBackend writes 'factory.lastNodeCostUsd' to contextUpdates.
@@ -828,10 +835,31 @@ export function createGraphExecutor(): GraphExecutor {
             currentNode = retryNode
             continue
           }
-          await persistExit('failed', outcome.failureReason ?? 'FAIL')
-          return {
-            status: 'FAIL',
-            ...(outcome.failureReason !== undefined && { failureReason: outcome.failureReason }),
+          // No retry target found. If this node has conditional outgoing edges
+          // (e.g. code_review with shape=diamond), fall through to edge selection so
+          // condition-based routing can handle the FAIL outcome. Otherwise return FAIL.
+          const outgoing = graph.edges.filter((e) => e.fromNode === currentNode.id)
+          const hasConditionalEdge = outgoing.some((e) => e.condition && e.condition.trim() !== '')
+          if (!hasConditionalEdge) {
+            await persistExit('failed', outcome.failureReason ?? 'FAIL')
+            return {
+              status: 'FAIL',
+              ...(outcome.failureReason !== undefined && { failureReason: outcome.failureReason }),
+            }
+          }
+          // Fall through to edge selection for conditional routing.
+          // The cycle detection (visitCount) bounds this loop — conditional edge targets
+          // with maxRetries>0 (e.g. dev_story set by --max-review-cycles) will eventually
+          // hit the visit limit. Additionally, track fail-route count as a safeguard.
+          const routeCount = (failRouteCount.get(currentNode.id) ?? 0) + 1
+          failRouteCount.set(currentNode.id, routeCount)
+          // Safeguard: cap fail-route loops at graph.defaultMaxRetries or 3 (whichever is higher)
+          if (routeCount > Math.max(graph.defaultMaxRetries || 0, 3)) {
+            await persistExit('failed', outcome.failureReason ?? 'FAIL')
+            return {
+              status: 'FAIL',
+              ...(outcome.failureReason !== undefined && { failureReason: outcome.failureReason }),
+            }
           }
         }
 
