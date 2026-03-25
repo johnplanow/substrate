@@ -59,6 +59,7 @@ function makeNode(overrides: Partial<GraphNode> = {}): GraphNode {
     autoStatus: false,
     allowPartial: false,
     toolCommand: '',
+    backend: '',
     ...overrides,
   }
 }
@@ -463,5 +464,58 @@ describe('createDefaultRegistry – codergen routing (AC7)', () => {
     const outcome = await handler(node, new GraphContext({}), stubGraph)
     expect(outcome.status).toBe('SUCCESS')
     expect(outcome.contextUpdates).toEqual({ smoke_output: 'smoke test response' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC5 (story 48-10) – node-level directBackend routing
+// ---------------------------------------------------------------------------
+
+describe('codergen handler – directBackend routing (AC5, story 48-10)', () => {
+  it('invokes directBackend.run() when node.backend==="direct" and directBackend is set', async () => {
+    const directRun = vi.fn().mockResolvedValue({ status: 'SUCCESS' as const })
+    const directBackend = { run: directRun }
+    const node = makeNode({ id: 'n1', prompt: 'task', backend: 'direct' })
+    const ctx = new GraphContext({})
+    const handler = createCodergenHandler({ directBackend })
+    const outcome = await handler(node, ctx, stubGraph)
+    expect(directRun).toHaveBeenCalledOnce()
+    expect(directRun).toHaveBeenCalledWith(node, 'task', ctx)
+    expect(mockCallLLM).not.toHaveBeenCalled()
+    expect(outcome.status).toBe('SUCCESS')
+  })
+
+  it('uses callLLM when node.backend==="" even if directBackend is set', async () => {
+    mockCallLLM.mockResolvedValue({ text: 'llm response' })
+    const directRun = vi.fn()
+    const directBackend = { run: directRun }
+    const node = makeNode({ id: 'n2', prompt: 'task', backend: '' })
+    const ctx = new GraphContext({})
+    const handler = createCodergenHandler({ directBackend })
+    const outcome = await handler(node, ctx, stubGraph)
+    expect(mockCallLLM).toHaveBeenCalledOnce()
+    expect(directRun).not.toHaveBeenCalled()
+    expect(outcome.status).toBe('SUCCESS')
+  })
+
+  it('falls through to callLLM when node.backend==="direct" but directBackend is NOT set', async () => {
+    mockCallLLM.mockResolvedValue({ text: 'fallback response' })
+    const node = makeNode({ id: 'n3', prompt: 'task', backend: 'direct' })
+    const ctx = new GraphContext({})
+    // No directBackend in options
+    const handler = createCodergenHandler()
+    const outcome = await handler(node, ctx, stubGraph)
+    expect(mockCallLLM).toHaveBeenCalledOnce()
+    expect(outcome.status).toBe('SUCCESS')
+  })
+
+  it('interpolates the prompt before passing it to directBackend.run()', async () => {
+    const directRun = vi.fn().mockResolvedValue({ status: 'SUCCESS' as const })
+    const directBackend = { run: directRun }
+    const node = makeNode({ id: 'n4', prompt: 'Hello {{name}}', backend: 'direct' })
+    const ctx = new GraphContext({ name: 'World' })
+    const handler = createCodergenHandler({ directBackend })
+    await handler(node, ctx, stubGraph)
+    expect(directRun).toHaveBeenCalledWith(node, 'Hello World', ctx)
   })
 })

@@ -33,6 +33,7 @@ function makeNode(id: string): GraphNode {
     autoStatus: false,
     allowPartial: false,
     toolCommand: '',
+    backend: '',
   }
 }
 

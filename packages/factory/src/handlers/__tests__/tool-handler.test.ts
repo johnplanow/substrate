@@ -49,6 +49,7 @@ function makeNode(overrides: Partial<GraphNode> = {}): GraphNode {
     autoStatus: false,
     allowPartial: false,
     toolCommand: 'echo hello',
+    backend: '',
     ...overrides,
   }
 }

@@ -37,6 +37,7 @@ const minimalNode: GraphNode = {
   autoStatus: false,
   allowPartial: false,
   toolCommand: '',
+  backend: '',
 }
 
 /** Create a node with goalGate=true */

@@ -115,6 +115,7 @@ const minimalNode: GraphNode = {
   autoStatus: false,
   allowPartial: false,
   toolCommand: '',
+  backend: '',
 }
 
 function makeNode(id: string, overrides?: Partial<GraphNode>): GraphNode {

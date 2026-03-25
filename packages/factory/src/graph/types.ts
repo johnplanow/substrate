@@ -98,6 +98,8 @@ export interface GraphNode {
   allowPartial: boolean
   /** Shell command string for tool nodes (from `tool_command` DOT attribute). Story 42-11. */
   toolCommand: string
+  /** Backend selector for codergen nodes ('direct' → DirectCodergenBackend). Story 48-10. */
+  backend: string
 }
 
 // ---------------------------------------------------------------------------

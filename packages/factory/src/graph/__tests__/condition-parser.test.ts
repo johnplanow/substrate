@@ -55,6 +55,7 @@ function makeGraph(edges: { fromNode: string; toNode: string; condition?: string
       autoStatus: false,
       allowPartial: false,
       toolCommand: '',
+      backend: '',
     })
   }
 

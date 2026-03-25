@@ -52,6 +52,7 @@ function makeNode(overrides: Partial<GraphNode> = {}): GraphNode {
     autoStatus: false,
     allowPartial: false,
     toolCommand: 'substrate scenarios run --format json',
+    backend: '',
     ...overrides,
   }
 }

@@ -50,6 +50,7 @@ function makeGraph(
       autoStatus: false,
       allowPartial: false,
       toolCommand: '',
+      backend: '',
     })
   }
 
@@ -361,6 +362,7 @@ describe('edge_target_exists rule', () => {
       autoStatus: false,
       allowPartial: false,
       toolCommand: '',
+      backend: '',
     })
     nodeMap.set('exit', {
       id: 'exit',
@@ -382,6 +384,7 @@ describe('edge_target_exists rule', () => {
       autoStatus: false,
       allowPartial: false,
       toolCommand: '',
+      backend: '',
     })
 
     const edges: GraphEdge[] = [

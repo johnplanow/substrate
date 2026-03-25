@@ -39,6 +39,7 @@ const minimalNode: GraphNode = {
   autoStatus: false,
   allowPartial: false,
   toolCommand: '',
+  backend: '',
 }
 
 /** Build a minimal Graph stub for use in resume() tests */

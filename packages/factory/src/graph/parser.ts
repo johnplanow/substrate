@@ -141,6 +141,7 @@ function buildGraphNode(
     autoStatus: attrBool(attrs, 'auto_status', true),
     allowPartial: attrBool(attrs, 'allow_partial', false),
     toolCommand: attrStr(attrs, 'tool_command', ''),
+    backend: attrStr(attrs, 'backend', ''),
   }
 }
 

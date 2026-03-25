@@ -11,6 +11,7 @@
   "dependencies": {
     "@substrate-ai/core": "*",
     "js-yaml": "^4.1.1",
+    "ajv": "^6.12.6",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -34,3 +34,12 @@ export * from './persistence/factory-queries.js'
 
 // Twin Registry + Docker Compose orchestration (stories 47-1, 47-2)
 export * from './twins/index.js'
+
+// Agent tool system — provider-aligned tool sets (story 48-6)
+export * from './agent/tools/index.js'
+
+// Agent loop — core agentic loop (story 48-7)
+export * from './agent/index.js'
+
+// Unified LLM Client — provider adapters, client routing, middleware (stories 48-1 through 48-5b)
+export * from './llm/index.js'

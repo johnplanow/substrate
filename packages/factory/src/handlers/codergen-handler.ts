@@ -43,6 +43,12 @@ export interface CodergenHandlerOptions {
    * classification are all bypassed. Story 42-18.
    */
   backend?: ICodergenBackend
+  /**
+   * Backend instance used when `node.backend === 'direct'`.
+   * Takes precedence over the global `backend` option and `callLLM` for nodes
+   * that explicitly opt-in via the `backend` DOT attribute. Story 48-10.
+   */
+  directBackend?: ICodergenBackend
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +175,12 @@ export function createCodergenHandler(options?: CodergenHandlerOptions): NodeHan
     //     error classification. Story 42-18.
     if (options?.backend) {
       return options.backend.run(node, interpolatedPrompt, context)
+    }
+
+    // 1b. Node-level backend selection: if the node opts in via backend='direct'
+    //     and a directBackend is configured, delegate to it. Story 48-10.
+    if (node.backend === 'direct' && options?.directBackend) {
+      return options.directBackend.run(node, interpolatedPrompt, context)
     }
 
     // 2. Resolve LLM routing properties

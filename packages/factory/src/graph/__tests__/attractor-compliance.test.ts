@@ -87,6 +87,7 @@ const MINIMAL_NODE: GraphNode = {
   autoStatus: false,
   allowPartial: false,
   toolCommand: '',
+  backend: '',
 }
 
 function makeNode(id: string, overrides?: Partial<GraphNode>): GraphNode {
@@ -603,7 +604,7 @@ describe('structural conformance — AttractorBench parity', () => {
   // Behavioral conformance tests are advisory in Phase A; required by Phase B exit.
 
   // -------------------------------------------------------------------------
-  // Attribute coverage — nodes (all 17 spec-defined + toolCommand from 42-11)
+  // Attribute coverage — nodes (all 17 spec-defined + toolCommand from 42-11 + backend from 48-10)
   // -------------------------------------------------------------------------
 
   it('AC6 — all node attributes extracted with correct values from DOT', () => {
@@ -629,7 +630,8 @@ digraph compliance_node_attrs {
     reasoning_effort=high,
     auto_status=false,
     allow_partial=true,
-    tool_command="echo hello"
+    tool_command="echo hello",
+    backend=direct
   ]
   exit [shape=Msquare]
   start -> target
@@ -658,6 +660,7 @@ digraph compliance_node_attrs {
     expect(node!.autoStatus).toBe(false)
     expect(node!.allowPartial).toBe(true)
     expect(node!.toolCommand).toBe('echo hello')
+    expect(node!.backend).toBe('direct')
   })
 
   // -------------------------------------------------------------------------
