@@ -68,10 +68,10 @@
     "substrate:dev": "node dist/cli/index.js"
   },
   "dependencies": {
-    "bmad-method": "^6.0.3",
+    "bmad-method": "^6.2.2",
     "commander": "^12.1.0",
     "js-yaml": "^4.1.1",
-    "mysql2": "^3.19.0",
+    "mysql2": "^3.20.0",
     "pino": "^9.6.0",
     "semver": "^7.6.3",
     "zod": "^4.3.6"
