@@ -2,7 +2,7 @@
  * Convergence subsystem barrel exports.
  * Story 42-16.
  */
-export type { ConvergenceController, GoalGateResult, CheckGoalGatesOptions } from './controller.js'
+export type { ConvergenceController, ConvergenceControllerConfig, GoalGateResult, CheckGoalGatesOptions } from './controller.js'
 export { createConvergenceController } from './controller.js'
 
 // Per-node budget enforcement — story 45-3

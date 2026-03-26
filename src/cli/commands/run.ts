@@ -831,22 +831,20 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       }
     }
 
-    // Sweep stale "running" pipeline rows whose orchestrator process is dead.
-    // Without this, zombie rows from crashed runs accumulate and confuse agents
-    // that inspect pipeline_runs to determine if a run is in progress.
+    // Sweep ALL "running" pipeline rows — we are about to start a new run,
+    // so any existing "running" rows are definitively stale (crashed, orphaned,
+    // or from a previous session). The new run gets its own fresh row below.
+    //
+    // Previously this only swept when no orchestrator process was detected, but
+    // that check matched the CURRENT process (ourselves) and caused stale rows
+    // from crashed runs to persist, confusing the supervisor into killing the
+    // wrong pipeline (see Bug: supervisor cross-run PID collision).
     const staleRuns = (await getRunningPipelineRuns(adapter)) ?? []
     if (staleRuns.length > 0) {
-      const processInfo = inspectProcessTree({ projectRoot })
       let swept = 0
       for (const stale of staleRuns) {
-        // If no orchestrator is running, all "running" rows are stale.
-        // If an orchestrator IS running, it belongs to someone else's active run —
-        // we still mark all existing rows as failed since we're about to start a new one.
-        // (The new run gets its own fresh row below.)
-        if (processInfo.orchestrator_pid === null) {
-          await updatePipelineRun(adapter, stale.id, { status: 'failed' })
-          swept++
-        }
+        await updatePipelineRun(adapter, stale.id, { status: 'failed' })
+        swept++
       }
       if (swept > 0) {
         process.stderr.write(`Swept ${swept} stale pipeline run(s) (dead orchestrator)\n`)
@@ -1819,7 +1817,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
-          })
+          }).catch((err) => { logger.warn({ err }, 'Failed to record analysis token usage (non-fatal)') })
         }
 
         if (result.result === 'failed') {
@@ -1854,7 +1852,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
-          })
+          }).catch((err) => { logger.warn({ err }, 'Failed to record planning token usage (non-fatal)') })
         }
 
         if (result.result === 'failed') {
@@ -1889,7 +1887,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
-          })
+          }).catch((err) => { logger.warn({ err }, 'Failed to record research token usage (non-fatal)') })
         }
 
         if (result.result === 'failed') {
@@ -1924,7 +1922,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
-          })
+          }).catch((err) => { logger.warn({ err }, 'Failed to record ux-design token usage (non-fatal)') })
         }
 
         if (result.result === 'failed') {
@@ -1959,7 +1957,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
-          })
+          }).catch((err) => { logger.warn({ err }, 'Failed to record solutioning token usage (non-fatal)') })
         }
 
         if (result.result === 'failed') {

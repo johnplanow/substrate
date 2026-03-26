@@ -30,6 +30,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import yaml from 'js-yaml'
 import { registerScenariosCommand } from './scenarios/cli-command.js'
+import { registerContextCommand } from './context/cli-command.js'
 import { getTwinTemplate, listTwinTemplates, createTwinRegistry } from './twins/index.js'
 import { createTwinManager } from './twins/docker-compose.js'
 import { readRunState, writeRunState, clearRunState } from './twins/run-state.js'
@@ -422,6 +423,9 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
         process.exit(1)
       }
     })
+
+  // Story 49-7: factory context
+  registerContextCommand(factoryCmd, '0.0.0')
 
   // Story 47-4: factory twins
   const twinsCmd = factoryCmd

@@ -6,11 +6,26 @@
  * or `PARTIAL_SUCCESS` for the pipeline to exit normally.
  *
  * Story 42-16.
+ * Story 49-3: AutoSummarizer integration for long-running convergence loops.
  */
 
 import type { Graph, GraphNode, IGraphContext, OutcomeStatus } from '../graph/types.js'
 import type { TypedEventBus } from '@substrate-ai/core'
 import type { FactoryEvents } from '../events.js'
+import type { AutoSummarizer, IterationContext, CompressedIterationContext } from '../context/auto-summarizer.js'
+
+/**
+ * Configuration for ConvergenceController.
+ * All fields are optional; defaults are applied in createConvergenceController().
+ */
+export interface ConvergenceControllerConfig {
+  /**
+   * Optional AutoSummarizer for compressing older iteration contexts before
+   * each iteration dispatch. When omitted, iteration context management is
+   * a no-op and no summarization occurs.
+   */
+  autoSummarizer?: AutoSummarizer
+}
 
 /**
  * Options for checkGoalGates() — enables score-based gate evaluation.
@@ -87,13 +102,45 @@ export interface ConvergenceController {
    *          exists at any level (signalling that the pipeline must FAIL).
    */
   resolveRetryTarget(failedNode: GraphNode, graph: Graph): string | null
+
+  /**
+   * Record an iteration's output as context for potential auto-summarization.
+   * Appends the context to the internal store.
+   * No-op if called with an empty content string (but still stores the context).
+   */
+  recordIterationContext(ctx: IterationContext): void
+
+  /**
+   * Before dispatching the iteration at `currentIndex`, check if the accumulated
+   * iteration contexts have grown beyond the auto-summarizer's threshold. If so,
+   * all contexts with `index < currentIndex` are compressed, and the internal
+   * store is replaced with the compressed result.
+   *
+   * Purely opt-in: if no `autoSummarizer` was provided in the config, this method
+   * returns the current stored contexts without modification.
+   *
+   * @param currentIndex - The zero-based index of the iteration about to be dispatched
+   * @returns The (possibly compressed) stored iteration contexts
+   */
+  prepareForIteration(currentIndex: number): Promise<(IterationContext | CompressedIterationContext)[]>
+
+  /**
+   * Return a snapshot of the currently stored iteration contexts.
+   * May include `CompressedIterationContext` objects if prepareForIteration()
+   * has triggered compression.
+   */
+  getStoredContexts(): (IterationContext | CompressedIterationContext)[]
 }
 
 /**
  * Create a new `ConvergenceController` instance backed by an in-memory outcome map.
+ *
+ * @param config - Optional configuration. Pass `{ autoSummarizer }` to enable
+ *                 automatic context compression in long-running convergence loops.
  */
-export function createConvergenceController(): ConvergenceController {
+export function createConvergenceController(config?: ConvergenceControllerConfig): ConvergenceController {
   const outcomes = new Map<string, OutcomeStatus>()
+  let storedContexts: (IterationContext | CompressedIterationContext)[] = []
 
   /** Returns true only when id is non-empty AND exists in graph.nodes. */
   function isValidTarget(id: string, graph: Graph): boolean {
@@ -157,6 +204,44 @@ export function createConvergenceController(): ConvergenceController {
       }
 
       return null
+    },
+
+    recordIterationContext(ctx: IterationContext): void {
+      storedContexts.push(ctx)
+    },
+
+    async prepareForIteration(currentIndex: number): Promise<(IterationContext | CompressedIterationContext)[]> {
+      if (!config?.autoSummarizer || storedContexts.length === 0) {
+        return storedContexts
+      }
+
+      // Build an IterationContext[] from the stored plain contexts for the trigger check.
+      // CompressedIterationContext entries are excluded from the token sum (already compressed).
+      const uncompressedContexts = storedContexts.filter(
+        (c): c is IterationContext => !('compressed' in c),
+      )
+
+      if (config.autoSummarizer.shouldTrigger(uncompressedContexts)) {
+        const compressionResult = await config.autoSummarizer.compress(
+          uncompressedContexts,
+          currentIndex,
+        )
+        // Merge compressed results back with any already-compressed contexts,
+        // maintaining index ordering.
+        const alreadyCompressed = storedContexts.filter(
+          (c): c is CompressedIterationContext => 'compressed' in c,
+        )
+        const merged = [...alreadyCompressed, ...compressionResult.iterations].sort(
+          (a, b) => a.index - b.index,
+        )
+        storedContexts = merged
+      }
+
+      return storedContexts
+    },
+
+    getStoredContexts(): (IterationContext | CompressedIterationContext)[] {
+      return storedContexts
     },
   }
 }

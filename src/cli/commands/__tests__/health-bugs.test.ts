@@ -175,6 +175,54 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Regression: createPipelineRun explicit UTC timestamps (Dolt CURRENT_TIMESTAMP fix)
+// ---------------------------------------------------------------------------
+
+describe('Dolt timezone regression — createPipelineRun writes UTC timestamps', () => {
+  let adapter: DatabaseAdapter
+
+  beforeEach(async () => {
+    adapter = await createTestDb()
+    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    dbModule.__setMockAdapter(adapter)
+  })
+
+  afterEach(async () => {
+    await adapter.close()
+  })
+
+  it('freshly created run has staleness < 60s (not hours from timezone offset)', async () => {
+    // Create a run using the production code path (no updated_at override).
+    // Before the fix, Dolt CURRENT_TIMESTAMP returned local time, causing
+    // parseDbTimestampAsUtc to compute staleness as timezone_offset_seconds
+    // (e.g. 21600s for UTC-6). After the fix, createPipelineRun explicitly
+    // sets created_at and updated_at to new Date().toISOString() (UTC).
+    await createTestRun(adapter, { status: 'running' })
+
+    const result = await getAutoHealthData({ projectRoot: '/tmp/test-project' })
+
+    // Staleness must be near-zero (< 60s), NOT thousands of seconds.
+    // InMemoryDatabaseAdapter uses CURRENT_TIMESTAMP which is local time,
+    // but our fix bypasses that by setting explicit UTC values.
+    expect(result.staleness_seconds).toBeGreaterThanOrEqual(0)
+    expect(result.staleness_seconds).toBeLessThan(60)
+  })
+
+  it('created_at and updated_at are ISO-8601 UTC strings with Z suffix or T separator', async () => {
+    const run = await createPipelineRun(adapter, {
+      methodology: 'bmad',
+      start_phase: 'implementation',
+      config_json: null,
+    })
+
+    // The timestamps should contain 'T' (ISO format) not space-separated
+    // SQLite/Dolt default format. This proves the explicit UTC path was used.
+    expect(run.created_at).toMatch(/T/)
+    expect(run.updated_at).toMatch(/T/)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // AC2: Process detection for npm/node invocations
 // ---------------------------------------------------------------------------
 

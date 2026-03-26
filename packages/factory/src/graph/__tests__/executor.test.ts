@@ -31,11 +31,13 @@ const { mockSave, mockLoad, mockResume } = vi.hoisted(() => ({
   mockResume: vi.fn(),
 }))
 
-const { mockEvaluateGates, mockRecordOutcome, mockCheckGoalGates, mockResolveRetryTarget } = vi.hoisted(() => ({
+const { mockEvaluateGates, mockRecordOutcome, mockCheckGoalGates, mockResolveRetryTarget, mockRecordIterationContext, mockPrepareForIteration } = vi.hoisted(() => ({
   mockEvaluateGates: vi.fn().mockReturnValue({ satisfied: true, failingNodes: [] }),
   mockRecordOutcome: vi.fn(),
   mockCheckGoalGates: vi.fn().mockReturnValue({ satisfied: true, failedGates: [] }),
   mockResolveRetryTarget: vi.fn().mockReturnValue(null),
+  mockRecordIterationContext: vi.fn(),
+  mockPrepareForIteration: vi.fn().mockResolvedValue([]),
 }))
 
 // Mock CheckpointManager to avoid real file I/O in executor tests
@@ -57,6 +59,9 @@ vi.mock('../../convergence/index.js', () => ({
     recordOutcome: mockRecordOutcome,
     checkGoalGates: mockCheckGoalGates,
     resolveRetryTarget: mockResolveRetryTarget,
+    recordIterationContext: mockRecordIterationContext,
+    prepareForIteration: mockPrepareForIteration,
+    getStoredContexts: vi.fn().mockReturnValue([]),
   })),
   SessionBudgetManager: vi.fn().mockImplementation(() => ({
     checkBudget: vi.fn().mockReturnValue({ allowed: true }),
@@ -1046,5 +1051,70 @@ describe('FAIL routing conditional edge fallthrough', () => {
     expect(outcome.status).toBe('FAIL')
     // start(1) + conditional initial(1) + 3 conditional retries via edge = 5
     expect(handler).toHaveBeenCalledTimes(5)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 49-3: Auto-summarizer convergence integration
+// ---------------------------------------------------------------------------
+
+describe('auto-summarizer convergence integration (story 49-3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSave.mockResolvedValue(undefined)
+    mockEvaluateGates.mockReturnValue({ satisfied: true, failingNodes: [] })
+    mockCheckGoalGates.mockReturnValue({ satisfied: true, failedGates: [] })
+    mockResolveRetryTarget.mockReturnValue(null)
+  })
+
+  it('recordIterationContext is called after each handler dispatch', async () => {
+    const handler = vi.fn().mockResolvedValue({ status: 'SUCCESS' as const })
+    const registry = makeRegistry(handler)
+    const graph = makeGraph(
+      [makeNode('start'), makeNode('mid'), makeNode('end')],
+      [makeEdge('start', 'mid'), makeEdge('mid', 'end')],
+      'start',
+      'end',
+    )
+
+    const executor = createGraphExecutor()
+    const outcome = await executor.run(graph, makeConfig(registry))
+
+    expect(outcome.status).toBe('SUCCESS')
+    // recordIterationContext is called after each dispatched handler.
+    // The exit node completes the loop, so the count depends on how many
+    // non-exit nodes get dispatched (start, mid dispatched; end exits).
+    expect(mockRecordIterationContext).toHaveBeenCalled()
+    // Each call should include an index and content string
+    expect(mockRecordIterationContext).toHaveBeenCalledWith(
+      expect.objectContaining({ index: expect.any(Number), content: expect.any(String) }),
+    )
+  })
+
+  it('prepareForIteration is called before retry dispatch in convergence loop', async () => {
+    // First call: goal gate unsatisfied → trigger convergence retry
+    // Second call: goal gate satisfied → exit successfully
+    mockCheckGoalGates
+      .mockReturnValueOnce({ satisfied: false, failedGates: ['end'] })
+      .mockReturnValueOnce({ satisfied: true, failedGates: [] })
+    mockResolveRetryTarget.mockReturnValue('start')
+
+    const handler = vi.fn().mockResolvedValue({ status: 'SUCCESS' as const })
+    const registry = makeRegistry(handler)
+    const graph = makeGraph(
+      [makeNode('start'), makeNode('end', { goalGate: true })],
+      [makeEdge('start', 'end')],
+      'start',
+      'end',
+    )
+
+    const executor = createGraphExecutor()
+    const outcome = await executor.run(graph, makeConfig(registry))
+
+    expect(outcome.status).toBe('SUCCESS')
+    // prepareForIteration should be called at least once (before the retry)
+    expect(mockPrepareForIteration).toHaveBeenCalled()
+    // The convergence iteration index should be passed
+    expect(mockPrepareForIteration).toHaveBeenCalledWith(expect.any(Number))
   })
 })

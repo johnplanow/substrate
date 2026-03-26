@@ -15,7 +15,7 @@
  */
 
 import path from 'node:path'
-import type { Graph, GraphNode, IGraphContext, Checkpoint, ResumeState, Outcome as GraphOutcome, OutcomeStatus } from './types.js'
+import type { Graph, GraphNode, GraphEdge, IGraphContext, Checkpoint, ResumeState, Outcome as GraphOutcome, OutcomeStatus } from './types.js'
 import { GraphContext } from './context.js'
 import { selectEdge } from './edge-selector.js'
 import { CheckpointManager } from './checkpoint.js'
@@ -39,6 +39,8 @@ import type { QualityMode, DualSignalVerdict } from '../convergence/index.js'
 import type { ScenarioStore, ScenarioManifest } from '../scenarios/index.js'
 import { computeSatisfactionScore } from '../scenarios/scorer.js'
 import { upsertGraphRun, insertGraphNodeResult, insertScenarioResult } from '../persistence/factory-queries.js'
+import type { SummaryEngine } from '../context/summary-engine.js'
+import { parseFidelityLevel, resolveFidelity } from './fidelity.js'
 
 // ---------------------------------------------------------------------------
 // GraphExecutorConfig
@@ -129,6 +131,15 @@ export interface GraphExecutorConfig {
    * Must be imported as a type only — do not import concrete adapter implementations.
    */
   adapter?: DatabaseAdapter
+
+  /**
+   * Optional summary engine for fidelity-based context compression.
+   * When provided, nodes with a non-'full' fidelity level will have their
+   * 'factory.nodeContext' compressed to the target level before dispatch.
+   * When absent, all fidelity-related summarization is skipped (backward-compatible).
+   * Story 49-5.
+   */
+  summaryEngine?: SummaryEngine
 
   /**
    * Optional initial key-value pairs seeded into the GraphContext at execution start.
@@ -340,6 +351,9 @@ export function createGraphExecutor(): GraphExecutor {
       // loopRestart flags: suppress cycle check / completed push for intentional loops
       let skipCycleCheck = false
       let skipCompletedPush = false
+
+      // Tracks the edge that led to the current node (for fidelity resolution). Story 49-5.
+      let lastIncomingEdge: GraphEdge | undefined = undefined
 
       // Capture scenario manifest for integrity checks (story 44-4).
       // Only runs when scenarioStore is configured; otherwise skipped (backward-compatible).
@@ -557,6 +571,12 @@ export function createGraphExecutor(): GraphExecutor {
               satisfactionScoreHistory: plateauResult.scores,
             })
             injectRemediationContext(context, remediation)
+
+            // Compress old iteration contexts if auto-summarizer threshold
+            // exceeded (story 49-3). This prevents unbounded token growth in
+            // long convergence loops by summarizing earlier iterations.
+            await controller.prepareForIteration(convergenceIteration)
+
             // Route to retry target; suppress cycle check for convergence loop retry
             skipCycleCheck = true
             currentNode = retryNode
@@ -652,6 +672,32 @@ export function createGraphExecutor(): GraphExecutor {
             : currentNode
         firstResumedFidelity = '' // clear after first use
 
+        // ----------------------------------------------------------------
+        // Pre-dispatch context summarization based on node fidelity (story 49-5)
+        // ----------------------------------------------------------------
+        if (config.summaryEngine) {
+          const effectiveFidelity = resolveFidelity(nodeToDispatch, lastIncomingEdge, graph)
+          const summaryLevel = parseFidelityLevel(effectiveFidelity)
+          if (summaryLevel !== null) {
+            const nodeContextContent = context.getString('factory.nodeContext', '')
+            if (nodeContextContent !== '') {
+              const summary = await config.summaryEngine.summarize(nodeContextContent, summaryLevel)
+              context.set('factory.compressedNodeContext', summary.content)
+              // Replace the primary context so downstream handlers use the
+              // compressed version. The original is preserved in
+              // factory.compressedNodeContext.originalHash for cache expansion.
+              context.set('factory.nodeContext', summary.content)
+              config.eventBus?.emit('graph:context-summarized', {
+                runId: config.runId,
+                nodeId: nodeToDispatch.id,
+                level: summaryLevel,
+                originalTokenCount: summary.originalTokenCount ?? 0,
+                summaryTokenCount: summary.summaryTokenCount ?? 0,
+              })
+            }
+          }
+        }
+
         // Record dispatch start time for artifact timing (story 44-7)
         const startedAt = Date.now()
 
@@ -743,6 +789,15 @@ export function createGraphExecutor(): GraphExecutor {
             : outcome.status === 'PARTIAL_SUCCESS' ? 'PARTIAL_SUCCESS'
             : 'FAILURE'
           controller.recordOutcome(nodeToDispatch.id, controllerStatus)
+
+          // Record iteration context for auto-summarization (story 49-3).
+          // The context string captures the outcome so compression can
+          // preserve key facts from earlier iterations.
+          const iterContent = context.getString('factory.nodeContext', '')
+          controller.recordIterationContext({
+            index: convergenceIteration,
+            content: iterContent,
+          })
         }
 
         // ----------------------------------------------------------------
@@ -907,6 +962,7 @@ export function createGraphExecutor(): GraphExecutor {
         if (!nextNode) {
           throw new Error(`Edge target node "${edge.toNode}" not found in graph`)
         }
+        lastIncomingEdge = edge
         currentNode = nextNode
       }
     },

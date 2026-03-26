@@ -211,6 +211,22 @@ export type FactoryEvents = CoreEvents & {
   }
 
   // -------------------------------------------------------------------------
+  // Context summarization events (story 49-5)
+  // -------------------------------------------------------------------------
+
+  /** Executor applied fidelity-based context summarization before node dispatch */
+  'graph:context-summarized': {
+    runId: string
+    nodeId: string
+    /** SummaryLevel applied: 'high' | 'medium' | 'low' */
+    level: string
+    /** Estimated token count of the original factory.nodeContext content */
+    originalTokenCount: number
+    /** Estimated token count of the compressed factory.compressedNodeContext content */
+    summaryTokenCount: number
+  }
+
+  // -------------------------------------------------------------------------
   // Agent session events (story 48-12)
   // -------------------------------------------------------------------------
 

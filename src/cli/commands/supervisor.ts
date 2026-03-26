@@ -581,8 +581,18 @@ export async function runSupervisorAction(
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const health = await getHealth({ runId, projectRoot })
+    const health = await getHealth({ runId: state.runId ?? runId, projectRoot })
     const ts = new Date().toISOString()
+
+    // Auto-bind to the active run on first poll if no --run-id was provided.
+    // This ensures the cross-session guard in handleStallRecovery works even
+    // when the supervisor is started without an explicit run ID. Without this,
+    // state.runId stays undefined and the guard is bypassed, allowing the
+    // supervisor to kill PIDs from a different active run.
+    if (state.runId === undefined && health.run_id !== null) {
+      state = { ...state, runId: health.run_id }
+      log(`Supervisor: auto-bound to active run ${health.run_id}`)
+    }
 
     // Emit supervisor:poll heartbeat event on each cycle in JSON mode
     if (outputFormat === 'json') {

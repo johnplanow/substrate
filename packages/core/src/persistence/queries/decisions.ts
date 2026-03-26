@@ -409,15 +409,22 @@ export async function createPipelineRun(
 ): Promise<PipelineRun> {
   const validated = CreatePipelineRunInputSchema.parse(input)
   const id = crypto.randomUUID()
+  // Explicitly set timestamps as UTC ISO strings. Dolt's CURRENT_TIMESTAMP
+  // returns local time (unlike SQLite which returns UTC), causing
+  // parseDbTimestampAsUtc to misinterpret freshly created rows as hours-old
+  // when the machine is not in UTC. This fix ensures all timestamps are UTC.
+  const nowUtc = new Date().toISOString()
 
   await adapter.query(
-    `INSERT INTO pipeline_runs (id, methodology, current_phase, status, config_json)
-     VALUES (?, ?, ?, 'running', ?)`,
+    `INSERT INTO pipeline_runs (id, methodology, current_phase, status, config_json, created_at, updated_at)
+     VALUES (?, ?, ?, 'running', ?, ?, ?)`,
     [
       id,
       validated.methodology,
       validated.start_phase ?? null,
       validated.config_json ?? null,
+      nowUtc,
+      nowUtc,
     ],
   )
 

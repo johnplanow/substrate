@@ -34,7 +34,7 @@ vi.mock('../../compiled-workflows/test-plan.js', () => ({
   runTestPlan: vi.fn().mockResolvedValue({ result: 'failed', test_files: [], test_categories: [], coverage_notes: '', tokenUsage: { input: 0, output: 0 } }),
 }))
 vi.mock('../../../persistence/queries/decisions.js', () => ({
-  updatePipelineRun: vi.fn(),
+  updatePipelineRun: vi.fn().mockResolvedValue(undefined),
   addTokenUsage: vi.fn(),
   getDecisionsByPhase: vi.fn().mockReturnValue([]),
   getDecisionsByCategory: vi.fn().mockReturnValue([]),
@@ -95,11 +95,13 @@ import { runCreateStory } from '../../compiled-workflows/create-story.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../compiled-workflows/code-review.js'
 import { inspectProcessTree } from '../../../cli/commands/health.js'
+import { updatePipelineRun } from '../../../persistence/queries/decisions.js'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockRunDevStory = vi.mocked(runDevStory)
 const mockRunCodeReview = vi.mocked(runCodeReview)
 const mockInspectProcessTree = vi.mocked(inspectProcessTree)
+const mockUpdatePipelineRun = vi.mocked(updatePipelineRun)
 
 // ---------------------------------------------------------------------------
 // Helper factories
@@ -265,6 +267,51 @@ describe('AC1: Heartbeat timer', () => {
     // Advance another 30 seconds — should get a second heartbeat
     await vi.advanceTimersByTimeAsync(30_000)
     expect(heartbeatPayloads.length).toBeGreaterThanOrEqual(2)
+
+    // Complete the run
+    resolveCreate(makeCreateStorySuccess('16-1'))
+    await vi.advanceTimersByTimeAsync(100)
+    await runPromise
+  })
+
+  it('heartbeat tick calls updatePipelineRun to refresh updated_at (staleness fix)', async () => {
+    vi.useFakeTimers()
+
+    const eventBus = new TypedEventBusImpl()
+
+    let resolveCreate!: (v: ReturnType<typeof makeCreateStorySuccess>) => void
+    const createPromise = new Promise<ReturnType<typeof makeCreateStorySuccess>>((res) => {
+      resolveCreate = res
+    })
+    mockRunCreateStory.mockReturnValue(createPromise as never)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus,
+      config: defaultConfig(),
+    })
+
+    // Start run (don't await — orchestrator is blocked in create-story)
+    const runPromise = orchestrator.run(['16-1'])
+
+    // Clear any calls from initial persistState during run startup
+    mockUpdatePipelineRun.mockClear()
+
+    // Advance fake timers by 30s to trigger heartbeat
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    // Heartbeat should have called updatePipelineRun to touch updated_at
+    expect(mockUpdatePipelineRun).toHaveBeenCalled()
+    expect(mockUpdatePipelineRun).toHaveBeenCalledWith(
+      expect.anything(), // db adapter
+      'test-run-16-7', // pipelineRunId from defaultConfig
+      { current_phase: 'implementation' },
+    )
 
     // Complete the run
     resolveCreate(makeCreateStorySuccess('16-1'))

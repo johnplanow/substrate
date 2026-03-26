@@ -831,6 +831,19 @@ export function createImplementationOrchestrator(
         queuedDispatches: queued,
       })
 
+      // Touch pipeline_runs.updated_at on every heartbeat tick so external
+      // health checks (substrate health, supervisor) see fresh staleness.
+      // Without this, updated_at only advances when persistState() is called
+      // on phase transitions, causing false STALLED verdicts during long
+      // dispatches (e.g. 10-min code review with no phase change).
+      if (config.pipelineRunId !== undefined) {
+        updatePipelineRun(db, config.pipelineRunId, {
+          current_phase: 'implementation',
+        }).catch((err) => {
+          logger.debug({ err }, 'Heartbeat: failed to touch updated_at (non-fatal)')
+        })
+      }
+
       // Watchdog: check for stalls with phase-aware thresholds (AC3, AC4)
       const elapsed = Date.now() - _lastProgressTs
 
