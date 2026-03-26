@@ -486,6 +486,25 @@ function parseCSVLine(line: string): string[] {
 }
 
 /**
+ * Prepare the `.claude/skills/` directory by cleaning stale bmad-prefixed entries.
+ * Returns the skills directory path.
+ */
+function prepareSkillsDir(projectRoot: string): string {
+  const skillsDir = join(projectRoot, '.claude', 'skills')
+  mkdirSync(skillsDir, { recursive: true })
+
+  try {
+    for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name.startsWith('bmad')) {
+        rmSync(join(skillsDir, entry.name), { recursive: true, force: true })
+      }
+    }
+  } catch { /* ignore cleanup errors */ }
+
+  return skillsDir
+}
+
+/**
  * Install skills from `_bmad/_config/skill-manifest.csv` into `.claude/skills/`.
  *
  * Each row in the CSV specifies a canonicalId and a path to the SKILL.md file.
@@ -509,19 +528,7 @@ export function installSkillsFromManifest(projectRoot: string, bmadDir: string):
 
   const bmadFolderName = '_bmad'
   const bmadPrefix = bmadFolderName + '/'
-  const skillsDir = join(projectRoot, '.claude', 'skills')
-  mkdirSync(skillsDir, { recursive: true })
-
-  // Clean existing bmad-prefixed skill directories to prevent stale entries
-  if (existsSync(skillsDir)) {
-    try {
-      for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
-        if (entry.isDirectory() && entry.name.startsWith('bmad')) {
-          rmSync(join(skillsDir, entry.name), { recursive: true, force: true })
-        }
-      }
-    } catch { /* ignore cleanup errors */ }
-  }
+  const skillsDir = prepareSkillsDir(projectRoot)
 
   let count = 0
   for (let i = 1; i < lines.length; i++) {
@@ -544,6 +551,71 @@ export function installSkillsFromManifest(projectRoot: string, bmadDir: string):
     cpSync(sourceDir, destDir, { recursive: true })
     count++
   }
+
+  return count
+}
+
+/**
+ * Install skills directly from bmad-method source directories.
+ *
+ * Scans `src/core-skills/` and `src/bmm-skills/` (recursively) in the
+ * bmad-method package for directories containing SKILL.md. Each directory
+ * name is used as the canonicalId.
+ *
+ * This is the primary installation path for bmad-method v6.2.0+ where
+ * skill-manifest.csv may be empty (it's populated by the full IDE installer,
+ * which substrate doesn't call).
+ *
+ * @param installerLibPath - Path to bmad-method's tools/cli/installers/lib/
+ * @returns Number of skills installed.
+ */
+export function installSkillsFromSource(projectRoot: string, installerLibPath: string): number {
+  // bmad-method layout: installerLibPath = .../tools/cli/installers/lib/
+  // skills are at: .../src/core-skills/ and .../src/bmm-skills/
+  const bmadMethodRoot = resolve(installerLibPath, '..', '..', '..', '..')
+  const skillRoots = [
+    join(bmadMethodRoot, 'src', 'core-skills'),
+    join(bmadMethodRoot, 'src', 'bmm-skills'),
+  ]
+
+  const skillsDir = prepareSkillsDir(projectRoot)
+  let count = 0
+
+  for (const root of skillRoots) {
+    if (!existsSync(root)) continue
+    count += copySkillDirsRecursive(root, skillsDir)
+  }
+
+  return count
+}
+
+/**
+ * Recursively find directories containing SKILL.md and copy them to destRoot.
+ * The directory name becomes the canonicalId (skill target directory name).
+ */
+function copySkillDirsRecursive(dir: string, destRoot: string): number {
+  if (!existsSync(dir)) return 0
+  let count = 0
+
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const childPath = join(dir, entry.name)
+      const skillFile = join(childPath, 'SKILL.md')
+
+      if (existsSync(skillFile)) {
+        // This directory IS a skill — copy it
+        const destDir = join(destRoot, entry.name)
+        mkdirSync(destDir, { recursive: true })
+        cpSync(childPath, destDir, { recursive: true })
+        count++
+      } else {
+        // Not a skill directory — recurse into it (phase subdirs like "4-implementation/")
+        count += copySkillDirsRecursive(childPath, destRoot)
+      }
+    }
+  } catch { /* ignore read errors on individual directories */ }
 
   return count
 }
@@ -704,10 +776,15 @@ export async function scaffoldClaudeCommands(
     }
 
     // Skill-based installation (bmad-method v6.2.0+): when workflow/task-tool
-    // generators are absent, install skills from skill-manifest.csv instead.
+    // generators are absent, install skills directly from bmad-method source.
+    // Falls back to skill-manifest.csv if source directories aren't available.
     let skillCount = 0
     if (!WorkflowCommandGenerator && !TaskToolCommandGenerator) {
-      skillCount = installSkillsFromManifest(projectRoot, bmadDir)
+      skillCount = installSkillsFromSource(projectRoot, installerLibPath)
+      if (skillCount === 0) {
+        // Fallback: try CSV-based installation (populated by bmad-method's own installer)
+        skillCount = installSkillsFromManifest(projectRoot, bmadDir)
+      }
     }
 
     const total = agentCount + workflowCount + taskToolCount + skillCount

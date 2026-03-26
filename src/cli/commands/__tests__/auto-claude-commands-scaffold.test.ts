@@ -198,6 +198,7 @@ import {
   resolveBmadMethodInstallerLibPath,
   runInitAction,
   installSkillsFromManifest,
+  installSkillsFromSource,
 } from '../init.js'
 
 // ---------------------------------------------------------------------------
@@ -679,6 +680,114 @@ describe('installSkillsFromManifest', () => {
       join('/test/project', '.claude', 'skills', 'bmad-review'),
       { recursive: true },
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tests: installSkillsFromSource
+// ---------------------------------------------------------------------------
+
+describe('installSkillsFromSource', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('copies skill directories containing SKILL.md from bmad-method source', () => {
+    // installerLibPath = /fake/bmad-method/tools/cli/installers/lib
+    // bmadMethodRoot resolves to /fake/bmad-method
+    const installerLibPath = '/fake/bmad-method/tools/cli/installers/lib'
+    const coreSkillsDir = join('/fake/bmad-method', 'src', 'core-skills')
+    const bmmSkillsDir = join('/fake/bmad-method', 'src', 'bmm-skills')
+
+    mockExistsSync.mockImplementation((p: string) => {
+      const s = String(p)
+      if (s === coreSkillsDir || s === bmmSkillsDir) return true
+      if (s.includes('.claude/skills')) return true
+      if (s.endsWith('bmad-party-mode/SKILL.md')) return true
+      if (s.endsWith('bmad-brainstorming/SKILL.md')) return true
+      if (s.endsWith('bmad-help/SKILL.md')) return true
+      return false
+    })
+
+    mockReaddirSync.mockImplementation((p: string) => {
+      const s = String(p)
+      if (s === coreSkillsDir) {
+        return [
+          { name: 'bmad-party-mode', isDirectory: () => true },
+          { name: 'bmad-brainstorming', isDirectory: () => true },
+          { name: 'bmad-help', isDirectory: () => true },
+          { name: 'module.yaml', isDirectory: () => false },
+        ]
+      }
+      if (s === bmmSkillsDir) return []
+      // .claude/skills for cleanup
+      return []
+    })
+
+    const result = installSkillsFromSource('/test/project', installerLibPath)
+
+    expect(result).toBe(3)
+    expect(mockCpSync).toHaveBeenCalledWith(
+      join(coreSkillsDir, 'bmad-party-mode'),
+      join('/test/project', '.claude', 'skills', 'bmad-party-mode'),
+      { recursive: true },
+    )
+    expect(mockCpSync).toHaveBeenCalledWith(
+      join(coreSkillsDir, 'bmad-brainstorming'),
+      join('/test/project', '.claude', 'skills', 'bmad-brainstorming'),
+      { recursive: true },
+    )
+  })
+
+  it('recurses into phase subdirectories (e.g. bmm-skills/4-implementation/)', () => {
+    const installerLibPath = '/fake/bmad-method/tools/cli/installers/lib'
+    const coreSkillsDir = join('/fake/bmad-method', 'src', 'core-skills')
+    const bmmSkillsDir = join('/fake/bmad-method', 'src', 'bmm-skills')
+    const implDir = join(bmmSkillsDir, '4-implementation')
+
+    mockExistsSync.mockImplementation((p: string) => {
+      const s = String(p)
+      if (s === coreSkillsDir) return true
+      if (s === bmmSkillsDir) return true
+      if (s === implDir) return true
+      if (s.includes('.claude/skills')) return true
+      if (s.endsWith('bmad-dev-story/SKILL.md')) return true
+      if (s.endsWith('bmad-code-review/SKILL.md')) return true
+      return false
+    })
+
+    mockReaddirSync.mockImplementation((p: string) => {
+      const s = String(p)
+      if (s === coreSkillsDir) return []
+      if (s === bmmSkillsDir) {
+        return [{ name: '4-implementation', isDirectory: () => true }]
+      }
+      if (s === implDir) {
+        return [
+          { name: 'bmad-dev-story', isDirectory: () => true },
+          { name: 'bmad-code-review', isDirectory: () => true },
+        ]
+      }
+      return []
+    })
+
+    const result = installSkillsFromSource('/test/project', installerLibPath)
+
+    expect(result).toBe(2)
+    expect(mockCpSync).toHaveBeenCalledWith(
+      join(implDir, 'bmad-dev-story'),
+      join('/test/project', '.claude', 'skills', 'bmad-dev-story'),
+      { recursive: true },
+    )
+  })
+
+  it('returns 0 when source directories do not exist', () => {
+    mockExistsSync.mockReturnValue(false)
+
+    const result = installSkillsFromSource('/test/project', '/nonexistent/path')
+
+    expect(result).toBe(0)
+    expect(mockCpSync).not.toHaveBeenCalled()
   })
 })
 
