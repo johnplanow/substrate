@@ -363,16 +363,15 @@ function clearBmadCommandFiles(commandsDir: string): void {
 async function compileBmadAgents(bmadDir: string): Promise<number> {
   const _require = createRequire(join(__dirname, 'synthetic.js'))
 
-  let compilerPath: string
+  let compileAgent: (yaml: string, answers?: Record<string, unknown>, name?: string, path?: string) => Promise<{ xml: string }>
   try {
     const pkgJsonPath = _require.resolve('bmad-method/package.json')
-    compilerPath = join(dirname(pkgJsonPath), 'tools', 'cli', 'lib', 'agent', 'compiler.js')
+    const compilerPath = join(dirname(pkgJsonPath), 'tools', 'cli', 'lib', 'agent', 'compiler.js')
+    if (!existsSync(compilerPath)) return 0
+    const mod = _require(compilerPath) as { compileAgent: typeof compileAgent }
+    compileAgent = mod.compileAgent
   } catch {
     return 0
-  }
-
-  const { compileAgent } = _require(compilerPath) as {
-    compileAgent: (yaml: string, answers?: Record<string, unknown>, name?: string, path?: string) => Promise<{ xml: string }>
   }
 
   const agentDirs: string[] = []
@@ -487,33 +486,67 @@ export async function scaffoldClaudeCommands(
       throw new Error(`${name} is not a constructor`)
     }
 
-    const agentMod = _require(join(installerLibPath, 'ide', 'shared', 'agent-command-generator.js')) as Record<string, unknown>
+    // Check that required generator modules exist before requiring them.
+    // bmad-method versions may not ship all generators (e.g. workflow/task-tool
+    // generators were removed in some releases). Missing modules are non-fatal.
+    const agentGenPath = join(installerLibPath, 'ide', 'shared', 'agent-command-generator.js')
+    const workflowGenPath = join(installerLibPath, 'ide', 'shared', 'workflow-command-generator.js')
+    const taskToolGenPath = join(installerLibPath, 'ide', 'shared', 'task-tool-command-generator.js')
+    const manifestGenPath = join(installerLibPath, 'core', 'manifest-generator.js')
+    const pathUtilsPath = join(installerLibPath, 'ide', 'shared', 'path-utils.js')
+
+    if (!existsSync(agentGenPath)) {
+      logger.info('bmad-method generators not available (requires bmad-method with agent/workflow/task-tool generators)')
+      return
+    }
+
+    const agentMod = _require(agentGenPath) as Record<string, unknown>
     const AgentCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadAgentGenerator>(agentMod, 'AgentCommandGenerator')
 
-    const workflowMod = _require(join(installerLibPath, 'ide', 'shared', 'workflow-command-generator.js')) as Record<string, unknown>
-    const WorkflowCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadWorkflowGenerator>(workflowMod, 'WorkflowCommandGenerator')
+    // Workflow and task-tool generators are optional — may not exist in all bmad-method versions.
+    let WorkflowCommandGenerator: (new (bmadFolderName: string) => BmadWorkflowGenerator) | null = null
+    let TaskToolCommandGenerator: (new (bmadFolderName: string) => BmadTaskToolGenerator) | null = null
 
-    const taskToolMod = _require(join(installerLibPath, 'ide', 'shared', 'task-tool-command-generator.js')) as Record<string, unknown>
-    const TaskToolCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadTaskToolGenerator>(taskToolMod, 'TaskToolCommandGenerator')
+    if (existsSync(workflowGenPath)) {
+      const workflowMod = _require(workflowGenPath) as Record<string, unknown>
+      WorkflowCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadWorkflowGenerator>(workflowMod, 'WorkflowCommandGenerator')
+    } else {
+      logger.info('bmad-method workflow-command-generator not available; skipping workflow commands')
+    }
 
-    const manifestMod = _require(join(installerLibPath, 'core', 'manifest-generator.js')) as Record<string, unknown>
-    const ManifestGenerator = resolveExport<new () => BmadManifestGenerator>(manifestMod, 'ManifestGenerator')
+    if (existsSync(taskToolGenPath)) {
+      const taskToolMod = _require(taskToolGenPath) as Record<string, unknown>
+      TaskToolCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadTaskToolGenerator>(taskToolMod, 'TaskToolCommandGenerator')
+    } else {
+      logger.info('bmad-method task-tool-command-generator not available; skipping task/tool commands')
+    }
+
+    let ManifestGenerator: (new () => BmadManifestGenerator) | null = null
+    if (existsSync(manifestGenPath)) {
+      const manifestMod = _require(manifestGenPath) as Record<string, unknown>
+      ManifestGenerator = resolveExport<new () => BmadManifestGenerator>(manifestMod, 'ManifestGenerator')
+    }
 
     // Load toDashPath for the fallback writer (used when writeDashArtifacts is absent).
-    const pathUtilsMod = _require(join(installerLibPath, 'ide', 'shared', 'path-utils.js')) as Record<string, unknown>
-    const pathUtils: BmadPathUtils = {
-      toDashPath: (pathUtilsMod.toDashPath ??
-        ((pathUtilsMod.default as Record<string, unknown> | undefined)?.toDashPath)) as BmadPathUtils['toDashPath'],
+    let pathUtils: BmadPathUtils | null = null
+    if (existsSync(pathUtilsPath)) {
+      const pathUtilsMod = _require(pathUtilsPath) as Record<string, unknown>
+      pathUtils = {
+        toDashPath: (pathUtilsMod.toDashPath ??
+          ((pathUtilsMod.default as Record<string, unknown> | undefined)?.toDashPath)) as BmadPathUtils['toDashPath'],
+      }
     }
 
     // Fallback writer for generators that no longer ship writeDashArtifacts
     // (removed in bmad-method >=6.2.0). Writes each artifact's content to a
     // flat dash-named file, matching the behaviour of the removed method.
+    // Requires pathUtils — returns 0 if unavailable.
     const writeDashFallback = async (
       baseDir: string,
       artifacts: BmadArtifact[],
       acceptTypes: string[],
     ): Promise<number> => {
+      if (!pathUtils) return 0
       let written = 0
       for (const artifact of artifacts) {
         if (!acceptTypes.includes(artifact.type)) continue
@@ -531,11 +564,13 @@ export async function scaffoldClaudeCommands(
     const nonCoreModules = scanBmadModules(bmadDir)
     const allModules = ['core', ...nonCoreModules]
 
-    try {
-      const manifestGen = new ManifestGenerator()
-      await manifestGen.generateManifests(bmadDir, allModules, [], { ides: ['claude-code'] })
-    } catch (manifestErr) {
-      logger.warn({ err: manifestErr }, 'ManifestGenerator failed; workflow/task commands may be incomplete')
+    if (ManifestGenerator) {
+      try {
+        const manifestGen = new ManifestGenerator()
+        await manifestGen.generateManifests(bmadDir, allModules, [], { ides: ['claude-code'] })
+      } catch (manifestErr) {
+        logger.warn({ err: manifestErr }, 'ManifestGenerator failed; workflow/task commands may be incomplete')
+      }
     }
 
     const commandsDir = join(projectRoot, '.claude', 'commands')
@@ -548,17 +583,23 @@ export async function scaffoldClaudeCommands(
       ? await agentGen.writeDashArtifacts(commandsDir, agentArtifacts)
       : await writeDashFallback(commandsDir, agentArtifacts, ['agent-launcher'])
 
-    const workflowGen = new WorkflowCommandGenerator('_bmad')
-    const { artifacts: workflowArtifacts } = await workflowGen.collectWorkflowArtifacts(bmadDir)
-    const workflowCount = typeof workflowGen.writeDashArtifacts === 'function'
-      ? await workflowGen.writeDashArtifacts(commandsDir, workflowArtifacts)
-      : await writeDashFallback(commandsDir, workflowArtifacts, ['workflow-command', 'workflow-launcher'])
+    let workflowCount = 0
+    if (WorkflowCommandGenerator) {
+      const workflowGen = new WorkflowCommandGenerator('_bmad')
+      const { artifacts: workflowArtifacts } = await workflowGen.collectWorkflowArtifacts(bmadDir)
+      workflowCount = typeof workflowGen.writeDashArtifacts === 'function'
+        ? await workflowGen.writeDashArtifacts(commandsDir, workflowArtifacts)
+        : await writeDashFallback(commandsDir, workflowArtifacts, ['workflow-command', 'workflow-launcher'])
+    }
 
-    const taskToolGen = new TaskToolCommandGenerator('_bmad')
-    const { artifacts: taskToolArtifacts } = await taskToolGen.collectTaskToolArtifacts(bmadDir)
-    const taskToolCount = typeof taskToolGen.writeDashArtifacts === 'function'
-      ? await taskToolGen.writeDashArtifacts(commandsDir, taskToolArtifacts)
-      : await writeDashFallback(commandsDir, taskToolArtifacts, ['task', 'tool'])
+    let taskToolCount = 0
+    if (TaskToolCommandGenerator) {
+      const taskToolGen = new TaskToolCommandGenerator('_bmad')
+      const { artifacts: taskToolArtifacts } = await taskToolGen.collectTaskToolArtifacts(bmadDir)
+      taskToolCount = typeof taskToolGen.writeDashArtifacts === 'function'
+        ? await taskToolGen.writeDashArtifacts(commandsDir, taskToolArtifacts)
+        : await writeDashFallback(commandsDir, taskToolArtifacts, ['task', 'tool'])
+    }
 
     const total = agentCount + workflowCount + taskToolCount
     if (outputFormat !== 'json') {
@@ -1022,7 +1063,7 @@ export async function runInitAction(options: InitOptions): Promise<number> {
         if (doltMode === 'auto') {
           await checkDoltInstalled() // throws DoltNotInstalled if absent
         }
-        await initializeDolt({ projectRoot, schemaPath: fileURLToPath(new URL('../../modules/state/schema.sql', import.meta.url)) })
+        await initializeDolt({ projectRoot, schemaPath: fileURLToPath(new URL('../schema.sql', import.meta.url)) })
         doltInitialized = true
       } catch (err) {
         if (err instanceof DoltNotInstalled) {
