@@ -7,3 +7,5 @@ export type { ICodergenBackend, MockBackendResponse, MockCodergenBackendConfig, 
 export { MockCodergenBackend, createMockCodergenBackend } from './mock-backend.js'
 export type { DirectBackendOptions } from './direct-backend.js'
 export { DirectCodergenBackend, createDirectCodergenBackend } from './direct-backend.js'
+export { bootstrapDirectBackend } from './direct-bootstrap.js'
+export type { DirectBootstrapOptions } from './direct-bootstrap.js'

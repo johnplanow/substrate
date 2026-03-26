@@ -51,6 +51,15 @@ export const FactoryConfigSchema = z
      *   'scenario-only'    — satisfaction score only; code review skipped entirely
      */
     quality_mode: z.enum(['code-review', 'dual-signal', 'scenario-primary', 'scenario-only']).default('dual-signal'),
+    /**
+     * Direct backend configuration for provider, model, and turn limits.
+     * Story 48-12.
+     */
+    direct_backend: z.object({
+      provider: z.enum(['anthropic', 'openai', 'gemini']).default('anthropic'),
+      model: z.string().default('claude-3-5-sonnet-20241022'),
+      max_turns: z.number().int().min(1).default(20),
+    }).default({ provider: 'anthropic', model: 'claude-3-5-sonnet-20241022', max_turns: 20 }),
   })
   .strict()
 

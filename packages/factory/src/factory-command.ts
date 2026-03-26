@@ -40,6 +40,10 @@ import { createDefaultRegistry } from './handlers/index.js'
 import { RunStateManager } from './graph/run-state.js'
 import { loadFactoryConfig, resolveConfigPath } from './config.js'
 import { factorySchema } from './persistence/factory-schema.js'
+import { bootstrapDirectBackend } from './backend/direct-bootstrap.js'
+import { EventKind } from './agent/types.js'
+import type { SessionEvent } from './agent/types.js'
+import type { DirectCodergenBackend } from './backend/direct-backend.js'
 import { TypedEventBusImpl, createDatabaseAdapter } from '@substrate-ai/core'
 import type { DatabaseAdapter } from '@substrate-ai/core'
 import type { FactoryEvents } from './events.js'
@@ -135,6 +139,7 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
     .option('--graph <path>', 'Path to DOT graph file')
     .option('--config <path>', 'Path to config.yaml (default: auto-detect)')
     .option('--events', 'Emit NDJSON events to stdout')
+    .option('--backend <mode>', 'Backend: cli | direct (overrides config factory.backend)')
     .action(async (opts) => {
       try {
         const projectDir = process.cwd()
@@ -166,6 +171,9 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
           eventBus.on('graph:started', (e) => emit({ type: 'graph:started', ...e }))
           eventBus.on('graph:completed', (e) => emit({ type: 'graph:completed', ...e }))
           eventBus.on('factory:config-reloaded', (e) => emit({ type: 'factory:config-reloaded', ...e }))
+          eventBus.on('agent:tool-call', (e) => emit({ type: 'agent:tool-call', ...e }))
+          eventBus.on('agent:loop-detected', (e) => emit({ type: 'agent:loop-detected', ...e }))
+          eventBus.on('agent:steering-injected', (e) => emit({ type: 'agent:steering-injected', ...e }))
         }
 
         // Print start confirmation
@@ -186,6 +194,74 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
         /** wallClockCapMs: FactoryConfig.wall_clock_cap_seconds × 1000 (story 45-10) */
         const factoryConfig = await loadFactoryConfig(projectDir, opts.config)
 
+        // Resolve effective backend: CLI flag > config > 'cli' default (story 48-12 AC1)
+        const effectiveBackend = (opts.backend ?? factoryConfig.factory?.backend ?? 'cli') as 'cli' | 'direct'
+
+        // Story 48-12 AC2, AC3, AC4: Bootstrap direct backend if requested
+        let directBackend: DirectCodergenBackend | undefined
+
+        if (effectiveBackend === 'direct') {
+          // Track current node for event correlation
+          let currentNodeId = ''
+          eventBus.on('graph:node-started', (e) => { currentNodeId = e.nodeId })
+
+          // Build the event forwarding callback
+          const toolCallNameMap = new Map<string, string>() // call_id → tool_name
+          const onDirectEvent = (event: SessionEvent) => {
+            if (event.kind === EventKind.TOOL_CALL_START) {
+              const toolName = (event.data['tool_name'] as string) ?? ''
+              const callId = (event.data['call_id'] as string) ?? ''
+              toolCallNameMap.set(callId, toolName)
+              eventBus.emit('agent:tool-call', {
+                runId,
+                nodeId: currentNodeId,
+                toolName,
+                direction: 'call',
+              })
+            } else if (event.kind === EventKind.TOOL_CALL_END) {
+              const callId = (event.data['call_id'] as string) ?? ''
+              const toolName = toolCallNameMap.get(callId) ?? ''
+              toolCallNameMap.delete(callId)
+              eventBus.emit('agent:tool-call', {
+                runId,
+                nodeId: currentNodeId,
+                toolName,
+                direction: 'result',
+              })
+            } else if (event.kind === EventKind.LOOP_DETECTION) {
+              eventBus.emit('agent:loop-detected', {
+                runId,
+                nodeId: currentNodeId,
+                windowSize: (event.data['windowSize'] as number) ?? 0,
+                pattern: (event.data['pattern'] as string[]) ?? [],
+              })
+            } else if (event.kind === EventKind.STEERING_INJECTED) {
+              eventBus.emit('agent:steering-injected', {
+                runId,
+                nodeId: currentNodeId,
+                message: (event.data['content'] as string) ?? '',
+              })
+            }
+          }
+
+          // Bootstrap the direct backend — fail fast if API key is missing
+          try {
+            const directBackendCfg = factoryConfig.factory?.direct_backend
+            directBackend = bootstrapDirectBackend({
+              provider: directBackendCfg?.provider ?? 'anthropic',
+              model: directBackendCfg?.model ?? 'claude-3-5-sonnet-20241022',
+              maxTurns: directBackendCfg?.max_turns ?? 20,
+              projectDir,
+              onEvent: onDirectEvent,
+            })
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err)
+            process.stderr.write(`Error: ${msg}\n`)
+            process.exit(1)
+            return
+          }
+        }
+
         // Initialize persistence adapter and factory schema (story 46-3).
         // Uses auto-detection: Dolt if available, otherwise in-memory fallback.
         // factorySchema is idempotent — safe to call on every run.
@@ -198,7 +274,7 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
         const executorConfig = {
           runId,
           logsRoot,
-          handlerRegistry: createDefaultRegistry(),
+          handlerRegistry: createDefaultRegistry(directBackend ? { directBackend } : undefined),
           eventBus,
           dotSource,
           adapter,

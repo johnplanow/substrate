@@ -209,4 +209,32 @@ export type FactoryEvents = CoreEvents & {
     oldValue: unknown
     newValue: unknown
   }
+
+  // -------------------------------------------------------------------------
+  // Agent session events (story 48-12)
+  // -------------------------------------------------------------------------
+
+  /** Agent tool call started or completed during a direct backend run */
+  'agent:tool-call': {
+    runId: string
+    nodeId: string
+    toolName: string
+    direction: 'call' | 'result'
+    inputSummary?: string
+  }
+
+  /** Loop detected in agent session during a direct backend run */
+  'agent:loop-detected': {
+    runId: string
+    nodeId: string
+    windowSize: number
+    pattern: string[]
+  }
+
+  /** Steering message injected into agent session during a direct backend run */
+  'agent:steering-injected': {
+    runId: string
+    nodeId: string
+    message: string
+  }
 }

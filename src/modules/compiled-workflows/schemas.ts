@@ -55,9 +55,9 @@ export const DevStoryResultSchema = z.object({
     (val) => (val === 'failure' ? 'failed' : val),
     z.enum(['success', 'failed']),
   ),
-  ac_met: z.array(coerceToString),
-  ac_failures: z.array(coerceToString),
-  files_modified: z.array(z.string()),
+  ac_met: z.array(coerceToString).default([]),
+  ac_failures: z.array(coerceToString).default([]),
+  files_modified: z.array(z.string()).default([]),
   tests: z.preprocess((val) => {
     if (typeof val === 'string') {
       const lower = val.toLowerCase()
@@ -93,7 +93,11 @@ const coerceOptionalNumber = z.preprocess(
 )
 
 const coerceNumber = z.preprocess(
-  (val) => (typeof val === 'string' ? Number(val) : val),
+  (val) => {
+    if (typeof val === 'string') return Number(val)
+    if (Array.isArray(val)) return val.length // agent confused issues (count) with issue_list (array)
+    return val
+  },
   z.number(),
 )
 
@@ -120,11 +124,11 @@ export type CodeReviewIssueSchemaOutput = z.infer<typeof CodeReviewIssueSchema>
  */
 export const AcChecklistEntrySchema = z.object({
   /** Acceptance criterion identifier, e.g. "AC1" */
-  ac_id: z.string(),
+  ac_id: z.string().default(''),
   /** Implementation status of the AC */
-  status: z.enum(['met', 'not_met', 'partial']),
+  status: z.enum(['met', 'not_met', 'partial']).default('met'),
   /** Specific file/function reference or reason supporting the status */
-  evidence: z.string(),
+  evidence: z.string().default(''),
 })
 
 export type AcChecklistEntrySchemaOutput = z.infer<typeof AcChecklistEntrySchema>

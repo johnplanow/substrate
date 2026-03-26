@@ -11,6 +11,7 @@
 
 import type { GraphNode } from '../graph/types.js'
 import type { IHandlerRegistry, NodeHandler } from './types.js'
+import type { CodergenHandlerOptions } from './codergen-handler.js'
 import { startHandler } from './start.js'
 import { exitHandler } from './exit.js'
 import { conditionalHandler } from './conditional.js'
@@ -94,14 +95,14 @@ export class HandlerRegistry implements IHandlerRegistry {
  * `shape=box` nodes, and as the registry-level default for any node that has no
  * recognised type or shape mapping.
  */
-export function createDefaultRegistry(): HandlerRegistry {
+export function createDefaultRegistry(options?: CodergenHandlerOptions): HandlerRegistry {
   const registry = new HandlerRegistry()
 
   // Register built-in type handlers
   registry.register('start', startHandler)
   registry.register('exit', exitHandler)
   registry.register('conditional', conditionalHandler)
-  registry.register('codergen', createCodergenHandler())
+  registry.register('codergen', createCodergenHandler(options))
   registry.register('tool', createToolHandler())
   registry.register('wait.human', createWaitHumanHandler())
 
@@ -112,7 +113,7 @@ export function createDefaultRegistry(): HandlerRegistry {
   registry.registerShape('box', 'codergen')
 
   // Set codergen as default for nodes with no recognised type or shape
-  registry.setDefault(createCodergenHandler())
+  registry.setDefault(createCodergenHandler(options))
 
   return registry
 }
