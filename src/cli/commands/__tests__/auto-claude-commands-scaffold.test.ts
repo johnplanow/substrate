@@ -49,6 +49,10 @@ const mockCpSync = vi.fn()
 const mockChmodSync = vi.fn()
 const mockReaddirSync = vi.fn()
 const mockUnlinkSync = vi.fn()
+const mockReadFileSync = vi.fn()
+const mockWriteFileSync = vi.fn()
+const mockAppendFileSync = vi.fn()
+const mockRmSync = vi.fn()
 
 vi.mock('fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
@@ -57,6 +61,10 @@ vi.mock('fs', () => ({
   chmodSync: (...args: unknown[]) => mockChmodSync(...args),
   readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
   unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
+  readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+  writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+  appendFileSync: (...args: unknown[]) => mockAppendFileSync(...args),
+  rmSync: (...args: unknown[]) => mockRmSync(...args),
 }))
 
 // Mock fs/promises
@@ -189,6 +197,7 @@ import {
   scanBmadModules,
   resolveBmadMethodInstallerLibPath,
   runInitAction,
+  installSkillsFromManifest,
 } from '../init.js'
 
 // ---------------------------------------------------------------------------
@@ -539,6 +548,217 @@ describe('scaffoldClaudeCommands', () => {
       expect.stringContaining('.claude/commands/ generation failed'),
     )
     stderrSpy.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tests: installSkillsFromManifest
+// ---------------------------------------------------------------------------
+
+describe('installSkillsFromManifest', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns 0 when skill-manifest.csv does not exist', () => {
+    mockExistsSync.mockReturnValue(false)
+    const result = installSkillsFromManifest('/test/project', '/test/project/_bmad')
+    expect(result).toBe(0)
+  })
+
+  it('returns 0 when CSV has only headers', () => {
+    mockExistsSync.mockReturnValue(true)
+    mockReadFileSync.mockReturnValue('canonicalId,name,description,module,path,install_to_bmad\n')
+    const result = installSkillsFromManifest('/test/project', '/test/project/_bmad')
+    expect(result).toBe(0)
+  })
+
+  it('installs skills from skill-manifest.csv', () => {
+    const csvContent = [
+      'canonicalId,name,description,module,path,install_to_bmad',
+      'bmad-party-mode,party-mode,"Orchestrates group discussions, enabling multi-agent conversations",core,_bmad/core/skills/bmad-party-mode/SKILL.md,true',
+      'bmad-brainstorming,brainstorming,"Facilitate interactive brainstorming sessions",core,_bmad/core/skills/bmad-brainstorming/SKILL.md,true',
+    ].join('\n')
+
+    mockExistsSync.mockReturnValue(true)
+    mockReadFileSync.mockReturnValue(csvContent)
+    mockReaddirSync.mockReturnValue([])
+
+    const result = installSkillsFromManifest('/test/project', '/test/project/_bmad')
+
+    expect(result).toBe(2)
+    // Should create .claude/skills/ directory
+    expect(mockMkdirSync).toHaveBeenCalledWith(
+      join('/test/project', '.claude', 'skills'),
+      { recursive: true },
+    )
+    // Should copy each skill directory
+    expect(mockCpSync).toHaveBeenCalledWith(
+      join('/test/project', '_bmad', 'core', 'skills', 'bmad-party-mode'),
+      join('/test/project', '.claude', 'skills', 'bmad-party-mode'),
+      { recursive: true },
+    )
+    expect(mockCpSync).toHaveBeenCalledWith(
+      join('/test/project', '_bmad', 'core', 'skills', 'bmad-brainstorming'),
+      join('/test/project', '.claude', 'skills', 'bmad-brainstorming'),
+      { recursive: true },
+    )
+  })
+
+  it('cleans existing bmad-prefixed skill directories before install', () => {
+    const csvContent = [
+      'canonicalId,name,description,module,path,install_to_bmad',
+      'bmad-party-mode,party-mode,Orchestrates discussions,core,_bmad/core/skills/bmad-party-mode/SKILL.md,true',
+    ].join('\n')
+
+    mockExistsSync.mockReturnValue(true)
+    mockReadFileSync.mockReturnValue(csvContent)
+    mockReaddirSync.mockReturnValue([
+      { name: 'bmad-party-mode', isDirectory: () => true },
+      { name: 'bmad-old-skill', isDirectory: () => true },
+      { name: 'my-custom-skill', isDirectory: () => true },
+    ])
+
+    installSkillsFromManifest('/test/project', '/test/project/_bmad')
+
+    // Should remove bmad-prefixed dirs
+    expect(mockRmSync).toHaveBeenCalledWith(
+      join('/test/project', '.claude', 'skills', 'bmad-party-mode'),
+      { recursive: true, force: true },
+    )
+    expect(mockRmSync).toHaveBeenCalledWith(
+      join('/test/project', '.claude', 'skills', 'bmad-old-skill'),
+      { recursive: true, force: true },
+    )
+    // Should NOT remove non-bmad dirs
+    const rmPaths = mockRmSync.mock.calls.map(([p]: [string]) => String(p))
+    expect(rmPaths).not.toContain(
+      join('/test/project', '.claude', 'skills', 'my-custom-skill'),
+    )
+  })
+
+  it('skips entries with missing source directories', () => {
+    const csvContent = [
+      'canonicalId,name,description,module,path,install_to_bmad',
+      'bmad-exists,exists,Exists,core,_bmad/core/skills/bmad-exists/SKILL.md,true',
+      'bmad-missing,missing,Missing,core,_bmad/core/skills/bmad-missing/SKILL.md,true',
+    ].join('\n')
+
+    mockExistsSync.mockImplementation((p: string) => {
+      const s = String(p)
+      if (s.includes('skill-manifest.csv')) return true
+      if (s.includes('bmad-exists')) return true
+      if (s.includes('bmad-missing')) return false
+      if (s.includes('.claude/skills')) return true
+      return true
+    })
+    mockReadFileSync.mockReturnValue(csvContent)
+    mockReaddirSync.mockReturnValue([])
+
+    const result = installSkillsFromManifest('/test/project', '/test/project/_bmad')
+
+    expect(result).toBe(1)
+    expect(mockCpSync).toHaveBeenCalledTimes(1)
+  })
+
+  it('handles quoted CSV fields with embedded commas', () => {
+    const csvContent = [
+      'canonicalId,name,description,module,path,install_to_bmad',
+      'bmad-review,"review","Perform a Cynical Review, produce findings report",core,_bmad/core/skills/bmad-review/SKILL.md,true',
+    ].join('\n')
+
+    mockExistsSync.mockReturnValue(true)
+    mockReadFileSync.mockReturnValue(csvContent)
+    mockReaddirSync.mockReturnValue([])
+
+    const result = installSkillsFromManifest('/test/project', '/test/project/_bmad')
+
+    expect(result).toBe(1)
+    expect(mockCpSync).toHaveBeenCalledWith(
+      join('/test/project', '_bmad', 'core', 'skills', 'bmad-review'),
+      join('/test/project', '.claude', 'skills', 'bmad-review'),
+      { recursive: true },
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tests: scaffoldClaudeCommands — skill-based fallback
+// ---------------------------------------------------------------------------
+
+describe('scaffoldClaudeCommands — skill-based installation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRequireResolve.mockReturnValue('/fake/node_modules/bmad-method/package.json')
+    mockRequireCall.mockReturnValue({ version: '6.2.2' })
+    mockCollectAgentArtifacts.mockResolvedValue({ artifacts: [{ type: 'agent-launcher', name: 'pm' }] })
+    mockAgentWriteDash.mockResolvedValue(5)
+    mockGenerateManifests.mockResolvedValue({ workflows: 0, agents: 10, tasks: 0, tools: 0 })
+    mockReaddirSync.mockImplementation((p: string) => {
+      const s = String(p)
+      if (s.includes('_bmad') && !s.includes('.claude')) {
+        return [
+          { name: 'core', isDirectory: () => true },
+          { name: 'bmm', isDirectory: () => true },
+          { name: '_config', isDirectory: () => true },
+        ]
+      }
+      // .claude/commands or .claude/skills dir
+      return []
+    })
+  })
+
+  it('installs skills from manifest when workflow/task generators are missing', async () => {
+    const csvContent = [
+      'canonicalId,name,description,module,path,install_to_bmad',
+      'bmad-party-mode,party-mode,Party mode,core,_bmad/core/skills/bmad-party-mode/SKILL.md,true',
+      'bmad-brainstorming,brainstorming,Brainstorm,core,_bmad/core/skills/bmad-brainstorming/SKILL.md,true',
+    ].join('\n')
+
+    mockExistsSync.mockImplementation((p: string) => {
+      const s = String(p)
+      // Agent generator exists, workflow/task-tool generators do NOT
+      if (s.includes('agent-command-generator.js')) return true
+      if (s.includes('workflow-command-generator.js')) return false
+      if (s.includes('task-tool-command-generator.js')) return false
+      if (s.includes('manifest-generator.js')) return true
+      if (s.includes('path-utils.js')) return true
+      if (s.includes('skill-manifest.csv')) return true
+      if (s.includes('_bmad')) return true
+      if (s.includes('bmm/agents')) return true
+      if (s.includes('.claude/skills')) return true
+      return true
+    })
+    mockReadFileSync.mockReturnValue(csvContent)
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    await scaffoldClaudeCommands('/test/project', 'human')
+
+    // Workflow/task generators should NOT have been called
+    expect(mockCollectWorkflowArtifacts).not.toHaveBeenCalled()
+    expect(mockCollectTaskToolArtifacts).not.toHaveBeenCalled()
+
+    // Skills should have been installed
+    expect(mockMkdirSync).toHaveBeenCalledWith(
+      join('/test/project', '.claude', 'skills'),
+      { recursive: true },
+    )
+    expect(mockCpSync).toHaveBeenCalledWith(
+      join('/test/project', '_bmad', 'core', 'skills', 'bmad-party-mode'),
+      join('/test/project', '.claude', 'skills', 'bmad-party-mode'),
+      { recursive: true },
+    )
+
+    // Output should mention skills
+    expect(stdoutSpy).toHaveBeenCalledWith(
+      expect.stringContaining('skills'),
+    )
+    expect(stdoutSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Generated 7'),  // 5 agents + 2 skills
+    )
+
+    stdoutSpy.mockRestore()
   })
 })
 

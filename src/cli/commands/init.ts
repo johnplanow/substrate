@@ -21,7 +21,7 @@
 
 import type { Command } from 'commander'
 import { mkdir, writeFile, access, readFile } from 'fs/promises'
-import { mkdirSync, writeFileSync, existsSync, readFileSync, cpSync, chmodSync, readdirSync, unlinkSync, appendFileSync } from 'fs'
+import { mkdirSync, writeFileSync, existsSync, readFileSync, cpSync, chmodSync, readdirSync, unlinkSync, appendFileSync, rmSync } from 'fs'
 import { join, resolve, dirname } from 'path'
 import { fileURLToPath } from 'node:url'
 import yaml from 'js-yaml'
@@ -446,6 +446,108 @@ interface BmadPathUtils {
   toDashPath(relativePath: string): string
 }
 
+// ---------------------------------------------------------------------------
+// Skill-based installation (bmad-method v6.2.0+)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a single CSV line, respecting double-quoted fields that may contain
+ * commas and escaped quotes (RFC 4180). Returns an array of field values.
+ */
+function parseCSVLine(line: string): string[] {
+  const fields: string[] = []
+  let current = ''
+  let inQuotes = false
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          current += '"'
+          i++ // skip escaped quote
+        } else {
+          inQuotes = false
+        }
+      } else {
+        current += ch
+      }
+    } else if (ch === '"') {
+      inQuotes = true
+    } else if (ch === ',') {
+      fields.push(current)
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  fields.push(current)
+  return fields
+}
+
+/**
+ * Install skills from `_bmad/_config/skill-manifest.csv` into `.claude/skills/`.
+ *
+ * Each row in the CSV specifies a canonicalId and a path to the SKILL.md file.
+ * The entire source directory (dirname of the path) is copied to
+ * `.claude/skills/<canonicalId>/`, matching bmad-method's installVerbatimSkills.
+ *
+ * @returns Number of skills installed.
+ */
+export function installSkillsFromManifest(projectRoot: string, bmadDir: string): number {
+  const csvPath = join(bmadDir, '_config', 'skill-manifest.csv')
+  if (!existsSync(csvPath)) return 0
+
+  const csvContent = readFileSync(csvPath, 'utf-8')
+  const lines = csvContent.split('\n').filter((l) => l.trim() !== '')
+  if (lines.length < 2) return 0 // header only or empty
+
+  const headers = parseCSVLine(lines[0]!)
+  const canonicalIdIdx = headers.indexOf('canonicalId')
+  const pathIdx = headers.indexOf('path')
+  if (canonicalIdIdx < 0 || pathIdx < 0) return 0
+
+  const bmadFolderName = '_bmad'
+  const bmadPrefix = bmadFolderName + '/'
+  const skillsDir = join(projectRoot, '.claude', 'skills')
+  mkdirSync(skillsDir, { recursive: true })
+
+  // Clean existing bmad-prefixed skill directories to prevent stale entries
+  if (existsSync(skillsDir)) {
+    try {
+      for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
+        if (entry.isDirectory() && entry.name.startsWith('bmad')) {
+          rmSync(join(skillsDir, entry.name), { recursive: true, force: true })
+        }
+      }
+    } catch { /* ignore cleanup errors */ }
+  }
+
+  let count = 0
+  for (let i = 1; i < lines.length; i++) {
+    const fields = parseCSVLine(lines[i]!)
+    const canonicalId = fields[canonicalIdIdx]?.trim()
+    const skillPath = fields[pathIdx]?.trim()
+    if (!canonicalId || !skillPath) continue
+
+    // path column starts with _bmad/ prefix — strip to get path relative to bmadDir
+    const relativePath = skillPath.startsWith(bmadPrefix)
+      ? skillPath.slice(bmadPrefix.length)
+      : skillPath
+    const sourceFile = join(bmadDir, relativePath)
+    const sourceDir = dirname(sourceFile)
+
+    if (!existsSync(sourceDir)) continue
+
+    const destDir = join(skillsDir, canonicalId)
+    mkdirSync(destDir, { recursive: true })
+    cpSync(sourceDir, destDir, { recursive: true })
+    count++
+  }
+
+  return count
+}
+
 export async function scaffoldClaudeCommands(
   projectRoot: string,
   outputFormat: OutputFormat,
@@ -511,14 +613,14 @@ export async function scaffoldClaudeCommands(
       const workflowMod = _require(workflowGenPath) as Record<string, unknown>
       WorkflowCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadWorkflowGenerator>(workflowMod, 'WorkflowCommandGenerator')
     } else {
-      logger.info('bmad-method workflow-command-generator not available; skipping workflow commands')
+      logger.info('bmad-method workflow-command-generator not available; will try skill-based installation')
     }
 
     if (existsSync(taskToolGenPath)) {
       const taskToolMod = _require(taskToolGenPath) as Record<string, unknown>
       TaskToolCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadTaskToolGenerator>(taskToolMod, 'TaskToolCommandGenerator')
     } else {
-      logger.info('bmad-method task-tool-command-generator not available; skipping task/tool commands')
+      logger.info('bmad-method task-tool-command-generator not available; will try skill-based installation')
     }
 
     let ManifestGenerator: (new () => BmadManifestGenerator) | null = null
@@ -601,13 +703,26 @@ export async function scaffoldClaudeCommands(
         : await writeDashFallback(commandsDir, taskToolArtifacts, ['task', 'tool'])
     }
 
-    const total = agentCount + workflowCount + taskToolCount
-    if (outputFormat !== 'json') {
-      process.stdout.write(
-        `Generated ${String(total)} Claude Code commands (${String(agentCount)} agents, ${String(workflowCount)} workflows, ${String(taskToolCount)} tasks/tools)\n`,
-      )
+    // Skill-based installation (bmad-method v6.2.0+): when workflow/task-tool
+    // generators are absent, install skills from skill-manifest.csv instead.
+    let skillCount = 0
+    if (!WorkflowCommandGenerator && !TaskToolCommandGenerator) {
+      skillCount = installSkillsFromManifest(projectRoot, bmadDir)
     }
-    logger.info({ agentCount, workflowCount, taskToolCount, total, commandsDir }, 'Generated .claude/commands/')
+
+    const total = agentCount + workflowCount + taskToolCount + skillCount
+    if (outputFormat !== 'json') {
+      if (skillCount > 0) {
+        process.stdout.write(
+          `Generated ${String(total)} Claude Code commands (${String(agentCount)} agents, ${String(skillCount)} skills)\n`,
+        )
+      } else {
+        process.stdout.write(
+          `Generated ${String(total)} Claude Code commands (${String(agentCount)} agents, ${String(workflowCount)} workflows, ${String(taskToolCount)} tasks/tools)\n`,
+        )
+      }
+    }
+    logger.info({ agentCount, workflowCount, taskToolCount, skillCount, total, commandsDir }, 'Generated .claude/commands/')
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (outputFormat !== 'json') {
