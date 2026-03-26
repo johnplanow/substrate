@@ -195,6 +195,15 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Returns true for paths pointing to bmad-method generator module files. */
+function isBmadGeneratorModule(s: string): boolean {
+  return s.includes('agent-command-generator.js') ||
+    s.includes('workflow-command-generator.js') ||
+    s.includes('task-tool-command-generator.js') ||
+    s.includes('manifest-generator.js') ||
+    s.includes('path-utils.js')
+}
+
 function mockPack() {
   return {
     manifest: {
@@ -391,6 +400,7 @@ describe('scaffoldClaudeCommands', () => {
   it('calls all three generators on happy path', async () => {
     mockExistsSync.mockImplementation((p: string) => {
       const s = String(p)
+      if (isBmadGeneratorModule(s)) return true
       if (s.includes('_bmad')) return true
       if (s.includes('bmm/agents')) return true
       if (s.includes('bmm/workflows')) return true
@@ -428,6 +438,7 @@ describe('scaffoldClaudeCommands', () => {
   it('creates .claude/commands/ directory', async () => {
     mockExistsSync.mockImplementation((p: string) => {
       const s = String(p)
+      if (isBmadGeneratorModule(s)) return true
       if (s.includes('_bmad')) return true
       if (s.includes('bmm/agents')) return true
       return false
@@ -447,6 +458,7 @@ describe('scaffoldClaudeCommands', () => {
   it('clears existing bmad-* files before regenerating', async () => {
     mockExistsSync.mockImplementation((p: string) => {
       const s = String(p)
+      if (isBmadGeneratorModule(s)) return true
       if (s.includes('_bmad')) return true
       if (s.includes('bmm/agents')) return true
       return false
@@ -490,6 +502,7 @@ describe('scaffoldClaudeCommands', () => {
   it('continues with agents when ManifestGenerator fails', async () => {
     mockExistsSync.mockImplementation((p: string) => {
       const s = String(p)
+      if (isBmadGeneratorModule(s)) return true
       if (s.includes('_bmad')) return true
       if (s.includes('bmm/agents')) return true
       return false
@@ -510,7 +523,9 @@ describe('scaffoldClaudeCommands', () => {
 
   it('handles generator error gracefully without failing init', async () => {
     mockExistsSync.mockImplementation((p: string) => {
-      if (String(p).includes('_bmad')) return true
+      const s = String(p)
+      if (isBmadGeneratorModule(s)) return true
+      if (s.includes('_bmad')) return true
       return false
     })
     mockCollectAgentArtifacts.mockRejectedValue(new Error('generator crash'))
