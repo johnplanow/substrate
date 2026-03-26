@@ -52,14 +52,13 @@ function makeMockDoltClientFactory() {
 function configureDoltAvailable() {
   mockedExistsSync.mockReturnValue(true)
   mockedSpawnSync.mockReturnValue({
-    error: undefined,
     status: 0,
     pid: 1,
     output: [],
     stdout: Buffer.from(''),
     stderr: Buffer.from(''),
     signal: null,
-  } as ReturnType<typeof spawnSync>)
+  } as unknown as ReturnType<typeof spawnSync>)
 }
 
 // ---------------------------------------------------------------------------
@@ -256,25 +255,23 @@ describe('createDatabaseAdapter', () => {
           }
           // Retry: binary available
           return {
-            error: undefined,
             status: 0,
             pid: 1,
             output: [],
             stdout: Buffer.from(''),
             stderr: Buffer.from(''),
             signal: null,
-          } as ReturnType<typeof spawnSync>
+          } as unknown as ReturnType<typeof spawnSync>
         }
         // sleep call
         return {
-          error: undefined,
           status: 0,
           pid: 1,
           output: [],
           stdout: Buffer.from(''),
           stderr: Buffer.from(''),
           signal: null,
-        } as ReturnType<typeof spawnSync>
+        } as unknown as ReturnType<typeof spawnSync>
       })
 
       const { factory } = makeMockDoltClientFactory()
