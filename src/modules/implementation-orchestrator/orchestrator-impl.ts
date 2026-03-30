@@ -232,6 +232,74 @@ function extractExpectedStoryTitle(shardContent: string, storyKey: string): stri
   return null
 }
 
+// ---------------------------------------------------------------------------
+// AC satisfaction pre-check (pipeline finding: wasted dispatches)
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether a story's expected NEW files already exist in the working tree,
+ * indicating the story was implicitly implemented by adjacent stories.
+ *
+ * Parses the consolidated epics document for the story's "Files likely touched"
+ * section and checks for files marked as "(new)". If all expected new files
+ * already exist, the story is considered implicitly covered.
+ *
+ * Returns `true` if the story appears already covered, `false` otherwise.
+ */
+function isImplicitlyCovered(storyKey: string, projectRoot: string): boolean {
+  // Find the consolidated epics file
+  const planningDir = join(projectRoot, '_bmad-output', 'planning-artifacts')
+  if (!existsSync(planningDir)) return false
+
+  let epicsPath: string | undefined
+  try {
+    const entries = readdirSync(planningDir, { encoding: 'utf-8' })
+    const match = entries.find((e) => /^epics[-.].*\.md$/i.test(e) && !(/^epic-\d+/.test(e)))
+    if (match) epicsPath = join(planningDir, match)
+  } catch {
+    return false
+  }
+  if (!epicsPath) return false
+
+  let content: string
+  try {
+    content = readFileSync(epicsPath, 'utf-8')
+  } catch {
+    return false
+  }
+
+  // Find the story's section
+  const escapedKey = storyKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const storyHeading = new RegExp(`^###\\s+Story\\s+${escapedKey}[:\\s]`, 'm')
+  const headingMatch = storyHeading.exec(content)
+  if (!headingMatch) return false
+
+  // Extract section until next story heading or end
+  const sectionStart = headingMatch.index
+  const nextHeading = content.indexOf('\n### Story ', sectionStart + 1)
+  const section = nextHeading > 0 ? content.slice(sectionStart, nextHeading) : content.slice(sectionStart)
+
+  // Find "Files likely touched:" block
+  const filesIdx = section.indexOf('Files likely touched:')
+  if (filesIdx < 0) return false
+
+  // Extract file paths marked as "(new)"
+  const filesBlock = section.slice(filesIdx)
+  const newFilePattern = /^-\s*`([^`]+)`\s*\(new\)/gm
+  const expectedNewFiles: string[] = []
+  let fm: RegExpExecArray | null
+  while ((fm = newFilePattern.exec(filesBlock)) !== null) {
+    if (fm[1]) expectedNewFiles.push(fm[1])
+  }
+
+  // No new files expected — can't determine coverage
+  if (expectedNewFiles.length === 0) return false
+
+  // Check if all expected new files exist
+  const existCount = expectedNewFiles.filter((f) => existsSync(join(projectRoot, f))).length
+  return existCount === expectedNewFiles.length
+}
+
 // Minimum word overlap ratio for create-story title validation.
 // Below this threshold, a warning is emitted (but the pipeline is not blocked).
 const TITLE_OVERLAP_WARNING_THRESHOLD = 0.3
@@ -1049,6 +1117,25 @@ export function createImplementationOrchestrator(
       } catch {
         // If directory read fails, fall through to create-story
       }
+    }
+
+    // AC satisfaction pre-check: if the story's expected new files already
+    // exist in the working tree, the story was implicitly covered by adjacent
+    // stories — skip create-story to avoid a wasted dispatch.
+    if (storyFilePath === undefined && projectRoot && isImplicitlyCovered(storyKey, projectRoot)) {
+      logger.info(
+        { storyKey },
+        `Story ${storyKey} appears implicitly covered — all expected new files already exist. Skipping create-story.`,
+      )
+      endPhase(storyKey, 'create-story')
+      eventBus.emit('orchestrator:story-phase-complete', {
+        storyKey,
+        phase: 'IN_STORY_CREATION',
+        result: { result: 'success', story_key: storyKey, implicitlyCovered: true },
+      })
+      updateStory(storyKey, { phase: 'COMPLETE' as StoryPhase, completedAt: new Date().toISOString() })
+      await persistState()
+      return
     }
 
     if (storyFilePath === undefined) {

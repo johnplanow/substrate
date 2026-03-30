@@ -104,6 +104,24 @@ export const TokenCeilingsSchema = z.object({
 export type TokenCeilings = z.infer<typeof TokenCeilingsSchema>
 
 // ---------------------------------------------------------------------------
+// DispatchTimeoutsSchema — per-task-type timeout overrides (milliseconds)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-task-type dispatch timeout overrides (milliseconds).
+ * Keys match task types in DEFAULT_TIMEOUTS. Values override defaults.
+ */
+export const DispatchTimeoutsSchema = z.object({
+  'create-story': z.number().int().positive().optional(),
+  'dev-story': z.number().int().positive().optional(),
+  'code-review': z.number().int().positive().optional(),
+  'minor-fixes': z.number().int().positive().optional(),
+  'major-rework': z.number().int().positive().optional(),
+})
+
+export type DispatchTimeouts = z.infer<typeof DispatchTimeoutsSchema>
+
+// ---------------------------------------------------------------------------
 // SubstrateConfigSchema — strict and includes token_ceilings (SDLC full schema)
 // ---------------------------------------------------------------------------
 
@@ -121,6 +139,8 @@ export const SubstrateConfigSchema = z
     budget: BudgetConfigSchema.optional(),
     /** Per-workflow token ceiling overrides (Story 24-7) */
     token_ceilings: TokenCeilingsSchema.optional(),
+    /** Per-task-type dispatch timeout overrides in ms (pipeline finding v0.19.0) */
+    dispatch_timeouts: DispatchTimeoutsSchema.optional(),
     /** OTLP telemetry ingestion settings (Story 27-9) */
     telemetry: TelemetryConfigSchema.optional(),
   })
@@ -148,6 +168,7 @@ export const PartialSubstrateConfigSchema = z
     cost_tracker: CostTrackerConfigSchema.partial().optional(),
     budget: BudgetConfigSchema.partial().optional(),
     token_ceilings: TokenCeilingsSchema.optional(),
+    dispatch_timeouts: DispatchTimeoutsSchema.optional(),
     telemetry: TelemetryConfigSchema.partial().optional(),
   })
   .strict()

@@ -574,9 +574,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // Non-fatal: process detection falls back to command-line matching
   }
 
-  // Load token_ceilings and telemetry config from project config.
+  // Load token_ceilings, dispatch_timeouts, and telemetry config from project config.
   // Non-fatal: if config loading fails, orchestrator uses hardcoded defaults.
   let tokenCeilings: TokenCeilings | undefined
+  let dispatchTimeouts: Record<string, number> | undefined
   let telemetryEnabled = false
   let telemetryPort = 4318
   try {
@@ -584,6 +585,12 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     await configSystem.load()
     const cfg = configSystem.getConfig()
     tokenCeilings = cfg.token_ceilings as typeof tokenCeilings
+    if (cfg.dispatch_timeouts) {
+      dispatchTimeouts = Object.fromEntries(
+        Object.entries(cfg.dispatch_timeouts).filter(([, v]) => v !== undefined),
+      ) as Record<string, number>
+      logger.info({ dispatchTimeouts }, 'Loaded dispatch timeout overrides from config')
+    }
     if (cfg.telemetry?.enabled === true) {
       telemetryEnabled = true
       telemetryPort = cfg.telemetry.port ?? 4318
@@ -1029,6 +1036,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       adapterRegistry: injectedRegistry,
       config: {
         routingResolver,
+        ...(dispatchTimeouts ? { defaultTimeouts: dispatchTimeouts } : {}),
       },
     })
 

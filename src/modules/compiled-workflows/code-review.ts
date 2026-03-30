@@ -13,7 +13,8 @@
  *  4. Architecture constraints: ~500 tokens (optional — truncated last)
  */
 
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
+import { execSync } from 'node:child_process'
 import { createLogger } from '../../utils/logger.js'
 import { getDecisionsByPhase } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
@@ -48,6 +49,60 @@ function defaultFailResult(error: string, tokenUsage: { input: number; output: n
     dispatchFailed: true,
     tokenUsage,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Test-count metrics (pipeline finding: reviewer under-counted tests)
+// ---------------------------------------------------------------------------
+
+/**
+ * Count test cases (`it(`, `test(`, `it.each(`, `test.each(`) in modified
+ * test files. Returns a structured summary the reviewer can use as ground
+ * truth instead of manually estimating test counts from code inspection.
+ */
+async function countTestMetrics(
+  filesModified: string[] | undefined,
+  cwd: string,
+): Promise<string> {
+  if (!filesModified || filesModified.length === 0) return ''
+
+  const testFiles = filesModified.filter(
+    (f) => f.includes('.test.') || f.includes('.spec.') || f.includes('__tests__'),
+  )
+  if (testFiles.length === 0) return ''
+
+  const results: { file: string; count: number }[] = []
+  let totalCount = 0
+
+  for (const file of testFiles) {
+    try {
+      // Use grep to count test case declarations in the file
+      const out = execSync(
+        `grep -cE "^\\s*(it|test|it\\.each|test\\.each)\\s*\\(" "${file}" 2>/dev/null || echo 0`,
+        { cwd, encoding: 'utf-8', timeout: 5000 },
+      ).trim()
+      const count = parseInt(out, 10) || 0
+      if (count > 0) {
+        results.push({ file: file.split('/').pop()!, count })
+        totalCount += count
+      }
+    } catch {
+      // Best-effort — skip files that fail
+    }
+  }
+
+  if (totalCount === 0) return ''
+
+  const lines = [
+    `VERIFIED TEST COUNT (automated — use as ground truth):`,
+    `Total test cases: ${totalCount} across ${results.length} test file(s)`,
+    ...results.map((r) => `  ${r.file}: ${r.count} test(s)`),
+    '',
+    'IMPORTANT: Use this verified count when evaluating AC test coverage thresholds.',
+    'Do NOT manually estimate test counts — use the numbers above.',
+  ]
+
+  return lines.join('\n')
 }
 
 // ---------------------------------------------------------------------------
@@ -213,9 +268,16 @@ export async function runCodeReview(
     // AC5: graceful fallback — empty string on error
   }
 
+  // Compute verified test-count metrics from modified test files
+  const testMetricsContent = await countTestMetrics(filesModified, cwd)
+  if (testMetricsContent) {
+    logger.debug({ storyKey }, 'Injecting verified test-count metrics into code-review context')
+  }
+
   const sections = [
     { name: 'story_content', content: storyContent, priority: 'required' as const },
     { name: 'git_diff', content: gitDiffContent, priority: 'important' as const },
+    { name: 'test_metrics', content: testMetricsContent, priority: 'important' as const },
     { name: 'previous_findings', content: previousFindingsContent, priority: 'optional' as const },
     { name: 'arch_constraints', content: archConstraintsContent, priority: 'optional' as const },
     { name: 'repo_context', content: repoContextContent, priority: 'optional' as const },
