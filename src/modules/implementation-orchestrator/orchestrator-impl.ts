@@ -300,6 +300,108 @@ function isImplicitlyCovered(storyKey: string, projectRoot: string): boolean {
   return existCount === expectedNewFiles.length
 }
 
+// ---------------------------------------------------------------------------
+// Auto-ingest epics dependencies into work graph
+// ---------------------------------------------------------------------------
+
+import { EpicIngester } from '../work-graph/epic-ingester.js'
+import type { ParsedStory, ParsedDependency } from '../work-graph/epic-parser.js'
+import { parseEpicsDependencies, findEpicsFile } from './story-discovery.js'
+
+/**
+ * Auto-ingest stories and inter-story dependencies from the consolidated
+ * epics document into the work graph (`wg_stories` + `story_dependencies`).
+ *
+ * This bridges the gap between Level 4 discovery (file-based, no dependency
+ * gating) and Level 1.5 discovery (`ready_stories` view, dependency-aware).
+ *
+ * Idempotent: existing stories preserve their status; dependencies are
+ * replaced per-epic (EpicIngester's delete-and-reinsert pattern).
+ */
+async function autoIngestEpicsDependencies(
+  db: DatabaseAdapter,
+  projectRoot: string,
+): Promise<{ storiesIngested: number; dependenciesIngested: number }> {
+  const epicsPath = findEpicsFile(projectRoot)
+  if (!epicsPath) return { storiesIngested: 0, dependenciesIngested: 0 }
+
+  let content: string
+  try {
+    content = readFileSync(epicsPath, 'utf-8')
+  } catch {
+    return { storiesIngested: 0, dependenciesIngested: 0 }
+  }
+
+  // Parse story headings: ### Story N-M: Title
+  const storyPattern = /^###\s+Story\s+(\d+)-(\d+):\s+(.+)$/gm
+  const stories: ParsedStory[] = []
+  let match: RegExpExecArray | null
+  while ((match = storyPattern.exec(content)) !== null) {
+    const epicNum = parseInt(match[1]!, 10)
+    const storyNum = parseInt(match[2]!, 10)
+    stories.push({
+      story_key: `${epicNum}-${storyNum}`,
+      epic_num: epicNum,
+      story_num: storyNum,
+      title: match[3]!.trim(),
+      priority: 'P0',
+      size: 'Medium',
+      sprint: 0,
+    })
+  }
+
+  if (stories.length === 0) return { storiesIngested: 0, dependenciesIngested: 0 }
+
+  // Parse dependencies using the existing parser from story-discovery
+  const allKeys = new Set(stories.map((s) => s.story_key))
+  const depMap = parseEpicsDependencies(projectRoot, allKeys)
+
+  const dependencies: ParsedDependency[] = []
+  for (const [dependent, depSet] of depMap) {
+    for (const dep of depSet) {
+      dependencies.push({
+        story_key: dependent,
+        depends_on: dep,
+        dependency_type: 'blocks',
+        source: 'explicit',
+      })
+    }
+  }
+
+  // Ensure work graph tables exist
+  try {
+    await db.query(`CREATE TABLE IF NOT EXISTS wg_stories (
+      story_key VARCHAR(20) NOT NULL,
+      epic VARCHAR(20) NOT NULL,
+      title VARCHAR(255),
+      status VARCHAR(30) NOT NULL DEFAULT 'planned',
+      spec_path VARCHAR(500),
+      created_at DATETIME,
+      updated_at DATETIME,
+      completed_at DATETIME,
+      PRIMARY KEY (story_key)
+    )`)
+    await db.query(`CREATE TABLE IF NOT EXISTS story_dependencies (
+      story_key VARCHAR(50) NOT NULL,
+      depends_on VARCHAR(50) NOT NULL,
+      dependency_type VARCHAR(50) NOT NULL DEFAULT 'blocks',
+      source VARCHAR(50) NOT NULL DEFAULT 'explicit',
+      created_at DATETIME,
+      PRIMARY KEY (story_key, depends_on)
+    )`)
+  } catch {
+    // Tables may already exist or DB may not support DDL
+  }
+
+  const ingester = new EpicIngester(db)
+  const result = await ingester.ingest(stories, dependencies)
+
+  return {
+    storiesIngested: result.storiesUpserted,
+    dependenciesIngested: result.dependenciesReplaced,
+  }
+}
+
 // Minimum word overlap ratio for create-story title validation.
 // Below this threshold, a warning is emitted (but the pipeline is not blocked).
 const TITLE_OVERLAP_WARNING_THRESHOLD = 0.3
@@ -3069,6 +3171,24 @@ export function createImplementationOrchestrator(
           { decisionsCreated: seedResult.decisionsCreated, skippedCategories: seedResult.skippedCategories, durationMs: _startupTimings.seedMethodologyMs },
           'Methodology context seeded from planning artifacts',
         )
+      }
+    }
+
+    // Auto-ingest stories and dependencies from the consolidated epics document
+    // into the work graph, so that ready_stories (Level 1.5) respects inter-story
+    // dependencies during auto-discovery. Idempotent — safe to call on every run.
+    if (projectRoot !== undefined) {
+      const ingestStart = Date.now()
+      try {
+        const ingestResult = await autoIngestEpicsDependencies(db, projectRoot)
+        if (ingestResult.storiesIngested > 0 || ingestResult.dependenciesIngested > 0) {
+          logger.info(
+            { ...ingestResult, durationMs: Date.now() - ingestStart },
+            'Auto-ingested stories and dependencies from epics document',
+          )
+        }
+      } catch (err) {
+        logger.debug({ err }, 'Auto-ingest from epics document skipped — work graph may be unavailable')
       }
     }
 

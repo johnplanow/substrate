@@ -310,7 +310,7 @@ export function discoverPendingStoryKeys(projectRoot: string, epicNumber?: numbe
  * Returns a single path for epics.md, or undefined if not found.
  * For individual epic files, use findEpicFiles() instead.
  */
-function findEpicsFile(projectRoot: string): string | undefined {
+export function findEpicsFile(projectRoot: string): string | undefined {
   // Check exact candidates first
   const candidates = [
     '_bmad-output/planning-artifacts/epics.md',
