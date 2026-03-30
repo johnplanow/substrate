@@ -1,4 +1,5 @@
 <!-- substrate:start -->
+<!-- substrate:version={{SUBSTRATE_VERSION}} -->
 ## Substrate Pipeline
 
 This project uses Substrate for automated implementation pipelines. **When the user asks you to implement, build, or run the pipeline — go straight to running substrate. Do NOT explore the codebase, read source files, or plan the implementation yourself.** Substrate orchestrates sub-agents that handle all of that.

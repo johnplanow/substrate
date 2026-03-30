@@ -9,10 +9,14 @@
  * to ensure documentation never drifts from implementation.
  */
 
-import { readFile } from 'fs/promises'
+import { readFile, access } from 'fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'path'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { EVENT_TYPE_NAMES } from '../../modules/implementation-orchestrator/event-types.js'
+
+const execFileAsync = promisify(execFile)
 
 // Re-export so tests can import from a single location.
 export { EVENT_TYPE_NAMES }
@@ -704,10 +708,96 @@ Patterns for \`substrate supervisor --output-format json\` events:
 `
 }
 
+// ---------------------------------------------------------------------------
+// Capabilities manifest
+// ---------------------------------------------------------------------------
+
+/**
+ * Describes the capabilities of this Substrate installation.
+ */
+export interface CapabilitiesManifest {
+  version: string
+  engines: string[]
+  providers: { name: string; available: boolean }[]
+  factoryEnabled: boolean
+  qualityMode: string
+  doltAvailable: boolean
+}
+
+/**
+ * Generate the capabilities manifest section.
+ */
+export function generateCapabilitiesSection(caps: CapabilitiesManifest): string {
+  const lines: string[] = ['## Capabilities', '']
+  lines.push(`Substrate version: ${caps.version}`)
+  lines.push(`Engines: ${caps.engines.join(', ')}`)
+  lines.push('')
+  lines.push('Providers:')
+  for (const p of caps.providers) {
+    lines.push(`- ${p.name}: ${p.available ? 'available' : 'not found'}`)
+  }
+  lines.push('')
+  lines.push(`Quality mode: ${caps.qualityMode}`)
+  lines.push(`Factory features: ${caps.factoryEnabled ? 'enabled' : 'disabled'}`)
+  lines.push(`Dolt (versioned state): ${caps.doltAvailable ? 'available' : 'not installed'}`)
+  lines.push('')
+  return lines.join('\n')
+}
+
+/**
+ * Probe the local environment for capabilities.
+ */
+export async function probeCapabilities(version: string): Promise<CapabilitiesManifest> {
+  // Check which CLI tools are on PATH
+  const providerChecks = ['claude', 'codex', 'gemini'].map(async (name) => {
+    try {
+      await execFileAsync('which', [name])
+      return { name, available: true }
+    } catch {
+      return { name, available: false }
+    }
+  })
+  const providers = await Promise.all(providerChecks)
+
+  // Check for Dolt
+  let doltAvailable = false
+  try {
+    await execFileAsync('which', ['dolt'])
+    doltAvailable = true
+  } catch {
+    // not installed
+  }
+
+  // Read config if it exists
+  let qualityMode = 'code-review'
+  let factoryEnabled = false
+  try {
+    const configPath = join(process.cwd(), '.substrate', 'config.yaml')
+    await access(configPath)
+    const configText = await readFile(configPath, 'utf-8')
+    // Simple YAML extraction — avoid importing full YAML parser to keep help-agent lightweight
+    const qmMatch = /quality_mode:\s*['"]?(\S+?)['"]?\s*$/m.exec(configText)
+    if (qmMatch) qualityMode = qmMatch[1]
+    const factoryMatch = /^\s*factory:/m.exec(configText)
+    if (factoryMatch) factoryEnabled = true
+  } catch {
+    // No config — use defaults
+  }
+
+  return {
+    version,
+    engines: ['linear', 'graph'],
+    providers,
+    factoryEnabled,
+    qualityMode,
+    doltAvailable,
+  }
+}
+
 /**
  * Generate the complete help-agent prompt fragment.
  */
-export function generateHelpAgentOutput(version: string, events: EventMetadata[] = PIPELINE_EVENT_METADATA): string {
+export function generateHelpAgentOutput(version: string, events: EventMetadata[] = PIPELINE_EVENT_METADATA, capabilities?: CapabilitiesManifest): string {
   const lines: string[] = []
 
   lines.push('# Substrate Pipeline — Agent Instructions')
@@ -718,6 +808,10 @@ export function generateHelpAgentOutput(version: string, events: EventMetadata[]
     'Ingest it as a system prompt fragment to understand commands, event protocol, and interaction patterns.',
   )
   lines.push('')
+
+  if (capabilities) {
+    lines.push(generateCapabilitiesSection(capabilities))
+  }
 
   lines.push(generateCommandReferenceSection())
   lines.push(generateEventSchemaSection(events))
@@ -731,7 +825,8 @@ export function generateHelpAgentOutput(version: string, events: EventMetadata[]
  */
 export async function runHelpAgent(): Promise<number> {
   const version = await resolvePackageVersion()
-  const output = generateHelpAgentOutput(version)
+  const capabilities = await probeCapabilities(version)
+  const output = generateHelpAgentOutput(version, PIPELINE_EVENT_METADATA, capabilities)
   process.stdout.write(output + '\n')
   return 0
 }

@@ -65,6 +65,33 @@ const logger = createLogger('init')
 const __dirname = dirname(new URL(import.meta.url).pathname)
 
 // ---------------------------------------------------------------------------
+// Version utilities
+// ---------------------------------------------------------------------------
+
+const SCAFFOLD_VERSION_REGEX = /<!-- substrate:version=([\d.]+) -->/
+
+/**
+ * Read the substrate package version from package.json at the given root.
+ */
+function readSubstrateVersion(pkgRoot: string): string {
+  try {
+    const pkg = JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf8')) as { version?: string }
+    return pkg.version ?? '0.0.0'
+  } catch {
+    return '0.0.0'
+  }
+}
+
+/**
+ * Extract the version stamped in an existing CLAUDE.md scaffold section.
+ * Returns null if no version stamp found.
+ */
+export function extractScaffoldVersion(content: string): string | null {
+  const match = SCAFFOLD_VERSION_REGEX.exec(content)
+  return match?.[1] ?? null
+}
+
+// ---------------------------------------------------------------------------
 // Exit codes
 // ---------------------------------------------------------------------------
 
@@ -167,6 +194,10 @@ export async function scaffoldClaudeMd(
     return
   }
 
+  // Interpolate the substrate version into the scaffold template
+  const substrateVersion = readSubstrateVersion(pkgRoot)
+  sectionContent = sectionContent.replace('{{SUBSTRATE_VERSION}}', substrateVersion)
+
   if (!sectionContent.endsWith('\n')) {
     sectionContent += '\n'
   }
@@ -198,6 +229,13 @@ export async function scaffoldClaudeMd(
     // Existing file: update substrate section in place
     let updatedExisting: string
     if (existingContent.includes(CLAUDE_MD_START_MARKER)) {
+      // Warn if the existing scaffold is from an older version
+      const existingVersion = extractScaffoldVersion(existingContent)
+      if (existingVersion && existingVersion !== substrateVersion) {
+        process.stderr.write(
+          `Updating CLAUDE.md substrate scaffold from v${existingVersion} → v${substrateVersion}\n`,
+        )
+      }
       updatedExisting = existingContent.replace(
         new RegExp(
           `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
