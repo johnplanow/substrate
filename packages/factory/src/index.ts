@@ -5,7 +5,7 @@ export type { ScenarioResult, ScenarioRunResult, FactoryEvents } from './events.
 export * from './graph/types.js'
 export { parseGraph } from './graph/parser.js'
 export { createValidator, isStartNode, isExitNode } from './graph/validator.js'
-export { selectEdge, normalizeLabel, bestByWeightThenLexical } from './graph/index.js'
+export { selectEdge, normalizeLabel, bestByWeightThenLexical, applyStylesheet } from './graph/index.js'
 // Backend module (story 42-18)
 export * from './backend/index.js'
 // Handler registry — exported for CLI composition root (story 43-6)
@@ -43,3 +43,7 @@ export * from './agent/index.js'
 
 // Unified LLM Client — provider adapters, client routing, middleware (stories 48-1 through 48-5b)
 export * from './llm/index.js'
+
+// Pipeline template registry (story 50-10)
+export { listPipelineTemplates, getPipelineTemplate } from './templates/index.js'
+export type { PipelineTemplate } from './templates/index.js'

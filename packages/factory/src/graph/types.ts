@@ -100,6 +100,17 @@ export interface GraphNode {
   toolCommand: string
   /** Backend selector for codergen nodes ('direct' → DirectCodergenBackend). Story 48-10. */
   backend: string
+  /** Maximum number of concurrent branch executions (0 = unlimited). Story 50-1. */
+  maxParallel?: number
+  /** Join policy controlling when the parallel handler returns (e.g. 'wait_all'). Story 50-1. */
+  joinPolicy?: string
+  /**
+   * Arbitrary DOT attributes that do not map to a named `GraphNode` field.
+   * Populated for node types that use domain-specific attributes not covered by
+   * the standard fields (e.g. `join_policy`, `quorum_size`, `cancel_drain_timeout_ms`
+   * for parallel nodes). Story 50-3.
+   */
+  attrs?: Record<string, string>
 }
 
 // ---------------------------------------------------------------------------

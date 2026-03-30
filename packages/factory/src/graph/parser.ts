@@ -142,6 +142,8 @@ function buildGraphNode(
     allowPartial: attrBool(attrs, 'allow_partial', false),
     toolCommand: attrStr(attrs, 'tool_command', ''),
     backend: attrStr(attrs, 'backend', ''),
+    maxParallel: attrInt(attrs, 'maxParallel', 0),
+    joinPolicy: attrStr(attrs, 'joinPolicy', ''),
   }
 }
 

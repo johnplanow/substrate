@@ -15,7 +15,7 @@
  */
 
 import path from 'node:path'
-import type { Graph, GraphNode, GraphEdge, IGraphContext, Checkpoint, ResumeState, Outcome as GraphOutcome, OutcomeStatus } from './types.js'
+import type { Graph, GraphNode, GraphEdge, IGraphContext, Checkpoint, ResumeState, Outcome as GraphOutcome, OutcomeStatus, ParsedStylesheet } from './types.js'
 import { GraphContext } from './context.js'
 import { selectEdge } from './edge-selector.js'
 import { CheckpointManager } from './checkpoint.js'
@@ -41,6 +41,7 @@ import { computeSatisfactionScore } from '../scenarios/scorer.js'
 import { upsertGraphRun, insertGraphNodeResult, insertScenarioResult } from '../persistence/factory-queries.js'
 import type { SummaryEngine } from '../context/summary-engine.js'
 import { parseFidelityLevel, resolveFidelity } from './fidelity.js'
+import { applyStylesheet } from './transformer.js'
 
 // ---------------------------------------------------------------------------
 // GraphExecutorConfig
@@ -147,6 +148,13 @@ export interface GraphExecutorConfig {
    * into the context before the first node handler executes.
    */
   initialContext?: Record<string, unknown>
+
+  /**
+   * Stylesheet rules inherited from a parent graph. Prepended before the graph's
+   * own model_stylesheet; child rules win at equal specificity via source order.
+   * Used by createSubgraphHandler.
+   */
+  inheritedStylesheet?: ParsedStylesheet
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +295,11 @@ async function dispatchWithRetry(
 export function createGraphExecutor(): GraphExecutor {
   return {
     async run(graph: Graph, config: GraphExecutorConfig): Promise<Outcome> {
+      // Apply model stylesheet to all nodes before any handler is dispatched.
+      // This is idempotent: nodes with explicit llmModel/llmProvider/reasoningEffort
+      // are never overwritten, so calling it twice (e.g., on resume) is safe.
+      applyStylesheet(graph, config.inheritedStylesheet)
+
       const checkpointManager = new CheckpointManager()
       // Checkpoint is always written to this path (filename is fixed by convention)
       const checkpointFilePath = path.join(config.logsRoot, 'checkpoint.json')
@@ -449,7 +462,10 @@ export function createGraphExecutor(): GraphExecutor {
             // edge), resume will select the SUCCESS edge rather than the FAILURE edge,
             // diverging from the original execution path. Storing `lastOutcomeStatus` in
             // the Checkpoint type would allow a faithful replay.
-            const nextEdge = selectEdge(lastNode, { status: 'SUCCESS' }, context, graph)
+            const nextEdge = await selectEdge(lastNode, { status: 'SUCCESS' }, context, graph, {
+              ...(config.eventBus !== undefined ? { eventBus: config.eventBus } : {}),
+              runId: config.runId,
+            })
             if (nextEdge) {
               const nextNode = graph.nodes.get(nextEdge.toNode)
               if (!nextNode) {
@@ -476,6 +492,13 @@ export function createGraphExecutor(): GraphExecutor {
       } else {
         currentNode = graph.startNode()
       }
+
+      // -----------------------------------------------------------------------
+      // Write runId to context so handlers can read it via context.getString("__runId")
+      // Set here (after all context assignments) so it covers both fresh-start and resume.
+      // Story 50-9 (AC4).
+      // -----------------------------------------------------------------------
+      context.set('__runId', config.runId ?? 'unknown')
 
       // -----------------------------------------------------------------------
       // Main traversal loop
@@ -590,7 +613,10 @@ export function createGraphExecutor(): GraphExecutor {
         // without dispatching their handler again
         if (resumeCompletedSet?.has(currentNode.id)) {
           // Cast to GraphOutcome (types.ts:Outcome) as required by selectEdge API.
-          const skipEdge = selectEdge(currentNode, { status: 'SUCCESS' } as GraphOutcome, context, graph)
+          const skipEdge = await selectEdge(currentNode, { status: 'SUCCESS' } as GraphOutcome, context, graph, {
+            ...(config.eventBus !== undefined ? { eventBus: config.eventBus } : {}),
+            runId: config.runId,
+          })
           if (!skipEdge) {
             await persistExit('failed', `No outgoing edge from node ${currentNode.id}`)
             return {
@@ -925,7 +951,10 @@ export function createGraphExecutor(): GraphExecutor {
         // Select next edge
         // ----------------------------------------------------------------
         // Cast outcome to GraphOutcome (types.ts:Outcome) as required by selectEdge API.
-        const edge = selectEdge(currentNode, outcome as unknown as GraphOutcome, context, graph)
+        const edge = await selectEdge(currentNode, outcome as unknown as GraphOutcome, context, graph, {
+          ...(config.eventBus !== undefined ? { eventBus: config.eventBus } : {}),
+          runId: config.runId,
+        })
         if (!edge) {
           await persistExit('failed', `No outgoing edge from node ${currentNode.id}`)
           return {

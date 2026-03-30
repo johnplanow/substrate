@@ -34,6 +34,8 @@ vi.mock('node:fs', () => ({
 import {
   parseStoryKeysFromEpics,
   discoverPendingStoryKeys,
+  parseEpicsDependencies,
+  topologicalSortByDependencies,
 } from '../story-discovery.js'
 
 // ---------------------------------------------------------------------------
@@ -275,6 +277,37 @@ describe('discoverPendingStoryKeys', () => {
     expect(result).toEqual(['3-1'])
   })
 
+  it('discovers consolidated epics file via glob (e.g. epics-and-stories-*.md)', () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      // Exact epics.md candidates don't exist
+      if (p.endsWith('planning-artifacts/epics.md')) return false
+      if (p.endsWith('_bmad-output/epics.md')) return false
+      // But the planning-artifacts directory does exist
+      if (p.endsWith('planning-artifacts')) return true
+      if (p.endsWith('implementation-artifacts')) return true
+      return false
+    })
+    mockReaddirSync.mockImplementation((dir: string) => {
+      if (dir.includes('planning-artifacts')) {
+        return ['epic-33-validation-harness.md', 'epics-and-stories-software-factory.md']
+      }
+      if (dir.includes('implementation-artifacts')) {
+        return ['40-1-setup.md', '40-2-config.md'] // some done
+      }
+      return []
+    })
+    mockReadFileSync.mockImplementation((path: string) => {
+      if (path.includes('epics-and-stories')) {
+        return `### Story 40-1: Setup\n### Story 40-2: Config\n### Story 50-1: Parallel Handler\n### Story 50-2: Fan-In Handler`
+      }
+      return ''
+    })
+
+    const result = discoverPendingStoryKeys('/project')
+    // 40-1 and 40-2 have artifacts → filtered out; 50-1 and 50-2 are pending
+    expect(result).toEqual(['50-1', '50-2'])
+  })
+
   it('returns results sorted numerically', () => {
     mockExistsSync.mockImplementation((p: string) => {
       if (p.endsWith('epics.md')) return true
@@ -306,5 +339,173 @@ describe('discoverPendingStoryKeys', () => {
     const result = discoverPendingStoryKeys('/project')
     // Can't read dir → no existing keys → all from epics are pending
     expect(result).toEqual(['4-1'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseEpicsDependencies tests
+// ---------------------------------------------------------------------------
+
+describe('parseEpicsDependencies', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns empty map when no epics file exists', () => {
+    mockExistsSync.mockReturnValue(false)
+    const result = parseEpicsDependencies('/project', new Set(['50-1', '50-2']))
+    expect(result.size).toBe(0)
+  })
+
+  it('parses comma-separated dependencies', () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('planning-artifacts')) return true
+      return p.endsWith('epics.md')
+    })
+    mockReadFileSync.mockReturnValue(`
+### Story 50-1: Parallel Handler
+**Dependencies:** None
+
+### Story 50-2: Fan-In Handler
+**Dependencies:** 50-1
+
+### Story 50-9: Event Extensions
+**Dependencies:** 50-1, 50-4, 50-5
+`)
+    const keys = new Set(['50-1', '50-2', '50-4', '50-5', '50-9'])
+    const result = parseEpicsDependencies('/project', keys)
+
+    expect(result.has('50-1')).toBe(false) // None
+    expect(result.get('50-2')).toEqual(new Set(['50-1']))
+    expect(result.get('50-9')).toEqual(new Set(['50-1', '50-4', '50-5']))
+  })
+
+  it('parses "through" range syntax', () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('planning-artifacts')) return true
+      return p.endsWith('epics.md')
+    })
+    mockReadFileSync.mockReturnValue(`
+### Story 50-11: Integration Tests
+**Dependencies:** 50-1 through 50-9
+`)
+    const keys = new Set(['50-1', '50-2', '50-3', '50-9', '50-11'])
+    const result = parseEpicsDependencies('/project', keys)
+
+    expect(result.get('50-11')).toEqual(new Set(['50-1', '50-2', '50-3', '50-9']))
+  })
+
+  it('filters out dependencies not in the provided key set', () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('planning-artifacts')) return true
+      return p.endsWith('epics.md')
+    })
+    mockReadFileSync.mockReturnValue(`
+### Story 50-7: Stylesheet RoutingEngine
+**Dependencies:** 50-6, 41-4
+`)
+    // 41-4 is external (not in our set), should be excluded
+    const keys = new Set(['50-6', '50-7'])
+    const result = parseEpicsDependencies('/project', keys)
+
+    expect(result.get('50-7')).toEqual(new Set(['50-6']))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// topologicalSortByDependencies tests
+// ---------------------------------------------------------------------------
+
+describe('topologicalSortByDependencies', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns single key as-is', () => {
+    const result = topologicalSortByDependencies(['50-1'], '/project')
+    expect(result).toEqual(['50-1'])
+  })
+
+  it('sorts keys by dependencies (prerequisites first)', () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('planning-artifacts')) return true
+      return p.endsWith('epics.md')
+    })
+    mockReadFileSync.mockReturnValue(`
+### Story 50-1: Parallel Handler
+**Dependencies:** None
+
+### Story 50-2: Fan-In Handler
+**Dependencies:** 50-1
+
+### Story 50-3: Join Policies
+**Dependencies:** 50-1
+`)
+    mockReaddirSync.mockReturnValue([])
+
+    const result = topologicalSortByDependencies(['50-3', '50-2', '50-1'], '/project')
+    // 50-1 must come before 50-2 and 50-3
+    expect(result.indexOf('50-1')).toBeLessThan(result.indexOf('50-2'))
+    expect(result.indexOf('50-1')).toBeLessThan(result.indexOf('50-3'))
+  })
+
+  it('handles multi-level dependency chains', () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('planning-artifacts')) return true
+      return p.endsWith('epics.md')
+    })
+    mockReadFileSync.mockReturnValue(`
+### Story 50-1: First
+**Dependencies:** None
+
+### Story 50-2: Second
+**Dependencies:** 50-1
+
+### Story 50-10: Third
+**Dependencies:** 50-2
+`)
+    mockReaddirSync.mockReturnValue([])
+
+    const result = topologicalSortByDependencies(['50-10', '50-1', '50-2'], '/project')
+    expect(result).toEqual(['50-1', '50-2', '50-10'])
+  })
+
+  it('falls back to numeric sort when no epics file exists', () => {
+    mockExistsSync.mockReturnValue(false)
+
+    const result = topologicalSortByDependencies(['50-3', '50-1', '50-2'], '/project')
+    expect(result).toEqual(['50-1', '50-2', '50-3'])
+  })
+
+  it('places independent stories in earliest wave', () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('planning-artifacts')) return true
+      return p.endsWith('epics.md')
+    })
+    mockReadFileSync.mockReturnValue(`
+### Story 50-1: Parallel
+**Dependencies:** None
+
+### Story 50-2: Fan-In
+**Dependencies:** 50-1
+
+### Story 50-4: LLM Edges
+**Dependencies:** None
+
+### Story 50-5: Subgraph
+**Dependencies:** None
+`)
+    mockReaddirSync.mockReturnValue([])
+
+    const result = topologicalSortByDependencies(
+      ['50-5', '50-2', '50-4', '50-1'],
+      '/project',
+    )
+    // 50-1, 50-4, 50-5 are independent → come first; 50-2 depends on 50-1 → comes last
+    expect(result.indexOf('50-2')).toBe(result.length - 1)
+    // 50-1, 50-4, 50-5 should all come before 50-2
+    expect(result.indexOf('50-1')).toBeLessThan(result.indexOf('50-2'))
+    expect(result.indexOf('50-4')).toBeLessThan(result.indexOf('50-2'))
+    expect(result.indexOf('50-5')).toBeLessThan(result.indexOf('50-2'))
   })
 })

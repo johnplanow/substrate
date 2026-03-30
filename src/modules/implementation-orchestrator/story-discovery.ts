@@ -54,8 +54,10 @@ export async function resolveStoryKeys(
   opts?: ResolveStoryKeysOptions,
 ): Promise<string[]> {
   // Level 1: Explicit --stories flag
+  // Topologically sort by inter-story dependencies from the epics document
+  // so that prerequisite stories are dispatched before their dependents.
   if (opts?.explicit !== undefined && opts.explicit.length > 0) {
-    return opts.explicit
+    return topologicalSortByDependencies(opts.explicit, projectRoot)
   }
 
   let keys: string[] = []
@@ -309,6 +311,7 @@ export function discoverPendingStoryKeys(projectRoot: string, epicNumber?: numbe
  * For individual epic files, use findEpicFiles() instead.
  */
 function findEpicsFile(projectRoot: string): string | undefined {
+  // Check exact candidates first
   const candidates = [
     '_bmad-output/planning-artifacts/epics.md',
     '_bmad-output/epics.md',
@@ -317,6 +320,21 @@ function findEpicsFile(projectRoot: string): string | undefined {
     const fullPath = join(projectRoot, candidate)
     if (existsSync(fullPath)) return fullPath
   }
+
+  // Glob for consolidated epics files (e.g. epics-and-stories-*.md)
+  const planningDir = join(projectRoot, '_bmad-output', 'planning-artifacts')
+  if (existsSync(planningDir)) {
+    try {
+      const entries = readdirSync(planningDir, { encoding: 'utf-8' })
+      const match = entries
+        .filter((e) => /^epics[-.].*\.md$/i.test(e) && !(/^epic-\d+/.test(e)))
+        .sort()
+      if (match.length > 0) return join(planningDir, match[0])
+    } catch {
+      // fall through
+    }
+  }
+
   return undefined
 }
 
@@ -468,4 +486,163 @@ function sortStoryKeys(keys: string[]): string[] {
     // Both non-numeric: lexicographic
     return a.localeCompare(b)
   })
+}
+
+/**
+ * Parse inter-story dependencies from the consolidated epics document.
+ *
+ * Scans for patterns like:
+ *   ### Story 50-2: Title
+ *   **Dependencies:** 50-1
+ *
+ * Returns a Map where key=storyKey, value=Set of dependency keys.
+ * Only returns dependencies that are within the provided storyKeys set
+ * (external dependencies to other epics are ignored for ordering purposes).
+ */
+export function parseEpicsDependencies(
+  projectRoot: string,
+  storyKeys: Set<string>,
+): Map<string, Set<string>> {
+  const deps = new Map<string, Set<string>>()
+
+  const epicsPath = findEpicsFile(projectRoot)
+  if (epicsPath === undefined) return deps
+
+  let content: string
+  try {
+    content = readFileSync(epicsPath, 'utf-8')
+  } catch {
+    return deps
+  }
+
+  // Match story heading followed by dependencies line
+  // ### Story N-M: Title
+  // ... (any lines)
+  // **Dependencies:** X-Y, X-Z
+  const storyPattern = /^###\s+Story\s+(\d+)-(\d+)[:\s]/gm
+  const depPattern = /^\*\*Dependencies:\*\*\s*(.+)$/gm
+
+  // Build a list of (storyKey, lineIndex) pairs
+  const storyPositions: { key: string; pos: number }[] = []
+  let match: RegExpExecArray | null
+  while ((match = storyPattern.exec(content)) !== null) {
+    storyPositions.push({ key: `${match[1]}-${match[2]}`, pos: match.index })
+  }
+
+  // For each story, find the next **Dependencies:** line before the next story heading
+  for (let i = 0; i < storyPositions.length; i++) {
+    const story = storyPositions[i]
+    const nextStoryPos = i + 1 < storyPositions.length
+      ? storyPositions[i + 1].pos
+      : content.length
+    const section = content.slice(story.pos, nextStoryPos)
+
+    depPattern.lastIndex = 0
+    const depMatch = depPattern.exec(section)
+    if (depMatch === null || /^none$/i.test(depMatch[1].trim())) continue
+
+    const depText = depMatch[1]
+    const storyDeps = new Set<string>()
+
+    // Handle "50-1 through 50-9" range syntax
+    const rangeMatch = /(\d+)-(\d+)\s+through\s+\1-(\d+)/i.exec(depText)
+    if (rangeMatch !== null) {
+      const epic = rangeMatch[1]
+      const start = Number(rangeMatch[2])
+      const end = Number(rangeMatch[3])
+      for (let n = start; n <= end; n++) {
+        const depKey = `${epic}-${n}`
+        if (storyKeys.has(depKey)) storyDeps.add(depKey)
+      }
+    } else {
+      // Handle comma-separated: "50-1, 50-4, 50-5"
+      const keyPattern = /(\d+-\d+[a-z]?)/g
+      let km: RegExpExecArray | null
+      while ((km = keyPattern.exec(depText)) !== null) {
+        const depKey = km[1]
+        if (storyKeys.has(depKey)) storyDeps.add(depKey)
+      }
+    }
+
+    if (storyDeps.size > 0) {
+      deps.set(story.key, storyDeps)
+    }
+  }
+
+  return deps
+}
+
+/**
+ * Topologically sort explicit story keys by inter-story dependencies.
+ *
+ * Parses the consolidated epics document for dependency metadata, builds
+ * a DAG, and returns keys in dependency-first order using Kahn's algorithm.
+ * Stories with no dependencies come first; stories that depend on others
+ * are placed after their prerequisites.
+ *
+ * Falls back to numeric sort if no epics document exists or no
+ * dependencies are found among the provided keys.
+ */
+export function topologicalSortByDependencies(
+  keys: string[],
+  projectRoot: string,
+): string[] {
+  if (keys.length <= 1) return keys
+
+  const keySet = new Set(keys)
+  const deps = parseEpicsDependencies(projectRoot, keySet)
+
+  // No dependencies found — fall back to numeric sort
+  if (deps.size === 0) return sortStoryKeys(keys)
+
+  // Kahn's algorithm: topological sort producing waves
+  const inDegree = new Map<string, number>()
+  const successors = new Map<string, Set<string>>()
+
+  for (const key of keys) {
+    inDegree.set(key, 0)
+    successors.set(key, new Set())
+  }
+
+  // Build edges: dependency → dependent
+  for (const [dependent, depSet] of deps) {
+    if (!keySet.has(dependent)) continue
+    for (const dep of depSet) {
+      if (!keySet.has(dep)) continue
+      successors.get(dep)!.add(dependent)
+      inDegree.set(dependent, (inDegree.get(dependent) ?? 0) + 1)
+    }
+  }
+
+  const result: string[] = []
+  const processed = new Set<string>()
+
+  while (processed.size < keys.length) {
+    // Collect all keys with in-degree 0
+    const wave: string[] = []
+    for (const key of keys) {
+      if (!processed.has(key) && (inDegree.get(key) ?? 0) === 0) {
+        wave.push(key)
+      }
+    }
+
+    if (wave.length === 0) {
+      // Cycle detected — add remaining keys in numeric order
+      for (const key of sortStoryKeys(keys)) {
+        if (!processed.has(key)) result.push(key)
+      }
+      break
+    }
+
+    // Sort wave numerically for deterministic ordering within a tier
+    for (const key of sortStoryKeys(wave)) {
+      result.push(key)
+      processed.add(key)
+      for (const succ of successors.get(key) ?? []) {
+        inDegree.set(succ, (inDegree.get(succ) ?? 0) - 1)
+      }
+    }
+  }
+
+  return result
 }

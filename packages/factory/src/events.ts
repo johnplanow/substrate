@@ -227,6 +227,78 @@ export type FactoryEvents = CoreEvents & {
   }
 
   // -------------------------------------------------------------------------
+  // Parallel fan-out/fan-in lifecycle events (story 50-9)
+  // -------------------------------------------------------------------------
+
+  /** Parallel node started fan-out execution with N branches (story 50-9) */
+  'graph:parallel-started': {
+    runId: string
+    nodeId: string
+    branchCount: number
+    maxParallel: number
+    policy: string
+  }
+
+  /** A single branch started executing inside a parallel node (story 50-9) */
+  'graph:parallel-branch-started': {
+    runId: string
+    nodeId: string
+    branchIndex: number
+  }
+
+  /** A single branch completed execution inside a parallel node (story 50-9) */
+  'graph:parallel-branch-completed': {
+    runId: string
+    nodeId: string
+    branchIndex: number
+    status: StageStatus
+    durationMs: number
+  }
+
+  /** Parallel node completed all branches and applied the join policy (story 50-9) */
+  'graph:parallel-completed': {
+    runId: string
+    nodeId: string
+    completedCount: number
+    cancelledCount: number
+    policy: string
+  }
+
+  // -------------------------------------------------------------------------
+  // Subgraph lifecycle events (story 50-9)
+  // -------------------------------------------------------------------------
+
+  /** Subgraph handler started executing a nested .dot graph file (story 50-9) */
+  'graph:subgraph-started': {
+    runId: string
+    nodeId: string
+    graphFile: string
+    depth: number
+  }
+
+  /** Subgraph handler finished executing a nested .dot graph file (story 50-9) */
+  'graph:subgraph-completed': {
+    runId: string
+    nodeId: string
+    graphFile: string
+    depth: number
+    status: StageStatus
+    durationMs: number
+  }
+
+  // -------------------------------------------------------------------------
+  // LLM edge evaluation event (story 50-9)
+  // -------------------------------------------------------------------------
+
+  /** An LLM-evaluated edge condition was resolved (story 50-9) */
+  'graph:llm-edge-evaluated': {
+    runId: string
+    nodeId: string
+    question: string
+    result: boolean
+  }
+
+  // -------------------------------------------------------------------------
   // Agent session events (story 48-12)
   // -------------------------------------------------------------------------
 

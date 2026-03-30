@@ -211,7 +211,10 @@ const conditionSyntaxRule: LintRule = {
     const diagnostics: ValidationDiagnostic[] = []
     for (let i = 0; i < graph.edges.length; i++) {
       const edge = graph.edges[i]!
-      if (edge.condition) {
+      // LLM-prefixed conditions (e.g. "llm:...") are evaluated at runtime via the
+      // edge-selector's LLM evaluator and do not conform to the key=value condition
+      // grammar. Skip syntax validation for them to avoid false-positive errors.
+      if (edge.condition && !edge.condition.trim().startsWith('llm:')) {
         try {
           parseCondition(edge.condition)
         } catch (err) {

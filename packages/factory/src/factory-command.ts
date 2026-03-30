@@ -31,6 +31,7 @@ import { randomUUID } from 'node:crypto'
 import yaml from 'js-yaml'
 import { registerScenariosCommand } from './scenarios/cli-command.js'
 import { registerContextCommand } from './context/cli-command.js'
+import { listPipelineTemplates, getPipelineTemplate } from './templates/index.js'
 import { getTwinTemplate, listTwinTemplates, createTwinRegistry } from './twins/index.js'
 import { createTwinManager } from './twins/docker-compose.js'
 import { readRunState, writeRunState, clearRunState } from './twins/run-state.js'
@@ -660,6 +661,48 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
             `  ${twin.name.padEnd(20)}  ${twin.image.padEnd(38)}  ${ports.padEnd(16)}  ${healthcheck}\n`,
           )
         }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`Error: ${msg}\n`)
+        process.exit(1)
+      }
+    })
+
+  // Story 50-10: factory templates
+  const templatesCmd = factoryCmd
+    .command('templates')
+    .description('Manage reusable DOT graph pipeline templates')
+
+  templatesCmd
+    .command('list')
+    .description('List available pipeline templates')
+    .action(() => {
+      const templates = listPipelineTemplates()
+      for (const t of templates) {
+        process.stdout.write(`  ${t.name.padEnd(24)}  ${t.description}\n`)
+      }
+    })
+
+  templatesCmd
+    .command('init')
+    .description('Create a pipeline.dot from a template')
+    .requiredOption('--template <name>', 'Template name (see: factory templates list)')
+    .option('--output <path>', 'Output file path (default: pipeline.dot)', 'pipeline.dot')
+    .action(async (opts: { template: string; output: string }) => {
+      const entry = getPipelineTemplate(opts.template)
+      if (!entry) {
+        const available = listPipelineTemplates()
+          .map((t) => t.name)
+          .join(', ')
+        process.stderr.write(
+          `Error: Unknown template '${opts.template}'. Available: ${available}\n`,
+        )
+        process.exit(1)
+        return
+      }
+      try {
+        await writeFile(opts.output, entry.dotContent, 'utf-8')
+        process.stdout.write(`Created ${opts.output} from template '${entry.name}'\n`)
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         process.stderr.write(`Error: ${msg}\n`)

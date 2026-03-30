@@ -236,7 +236,7 @@ function makeEventBus(): {
 
 describe('selectEdge compliance — spec Section 3.3', () => {
   // Step 1: Condition-matched edges beat weight
-  it('AC1 — Step 1: condition match returns conditional edge over high-weight unconditional', () => {
+  it('AC1 — Step 1: condition match returns conditional edge over high-weight unconditional', async () => {
     const node = makeNode('origin')
     const condEdge = makeEdge('origin', 'dest-conditional', { condition: 'outcome=success', weight: 0 })
     const unconEdge = makeEdge('origin', 'dest-unconditional', { weight: 10 })
@@ -244,11 +244,11 @@ describe('selectEdge compliance — spec Section 3.3', () => {
     const ctx = new GraphContext({ outcome: 'success' })
     const outcome: Outcome = { status: 'SUCCESS' }
 
-    const selected = selectEdge(node, outcome, ctx, graph)
+    const selected = await selectEdge(node, outcome, ctx, graph)
     expect(selected).toBe(condEdge)
   })
 
-  it('AC1 variant — Step 1: no condition match falls through to Step 4 (weight)', () => {
+  it('AC1 variant — Step 1: no condition match falls through to Step 4 (weight)', async () => {
     const node = makeNode('origin')
     const condEdge = makeEdge('origin', 'dest-conditional', { condition: 'outcome=success', weight: 0 })
     const unconEdge = makeEdge('origin', 'dest-unconditional', { weight: 10 })
@@ -256,12 +256,12 @@ describe('selectEdge compliance — spec Section 3.3', () => {
     const ctx = new GraphContext({ outcome: 'failure' })
     const outcome: Outcome = { status: 'SUCCESS' }
 
-    const selected = selectEdge(node, outcome, ctx, graph)
+    const selected = await selectEdge(node, outcome, ctx, graph)
     expect(selected).toBe(unconEdge)
   })
 
   // Step 2: Preferred label with accelerator prefix stripping
-  it('AC2 — Step 2: [Y] prefix stripped, label matches preferredLabel "yes"', () => {
+  it('AC2 — Step 2: [Y] prefix stripped, label matches preferredLabel "yes"', async () => {
     const node = makeNode('origin')
     const yesEdge = makeEdge('origin', 'yes-target', { label: '[Y] Yes' })
     const noEdge = makeEdge('origin', 'no-target', { label: 'No' })
@@ -269,11 +269,11 @@ describe('selectEdge compliance — spec Section 3.3', () => {
     const ctx = new GraphContext()
     const outcome: Outcome = { status: 'SUCCESS', preferredLabel: 'yes' }
 
-    const selected = selectEdge(node, outcome, ctx, graph)
+    const selected = await selectEdge(node, outcome, ctx, graph)
     expect(selected).toBe(yesEdge)
   })
 
-  it('AC2 variant — Step 2: Y) prefix stripped, label matches preferredLabel "confirm"', () => {
+  it('AC2 variant — Step 2: Y) prefix stripped, label matches preferredLabel "confirm"', async () => {
     const node = makeNode('origin')
     const confirmEdge = makeEdge('origin', 'confirm-target', { label: 'Y) Confirm' })
     const otherEdge = makeEdge('origin', 'other-target', { label: 'Cancel' })
@@ -281,12 +281,12 @@ describe('selectEdge compliance — spec Section 3.3', () => {
     const ctx = new GraphContext()
     const outcome: Outcome = { status: 'SUCCESS', preferredLabel: 'confirm' }
 
-    const selected = selectEdge(node, outcome, ctx, graph)
+    const selected = await selectEdge(node, outcome, ctx, graph)
     expect(selected).toBe(confirmEdge)
   })
 
   // Step 3: Suggested next IDs
-  it('Step 3: suggestedNextIds matches edge target', () => {
+  it('Step 3: suggestedNextIds matches edge target', async () => {
     const node = makeNode('origin')
     const edgeA = makeEdge('origin', 'a')
     const edgeB = makeEdge('origin', 'b')
@@ -295,12 +295,12 @@ describe('selectEdge compliance — spec Section 3.3', () => {
     const ctx = new GraphContext()
     const outcome: Outcome = { status: 'SUCCESS', suggestedNextIds: ['b'] }
 
-    const selected = selectEdge(node, outcome, ctx, graph)
+    const selected = await selectEdge(node, outcome, ctx, graph)
     expect(selected).toBe(edgeB)
   })
 
   // Steps 4 & 5: Weight with lexical tiebreak
-  it('AC3 — Steps 4&5: weight 5 tie between charlie and alpha → lexically-first alpha wins', () => {
+  it('AC3 — Steps 4&5: weight 5 tie between charlie and alpha → lexically-first alpha wins', async () => {
     const node = makeNode('origin')
     const charlieEdge = makeEdge('origin', 'charlie', { weight: 5 })
     const alphaEdge = makeEdge('origin', 'alpha', { weight: 5 })
@@ -309,19 +309,19 @@ describe('selectEdge compliance — spec Section 3.3', () => {
     const ctx = new GraphContext()
     const outcome: Outcome = { status: 'SUCCESS' }
 
-    const selected = selectEdge(node, outcome, ctx, graph)
+    const selected = await selectEdge(node, outcome, ctx, graph)
     expect(selected).toBe(alphaEdge)
     expect(selected?.toNode).toBe('alpha')
   })
 
   // Empty edges
-  it('empty edges: no outgoing edges → returns null', () => {
+  it('empty edges: no outgoing edges → returns null', async () => {
     const node = makeNode('origin')
     const graph = makeGraph([node], [])
     const ctx = new GraphContext()
     const outcome: Outcome = { status: 'SUCCESS' }
 
-    const selected = selectEdge(node, outcome, ctx, graph)
+    const selected = await selectEdge(node, outcome, ctx, graph)
     expect(selected).toBeNull()
   })
 })
@@ -911,7 +911,7 @@ digraph compliance_edge_attrs {
   // Edge selection determinism — identical inputs always produce same output
   // -------------------------------------------------------------------------
 
-  it('AC6 — selectEdge is deterministic: identical inputs always produce same edge', () => {
+  it('AC6 — selectEdge is deterministic: identical inputs always produce same edge', async () => {
     const node = makeNode('origin')
     const edgeA = makeEdge('origin', 'alpha', { weight: 5 })
     const edgeB = makeEdge('origin', 'bravo', { weight: 5 })
@@ -920,9 +920,9 @@ digraph compliance_edge_attrs {
     const ctx = new GraphContext({ x: '1' })
     const outcome: Outcome = { status: 'SUCCESS' }
 
-    const first = selectEdge(node, outcome, ctx, graph)
-    const second = selectEdge(node, outcome, ctx, graph)
-    const third = selectEdge(node, outcome, ctx, graph)
+    const first = await selectEdge(node, outcome, ctx, graph)
+    const second = await selectEdge(node, outcome, ctx, graph)
+    const third = await selectEdge(node, outcome, ctx, graph)
 
     expect(first?.toNode).toBe(second?.toNode)
     expect(second?.toNode).toBe(third?.toNode)

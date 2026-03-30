@@ -52,3 +52,6 @@ test.db
 # Substrate runtime files
 .substrate/orchestrator.pid
 .substrate/current-run-id
+
+# Substrate runtime files
+.substrate/scenarios/
