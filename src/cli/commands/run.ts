@@ -67,6 +67,7 @@ import {
 import { createConfigSystem } from '../../modules/config/config-system-impl.js'
 import type { TokenCeilings } from '../../modules/config/config-schema.js'
 import { IngestionServer } from '../../modules/telemetry/ingestion-server.js'
+import { runExportAction } from './export.js'
 import { AdapterTelemetryPersistence } from '../../modules/telemetry/adapter-persistence.js'
 import { createLogger } from '../../utils/logger.js'
 import {
@@ -1266,13 +1267,14 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     if (eventsFlag === true) {
       ndjsonEmitter = createEventEmitter(process.stdout)
 
-      // AC2: pipeline:start — first event
+      // AC2: pipeline:start — first event (includes engine mode for observability)
       ndjsonEmitter.emit({
         type: 'pipeline:start',
         ts: new Date().toISOString(),
         run_id: pipelineRun.id,
         stories: storyKeys,
         concurrency,
+        engine: resolvedEngine,
       })
 
       // AC2: Wire all event subscriptions via shared helper
@@ -1726,6 +1728,19 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     pack.manifest.uxDesign = effectiveUxDesign
     const phaseOrchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
+    // Sweep stale 'running' entries from crashed runs before starting
+    try {
+      const staleRuns = (await getRunningPipelineRuns(adapter)) ?? []
+      if (staleRuns.length > 0) {
+        for (const stale of staleRuns) {
+          await updatePipelineRun(adapter, stale.id, { status: 'failed' })
+        }
+        logger.info({ count: staleRuns.length }, 'Swept stale pipeline run(s) from crashed orchestrator')
+      }
+    } catch {
+      // Best-effort — don't block pipeline start
+    }
+
     // Start the run
     const startedAt = Date.now()
     const runId = await phaseOrchestrator.startRun(concept ?? '', startPhase)
@@ -2122,6 +2137,23 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           ts: new Date().toISOString(),
           phase: currentPhase,
         })
+      }
+
+      // Auto-export planning artifacts to disk after each planning phase.
+      // This ensures _bmad-output/planning-artifacts/ has human-readable docs
+      // without requiring manual `substrate export`.
+      if (['analysis', 'planning', 'solutioning'].includes(currentPhase)) {
+        try {
+          const exportDir = join(projectRoot, '_bmad-output', 'planning-artifacts')
+          await runExportAction({
+            runId,
+            outputDir: exportDir,
+            projectRoot,
+            outputFormat: 'json',
+          })
+        } catch {
+          // Best-effort — don't block pipeline on export failure
+        }
       }
 
       // Evaluate stop-after gate after each phase completes (AC8: between phases, not mid-phase)

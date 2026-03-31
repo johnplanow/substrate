@@ -107,6 +107,27 @@ export function detectConflictGroups(storyKeys: string[], config?: ConflictDetec
     }
   }
 
+  // Auto-split: when all stories land in a single conflict group with 4+ stories,
+  // split by epic number to enable cross-epic parallelism. This handles the common
+  // case where the methodology pack maps all prefixes to a single module (e.g., "core")
+  // — without this, maxConcurrency is wasted since all stories serialize.
+  if (moduleToStories.size === 1 && storyKeys.length >= 4) {
+    const epicGroups = new Map<string, string[]>()
+    for (const key of storyKeys) {
+      const epicNum = key.split('-')[0] ?? key
+      const existing = epicGroups.get(epicNum)
+      if (existing !== undefined) {
+        existing.push(key)
+      } else {
+        epicGroups.set(epicNum, [key])
+      }
+    }
+    // Only split if there are actually multiple epics
+    if (epicGroups.size > 1) {
+      return Array.from(epicGroups.values())
+    }
+  }
+
   return Array.from(moduleToStories.values())
 }
 

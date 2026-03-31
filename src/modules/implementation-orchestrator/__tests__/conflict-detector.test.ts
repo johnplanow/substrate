@@ -175,10 +175,35 @@ describe('detectConflictGroups — substrate self-run backward compatibility', (
     expect(group1).not.toContain('10-4')
   })
 
-  it('preserves epics 1-5 in the same core group with substrate map', () => {
-    // Stories 1-1, 2-1, 3-1, 4-1, 5-1 all map to 'core'
+  it('auto-splits single-module groups by epic for cross-epic parallelism', () => {
+    // Stories 1-1, 2-1, 3-1, 4-1, 5-1 all map to 'core' but auto-split by epic
     const result = detectConflictGroups(['1-1', '2-1', '3-1', '4-1', '5-1'], { moduleMap: SUBSTRATE_MODULE_MAP })
+    expect(result).toHaveLength(5) // one group per epic
+    expect(result.flat()).toHaveLength(5)
+  })
+
+  it('does not auto-split when stories are from the same epic', () => {
+    // All from epic 1 — stays as 1 group (can't split further)
+    const result = detectConflictGroups(['1-1', '1-2', '1-3', '1-4'], { moduleMap: SUBSTRATE_MODULE_MAP })
     expect(result).toHaveLength(1)
-    expect(result[0]).toHaveLength(5)
+    expect(result[0]).toHaveLength(4)
+  })
+
+  it('does not auto-split groups with fewer than 4 stories', () => {
+    const result = detectConflictGroups(['1-1', '2-1', '3-1'], { moduleMap: SUBSTRATE_MODULE_MAP })
+    expect(result).toHaveLength(1) // too few to trigger auto-split
+    expect(result[0]).toHaveLength(3)
+  })
+
+  it('auto-split preserves within-epic story grouping', () => {
+    const result = detectConflictGroups(
+      ['1-1', '1-2', '2-1', '2-2', '3-1'],
+      { moduleMap: SUBSTRATE_MODULE_MAP },
+    )
+    expect(result).toHaveLength(3) // 3 epics
+    const epic1 = result.find((g) => g.includes('1-1'))
+    expect(epic1).toContain('1-2')
+    const epic2 = result.find((g) => g.includes('2-1'))
+    expect(epic2).toContain('2-2')
   })
 })
