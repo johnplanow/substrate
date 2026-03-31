@@ -100,8 +100,8 @@ export async function resolveStoryKeys(
   // This is where solutioning.ts stores each story with its key directly.
   try {
     const sql = opts?.pipelineRunId !== undefined
-      ? `SELECT key FROM decisions WHERE phase = 'solutioning' AND category = 'stories' AND pipeline_run_id = ? ORDER BY created_at ASC`
-      : `SELECT key FROM decisions WHERE phase = 'solutioning' AND category = 'stories' ORDER BY created_at ASC`
+      ? "SELECT `key` FROM decisions WHERE phase = 'solutioning' AND category = 'stories' AND pipeline_run_id = ? ORDER BY created_at ASC"
+      : "SELECT `key` FROM decisions WHERE phase = 'solutioning' AND category = 'stories' ORDER BY created_at ASC"
 
     const params = opts?.pipelineRunId !== undefined ? [opts.pipelineRunId] : []
     const rows = await db.query<{ key: string }>(sql, params)

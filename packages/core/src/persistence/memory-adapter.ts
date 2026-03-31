@@ -934,8 +934,10 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
       if (aliasM) {
         result[aliasM[2]!] = this._evalExprAgainstRow(aliasM[1]!.trim(), row)
       } else {
+        // Strip backtick/double-quote quoting from column names (e.g. `key` → key)
+        const unquoted = col.replace(/^[`"](.+)[`"]$/, '$1')
         // Return null for columns not present in the row (matches SQLite NULL behavior)
-        result[col] = col in row ? row[col] : null
+        result[unquoted] = unquoted in row ? row[unquoted] : null
       }
     }
     return result
