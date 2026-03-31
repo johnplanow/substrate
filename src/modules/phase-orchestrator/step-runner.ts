@@ -315,7 +315,7 @@ export async function runSteps(
 
       // 3. Validate token budget (use dynamic budget based on decision count)
       const allDecisions = await getDecisionsByPhaseForRun(deps.db, runId, phase)
-      const budgetTokens = calculateDynamicBudget(4_000, allDecisions.length)
+      const budgetTokens = calculateDynamicBudget(8_000, allDecisions.length)
       let estimatedTokens = Math.ceil(prompt.length / 4)
 
       // 3b. If prompt exceeds budget, attempt to summarize decision-based context
