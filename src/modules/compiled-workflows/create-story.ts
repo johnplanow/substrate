@@ -128,11 +128,15 @@ export async function runCreateStory(
   )
 
   // Step 6: Dispatch to agent
+  // Set maxTurns to 50 — default 30 is insufficient for projects with
+  // complex architecture constraints (boardgame-sandbox Epic 3 stories
+  // exhausted 30 turns before producing valid output).
   const handle = deps.dispatcher.dispatch({
     prompt,
     agent: 'claude-code',
     taskType: 'create-story',
     outputSchema: CreateStoryResultSchema,
+    maxTurns: 50,
     ...(deps.projectRoot !== undefined ? { workingDirectory: deps.projectRoot } : {}),
     ...(deps.otlpEndpoint !== undefined ? { otlpEndpoint: deps.otlpEndpoint } : {}),
     storyKey,
