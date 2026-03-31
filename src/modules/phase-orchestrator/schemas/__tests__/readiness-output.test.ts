@@ -77,9 +77,19 @@ describe('ReadinessFindingSchema', () => {
     }
   })
 
-  it('rejects an invalid category', () => {
+  it('accepts unknown category values (extensible for new finding types)', () => {
     const result = ReadinessFindingSchema.safeParse({
-      category: 'invalid_category',
+      category: 'custom_project_specific_check',
+      severity: 'blocker',
+      description: 'Some description',
+      affected_items: [],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects empty category', () => {
+    const result = ReadinessFindingSchema.safeParse({
+      category: '',
       severity: 'blocker',
       description: 'Some description',
       affected_items: [],
@@ -262,7 +272,7 @@ describe('ReadinessOutputSchema', () => {
     expect(result.success).toBe(false)
   })
 
-  it('rejects findings with invalid category', () => {
+  it('accepts findings with unknown category (extensible)', () => {
     const result = ReadinessOutputSchema.safeParse({
       verdict: 'NEEDS_WORK',
       coverage_score: 70,
@@ -275,7 +285,7 @@ describe('ReadinessOutputSchema', () => {
         },
       ],
     })
-    expect(result.success).toBe(false)
+    expect(result.success).toBe(true)
   })
 
   it('accepts a realistic full readiness output with mixed findings', () => {

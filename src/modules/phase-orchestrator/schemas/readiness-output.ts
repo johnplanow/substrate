@@ -26,12 +26,15 @@ export const ReadinessFindingSchema = z.object({
    * - ux_alignment: Story does not account for UX decisions
    * - dependency_validity: Story depends on a story or artifact that doesn't exist
    */
-  category: z.enum([
-    'fr_coverage',
-    'architecture_compliance',
-    'story_quality',
-    'ux_alignment',
-    'dependency_validity',
+  category: z.union([
+    z.enum([
+      'fr_coverage',
+      'architecture_compliance',
+      'story_quality',
+      'ux_alignment',
+      'dependency_validity',
+    ]),
+    z.string().min(1),
   ]),
   /** Severity of the finding */
   severity: z.enum(['blocker', 'major', 'minor']),
