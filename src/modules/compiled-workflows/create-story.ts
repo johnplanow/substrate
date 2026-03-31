@@ -160,7 +160,15 @@ export async function runCreateStory(
   if (dispatchResult.status === 'failed') {
     const errorMsg = dispatchResult.parseError ?? `Dispatch failed with exit code ${dispatchResult.exitCode}`
     const stderrDetail = dispatchResult.output ? ` Output: ${dispatchResult.output}` : ''
-    logger.warn({ epicId, storyKey, exitCode: dispatchResult.exitCode }, 'Create-story dispatch failed')
+    logger.warn(
+      {
+        epicId,
+        storyKey,
+        exitCode: dispatchResult.exitCode,
+        outputSnippet: dispatchResult.output?.slice(0, 500),
+      },
+      'Create-story dispatch failed',
+    )
     return {
       result: 'failed',
       error: `Dispatch status: failed. ${errorMsg}${stderrDetail}`,
@@ -378,18 +386,47 @@ function getPrevDevNotes(decisions: Decision[], epicId: string): string {
  * Looks for decisions with phase='solutioning', category='architecture'.
  * Falls back to reading _bmad-output/architecture/architecture.md on disk if decisions are empty.
  */
+/**
+ * Maximum character budget for architecture constraints injected into
+ * create-story prompts. Full architecture decisions can be 20K+ characters
+ * which causes agent loop exhaustion (max turns). Summarizing to ~12K chars
+ * (~3K tokens) keeps the prompt focused while retaining key decisions.
+ */
+const ARCH_CONSTRAINT_MAX_CHARS = 12_000
+
 async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
   try {
     const decisions = await getDecisionsByPhase(deps.db, 'solutioning')
     const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
-    if (constraints.length > 0) return constraints.map((d: Decision) => d.value).join('\n\n')
+    if (constraints.length > 0) {
+      const full = constraints.map((d: Decision) => d.value).join('\n\n')
+      if (full.length <= ARCH_CONSTRAINT_MAX_CHARS) return full
+
+      // Summarize: keep each decision's first line (key: value) and truncate
+      // long values to prevent agent loop exhaustion on large architecture docs
+      const summarized = constraints.map((d: Decision) => {
+        const lines = d.value.split('\n')
+        const header = lines[0] ?? d.key
+        const body = lines.slice(1).join('\n')
+        const truncatedBody = body.length > 300 ? body.slice(0, 297) + '...' : body
+        return `${header}\n${truncatedBody}`
+      }).join('\n\n')
+
+      logger.info(
+        { fullLength: full.length, summarizedLength: summarized.length, decisions: constraints.length },
+        'Architecture constraints summarized to fit create-story budget',
+      )
+      return summarized.slice(0, ARCH_CONSTRAINT_MAX_CHARS)
+    }
 
     // File-based fallback: read architecture.md directly
     if (deps.projectRoot) {
       const fallback = readArchConstraintsFromFile(deps.projectRoot)
       if (fallback) {
         logger.info('Using file-based fallback for architecture constraints (decisions table empty)')
-        return fallback
+        return fallback.length > ARCH_CONSTRAINT_MAX_CHARS
+          ? fallback.slice(0, ARCH_CONSTRAINT_MAX_CHARS) + '\n\n[truncated for token budget]'
+          : fallback
       }
     }
 

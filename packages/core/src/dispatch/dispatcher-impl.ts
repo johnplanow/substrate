@@ -685,7 +685,10 @@ export class DispatcherImpl implements Dispatcher {
           exitCode: code,
         } as never)
 
-        this._logger.debug({ id, agent, taskType, exitCode: code, durationMs }, 'Agent failed')
+        this._logger.warn(
+          { id, agent, taskType, exitCode: code, durationMs, stderr: stderr.slice(0, 500) },
+          'Agent failed',
+        )
 
         // Combine stdout and stderr so callers have full context for failures
         const combinedOutput = stderr ? `${stdout}\n--- stderr ---\n${stderr}` : stdout

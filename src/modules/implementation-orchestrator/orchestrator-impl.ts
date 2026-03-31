@@ -1275,6 +1275,14 @@ export function createImplementationOrchestrator(
 
       if (createResult.result === 'failed') {
         const errMsg = createResult.error ?? 'create-story failed'
+        // Extract the most diagnostic portion of the error for structured logging
+        const stderrSnippet = errMsg.includes('--- stderr ---')
+          ? errMsg.slice(errMsg.indexOf('--- stderr ---') + 15, errMsg.indexOf('--- stderr ---') + 515)
+          : errMsg.slice(0, 500)
+        logger.error(
+          { storyKey, stderrSnippet },
+          `Create-story failed: ${stderrSnippet.split('\n')[0]}`,
+        )
         updateStory(storyKey, {
           phase: 'ESCALATED' as StoryPhase,
           error: errMsg,
