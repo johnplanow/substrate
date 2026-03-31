@@ -24,6 +24,8 @@ export interface PipelineStartEvent {
   stories: string[]
   /** Maximum parallel conflict groups */
   concurrency: number
+  /** Execution engine: 'linear' or 'graph' */
+  engine?: string
 }
 
 // ---------------------------------------------------------------------------
