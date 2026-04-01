@@ -310,7 +310,7 @@ export async function runDevStory(
   try {
     const handle = deps.dispatcher.dispatch({
       prompt,
-      agent: 'claude-code',
+      agent: deps.agentId ?? 'claude-code',
       taskType: 'dev-story',
       timeout: DEFAULT_TIMEOUT_MS,
       outputSchema: DevStoryResultSchema,

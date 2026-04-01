@@ -155,7 +155,7 @@ export async function runCreateStory(
   // exhausted 30 turns before producing valid output).
   const handle = deps.dispatcher.dispatch({
     prompt,
-    agent: 'claude-code',
+    agent: deps.agentId ?? 'claude-code',
     taskType: 'create-story',
     outputSchema: CreateStoryResultSchema,
     maxTurns: 50,

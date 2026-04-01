@@ -441,6 +441,8 @@ export interface RunOptions {
    * executor via GraphOrchestrator). Validated in runRunAction — story 43-10.
    */
   engine?: string
+  /** Agent backend for dispatches: 'claude-code' (default), 'codex', or 'gemini' */
+  agent?: string
   /** Optional pre-initialized registry; if omitted, a new registry is created and discovered */
   registry?: AdapterRegistry
 }
@@ -467,6 +469,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     dryRun,
     maxReviewCycles = 2,
     engine,
+    agent: agentId,
     registry: injectedRegistry,
   } = options
 
@@ -717,6 +720,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(injectedRegistry !== undefined ? { registry: injectedRegistry } : {}),
       ...(telemetryEnabled ? { telemetryEnabled: true, telemetryPort } : {}),
       maxReviewCycles,
+      agentId,
     })
   }
 
@@ -1053,7 +1057,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           const costUsd = (input * 3 + output * 15) / 1_000_000
           addTokenUsage(adapter, pipelineRun.id, {
             phase: payload.phase,
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: input,
             output_tokens: output,
             cost_usd: costUsd,
@@ -1343,14 +1347,14 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       const executor = createGraphExecutor()
 
       const phaseOrchestrator = createPhaseOrchestrator({ db: adapter, pack })
-      const workflowDeps = { db: adapter, pack, contextCompiler, dispatcher, projectRoot }
+      const workflowDeps = { db: adapter, pack, contextCompiler, dispatcher, projectRoot, agentId }
       // Cast the monolith event bus to TypedEventBus<SdlcEvents> — structurally compatible.
       const sdlcEventBus = eventBus as unknown as TypedEventBus<SdlcEvents>
 
       const handlerRegistry = buildSdlcHandlerRegistry({
         phaseHandlerDeps: {
           orchestrator: phaseOrchestrator,
-          phaseDeps: { db: adapter, pack, contextCompiler, dispatcher },
+          phaseDeps: { db: adapter, pack, contextCompiler, dispatcher, agentId },
           phases: {
             analysis: runAnalysisPhase as unknown as PhaseRunnerFn,
             planning: runPlanningPhase as unknown as PhaseRunnerFn,
@@ -1428,6 +1432,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         },
         projectRoot,
         tokenCeilings,
+        agentId,
         ...(ingestionServer !== undefined ? { ingestionServer } : {}),
         ...(telemetryPersistence !== undefined ? { telemetryPersistence } : {}),
         ...(repoMapInjector !== undefined ? { repoMapInjector, maxRepoMapTokens: MAX_REPO_MAP_TOKENS } : {}),
@@ -1649,10 +1654,12 @@ export interface FullPipelineOptions {
   telemetryEnabled?: boolean
   /** Port for the local OTLP HTTP ingestion server */
   telemetryPort?: number
+  /** Agent backend for dispatches: 'claude-code' (default), 'codex', or 'gemini' */
+  agentId?: string
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, maxReviewCycles = 2, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, maxReviewCycles = 2, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId } =
     options
 
   // Ensure database directory
@@ -1710,7 +1717,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
       },
     })
 
-    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher }
+    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher, agentId }
 
     // Create PhaseOrchestrator — when --skip-ux is set, override uxDesign to false;
     // when --research/--skip-research are set, override research accordingly.
@@ -1836,7 +1843,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'analysis',
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
@@ -1871,7 +1878,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'planning',
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
@@ -1906,7 +1913,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'research',
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
@@ -1941,7 +1948,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'ux-design',
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
@@ -1976,7 +1983,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'solutioning',
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
@@ -2050,6 +2057,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           },
           projectRoot,
           tokenCeilings,
+          agentId,
           ...(fpIngestionServer !== undefined ? { ingestionServer: fpIngestionServer } : {}),
           ...(fpTelemetryPersistence !== undefined ? { telemetryPersistence: fpTelemetryPersistence } : {}),
         })
@@ -2065,7 +2073,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
               const costUsd = (input * 3 + output * 15) / 1_000_000
               addTokenUsage(adapter, runId, {
                 phase: payload.phase,
-                agent: 'claude-code',
+                agent: agentId ?? 'claude-code',
                 input_tokens: input,
                 output_tokens: output,
                 cost_usd: costUsd,
@@ -2313,6 +2321,7 @@ export function registerRunCommand(
     .option('--max-review-cycles <n>', 'Maximum review cycles per story (default: 2)', (v: string) => parseInt(v, 10), 2)
     .option('--dry-run', 'Preview routing and repo-map injection without dispatching (Story 28-9)')
     .option('--engine <type>', 'Execution engine: linear (default) or graph')
+    .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
     .action(
       async (opts: {
         pack: string
@@ -2336,6 +2345,7 @@ export function registerRunCommand(
         maxReviewCycles: number
         dryRun?: boolean
         engine?: string
+        agent?: string
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -2382,6 +2392,7 @@ export function registerRunCommand(
           maxReviewCycles: opts.maxReviewCycles,
           dryRun: opts.dryRun,
           engine: opts.engine,
+          agent: opts.agent,
           registry,
         })
         process.exitCode = exitCode

@@ -150,7 +150,7 @@ export async function runCritiqueLoop(
     try {
       const handle = deps.dispatcher.dispatch({
         prompt: critiquePrompt,
-        agent: 'claude-code',
+        agent: deps.agentId ?? 'claude-code',
         taskType: 'critique',
         outputSchema: CritiqueOutputSchema,
       })
@@ -285,7 +285,7 @@ export async function runCritiqueLoop(
       try {
         const refineHandle = deps.dispatcher.dispatch({
           prompt: refinePrompt,
-          agent: 'claude-code',
+          agent: deps.agentId ?? 'claude-code',
           taskType: 'critique',
           outputSchema: undefined,
         })

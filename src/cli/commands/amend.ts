@@ -120,10 +120,12 @@ export interface AmendOptions {
   projectRoot: string
   pack: string
   registry?: AdapterRegistry
+  /** Agent backend for dispatches: 'claude-code' (default), 'codex', or 'gemini' */
+  agent?: string
 }
 
 export async function runAmendAction(options: AmendOptions): Promise<number> {
-  const { concept: conceptArg, conceptFile, runId: specifiedRunId, stopAfter, from: startPhase, projectRoot, pack: packName, registry: injectedRegistry } = options
+  const { concept: conceptArg, conceptFile, runId: specifiedRunId, stopAfter, from: startPhase, projectRoot, pack: packName, registry: injectedRegistry, agent: agentId } = options
 
   // AC2: --concept or --concept-file is required (before any DB reads/writes)
   let concept: string
@@ -236,7 +238,7 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
       throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
     const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
-    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher }
+    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher, agentId }
 
     // Determine phases to run
     const phaseOrder: PhaseName[] = ['analysis', 'planning', 'solutioning', 'implementation']
@@ -283,7 +285,7 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, amendmentRunId, {
             phase: 'analysis',
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
@@ -303,7 +305,7 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, amendmentRunId, {
             phase: 'planning',
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
@@ -323,7 +325,7 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, amendmentRunId, {
             phase: 'solutioning',
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
@@ -444,6 +446,7 @@ export function registerAmendCommand(
       'Output format: human (default) or json',
       'human',
     )
+    .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
     .action(
       async (opts: {
         concept?: string
@@ -454,6 +457,7 @@ export function registerAmendCommand(
         pack: string
         projectRoot: string
         outputFormat: string
+        agent?: string
       }) => {
         const exitCode = await runAmendAction({
           concept: opts.concept,
@@ -463,6 +467,7 @@ export function registerAmendCommand(
           from: opts.from as PhaseName | undefined,
           projectRoot: opts.projectRoot,
           pack: opts.pack,
+          agent: opts.agent,
           registry,
         })
         process.exitCode = exitCode

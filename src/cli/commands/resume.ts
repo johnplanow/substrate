@@ -94,10 +94,12 @@ export interface ResumeOptions {
   stories?: string[]
   /** Maximum number of review cycles per story (default: 2) */
   maxReviewCycles?: number
+  /** Agent backend for dispatches: 'claude-code' (default), 'codex', or 'gemini' */
+  agent?: string
 }
 
 export async function runResumeAction(options: ResumeOptions): Promise<number> {
-  const { runId: specifiedRunId, stopAfter, outputFormat, projectRoot, concurrency, pack: packName, events: eventsFlag, registry, maxReviewCycles = 2 } = options
+  const { runId: specifiedRunId, stopAfter, outputFormat, projectRoot, concurrency, pack: packName, events: eventsFlag, registry, maxReviewCycles = 2, agent: agentId } = options
 
   // Validate --stop-after phase (before any DB writes) (AC7)
   if (stopAfter !== undefined && !VALID_PHASES.includes(stopAfter)) {
@@ -354,7 +356,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'analysis',
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
@@ -379,7 +381,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'planning',
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
@@ -404,7 +406,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'solutioning',
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
@@ -459,6 +461,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
             enableHeartbeat: eventsFlag === true,
           },
           projectRoot,
+          agentId,
           ...(ingestionServer !== undefined ? { ingestionServer } : {}),
           ...(telemetryPersistence !== undefined ? { telemetryPersistence } : {}),
         })
@@ -563,7 +566,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
               const costUsd = (input * 3 + output * 15) / 1_000_000
               addTokenUsage(adapter, runId, {
                 phase: payload.phase,
-                agent: 'claude-code',
+                agent: agentId ?? 'claude-code',
                 input_tokens: input,
                 output_tokens: output,
                 cost_usd: costUsd,
@@ -733,6 +736,7 @@ export function registerResumeCommand(
     )
     .option('--events', 'Emit structured NDJSON events on stdout for programmatic consumption')
     .option('--max-review-cycles <n>', 'Maximum review cycles per story (default: 2)', (v: string) => parseInt(v, 10), 2)
+    .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
     .action(
       async (opts: {
         runId?: string
@@ -743,6 +747,7 @@ export function registerResumeCommand(
         outputFormat: string
         events?: boolean
         maxReviewCycles: number
+        agent?: string
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         const exitCode = await runResumeAction({
@@ -754,6 +759,7 @@ export function registerResumeCommand(
           pack: opts.pack,
           events: opts.events,
           maxReviewCycles: opts.maxReviewCycles,
+          agent: opts.agent,
           registry,
         })
         process.exitCode = exitCode

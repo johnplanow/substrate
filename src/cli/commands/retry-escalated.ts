@@ -49,6 +49,8 @@ export interface RetryEscalatedOptions {
   pack: string
   /** Optional pre-initialized registry; if omitted, a new registry is created and discovered */
   registry?: AdapterRegistry
+  /** Agent backend for dispatches: 'claude-code' (default), 'codex', or 'gemini' */
+  agent?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -56,7 +58,7 @@ export interface RetryEscalatedOptions {
 // ---------------------------------------------------------------------------
 
 export async function runRetryEscalatedAction(options: RetryEscalatedOptions): Promise<number> {
-  const { runId, dryRun, force, outputFormat, projectRoot, concurrency, pack: packName, registry: injectedRegistry } = options
+  const { runId, dryRun, force, outputFormat, projectRoot, concurrency, pack: packName, registry: injectedRegistry, agent: agentId } = options
 
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
@@ -195,6 +197,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
           : {}),
       },
       projectRoot,
+      agentId,
     })
 
     // Record token usage per phase
@@ -206,7 +209,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
           const costUsd = (input * 3 + output * 15) / 1_000_000
           addTokenUsage(adapter, pipelineRun.id, {
             phase: payload.phase,
-            agent: 'claude-code',
+            agent: agentId ?? 'claude-code',
             input_tokens: input,
             output_tokens: output,
             cost_usd: costUsd,
@@ -291,6 +294,7 @@ export function registerRetryEscalatedCommand(
     .option('--pack <name>', 'Methodology pack name', 'bmad')
     .option('--project-root <path>', 'Project root directory', projectRoot)
     .option('--output-format <format>', 'Output format: human (default) or json', 'human')
+    .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
     .action(
       async (opts: {
         runId?: string
@@ -300,6 +304,7 @@ export function registerRetryEscalatedCommand(
         pack: string
         projectRoot: string
         outputFormat: string
+        agent?: string
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         const exitCode = await runRetryEscalatedAction({
@@ -310,6 +315,7 @@ export function registerRetryEscalatedCommand(
           projectRoot: opts.projectRoot,
           concurrency: opts.concurrency,
           pack: opts.pack,
+          agent: opts.agent,
           registry,
         })
         process.exitCode = exitCode

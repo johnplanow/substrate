@@ -144,7 +144,7 @@ export async function runTestPlan(
   try {
     const handle = deps.dispatcher.dispatch({
       prompt,
-      agent: 'claude-code',
+      agent: deps.agentId ?? 'claude-code',
       taskType: 'test-plan',
       timeout: DEFAULT_TIMEOUT_MS,
       outputSchema: TestPlanResultSchema,

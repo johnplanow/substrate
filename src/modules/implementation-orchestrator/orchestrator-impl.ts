@@ -107,6 +107,11 @@ export interface OrchestratorDeps {
   repoMapInjector?: RepoMapInjector
   /** Optional token budget for repo-map context injection (Story 28-9) */
   maxRepoMapTokens?: number
+  /**
+   * Optional agent backend identifier (e.g., 'claude-code', 'codex', 'gemini').
+   * When set, all orchestrator dispatches use this agent instead of the default 'claude-code'.
+   */
+  agentId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -1867,7 +1872,7 @@ export function createImplementationOrchestrator(
 
           const checkpointRetryHandle = dispatcher.dispatch({
             prompt: checkpointRetryPrompt,
-            agent: 'claude-code',
+            agent: deps.agentId ?? 'claude-code',
             taskType: 'dev-story',
             outputSchema: DevStoryResultSchema,
             ...(checkpointRetryMaxTurns !== undefined ? { maxTurns: checkpointRetryMaxTurns } : {}),
@@ -2218,7 +2223,7 @@ export function createImplementationOrchestrator(
               incrementDispatches(storyKey)
               const fixHandle = dispatcher.dispatch<unknown>({
                 prompt: buildFixPrompt,
-                agent: 'claude-code',
+                agent: deps.agentId ?? 'claude-code',
                 taskType: 'build-fix',
                 maxTurns: 15,
                 workingDirectory: projectRoot ?? process.cwd(),
@@ -2792,7 +2797,7 @@ export function createImplementationOrchestrator(
 
           const handle = dispatcher.dispatch<unknown>({
             prompt: fixPrompt,
-            agent: 'claude-code',
+            agent: deps.agentId ?? 'claude-code',
             taskType: 'minor-fixes',
             workingDirectory: projectRoot,
             ...(autoApproveMaxTurns !== undefined ? { maxTurns: autoApproveMaxTurns } : {}),
@@ -2957,7 +2962,7 @@ export function createImplementationOrchestrator(
         const handle = isMajorRework
           ? dispatcher.dispatch({
               prompt: fixPrompt,
-              agent: 'claude-code',
+              agent: deps.agentId ?? 'claude-code',
               taskType,
               ...(fixModel !== undefined ? { model: fixModel } : {}),
               outputSchema: DevStoryResultSchema,
@@ -2970,7 +2975,7 @@ export function createImplementationOrchestrator(
             })
           : dispatcher.dispatch<unknown>({
               prompt: fixPrompt,
-              agent: 'claude-code',
+              agent: deps.agentId ?? 'claude-code',
               taskType,
               ...(fixModel !== undefined ? { model: fixModel } : {}),
               ...(fixMaxTurns !== undefined ? { maxTurns: fixMaxTurns } : {}),

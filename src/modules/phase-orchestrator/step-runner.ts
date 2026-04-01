@@ -388,7 +388,7 @@ export async function runSteps(
       // 4. Dispatch to agent
       const handle = deps.dispatcher.dispatch({
         prompt,
-        agent: 'claude-code',
+        agent: deps.agentId ?? 'claude-code',
         taskType: step.taskType,
         outputSchema: step.outputSchema,
       })
@@ -554,7 +554,7 @@ export async function runSteps(
               // Dispatch elicitation agent
               const elicitHandle = deps.dispatcher.dispatch({
                 prompt: elicitPrompt,
-                agent: 'claude-code',
+                agent: deps.agentId ?? 'claude-code',
                 taskType: 'elicitation',
                 outputSchema: ElicitationOutputSchema,
               })

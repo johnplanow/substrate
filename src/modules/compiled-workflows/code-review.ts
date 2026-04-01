@@ -304,7 +304,7 @@ export async function runCodeReview(
   // Step 7: Dispatch to agent
   const handle = deps.dispatcher.dispatch({
     prompt,
-    agent: 'claude-code',
+    agent: deps.agentId ?? 'claude-code',
     taskType: 'code-review',
     outputSchema: CodeReviewResultSchema,
     workingDirectory: deps.projectRoot,

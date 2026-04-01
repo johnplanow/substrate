@@ -256,7 +256,7 @@ async function runArchitectureGeneration(
   // Step 4: Dispatch with taskType='architecture', outputSchema=ArchitectureOutputSchema
   const handle = dispatcher.dispatch({
     prompt,
-    agent: 'claude-code',
+    agent: deps.agentId ?? 'claude-code',
     taskType: 'architecture',
     outputSchema: ArchitectureOutputSchema,
   })
@@ -431,7 +431,7 @@ async function runStoryGeneration(
   // Step 4: Dispatch with taskType='story-generation', outputSchema=StoryGenerationOutputSchema
   const handle = dispatcher.dispatch({
     prompt,
-    agent: 'claude-code',
+    agent: deps.agentId ?? 'claude-code',
     taskType: 'story-generation',
     outputSchema: StoryGenerationOutputSchema,
   })
@@ -711,7 +711,7 @@ async function runReadinessCheck(
   // Step 4: Dispatch readiness-check sub-agent
   const handle = dispatcher.dispatch({
     prompt,
-    agent: 'claude-code',
+    agent: deps.agentId ?? 'claude-code',
     taskType: 'readiness-check',
     outputSchema: ReadinessOutputSchema,
   })

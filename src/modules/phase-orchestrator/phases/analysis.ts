@@ -335,7 +335,7 @@ export async function runAnalysisPhase(
     // Step 6: Dispatch to claude-code agent
     const handle = dispatcher.dispatch({
       prompt,
-      agent: 'claude-code',
+      agent: deps.agentId ?? 'claude-code',
       taskType: 'analysis',
       outputSchema: AnalysisOutputSchema,
     })

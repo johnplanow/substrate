@@ -143,6 +143,8 @@ export const SubstrateConfigSchema = z
     dispatch_timeouts: DispatchTimeoutsSchema.optional(),
     /** OTLP telemetry ingestion settings (Story 27-9) */
     telemetry: TelemetryConfigSchema.optional(),
+    /** Default agent backend for all dispatches (e.g., 'claude-code', 'codex', 'gemini'). Defaults to 'claude-code'. */
+    default_agent: z.string().optional(),
   })
   .strict()
 
@@ -170,6 +172,7 @@ export const PartialSubstrateConfigSchema = z
     token_ceilings: TokenCeilingsSchema.optional(),
     dispatch_timeouts: DispatchTimeoutsSchema.optional(),
     telemetry: TelemetryConfigSchema.partial().optional(),
+    default_agent: z.string().optional(),
   })
   .strict()
 

@@ -53,6 +53,8 @@ export interface DebatePanelOptions {
    * Override in tests to inject mock perspectives.
    */
   perspectiveGenerator?: PerspectiveGeneratorFn
+  /** Optional agent backend identifier (default: 'claude-code') */
+  agentId?: string
 }
 
 /**
@@ -83,12 +85,12 @@ function buildPerspectivePrompt(viewpoint: string, question: string, context: st
   ].join('\n')
 }
 
-function createDefaultPerspectiveGenerator(dispatcher: Dispatcher): PerspectiveGeneratorFn {
+function createDefaultPerspectiveGenerator(dispatcher: Dispatcher, agentId?: string): PerspectiveGeneratorFn {
   return async (viewpoint: string, question: string, context: string): Promise<Perspective> => {
     const prompt = buildPerspectivePrompt(viewpoint, question, context)
     const handle = dispatcher.dispatch({
       prompt,
-      agent: 'claude-code',
+      agent: agentId ?? 'claude-code',
       taskType: 'perspective-generation',
     })
     const result = await handle.result
@@ -168,7 +170,7 @@ export class DebatePanelImpl implements DebatePanel {
     this._dispatcher = options.dispatcher
     this._db = options.db
     this._generatePerspective =
-      options.perspectiveGenerator ?? createDefaultPerspectiveGenerator(options.dispatcher)
+      options.perspectiveGenerator ?? createDefaultPerspectiveGenerator(options.dispatcher, options.agentId)
   }
 
   async decide(request: DecisionRequest): Promise<DebateResult> {

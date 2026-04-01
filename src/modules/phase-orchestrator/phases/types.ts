@@ -34,6 +34,11 @@ export interface PhaseDeps {
    * When omitted, phase execution proceeds with logger-only output.
    */
   eventBus?: TypedEventBus
+  /**
+   * Optional agent backend identifier (e.g., 'claude-code', 'codex', 'gemini').
+   * When set, all phase dispatches use this agent instead of the default 'claude-code'.
+   */
+  agentId?: string
 }
 
 // ---------------------------------------------------------------------------

@@ -171,7 +171,7 @@ export async function runTestExpansion(
   // Step 6: Dispatch to agent
   const handle = deps.dispatcher.dispatch({
     prompt,
-    agent: 'claude-code',
+    agent: deps.agentId ?? 'claude-code',
     taskType: 'test-expansion',
     outputSchema: TestExpansionResultSchema,
     workingDirectory: deps.projectRoot,

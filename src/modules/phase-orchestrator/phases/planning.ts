@@ -316,7 +316,7 @@ async function runPlanningMultiStep(
 
         const retryHandle = deps.dispatcher.dispatch({
           prompt: correctedPrompt,
-          agent: 'claude-code',
+          agent: deps.agentId ?? 'claude-code',
           taskType: 'planning-nfrs',
           outputSchema: PlanningNFRsOutputSchema,
         })
@@ -515,7 +515,7 @@ export async function runPlanningPhase(
     // Step 6: Dispatch to claude-code agent
     const handle = dispatcher.dispatch({
       prompt,
-      agent: 'claude-code',
+      agent: deps.agentId ?? 'claude-code',
       taskType: 'planning',
       outputSchema: PlanningOutputSchema,
     })
