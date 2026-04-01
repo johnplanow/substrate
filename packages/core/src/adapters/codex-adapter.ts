@@ -309,6 +309,10 @@ export class CodexCLIAdapter implements WorkerAdapter {
       ],
       supportedLanguages: ['*'],
       timeoutMultiplier: 3.0,
+      supportsSystemPrompt: false,
+      supportsOtlpExport: false,
+      requiresYamlSuffix: true,
+      defaultMaxReviewCycles: 3,
     }
   }
 

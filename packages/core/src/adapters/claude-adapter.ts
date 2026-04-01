@@ -406,6 +406,10 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
         'analyze',
       ],
       supportedLanguages: ['*'],
+      supportsSystemPrompt: true,
+      supportsOtlpExport: true,
+      requiresYamlSuffix: false,
+      defaultMaxReviewCycles: 2,
     }
   }
 

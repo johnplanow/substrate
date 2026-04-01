@@ -103,6 +103,30 @@ export interface AdapterCapabilities {
    * Default: 1.0 (no scaling).
    */
   timeoutMultiplier?: number
+  /**
+   * Whether the agent supports a --system-prompt flag.
+   * Claude Code: true. Codex/Gemini: false.
+   * When false, system-level instructions must be embedded in the prompt itself.
+   */
+  supportsSystemPrompt?: boolean
+  /**
+   * Whether the agent exports OTLP telemetry (spans, metrics, logs).
+   * Claude Code: true. Codex/Gemini: false.
+   * When false, telemetry is heuristic-only (character-based token estimates).
+   */
+  supportsOtlpExport?: boolean
+  /**
+   * Whether the dispatcher should append a YAML output format reminder to prompts.
+   * Claude Code: false (follows methodology pack format instructions reliably).
+   * Codex/Gemini: true (need explicit final nudge to emit fenced YAML blocks).
+   */
+  requiresYamlSuffix?: boolean
+  /**
+   * Default maximum review cycles for this agent backend.
+   * Claude Code: 2 (converges quickly). Codex: 3 (needs more iterations).
+   * Overridden by explicit --max-review-cycles CLI flag.
+   */
+  defaultMaxReviewCycles?: number
 }
 
 /**

@@ -182,6 +182,11 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     }
     const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
 
+    // Resolve per-agent review cycles
+    const agentAdapter = agentId != null ? injectedRegistry.get(agentId) : undefined
+    const adapterDefaultCycles = (agentAdapter as { getCapabilities?: () => { defaultMaxReviewCycles?: number } })?.getCapabilities?.()?.defaultMaxReviewCycles
+    const effectiveMaxReviewCycles = adapterDefaultCycles != null ? Math.max(2, adapterDefaultCycles) : 2
+
     const orchestrator = createImplementationOrchestrator({
       db: adapter,
       pack,
@@ -190,7 +195,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
       eventBus,
       config: {
         maxConcurrency: concurrency,
-        maxReviewCycles: 2,
+        maxReviewCycles: effectiveMaxReviewCycles,
         pipelineRunId: pipelineRun.id,
         ...(Object.keys(perStoryContextCeilings).length > 0
           ? { perStoryContextCeilings }

@@ -327,6 +327,11 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
     const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher, agentId }
 
+    // Resolve per-agent review cycles
+    const agentAdapter = agentId != null ? injectedRegistry.get(agentId) : undefined
+    const adapterDefaultCycles = (agentAdapter as { getCapabilities?: () => { defaultMaxReviewCycles?: number } })?.getCapabilities?.()?.defaultMaxReviewCycles
+    const effectiveMaxReviewCycles = adapterDefaultCycles != null ? Math.max(maxReviewCycles, adapterDefaultCycles) : maxReviewCycles
+
     const phaseOrchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
     const startedAt = Date.now()
@@ -460,7 +465,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           eventBus,
           config: {
             maxConcurrency: concurrency,
-            maxReviewCycles,
+            maxReviewCycles: effectiveMaxReviewCycles,
             pipelineRunId: runId,
             enableHeartbeat: eventsFlag === true,
           },

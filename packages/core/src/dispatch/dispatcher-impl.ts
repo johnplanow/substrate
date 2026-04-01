@@ -548,13 +548,13 @@ export class DispatcherImpl implements Dispatcher {
     const worktreePath = workingDirectory ?? process.cwd()
     const resolvedMaxTurns = maxTurns ?? DEFAULT_MAX_TURNS[taskType]
 
-    // For non-Claude agents, append a YAML output format reminder to the prompt.
-    // Claude Code gets format instructions via --system-prompt; other agents may
-    // not follow the embedded YAML instructions as reliably without a final nudge.
-    // The suffix includes actual field names from the output schema when available.
-    const effectivePrompt = agent === 'claude-code'
-      ? prompt
-      : prompt + buildYamlOutputSuffix(outputSchema)
+    // For agents that require it (declared via capabilities), append a YAML output
+    // format reminder to the prompt. Claude Code follows methodology pack format
+    // instructions reliably; other agents need an explicit final nudge.
+    const capabilities = adapter.getCapabilities()
+    const effectivePrompt = capabilities.requiresYamlSuffix === true
+      ? prompt + buildYamlOutputSuffix(outputSchema)
+      : prompt
 
     const cmd = adapter.buildCommand(effectivePrompt, {
       worktreePath,
@@ -577,7 +577,7 @@ export class DispatcherImpl implements Dispatcher {
       this._config.defaultTimeouts[taskType] ??
       DEFAULT_TIMEOUTS[taskType] ??
       300_000
-    const timeoutMultiplier = adapter.getCapabilities().timeoutMultiplier ?? 1.0
+    const timeoutMultiplier = capabilities.timeoutMultiplier ?? 1.0
     const timeoutMs = Math.round(baseTimeoutMs * timeoutMultiplier)
 
     // Spawn the process

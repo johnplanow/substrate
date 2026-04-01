@@ -121,6 +121,25 @@ import { runBuildVerification } from '../../modules/agent-dispatch/dispatcher-im
 const logger = createLogger('run-cmd')
 
 // ---------------------------------------------------------------------------
+// Per-agent review cycles resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve effective max review cycles by checking the adapter's default.
+ * Uses Math.max so the adapter's recommendation is a floor, not an override.
+ */
+function resolveMaxReviewCycles(
+  cliValue: number,
+  agentId: string | undefined,
+  registry: AdapterRegistry | undefined,
+): number {
+  if (agentId == null || registry == null) return cliValue
+  const adapter = registry.get(agentId) as { getCapabilities?: () => { defaultMaxReviewCycles?: number } } | undefined
+  const adapterDefault = adapter?.getCapabilities?.()?.defaultMaxReviewCycles
+  return adapterDefault != null ? Math.max(cliValue, adapterDefault) : cliValue
+}
+
+// ---------------------------------------------------------------------------
 // Story 43-10: Engine routing constants
 // ---------------------------------------------------------------------------
 const VALID_ENGINES = ['linear', 'graph'] as const
@@ -485,6 +504,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     return 1
   }
 
+  // Resolve per-agent review cycles: Codex defaults to 3, Claude to 2.
+  // The adapter's defaultMaxReviewCycles acts as a floor (Math.max).
+  const effectiveMaxReviewCycles = resolveMaxReviewCycles(maxReviewCycles, agentId, injectedRegistry)
+
   // Validate --from phase
   if (startPhase !== undefined && !VALID_PHASES.includes(startPhase)) {
     const errorMsg = `Invalid phase '${startPhase}'. Valid phases: ${VALID_PHASES.join(', ')}`
@@ -719,7 +742,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(epicNumber !== undefined ? { epic: epicNumber } : {}),
       ...(injectedRegistry !== undefined ? { registry: injectedRegistry } : {}),
       ...(telemetryEnabled ? { telemetryEnabled: true, telemetryPort } : {}),
-      maxReviewCycles,
+      maxReviewCycles: effectiveMaxReviewCycles,
       agentId,
     })
   }
@@ -1398,7 +1421,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         runId: pipelineRun.id,
         eventBus,
         pipelineRunId: pipelineRun.id,
-        maxReviewCycles,
+        maxReviewCycles: effectiveMaxReviewCycles,
         gcPauseMs: 0,
       })
 
@@ -1423,7 +1446,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         eventBus,
         config: {
           maxConcurrency: concurrency,
-          maxReviewCycles,
+          maxReviewCycles: effectiveMaxReviewCycles,
           pipelineRunId: pipelineRun.id,
           // Only enable heartbeat/watchdog timer when --events mode is active (AC1/Issue 5)
           enableHeartbeat: eventsFlag === true,

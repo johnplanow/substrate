@@ -343,6 +343,10 @@ export class GeminiCLIAdapter implements WorkerAdapter {
         'analyze',
       ],
       supportedLanguages: ['*'],
+      supportsSystemPrompt: false,
+      supportsOtlpExport: false,
+      requiresYamlSuffix: true,
+      defaultMaxReviewCycles: 3,
     }
   }
 

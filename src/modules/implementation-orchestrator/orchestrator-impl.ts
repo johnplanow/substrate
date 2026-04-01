@@ -727,6 +727,29 @@ export function createImplementationOrchestrator(
             phaseBreakdown[phase] = endMs !== undefined ? endMs - startMs : nowMs - startMs
           }
         }
+        // Collect git diff stats for backend-agnostic work measurement.
+        // This captures actual files changed regardless of OTLP availability.
+        let diffStats: { filesChanged: number; insertions: number; deletions: number } | undefined
+        try {
+          const statOutput = execSync('git diff --stat HEAD', {
+            cwd: projectRoot ?? process.cwd(),
+            encoding: 'utf-8',
+            timeout: 5000,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          })
+          const summaryLine = statOutput.trim().split('\n').pop() ?? ''
+          const filesMatch = summaryLine.match(/(\d+)\s+files?\s+changed/)
+          const insMatch = summaryLine.match(/(\d+)\s+insertions?/)
+          const delMatch = summaryLine.match(/(\d+)\s+deletions?/)
+          diffStats = {
+            filesChanged: filesMatch ? parseInt(filesMatch[1], 10) : 0,
+            insertions: insMatch ? parseInt(insMatch[1], 10) : 0,
+            deletions: delMatch ? parseInt(delMatch[1], 10) : 0,
+          }
+        } catch {
+          // git not available or no changes — skip
+        }
+
         eventBus.emit('story:metrics', {
           storyKey,
           wallClockMs,
@@ -734,6 +757,7 @@ export function createImplementationOrchestrator(
           tokens: { input: tokenAgg.input, output: tokenAgg.output },
           reviewCycles,
           dispatches: _storyDispatches.get(storyKey) ?? 0,
+          ...(diffStats !== undefined ? { diffStats } : {}),
         })
       } catch (emitErr) {
         logger.warn({ err: emitErr, storyKey }, 'Failed to emit story:metrics event (best-effort)')
