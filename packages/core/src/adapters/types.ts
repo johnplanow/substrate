@@ -96,6 +96,13 @@ export interface AdapterCapabilities {
   supportedTaskTypes: string[]
   /** Programming languages the agent supports */
   supportedLanguages: string[]
+  /**
+   * Timeout multiplier relative to default dispatch timeouts.
+   * Agents that are slower (e.g., Codex) declare a multiplier > 1.0
+   * so the dispatcher scales timeouts automatically.
+   * Default: 1.0 (no scaling).
+   */
+  timeoutMultiplier?: number
 }
 
 /**

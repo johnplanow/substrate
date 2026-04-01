@@ -308,6 +308,7 @@ export class CodexCLIAdapter implements WorkerAdapter {
         'analyze',
       ],
       supportedLanguages: ['*'],
+      timeoutMultiplier: 3.0,
     }
   }
 

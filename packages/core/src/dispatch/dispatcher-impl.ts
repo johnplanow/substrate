@@ -41,6 +41,21 @@ const SHUTDOWN_MAX_WAIT_MS = 30_000
 // Characters per token for estimation heuristic
 const CHARS_PER_TOKEN = 4
 
+// YAML output format reminder appended to prompts for non-Claude agents.
+// Claude Code follows the methodology pack's embedded YAML instructions reliably;
+// other agents (Codex, Gemini) sometimes need an explicit final reminder.
+const YAML_OUTPUT_SUFFIX = `
+
+---
+IMPORTANT: When you have completed the task, output your structured result as a fenced YAML block at the END of your response. Use this exact format:
+
+\`\`\`yaml
+result: success
+# ... additional fields as specified in the task above
+\`\`\`
+
+The YAML block MUST be the last thing in your output. Do not add any text after the closing fence.`
+
 // Minimum free system memory (bytes) required before spawning a new agent.
 // When free memory is below this threshold, dispatches are held in the queue
 // and retried periodically until memory recovers.
@@ -465,7 +480,15 @@ export class DispatcherImpl implements Dispatcher {
     // Build spawn command from adapter, using workingDirectory from request or process.cwd() as fallback
     const worktreePath = workingDirectory ?? process.cwd()
     const resolvedMaxTurns = maxTurns ?? DEFAULT_MAX_TURNS[taskType]
-    const cmd = adapter.buildCommand(prompt, {
+
+    // For non-Claude agents, append a YAML output format reminder to the prompt.
+    // Claude Code gets format instructions via --system-prompt; other agents may
+    // not follow the embedded YAML instructions as reliably without a final nudge.
+    const effectivePrompt = agent === 'claude-code'
+      ? prompt
+      : prompt + YAML_OUTPUT_SUFFIX
+
+    const cmd = adapter.buildCommand(effectivePrompt, {
       worktreePath,
       billingMode: 'subscription',
       ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
@@ -478,12 +501,16 @@ export class DispatcherImpl implements Dispatcher {
       dispatchId: id,
     })
 
-    // Resolve timeout
-    const timeoutMs =
+    // Resolve timeout, applying per-agent multiplier from adapter capabilities.
+    // Agents that are slower (e.g., Codex) declare timeoutMultiplier > 1.0
+    // so all timeouts scale automatically without per-project config overrides.
+    const baseTimeoutMs =
       timeout ??
       this._config.defaultTimeouts[taskType] ??
       DEFAULT_TIMEOUTS[taskType] ??
       300_000
+    const timeoutMultiplier = adapter.getCapabilities().timeoutMultiplier ?? 1.0
+    const timeoutMs = Math.round(baseTimeoutMs * timeoutMultiplier)
 
     // Spawn the process
     const env: Record<string, string> = { ...process.env as Record<string, string> }

@@ -324,6 +324,8 @@ export interface IAdapterOptions {
  */
 export interface ICliAdapter {
   buildCommand(prompt: string, options: IAdapterOptions): ISpawnCommand
+  /** Return adapter capabilities including optional timeoutMultiplier. */
+  getCapabilities(): { timeoutMultiplier?: number; [key: string]: unknown }
 }
 
 /**
