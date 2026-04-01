@@ -118,10 +118,10 @@ describe('CodexCLIAdapter', () => {
       expect(cmd.binary).toBe('codex')
     })
 
-    it('includes exec and --json flags', () => {
+    it('includes exec flag without --json (raw text output)', () => {
       const cmd = adapter.buildCommand('Fix the tests', defaultOptions)
       expect(cmd.args).toContain('exec')
-      expect(cmd.args).toContain('--json')
+      expect(cmd.args).not.toContain('--json')
     })
 
     it('passes prompt via stdin (not args)', () => {
@@ -202,26 +202,11 @@ describe('CodexCLIAdapter', () => {
   // parseOutput
   // -------------------------------------------------------------------------
   describe('parseOutput', () => {
-    it('parses successful Codex JSON output', () => {
-      const json = JSON.stringify({
-        status: 'success',
-        output: 'Fixed the auth tests',
-      })
-      const result = adapter.parseOutput(json, '', 0)
+    it('returns raw stdout as output on success (raw text mode)', () => {
+      const raw = 'I fixed the auth tests.\n\n```yaml\nresult: success\nac_met:\n  - AC1\n```'
+      const result = adapter.parseOutput(raw, '', 0)
       expect(result.success).toBe(true)
-      expect(result.output).toBe('Fixed the auth tests')
-    })
-
-    it('parses "completed" status as success', () => {
-      const json = JSON.stringify({ status: 'completed', output: 'Done' })
-      const result = adapter.parseOutput(json, '', 0)
-      expect(result.success).toBe(true)
-    })
-
-    it('parses result field as output when output missing', () => {
-      const json = JSON.stringify({ status: 'success', result: 'All fixed' })
-      const result = adapter.parseOutput(json, '', 0)
-      expect(result.output).toBe('All fixed')
+      expect(result.output).toBe(raw)
     })
 
     it('returns failure on non-zero exit code', () => {
@@ -230,30 +215,16 @@ describe('CodexCLIAdapter', () => {
       expect(result.exitCode).toBe(1)
     })
 
-    it('returns failure when JSON has error field', () => {
-      const json = JSON.stringify({ status: 'error', error: 'Rate limit', output: '' })
-      const result = adapter.parseOutput(json, '', 0)
+    it('includes stderr in error on non-zero exit', () => {
+      const result = adapter.parseOutput('', 'Rate limit exceeded', 1)
       expect(result.success).toBe(false)
-      expect(result.error).toBe('Rate limit')
+      expect(result.error).toBe('Rate limit exceeded')
     })
 
-    it('falls back to raw stdout for non-JSON output', () => {
-      const raw = 'plain text output'
-      const result = adapter.parseOutput(raw, '', 0)
+    it('returns success for empty stdout', () => {
+      const result = adapter.parseOutput('', '', 0)
       expect(result.success).toBe(true)
-      expect(result.output).toBe(raw)
-    })
-
-    it('parses token metadata from tokens field', () => {
-      const json = JSON.stringify({
-        status: 'success',
-        output: 'Done',
-        tokens: { input: 200, output: 100, total: 300 },
-      })
-      const result = adapter.parseOutput(json, '', 0)
-      expect(result.metadata?.tokensUsed?.input).toBe(200)
-      expect(result.metadata?.tokensUsed?.output).toBe(100)
-      expect(result.metadata?.tokensUsed?.total).toBe(300)
+      expect(result.output).toBe('')
     })
   })
 

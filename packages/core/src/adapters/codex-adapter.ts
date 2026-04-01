@@ -116,10 +116,14 @@ export class CodexCLIAdapter implements WorkerAdapter {
 
   /**
    * Build spawn command for a coding task.
-   * Uses: `codex exec --json` with prompt delivered via stdin.
+   * Uses: `codex exec` with prompt delivered via stdin.
+   *
+   * Do NOT use --json: it produces a JSONL event stream that prevents
+   * extractYamlBlock from finding the structured result block in stdout.
+   * Raw text output is required (same rationale as Claude adapter).
    */
   buildCommand(prompt: string, options: AdapterOptions): SpawnCommand {
-    const args = ['exec', '--json']
+    const args = ['exec']
 
     if (options.additionalFlags && options.additionalFlags.length > 0) {
       args.push(...options.additionalFlags)
@@ -173,7 +177,10 @@ export class CodexCLIAdapter implements WorkerAdapter {
   }
 
   /**
-   * Parse Codex CLI JSON output into a TaskResult.
+   * Parse Codex CLI output into a TaskResult.
+   *
+   * With raw text mode (no --json), stdout is the agent's direct output.
+   * YAML extraction happens in the dispatcher's extractYamlBlock, not here.
    */
   parseOutput(stdout: string, stderr: string, exitCode: number): TaskResult {
     if (exitCode !== 0) {
@@ -185,49 +192,10 @@ export class CodexCLIAdapter implements WorkerAdapter {
       }
     }
 
-    // Guard against empty stdout — treat as non-JSON fallback
-    if (stdout.trim() === '') {
-      return {
-        success: true,
-        output: '',
-        exitCode,
-      }
-    }
-
-    try {
-      const parsed = JSON.parse(stdout.trim()) as CodexJsonOutput
-      const success =
-        parsed.status === 'success' ||
-        parsed.status === 'completed' ||
-        (parsed.status === undefined && !parsed.error)
-
-      const inputTokens = parsed.tokens?.input ?? 0
-      const outputTokens = parsed.tokens?.output ?? 0
-      const totalTokens = parsed.tokens?.total ?? inputTokens + outputTokens
-
-      const hasTokens = inputTokens > 0 || outputTokens > 0
-      const tokensUsed = hasTokens
-        ? { input: inputTokens, output: outputTokens, total: totalTokens }
-        : undefined
-
-      const executionTime = parsed.executionTime
-
-      return {
-        success: success && !parsed.error,
-        output: parsed.output ?? parsed.result ?? stdout,
-        ...(parsed.error ? { error: parsed.error } : {}),
-        exitCode,
-        metadata: {
-          ...(executionTime !== undefined ? { executionTime } : {}),
-          ...(tokensUsed !== undefined ? { tokensUsed } : {}),
-        },
-      }
-    } catch {
-      return {
-        success: true,
-        output: stdout,
-        exitCode,
-      }
+    return {
+      success: true,
+      output: stdout,
+      exitCode,
     }
   }
 

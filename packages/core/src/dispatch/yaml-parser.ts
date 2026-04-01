@@ -53,7 +53,15 @@ export function extractYamlBlock(output: string): string | null {
   // First, strip any trailing markdown fence that may be wrapping the YAML
   // (LLMs frequently emit ```yaml\n...\n``` even when told not to).
   const stripped = stripTrailingFence(output)
-  return extractUnfencedYaml(stripped)
+  const unfenced = extractUnfencedYaml(stripped)
+  if (unfenced !== null) {
+    return unfenced
+  }
+
+  // Fall back to JSON extraction — some backends (e.g., Codex with --json)
+  // emit structured JSON objects instead of YAML. Try to find a JSON object
+  // containing anchor keys and convert it to YAML for downstream parsing.
+  return extractJsonAsYaml(output)
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +144,47 @@ function extractUnfencedYaml(output: string): string | null {
 
   const yamlText = yamlLines.join('\n').trim()
   return yamlText !== '' ? yamlText : null
+}
+
+/**
+ * Try to extract a JSON object from the output and convert it to YAML.
+ *
+ * Scans for JSON objects (delimited by { ... }) that contain at least one
+ * anchor key. Tries the last such object. Converts via yaml.dump so
+ * downstream parseYamlResult can validate it with the same Zod schema.
+ */
+function extractJsonAsYaml(output: string): string | null {
+  // Find all top-level JSON object candidates (greedy { ... } blocks)
+  const jsonPattern = /\{[\s\S]*?\n\}/g
+  let lastJsonObj: Record<string, unknown> | null = null
+  let match: RegExpExecArray | null
+
+  while ((match = jsonPattern.exec(output)) !== null) {
+    const candidate = match[0]
+    // Quick check: must contain at least one anchor key
+    if (!YAML_ANCHOR_KEYS.some((key) => candidate.includes(key.replace(':', '')))) {
+      continue
+    }
+    try {
+      const parsed = JSON.parse(candidate)
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        lastJsonObj = parsed as Record<string, unknown>
+      }
+    } catch {
+      // Not valid JSON, skip
+    }
+  }
+
+  if (lastJsonObj === null) {
+    return null
+  }
+
+  // Convert to YAML string for parseYamlResult
+  try {
+    return yaml.dump(lastJsonObj, { lineWidth: -1 })
+  } catch {
+    return null
+  }
 }
 
 /**
