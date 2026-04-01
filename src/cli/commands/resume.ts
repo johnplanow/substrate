@@ -229,6 +229,7 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
       projectRoot,
       registry,
       stories: options.stories ?? scopedStories,
+      agentId,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -270,6 +271,8 @@ export interface FullPipelineFromPhaseOptions {
   stories?: string[]
   /** Maximum number of review cycles per story (default: 2) */
   maxReviewCycles?: number
+  /** Agent backend for dispatches: 'claude-code' (default), 'codex', or 'gemini' */
+  agentId?: string
 }
 
 export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): Promise<number> {
@@ -289,6 +292,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     registry: injectedRegistry,
     stories: explicitStories,
     maxReviewCycles = 2,
+    agentId,
   } = options
 
   if (!existsSync(dbDir)) {
@@ -321,7 +325,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
       throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
     const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
-    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher }
+    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher, agentId }
 
     const phaseOrchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
