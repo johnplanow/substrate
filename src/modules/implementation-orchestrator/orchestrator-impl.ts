@@ -531,7 +531,7 @@ export function checkProfileStaleness(projectRoot: string): string[] {
 export function createImplementationOrchestrator(
   deps: OrchestratorDeps,
 ): ImplementationOrchestrator {
-  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer, repoMapInjector, maxRepoMapTokens } = deps
+  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer, repoMapInjector, maxRepoMapTokens, agentId } = deps
 
   const logger = createLogger('implementation-orchestrator')
 
@@ -1249,7 +1249,7 @@ export function createImplementationOrchestrator(
     try {
       incrementDispatches(storyKey)
       const createResult = await runCreateStory(
-        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
+        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
         { epicId: storyKey.split('-')[0] ?? storyKey, storyKey, pipelineRunId: config.pipelineRunId },
       )
 
@@ -1461,7 +1461,7 @@ export function createImplementationOrchestrator(
     let testPlanTokenUsage: { input: number; output: number } | undefined
     try {
       const testPlanResult = await runTestPlan(
-        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
+        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
         { storyKey, storyFilePath: storyFilePath ?? '', pipelineRunId: config.pipelineRunId ?? '' },
       )
       testPlanPhaseResult = testPlanResult.result
@@ -1586,7 +1586,7 @@ export function createImplementationOrchestrator(
           let batchResult
           try {
             batchResult = await runDevStory(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens,
+              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
                 ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}),
                 ...(storyOptions?.optimizationDirectives !== undefined ? { optimizationDirectives: storyOptions.optimizationDirectives } : {}) },
               {
@@ -1680,7 +1680,7 @@ export function createImplementationOrchestrator(
         // AC7: Small/medium story — single dispatch (existing behavior)
         incrementDispatches(storyKey)
         const devResult = await runDevStory(
-          { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens,
+          { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
             ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}),
             ...(storyOptions?.optimizationDirectives !== undefined ? { optimizationDirectives: storyOptions.optimizationDirectives } : {}) },
           {
@@ -2369,7 +2369,7 @@ export function createImplementationOrchestrator(
             )
             incrementDispatches(storyKey)
             const batchReview = await runCodeReview(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens,
+              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
                 ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}) },
               {
                 storyKey,
@@ -2414,7 +2414,7 @@ export function createImplementationOrchestrator(
           // Single review (small story or re-review after fix)
           incrementDispatches(storyKey)
           reviewResult = await runCodeReview(
-            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens,
+            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
               ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}) },
             {
               storyKey,
@@ -2681,7 +2681,7 @@ export function createImplementationOrchestrator(
         // Post-SHIP_IT/LGTM_WITH_NOTES: run test expansion analysis (non-blocking — never alters verdict/state)
         try {
           const expansionResult = await runTestExpansion(
-            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint },
+            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
             {
               storyKey,
               storyFilePath: storyFilePath ?? '',
