@@ -48,13 +48,24 @@ export async function getProjectFindings(db: DatabaseAdapter): Promise<string> {
       }
     }
 
-    // Summarize escalation diagnoses
+    // Summarize escalation diagnoses with specific issue details when available.
+    // The full issue list was added in v0.19.15 so retry prompts can target exact gaps.
     if (diagnoses.length > 0) {
       sections.push('**Prior escalations:**')
       for (const d of diagnoses.slice(-3)) {
         try {
           const val = JSON.parse(d.value)
-          sections.push(`- ${(d.key ?? '').split(':')[0]}: ${val.recommendedAction} — ${val.rationale}`)
+          const storyId = (d.key ?? '').split(':')[0]
+          sections.push(`- ${storyId}: ${val.recommendedAction} — ${val.rationale}`)
+          // Include specific issues if persisted (v0.19.15+)
+          if (Array.isArray(val.issues) && val.issues.length > 0) {
+            for (const issue of val.issues.slice(0, 5)) {
+              const sev = issue.severity ? `[${issue.severity}]` : ''
+              const file = issue.file ? ` (${issue.file})` : ''
+              const desc = issue.description ?? 'no description'
+              sections.push(`  - ${sev} ${desc}${file}`)
+            }
+          }
         } catch {
           sections.push(`- ${d.key ?? 'unknown'}: escalated`)
         }

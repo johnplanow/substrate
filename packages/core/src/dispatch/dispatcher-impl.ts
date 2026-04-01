@@ -44,17 +44,84 @@ const CHARS_PER_TOKEN = 4
 // YAML output format reminder appended to prompts for non-Claude agents.
 // Claude Code follows the methodology pack's embedded YAML instructions reliably;
 // other agents (Codex, Gemini) sometimes need an explicit final reminder.
-const YAML_OUTPUT_SUFFIX = `
+// When an outputSchema is provided, the suffix includes actual field names
+// so the agent knows exactly what to emit.
+
+/**
+ * Extract top-level field names from a Zod schema for prompt injection.
+ * Returns field names with type hints (e.g., "result: <string>", "files_modified: <list>").
+ */
+function extractSchemaFields(schema: unknown): string[] {
+  // Zod object schemas have a .shape property with field definitions.
+  // Navigate through .innerType() for transformed/preprocessed schemas.
+  let current = schema as Record<string, unknown>
+
+  // Unwrap ZodEffects (transform/preprocess/refine)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let def = (current as any)?._def
+  while (def?.typeName === 'ZodEffects' && def?.schema != null) {
+    current = def.schema as Record<string, unknown>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    def = (current as any)?._def
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const shape = (current as any)?.shape
+  if (shape == null || typeof shape !== 'object') return []
+
+  const fields: string[] = []
+  for (const [key, fieldDef] of Object.entries(shape)) {
+    const typeName = resolveZodTypeName(fieldDef)
+    fields.push(`${key}: ${typeName}`)
+  }
+  return fields
+}
+
+/**
+ * Resolve a human-readable type hint from a Zod field definition.
+ */
+function resolveZodTypeName(fieldDef: unknown): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d = fieldDef as any
+  const typeName = d?._def?.typeName as string | undefined
+
+  // Unwrap wrappers: optional, default, preprocess
+  if (typeName === 'ZodOptional' || typeName === 'ZodDefault') {
+    return d._def?.innerType != null ? resolveZodTypeName(d._def.innerType) : '<value>'
+  }
+  if (typeName === 'ZodEffects') {
+    return d._def?.schema != null ? resolveZodTypeName(d._def.schema) : '<value>'
+  }
+
+  if (typeName === 'ZodString') return '<string>'
+  if (typeName === 'ZodNumber') return '<number>'
+  if (typeName === 'ZodBoolean') return '<boolean>'
+  if (typeName === 'ZodEnum') {
+    const values = d._def?.values as string[] | undefined
+    return values != null ? values.join(' | ') : '<enum>'
+  }
+  if (typeName === 'ZodArray') return '<list>'
+  if (typeName === 'ZodObject') return '<object>'
+  return '<value>'
+}
+
+function buildYamlOutputSuffix(outputSchema?: unknown): string {
+  const fields = outputSchema != null ? extractSchemaFields(outputSchema) : []
+  const fieldLines = fields.length > 0
+    ? fields.map((f) => `  ${f}`).join('\n')
+    : '  result: success\n  # ... additional fields as specified in the task above'
+
+  return `
 
 ---
 IMPORTANT: When you have completed the task, output your structured result as a fenced YAML block at the END of your response. Use this exact format:
 
 \`\`\`yaml
-result: success
-# ... additional fields as specified in the task above
+${fieldLines}
 \`\`\`
 
 The YAML block MUST be the last thing in your output. Do not add any text after the closing fence.`
+}
 
 // Minimum free system memory (bytes) required before spawning a new agent.
 // When free memory is below this threshold, dispatches are held in the queue
@@ -484,9 +551,10 @@ export class DispatcherImpl implements Dispatcher {
     // For non-Claude agents, append a YAML output format reminder to the prompt.
     // Claude Code gets format instructions via --system-prompt; other agents may
     // not follow the embedded YAML instructions as reliably without a final nudge.
+    // The suffix includes actual field names from the output schema when available.
     const effectivePrompt = agent === 'claude-code'
       ? prompt
-      : prompt + YAML_OUTPUT_SUFFIX
+      : prompt + buildYamlOutputSuffix(outputSchema)
 
     const cmd = adapter.buildCommand(effectivePrompt, {
       worktreePath,

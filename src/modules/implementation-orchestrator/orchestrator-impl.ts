@@ -799,12 +799,22 @@ export function createImplementationOrchestrator(
     // Persist diagnosis to decision store (Story 22-3, AC3)
     if (config.pipelineRunId !== undefined) {
       try {
+        // Persist diagnosis with full issue list so retry-escalated can inject
+        // specific findings into the retry prompt (not just summary counts).
+        const diagnosisWithIssues = {
+          ...diagnosis,
+          issues: payload.issues.slice(0, 10).map((issue) => {
+            if (typeof issue === 'string') return { description: issue }
+            const iss = issue as { severity?: string; description?: string; file?: string }
+            return { severity: iss.severity, description: iss.description, file: iss.file }
+          }),
+        }
         await createDecision(db, {
           pipeline_run_id: config.pipelineRunId,
           phase: 'implementation',
           category: ESCALATION_DIAGNOSIS,
           key: `${payload.storyKey}:${config.pipelineRunId}`,
-          value: JSON.stringify(diagnosis),
+          value: JSON.stringify(diagnosisWithIssues),
           rationale: `Escalation diagnosis for ${payload.storyKey}: ${diagnosis.recommendedAction} — ${diagnosis.rationale}`,
         })
       } catch (err) {
