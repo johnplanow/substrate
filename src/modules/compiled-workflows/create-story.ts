@@ -83,6 +83,23 @@ export async function runCreateStory(
   // Step 3: Query previous story dev notes (reuse cached decisions)
   const prevDevNotesContent = getPrevDevNotes(implementationDecisions, epicId)
 
+  // Step 3b: Query the specific story definition from solutioning decisions
+  // This provides the authoritative title, description, and ACs so the
+  // create-story agent doesn't re-interpret the story scope from the epic shard.
+  let storyDefinitionContent = ''
+  try {
+    const storyDecisions = await getDecisionsByPhase(deps.db, 'solutioning')
+    const storyDef = storyDecisions.find(
+      (d: Decision) => d.category === 'stories' && d.key === storyKey,
+    )
+    if (storyDef) {
+      storyDefinitionContent = storyDef.value
+      logger.debug({ storyKey }, 'Injected story definition from solutioning decisions')
+    }
+  } catch {
+    // Best-effort — create-story can still work from epic shard alone
+  }
+
   // Step 4: Query architecture constraints
   const archConstraintsContent = await getArchConstraints(deps)
 
@@ -101,6 +118,11 @@ export async function runCreateStory(
       {
         name: 'epic_shard',
         content: epicShardContent,
+        priority: 'required',
+      },
+      {
+        name: 'story_definition',
+        content: storyDefinitionContent,
         priority: 'required',
       },
       {

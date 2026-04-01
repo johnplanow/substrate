@@ -88,7 +88,21 @@ For EVERY story with dependencies on other stories:
 3. Flag invalid references as **blocker** findings
 4. Flag potentially circular dependencies as **major** findings
 
-### Step 7: Final Verdict
+### Step 7: Cross-Epic Story Duplication Check
+
+For EVERY pair of stories from DIFFERENT epics:
+1. Do they implement the same core functionality? (e.g., both create a MatchRunner, both build a tournament CLI, both implement a logging module)
+2. Do they have overlapping acceptance criteria? (same testable condition appears in both)
+3. Does a later epic's story RE-IMPLEMENT what an earlier epic's story already built, rather than extending or depending on it?
+4. Flag duplicate stories as **major** findings with both story keys in affected_items
+5. Flag near-duplicates (>50% AC overlap) as **major** findings
+
+Common duplication patterns:
+- Infrastructure stories (logging, CLI, config) appearing in multiple epics
+- Runner/harness classes duplicated across epics
+- The same data model or service being created by stories in different epics
+
+### Step 8: Final Verdict
 
 Determine your verdict:
 - **NOT_READY**: Any of these conditions are true:
@@ -130,7 +144,7 @@ findings:
 ```
 
 Valid verdict values: READY, NEEDS_WORK, NOT_READY
-Valid category values: fr_coverage, architecture_compliance, story_quality, constraint_adherence, ux_alignment, dependency_validity
+Valid category values: fr_coverage, architecture_compliance, story_quality, constraint_adherence, ux_alignment, dependency_validity, story_duplication
 Valid severity values: blocker, major, minor
 
 If you cannot perform the review:

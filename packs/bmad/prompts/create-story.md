@@ -16,13 +16,22 @@
 
 ---
 
+### Story Definition (from Solutioning Phase)
+{{story_definition}}
+
+---
+
 ## Mission
 
 Using the context above, write a complete, implementation-ready story file for story **{{story_key}}**.
 
+**CRITICAL**: The Story Definition above is the authoritative specification for this story's scope.
+Use the title, description, and acceptance criteria from the Story Definition — do NOT substitute
+a different story from the epic scope. The story key, title, and core scope are non-negotiable.
+
 ## Instructions
 
-1. **Parse the epic scope** to understand what this epic is building and where this story fits
+1. **Use the Story Definition as your primary input** — it specifies exactly what this story builds. The epic scope provides surrounding context only.
 2. **Apply architecture constraints** — every constraint listed above is mandatory (file paths, import style, test framework, etc.)
 3. **Use previous dev notes** as guardrails — don't repeat mistakes, build on patterns that worked
 4. **Fill out the story template** with:

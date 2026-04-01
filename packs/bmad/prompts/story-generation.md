@@ -42,12 +42,19 @@ Break down the requirements and architecture above into **epics and stories** â€
    - If architecture specifies a project structure, Epic 1 Story 1 should be project scaffolding
    - Database tables, API endpoints, and infrastructure are created in the epic where they are FIRST NEEDED
 
-5. **Size stories appropriately:**
+5. **Eliminate cross-epic duplication (CRITICAL):**
+   - Before finalizing, compare EVERY story against stories in OTHER epics
+   - If two stories from different epics implement the same core functionality (e.g., both create a MatchRunner, both build a tournament CLI), consolidate into ONE story in the earliest epic that needs it
+   - The later epic should DEPEND ON the earlier epic's story, not re-implement it
+   - Common duplication patterns to watch for: logging infrastructure, CLI subcommands, runner/harness classes, configuration modules
+   - A story that "extends" functionality from an earlier epic is OK; a story that "re-implements" the same functionality is NOT
+
+6. **Size stories appropriately:**
    - Each story should be completable by one developer in 1-3 days
    - If a story feels too large, split it into multiple stories within the same epic
    - If an epic has more than 8 stories, consider splitting the epic
 
-6. **Amendment awareness**: If amendment context from a parent run is provided below, generate stories for the NEW scope introduced by the amendment. Do not regenerate stories for unchanged requirements.
+7. **Amendment awareness**: If amendment context from a parent run is provided below, generate stories for the NEW scope introduced by the amendment. Do not regenerate stories for unchanged requirements.
 
 ## Output Contract
 
