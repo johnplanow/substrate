@@ -39,6 +39,15 @@ export type {
   InterfaceChangeResult,
 } from "./interface-change-detector.js"
 
+// Output quality estimation
+export {
+  estimateOutputQuality,
+} from "./output-quality.js"
+
+export type {
+  OutputQualitySignals,
+} from "./output-quality.js"
+
 // Implementation exports
 export {
   DispatcherImpl,

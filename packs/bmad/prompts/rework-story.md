@@ -14,6 +14,9 @@
 ### Previous Implementation Diff
 {{git_diff}}
 
+### Prior Pipeline Findings
+{{prior_findings}}
+
 ---
 
 ## Mission

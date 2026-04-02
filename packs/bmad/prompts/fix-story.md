@@ -14,6 +14,9 @@
 ### Targeted Files
 {{targeted_files}}
 
+### Prior Pipeline Findings
+{{prior_findings}}
+
 ---
 
 ## Mission

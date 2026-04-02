@@ -22,6 +22,7 @@ import type { Decision } from '../../persistence/queries/decisions.js'
 import { writeStoryMetrics, aggregateTokenUsageForStory } from '../../persistence/queries/metrics.js'
 import { STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME, TEST_EXPANSION_FINDING, ADVISORY_NOTES } from '../../persistence/schemas/operational.js'
 import { generateEscalationDiagnosis } from './escalation-diagnosis.js'
+import { getProjectFindings } from './project-findings.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { DevStoryResultSchema } from '../compiled-workflows/schemas.js'
 import { runCreateStory, isValidStoryFile, extractStorySection } from '../compiled-workflows/create-story.js'
@@ -2967,6 +2968,16 @@ export function createImplementationOrchestrator(
             }
           } catch { /* graceful degradation — fall back to empty diff */ }
 
+          // Query prior pipeline findings (escalation issues, recurring patterns)
+          // for context injection into fix/rework prompts (Tier 3 item #7)
+          let priorFindingsContent = ''
+          try {
+            const findings = await getProjectFindings(db)
+            if (findings !== '') {
+              priorFindingsContent = 'Prior pipeline findings — avoid repeating these patterns:\n\n' + findings
+            }
+          } catch { /* graceful fallback */ }
+
           // Build sections based on template type
           const sections = isMajorRework
             ? [
@@ -2974,6 +2985,7 @@ export function createImplementationOrchestrator(
                 { name: 'review_findings', content: reviewFeedback, priority: 'required' as const },
                 { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
                 { name: 'git_diff', content: gitDiffContent, priority: 'optional' as const },
+                { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' as const },
               ]
             : (() => {
                 const targetedFilesContent = buildTargetedFilesContent(issueList)
@@ -2982,6 +2994,7 @@ export function createImplementationOrchestrator(
                   { name: 'review_feedback', content: reviewFeedback, priority: 'required' as const },
                   { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
                   ...(targetedFilesContent ? [{ name: 'targeted_files', content: targetedFilesContent, priority: 'important' as const }] : []),
+                  { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' as const },
                 ]
               })()
           const assembled = assemblePrompt(fixTemplate, sections, 24000)

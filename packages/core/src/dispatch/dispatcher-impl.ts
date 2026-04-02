@@ -31,6 +31,7 @@ import type {
 } from './types.js'
 import { DispatcherShuttingDownError, DEFAULT_TIMEOUTS, DEFAULT_MAX_TURNS } from './types.js'
 import { extractYamlBlock, parseYamlResult } from './yaml-parser.js'
+import { estimateOutputQuality } from './output-quality.js'
 
 // Grace period (ms) between SIGTERM and SIGKILL during shutdown()
 const SHUTDOWN_GRACE_MS = 10_000
@@ -751,15 +752,25 @@ export class DispatcherImpl implements Dispatcher {
           parseError = 'no_yaml_block'
         }
 
+        // Estimate output quality for observability (especially non-Claude backends)
+        const quality = estimateOutputQuality(stdout)
+        if (quality.hedgingCount > 0 || quality.qualityScore < 40) {
+          this._logger.warn(
+            { id, agent, taskType, qualityScore: quality.qualityScore, hedging: quality.hedgingPhrases },
+            'Low output quality detected',
+          )
+        }
+
         this._eventBus.emit('agent:completed' as never, {
           dispatchId: id,
           exitCode: code,
           output: stdout,
           inputTokens,
           outputTokens: Math.ceil(stdout.length / CHARS_PER_TOKEN),
+          qualityScore: quality.qualityScore,
         } as never)
 
-        this._logger.debug({ id, agent, taskType, durationMs }, 'Agent completed')
+        this._logger.debug({ id, agent, taskType, durationMs, qualityScore: quality.qualityScore }, 'Agent completed')
 
         resolve({
           id,
