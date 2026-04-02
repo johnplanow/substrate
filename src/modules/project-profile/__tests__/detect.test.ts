@@ -89,7 +89,7 @@ describe('detectSingleProjectStack', () => {
     expect(result.language).toBe('python')
     expect(result.buildTool).toBe('poetry')
     expect(result.buildCommand).toBe('poetry build')
-    expect(result.testCommand).toBe('pytest')
+    expect(result.testCommand).toBe('poetry run pytest')
   })
 
   it('detects Python project with pip from pyproject.toml (no poetry.lock)', async () => {

@@ -291,10 +291,13 @@ export function runBuildVerification(options: {
   const timeoutMs = verifyTimeoutMs ?? DEFAULT_VERIFY_TIMEOUT_MS
 
   try {
+    // Use bash (not /bin/sh which may be dash) so user-provided commands
+    // containing bashisms like `source .venv/bin/activate` work correctly.
     const stdout = execSync(cmd, {
       cwd: projectRoot,
       timeout: timeoutMs,
       encoding: 'utf-8',
+      shell: process.env.SHELL || '/bin/bash',
     })
 
     return {
@@ -353,6 +356,21 @@ export function runBuildVerification(options: {
           exitCode,
           output: combinedOutput,
           reason: 'build-script-not-found',
+        }
+      }
+
+      // PEP 668 detection: modern Linux distros block system-level pip install
+      // with "externally-managed-environment". If the package is a Python project
+      // and pip fails with PEP 668, skip rather than abort — the package may
+      // already be installed and functional. Users should create a venv.
+      const pep668Pattern = /externally-managed-environment|This environment is externally managed/i
+      if (pep668Pattern.test(combinedOutput)) {
+        logger.warn('PEP 668: pip blocked by externally-managed-environment — skipping pre-flight. Create a .venv to resolve.')
+        return {
+          status: 'skipped',
+          exitCode,
+          output: combinedOutput,
+          reason: 'pep-668-externally-managed',
         }
       }
 

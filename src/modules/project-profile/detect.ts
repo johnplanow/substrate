@@ -157,16 +157,34 @@ export async function detectSingleProjectStack(dir: string): Promise<PackageEntr
       }
     }
 
-    // pyproject.toml: detect poetry vs pip from poetry.lock presence
+    // pyproject.toml: detect poetry vs pip from poetry.lock presence.
+    // For pip projects, auto-detect .venv and prepend activation to avoid
+    // PEP 668 "externally-managed-environment" errors on modern distros.
     if (marker.file === 'pyproject.toml') {
       const hasPoetry = await fileExists(path.join(dir, 'poetry.lock'))
+      if (hasPoetry) {
+        return {
+          path: dir,
+          language: 'python',
+          buildTool: 'poetry',
+          buildCommand: 'poetry build',
+          testCommand: 'poetry run pytest',
+          installCommand: 'poetry add <package>',
+        }
+      }
+      // Pip project: check for .venv and build activation-aware commands.
+      // PEP 668 on modern distros blocks system-level pip install; using
+      // a venv avoids this. The `source` command requires bash (not sh/dash),
+      // which is handled by the shell: '/bin/bash' option in execSync.
+      const hasVenv = await fileExists(path.join(dir, '.venv', 'bin', 'activate'))
+      const venvPrefix = hasVenv ? 'source .venv/bin/activate && ' : ''
       return {
         path: dir,
         language: 'python',
-        buildTool: hasPoetry ? 'poetry' : 'pip',
-        buildCommand: hasPoetry ? 'poetry build' : 'pip install -e .',
-        testCommand: 'pytest',
-        installCommand: hasPoetry ? 'poetry add <package>' : 'pip install <package>',
+        buildTool: 'pip',
+        buildCommand: `${venvPrefix}pip install -e .`,
+        testCommand: `${venvPrefix}pytest`,
+        installCommand: `${venvPrefix}pip install <package>`,
       }
     }
 
