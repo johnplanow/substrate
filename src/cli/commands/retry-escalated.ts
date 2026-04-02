@@ -31,6 +31,8 @@ import { getRetryableEscalations } from '../../persistence/queries/retry-escalat
 import { createLogger } from '../../utils/logger.js'
 import { type OutputFormat, formatOutput } from './pipeline-shared.js'
 import { createTelemetryAdvisor } from '../../modules/telemetry/telemetry-advisor.js'
+import { createEventEmitter } from '../../modules/implementation-orchestrator/event-emitter.js'
+import type { PipelinePhase } from '../../modules/implementation-orchestrator/event-types.js'
 
 const logger = createLogger('retry-escalated-cmd')
 
@@ -51,6 +53,8 @@ export interface RetryEscalatedOptions {
   registry?: AdapterRegistry
   /** Agent backend for dispatches: 'claude-code' (default), 'codex', or 'gemini' */
   agent?: string
+  /** When true, emit structured NDJSON events on stdout */
+  events?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -58,7 +62,7 @@ export interface RetryEscalatedOptions {
 // ---------------------------------------------------------------------------
 
 export async function runRetryEscalatedAction(options: RetryEscalatedOptions): Promise<number> {
-  const { runId, dryRun, force, outputFormat, projectRoot, concurrency, pack: packName, registry: injectedRegistry, agent: agentId } = options
+  const { runId, dryRun, force, outputFormat, projectRoot, concurrency, pack: packName, registry: injectedRegistry, agent: agentId, events: eventsFlag } = options
 
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
@@ -205,6 +209,64 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
       agentId,
     })
 
+    // Wire NDJSON event emitter when --events is set
+    const ndjsonEmitter = eventsFlag === true ? createEventEmitter() : undefined
+
+    if (ndjsonEmitter !== undefined) {
+      // pipeline:start
+      ndjsonEmitter.emit({
+        type: 'pipeline:start',
+        ts: new Date().toISOString(),
+        run_id: pipelineRun.id,
+        stories: retryable,
+        concurrency,
+      })
+
+      // Map internal phase names to event protocol names
+      const mapPhase = (p: string): PipelinePhase | null => {
+        switch (p) {
+          case 'IN_STORY_CREATION': return 'create-story'
+          case 'IN_DEV': return 'dev-story'
+          case 'IN_REVIEW': return 'code-review'
+          case 'IN_MINOR_FIX': case 'IN_MAJOR_FIX': return 'fix'
+          default: return null
+        }
+      }
+
+      eventBus.on('orchestrator:story-phase-start', (payload) => {
+        const phase = mapPhase(payload.phase)
+        if (phase !== null) {
+          ndjsonEmitter.emit({ type: 'story:phase', ts: new Date().toISOString(), key: payload.storyKey, phase, status: 'in_progress' })
+        }
+      })
+
+      eventBus.on('orchestrator:story-phase-complete', (payload) => {
+        const phase = mapPhase(payload.phase)
+        if (phase !== null) {
+          const result = payload.result as { verdict?: string; story_file?: string }
+          ndjsonEmitter.emit({
+            type: 'story:phase', ts: new Date().toISOString(), key: payload.storyKey, phase, status: 'complete',
+            ...(phase === 'code-review' && result?.verdict !== undefined ? { verdict: result.verdict } : {}),
+          })
+        }
+      })
+
+      eventBus.on('orchestrator:story-complete', (payload) => {
+        ndjsonEmitter.emit({ type: 'story:done', ts: new Date().toISOString(), key: payload.storyKey, result: 'success', review_cycles: payload.reviewCycles })
+      })
+
+      eventBus.on('orchestrator:story-escalated', (payload) => {
+        ndjsonEmitter.emit({
+          type: 'story:escalation', ts: new Date().toISOString(), key: payload.storyKey,
+          reason: payload.lastVerdict, cycles: payload.reviewCycles,
+          issues: (payload.issues as Array<{ severity?: string; description?: string; file?: string }>).map((i) => ({
+            severity: i.severity ?? 'unknown', file: i.file ?? '', desc: i.description ?? '',
+          })),
+          ...(payload.diagnosis !== undefined ? { diagnosis: payload.diagnosis } : {}),
+        })
+      })
+    }
+
     // Record token usage per phase
     eventBus.on('orchestrator:story-phase-complete', (payload) => {
       try {
@@ -240,6 +302,16 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     }
 
     await orchestrator.run(retryable)
+
+    if (ndjsonEmitter !== undefined) {
+      ndjsonEmitter.emit({
+        type: 'pipeline:complete',
+        ts: new Date().toISOString(),
+        succeeded: [],
+        failed: retryable,
+        escalated: [],
+      })
+    }
 
     if (outputFormat === 'json') {
       process.stdout.write(
@@ -300,6 +372,7 @@ export function registerRetryEscalatedCommand(
     .option('--project-root <path>', 'Project root directory', projectRoot)
     .option('--output-format <format>', 'Output format: human (default) or json', 'human')
     .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
+    .option('--events', 'Emit structured NDJSON events on stdout for programmatic consumption')
     .action(
       async (opts: {
         runId?: string
@@ -310,6 +383,7 @@ export function registerRetryEscalatedCommand(
         projectRoot: string
         outputFormat: string
         agent?: string
+        events?: boolean
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         const exitCode = await runRetryEscalatedAction({
@@ -321,6 +395,7 @@ export function registerRetryEscalatedCommand(
           concurrency: opts.concurrency,
           pack: opts.pack,
           agent: opts.agent,
+          events: opts.events,
           registry,
         })
         process.exitCode = exitCode
