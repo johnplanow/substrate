@@ -128,7 +128,8 @@ const logger = createLogger('run-cmd')
  * Resolve effective max review cycles by checking the adapter's default.
  * Uses Math.max so the adapter's recommendation is a floor, not an override.
  */
-function resolveMaxReviewCycles(
+/** Exported for testing. */
+export function resolveMaxReviewCycles(
   cliValue: number,
   agentId: string | undefined,
   registry: AdapterRegistry | undefined,

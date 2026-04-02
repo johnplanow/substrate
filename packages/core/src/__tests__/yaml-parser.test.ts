@@ -486,4 +486,60 @@ describe('parseYamlResult', () => {
       expect(yamlBlock).toBeNull()
     })
   })
+
+  // -----------------------------------------------------------------------
+  // JSON fallback extraction
+  // -----------------------------------------------------------------------
+
+  describe('JSON fallback extraction', () => {
+    it('extracts JSON object containing anchor key and converts to YAML', () => {
+      const output = 'Some narrative...\n{\n"result": "success",\n"files_modified": ["src/foo.ts"]\n}\nDone.'
+      const block = extractYamlBlock(output)
+      expect(block).not.toBeNull()
+      expect(block).toContain('result: success')
+    })
+
+    it('ignores JSON without anchor keys', () => {
+      const output = 'Narrative\n{\n"status": "ok",\n"count": 42\n}\nEnd.'
+      const block = extractYamlBlock(output)
+      expect(block).toBeNull()
+    })
+
+    it('takes the last JSON object when multiple are present', () => {
+      const output = [
+        '{\n"result": "failed",\n"error": "first attempt"\n}',
+        'Retrying...',
+        '{\n"result": "success",\n"ac_met": ["AC1"]\n}',
+      ].join('\n')
+      const block = extractYamlBlock(output)
+      expect(block).not.toBeNull()
+      expect(block).toContain('result: success')
+    })
+
+    it('handles malformed JSON gracefully', () => {
+      const output = 'Narrative\n{result: not valid json, verdict: broken\n}\nEnd.'
+      const block = extractYamlBlock(output)
+      // May or may not extract — should not throw
+      expect(() => extractYamlBlock(output)).not.toThrow()
+    })
+
+    it('prefers fenced YAML over JSON fallback', () => {
+      const output = [
+        '{\n"result": "failed"\n}',
+        '```yaml',
+        'result: success',
+        'verdict: SHIP_IT',
+        '```',
+      ].join('\n')
+      const block = extractYamlBlock(output)
+      expect(block).toContain('verdict: SHIP_IT')
+    })
+
+    it('extracts JSON with verdict anchor key', () => {
+      const output = '{\n"verdict": "SHIP_IT",\n"issues": 0,\n"issue_list": []\n}'
+      const block = extractYamlBlock(output)
+      expect(block).not.toBeNull()
+      expect(block).toContain('verdict: SHIP_IT')
+    })
+  })
 })

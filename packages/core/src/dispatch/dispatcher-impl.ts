@@ -51,17 +51,26 @@ const CHARS_PER_TOKEN = 4
 /**
  * Extract top-level field names from a Zod schema for prompt injection.
  * Returns field names with type hints (e.g., "result: <string>", "files_modified: <list>").
+ * Exported for testing.
  */
-function extractSchemaFields(schema: unknown): string[] {
+export function extractSchemaFields(schema: unknown): string[] {
   // Zod object schemas have a .shape property with field definitions.
   // Navigate through .innerType() for transformed/preprocessed schemas.
   let current = schema as Record<string, unknown>
 
-  // Unwrap ZodEffects (transform/preprocess/refine)
+  // Unwrap ZodEffects / pipe (transform/preprocess/refine)
+  // Zod 3.x: typeName === 'ZodEffects', inner at _def.schema
+  // Zod 4.x: type === 'pipe', inner at _def.in
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let def = (current as any)?._def
-  while (def?.typeName === 'ZodEffects' && def?.schema != null) {
-    current = def.schema as Record<string, unknown>
+  while (true) {
+    if (def?.typeName === 'ZodEffects' && def?.schema != null) {
+      current = def.schema as Record<string, unknown>
+    } else if (def?.type === 'pipe' && def?.in != null) {
+      current = def.in as Record<string, unknown>
+    } else {
+      break
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     def = (current as any)?._def
   }
@@ -84,29 +93,40 @@ function extractSchemaFields(schema: unknown): string[] {
 function resolveZodTypeName(fieldDef: unknown): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d = fieldDef as any
-  const typeName = d?._def?.typeName as string | undefined
+  // Support both Zod 3.x (_def.typeName) and Zod 4.x (_def.type)
+  const typeName = (d?._def?.typeName ?? d?._def?.type) as string | undefined
 
   // Unwrap wrappers: optional, default, preprocess
-  if (typeName === 'ZodOptional' || typeName === 'ZodDefault') {
+  if (typeName === 'ZodOptional' || typeName === 'optional' || typeName === 'ZodDefault' || typeName === 'default') {
     return d._def?.innerType != null ? resolveZodTypeName(d._def.innerType) : '<value>'
   }
   if (typeName === 'ZodEffects') {
     return d._def?.schema != null ? resolveZodTypeName(d._def.schema) : '<value>'
   }
-
-  if (typeName === 'ZodString') return '<string>'
-  if (typeName === 'ZodNumber') return '<number>'
-  if (typeName === 'ZodBoolean') return '<boolean>'
-  if (typeName === 'ZodEnum') {
-    const values = d._def?.values as string[] | undefined
-    return values != null ? values.join(' | ') : '<enum>'
+  if (typeName === 'transform') return '<value>'
+  if (typeName === 'pipe') {
+    // Zod 4.x pipe: _def.out is the output schema (for preprocess/transform)
+    return d._def?.out != null ? resolveZodTypeName(d._def.out) : '<value>'
   }
-  if (typeName === 'ZodArray') return '<list>'
-  if (typeName === 'ZodObject') return '<object>'
+
+  if (typeName === 'ZodString' || typeName === 'string') return '<string>'
+  if (typeName === 'ZodNumber' || typeName === 'number') return '<number>'
+  if (typeName === 'ZodBoolean' || typeName === 'boolean') return '<boolean>'
+  if (typeName === 'ZodEnum' || typeName === 'enum') {
+    // Zod 3.x: _def.values is string[]; Zod 4.x: _def.entries is Record<string, string>
+    const values = d._def?.values as string[] | undefined
+    const entries = d._def?.entries as Record<string, string> | undefined
+    if (values != null) return values.join(' | ')
+    if (entries != null) return Object.keys(entries).join(' | ')
+    return '<enum>'
+  }
+  if (typeName === 'ZodArray' || typeName === 'array') return '<list>'
+  if (typeName === 'ZodObject' || typeName === 'object') return '<object>'
   return '<value>'
 }
 
-function buildYamlOutputSuffix(outputSchema?: unknown): string {
+/** Exported for testing. */
+export function buildYamlOutputSuffix(outputSchema?: unknown): string {
   const fields = outputSchema != null ? extractSchemaFields(outputSchema) : []
   const fieldLines = fields.length > 0
     ? fields.map((f) => `  ${f}`).join('\n')
