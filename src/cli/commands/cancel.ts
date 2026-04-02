@@ -112,9 +112,9 @@ export async function runCancelAction(options: {
       await initSchema(adapter)
       const runningRuns = await getRunningPipelineRuns(adapter)
       for (const run of runningRuns) {
-        await updatePipelineRun(adapter, run.id, { status: 'cancelled' })
+        await updatePipelineRun(adapter, run.id, { status: 'stopped' })
         if (outputFormat === 'human') {
-          process.stdout.write(`Marked pipeline run ${run.id} as cancelled.\n`)
+          process.stdout.write(`Marked pipeline run ${run.id} as stopped.\n`)
         }
       }
     } finally {
