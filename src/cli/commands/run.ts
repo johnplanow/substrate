@@ -257,6 +257,20 @@ function wireNdjsonEmitter(
     })
   })
 
+  // story:auto-approved events for convergence transparency
+  eventBus.on('story:auto-approved' as never, ((payload: { storyKey: string; verdict: string; reviewCycles: number; maxReviewCycles: number; issueCount: number; reason: string }) => {
+    ndjsonEmitter.emit({
+      type: 'story:auto-approved',
+      ts: new Date().toISOString(),
+      key: payload.storyKey,
+      verdict: payload.verdict,
+      review_cycles: payload.reviewCycles,
+      max_review_cycles: payload.maxReviewCycles,
+      issue_count: payload.issueCount,
+      reason: payload.reason,
+    })
+  }) as never)
+
   // story:done events on story completion
   eventBus.on('orchestrator:story-complete', (payload) => {
     ndjsonEmitter.emit({

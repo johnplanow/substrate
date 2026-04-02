@@ -572,6 +572,7 @@ export function createImplementationOrchestrator(
   const _phaseStartMs = new Map<string, Map<string, number>>() // storyKey → phase → start ms
   const _phaseEndMs = new Map<string, Map<string, number>>()   // storyKey → phase → end ms
   const _storyDispatches = new Map<string, number>()           // storyKey → dispatch count
+  let _completedDispatches = 0                                  // total completed dispatch count (for heartbeat)
 
   // -- actual peak concurrency observed during runWithConcurrency --
   let _maxConcurrentActual = 0
@@ -620,6 +621,7 @@ export function createImplementationOrchestrator(
   function endPhase(storyKey: string, phase: string): void {
     if (!_phaseEndMs.has(storyKey)) _phaseEndMs.set(storyKey, new Map())
     _phaseEndMs.get(storyKey)!.set(phase, Date.now())
+    _completedDispatches++
   }
 
   function incrementDispatches(storyKey: string): void {
@@ -730,25 +732,55 @@ export function createImplementationOrchestrator(
         }
         // Collect git diff stats for backend-agnostic work measurement.
         // This captures actual files changed regardless of OTLP availability.
+        // Collect git diff stats for backend-agnostic work measurement.
+        // Uses checkGitDiffFiles (handles both tracked changes and untracked files)
+        // plus git diff --numstat for line-level counts.
         let diffStats: { filesChanged: number; insertions: number; deletions: number } | undefined
         try {
-          const statOutput = execSync('git diff --stat HEAD', {
-            cwd: projectRoot ?? process.cwd(),
-            encoding: 'utf-8',
-            timeout: 5000,
-            stdio: ['ignore', 'pipe', 'pipe'],
-          })
-          const summaryLine = statOutput.trim().split('\n').pop() ?? ''
-          const filesMatch = summaryLine.match(/(\d+)\s+files?\s+changed/)
-          const insMatch = summaryLine.match(/(\d+)\s+insertions?/)
-          const delMatch = summaryLine.match(/(\d+)\s+deletions?/)
-          diffStats = {
-            filesChanged: filesMatch ? parseInt(filesMatch[1], 10) : 0,
-            insertions: insMatch ? parseInt(insMatch[1], 10) : 0,
-            deletions: delMatch ? parseInt(delMatch[1], 10) : 0,
+          const cwd = projectRoot ?? process.cwd()
+          const changedFiles = checkGitDiffFiles(cwd)
+          if (changedFiles.length > 0) {
+            // Count insertions/deletions from tracked modified files
+            let insertions = 0
+            let deletions = 0
+            try {
+              const numstat = execSync('git diff --numstat HEAD', {
+                cwd,
+                encoding: 'utf-8',
+                timeout: 5000,
+                stdio: ['ignore', 'pipe', 'pipe'],
+              })
+              for (const line of numstat.trim().split('\n')) {
+                const parts = line.split('\t')
+                if (parts.length >= 2) {
+                  const ins = parseInt(parts[0], 10)
+                  const del = parseInt(parts[1], 10)
+                  if (!isNaN(ins)) insertions += ins
+                  if (!isNaN(del)) deletions += del
+                }
+              }
+            } catch { /* numstat failure is non-fatal */ }
+
+            // Count lines in untracked new files (not captured by git diff)
+            try {
+              const untracked = execSync('git ls-files --others --exclude-standard', {
+                cwd,
+                encoding: 'utf-8',
+                timeout: 5000,
+                stdio: ['ignore', 'pipe', 'pipe'],
+              })
+              for (const file of untracked.trim().split('\n').filter(Boolean)) {
+                try {
+                  const wc = execSync(`wc -l < "${file}"`, { cwd, encoding: 'utf-8', timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
+                  insertions += parseInt(wc.trim(), 10) || 0
+                } catch { /* skip individual file failures */ }
+              }
+            } catch { /* untracked listing failure is non-fatal */ }
+
+            diffStats = { filesChanged: changedFiles.length, insertions, deletions }
           }
         } catch {
-          // git not available or no changes — skip
+          // git not available — skip
         }
 
         eventBus.emit('story:metrics', {
@@ -1019,13 +1051,12 @@ export function createImplementationOrchestrator(
     _heartbeatTimer = setInterval(() => {
       if (_state !== 'RUNNING') return
       let active = 0
-      let completed = 0
       let queued = 0
       for (const s of _stories.values()) {
-        if (s.phase === 'COMPLETE' || s.phase === 'ESCALATED') completed++
-        else if (s.phase === 'PENDING') queued++
-        else active++
+        if (s.phase === 'PENDING') queued++
+        else if (s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED') active++
       }
+      const completed = _completedDispatches
 
       // Emit heartbeat unconditionally on every tick while RUNNING.
       // Previously gated by timeSinceProgress >= HEARTBEAT_INTERVAL_MS, which
@@ -2863,6 +2894,17 @@ export function createImplementationOrchestrator(
 
         // Auto-approve: mark COMPLETE regardless of fix outcome (issues were minor)
         endPhase(storyKey, 'code-review')
+
+        // Emit auto-approve event for transparency — explains why NEEDS_MINOR_FIXES → COMPLETE
+        eventBus.emit('story:auto-approved' as never, {
+          storyKey,
+          verdict,
+          reviewCycles: finalReviewCycles,
+          maxReviewCycles: config.maxReviewCycles,
+          issueCount: issueList.length,
+          reason: `Review cycles exhausted (${finalReviewCycles}/${config.maxReviewCycles}) with only minor issues — auto-approving`,
+        } as never)
+
         updateStory(storyKey, {
           phase: 'COMPLETE' as StoryPhase,
           reviewCycles: finalReviewCycles,
@@ -2885,6 +2927,7 @@ export function createImplementationOrchestrator(
       if (_state !== 'RUNNING') return
 
       updateStory(storyKey, { phase: 'NEEDS_FIXES' as StoryPhase })
+      startPhase(storyKey, 'fix')
 
       const taskType = verdict === 'NEEDS_MINOR_FIXES' ? 'minor-fixes' : 'major-rework'
 
@@ -3033,6 +3076,7 @@ export function createImplementationOrchestrator(
               ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
             })
         const fixResult = await handle.result
+        endPhase(storyKey, 'fix')
 
         // Record fix dispatch telemetry
         eventBus.emit('orchestrator:story-phase-complete', {

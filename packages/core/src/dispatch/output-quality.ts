@@ -138,21 +138,32 @@ export function estimateOutputQuality(output: string): OutputQualitySignals {
   // Detect errors
   const mentionsErrors = ERROR_PATTERNS.some((p) => p.test(output))
 
+  // Detect YAML result block (strong quality signal — agent followed output contract)
+  const hasYamlBlock = /```yaml[\s\S]*?```/.test(output) || /^result:\s/m.test(output)
+
+  // Detect completion language
+  const mentionsCompletion = /(?:all tasks? (?:complete|done|finished)|implementation complete|AC\d? met|story complete)/i.test(output)
+
   // Compute quality score (0-100)
-  let score = 50 // baseline
+  // Start pessimistic (30) — agent must demonstrate quality through positive signals
+  let score = 30
+
+  // Strong positive: YAML output block present (+20)
+  if (hasYamlBlock) score += 20
 
   // Positive signals
   if (mentionsTestExecution) score += 10
   if (mentionsTestPass) score += 15
-  if (fileModificationMentions > 0) score += Math.min(15, fileModificationMentions * 5)
-  if (output.length > 1000) score += 5 // substantial output
-  if (output.length > 5000) score += 5 // very substantial
+  if (mentionsCompletion) score += 10
+  if (fileModificationMentions > 0) score += Math.min(10, fileModificationMentions * 3)
+  if (output.length > 5000) score += 5 // substantial output
 
   // Negative signals
-  score -= hedgingPhrases.length * 10
-  if (mentionsTestFailure) score -= 10
+  score -= hedgingPhrases.length * 15
+  if (mentionsTestFailure) score -= 15
   if (mentionsErrors) score -= 10
-  if (output.length < 200) score -= 15 // suspiciously short
+  if (output.length < 200) score -= 20 // suspiciously short
+  if (!hasYamlBlock && output.length > 1000) score -= 10 // long output but no YAML = likely didn't follow contract
 
   // Clamp
   score = Math.max(0, Math.min(100, score))
