@@ -210,7 +210,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     })
 
     // Wire NDJSON event emitter when --events is set
-    const ndjsonEmitter = eventsFlag === true ? createEventEmitter() : undefined
+    const ndjsonEmitter = eventsFlag === true ? createEventEmitter(process.stdout) : undefined
 
     if (ndjsonEmitter !== undefined) {
       // pipeline:start
@@ -259,9 +259,10 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
         ndjsonEmitter.emit({
           type: 'story:escalation', ts: new Date().toISOString(), key: payload.storyKey,
           reason: payload.lastVerdict, cycles: payload.reviewCycles,
-          issues: (payload.issues as Array<{ severity?: string; description?: string; file?: string }>).map((i) => ({
-            severity: i.severity ?? 'unknown', file: i.file ?? '', desc: i.description ?? '',
-          })),
+          issues: (payload.issues as unknown[]).map((i) => {
+            const iss = i as { severity?: string; description?: string; file?: string }
+            return { severity: iss.severity ?? 'unknown', file: iss.file ?? '', desc: iss.description ?? '' }
+          }),
           ...(payload.diagnosis !== undefined ? { diagnosis: payload.diagnosis } : {}),
         })
       })
