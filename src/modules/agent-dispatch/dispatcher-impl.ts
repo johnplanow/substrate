@@ -184,7 +184,7 @@ export interface BuildVerificationResult {
   /** Combined stdout+stderr output. Empty/undefined for skipped or no output. */
   output?: string
   /** Machine-readable reason for failure/timeout escalation. */
-  reason?: 'build-verification-failed' | 'build-verification-timeout' | 'build-script-not-found'
+  reason?: 'build-verification-failed' | 'build-verification-timeout' | 'build-script-not-found' | 'pep-668-externally-managed'
 }
 
 /**
