@@ -1270,6 +1270,9 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       '.substrate/orchestrator.pid',
       '.substrate/current-run-id',
       '.substrate/scenarios/',
+      '.substrate/state/',
+      '.substrate/substrate.db',
+      '.substrate/substrate.db-journal',
     ]
     try {
       const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf-8') : ''

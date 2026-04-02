@@ -783,6 +783,22 @@ export function createImplementationOrchestrator(
           // git not available — skip
         }
 
+        // Flag stories with suspiciously low output tokens as unverified.
+        // When token tracking fails (e.g., non-Claude backend with no OTLP),
+        // a "succeeded" story with <100 output tokens is likely a false positive.
+        const LOW_OUTPUT_TOKEN_THRESHOLD = 100
+        const unverified = tokenAgg.output < LOW_OUTPUT_TOKEN_THRESHOLD
+        if (unverified) {
+          logger.warn(
+            { storyKey, outputTokens: tokenAgg.output, threshold: LOW_OUTPUT_TOKEN_THRESHOLD },
+            'Story completed with very low output tokens — marking as unverified',
+          )
+          eventBus.emit('orchestrator:story-warn', {
+            storyKey,
+            msg: `Low output tokens (${tokenAgg.output} < ${LOW_OUTPUT_TOKEN_THRESHOLD}) — result may be unverified`,
+          })
+        }
+
         eventBus.emit('story:metrics', {
           storyKey,
           wallClockMs,
@@ -791,6 +807,7 @@ export function createImplementationOrchestrator(
           reviewCycles,
           dispatches: _storyDispatches.get(storyKey) ?? 0,
           ...(diffStats !== undefined ? { diffStats } : {}),
+          ...(unverified ? { unverified: true } : {}),
         })
       } catch (emitErr) {
         logger.warn({ err: emitErr, storyKey }, 'Failed to emit story:metrics event (best-effort)')

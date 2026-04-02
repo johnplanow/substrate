@@ -609,6 +609,23 @@ export async function runHealthAction(options: HealthOptions): Promise<number> {
 
       }
 
+      // Recommended next actions based on verdict
+      if (health.verdict === 'STALLED') {
+        process.stdout.write('\n  Recommended Actions:\n')
+        if (health.process.orchestrator_pid !== null) {
+          process.stdout.write(`    1. Kill stalled orchestrator: kill ${health.process.orchestrator_pid}\n`)
+        }
+        if (health.process.zombies.length > 0) {
+          process.stdout.write(`    ${health.process.orchestrator_pid !== null ? '2' : '1'}. Kill zombie processes: kill ${health.process.zombies.join(' ')}\n`)
+        }
+        process.stdout.write(`    ${health.process.orchestrator_pid !== null ? '3' : '2'}. Resume the run: substrate resume\n`)
+        process.stdout.write(`    ${health.process.orchestrator_pid !== null ? '4' : '3'}. Or start fresh: substrate run --events --stories <keys>\n`)
+      } else if (health.verdict === 'NO_PIPELINE_RUNNING' && health.stories.escalated > 0) {
+        process.stdout.write('\n  Recommended Actions:\n')
+        process.stdout.write('    1. Retry escalated stories: substrate retry-escalated\n')
+        process.stdout.write('    2. Or start a new run: substrate run --events\n')
+      }
+
       // Task 4 (AC3): Dolt state connectivity info — shown regardless of run_id
       if (health.dolt_state !== undefined) {
         const ds = health.dolt_state
