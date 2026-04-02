@@ -95,6 +95,33 @@ export interface StoryDoneEvent {
 }
 
 // ---------------------------------------------------------------------------
+// StoryAutoApprovedEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the orchestrator auto-approves a story after exhausting
+ * review cycles with only minor issues remaining. Provides transparency
+ * about why a NEEDS_MINOR_FIXES verdict resulted in COMPLETE status.
+ */
+export interface StoryAutoApprovedEvent {
+  type: 'story:auto-approved'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key (e.g., "10-1") */
+  key: string
+  /** Final review verdict (always NEEDS_MINOR_FIXES for auto-approve) */
+  verdict: string
+  /** Number of review cycles completed */
+  review_cycles: number
+  /** Maximum review cycles configured */
+  max_review_cycles: number
+  /** Number of remaining issues at auto-approve time */
+  issue_count: number
+  /** Human-readable reason for auto-approval */
+  reason: string
+}
+
+// ---------------------------------------------------------------------------
 // StoryEscalationEvent
 // ---------------------------------------------------------------------------
 
@@ -721,6 +748,7 @@ export type PipelineEvent =
   | RoutingModelSelectedEvent
   | PipelinePhaseStartEvent
   | PipelinePhaseCompleteEvent
+  | StoryAutoApprovedEvent
 
 // ---------------------------------------------------------------------------
 // Compile-time source of truth for all event type discriminants
@@ -777,6 +805,8 @@ export const EVENT_TYPE_NAMES = [
   'supervisor:experiment:recommendations',
   'supervisor:experiment:complete',
   'supervisor:experiment:error',
+  // Auto-approve transparency event
+  'story:auto-approved',
   // Epic 28: model routing observability
   'routing:model-selected',
   // Story 39-1: full pipeline phase lifecycle events

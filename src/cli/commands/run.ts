@@ -258,7 +258,7 @@ function wireNdjsonEmitter(
   })
 
   // story:auto-approved events for convergence transparency
-  eventBus.on('story:auto-approved' as never, ((payload: { storyKey: string; verdict: string; reviewCycles: number; maxReviewCycles: number; issueCount: number; reason: string }) => {
+  eventBus.on('story:auto-approved', (payload) => {
     ndjsonEmitter.emit({
       type: 'story:auto-approved',
       ts: new Date().toISOString(),
@@ -269,7 +269,7 @@ function wireNdjsonEmitter(
       issue_count: payload.issueCount,
       reason: payload.reason,
     })
-  }) as never)
+  })
 
   // story:done events on story completion
   eventBus.on('orchestrator:story-complete', (payload) => {

@@ -101,6 +101,8 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'pipeline:contract-mismatch',
       // Contract verification summary (consolidated result)
       'pipeline:contract-verification-summary',
+      // Auto-approve transparency
+      'story:auto-approved',
       // Epic 28: model routing observability
       'routing:model-selected',
       // Profile staleness warning (post-run check)

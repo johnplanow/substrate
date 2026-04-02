@@ -310,6 +310,20 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     ],
   },
   {
+    type: 'story:auto-approved',
+    description: 'Story auto-approved after exhausting review cycles with only minor issues.',
+    when: 'When review cycles reach the maximum and the final verdict is NEEDS_MINOR_FIXES (not MAJOR_REWORK).',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'key', type: 'string', description: 'Story key.' },
+      { name: 'verdict', type: 'string', description: 'Final review verdict (NEEDS_MINOR_FIXES).' },
+      { name: 'review_cycles', type: 'number', description: 'Review cycles completed.' },
+      { name: 'max_review_cycles', type: 'number', description: 'Maximum review cycles configured.' },
+      { name: 'issue_count', type: 'number', description: 'Remaining issues at auto-approve time.' },
+      { name: 'reason', type: 'string', description: 'Human-readable reason for auto-approval.' },
+    ],
+  },
+  {
     type: 'routing:model-selected',
     description: 'Model routing resolver selected a model for a dispatch.',
     when: 'When a story dispatch uses model routing and the resolver returns a non-null model.',

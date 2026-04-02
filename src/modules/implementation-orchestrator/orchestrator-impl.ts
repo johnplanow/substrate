@@ -2896,14 +2896,14 @@ export function createImplementationOrchestrator(
         endPhase(storyKey, 'code-review')
 
         // Emit auto-approve event for transparency — explains why NEEDS_MINOR_FIXES → COMPLETE
-        eventBus.emit('story:auto-approved' as never, {
+        eventBus.emit('story:auto-approved', {
           storyKey,
           verdict,
           reviewCycles: finalReviewCycles,
           maxReviewCycles: config.maxReviewCycles,
           issueCount: issueList.length,
           reason: `Review cycles exhausted (${finalReviewCycles}/${config.maxReviewCycles}) with only minor issues — auto-approving`,
-        } as never)
+        })
 
         updateStory(storyKey, {
           phase: 'COMPLETE' as StoryPhase,

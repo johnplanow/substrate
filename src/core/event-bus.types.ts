@@ -368,6 +368,16 @@ export interface OrchestratorEvents {
     }
   }
 
+  /** Story auto-approved after exhausting review cycles with only minor issues */
+  'story:auto-approved': {
+    storyKey: string
+    verdict: string
+    reviewCycles: number
+    maxReviewCycles: number
+    issueCount: number
+    reason: string
+  }
+
   /** A non-fatal warning occurred during story processing */
   'orchestrator:story-warn': {
     storyKey: string
