@@ -261,7 +261,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
           reason: payload.lastVerdict, cycles: payload.reviewCycles,
           issues: (payload.issues as unknown[]).map((i) => {
             const iss = i as { severity?: string; description?: string; file?: string }
-            return { severity: iss.severity ?? 'unknown', file: iss.file ?? '', desc: iss.description ?? '' }
+            return { severity: (iss.severity ?? 'unknown') as 'blocker' | 'major' | 'minor' | 'unknown', file: iss.file ?? '', desc: iss.description ?? '' }
           }),
           ...(payload.diagnosis !== undefined ? { diagnosis: payload.diagnosis } : {}),
         })
