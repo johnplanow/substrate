@@ -26,6 +26,7 @@ type Row = Record<string, unknown>
 // ---------------------------------------------------------------------------
 
 export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
+  readonly backendType = 'memory' as const
   private _tables = new Map<string, Row[]>()
   private _indexes: Array<{ name: string; tbl_name: string; type: string }> = []
   /** Maps table name → auto-increment column name */

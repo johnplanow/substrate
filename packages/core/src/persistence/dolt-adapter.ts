@@ -20,6 +20,7 @@ export interface DoltClientLike {
 }
 
 export class DoltDatabaseAdapter implements DatabaseAdapter {
+  readonly backendType = 'dolt' as const
   private readonly _client: DoltClientLike
 
   /**

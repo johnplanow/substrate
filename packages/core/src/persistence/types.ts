@@ -35,6 +35,13 @@ export interface SyncAdapter {
  */
 export interface DatabaseAdapter {
   /**
+   * The persistence backend powering this adapter.
+   * - 'dolt': backed by a Dolt SQL database (persists to disk)
+   * - 'memory': backed by in-memory Maps (no persistence, lost on process exit)
+   */
+  readonly backendType: 'dolt' | 'memory'
+
+  /**
    * Execute a SQL query and return typed rows.
    * @param sql - SQL query string (use ? for parameter placeholders)
    * @param params - Optional array of parameter values

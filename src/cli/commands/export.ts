@@ -65,6 +65,10 @@ export interface ExportOptions {
   projectRoot: string
   /** Output format for the command result */
   outputFormat: OutputFormat
+  /** Shared adapter from the calling pipeline. When provided, export reuses
+   *  this adapter instead of creating its own — prevents data loss when the
+   *  pipeline adapter is InMemoryDatabaseAdapter (dual-adapter bug fix). */
+  adapter?: import('../../persistence/adapter.js').DatabaseAdapter
 }
 
 export interface ExportResult {
@@ -87,26 +91,38 @@ export interface ExportResult {
 export async function runExportAction(options: ExportOptions): Promise<number> {
   const { runId, outputDir, projectRoot, outputFormat } = options
 
+  // When an adapter is injected by the calling pipeline, we reuse it and must
+  // NOT close it (the caller owns its lifecycle). When we create our own
+  // adapter (standalone `substrate export`), we own it and must close it.
+  const injectedAdapter = options.adapter
   let adapter: import('../../persistence/adapter.js').DatabaseAdapter | undefined
+  let ownsAdapter = false
 
   try {
-    // Resolve the database path (inside try/catch so errors are handled uniformly)
-    const dbRoot = await resolveMainRepoRoot(projectRoot)
-    const dbPath = join(dbRoot, '.substrate', 'substrate.db')
-    const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
+    if (injectedAdapter !== undefined) {
+      // Reuse the pipeline's shared adapter — avoids dual-adapter divergence
+      // when the pipeline is backed by InMemoryDatabaseAdapter.
+      adapter = injectedAdapter
+    } else {
+      // Standalone mode: create our own adapter (original code path)
+      const dbRoot = await resolveMainRepoRoot(projectRoot)
+      const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+      const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
 
-    if (!existsSync(dbPath) && !existsSync(doltDir)) {
-      const errorMsg = `Decision store not initialized. Run 'substrate init' first.`
-      if (outputFormat === 'json') {
-        process.stdout.write(JSON.stringify({ error: errorMsg }) + '\n')
-      } else {
-        process.stderr.write(`Error: ${errorMsg}\n`)
+      if (!existsSync(dbPath) && !existsSync(doltDir)) {
+        const errorMsg = `Decision store not initialized. Run 'substrate init' first.`
+        if (outputFormat === 'json') {
+          process.stdout.write(JSON.stringify({ error: errorMsg }) + '\n')
+        } else {
+          process.stderr.write(`Error: ${errorMsg}\n`)
+        }
+        return 1
       }
-      return 1
-    }
 
-    adapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
-    await initSchema(adapter)
+      adapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
+      await initSchema(adapter)
+      ownsAdapter = true
+    }
 
     // Find the pipeline run to export
     let run: PipelineRun | undefined
@@ -313,7 +329,9 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
     logger.error({ err }, 'export action failed')
     return 1
   } finally {
-    if (adapter !== undefined) {
+    // Only close the adapter if we created it (standalone mode).
+    // When the adapter was injected by the pipeline, the pipeline owns its lifecycle.
+    if (ownsAdapter && adapter !== undefined) {
       try {
         await adapter.close()
       } catch {

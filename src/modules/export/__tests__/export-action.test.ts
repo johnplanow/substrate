@@ -332,3 +332,125 @@ describe('T13: runExportAction --output-format json', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Shared adapter injection tests (dual-adapter bug fix)
+// ---------------------------------------------------------------------------
+
+describe('runExportAction with injected adapter', () => {
+  let tempProjectRoot: string
+  let stdoutOutput: string[]
+  let originalWrite: typeof process.stdout.write
+
+  beforeEach(() => {
+    tempProjectRoot = join(tmpdir(), `substrate-export-shared-adapter-${randomUUID()}`)
+    mkdirSync(tempProjectRoot, { recursive: true })
+
+    stdoutOutput = []
+    originalWrite = process.stdout.write.bind(process.stdout)
+    process.stdout.write = function (
+      chunk: string | Uint8Array,
+      encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
+      cb?: (err?: Error | null) => void,
+    ): boolean {
+      stdoutOutput.push(typeof chunk === 'string' ? chunk : chunk.toString())
+      const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb
+      if (callback) callback()
+      return true
+    } as typeof process.stdout.write
+  })
+
+  afterEach(() => {
+    process.stdout.write = originalWrite
+    if (existsSync(tempProjectRoot)) {
+      rmSync(tempProjectRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('exports artifacts using the injected adapter without creating its own', async () => {
+    // Simulate the exact scenario from the bug: pipeline creates an InMemoryDatabaseAdapter,
+    // writes decisions to it, then calls runExportAction. Without the adapter injection fix,
+    // export creates a SECOND InMemoryDatabaseAdapter that has no data → writes zero files.
+    const pipelineAdapter = new InMemoryDatabaseAdapter()
+    await initSchema(pipelineAdapter)
+
+    const run = await createPipelineRun(pipelineAdapter, { methodology: 'bmad' })
+
+    await createDecision(pipelineAdapter, {
+      pipeline_run_id: run.id,
+      phase: 'analysis',
+      category: 'product-brief',
+      key: 'problem_statement',
+      value: 'Test problem from shared adapter',
+      rationale: null,
+    })
+
+    // The mock for createDatabaseAdapter should NOT be called when adapter is injected
+    mockCreateDatabaseAdapter.mockClear()
+
+    const outputDir = join(tempProjectRoot, 'artifacts')
+    const exitCode = await runExportAction({
+      runId: run.id,
+      outputDir,
+      projectRoot: tempProjectRoot,
+      outputFormat: 'json',
+      adapter: pipelineAdapter,
+    })
+
+    expect(exitCode).toBe(0)
+
+    // createDatabaseAdapter should NOT have been called — we injected the adapter
+    expect(mockCreateDatabaseAdapter).not.toHaveBeenCalled()
+
+    const parsed = JSON.parse(stdoutOutput[0]!) as {
+      files_written: string[]
+      run_id: string
+      phases_exported: string[]
+    }
+
+    // Product brief should have been exported from the shared adapter's data
+    expect(parsed.phases_exported).toContain('analysis')
+    expect(parsed.files_written.length).toBeGreaterThanOrEqual(1)
+
+    const briefPath = parsed.files_written.find((p) => p.endsWith('product-brief.md'))
+    expect(briefPath).toBeDefined()
+    expect(existsSync(briefPath!)).toBe(true)
+
+    const { readFileSync } = await import('node:fs')
+    const content = readFileSync(briefPath!, 'utf-8')
+    expect(content).toContain('Test problem from shared adapter')
+  })
+
+  it('does not close the injected adapter (caller owns lifecycle)', async () => {
+    const pipelineAdapter = new InMemoryDatabaseAdapter()
+    await initSchema(pipelineAdapter)
+
+    const run = await createPipelineRun(pipelineAdapter, { methodology: 'bmad' })
+    await createDecision(pipelineAdapter, {
+      pipeline_run_id: run.id,
+      phase: 'analysis',
+      category: 'product-brief',
+      key: 'problem_statement',
+      value: 'Lifecycle test',
+      rationale: null,
+    })
+
+    const outputDir = join(tempProjectRoot, 'artifacts-lifecycle')
+    await runExportAction({
+      runId: run.id,
+      outputDir,
+      projectRoot: tempProjectRoot,
+      outputFormat: 'json',
+      adapter: pipelineAdapter,
+    })
+
+    // The adapter should still be usable after runExportAction returns
+    // (proves it was not closed by the export action)
+    const rows = await pipelineAdapter.query<{ id: string }>(
+      'SELECT id FROM pipeline_runs WHERE id = ?',
+      [run.id],
+    )
+    expect(rows.length).toBe(1)
+    expect(rows[0]!.id).toBe(run.id)
+  })
+})

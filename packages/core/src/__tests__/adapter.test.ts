@@ -310,6 +310,28 @@ describe('createDatabaseAdapter', () => {
   })
 
   // -------------------------------------------------------------------------
+  // backendType property
+  // -------------------------------------------------------------------------
+
+  describe('backendType property', () => {
+    it('InMemoryDatabaseAdapter has backendType "memory"', () => {
+      configureDoltUnavailable()
+      const adapter = createDatabaseAdapter({ backend: 'memory' })
+      expect(adapter.backendType).toBe('memory')
+    })
+
+    it('DoltDatabaseAdapter has backendType "dolt"', () => {
+      configureDoltAvailable()
+      const { factory } = makeMockDoltClientFactory()
+      const adapter = createDatabaseAdapter(
+        { backend: 'auto', basePath: '/tmp/test-project' },
+        factory,
+      )
+      expect(adapter.backendType).toBe('dolt')
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // Edge cases
   // -------------------------------------------------------------------------
 

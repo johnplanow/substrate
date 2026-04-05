@@ -773,6 +773,16 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   // Open database
   const adapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
 
+  // Warn if Dolt is initialized on disk but adapter fell back to InMemory.
+  // This means pipeline state will NOT persist after the process exits.
+  if (adapter.backendType === 'memory' && existsSync(join(dbDir, 'state', '.dolt'))) {
+    process.stderr.write(
+      'Warning: Dolt is initialized but the adapter fell back to in-memory storage.\n' +
+      'Pipeline state, telemetry, and artifacts will NOT persist after this run exits.\n' +
+      'Check that the `dolt` binary is on PATH and not locked by another process.\n',
+    )
+  }
+
   try {
     try {
       await initSchema(adapter)
@@ -1317,6 +1327,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         stories: storyKeys,
         concurrency,
         engine: resolvedEngine,
+        adapter_backend: adapter.backendType,
       })
 
       // AC2: Wire all event subscriptions via shared helper
@@ -1707,6 +1718,15 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
   const adapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
 
+  // Warn if Dolt is initialized on disk but adapter fell back to InMemory.
+  if (adapter.backendType === 'memory' && existsSync(join(dbDir, 'state', '.dolt'))) {
+    process.stderr.write(
+      'Warning: Dolt is initialized but the adapter fell back to in-memory storage.\n' +
+      'Pipeline state, telemetry, and artifacts will NOT persist after this run exits.\n' +
+      'Check that the `dolt` binary is on PATH and not locked by another process.\n',
+    )
+  }
+
   try {
     try {
       await initSchema(adapter)
@@ -1835,6 +1855,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         run_id: runId,
         stories: explicitStories ?? [],
         concurrency,
+        adapter_backend: adapter.backendType,
       })
       // Wire all event subscriptions via shared helper (AC2)
       wireNdjsonEmitter(eventBus, fullPipelineNdjsonEmitter)
@@ -2196,9 +2217,11 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             outputDir: exportDir,
             projectRoot,
             outputFormat: 'json',
+            adapter,
           })
-        } catch {
-          // Best-effort — don't block pipeline on export failure
+        } catch (exportErr) {
+          // Best-effort — don't block pipeline on export failure, but log for diagnostics
+          logger.warn({ err: exportErr }, 'Auto-export failed after phase completion (non-blocking)')
         }
       }
 
