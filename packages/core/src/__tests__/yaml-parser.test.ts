@@ -443,6 +443,53 @@ describe('parseYamlResult', () => {
   })
 
   // -----------------------------------------------------------------------
+  // Duplicate key merging
+  // -----------------------------------------------------------------------
+
+  describe('duplicate key merging', () => {
+    it('merges duplicate top-level keys with array values', () => {
+      const yamlText = [
+        'result: success',
+        'non_functional_requirements:',
+        '  - description: "API responses under 200ms"',
+        '    category: "performance"',
+        '  - description: "All data encrypted at rest"',
+        '    category: "security"',
+        'non_functional_requirements:',
+        '  - description: "99.9% uptime SLA"',
+        '    category: "reliability"',
+        'tech_stack:',
+        '  language: "TypeScript"',
+      ].join('\n')
+
+      const schema = z.object({
+        result: z.enum(['success', 'failed']),
+        non_functional_requirements: z.array(z.object({
+          description: z.string(),
+          category: z.string(),
+        })).min(2),
+        tech_stack: z.record(z.string(), z.string()),
+      })
+
+      const { parsed, error } = parseYamlResult(yamlText, schema)
+
+      expect(error).toBeNull()
+      expect(parsed).not.toBeNull()
+      expect(parsed!.non_functional_requirements).toHaveLength(3)
+      expect(parsed!.non_functional_requirements[2]!.category).toBe('reliability')
+    })
+
+    it('still returns error for non-duplicate YAML errors', () => {
+      const yamlText = '{ invalid: yaml: : :'
+
+      const { parsed, error } = parseYamlResult(yamlText)
+
+      expect(parsed).toBeNull()
+      expect(error).toContain('YAML parse error')
+    })
+  })
+
+  // -----------------------------------------------------------------------
   // End-to-end: extractYamlBlock + parseYamlResult
   // -----------------------------------------------------------------------
 

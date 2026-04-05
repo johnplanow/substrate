@@ -203,6 +203,73 @@ function containsAnchorKey(content: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Duplicate key merging
+// ---------------------------------------------------------------------------
+
+/**
+ * Merge duplicate top-level YAML keys by concatenating their array values.
+ *
+ * LLMs sometimes emit the same mapping key twice, splitting a list across two
+ * blocks (e.g., `non_functional_requirements:` appears twice, each with
+ * different items). This violates YAML 1.2 but is recoverable: we detect
+ * duplicate top-level keys and merge their children into a single key.
+ *
+ * Only operates on top-level keys (no indentation). Nested duplicates are not
+ * handled — they're rare in practice and harder to fix safely.
+ */
+function mergeDuplicateYamlKeys(yamlText: string): string {
+  const lines = yamlText.split('\n')
+  const sections: { key: string; lines: string[] }[] = []
+  let current: { key: string; lines: string[] } | null = null
+
+  for (const line of lines) {
+    // Top-level key: starts at column 0, ends with ':'
+    const keyMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/)
+    if (keyMatch) {
+      const key = keyMatch[1]!
+      const rest = keyMatch[2]!.trim()
+      // If the rest is non-empty and not a comment, it's an inline value (scalar)
+      // — still start a new section for it
+      current = { key, lines: [line] }
+      sections.push(current)
+
+      // Skip merging for inline scalar values (e.g., `result: success`)
+      if (rest.length > 0 && !rest.startsWith('#')) {
+        current = null
+      }
+    } else if (current) {
+      current.lines.push(line)
+    } else {
+      // Lines before any key or after an inline scalar — emit as-is
+      sections.push({ key: '', lines: [line] })
+    }
+  }
+
+  // Find duplicates and merge
+  const seen = new Map<string, number>()
+  const merged: typeof sections = []
+
+  for (const section of sections) {
+    if (section.key === '') {
+      merged.push(section)
+      continue
+    }
+
+    const existing = seen.get(section.key)
+    if (existing !== undefined) {
+      // Merge: append the child lines (skip the key line itself)
+      const target = merged[existing]!
+      target.lines.push(...section.lines.slice(1))
+    } else {
+      seen.set(section.key, merged.length)
+      merged.push(section)
+    }
+  }
+
+  return merged.flatMap((s) => s.lines).join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // parseYamlResult
 // ---------------------------------------------------------------------------
 
@@ -223,7 +290,18 @@ export function parseYamlResult<T>(
     raw = yaml.load(sanitizeYamlEscapes(yamlText))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return { parsed: null, error: `YAML parse error: ${message}` }
+    // LLMs sometimes emit the same top-level key twice (e.g., listing items
+    // under `non_functional_requirements:` in two separate blocks). Attempt
+    // to merge duplicate keys before giving up.
+    if (message.includes('duplicated mapping key')) {
+      try {
+        raw = yaml.load(sanitizeYamlEscapes(mergeDuplicateYamlKeys(yamlText)))
+      } catch {
+        return { parsed: null, error: `YAML parse error: ${message}` }
+      }
+    } else {
+      return { parsed: null, error: `YAML parse error: ${message}` }
+    }
   }
 
   if (raw === null || raw === undefined) {
