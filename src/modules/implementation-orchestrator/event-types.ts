@@ -26,6 +26,8 @@ export interface PipelineStartEvent {
   concurrency: number
   /** Execution engine: 'linear' or 'graph' */
   engine?: string
+  /** Persistence backend: 'dolt' or 'memory' — aids diagnosing data loss */
+  adapter_backend?: string
 }
 
 // ---------------------------------------------------------------------------
