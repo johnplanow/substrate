@@ -57,6 +57,20 @@ vi.mock('node:child_process', async (importOriginal) => {
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
   detectInterfaceChanges: vi.fn().mockResolvedValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
+// Mock @substrate-ai/sdlc so the Tier A verification pipeline always passes in unit tests (Story 51-5)
+vi.mock('@substrate-ai/sdlc', () => ({
+  createDefaultVerificationPipeline: vi.fn(() => ({
+    run: vi.fn().mockImplementation((ctx: { storyKey: string }) =>
+      Promise.resolve({
+        storyKey: ctx.storyKey,
+        checks: [],
+        status: 'pass',
+        duration_ms: 0,
+      }),
+    ),
+    register: vi.fn(),
+  })),
+}))
 
 import { runCreateStory } from '../../compiled-workflows/create-story.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'

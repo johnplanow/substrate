@@ -178,6 +178,8 @@ export const SubstrateConfigSchema = z
     budget: BudgetConfigSchema.optional(),
     /** OTLP telemetry ingestion settings */
     telemetry: TelemetryConfigSchema.optional(),
+    /** Minimum output token count for TrivialOutputCheck (Story 51-3). Default: 100. */
+    trivialOutputThreshold: z.number().int().nonnegative().optional(),
   })
   .passthrough()
 
@@ -209,6 +211,8 @@ export const PartialSubstrateConfigSchema = z
     cost_tracker: CostTrackerConfigSchema.partial().optional(),
     budget: BudgetConfigSchema.partial().optional(),
     telemetry: TelemetryConfigSchema.partial().optional(),
+    /** Minimum output token count for TrivialOutputCheck (Story 51-3). Default: 100. */
+    trivialOutputThreshold: z.number().int().nonnegative().optional(),
   })
   .passthrough()
 

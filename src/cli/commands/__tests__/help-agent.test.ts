@@ -110,6 +110,9 @@ describe('PIPELINE_EVENT_METADATA', () => {
       // Story 39-1: full pipeline phase lifecycle events
       'pipeline:phase-start',
       'pipeline:phase-complete',
+      // Story 51-5+: Tier A verification pipeline events
+      'verification:check-complete',
+      'verification:story-complete',
     ]
     const actualTypes = PIPELINE_EVENT_METADATA.map((e) => e.type)
     for (const t of expectedTypes) {
@@ -457,7 +460,8 @@ describe('generateHelpAgentOutput', () => {
     const output = generateHelpAgentOutput('0.1.14')
     const tokenCount = approximateTokenCount(output)
     // Conservative check: approximate token count < 2000 (threshold scales with event count)
-    expect(tokenCount).toBeLessThan(3200)
+    // Updated to 4000 after verification events added (Stories 51-1+)
+    expect(tokenCount).toBeLessThan(4000)
   })
 
   it('output is valid markdown (AC2)', () => {
@@ -550,6 +554,7 @@ describe('runHelpAgent', () => {
     const written = stdoutSpy.mock.calls[0][0] as string
     const tokenCount = approximateTokenCount(written)
     // Conservative check: approximate token count < 2000 (threshold scales with event count)
-    expect(tokenCount).toBeLessThan(3200)
+    // Updated to 4000 after verification events added (Stories 51-1+)
+    expect(tokenCount).toBeLessThan(4000)
   })
 })

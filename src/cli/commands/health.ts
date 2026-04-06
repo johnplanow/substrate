@@ -94,6 +94,8 @@ export interface PipelineHealthOutput {
   }
   /** Dolt state connectivity info. Present only when Dolt backend is configured. */
   dolt_state?: DoltStateInfo
+  /** Non-fatal warnings that indicate degraded pipeline operation */
+  warnings?: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -537,6 +539,15 @@ export async function getAutoHealthData(options: {
       verdict = 'NO_PIPELINE_RUNNING'
     }
 
+    // Collect non-fatal degradation warnings
+    const warnings: string[] = []
+    if (doltStateInfo !== undefined && doltStateInfo.responsive === false) {
+      warnings.push('Dolt not connected — decision store queries may fail, story context will be degraded')
+    }
+    if (escalated > 0) {
+      warnings.push(`${escalated} story(ies) escalated — operator intervention may be needed`)
+    }
+
     const healthOutput: PipelineHealthOutput = {
       verdict,
       run_id: run.id,
@@ -547,6 +558,7 @@ export async function getAutoHealthData(options: {
       process: processInfo,
       stories: { active, completed, escalated, pending, details: storyDetails },
       ...(doltStateInfo !== undefined ? { dolt_state: doltStateInfo } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     }
 
     return healthOutput
@@ -624,6 +636,14 @@ export async function runHealthAction(options: HealthOptions): Promise<number> {
         process.stdout.write('\n  Recommended Actions:\n')
         process.stdout.write('    1. Retry escalated stories: substrate retry-escalated\n')
         process.stdout.write('    2. Or start a new run: substrate run --events\n')
+      }
+
+      // Degradation warnings
+      if (health.warnings !== undefined && health.warnings.length > 0) {
+        process.stdout.write('\n  Warnings:\n')
+        for (const w of health.warnings) {
+          process.stdout.write(`    ⚠ ${w}\n`)
+        }
       }
 
       // Task 4 (AC3): Dolt state connectivity info — shown regardless of run_id

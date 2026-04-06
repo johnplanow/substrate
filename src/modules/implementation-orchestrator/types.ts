@@ -31,6 +31,7 @@ export type StoryPhase =
   | 'COMPLETE'
   | 'ESCALATED'
   | 'CHECKPOINT'
+  | 'VERIFICATION_FAILED'
 
 // ---------------------------------------------------------------------------
 // StoryState
@@ -110,6 +111,11 @@ export interface OrchestratorConfig {
    * constrain context for stories with prior context spike patterns.
    */
   perStoryContextCeilings?: Record<string, number>
+  /**
+   * When true, skip the post-dispatch Tier A verification pipeline (Story 51-5).
+   * Escape hatch for debugging.
+   */
+  skipVerification?: boolean
 }
 
 // ---------------------------------------------------------------------------

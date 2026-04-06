@@ -144,7 +144,7 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
   'create-story': 600_000,
   'dev-story': 1_800_000,
   'code-review': 900_000,
-  'minor-fixes': 1_200_000,
+  'minor-fixes': 300_000,
   'major-rework': 900_000,
   // Readiness check sub-agent (Story 16.6) — 10 minute timeout
   'readiness-check': 600_000,

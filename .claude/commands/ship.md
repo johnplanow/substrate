@@ -1,0 +1,97 @@
+# Ship
+
+Run the substrate CI pipeline locally, fix issues, commit, and push.
+
+Matches the GitHub Actions CI pipeline: build → circular dep check → typecheck:gate → test:fast → push.
+
+## Procedure
+
+Execute these steps sequentially. If a step fails and you cannot fix it after two attempts, stop and report the issue to the user. Do NOT skip steps.
+
+### Step 1: Build
+
+```bash
+npm run build 2>&1
+```
+
+Build MUST come first — `tsc --build` outputs are required for subsequent steps. If build fails:
+1. Read each TypeScript error carefully
+2. Fix the type issues in source files
+3. Re-run `npm run build` to confirm clean
+
+### Step 2: Circular dependency check
+
+```bash
+npm run check:circular 2>&1
+```
+
+If circular dependencies are found, trace the import cycle and break it. This is a hard gate in CI.
+
+### Step 3: Type check (gate)
+
+```bash
+npm run typecheck:gate 2>&1
+```
+
+This is the strict typecheck (`tsc --noEmit -p tsconfig.typecheck.json`). If it fails:
+1. Read the type errors
+2. Fix them — this gate uses a stricter config than the build
+3. Re-run to confirm clean
+
+### Step 4: Tests
+
+**IMPORTANT**: Before running, verify no other vitest instance is running:
+```bash
+pgrep -f vitest
+```
+If anything is returned, wait or kill it first.
+
+Run unit tests (fast suite — excludes e2e/integration):
+```bash
+npm run test:fast 2>&1
+```
+
+**CRITICAL**: Use `timeout: 300000` (5 min). Do NOT pipe output through tail/head/grep. Do NOT run in background. Confirm results by checking for "Test Files" in output.
+
+If tests fail:
+1. Read the failure output
+2. Determine if the test is wrong or the code is wrong
+3. Fix the root cause
+4. Re-run to confirm all pass
+5. Report the test count
+
+### Step 5: Commit
+
+Only if there are changes to commit:
+
+1. `git status` — review what changed
+2. `git diff` — review the actual changes
+3. Stage the relevant files (do NOT use `git add -A` — be specific about files)
+4. Commit with a descriptive message summarizing what was fixed
+5. Include `Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>`
+
+If no changes, skip to Step 6.
+
+### Step 6: Push
+
+```bash
+git push 2>&1
+```
+
+If push fails due to remote changes, `git pull --rebase` and re-run from Step 1.
+
+### Step 7: Verify CI
+
+```bash
+sleep 15 && gh run list --limit 1
+```
+
+Report the CI run status. If still in progress, tell the user and offer to check back.
+
+## Summary
+
+After all steps, report concisely:
+- What was fixed (if anything)
+- Test count and result
+- Commit hash (if committed)
+- CI run status

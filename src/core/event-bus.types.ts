@@ -171,6 +171,32 @@ export interface OrchestratorEvents {
   'worktree:removed': { taskId: TaskId; branchName: string }
 
   // -------------------------------------------------------------------------
+  // Verification pipeline events (Story 51-6)
+  // -------------------------------------------------------------------------
+
+  /** An individual Tier A verification check completed for a story */
+  'verification:check-complete': {
+    storyKey: string
+    checkName: string
+    status: 'pass' | 'warn' | 'fail'
+    details: string
+    duration_ms: number
+  }
+
+  /** All Tier A verification checks completed for a story */
+  'verification:story-complete': {
+    storyKey: string
+    checks: Array<{
+      checkName: string
+      status: 'pass' | 'warn' | 'fail'
+      details: string
+      duration_ms: number
+    }>
+    status: 'pass' | 'warn' | 'fail'
+    duration_ms: number
+  }
+
+  // -------------------------------------------------------------------------
   // Plan events
   // -------------------------------------------------------------------------
 
@@ -616,4 +642,5 @@ export interface OrchestratorEvents {
     /** Retry attempt number (always 2 — first retry after initial timeout) */
     attempt: number
   }
+
 }

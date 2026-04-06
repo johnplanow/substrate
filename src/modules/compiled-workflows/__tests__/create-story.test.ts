@@ -34,6 +34,7 @@ vi.mock('../../../utils/logger.js', () => ({
 
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   getDecisionsByPhase: vi.fn(),
+  getDecisionsByPhaseForRun: vi.fn().mockResolvedValue([]),
 }))
 
 // ---------------------------------------------------------------------------

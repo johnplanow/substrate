@@ -11,7 +11,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
-import { getDecisionsByPhase } from '../../persistence/queries/decisions.js'
+import { getDecisionsByPhase, getDecisionsByPhaseForRun } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import { CreateStoryResultSchema } from './schemas.js'
@@ -76,7 +76,7 @@ export async function runCreateStory(
 
   // Step 2: Query epic shard from decision store
   // Cache the implementation-phase decisions to avoid querying twice (issues #5)
-  const implementationDecisions = await getImplementationDecisions(deps)
+  const implementationDecisions = await getImplementationDecisions(deps, pipelineRunId)
   // Pass storyKey for per-story extraction (AC3)
   const epicShardContent = getEpicShard(implementationDecisions, epicId, deps.projectRoot, storyKey)
 
@@ -261,11 +261,17 @@ export async function runCreateStory(
 // ---------------------------------------------------------------------------
 
 /**
- * Retrieve and cache all decisions for the implementation phase.
+ * Retrieve implementation decisions, scoped to the current run when available.
+ * Falls back to unscoped query if run-scoped returns empty (backward compat with
+ * decisions created before run IDs were tracked).
  * Returns an empty array and logs a warning if the query fails.
  */
-async function getImplementationDecisions(deps: WorkflowDeps): Promise<Decision[]> {
+async function getImplementationDecisions(deps: WorkflowDeps, pipelineRunId?: string): Promise<Decision[]> {
   try {
+    if (pipelineRunId) {
+      const scoped = await getDecisionsByPhaseForRun(deps.db, pipelineRunId, 'implementation')
+      if (scoped.length > 0) return scoped
+    }
     return await getDecisionsByPhase(deps.db, 'implementation')
   } catch (err) {
     logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to retrieve implementation decisions')

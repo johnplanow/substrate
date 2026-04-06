@@ -453,6 +453,31 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'indicators', type: 'string[]', description: 'List of staleness indicators (e.g., "turbo.json exists but profile says type: single").' },
     ],
   },
+  {
+    type: 'verification:check-complete',
+    description: 'Emitted after each Tier A verification check completes. Payload includes check name, status (pass/warn/fail), human-readable details, and execution duration.',
+    when: 'After a story reaches SHIP_IT verdict, once per individual verification check (phantom-review, trivial-output, build).',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'storyKey', type: 'string', description: 'Story key (e.g., "51-5").' },
+      { name: 'checkName', type: 'string', description: 'Check name (e.g., "phantom-review", "trivial-output", "build").' },
+      { name: 'status', type: 'pass|warn|fail', description: 'Check result.' },
+      { name: 'details', type: 'string', description: 'Human-readable check details.' },
+      { name: 'duration_ms', type: 'number', description: 'Check execution time in milliseconds.' },
+    ],
+  },
+  {
+    type: 'verification:story-complete',
+    description: 'Emitted once per story after all Tier A verification checks complete. Payload is the full VerificationSummary with aggregated worst-case status.',
+    when: 'After all Tier A checks complete for a story (after SHIP_IT verdict). Precedes story:done on pass/warn, or replaces it on fail.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'storyKey', type: 'string', description: 'Story key (e.g., "51-5").' },
+      { name: 'checks', type: 'array', description: 'Per-check results (checkName, status, details, duration_ms).' },
+      { name: 'status', type: 'pass|warn|fail', description: 'Aggregated worst-case status across all checks.' },
+      { name: 'duration_ms', type: 'number', description: 'Total duration of all checks in milliseconds.' },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

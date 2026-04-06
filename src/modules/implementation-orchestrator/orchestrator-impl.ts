@@ -65,6 +65,55 @@ import { TelemetryPipeline } from '../telemetry/telemetry-pipeline.js'
 import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
+import type { SdlcEvents } from '@substrate-ai/sdlc'
+import { createDefaultVerificationPipeline } from '@substrate-ai/sdlc'
+import type { ReviewSignals } from '@substrate-ai/sdlc'
+import type { TypedEventBus as GenericTypedEventBus } from '@substrate-ai/core'
+import { assembleVerificationContext, VerificationStore } from './verification-integration.js'
+import type { OrchestratorEvents } from '../../core/event-bus.types.js'
+
+// ---------------------------------------------------------------------------
+// Compile-time safety assertions for verificationBusAdapter (Story 51-5)
+// ---------------------------------------------------------------------------
+//
+// The verification pipeline emits exactly two events: 'verification:check-complete'
+// and 'verification:story-complete'. Both must be declared in OrchestratorEvents with
+// payload types compatible with SdlcEvents. These `never`-branching types are evaluated
+// by the TypeScript compiler on every build — if OrchestratorEvents ever drops either
+// event or changes its payload, the build fails here (not silently at runtime).
+//
+/* eslint-disable @typescript-eslint/no-unused-vars */
+type _AssertCheckCompleteCompat =
+  OrchestratorEvents['verification:check-complete'] extends SdlcEvents['verification:check-complete']
+    ? true
+    : never
+
+type _AssertStoryCompleteCompat =
+  OrchestratorEvents['verification:story-complete'] extends SdlcEvents['verification:story-complete']
+    ? true
+    : never
+/* eslint-enable @typescript-eslint/no-unused-vars */
+
+/**
+ * Project the monolith event bus to `TypedEventBus<SdlcEvents>` for VerificationPipeline.
+ *
+ * RUNTIME SAFETY (verified by compile-time assertions above):
+ *  1. OrchestratorEvents declares 'verification:check-complete' and
+ *     'verification:story-complete' with payload types that extend their SdlcEvents
+ *     counterparts (proven by _AssertCheckCompleteCompat / _AssertStoryCompleteCompat).
+ *  2. VerificationPipeline ONLY calls bus.emit() — never bus.on() or bus.off().
+ *     Confirm: grep "this._bus\." packages/sdlc/src/verification/verification-pipeline.ts
+ *  3. TypedEventBusImpl is backed by Node.js EventEmitter — a string→handler map
+ *     that is fully type-agnostic at runtime. No events are silently missed.
+ *
+ * TypeScript cannot perform the direct cast because TypedEventBus uses a generic
+ * method signature (`emit<K extends keyof E>`) rather than concrete overloads, which
+ * prevents the structural variance check it would need. The `as unknown` intermediate
+ * is isolated to this one function so the rest of the call site stays clean.
+ */
+function toSdlcEventBus(bus: TypedEventBus): GenericTypedEventBus<SdlcEvents> {
+  return bus as unknown as GenericTypedEventBus<SdlcEvents>
+}
 
 // ---------------------------------------------------------------------------
 // Cost estimation helper (Claude pricing: $3/1M input, $15/1M output)
@@ -435,6 +484,8 @@ function wgStatusForPhase(phase: StoryPhase): WgStoryStatus | null {
       return 'complete'
     case 'ESCALATED':
       return 'escalated'
+    case 'VERIFICATION_FAILED':
+      return 'escalated'
   }
 }
 
@@ -586,6 +637,13 @@ export function createImplementationOrchestrator(
   // -- OTLP telemetry endpoint (Story 27-9) --
   // Set once when ingestionServer.start() resolves; cleared after run() completes.
   let _otlpEndpoint: string | undefined
+
+  // -- Tier A verification pipeline (Story 51-5) --
+  // In-memory store for VerificationSummary results; available to Epic 52 consumers.
+  const verificationStore = new VerificationStore()
+  // toSdlcEventBus() documents and isolates the bus type projection; see its JSDoc for
+  // the full safety argument and the compile-time assertions that enforce it.
+  const verificationPipeline = createDefaultVerificationPipeline(toSdlcEventBus(eventBus))
 
   // -- StateStore record cache (Story 26-4, AC3) --
   // Populated from stateStore.queryStories() after initialization for resume scenarios.
@@ -982,7 +1040,7 @@ export function createImplementationOrchestrator(
             logger.warn({ err, storyKey }, 'mergeStory failed')
           }
         })
-      } else if (updates.phase === 'ESCALATED') {
+      } else if (updates.phase === 'ESCALATED' || updates.phase === 'VERIFICATION_FAILED') {
         void stateStore?.rollbackStory(storyKey).catch((err: unknown) =>
           logger.warn({ err, storyKey }, 'rollbackStory failed — branch may persist'),
         )
@@ -1071,7 +1129,7 @@ export function createImplementationOrchestrator(
       let queued = 0
       for (const s of _stories.values()) {
         if (s.phase === 'PENDING') queued++
-        else if (s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED') active++
+        else if (s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED' && s.phase !== 'VERIFICATION_FAILED') active++
       }
       const completed = _completedDispatches
 
@@ -1111,7 +1169,7 @@ export function createImplementationOrchestrator(
       let processInspected = false
 
       for (const [key, s] of _stories) {
-        if (s.phase === 'PENDING' || s.phase === 'COMPLETE' || s.phase === 'ESCALATED') continue
+        if (s.phase === 'PENDING' || s.phase === 'COMPLETE' || s.phase === 'ESCALATED' || s.phase === 'VERIFICATION_FAILED') continue
         const threshold = getStallThresholdMs(s.phase)
         if (elapsed < threshold) continue
 
@@ -1597,6 +1655,8 @@ export function createImplementationOrchestrator(
     // Track whether dev-story reported a COMPLETE (success) result — used by
     // the zero-diff detection gate (Story 24-1) below.
     let devStoryWasSuccess = false
+    // Output token count from the dev-story dispatch; forwarded to TrivialOutputCheck (Story 51-5)
+    let devOutputTokenCount: number | undefined
 
     // Capture baseline HEAD SHA before dispatch so the zero-diff gate can
     // detect committed work (not just uncommitted changes).  Fixes the
@@ -1739,6 +1799,11 @@ export function createImplementationOrchestrator(
             }
           }
 
+          // Accumulate output tokens across batches for TrivialOutputCheck (Story 51-5)
+          if (batchResult.tokenUsage?.output !== undefined) {
+            devOutputTokenCount = (devOutputTokenCount ?? 0) + batchResult.tokenUsage.output
+          }
+
           if (batchResult.result === 'failed') {
             // AC6: Batch returned failure — log and continue (partial progress)
             logger.warn(
@@ -1774,6 +1839,8 @@ export function createImplementationOrchestrator(
         )
 
         devFilesModified = devResult.files_modified ?? []
+        // Capture output tokens for TrivialOutputCheck (Story 51-5)
+        devOutputTokenCount = devResult.tokenUsage?.output ?? undefined
 
         // Record single-dispatch dev-story token usage for per-story cost attribution
         if (config.pipelineRunId !== undefined && devResult.tokenUsage !== undefined) {
@@ -2124,6 +2191,7 @@ export function createImplementationOrchestrator(
     // Catches compile-time errors (missing exports, type mismatches) before
     // wasting a review cycle. Respects skipBuildVerify — independent from
     // skipPreflight so pre-flight and per-story gates can be toggled separately.
+    let _buildPassed = false // hoisted for code-review prompt context
     {
       let buildVerifyResult = config.skipBuildVerify === true
         ? { status: 'skipped' as const }
@@ -2171,6 +2239,7 @@ export function createImplementationOrchestrator(
       }
 
       if (buildVerifyResult.status === 'passed') {
+        _buildPassed = true
         eventBus.emit('story:build-verification-passed', { storyKey })
         logger.info({ storyKey }, 'Build verification passed')
       } else if (buildVerifyResult.status === 'failed' || buildVerifyResult.status === 'timeout') {
@@ -2195,6 +2264,7 @@ export function createImplementationOrchestrator(
               })
               if (retryAfterRestore.status === 'passed') {
                 retryPassed = true
+                _buildPassed = true
                 eventBus.emit('story:build-verification-passed', { storyKey })
                 logger.warn(
                   { storyKey, filesRestored: restoreResult.filesRestored },
@@ -2252,6 +2322,7 @@ export function createImplementationOrchestrator(
 
             if (retryResult.status === 'passed') {
               retryPassed = true
+              _buildPassed = true
               eventBus.emit('story:build-verification-passed', { storyKey })
               logger.warn(
                 { storyKey, missingPkg },
@@ -2330,6 +2401,7 @@ export function createImplementationOrchestrator(
 
               if (retryAfterFix.status === 'passed') {
                 buildFixPassed = true
+                _buildPassed = true
                 eventBus.emit('story:build-verification-passed', { storyKey })
                 logger.info({ storyKey }, 'Build passed after build-fix dispatch')
               } else {
@@ -2460,6 +2532,7 @@ export function createImplementationOrchestrator(
                 workingDirectory: projectRoot,
                 pipelineRunId: config.pipelineRunId,
                 filesModified: group.files,
+                buildPassed: _buildPassed,
               },
             )
 
@@ -2505,6 +2578,7 @@ export function createImplementationOrchestrator(
               workingDirectory: projectRoot,
               pipelineRunId: config.pipelineRunId,
               filesModified: devFilesModified,
+              buildPassed: _buildPassed,
               // Scope re-reviews: pass previous issues so the reviewer verifies fixes first
               ...(previousIssueList.length > 0 ? { previousIssues: previousIssueList } : {}),
             },
@@ -2673,6 +2747,38 @@ export function createImplementationOrchestrator(
 
       if (verdict === 'SHIP_IT' || verdict === 'LGTM_WITH_NOTES') {
         endPhase(storyKey, 'code-review')
+
+        // -- Tier A verification pipeline (Story 51-5) --
+        if (config.skipVerification !== true) {
+          // reviewResult is CodeReviewResult | undefined; CodeReviewResult already declares
+          // dispatchFailed?, error?, and rawOutput? — no casts required.
+          const latestReviewSignals: ReviewSignals | undefined = reviewResult != null
+            ? {
+                dispatchFailed: reviewResult.dispatchFailed,
+                error: reviewResult.error,
+                rawOutput: reviewResult.rawOutput,
+              }
+            : undefined
+          const verifContext = assembleVerificationContext({
+            storyKey,
+            workingDir: projectRoot ?? process.cwd(),
+            reviewResult: latestReviewSignals,
+            outputTokenCount: devOutputTokenCount,
+          })
+          const verifSummary = await verificationPipeline.run(verifContext, 'A')
+          verificationStore.set(storyKey, verifSummary)
+          if (verifSummary.status === 'fail') {
+            updateStory(storyKey, { phase: 'VERIFICATION_FAILED' as StoryPhase, completedAt: new Date().toISOString() })
+            persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
+              logger.warn({ err, storyKey }, 'StateStore write failed after verification-failed'),
+            )
+            await writeStoryMetricsBestEffort(storyKey, 'verification-failed', reviewCycles)
+            await persistState()
+            return // do NOT mark as COMPLETE
+          }
+          // warn or pass — fall through to COMPLETE
+        }
+
         updateStory(storyKey, {
           phase: 'COMPLETE' as StoryPhase,
           completedAt: new Date().toISOString(),
@@ -3670,6 +3776,9 @@ export function createImplementationOrchestrator(
         else if (s.phase === 'ESCALATED') {
           if (s.error !== undefined) failed++
           else escalated++
+        } else if (s.phase === 'VERIFICATION_FAILED') {
+          // VERIFICATION_FAILED counts as a failure (not a success) per AC3
+          failed++
         }
       }
 

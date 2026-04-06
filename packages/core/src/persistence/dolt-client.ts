@@ -16,7 +16,7 @@ import { DoltQueryError } from './dolt-errors.js'
  */
 function runExecFile(cmd: string, args: string[], opts: { cwd?: string }): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFileCb(cmd, args, opts, (err, stdout, stderr) => {
+    execFileCb(cmd, args, { ...opts, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
         reject(err)
       } else {

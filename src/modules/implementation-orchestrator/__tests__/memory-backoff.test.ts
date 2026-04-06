@@ -87,6 +87,20 @@ vi.mock('node:child_process', async (importOriginal) => {
   }
 })
 
+// Mock @substrate-ai/sdlc so the Tier A verification pipeline always passes in unit tests (Story 51-5)
+vi.mock('@substrate-ai/sdlc', () => ({
+  createDefaultVerificationPipeline: vi.fn(() => ({
+    run: vi.fn().mockImplementation((ctx: { storyKey: string }) =>
+      Promise.resolve({
+        storyKey: ctx.storyKey,
+        checks: [],
+        status: 'pass',
+        duration_ms: 0,
+      }),
+    ),
+    register: vi.fn(),
+  })),
+}))
 // ---------------------------------------------------------------------------
 // Import mocked modules after vi.mock() calls
 // ---------------------------------------------------------------------------

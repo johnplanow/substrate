@@ -203,7 +203,7 @@ function mapInternalPhaseToEventPhase(internalPhase: string): PipelinePhase | nu
  * Shared helper called from both the implementation-only path and the full
  * pipeline path (AC2: shared event subscription logic).
  */
-function wireNdjsonEmitter(
+export function wireNdjsonEmitter(
   eventBus: ReturnType<typeof createEventBus>,
   ndjsonEmitter: ReturnType<typeof createEventEmitter>,
 ): void {
@@ -438,6 +438,30 @@ function wireNdjsonEmitter(
       indicators: payload.indicators,
     })
   })
+
+  // Verification pipeline events (Story 51-6)
+  eventBus.on('verification:check-complete', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'verification:check-complete',
+      ts: new Date().toISOString(),
+      storyKey: payload.storyKey,
+      checkName: payload.checkName,
+      status: payload.status,
+      details: payload.details,
+      duration_ms: payload.duration_ms,
+    })
+  })
+
+  eventBus.on('verification:story-complete', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'verification:story-complete',
+      ts: new Date().toISOString(),
+      storyKey: payload.storyKey,
+      checks: payload.checks,
+      status: payload.status,
+      duration_ms: payload.duration_ms,
+    })
+  })
 }
 
 export interface RunOptions {
@@ -464,6 +488,8 @@ export interface RunOptions {
   skipResearch?: boolean
   /** When true, skip the pre-flight build check (Story 25-2) */
   skipPreflight?: boolean
+  /** When true, skip the post-dispatch Tier A verification pipeline (Story 51-5) */
+  skipVerification?: boolean
   /** Scope story discovery to a single epic number (e.g., 27) */
   epic?: number
   /** When true, preview routing and repo-map injection without dispatching (Story 28-9) */
@@ -499,6 +525,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     research: researchFlag,
     skipResearch: skipResearchFlag,
     skipPreflight,
+    skipVerification,
     epic: epicNumber,
     dryRun,
     maxReviewCycles = 2,
@@ -754,6 +781,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(researchFlag === true ? { research: true } : {}),
       ...(skipResearchFlag === true ? { skipResearch: true } : {}),
       ...(skipPreflight === true ? { skipPreflight: true } : {}),
+      ...(skipVerification === true ? { skipVerification: true } : {}),
       ...(epicNumber !== undefined ? { epic: epicNumber } : {}),
       ...(injectedRegistry !== undefined ? { registry: injectedRegistry } : {}),
       ...(telemetryEnabled ? { telemetryEnabled: true, telemetryPort } : {}),
@@ -1478,6 +1506,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           enableHeartbeat: eventsFlag === true,
           // Skip pre-flight build check when --skip-preflight is set (Story 25-2)
           skipPreflight: skipPreflight === true,
+          // Skip post-dispatch verification pipeline when --skip-verification is set (Story 51-5)
+          ...(skipVerification === true ? { skipVerification: true } : {}),
         },
         projectRoot,
         tokenCeilings,
@@ -1691,6 +1721,8 @@ export interface FullPipelineOptions {
   skipResearch?: boolean
   /** When true, skip the pre-flight build check (Story 25-2) */
   skipPreflight?: boolean
+  /** When true, skip the post-dispatch Tier A verification pipeline (Story 51-5) */
+  skipVerification?: boolean
   /** Maximum number of review cycles per story (default: 2) */
   maxReviewCycles?: number
   /** Optional per-workflow token ceiling overrides from config (Story 25-1) */
@@ -1708,7 +1740,7 @@ export interface FullPipelineOptions {
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, maxReviewCycles = 2, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId } =
     options
 
   // Ensure database directory
@@ -2113,6 +2145,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             pipelineRunId: runId,
             // Skip pre-flight build check when --skip-preflight is set (Story 25-2)
             skipPreflight: skipPreflight === true,
+            // Skip post-dispatch verification pipeline when --skip-verification is set (Story 51-5)
+            ...(skipVerification === true ? { skipVerification: true } : {}),
           },
           projectRoot,
           tokenCeilings,
@@ -2379,6 +2413,7 @@ export function registerRunCommand(
     .option('--research', 'Enable the research phase even if not set in the pack manifest')
     .option('--skip-research', 'Skip the research phase even if enabled in the pack manifest')
     .option('--skip-preflight', 'Skip the pre-flight build check (escape hatch for known-broken projects)')
+    .option('--skip-verification', 'Skip the post-dispatch verification pipeline (Story 51-5)')
     .option('--max-review-cycles <n>', 'Maximum review cycles per story (default: 2)', (v: string) => parseInt(v, 10), 2)
     .option('--dry-run', 'Preview routing and repo-map injection without dispatching (Story 28-9)')
     .option('--engine <type>', 'Execution engine: linear (default) or graph')
@@ -2403,6 +2438,7 @@ export function registerRunCommand(
         research?: boolean
         skipResearch?: boolean
         skipPreflight?: boolean
+        skipVerification?: boolean
         maxReviewCycles: number
         dryRun?: boolean
         engine?: string
@@ -2450,6 +2486,7 @@ export function registerRunCommand(
           research: opts.research,
           skipResearch: opts.skipResearch,
           skipPreflight: opts.skipPreflight,
+          skipVerification: opts.skipVerification,
           maxReviewCycles: opts.maxReviewCycles,
           dryRun: opts.dryRun,
           engine: opts.engine,

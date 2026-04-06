@@ -136,7 +136,7 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
   "create-story": 600_000,
   "dev-story": 1_800_000,
   "code-review": 900_000,
-  "minor-fixes": 1_200_000,
+  "minor-fixes": 300_000,
   "major-rework": 900_000,
   "readiness-check": 600_000,
   "elicitation": 900_000,

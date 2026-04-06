@@ -136,7 +136,7 @@ export async function runCodeReview(
   deps: WorkflowDeps,
   params: CodeReviewParams,
 ): Promise<CodeReviewResult> {
-  const { storyKey, storyFilePath, workingDirectory, pipelineRunId, filesModified, previousIssues } = params
+  const { storyKey, storyFilePath, workingDirectory, pipelineRunId, filesModified, previousIssues, buildPassed } = params
   const cwd = workingDirectory ?? process.cwd()
 
   logger.debug({ storyKey, storyFilePath, cwd, pipelineRunId }, 'Starting code-review workflow')
@@ -274,8 +274,12 @@ export async function runCodeReview(
     logger.debug({ storyKey }, 'Injecting verified test-count metrics into code-review context')
   }
 
+  const buildStatusPrefix = buildPassed === true
+    ? 'BUILD STATUS: PASSED — code compiles and passes build verification. Focus on logic correctness, style, and acceptance criteria rather than compilation errors.\n\n'
+    : ''
+
   const sections = [
-    { name: 'story_content', content: storyContent, priority: 'required' as const },
+    { name: 'story_content', content: buildStatusPrefix + storyContent, priority: 'required' as const },
     { name: 'git_diff', content: gitDiffContent, priority: 'important' as const },
     { name: 'test_metrics', content: testMetricsContent, priority: 'important' as const },
     { name: 'previous_findings', content: previousFindingsContent, priority: 'optional' as const },
@@ -358,6 +362,7 @@ export async function runCodeReview(
   if (dispatchResult.parsed === null) {
     const details = dispatchResult.parseError ?? 'No YAML block found in output'
     logger.warn({ storyKey, details }, 'Code-review output schema validation failed')
+    // dispatchFailed: true marks this as a phantom for PhantomReviewCheck (Story 51-2)
     return {
       verdict: 'NEEDS_MINOR_FIXES',
       issues: 0,
@@ -366,6 +371,7 @@ export async function runCodeReview(
       details,
       rawOutput,
       tokenUsage,
+      dispatchFailed: true,
     }
   }
 
@@ -373,6 +379,7 @@ export async function runCodeReview(
   if (!parseResult.success) {
     const details = parseResult.error.message
     logger.warn({ storyKey, details }, 'Code-review output failed schema validation')
+    // dispatchFailed: true marks this as a phantom for PhantomReviewCheck (Story 51-2)
     return {
       verdict: 'NEEDS_MINOR_FIXES',
       issues: 0,
@@ -381,6 +388,7 @@ export async function runCodeReview(
       details,
       rawOutput,
       tokenUsage,
+      dispatchFailed: true,
     }
   }
 

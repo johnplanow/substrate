@@ -3,3 +3,5 @@ export * from './events.js'
 export * from './handlers/index.js'
 // Story 43-7/43-8: graph-based orchestrator and config mapping
 export * from './orchestrator/graph-orchestrator.js'
+// Story 51-1: Verification pipeline framework
+export * from './verification/index.js'

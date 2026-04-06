@@ -24,6 +24,8 @@ import type {
   StoryDoneEvent,
   StoryEscalationEvent,
   StoryWarnEvent,
+  VerificationCheckCompleteEvent,
+  VerificationStoryCompleteEvent,
 } from './event-types.js'
 
 // ---------------------------------------------------------------------------
@@ -67,6 +69,8 @@ interface StoryState {
   reviewCycles: number
   /** Escalation reason (populated on escalation) */
   escalationReason?: string
+  /** Current verification status (populated during/after verification pipeline) */
+  verificationStatus?: 'verifying' | 'pass' | 'warn' | 'fail'
 }
 
 // ---------------------------------------------------------------------------
@@ -176,8 +180,19 @@ export function createProgressRenderer(
             `ESCALATED${state.escalationReason ? ' — ' + state.escalationReason : ''}`,
             ANSI_RED,
           )
+        } else if (state.phase === 'verification-failed') {
+          statusText = colorize('VERIFICATION FAILED', ANSI_RED)
         } else if (state.phase === 'failed') {
           statusText = colorize('FAILED', ANSI_RED)
+        }
+      } else {
+        // Show verification status for non-terminal stories in verification phase
+        if (state.verificationStatus === 'verifying') {
+          statusText = 'verifying...'
+        } else if (state.verificationStatus === 'pass') {
+          statusText = colorize('verified ✓', ANSI_GREEN)
+        } else if (state.verificationStatus === 'warn') {
+          statusText = colorize('verified (warn)', ANSI_YELLOW)
         }
       }
 
@@ -372,6 +387,53 @@ export function createProgressRenderer(
     }
   }
 
+  function handleVerificationCheckComplete(event: VerificationCheckCompleteEvent): void {
+    let state = storyState.get(event.storyKey)
+    if (state === undefined) {
+      storyOrder.push(event.storyKey)
+      state = {
+        phase: 'wait',
+        statusLabel: 'queued',
+        terminal: false,
+        reviewCycles: 0,
+      }
+      storyState.set(event.storyKey, state)
+    }
+    state.verificationStatus = 'verifying'
+    redraw('  [verify] ' + event.storyKey + ' verifying... (' + event.checkName + ')')
+  }
+
+  function handleVerificationStoryComplete(event: VerificationStoryCompleteEvent): void {
+    let state = storyState.get(event.storyKey)
+    if (state === undefined) {
+      storyOrder.push(event.storyKey)
+      state = {
+        phase: 'wait',
+        statusLabel: 'queued',
+        terminal: false,
+        reviewCycles: 0,
+      }
+      storyState.set(event.storyKey, state)
+    }
+
+    // Don't un-terminal a story that's already terminal (e.g., story:done already processed)
+    if (state.terminal) {
+      return
+    }
+
+    state.verificationStatus = event.status
+
+    if (event.status === 'fail') {
+      state.phase = 'verification-failed'
+      state.terminal = true
+      redraw('  [verify] ' + event.storyKey + ' VERIFICATION FAILED')
+    } else if (event.status === 'warn') {
+      redraw('  [verify] ' + event.storyKey + ' verified (warn)')
+    } else {
+      redraw('  [verify] ' + event.storyKey + ' verified ✓ (' + event.checks.length + ' checks)')
+    }
+  }
+
   function handleComplete(event: PipelineCompleteEvent): void {
     pipelineComplete = true
 
@@ -434,6 +496,12 @@ export function createProgressRenderer(
         break
       case 'pipeline:complete':
         handleComplete(event)
+        break
+      case 'verification:check-complete':
+        handleVerificationCheckComplete(event)
+        break
+      case 'verification:story-complete':
+        handleVerificationStoryComplete(event)
         break
       default:
         // story:log and any future events — silently ignore

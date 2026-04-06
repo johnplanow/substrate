@@ -9,6 +9,7 @@
  */
 
 import type { CoreEvents } from '@substrate-ai/core'
+import type { VerificationSummary } from './verification/types.js'
 
 // ---------------------------------------------------------------------------
 // Helper payload types
@@ -322,4 +323,26 @@ export type SdlcEvents = CoreEvents & {
     /** List of staleness indicators detected */
     indicators: string[]
   }
+
+  // -------------------------------------------------------------------------
+  // Verification pipeline events (Story 51-1)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted after each individual verification check completes (pass, warn, or fail).
+   * AC5: payload matches VerificationCheckResult fields plus storyKey.
+   */
+  'verification:check-complete': {
+    storyKey: string
+    checkName: string
+    status: 'pass' | 'warn' | 'fail'
+    details: string
+    duration_ms: number
+  }
+
+  /**
+   * Emitted once per story after all verification checks have run.
+   * AC5: payload is the full VerificationSummary for the story.
+   */
+  'verification:story-complete': VerificationSummary
 }

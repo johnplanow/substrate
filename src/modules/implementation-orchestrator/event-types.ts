@@ -701,6 +701,57 @@ export interface PipelinePhaseCompleteEvent {
 }
 
 // ---------------------------------------------------------------------------
+// VerificationCheckCompleteEvent (Story 51-6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted after each individual Tier A verification check completes (Story 51-6).
+ * Payload mirrors the SdlcEvents 'verification:check-complete' payload plus ts timestamp.
+ */
+export interface VerificationCheckCompleteEvent {
+  type: 'verification:check-complete'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key (e.g., "51-5") */
+  storyKey: string
+  /** Check name (e.g., "phantom-review", "trivial-output", "build") */
+  checkName: string
+  /** Check result status */
+  status: 'pass' | 'warn' | 'fail'
+  /** Human-readable details from the check */
+  details: string
+  /** Check execution time in milliseconds */
+  duration_ms: number
+}
+
+// ---------------------------------------------------------------------------
+// VerificationStoryCompleteEvent (Story 51-6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted once per story after all Tier A verification checks complete (Story 51-6).
+ * Payload is the full VerificationSummary shape plus ts timestamp.
+ */
+export interface VerificationStoryCompleteEvent {
+  type: 'verification:story-complete'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key (e.g., "51-5") */
+  storyKey: string
+  /** Per-check results */
+  checks: Array<{
+    checkName: string
+    status: 'pass' | 'warn' | 'fail'
+    details: string
+    duration_ms: number
+  }>
+  /** Aggregated worst-case status across all checks */
+  status: 'pass' | 'warn' | 'fail'
+  /** Total duration of all checks in milliseconds */
+  duration_ms: number
+}
+
+// ---------------------------------------------------------------------------
 // PipelineEvent discriminated union
 // ---------------------------------------------------------------------------
 
@@ -751,6 +802,8 @@ export type PipelineEvent =
   | PipelinePhaseStartEvent
   | PipelinePhaseCompleteEvent
   | StoryAutoApprovedEvent
+  | VerificationCheckCompleteEvent
+  | VerificationStoryCompleteEvent
 
 // ---------------------------------------------------------------------------
 // Compile-time source of truth for all event type discriminants
@@ -814,6 +867,9 @@ export const EVENT_TYPE_NAMES = [
   // Story 39-1: full pipeline phase lifecycle events
   'pipeline:phase-start',
   'pipeline:phase-complete',
+  // Story 51-6: verification pipeline events
+  'verification:check-complete',
+  'verification:story-complete',
 ] as const
 
 /**

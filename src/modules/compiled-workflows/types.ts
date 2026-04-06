@@ -181,6 +181,8 @@ export interface CodeReviewParams {
   filesModified?: string[]
   /** Optional previous review issues — when present, scopes re-review to verify these were fixed */
   previousIssues?: Array<{ severity?: string; description?: string; file?: string; line?: number }>
+  /** Whether pre-review build verification passed — signals the reviewer to focus on logic/style, not compilation */
+  buildPassed?: boolean
 }
 
 /**

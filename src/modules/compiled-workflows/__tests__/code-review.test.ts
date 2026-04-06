@@ -593,7 +593,9 @@ describe('runCodeReview', () => {
     expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
     expect(result.error).toBe('schema_validation_failed')
     expect(result.details).toBeDefined()
-    expect(result.dispatchFailed).toBeUndefined()
+    // Story 51-2 (AC4): schema validation failures now set dispatchFailed: true
+    // so PhantomReviewCheck can detect them as phantoms
+    expect(result.dispatchFailed).toBe(true)
   })
 
   it('returns schema_validation_failed when no YAML block in output', async () => {
