@@ -61,8 +61,11 @@ export class PhantomReviewCheck implements VerificationCheck {
       }
     }
 
-    // AC2: agent produced no output
-    if (!review.rawOutput || review.rawOutput.trim().length === 0) {
+    // AC2: agent produced no output — only flag when rawOutput is explicitly empty
+    // string (dispatch ran but returned nothing). When rawOutput is undefined, the
+    // dispatch result may not have captured it (e.g., parsed YAML result without
+    // raw output preservation) — treat as pass since dispatchFailed was not set.
+    if (review.rawOutput !== undefined && review.rawOutput.trim().length === 0) {
       return {
         status: 'fail',
         details: 'phantom-review: empty review output',

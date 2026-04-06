@@ -102,14 +102,13 @@ describe('PhantomReviewCheck', () => {
     expect(result.details).toContain('empty review output')
   })
 
-  // AC2 — null rawOutput (undefined)
-  it('returns fail when rawOutput is undefined', async () => {
+  // AC2 — undefined rawOutput means dispatch result didn't capture output (not phantom)
+  it('returns pass when rawOutput is undefined (output not captured)', async () => {
     const check = new PhantomReviewCheck()
     const result = await check.run(
       makeContext({ dispatchFailed: false, rawOutput: undefined }),
     )
-    expect(result.status).toBe('fail')
-    expect(result.details).toContain('empty review output')
+    expect(result.status).toBe('pass')
   })
 
   // AC5 — valid SHIP_IT review
