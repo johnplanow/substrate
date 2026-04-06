@@ -131,6 +131,10 @@ export const TelemetryConfigSchema = z
     enabled: z.boolean().default(false),
     /** Port for the local OTLP HTTP ingestion server (1–65535) */
     port: z.number().int().min(1).max(65535).default(4318),
+    /** Agent-mesh telemetry server URL (e.g., http://localhost:4100). When set, run reports are pushed after pipeline completion. */
+    meshUrl: z.string().url().optional(),
+    /** Project identifier sent with run reports (e.g., "nextgen-ticketing"). Defaults to the directory name. */
+    projectId: z.string().optional(),
   })
   .strict()
 

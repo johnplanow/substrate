@@ -67,6 +67,7 @@ import {
 import { createConfigSystem } from '../../modules/config/config-system-impl.js'
 import type { TokenCeilings } from '../../modules/config/config-schema.js'
 import { IngestionServer } from '../../modules/telemetry/ingestion-server.js'
+import { reportToMesh } from '../../modules/telemetry/mesh-reporter.js'
 import { runExportAction } from './export.js'
 import { AdapterTelemetryPersistence } from '../../modules/telemetry/adapter-persistence.js'
 import { createLogger } from '../../utils/logger.js'
@@ -649,6 +650,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   let dispatchTimeouts: Record<string, number> | undefined
   let telemetryEnabled = false
   let telemetryPort = 4318
+  let meshUrl: string | undefined
+  let meshProjectId: string | undefined
   try {
     const configSystem = createConfigSystem({ projectConfigDir: dbDir })
     await configSystem.load()
@@ -663,6 +666,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     if (cfg.telemetry?.enabled === true) {
       telemetryEnabled = true
       telemetryPort = cfg.telemetry.port ?? 4318
+    }
+    if (cfg.telemetry?.meshUrl) {
+      meshUrl = cfg.telemetry.meshUrl
+      meshProjectId = cfg.telemetry.projectId
     }
   } catch {
     logger.debug('Config loading skipped — using default token ceilings and telemetry settings')
@@ -785,6 +792,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(epicNumber !== undefined ? { epic: epicNumber } : {}),
       ...(injectedRegistry !== undefined ? { registry: injectedRegistry } : {}),
       ...(telemetryEnabled ? { telemetryEnabled: true, telemetryPort } : {}),
+      ...(meshUrl !== undefined ? { meshUrl, meshProjectId } : {}),
+      engineType: resolvedEngine,
       maxReviewCycles: effectiveMaxReviewCycles,
       agentId,
     })
@@ -1675,6 +1684,17 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       process.stdout.write(formatTokenTelemetry(tokenSummary) + '\n')
     }
 
+    // Push RunReport to agent-mesh telemetry server (best-effort, never blocks pipeline exit)
+    if (meshUrl !== undefined) {
+      reportToMesh(adapter, pipelineRun.id, meshUrl, {
+        projectId: meshProjectId,
+        projectRoot,
+        agentBackend: agentId ?? 'claude-code',
+        engineType: resolvedEngine,
+        concurrency,
+      }).catch(() => {})
+    }
+
     return 0
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -1737,10 +1757,16 @@ export interface FullPipelineOptions {
   telemetryPort?: number
   /** Agent backend for dispatches: 'claude-code' (default), 'codex', or 'gemini' */
   agentId?: string
+  /** Agent-mesh telemetry server URL for pushing RunReports */
+  meshUrl?: string
+  /** Project identifier for mesh telemetry (defaults to directory name) */
+  meshProjectId?: string
+  /** Execution engine used for this run */
+  engineType?: string
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType } =
     options
 
   // Ensure database directory
@@ -2354,6 +2380,17 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         failed: fpFailedKeys,
         escalated: fpEscalatedKeys,
       })
+    }
+
+    // Push RunReport to agent-mesh telemetry server (best-effort, never blocks pipeline exit)
+    if (fpMeshUrl !== undefined) {
+      reportToMesh(adapter, runId, fpMeshUrl, {
+        projectId: fpMeshProjectId,
+        projectRoot,
+        agentBackend: agentId ?? 'claude-code',
+        engineType: fpEngineType ?? 'linear',
+        concurrency,
+      }).catch(() => {})
     }
 
     return 0
