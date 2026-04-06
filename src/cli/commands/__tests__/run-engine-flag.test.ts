@@ -299,6 +299,14 @@ vi.mock('@substrate-ai/sdlc', () => ({
   },
   resolveGraphPath: vi.fn().mockReturnValue('/fake/path/sdlc-pipeline.dot'),
   applyConfigToGraph: vi.fn(),
+  RunManifest: {
+    open: vi.fn().mockReturnValue({
+      read: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue(undefined),
+      patchCLIFlags: vi.fn().mockResolvedValue(undefined),
+      patchStoryState: vi.fn().mockResolvedValue(undefined),
+    }),
+  },
 }))
 
 vi.mock('@substrate-ai/factory', () => ({

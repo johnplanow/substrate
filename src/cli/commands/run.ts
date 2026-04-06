@@ -1580,6 +1580,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         projectRoot,
         tokenCeilings,
         agentId,
+        runManifest: RunManifest.open(pipelineRun.id, join(dbDir, 'runs')),
         ...(ingestionServer !== undefined ? { ingestionServer } : {}),
         ...(telemetryPersistence !== undefined ? { telemetryPersistence } : {}),
         ...(repoMapInjector !== undefined ? { repoMapInjector, maxRepoMapTokens: MAX_REPO_MAP_TOKENS } : {}),
@@ -2246,6 +2247,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           projectRoot,
           tokenCeilings,
           agentId,
+          runManifest: RunManifest.open(runId, join(dbDir, 'runs')),
           ...(fpIngestionServer !== undefined ? { ingestionServer: fpIngestionServer } : {}),
           ...(fpTelemetryPersistence !== undefined ? { telemetryPersistence: fpTelemetryPersistence } : {}),
         })
