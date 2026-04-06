@@ -72,11 +72,21 @@ Only if there are changes to commit:
 
 If no changes, skip to Step 6.
 
-### Step 6: Push
+### Step 6: Version bump, tag, and push
 
-```bash
-git push 2>&1
-```
+1. Read the current version from `package.json`
+2. Bump the patch version (e.g., 0.19.27 → 0.19.28)
+3. Commit the version bump with a message summarizing what's in the release:
+   ```
+   chore: bump version to v{VERSION} — {brief summary}
+   ```
+4. Tag the commit: `git tag v{VERSION}`
+5. Push commit and tag:
+   ```bash
+   git push && git push --tags
+   ```
+
+The tag push triggers the GitHub Actions npm publish workflow.
 
 If push fails due to remote changes, `git pull --rebase` and re-run from Step 1.
 
@@ -93,5 +103,6 @@ Report the CI run status. If still in progress, tell the user and offer to check
 After all steps, report concisely:
 - What was fixed (if anything)
 - Test count and result
-- Commit hash (if committed)
+- Version and tag
+- Commit hash
 - CI run status
