@@ -29,6 +29,8 @@ import type { OutputFormat } from './pipeline-shared.js'
 import { formatOutput, parseDbTimestampAsUtc } from './pipeline-shared.js'
 import type { StateStore } from '../../modules/state/index.js'
 import { createStateStore } from '../../modules/state/index.js'
+import { resolveRunManifest } from './manifest-read.js'
+import type { PerStoryState } from '@substrate-ai/sdlc'
 
 const logger = createLogger('health-cmd')
 
@@ -90,7 +92,14 @@ export interface PipelineHealthOutput {
     /** PENDING stories (not yet dispatched). Included so consumers can reconcile
      *  total story count: active + completed + escalated + pending = total stories. */
     pending?: number
+    /** FAILED stories (failed or verification-failed). Populated when manifest is available. */
+    failed?: number
     details: Record<string, { phase: string; review_cycles: number }>
+  }
+  /** Supervisor ownership from run manifest (when available — AC2). */
+  manifest_supervisor?: {
+    pid: number | null
+    session_id: string | null
   }
   /** Dolt state connectivity info. Present only when Dolt backend is configured. */
   dolt_state?: DoltStateInfo
@@ -321,6 +330,53 @@ export function getAllDescendantPids(
 // parseDbTimestampAsUtc is imported from pipeline-shared.ts
 
 // ---------------------------------------------------------------------------
+// Manifest → health story count helpers
+// ---------------------------------------------------------------------------
+
+interface ManifestStoryCounts {
+  active: number
+  completed: number
+  escalated: number
+  pending: number
+  failed: number
+}
+
+/**
+ * Derive health story counts from manifest `per_story_state`.
+ * Maps manifest status strings to health output buckets.
+ */
+function buildHealthStoryCountsFromManifest(
+  perStoryState: Record<string, PerStoryState>,
+): ManifestStoryCounts {
+  const counts: ManifestStoryCounts = { active: 0, completed: 0, escalated: 0, pending: 0, failed: 0 }
+  for (const entry of Object.values(perStoryState)) {
+    switch (entry.status) {
+      case 'complete':
+        counts.completed++
+        break
+      case 'escalated':
+        counts.escalated++
+        break
+      case 'failed':
+      case 'verification-failed':
+        counts.failed++
+        break
+      case 'pending':
+      case 'gated':
+        counts.pending++
+        break
+      case 'dispatched':
+      case 'in-review':
+      case 'recovered':
+      default:
+        counts.active++
+        break
+    }
+  }
+  return counts
+}
+
+// ---------------------------------------------------------------------------
 // Health data fetch (used by supervisor and tests)
 // ---------------------------------------------------------------------------
 
@@ -469,7 +525,7 @@ export async function getAutoHealthData(options: {
     const updatedAt = parseDbTimestampAsUtc(run.updated_at ?? '')
     const stalenessSeconds = Math.round((Date.now() - updatedAt.getTime()) / 1000)
 
-    // Parse story state from token_usage_json
+    // Parse story state from token_usage_json (Dolt-based fallback)
     let storyDetails: Record<string, { phase: string; review_cycles: number }> = {}
     let active = 0
     let completed = 0
@@ -494,6 +550,34 @@ export async function getAutoHealthData(options: {
     } catch {
       // ignore parse errors
     }
+
+    // Story 52-6 (AC2, AC4): Read supervisor ownership and per-story counts from manifest.
+    // Manifest-derived counts replace Dolt token_usage_json counts when available.
+    let manifestSupervisor: { pid: number | null; session_id: string | null } | undefined
+    let manifestStoryCounts: ManifestStoryCounts | undefined
+
+    try {
+      const { manifest: resolvedManifest } = await resolveRunManifest(dbRoot, run.id)
+      if (resolvedManifest !== null) {
+        const manifestData = await resolvedManifest.read()
+        manifestSupervisor = {
+          pid: manifestData.supervisor_pid,
+          session_id: manifestData.supervisor_session_id,
+        }
+        manifestStoryCounts = buildHealthStoryCountsFromManifest(manifestData.per_story_state)
+        logger.debug({ runId: run.id }, 'health: story counts and supervisor read from manifest')
+      }
+    } catch {
+      // Non-fatal: fall back to token_usage_json counts (AC4)
+      logger.debug({ runId: run.id }, 'health: manifest read failed — using token_usage_json counts')
+    }
+
+    // Use manifest counts if available; fall back to token_usage_json counts (AC4)
+    const finalActive = manifestStoryCounts?.active ?? active
+    const finalCompleted = manifestStoryCounts?.completed ?? completed
+    const finalEscalated = manifestStoryCounts?.escalated ?? escalated
+    const finalPending = manifestStoryCounts?.pending ?? pending
+    const finalFailed = manifestStoryCounts?.failed
 
     // Inspect process tree — scope to this project so multi-project setups
     // match the correct orchestrator process.
@@ -527,7 +611,7 @@ export async function getAutoHealthData(options: {
       } else if (stalenessSeconds > DEFAULT_STALL_THRESHOLD_SECONDS) {
         // AC3 heuristic: no orchestrator found + DB is stale → STALLED
         verdict = 'STALLED'
-      } else if (active > 0) {
+      } else if (finalActive > 0) {
         // AC3 heuristic: no orchestrator found but stories actively tracked
         // (process died without cleanup)
         verdict = 'STALLED'
@@ -544,8 +628,8 @@ export async function getAutoHealthData(options: {
     if (doltStateInfo !== undefined && doltStateInfo.responsive === false) {
       warnings.push('Dolt not connected — decision store queries may fail, story context will be degraded')
     }
-    if (escalated > 0) {
-      warnings.push(`${escalated} story(ies) escalated — operator intervention may be needed`)
+    if (finalEscalated > 0) {
+      warnings.push(`${finalEscalated} story(ies) escalated — operator intervention may be needed`)
     }
 
     const healthOutput: PipelineHealthOutput = {
@@ -556,7 +640,15 @@ export async function getAutoHealthData(options: {
       staleness_seconds: stalenessSeconds,
       last_activity: run.updated_at ?? '',
       process: processInfo,
-      stories: { active, completed, escalated, pending, details: storyDetails },
+      stories: {
+        active: finalActive,
+        completed: finalCompleted,
+        escalated: finalEscalated,
+        pending: finalPending,
+        ...(finalFailed !== undefined ? { failed: finalFailed } : {}),
+        details: storyDetails,
+      },
+      ...(manifestSupervisor !== undefined ? { manifest_supervisor: manifestSupervisor } : {}),
       ...(doltStateInfo !== undefined ? { dolt_state: doltStateInfo } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
     }

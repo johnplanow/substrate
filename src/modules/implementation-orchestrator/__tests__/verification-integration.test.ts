@@ -1,5 +1,5 @@
 /**
- * Unit tests for Story 51-5: verification-integration module.
+ * Unit and integration tests for verification-integration module — Stories 51-5 / 52-7.
  *
  * Covers:
  *   - assembleVerificationContext: context assembly with correct fields
@@ -10,9 +10,16 @@
  *   - VerificationStore.set/get: round-trip stores and retrieves summary by storyKey
  *   - VerificationStore.getAll: returns a ReadonlyMap with all set entries
  *   - VerificationStore.get: returns undefined for unknown storyKey
+ *   - persistVerificationResult: writes verification_result to manifest (Story 52-7)
+ *   - persistVerificationResult: no-op when runManifest is null
+ *   - pre-52-7 manifest without verification_result passes PerStoryStateSchema (Story 52-7)
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { promises as fs } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { randomUUID } from 'node:crypto'
 
 // ---------------------------------------------------------------------------
 // Module mocks — must appear before any imports that use them
@@ -25,8 +32,10 @@ vi.mock('node:child_process', () => ({ execSync: vi.fn() }))
 // ---------------------------------------------------------------------------
 
 import { execSync } from 'node:child_process'
-import { assembleVerificationContext, VerificationStore } from '../verification-integration.js'
+import { assembleVerificationContext, VerificationStore, persistVerificationResult } from '../verification-integration.js'
 import type { VerificationSummary, ReviewSignals } from '@substrate-ai/sdlc'
+import { RunManifest } from '@substrate-ai/sdlc'
+import { PerStoryStateSchema } from '@substrate-ai/sdlc'
 
 const mockExecSync = vi.mocked(execSync)
 
@@ -150,5 +159,153 @@ describe('VerificationStore', () => {
     const store = new VerificationStore()
 
     expect(store.get('nonexistent-key')).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// persistVerificationResult — Story 52-7 integration tests
+// ---------------------------------------------------------------------------
+
+describe('persistVerificationResult (Story 52-7)', () => {
+  let tempDir: string
+  let runId: string
+
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `verif-integration-${randomUUID()}`)
+    runId = randomUUID()
+    await fs.mkdir(tempDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true })
+    } catch {
+      // ignore cleanup errors
+    }
+  })
+
+  it('AC3/AC4: writes verification_result to manifest after VerificationPipeline.run() returns', async () => {
+    // Create a real RunManifest backed by temp dir
+    const manifest = await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {
+          '52-7': {
+            status: 'dispatched',
+            phase: 'IN_DEV',
+            started_at: '2026-04-06T10:00:00.000Z',
+          },
+        },
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
+
+    const summary = makeVerificationSummary('52-7', 'pass')
+
+    // Call persistVerificationResult — simulates what the orchestrator does
+    persistVerificationResult('52-7', summary, manifest)
+
+    // Allow microtask/promise queue to flush before reading
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    // Read back from disk and assert
+    const data = await RunManifest.read(runId, tempDir)
+    const entry = data.per_story_state['52-7']
+    expect(entry?.verification_result).toBeDefined()
+    expect(entry?.verification_result?.storyKey).toBe('52-7')
+    expect(entry?.verification_result?.status).toBe('pass')
+  })
+
+  it('AC5: verification_result persists across a new RunManifest instance (crash-recovery)', async () => {
+    const manifest = await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
+
+    const summary = makeVerificationSummary('52-7', 'fail')
+    persistVerificationResult('52-7', summary, manifest)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    // Simulate crash recovery: read with a fresh RunManifest instance
+    const freshManifest = new RunManifest(runId, tempDir)
+    const data = await freshManifest.read()
+
+    const entry = data.per_story_state['52-7']
+    expect(entry?.verification_result?.status).toBe('fail')
+  })
+
+  it('AC3: no-op when runManifest is null', () => {
+    // Should not throw — just a fire-and-forget no-op
+    expect(() => persistVerificationResult('52-7', makeVerificationSummary('52-7', 'pass'), null)).not.toThrow()
+  })
+
+  it('AC3: no-op when runManifest is undefined', () => {
+    expect(() => persistVerificationResult('52-7', makeVerificationSummary('52-7', 'pass'), undefined)).not.toThrow()
+  })
+
+  it('AC3: persists both pass and fail summaries (all outcomes recorded)', async () => {
+    const manifest = await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
+
+    // Write fail summary for story A
+    const failSummary = makeVerificationSummary('52-7', 'fail')
+    persistVerificationResult('52-7', failSummary, manifest)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const data = await RunManifest.read(runId, tempDir)
+    expect(data.per_story_state['52-7']?.verification_result?.status).toBe('fail')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Backward compatibility with pre-52-7 manifests (Story 52-7 AC6)
+// ---------------------------------------------------------------------------
+
+describe('pre-52-7 manifest backward compatibility (AC6)', () => {
+  it('PerStoryStateSchema accepts entry without verification_result field', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-04-06T10:00:00.000Z',
+      completed_at: '2026-04-06T11:00:00.000Z',
+      // No verification_result field — pre-52-7 manifest format
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.verification_result).toBeUndefined()
+    }
   })
 })

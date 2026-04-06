@@ -37,6 +37,8 @@ import {
 } from './pipeline-shared.js'
 import type { StateStore, StoryRecord } from '../../modules/state/index.js'
 import { createStateStore, WorkGraphRepository } from '../../modules/state/index.js'
+import { resolveRunManifest } from './manifest-read.js'
+import type { PerStoryState } from '@substrate-ai/sdlc'
 
 const logger = createLogger('status-cmd')
 
@@ -59,10 +61,71 @@ export interface StatusOptions {
 interface WgBlockerInfo { key: string; title: string; status: string }
 interface WgBlockedStory { key: string; title: string; blockers: WgBlockerInfo[] }
 interface WgReadyStory { key: string; title: string }
+
+/** Extended count shape used when building workGraph from manifest data (includes `failed`). */
+type WorkGraphCounts = {
+  ready: number
+  blocked: number
+  inProgress: number
+  complete: number
+  escalated: number
+  failed: number
+}
+
 interface WorkGraphSummary {
-  summary: { ready: number; blocked: number; inProgress: number; complete: number; escalated: number }
+  summary: { ready: number; blocked: number; inProgress: number; complete: number; escalated: number; failed?: number }
   readyStories: WgReadyStory[]
   blockedStories: WgBlockedStory[]
+}
+
+// ---------------------------------------------------------------------------
+// Manifest → WorkGraphSummary helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a manifest per-story status string to the appropriate WorkGraphCounts bucket.
+ * Unknown strings are treated as `inProgress` (safe default).
+ */
+function manifestStatusToWorkGraphBucket(status: string): keyof WorkGraphCounts {
+  switch (status) {
+    case 'complete':            return 'complete'
+    case 'escalated':           return 'escalated'
+    case 'failed':
+    case 'verification-failed': return 'failed'
+    case 'dispatched':
+    case 'in-review':
+    case 'recovered':           return 'inProgress'
+    case 'gated':
+    case 'pending':             return 'ready'
+    default:                    return 'inProgress'
+  }
+}
+
+/**
+ * Build a WorkGraphSummary from manifest `per_story_state`.
+ * readyStories and blockedStories are left empty — manifest does not carry
+ * dependency-graph detail (only status counts).
+ */
+function buildWorkGraphFromManifest(
+  perStoryState: Record<string, PerStoryState>,
+): WorkGraphSummary {
+  const counts: WorkGraphCounts = { ready: 0, blocked: 0, inProgress: 0, complete: 0, escalated: 0, failed: 0 }
+  for (const entry of Object.values(perStoryState)) {
+    const bucket = manifestStatusToWorkGraphBucket(entry.status)
+    counts[bucket]++
+  }
+  return {
+    summary: {
+      ready: counts.ready,
+      blocked: counts.blocked,
+      inProgress: counts.inProgress,
+      complete: counts.complete,
+      escalated: counts.escalated,
+      failed: counts.failed,
+    },
+    readyStories: [],
+    blockedStories: [],
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -122,40 +185,7 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
   try {
     await initSchema(adapter)
 
-    // Query work graph for blocked/ready stories
-    let workGraph: WorkGraphSummary | undefined
-    try {
-      const wgRepo = new WorkGraphRepository(adapter)
-      const allStories = await adapter.query<{ story_key: string; title: string | null; status: string }>(`SELECT story_key, title, status FROM wg_stories`)
-      if (allStories.length > 0) {
-        const readyStoriesRaw = await wgRepo.getReadyStories()
-        const blockedStoriesRaw = await wgRepo.getBlockedStories()
-        const readyKeys = new Set(readyStoriesRaw.map((s) => s.story_key))
-        const blockedKeys = new Set(blockedStoriesRaw.map((b) => b.story.story_key))
-        const inProgressCount = allStories.filter((s) => s.status === 'in_progress').length
-        const completeCount = allStories.filter((s) => s.status === 'complete').length
-        const escalatedCount = allStories.filter((s) => s.status === 'escalated').length
-        workGraph = {
-          summary: {
-            ready: readyKeys.size,
-            blocked: blockedKeys.size,
-            inProgress: inProgressCount,
-            complete: completeCount,
-            escalated: escalatedCount,
-          },
-          readyStories: readyStoriesRaw.map((s) => ({ key: s.story_key, title: s.title ?? s.story_key })),
-          blockedStories: blockedStoriesRaw.map((b) => ({
-            key: b.story.story_key,
-            title: b.story.title ?? b.story.story_key,
-            blockers: b.blockers.map((bl) => ({ key: bl.key, title: bl.title, status: bl.status })),
-          })),
-        }
-      }
-    } catch (err) {
-      logger.debug({ err }, 'Work graph query failed, continuing without work graph data')
-    }
-
-    // Query pipeline run
+    // Query pipeline run first (run ID needed for manifest resolution)
     let run: PipelineRun | undefined
     if (runId !== undefined && runId !== '') {
       run = await getPipelineRunById(adapter, runId)
@@ -181,6 +211,59 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
       if (run === undefined) {
         // AC3: Fallback to getLatestRun() for backward compatibility
         run = await getLatestRun(adapter)
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Work graph: prefer manifest per_story_state when available (AC1, AC4)
+    // Falls back to wg_stories query for pre-Phase-D runs without a manifest.
+    // ---------------------------------------------------------------------------
+    let workGraph: WorkGraphSummary | undefined
+
+    // Try to load run manifest (AC1, AC6)
+    const { manifest: resolvedManifest } = await resolveRunManifest(dbRoot, run?.id)
+    if (resolvedManifest !== null) {
+      try {
+        const manifestData = await resolvedManifest.read()
+        workGraph = buildWorkGraphFromManifest(manifestData.per_story_state)
+        logger.debug({ runId: run?.id }, 'status: workGraph built from manifest per_story_state')
+      } catch {
+        logger.debug({ runId: run?.id }, 'status: manifest read failed — falling back to wg_stories')
+        // fall through to wg_stories query below
+      }
+    }
+
+    // Fallback: query wg_stories when manifest not available (AC4)
+    if (workGraph === undefined) {
+      try {
+        const wgRepo = new WorkGraphRepository(adapter)
+        const allStories = await adapter.query<{ story_key: string; title: string | null; status: string }>(`SELECT story_key, title, status FROM wg_stories`)
+        if (allStories.length > 0) {
+          const readyStoriesRaw = await wgRepo.getReadyStories()
+          const blockedStoriesRaw = await wgRepo.getBlockedStories()
+          const readyKeys = new Set(readyStoriesRaw.map((s) => s.story_key))
+          const blockedKeys = new Set(blockedStoriesRaw.map((b) => b.story.story_key))
+          const inProgressCount = allStories.filter((s) => s.status === 'in_progress').length
+          const completeCount = allStories.filter((s) => s.status === 'complete').length
+          const escalatedCount = allStories.filter((s) => s.status === 'escalated').length
+          workGraph = {
+            summary: {
+              ready: readyKeys.size,
+              blocked: blockedKeys.size,
+              inProgress: inProgressCount,
+              complete: completeCount,
+              escalated: escalatedCount,
+            },
+            readyStories: readyStoriesRaw.map((s) => ({ key: s.story_key, title: s.title ?? s.story_key })),
+            blockedStories: blockedStoriesRaw.map((b) => ({
+              key: b.story.story_key,
+              title: b.story.title ?? b.story.story_key,
+              blockers: b.blockers.map((bl) => ({ key: bl.key, title: bl.title, status: bl.status })),
+            })),
+          }
+        }
+      } catch (err) {
+        logger.debug({ err }, 'Work graph query failed, continuing without work graph data')
       }
     }
 
