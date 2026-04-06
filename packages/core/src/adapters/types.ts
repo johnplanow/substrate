@@ -168,6 +168,13 @@ export interface TaskResult {
     executionTime?: number
     tokensUsed?: TokenEstimate
   }
+  /**
+   * True when the dispatcher's AdapterOutputNormalizer exhausted all
+   * normalization strategies without extracting parseable YAML.
+   * Authoritative signal for the 'adapter-format' root cause category (story 53-10).
+   * Optional — existing callers without the field continue to compile unchanged.
+   */
+  adapterError?: boolean
 }
 
 /**

@@ -99,6 +99,23 @@ export interface DispatchResult<T = unknown> {
     /** Estimated output tokens (output.length / 4) */
     output: number
   }
+  /**
+   * True when AdapterOutputNormalizer exhausted all normalization strategies
+   * without extracting parseable YAML from the adapter's raw output (story 53-10).
+   * Authoritative signal for 'adapter-format' root cause classification.
+   * Optional — existing callers without the field continue to compile unchanged.
+   */
+  adapterError?: boolean
+  /**
+   * Short verdict string for adapter format failures ('error').
+   * Set alongside adapterError when normalization is exhausted (story 53-10).
+   */
+  verdict?: string
+  /**
+   * Human-readable error message for adapter format failures.
+   * Contains adapter_id | tried_strategies | raw_output_snippet (story 53-10).
+   */
+  errorMessage?: string
 }
 
 // ---------------------------------------------------------------------------

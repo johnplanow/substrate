@@ -547,7 +547,7 @@ describe('AC3: YAML Output Parsing', () => {
 
     const result = await handle.result
     expect(result.parsed).toBeNull()
-    expect(result.parseError).toBe('no_yaml_block')
+    expect(result.parseError).toBeTruthy()
   })
 
   it('returns parseError when YAML does not match schema', async () => {

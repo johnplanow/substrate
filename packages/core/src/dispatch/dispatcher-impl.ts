@@ -30,8 +30,10 @@ import type {
   ILogger,
 } from './types.js'
 import { DispatcherShuttingDownError, DEFAULT_TIMEOUTS, DEFAULT_MAX_TURNS } from './types.js'
-import { extractYamlBlock, parseYamlResult } from './yaml-parser.js'
+import { parseYamlResult } from './yaml-parser.js'
 import { estimateOutputQuality } from './output-quality.js'
+import { AdapterOutputNormalizer } from '../adapters/adapter-output-normalizer.js'
+import { AdapterFormatError } from '../adapters/adapter-format-error.js'
 
 // Grace period (ms) between SIGTERM and SIGKILL during shutdown()
 const SHUTDOWN_GRACE_MS = 10_000
@@ -316,6 +318,12 @@ export interface CreateDispatcherOptions {
   config: DispatchConfig
   /** Optional logger instance. Defaults to console. */
   logger?: ILogger
+  /**
+   * Optional AdapterOutputNormalizer instance for YAML extraction hardening.
+   * Defaults to a new AdapterOutputNormalizer() if not provided.
+   * Inject a custom instance in tests to control normalization behavior.
+   */
+  normalizer?: AdapterOutputNormalizer
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +335,7 @@ export class DispatcherImpl implements Dispatcher {
   private readonly _adapterRegistry: IAdapterRegistry
   private readonly _config: DispatchConfig
   private readonly _logger: ILogger
+  private readonly _normalizer: AdapterOutputNormalizer
 
   private readonly _running: Map<string, ActiveDispatch> = new Map()
   private readonly _queue: QueuedDispatch[] = []
@@ -339,12 +348,14 @@ export class DispatcherImpl implements Dispatcher {
     eventBus: TypedEventBus<EventMap>,
     adapterRegistry: IAdapterRegistry,
     config: DispatchConfig,
-    logger: ILogger = console
+    logger: ILogger = console,
+    normalizer: AdapterOutputNormalizer = new AdapterOutputNormalizer(),
   ) {
     this._eventBus = eventBus
     this._adapterRegistry = adapterRegistry
     this._config = config
     this._logger = logger
+    this._normalizer = normalizer
   }
 
   // ---------------------------------------------------------------------------
@@ -759,18 +770,56 @@ export class DispatcherImpl implements Dispatcher {
       this._drainQueue()
 
       if (code === 0) {
-        // Parse YAML output
-        const yamlBlock = extractYamlBlock(stdout)
+        // Parse YAML output via AdapterOutputNormalizer (multi-strategy extraction)
+        const normalizeResult = this._normalizer.normalize(stdout, agent)
         let parsed: unknown = null
         let parseError: string | null = null
 
-        if (yamlBlock !== null) {
-          const parseResult = parseYamlResult(yamlBlock, outputSchema)
-          parsed = parseResult.parsed
-          parseError = parseResult.error
-        } else {
-          parseError = 'no_yaml_block'
+        if (normalizeResult instanceof AdapterFormatError) {
+          // All normalization strategies exhausted — return an adapter format error result
+          const errMsg = [
+            normalizeResult.adapter_id,
+            normalizeResult.tried_strategies.join(','),
+            normalizeResult.raw_output_snippet,
+          ].join(' | ')
+
+          // Estimate output quality for observability (especially non-Claude backends)
+          const quality = estimateOutputQuality(stdout)
+
+          this._eventBus.emit('agent:completed' as never, {
+            dispatchId: id,
+            exitCode: code,
+            output: stdout,
+            inputTokens,
+            outputTokens: Math.ceil(stdout.length / CHARS_PER_TOKEN),
+            qualityScore: quality.qualityScore,
+          } as never)
+
+          this._logger.warn(
+            { id, agent, taskType, adapterError: true, snippet: normalizeResult.raw_output_snippet },
+            'Adapter format error — all normalization strategies exhausted',
+          )
+
+          resolve({
+            id,
+            status: 'completed',
+            exitCode: code,
+            output: stdout,
+            parsed: null,
+            parseError: errMsg,
+            adapterError: true,
+            verdict: 'error',
+            errorMessage: errMsg,
+            durationMs,
+            tokenEstimate: { input: inputTokens, output: Math.ceil(stdout.length / CHARS_PER_TOKEN) },
+          })
+          return
         }
+
+        // Successful normalization — parse the extracted YAML
+        const parseResult = parseYamlResult(normalizeResult.yaml, outputSchema)
+        parsed = parseResult.parsed
+        parseError = parseResult.error
 
         // Estimate output quality for observability (especially non-Claude backends)
         const quality = estimateOutputQuality(stdout)
@@ -988,5 +1037,6 @@ export function createDispatcher(options: CreateDispatcherOptions): Dispatcher {
     options.adapterRegistry,
     options.config,
     options.logger ?? console,
+    options.normalizer ?? new AdapterOutputNormalizer(),
   )
 }

@@ -32,6 +32,12 @@ import {
 } from '../../persistence/queries/metrics.js'
 import { createDecision } from '../../persistence/queries/decisions.js'
 import { OPERATIONAL_FINDING } from '../../persistence/schemas/operational.js'
+import {
+  StallDetector,
+  DEFAULT_STALL_THRESHOLDS,
+  type StallThresholdConfig,
+} from '../../modules/supervisor/stall-detector.js'
+import { createConfigSystem } from '../../modules/config/config-system-impl.js'
 
 const supervisorLogger = createLogger('supervisor-cmd')
 
@@ -377,7 +383,7 @@ export interface ProjectCycleState {
 export async function handleStallRecovery(
   health: PipelineHealthOutput,
   state: ProjectCycleState,
-  config: { stallThreshold: number; maxRestarts: number; pack: string; outputFormat: OutputFormat },
+  config: { stallThreshold: number; maxRestarts: number; pack: string; outputFormat: OutputFormat; stallThresholds?: StallThresholdConfig },
   deps: Pick<SupervisorDeps, 'killPid' | 'resumePipeline' | 'sleep' | 'incrementRestarts' | 'getAllDescendants' | 'writeStallFindings' | 'getRegistry' | 'getRunConfig'>,
   io: {
     emitEvent: (event: Record<string, unknown>) => void
@@ -389,17 +395,44 @@ export async function handleStallRecovery(
   const { emitEvent, log } = io
   const { projectRoot } = state
 
-  // Phase-aware threshold: code review phases get 2x the threshold since
-  // review agents read many files without producing output tokens (Finding 2).
-  // Exception: if the orchestrator has 0 child processes but stories are in-progress,
-  // the agent is dead and there's nothing to wait for — use base threshold.
+  // Determine the dominant pipeline phase from per-story state.
+  // When the orchestrator is idle (no child pids but active stories), the agent is
+  // dead — fall back to 'dev-story' so we trigger on the base threshold immediately.
   const REVIEW_PHASES = new Set(['IN_REVIEW', 'code-review'])
   const activePhases = Object.values(health.stories.details ?? {}).map((s: any) => s.phase)
-  const inReviewPhase = activePhases.some((p: string) => REVIEW_PHASES.has(p))
   const orchestratorIdle = health.process.child_pids.length === 0 && health.stories.active > 0
-  const effectiveThreshold = (inReviewPhase && !orchestratorIdle) ? stallThreshold * 2 : stallThreshold
+  const activePhase = orchestratorIdle
+    ? 'dev-story'
+    : activePhases.some((p: string) => REVIEW_PHASES.has(p)) ? 'code-review' : 'dev-story'
 
-  if (health.staleness_seconds < effectiveThreshold) return null
+  // Delegate threshold computation to StallDetector (AC5).
+  // When `stallThresholds` is not explicitly provided (e.g. legacy callers that only set
+  // `stallThreshold`), derive a phase-aware config from the single value to preserve
+  // backward-compatible behaviour: review phases get 2× the base threshold.
+  const resolvedThresholds: StallThresholdConfig = config.stallThresholds ?? {
+    'create-story': stallThreshold,
+    'dev-story': stallThreshold,
+    'code-review': stallThreshold * 2,
+    'test-plan': stallThreshold,
+  }
+  const detector = new StallDetector(resolvedThresholds)
+  // Get the backend timeout multiplier from the adapter registry (memoised — cheap to call).
+  // Wrapped in try/catch so tests that omit getRegistry still work with the default 1.0 multiplier.
+  let timeoutMultiplier = 1.0
+  try {
+    const registryForTimeout = await getRegistry()
+    const defaultAdapter = registryForTimeout.get('claude-code') ?? registryForTimeout.getAll()[0]
+    timeoutMultiplier = defaultAdapter?.getCapabilities().timeoutMultiplier ?? 1.0
+  } catch {
+    // Registry unavailable — fall back to 1.0 (no multiplier applied)
+  }
+  const { isStalled, effectiveThreshold } = detector.evaluate({
+    phase: activePhase,
+    staleness_seconds: health.staleness_seconds,
+    timeoutMultiplier,
+  })
+
+  if (!isStalled) return null
 
   // Guard: do not kill a foreign pipeline run (cross-session protection)
   if (state.runId !== undefined && health.run_id !== null && health.run_id !== state.runId) {
@@ -426,7 +459,7 @@ export async function handleStallRecovery(
   })
 
   log(
-    `Supervisor: Stall confirmed (${health.staleness_seconds}s ≥ ${stallThreshold}s threshold). Killing PIDs: ${pids.join(', ') || 'none'}`,
+    `Supervisor: Stall confirmed (${health.staleness_seconds}s ≥ ${effectiveThreshold}s threshold). Killing PIDs: ${pids.join(', ') || 'none'}`,
   )
 
   // SIGTERM first — graceful shutdown
@@ -598,6 +631,78 @@ export async function runSupervisorAction(
   const startTime = Date.now()
 
   // ---------------------------------------------------------------------------
+  // Poll interval — config override (AC6) + adaptive polling (AC7)
+  // ---------------------------------------------------------------------------
+  // Load supervisor_poll_interval_seconds from config if defined (AC6).
+  let resolvedPollInterval = pollInterval
+  try {
+    const dbRoot = await resolveMainRepoRoot(projectRoot).catch(() => projectRoot)
+    const configSystem = createConfigSystem({ projectConfigDir: join(dbRoot, '.substrate') })
+    await configSystem.load()
+    const supervisorCfg = configSystem.getConfig()
+    if (typeof supervisorCfg.supervisor_poll_interval_seconds === 'number') {
+      resolvedPollInterval = supervisorCfg.supervisor_poll_interval_seconds
+    }
+  } catch {
+    // Best-effort — fall back to CLI value
+  }
+
+  // ---------------------------------------------------------------------------
+  // Stall thresholds — read from manifest if run ID is known (AC4)
+  // ---------------------------------------------------------------------------
+  // Kept as undefined until the manifest is read; when undefined, handleStallRecovery
+  // falls back to deriving thresholds from the legacy stallThreshold option (backward compat).
+  let stallThresholds: StallThresholdConfig | undefined = undefined
+
+  async function resolveManifestThresholds(targetRunId: string): Promise<void> {
+    try {
+      const manifest = RunManifest.open(targetRunId, join(projectRoot, '.substrate', 'runs'))
+      const data = await manifest.read()
+      const cliFlags = data?.cli_flags as Record<string, unknown> | undefined
+      const manifestThresholds = cliFlags?.stall_thresholds
+      if (
+        manifestThresholds !== null &&
+        typeof manifestThresholds === 'object' &&
+        !Array.isArray(manifestThresholds) &&
+        Object.keys(manifestThresholds as object).length > 0
+      ) {
+        stallThresholds = manifestThresholds as StallThresholdConfig
+      } else {
+        // Persist defaults idempotently (AC4) and activate them
+        const existingFlags = (cliFlags ?? {}) as Record<string, unknown>
+        await manifest.update({ cli_flags: { ...existingFlags, stall_thresholds: DEFAULT_STALL_THRESHOLDS } }).catch(() => {})
+        stallThresholds = DEFAULT_STALL_THRESHOLDS
+      }
+    } catch {
+      // Best-effort — leave stallThresholds undefined (backward compat via stallThreshold)
+    }
+  }
+
+  if (runId !== undefined) {
+    await resolveManifestThresholds(runId)
+  }
+
+  // Compute adaptive poll interval using the timeout multiplier of the default backend (AC7).
+  // The registry is memoised so this is cheap when called again during stall recovery.
+  let effectivePollInterval = resolvedPollInterval
+  try {
+    const initRegistry = await resolvedDeps.getRegistry()
+    const initAdapter = initRegistry.get('claude-code') ?? initRegistry.getAll()[0]
+    const initMultiplier: number = initAdapter?.getCapabilities().timeoutMultiplier ?? 1.0
+    // Use resolved manifest thresholds or derive from stallThreshold for consistent adaptive polling.
+    const adaptiveThresholds: StallThresholdConfig = stallThresholds ?? {
+      'create-story': stallThreshold,
+      'dev-story': stallThreshold,
+      'code-review': stallThreshold * 2,
+      'test-plan': stallThreshold,
+    }
+    const pollDetector = new StallDetector(adaptiveThresholds)
+    effectivePollInterval = pollDetector.getAdaptivePollInterval(resolvedPollInterval, initMultiplier)
+  } catch {
+    // Best-effort — use resolved poll interval
+  }
+
+  // ---------------------------------------------------------------------------
   // Supervisor locking — Story 52-2
   // ---------------------------------------------------------------------------
   // A unique session ID identifies this supervisor instance.
@@ -700,6 +805,8 @@ export async function runSupervisorAction(
       log(`Supervisor: auto-bound to active run ${health.run_id}`)
       // Acquire the lock now that we know the run ID
       await acquireLockForRun(health.run_id)
+      // Persist manifest thresholds now that we have the run ID (AC4)
+      await resolveManifestThresholds(health.run_id)
     }
 
     // Emit supervisor:poll heartbeat event on each cycle in JSON mode
@@ -870,7 +977,7 @@ export async function runSupervisorAction(
     const stallResult = await handleStallRecovery(
       health,
       state,
-      { stallThreshold, maxRestarts, pack, outputFormat },
+      { stallThreshold, maxRestarts, pack, outputFormat, stallThresholds },
       {
         killPid: resolvedDeps.killPid,
         resumePipeline: resolvedDeps.resumePipeline,
@@ -896,7 +1003,7 @@ export async function runSupervisorAction(
     }
 
     // Wait for next poll interval
-    await sleep(pollInterval * 1000)
+    await sleep(effectivePollInterval * 1000)
   }
 }
 

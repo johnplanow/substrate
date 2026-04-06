@@ -11,3 +11,6 @@ export { CodexCLIAdapter } from './codex-adapter.js'
 export { GeminiCLIAdapter } from './gemini-adapter.js'
 // Zod validation schemas
 export * from './schemas.js'
+// Adapter hardening — format error and multi-strategy normalizer (story 53-10)
+export { AdapterFormatError } from './adapter-format-error.js'
+export { AdapterOutputNormalizer } from './adapter-output-normalizer.js'

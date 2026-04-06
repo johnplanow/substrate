@@ -145,6 +145,8 @@ export const SubstrateConfigSchema = z
     telemetry: TelemetryConfigSchema.optional(),
     /** Default agent backend for all dispatches (e.g., 'claude-code', 'codex', 'gemini'). Defaults to 'claude-code'. */
     default_agent: z.string().optional(),
+    /** Supervisor poll interval in seconds. Overrides --poll-interval CLI flag when set (Story 53-1 AC6). Default: 30. */
+    supervisor_poll_interval_seconds: z.number().int().positive().optional(),
   })
   .strict()
 
@@ -173,6 +175,8 @@ export const PartialSubstrateConfigSchema = z
     dispatch_timeouts: DispatchTimeoutsSchema.optional(),
     telemetry: TelemetryConfigSchema.partial().optional(),
     default_agent: z.string().optional(),
+    /** Supervisor poll interval in seconds. Overrides --poll-interval CLI flag when set (Story 53-1 AC6). Default: 30. */
+    supervisor_poll_interval_seconds: z.number().int().positive().optional(),
   })
   .strict()
 

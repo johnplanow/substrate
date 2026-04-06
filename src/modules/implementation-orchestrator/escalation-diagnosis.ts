@@ -6,6 +6,40 @@
  */
 
 // ---------------------------------------------------------------------------
+// Adapter-format root cause bridge (story 53-10)
+//
+// Story 53-5 will define the full RootCauseCategory union and classifyFailure().
+// This bridge exposes the adapter-format detection surface so that once 53-5
+// ships, it can import detectAdapterFormatRootCause() instead of duplicating
+// the adapterError check.
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal result shape for adapter-format root cause detection.
+ * Compatible with both TaskResult (adapters/types.ts) and DispatchResult
+ * (dispatch/types.ts) since both have adapterError?: boolean (story 53-10).
+ */
+export interface HasAdapterError {
+  adapterError?: boolean
+}
+
+/**
+ * Detect whether a dispatch result represents an adapter-format failure.
+ *
+ * Returns `'adapter-format'` when `adapterError` is true, otherwise null.
+ * Story 53-5's classifyFailure() should call this before evaluating issue lists.
+ *
+ * @param result - Any result object that may carry adapterError (TaskResult or DispatchResult)
+ * @returns `'adapter-format'` | null
+ */
+export function detectAdapterFormatRootCause(result: HasAdapterError): 'adapter-format' | null {
+  if (result.adapterError === true) {
+    return 'adapter-format'
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
