@@ -482,6 +482,9 @@ export async function handleStallRecovery(
 
   if (health.run_id !== null) {
     await incrementRestarts(health.run_id, projectRoot)
+    // Source demotion: mirror restart_count to manifest (authoritative source)
+    RunManifest.open(health.run_id, join(projectRoot, '.substrate', 'runs'))
+      .update({ restart_count: newRestartCount }).catch(() => {})
   }
 
   emitEvent({

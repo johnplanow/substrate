@@ -1120,7 +1120,7 @@ export function createImplementationOrchestrator(
           updates.phase === 'ESCALATED' ||
           updates.phase === 'VERIFICATION_FAILED'
         ) {
-          // Terminal transition: record final status, phase, and completion time (AC5).
+          // Terminal transition: record final status, phase, completion time, and metrics (AC5).
           // cost_usd is intentionally omitted here; writeStoryMetricsBestEffort patches it
           // with the real aggregated value once aggregateTokenUsageForStory completes.
           const manifestStatus = mapPhaseToManifestStatus(updates.phase)
@@ -1129,6 +1129,8 @@ export function createImplementationOrchestrator(
               status: manifestStatus,
               phase: String(updates.phase),
               completed_at: fullUpdated.completedAt ?? new Date().toISOString(),
+              review_cycles: fullUpdated.reviewCycles ?? 0,
+              dispatches: _storyDispatches.get(storyKey) ?? 0,
             })
             .catch((err: unknown) =>
               logger.warn({ err, storyKey }, `patchStoryState(${manifestStatus}) failed — pipeline continues`),

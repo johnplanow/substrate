@@ -67,6 +67,10 @@ export const PerStoryStateSchema = z.object({
   verification_result: StoredVerificationSummarySchema.optional(),
   /** Accumulated cost in USD for this story (populated at terminal transition). */
   cost_usd: z.number().nonnegative().optional(),
+  /** Number of code review cycles this story went through. */
+  review_cycles: z.number().int().nonnegative().optional(),
+  /** Number of agent dispatches for this story. */
+  dispatches: z.number().int().nonnegative().optional(),
 })
 
 export type PerStoryState = z.infer<typeof PerStoryStateSchema>

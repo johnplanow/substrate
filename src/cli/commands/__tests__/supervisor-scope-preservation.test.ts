@@ -31,7 +31,8 @@ const {
 } = vi.hoisted(() => {
   // Manifest mock for supervisor
   const mockManifestRead = vi.fn()
-  const mockRunManifestOpen = vi.fn().mockReturnValue({ read: mockManifestRead })
+  const mockManifestUpdate = vi.fn().mockResolvedValue(undefined)
+  const mockRunManifestOpen = vi.fn().mockReturnValue({ read: mockManifestRead, update: mockManifestUpdate })
 
   // Resume pipeline mock used inside supervisor deps
   const mockResumeAction = vi.fn().mockResolvedValue(0)

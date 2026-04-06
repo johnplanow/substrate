@@ -48,6 +48,16 @@ export interface RunManifestData {
   cli_flags: Record<string, unknown>
   /** Explicit story scope (empty = all pending stories). */
   story_scope: string[]
+  /**
+   * Pipeline run status. Authoritative source — Dolt `pipeline_runs.status`
+   * is the degraded fallback. Consumers MUST read this field first.
+   */
+  run_status?: 'running' | 'completed' | 'failed' | 'stopped'
+  /**
+   * Number of supervisor-triggered restarts for this run.
+   * Authoritative source — Dolt `run_metrics.restarts` is the degraded fallback.
+   */
+  restart_count?: number
   /** PID of the attached supervisor process, or null if none. */
   supervisor_pid: number | null
   /** Session ID of the supervisor process, or null if none. */

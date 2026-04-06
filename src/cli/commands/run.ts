@@ -1006,7 +1006,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         ...(skipVerification === true ? { skip_verification: true } : {}),
         ...(eventsFlag === true ? { events: true } : {}),
       }
-      await RunManifest.open(pipelineRun.id, runsDir).patchCLIFlags(cliFlags)
+      const manifest = RunManifest.open(pipelineRun.id, runsDir)
+      await manifest.patchCLIFlags(cliFlags)
+      // Source demotion: mark run as 'running' in manifest (authoritative source)
+      await manifest.update({ run_status: 'running' })
     } catch (err) {
       logger.warn({ err }, 'Failed to persist CLI flags to run manifest — pipeline continues')
     }
@@ -1663,6 +1666,16 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       })
     } catch (metricsErr) {
       logger.warn({ err: metricsErr }, 'Failed to write run metrics (best-effort)')
+    }
+
+    // Source demotion: write terminal run_status to manifest (authoritative source).
+    // Dolt pipeline_runs.status is updated separately — manifest takes precedence on read.
+    try {
+      const runsDir = join(dbDir, 'runs')
+      const terminalStatus: 'completed' | 'failed' = failedKeys.length > 0 ? 'failed' : 'completed'
+      await RunManifest.open(pipelineRun.id, runsDir).update({ run_status: terminalStatus })
+    } catch {
+      // Non-fatal — manifest write failure must not block pipeline completion
     }
 
     // pipeline:complete — emit to progress renderer (AC2 of Story 15-2)
@@ -2351,6 +2364,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
           // Update run status to 'stopped' atomically before emitting summary (AC4)
           await updatePipelineRun(adapter, runId, { status: 'stopped' })
+          // Source demotion: mirror to manifest (authoritative)
+          RunManifest.open(runId, join(dbDir, 'runs')).update({ run_status: 'stopped' }).catch(() => {})
 
           // Emit phase completion summary (AC5)
           const phaseStartedAt = new Date(startedAt).toISOString()
