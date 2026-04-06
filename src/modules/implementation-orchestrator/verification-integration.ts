@@ -1,15 +1,20 @@
 /**
- * Verification integration helpers — Story 51-5.
+ * Verification integration helpers — Story 51-5 / 52-7.
  *
  * Provides:
  * - `assembleVerificationContext`: builds a VerificationContext from orchestrator data
  * - `VerificationStore`: in-memory store for VerificationSummary results
+ * - `persistVerificationResult`: non-fatal manifest persistence for Story 52-7
  *
  * No LLM calls in this file (FR-V9). All logic is pure orchestration.
  */
 
 import { execSync } from 'node:child_process'
 import type { VerificationContext, VerificationSummary, ReviewSignals } from '@substrate-ai/sdlc'
+import type { RunManifest } from '@substrate-ai/sdlc'
+import { createLogger } from '../../utils/logger.js'
+
+const _logger = createLogger('verification-integration')
 
 // ---------------------------------------------------------------------------
 // assembleVerificationContext
@@ -68,8 +73,8 @@ export function assembleVerificationContext(
  * In-memory store for VerificationSummary results, keyed by story key.
  *
  * Persists for the lifetime of the orchestrator instance. Does NOT write
- * to Dolt, SQLite, or any file system — persistence is Epic 52 scope.
- * Future consumers (story 52-7) read from this store to persist results.
+ * to Dolt, SQLite, or any file system — the manifest persistence path
+ * is provided by `persistVerificationResult` (Story 52-7).
  */
 export class VerificationStore {
   private readonly _map = new Map<string, VerificationSummary>()
@@ -88,4 +93,42 @@ export class VerificationStore {
   getAll(): ReadonlyMap<string, VerificationSummary> {
     return this._map
   }
+}
+
+// ---------------------------------------------------------------------------
+// persistVerificationResult — Story 52-7
+// ---------------------------------------------------------------------------
+
+/**
+ * Non-fatally persist a VerificationSummary to the run manifest.
+ *
+ * Called immediately after `VerificationPipeline.run()` returns, before any
+ * terminal phase transition. Records both pass/warn and fail outcomes so all
+ * verification results survive process crashes.
+ *
+ * Design notes:
+ * - Non-fatal: the returned promise is wrapped in `.catch()` at the call site
+ *   so a manifest write failure never aborts the pipeline.
+ * - Reuses the single RunManifest instance injected by the orchestrator to
+ *   avoid concurrent-write conflicts with the atomic-write lock.
+ * - `runManifest` is optional (`undefined | null`) — callers from contexts
+ *   where no manifest is configured pass `null` and this function is a no-op.
+ *
+ * @param storyKey    - Story key being verified (e.g. '52-7')
+ * @param summary     - VerificationSummary returned by VerificationPipeline.run()
+ * @param runManifest - RunManifest instance to write to, or null/undefined to skip
+ */
+export function persistVerificationResult(
+  storyKey: string,
+  summary: VerificationSummary,
+  runManifest: RunManifest | null | undefined,
+): void {
+  if (runManifest == null) {
+    return
+  }
+  runManifest
+    .patchStoryState(storyKey, { verification_result: summary })
+    .catch((err: unknown) =>
+      _logger.warn({ err, storyKey }, 'manifest verification_result write failed — pipeline continues'),
+    )
 }

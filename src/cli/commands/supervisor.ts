@@ -10,7 +10,10 @@
 import type { Command } from 'commander'
 import { join, resolve } from 'path'
 import { existsSync } from 'fs'
+import { randomUUID } from 'node:crypto'
 import type { OutputFormat } from './pipeline-shared.js'
+import { RunManifest, SupervisorLock } from '@substrate-ai/sdlc'
+import { createLogger } from '../../utils/logger.js'
 import type { PipelineHealthOutput } from './health.js'
 import { getAutoHealthData, getAllDescendantPids } from './health.js'
 import type { ResumeOptions } from './resume.js'
@@ -29,6 +32,8 @@ import {
 } from '../../persistence/queries/metrics.js'
 import { createDecision } from '../../persistence/queries/decisions.js'
 import { OPERATIONAL_FINDING } from '../../persistence/schemas/operational.js'
+
+const supervisorLogger = createLogger('supervisor-cmd')
 
 // ---------------------------------------------------------------------------
 // supervisor options & deps
@@ -57,6 +62,12 @@ export interface SupervisorOptions {
    * Default: 2
    */
   maxExperiments?: number
+  /**
+   * When true, forcefully evict an existing supervisor process (SIGTERM + 500ms wait)
+   * before acquiring the run lock (Story 52-2 AC4).
+   * Without this flag, attaching while another supervisor holds the lock is rejected.
+   */
+  force?: boolean
 }
 
 /** Injectable dependencies for testing the supervisor without real processes or timers */
@@ -482,10 +493,26 @@ export async function handleStallRecovery(
   log(`Supervisor: Restarting pipeline (attempt ${newRestartCount}/${maxRestarts})`)
 
   try {
-    // Read the original CLI scope from config_json (preferred), falling back
-    // to the health snapshot's active story keys (Finding 1: prevent unscoped discovery).
+    // Determine scoped story keys for restart:
+    // Priority: manifest cli_flags.stories → config_json (legacy) → health snapshot
     let scopedStories: string[] | undefined
-    if (deps.getRunConfig !== undefined && health.run_id !== null) {
+
+    // Try manifest cli_flags.stories (highest priority — persisted at run start)
+    if (health.run_id !== null) {
+      try {
+        const manifest = RunManifest.open(health.run_id, projectRoot)
+        const data = await manifest.read()
+        const manifestStories = data?.cli_flags?.stories as string[] | undefined
+        if (Array.isArray(manifestStories) && manifestStories.length > 0) {
+          scopedStories = manifestStories
+        }
+      } catch {
+        // Manifest unavailable — fall through to config_json
+      }
+    }
+
+    // Try config_json (legacy scope persistence)
+    if (scopedStories === undefined && deps.getRunConfig !== undefined && health.run_id !== null) {
       try {
         const runConfig = await deps.getRunConfig(health.run_id, projectRoot)
         if (runConfig?.explicitStories !== undefined && runConfig.explicitStories.length > 0) {
@@ -495,6 +522,7 @@ export async function handleStallRecovery(
         // Best-effort — fall through to health snapshot
       }
     }
+
     if (scopedStories === undefined) {
       const healthKeys = Object.keys(health.stories.details ?? {})
       if (healthKeys.length > 0) scopedStories = healthKeys
@@ -558,13 +586,88 @@ export async function runSupervisorAction(
   options: SupervisorOptions,
   deps: Partial<SupervisorDeps> = {},
 ): Promise<number> {
-  const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack, experiment, maxExperiments } = options
+  const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack, experiment, maxExperiments, force } = options
   const resolvedDeps = { ...defaultSupervisorDeps(), ...deps }
   const { getHealth, sleep, runAnalysis, getTokenSnapshot, writeRunSummary } = resolvedDeps
 
   let state: ProjectCycleState = { projectRoot, runId, restartCount: 0 }
   let maxRestartsExhausted = false
   const startTime = Date.now()
+
+  // ---------------------------------------------------------------------------
+  // Supervisor locking — Story 52-2
+  // ---------------------------------------------------------------------------
+  // A unique session ID identifies this supervisor instance.
+  const sessionId = randomUUID()
+  let supervisorLock: SupervisorLock | null = null
+
+  /** Track whether process exit handlers have been registered for this supervisor. */
+  let exitHandlersRegistered = false
+
+  /**
+   * Register process.once exit handlers to release the lock on exit.
+   * Called exactly once, after the first successful lock acquisition.
+   * Using process.once (not process.on) per Story 52-2 spec.
+   */
+  function registerExitHandlers(lock: SupervisorLock): void {
+    if (exitHandlersRegistered) return
+    exitHandlersRegistered = true
+    process.once('exit', () => {
+      lock.release().catch((e: unknown) => {
+        supervisorLogger.debug({ error: e }, 'lock release on exit failed')
+      })
+    })
+    process.once('SIGTERM', () => {
+      lock.release()
+        .then(() => process.exit(0))
+        .catch(() => process.exit(1))
+    })
+    process.once('SIGINT', () => {
+      lock.release()
+        .then(() => process.exit(0))
+        .catch(() => process.exit(1))
+    })
+  }
+
+  /**
+   * Acquire the supervisor lock for a given run ID.
+   * Non-fatal: logs and continues on failure so the supervisor can still
+   * function in degraded mode without blocking the pipeline.
+   */
+  async function acquireLockForRun(targetRunId: string): Promise<void> {
+    if (supervisorLock !== null) return // Already acquired
+    try {
+      const runsDir = join(projectRoot, '.substrate', 'runs')
+      const manifest = RunManifest.open(targetRunId, runsDir)
+      const lock = new SupervisorLock(targetRunId, manifest, supervisorLogger)
+      await lock.acquire(process.pid, sessionId, { force: force ?? false })
+      supervisorLock = lock
+      supervisorLogger.debug({ runId: targetRunId }, 'Supervisor lock acquired')
+      // Register exit handlers now that we hold a lock (once only)
+      registerExitHandlers(lock)
+    } catch (lockErr: unknown) {
+      const msg = lockErr instanceof Error ? lockErr.message : String(lockErr)
+      supervisorLogger.warn({ runId: targetRunId, error: msg }, 'Supervisor lock acquisition failed')
+      // Emit event in JSON mode so callers can detect the rejection
+      if (outputFormat === 'json') {
+        process.stdout.write(
+          JSON.stringify({ type: 'supervisor:lock-failed', run_id: targetRunId, reason: msg, ts: new Date().toISOString() }) + '\n',
+        )
+      } else {
+        process.stderr.write(`Warning: Supervisor lock acquisition failed: ${msg}\n`)
+      }
+      // Re-throw if the error message matches the prescribed conflict format —
+      // attaching to an already-supervised run without --force is a user error.
+      if (msg.includes('is already supervised by PID') && !force) {
+        throw lockErr
+      }
+    }
+  }
+
+  // If a runId was provided at startup, acquire the lock immediately.
+  if (runId !== undefined) {
+    await acquireLockForRun(runId)
+  }
 
   function emitEvent(event: Record<string, unknown>): void {
     if (outputFormat === 'json') {
@@ -592,6 +695,8 @@ export async function runSupervisorAction(
     if (state.runId === undefined && health.run_id !== null) {
       state = { ...state, runId: health.run_id }
       log(`Supervisor: auto-bound to active run ${health.run_id}`)
+      // Acquire the lock now that we know the run ID
+      await acquireLockForRun(health.run_id)
     }
 
     // Emit supervisor:poll heartbeat event on each cycle in JSON mode
@@ -996,6 +1101,11 @@ export function registerSupervisorCommand(
       (v: string) => parseInt(v, 10),
       2,
     )
+    .option(
+      '--force',
+      'Forcefully evict an existing supervisor process (SIGTERM + 500ms) before attaching (Story 52-2)',
+      false,
+    )
     .action(
       async (opts: {
         pollInterval: number
@@ -1008,6 +1118,7 @@ export function registerSupervisorCommand(
         outputFormat: string
         experiment: boolean
         maxExperiments: number
+        force: boolean
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         if (opts.stallThreshold < 120) {
@@ -1051,6 +1162,7 @@ export function registerSupervisorCommand(
           projectRoot: opts.projectRoot,
           experiment: opts.experiment,
           maxExperiments: opts.maxExperiments,
+          force: opts.force,
         })
         process.exitCode = exitCode
       },

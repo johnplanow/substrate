@@ -100,6 +100,7 @@ import {
   createGraphOrchestrator,
   resolveGraphPath,
   applyConfigToGraph,
+  RunManifest,
 } from '@substrate-ai/sdlc'
 import type {
   GraphShape,
@@ -109,6 +110,7 @@ import type {
   RunDevStoryFn,
   RunCodeReviewFn,
   PhaseRunnerFn,
+  CliFlags,
 } from '@substrate-ai/sdlc'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
 import type { TypedEventBus } from '@substrate-ai/core'
@@ -506,6 +508,18 @@ export interface RunOptions {
   agent?: string
   /** Optional pre-initialized registry; if omitted, a new registry is created and discovered */
   registry?: AdapterRegistry
+  /**
+   * Halt on escalation severity — Story 52-3.
+   * 'all' halts on any escalation, 'critical' on critical-severity only, 'none' never halts.
+   * Defaults to 'none' when omitted.
+   */
+  haltOn?: 'all' | 'critical' | 'none'
+  /**
+   * Maximum spend ceiling in USD — Story 52-3.
+   * Pipeline halts when cumulative cost exceeds this value.
+   * Must be a positive number; omit to disable cost ceiling.
+   */
+  costCeiling?: number
 }
 
 export async function runRunAction(options: RunOptions): Promise<number> {
@@ -533,7 +547,32 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     engine,
     agent: agentId,
     registry: injectedRegistry,
+    haltOn,
+    costCeiling,
   } = options
+
+  // Validate --halt-on flag (Story 52-3): must be 'all' | 'critical' | 'none' when provided
+  const VALID_HALT_ON = ['all', 'critical', 'none'] as const
+  if (haltOn !== undefined && !VALID_HALT_ON.includes(haltOn as (typeof VALID_HALT_ON)[number])) {
+    const errorMsg = `Invalid --halt-on value '${haltOn}'. Valid values: all | critical | none`
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${errorMsg}\n`)
+    }
+    return 1
+  }
+
+  // Validate --cost-ceiling flag (Story 52-3): must be a positive number when provided
+  if (costCeiling !== undefined && (typeof costCeiling !== 'number' || isNaN(costCeiling) || costCeiling <= 0)) {
+    const errorMsg = `Invalid --cost-ceiling value '${costCeiling}'. Must be a positive number (USD)`
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${errorMsg}\n`)
+    }
+    return 1
+  }
 
   // Validate --engine flag (story 43-10): must be 'linear' or 'graph' when provided
   const resolvedEngine = (engine ?? 'linear') as EngineType
@@ -954,6 +993,23 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       start_phase: 'implementation',
       config_json: JSON.stringify({ storyKeys, concurrency, ...(parsedStoryKeys.length > 0 ? { explicitStories: parsedStoryKeys } : {}) }),
     })
+
+    // Story 52-3: Persist CLI flags to run manifest for supervisor scope preservation.
+    // Non-fatal — manifest write failure must not abort the pipeline.
+    try {
+      const runsDir = join(dbDir, 'runs')
+      const cliFlags: CliFlags = {
+        ...(parsedStoryKeys.length > 0 ? { stories: parsedStoryKeys } : {}),
+        halt_on: haltOn ?? 'none',
+        ...(costCeiling !== undefined ? { cost_ceiling: costCeiling } : {}),
+        ...(agentId !== undefined ? { agent: agentId } : {}),
+        ...(skipVerification === true ? { skip_verification: true } : {}),
+        ...(eventsFlag === true ? { events: true } : {}),
+      }
+      await RunManifest.open(pipelineRun.id, runsDir).patchCLIFlags(cliFlags)
+    } catch (err) {
+      logger.warn({ err }, 'Failed to persist CLI flags to run manifest — pipeline continues')
+    }
 
     // Write current run ID file so `substrate status` and `substrate health` can
     // immediately identify this run without relying on timestamp ordering (Story 39-3 AC1, AC4).
@@ -2455,6 +2511,8 @@ export function registerRunCommand(
     .option('--dry-run', 'Preview routing and repo-map injection without dispatching (Story 28-9)')
     .option('--engine <type>', 'Execution engine: linear (default) or graph')
     .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
+    .option('--halt-on <severity>', 'Halt pipeline on escalation severity: all | critical | none (default: none)', 'none')
+    .option('--cost-ceiling <amount>', 'Maximum cost ceiling in USD (positive number); halts pipeline when exceeded', parseFloat)
     .action(
       async (opts: {
         pack: string
@@ -2480,6 +2538,8 @@ export function registerRunCommand(
         dryRun?: boolean
         engine?: string
         agent?: string
+        haltOn?: string
+        costCeiling?: number
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -2529,6 +2589,8 @@ export function registerRunCommand(
           engine: opts.engine,
           agent: opts.agent,
           registry,
+          haltOn: opts.haltOn as 'all' | 'critical' | 'none' | undefined,
+          costCeiling: opts.costCeiling,
         })
         process.exitCode = exitCode
       },

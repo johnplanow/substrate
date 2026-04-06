@@ -55,6 +55,7 @@ import {
   buildPipelineStatusOutput,
   formatPipelineSummary,
 } from './pipeline-shared.js'
+import { resolveRunManifest } from './manifest-read.js'
 
 const logger = createLogger('resume-cmd')
 
@@ -213,7 +214,33 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
     // Determine db directory from db path
     const dbDir = dbPath.replace('/substrate.db', '')
 
-    // Execute remaining phases — prefer CLI --stories, then persisted scope, then full discovery
+    // Story 52-6 (AC3): When --stories not provided on CLI, read story scope from run manifest.
+    // Manifest takes precedence over legacy config_json.explicitStories.
+    // CLI --stories always wins (checked in the `stories: options.stories ?? ...` below).
+    // Resolution order: cli_flags.stories → story_scope → config_json.explicitStories (AC3)
+    if (options.stories === undefined || options.stories.length === 0) {
+      const { manifest: resolvedManifest } = await resolveRunManifest(dbRoot, runId)
+      if (resolvedManifest !== null) {
+        try {
+          const manifestData = await resolvedManifest.read()
+          // Prefer cli_flags.stories, then fall back to story_scope (AC3)
+          const manifestStories =
+            manifestData.cli_flags['stories'] ?? manifestData.story_scope
+          if (Array.isArray(manifestStories) && manifestStories.length > 0) {
+            scopedStories = manifestStories as string[]
+            logger.debug({ runId, stories: scopedStories }, 'resume scope loaded from manifest')
+          }
+        } catch {
+          // Non-fatal: manifest exists but read failed — fall back to config_json scope
+          logger.debug({ runId }, 'manifest read failed in resume — using legacy config_json scope')
+        }
+      } else {
+        // Manifest absent (pre-Phase-D run) — fall back to config_json scope (AC4)
+        logger.debug({ runId }, 'Run manifest not found for scope preservation — using legacy config_json scope')
+      }
+    }
+
+    // Execute remaining phases — prefer CLI --stories, then manifest/persisted scope, then full discovery
     return runFullPipelineFromPhase({
       packName,
       packPath,

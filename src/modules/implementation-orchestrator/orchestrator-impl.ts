@@ -68,8 +68,9 @@ import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
 import { createDefaultVerificationPipeline } from '@substrate-ai/sdlc'
 import type { ReviewSignals } from '@substrate-ai/sdlc'
+import type { RunManifest, PerStoryStatus } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus } from '@substrate-ai/core'
-import { assembleVerificationContext, VerificationStore } from './verification-integration.js'
+import { assembleVerificationContext, VerificationStore, persistVerificationResult } from './verification-integration.js'
 import type { OrchestratorEvents } from '../../core/event-bus.types.js'
 
 // ---------------------------------------------------------------------------
@@ -162,6 +163,12 @@ export interface OrchestratorDeps {
    * When set, all orchestrator dispatches use this agent instead of the default 'claude-code'.
    */
   agentId?: string
+  /**
+   * Optional run manifest for per-story lifecycle state tracking (Story 52-4).
+   * When provided, the orchestrator records dispatched/terminal transitions
+   * via patchStoryState (best-effort, non-fatal). Null disables all manifest writes.
+   */
+  runManifest?: RunManifest | null
 }
 
 // ---------------------------------------------------------------------------
@@ -462,6 +469,23 @@ async function autoIngestEpicsDependencies(
 const TITLE_OVERLAP_WARNING_THRESHOLD = 0.3
 
 // ---------------------------------------------------------------------------
+// mapPhaseToManifestStatus — manifest status mapping (Story 52-4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a terminal StoryPhase to the corresponding PerStoryStatus for run-manifest writes.
+ * Returns 'dispatched' for in-progress phases (used as a safe default).
+ */
+function mapPhaseToManifestStatus(phase: StoryPhase): PerStoryStatus {
+  switch (phase) {
+    case 'COMPLETE':           return 'complete'
+    case 'ESCALATED':          return 'escalated'
+    case 'VERIFICATION_FAILED': return 'verification-failed'
+    default:                   return 'dispatched'
+  }
+}
+
+// ---------------------------------------------------------------------------
 // wgStatusForPhase — work-graph status mapping
 // ---------------------------------------------------------------------------
 
@@ -583,7 +607,7 @@ export function checkProfileStaleness(projectRoot: string): string[] {
 export function createImplementationOrchestrator(
   deps: OrchestratorDeps,
 ): ImplementationOrchestrator {
-  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer, repoMapInjector, maxRepoMapTokens, agentId } = deps
+  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer, repoMapInjector, maxRepoMapTokens, agentId, runManifest = null } = deps
 
   const logger = createLogger('implementation-orchestrator')
 
@@ -719,6 +743,14 @@ export function createImplementationOrchestrator(
         ? new Date(completedAt).getTime() - new Date(startedAt).getTime()
         : 0
       const tokenAgg = await aggregateTokenUsageForStory(db, config.pipelineRunId, storyKey)
+      // Story 52-4 AC5: update manifest with real aggregated cost_usd now that tokenAgg is available (best-effort)
+      if (runManifest !== null) {
+        runManifest
+          .patchStoryState(storyKey, { cost_usd: tokenAgg.cost })
+          .catch((err: unknown) =>
+            logger.warn({ err, storyKey }, 'patchStoryState(cost_usd) failed — pipeline continues'),
+          )
+      }
       // Capture phase durations JSON once so it can be reused for the event payload
       const phaseDurationsJson = buildPhaseDurationsJson(storyKey)
       await writeStoryMetrics(db, {
@@ -1066,6 +1098,41 @@ export function createImplementationOrchestrator(
               _wgInProgressWritten.add(storyKey)
             }
           }
+        }
+      }
+      // Run manifest per-story lifecycle state tracking (Story 52-4, AC4, AC5, AC6).
+      // Best-effort: manifest write failures are non-fatal — pipeline always continues.
+      if (runManifest !== null && updates.phase !== undefined) {
+        const fullUpdated = { ...existing, ...updates }
+        if (updates.phase === 'IN_STORY_CREATION') {
+          // Dispatched transition: record when the story first enters active processing (AC4).
+          runManifest
+            .patchStoryState(storyKey, {
+              status: 'dispatched',
+              phase: String(updates.phase),
+              started_at: fullUpdated.startedAt ?? new Date().toISOString(),
+            })
+            .catch((err: unknown) =>
+              logger.warn({ err, storyKey }, 'patchStoryState(dispatched) failed — pipeline continues'),
+            )
+        } else if (
+          updates.phase === 'COMPLETE' ||
+          updates.phase === 'ESCALATED' ||
+          updates.phase === 'VERIFICATION_FAILED'
+        ) {
+          // Terminal transition: record final status, phase, and completion time (AC5).
+          // cost_usd is intentionally omitted here; writeStoryMetricsBestEffort patches it
+          // with the real aggregated value once aggregateTokenUsageForStory completes.
+          const manifestStatus = mapPhaseToManifestStatus(updates.phase)
+          runManifest
+            .patchStoryState(storyKey, {
+              status: manifestStatus,
+              phase: String(updates.phase),
+              completed_at: fullUpdated.completedAt ?? new Date().toISOString(),
+            })
+            .catch((err: unknown) =>
+              logger.warn({ err, storyKey }, `patchStoryState(${manifestStatus}) failed — pipeline continues`),
+            )
         }
       }
     }
@@ -2767,6 +2834,9 @@ export function createImplementationOrchestrator(
           })
           const verifSummary = await verificationPipeline.run(verifContext, 'A')
           verificationStore.set(storyKey, verifSummary)
+          // Story 52-7: persist verification result to run manifest (non-fatal, best-effort)
+          // Called before any terminal phase transition so result survives crashes.
+          persistVerificationResult(storyKey, verifSummary, runManifest)
           if (verifSummary.status === 'fail') {
             updateStory(storyKey, { phase: 'VERIFICATION_FAILED' as StoryPhase, completedAt: new Date().toISOString() })
             persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
@@ -3048,6 +3118,25 @@ export function createImplementationOrchestrator(
 
       await waitIfPaused()
       if (_state !== 'RUNNING') return
+
+      // Story 52-8: record recovery entry for this retry dispatch (non-fatal, best-effort).
+      // attempt_number is 1-indexed: reviewCycles=0 on first retry → attempt_number=1.
+      // appendRecoveryEntry is NOT called on the initial dev-story dispatch — only on fixes.
+      if (runManifest) {
+        runManifest
+          .appendRecoveryEntry({
+            story_key: storyKey,
+            attempt_number: reviewCycles + 1,
+            strategy: 'retry-with-context',
+            root_cause: verdict,
+            outcome: 'retried',
+            cost_usd: 0,
+            timestamp: new Date().toISOString(),
+          })
+          .catch((err: unknown) =>
+            logger.warn({ err, storyKey }, 'appendRecoveryEntry failed — pipeline continues'),
+          )
+      }
 
       updateStory(storyKey, { phase: 'NEEDS_FIXES' as StoryPhase })
       startPhase(storyKey, 'fix')
