@@ -2596,6 +2596,19 @@ export function createImplementationOrchestrator(
               modifiedInterfaces: icResult.modifiedInterfaces,
               potentiallyAffectedTests: icResult.potentiallyAffectedTests,
             })
+            // Persist for post-run telemetry reporting (mesh-reporter reads this)
+            if (config.pipelineRunId !== undefined) {
+              createDecision(db, {
+                pipeline_run_id: config.pipelineRunId,
+                phase: 'implementation',
+                category: 'INTERFACE_WARNING',
+                key: `${storyKey}:${config.pipelineRunId}`,
+                value: JSON.stringify({
+                  modifiedInterfaces: icResult.modifiedInterfaces,
+                  potentiallyAffectedTests: icResult.potentiallyAffectedTests,
+                }),
+              }).catch(() => {}) // Best-effort — never block pipeline
+            }
           }
         }
       } catch {

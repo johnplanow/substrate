@@ -256,7 +256,56 @@ export async function buildRunReport(
   const efficiencyScores = await loadEfficiencyScores(adapter, storyKeys)
   const contractVerification = await loadContractVerification(adapter, runId)
 
+  // Load interface change warnings from decisions
   const warnings: string[] = []
+  try {
+    const warnRows = await adapter.query<{ key: string; value: string }>(
+      `SELECT key, value FROM decisions WHERE pipeline_run_id = ? AND category = 'INTERFACE_WARNING'`,
+      [runId],
+    )
+    for (const row of warnRows) {
+      try {
+        const parsed = JSON.parse(row.value) as { modifiedInterfaces?: string[]; potentiallyAffectedTests?: string[] }
+        const storyKey = row.key.split(':')[0] ?? 'unknown'
+        const ifaces = parsed.modifiedInterfaces?.join(', ') ?? ''
+        warnings.push(`${storyKey}: modified interfaces [${ifaces}]`)
+      } catch {
+        // Malformed — skip
+      }
+    }
+  } catch {
+    logger.debug('Could not query INTERFACE_WARNING decisions — skipping')
+  }
+
+  // Load test expansion findings from decisions
+  const testExpansions: Record<string, { priority: string; gapCount: number }> = {}
+  try {
+    const expRows = await adapter.query<{ key: string; value: string }>(
+      `SELECT key, value FROM decisions WHERE pipeline_run_id = ? AND category = 'TEST_EXPANSION_FINDING'`,
+      [runId],
+    )
+    for (const row of expRows) {
+      try {
+        const parsed = JSON.parse(row.value) as { expansion_priority?: string; coverage_gaps?: unknown[] }
+        const storyKey = row.key.split(':')[0] ?? 'unknown'
+        testExpansions[storyKey] = {
+          priority: parsed.expansion_priority ?? 'unknown',
+          gapCount: parsed.coverage_gaps?.length ?? 0,
+        }
+      } catch {
+        // Malformed — skip
+      }
+    }
+  } catch {
+    logger.debug('Could not query TEST_EXPANSION_FINDING decisions — skipping')
+  }
+
+  // Add test expansion warnings for stories with coverage gaps
+  for (const [storyKey, exp] of Object.entries(testExpansions)) {
+    if (exp.gapCount > 0) {
+      warnings.push(`${storyKey}: test expansion found ${exp.gapCount} coverage gap(s), priority=${exp.priority}`)
+    }
+  }
 
   const stories: StoryReport[] = storyMetrics.map((s) => {
     let phaseDurations: Record<string, number> | undefined
