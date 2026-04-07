@@ -379,6 +379,10 @@ export interface OrchestratorEvents {
     lastVerdict: string
     reviewCycles: number
     issues: unknown[]
+    /** Retry budget at time of escalation — present when escalation reason is retry_budget_exhausted (Story 53-4) */
+    retryBudget?: number
+    /** Retry count at time of escalation — present when escalation reason is retry_budget_exhausted (Story 53-4) */
+    retryCount?: number
     /** Structured diagnosis with classification and recommended action (Story 22-3) */
     diagnosis?: {
       issueDistribution: 'concentrated' | 'widespread'
@@ -611,6 +615,27 @@ export interface OrchestratorEvents {
   'pipeline:phase-complete': {
     phase: string
     ts: string
+  }
+
+  // -------------------------------------------------------------------------
+  // Cost governance events (Story 53-3)
+  // -------------------------------------------------------------------------
+
+  /** Cumulative pipeline cost has crossed 80% of the --cost-ceiling threshold (emitted at most once per run) */
+  'cost:warning': {
+    cumulative_cost: number
+    ceiling: number
+    percent_used: number
+  }
+
+  /** Cost ceiling reached — remaining undispatched stories are skipped */
+  'cost:ceiling-reached': {
+    cumulative_cost: number
+    ceiling: number
+    halt_on: string
+    action: string
+    skipped_stories: string[]
+    severity?: string
   }
 
   // -------------------------------------------------------------------------

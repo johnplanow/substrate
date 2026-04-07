@@ -23,7 +23,7 @@ import { getDecisionsByPhase, getDecisionsByCategory } from '../../persistence/q
 import { getGitChangedFiles } from './git-helpers.js'
 import { createLogger } from '../../utils/logger.js'
 import type { ContextTemplate } from '../context-compiler/types.js'
-import { getProjectFindings } from '../implementation-orchestrator/project-findings.js'
+import { FindingsInjector, extractTargetFilesFromStoryContent } from '@substrate-ai/sdlc'
 import { getTokenCeiling } from './token-ceiling.js'
 import { computeStoryComplexity, resolveDevStoryMaxTurns, logComplexityResult } from './story-complexity.js'
 import { stripDeprecatedStatusField, detectDeprecatedStatusField } from '../work-graph/index.js'
@@ -59,7 +59,7 @@ export async function runDevStory(
   deps: WorkflowDeps,
   params: DevStoryParams,
 ): Promise<DevStoryResult> {
-  const { storyKey, storyFilePath, taskScope, priorFiles } = params
+  const { storyKey, storyFilePath, taskScope, priorFiles, findingsPrompt: handlerFindingsPrompt } = params
 
   logger.info({ storyKey, storyFilePath }, 'Starting compiled dev-story workflow')
 
@@ -240,16 +240,27 @@ export async function runDevStory(
     )
   }
 
-  // Query prior findings for learning loop injection (Story 22-1, AC2)
+  // Query relevance-scored findings for learning loop injection (Story 53-6, Story 53-8)
+  // If the sdlc-dev-story-handler already called FindingsInjector.inject() and passed the
+  // result via params.findingsPrompt, use that directly to avoid a redundant double DB query.
   let priorFindingsContent = ''
-  try {
-    const findings = await getProjectFindings(deps.db)
-    if (findings.length > 0) {
-      priorFindingsContent = 'Previous pipeline runs encountered these issues — avoid repeating them:\n\n' + findings
-      logger.debug({ storyKey, findingsLen: findings.length }, 'Injecting prior findings into dev-story prompt')
+  if (handlerFindingsPrompt !== undefined && handlerFindingsPrompt.length > 0) {
+    priorFindingsContent = handlerFindingsPrompt
+    logger.debug({ storyKey, findingsLen: handlerFindingsPrompt.length }, 'Using pre-computed findings from handler (Story 53-8 AC2)')
+  } else {
+    try {
+      const findings = await FindingsInjector.inject(deps.db, {
+        storyKey,
+        runId: params.pipelineRunId ?? '',
+        targetFiles: extractTargetFilesFromStoryContent(storyContent),
+      })
+      if (findings.length > 0) {
+        priorFindingsContent = findings
+        logger.debug({ storyKey, findingsLen: findings.length }, 'Injecting relevance-scored findings into dev-story prompt')
+      }
+    } catch {
+      // Graceful fallback — empty string on error
     }
-  } catch {
-    // AC5: graceful fallback — empty string on error
   }
 
   // Query test plan from decision store for injection (Story 22-7, AC3)

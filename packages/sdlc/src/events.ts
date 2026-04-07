@@ -325,6 +325,46 @@ export type SdlcEvents = CoreEvents & {
   }
 
   // -------------------------------------------------------------------------
+  // Learning loop events (Story 53-8)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted when classifyAndPersist() successfully persists a finding from
+   * a failing story. Used by observability and monitoring consumers.
+   */
+  'pipeline:finding-captured': {
+    storyKey: string
+    runId: string
+    rootCause: string
+  }
+
+  // -------------------------------------------------------------------------
+  // Dispatch gating events (Story 53-9)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted when a file overlap is detected between a pending story and a
+   * completed story, but no namespace collision exists. Dispatch proceeds
+   * normally after this event (non-blocking warning).
+   */
+  'pipeline:dispatch-warn': {
+    storyKey: string
+    completedStoryKey: string
+    overlappingFiles: string[]
+  }
+
+  /**
+   * Emitted when the dispatch gate cannot resolve a conflict and places the
+   * story in the `gated` phase for operator review. Dispatch does not proceed.
+   */
+  'pipeline:story-gated': {
+    storyKey: string
+    conflictType: string
+    reason: string
+    completedStoryKey?: string
+  }
+
+  // -------------------------------------------------------------------------
   // Verification pipeline events (Story 51-1)
   // -------------------------------------------------------------------------
 

@@ -478,6 +478,31 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'duration_ms', type: 'number', description: 'Total duration of all checks in milliseconds.' },
     ],
   },
+  {
+    type: 'cost:warning',
+    description: 'Cumulative pipeline cost has crossed 80% of the --cost-ceiling threshold.',
+    when: 'Emitted at most once per run, between story dispatches, when cumulative cost ≥ 80% of ceiling.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'cumulative_cost', type: 'number', description: 'Cumulative pipeline cost in USD at time of check.' },
+      { name: 'ceiling', type: 'number', description: 'Configured cost ceiling in USD.' },
+      { name: 'percent_used', type: 'number', description: '(cumulative / ceiling) * 100, rounded to two decimal places.' },
+    ],
+  },
+  {
+    type: 'cost:ceiling-reached',
+    description: 'Cost ceiling reached — remaining undispatched stories are skipped.',
+    when: 'Emitted between story dispatches when cumulative cost ≥ 100% of ceiling.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'cumulative_cost', type: 'number', description: 'Cumulative pipeline cost in USD at time of check.' },
+      { name: 'ceiling', type: 'number', description: 'Configured cost ceiling in USD.' },
+      { name: 'halt_on', type: 'string', description: '--halt-on value in effect (none, all, critical).' },
+      { name: 'action', type: 'string', description: 'Action taken (always stopped in this story; interactive prompt is Epic 54 scope).' },
+      { name: 'skipped_stories', type: 'string[]', description: 'Story keys skipped because budget was exhausted.' },
+      { name: 'severity', type: 'string', description: 'critical when halt_on is all or critical; absent when none.', optional: true },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

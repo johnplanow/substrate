@@ -175,6 +175,11 @@ export interface GraphOrchestratorConfig {
    * stored here for observability / testing (AC7, story 43-10).
    */
   maxReviewCycles?: number
+  /**
+   * Per-story maximum retry attempts before mandatory escalation (Story 53-4).
+   * Default: 2. Reserved for future graph-engine budget gate implementation.
+   */
+  retryBudget?: number
 }
 
 /**

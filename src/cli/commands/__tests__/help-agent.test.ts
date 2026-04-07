@@ -113,6 +113,9 @@ describe('PIPELINE_EVENT_METADATA', () => {
       // Story 51-5+: Tier A verification pipeline events
       'verification:check-complete',
       'verification:story-complete',
+      // Story 53-3: cost governance events
+      'cost:warning',
+      'cost:ceiling-reached',
     ]
     const actualTypes = PIPELINE_EVENT_METADATA.map((e) => e.type)
     for (const t of expectedTypes) {

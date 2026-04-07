@@ -10,8 +10,17 @@
  * the factory types when the CLI composition root wires them together at runtime.
  */
 
-import type { TypedEventBus } from '@substrate-ai/core'
+import { readFileSync } from 'node:fs'
+import type { TypedEventBus, DatabaseAdapter } from '@substrate-ai/core'
 import type { SdlcEvents } from '../events.js'
+import { classifyAndPersist } from '../learning/finding-classifier.js'
+import type { StoryFailureContext } from '../learning/types.js'
+import { FindingsInjector, extractTargetFilesFromStoryContent } from '../learning/findings-injector.js'
+import type { InjectionContext } from '../learning/relevance-scorer.js'
+import { FindingLifecycleManager } from '../learning/finding-lifecycle.js'
+import type { SuccessContext } from '../learning/finding-lifecycle.js'
+import { DispatchGate } from '../gating/dispatch-gate.js'
+import type { DispatchGateOptions } from '../gating/types.js'
 
 // ---------------------------------------------------------------------------
 // Local structural types — compatible with @substrate-ai/factory via duck typing
@@ -60,6 +69,8 @@ export interface DevStoryParams {
   pipelineRunId?: string
   priorFiles?: string[]
   taskScope?: string
+  /** Learning loop findings prompt — prepended to story context for the agent (Story 53-8). */
+  findingsPrompt?: string
 }
 
 /** Result from the dev-story compiled workflow. */
@@ -115,6 +126,13 @@ export interface SdlcDevStoryHandlerOptions {
    * If omitted, no build verification is performed (backward-compatible).
    */
   buildVerifier?: BuildVerifierFn
+  /**
+   * Optional database adapter for the learning loop (Story 53-8).
+   * When provided, enables finding capture on failure, findings injection before
+   * dispatch, and finding retirement on success.
+   * When null or omitted, all learning calls are skipped gracefully.
+   */
+  db?: DatabaseAdapter | null
 }
 
 // ---------------------------------------------------------------------------
@@ -127,10 +145,13 @@ export interface SdlcDevStoryHandlerOptions {
  * The returned handler:
  *   1. Validates storyKey and storyFilePath are present in GraphContext (AC6)
  *   2. Reads optional retry remediation context from prior iteration (AC4)
- *   3. Emits orchestrator:story-phase-start telemetry (AC5)
- *   4. Delegates to runDevStory(deps, params) (AC1)
- *   5. Emits orchestrator:story-phase-complete telemetry in finally block (AC5)
- *   6. Maps the DevStoryResult to an Outcome (AC2, AC3)
+ *   3. Injects relevant prior-run findings into dispatch params (Story 53-8 AC2)
+ *   4. Emits orchestrator:story-phase-start telemetry (AC5)
+ *   5. Delegates to runDevStory(deps, params) (AC1)
+ *   6. Emits orchestrator:story-phase-complete telemetry in finally block (AC5)
+ *   7. Maps the DevStoryResult to an Outcome (AC2, AC3)
+ *   8. On failure: classifyAndPersist + emit pipeline:finding-captured (Story 53-8 AC1, AC6)
+ *   9. On success: retireContradictedFindings (Story 53-8 AC4)
  *
  * @param options - Handler configuration.
  * @returns A NodeHandler function ready for registration under the 'sdlc.dev-story' key.
@@ -160,6 +181,104 @@ export function createSdlcDevStoryHandler(options: SdlcDevStoryHandlerOptions): 
     const priorFiles = context.getList?.('devStoryFilesModified') ?? []
     const priorAcFailures = context.getList?.('devStoryAcFailures') ?? []
 
+    // ---------------------------------------------------------------------------
+    // Read story content (used for findings injection and dispatch gating)
+    // ---------------------------------------------------------------------------
+    let storyContent = ''
+    try {
+      storyContent = readFileSync(storyFilePath, 'utf-8')
+    } catch {
+      // Non-fatal: if file can't be read, use empty content
+    }
+
+    // ---------------------------------------------------------------------------
+    // Story 53-8 AC2: Pre-dispatch findings injection
+    // ---------------------------------------------------------------------------
+    let findingsPrompt = ''
+    if (options.db != null) {
+      try {
+        // Infer packageName from storyKey prefix (e.g., '53-8' → no package, or from path)
+        const pkgMatch = /packages\/([^/]+)\//.exec(storyFilePath)
+        const packageName = pkgMatch?.[1]
+
+        const injectionCtx: InjectionContext = {
+          storyKey,
+          runId: pipelineRunIdRaw !== '' ? pipelineRunIdRaw : 'unknown',
+          targetFiles: extractTargetFilesFromStoryContent(storyContent),
+          ...(packageName !== undefined ? { packageName } : {}),
+        }
+
+        findingsPrompt = await FindingsInjector.inject(options.db, injectionCtx)
+      } catch {
+        // AC5: Non-fatal — DB errors must never block dispatch
+        console.warn('[sdlc-dev-story-handler] FindingsInjector.inject failed; proceeding without findings')
+        findingsPrompt = ''
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Story 53-9: Dispatch pre-condition gating
+    // Runs after findings injection, before agent dispatch.
+    // Non-fatal: any gate error is caught and dispatch proceeds normally.
+    // ---------------------------------------------------------------------------
+    if (options.db != null) {
+      try {
+        const pendingFiles = extractTargetFilesFromStoryContent(storyContent)
+
+        const gateOptions: DispatchGateOptions = {
+          storyKey,
+          storyContent,
+          pendingFiles,
+          // completedStories: populated from run manifest per_story_state.
+          // Currently no modifiedFiles tracked in manifest — empty array is
+          // correct (gate degrades gracefully per AC7). Learning pre-emption
+          // (AC6) still functions via the DB query path.
+          completedStories: [],
+          db: options.db,
+          projectRoot: process.cwd(),
+        }
+
+        const gateResult = await DispatchGate.check(gateOptions)
+
+        if (gateResult.decision === 'warn' && gateResult.overlappingFiles !== undefined && gateResult.completedStoryKey !== undefined) {
+          // AC2: emit warning event; dispatch proceeds normally
+          options.eventBus.emit('pipeline:dispatch-warn', {
+            storyKey,
+            completedStoryKey: gateResult.completedStoryKey,
+            overlappingFiles: gateResult.overlappingFiles,
+          })
+        } else if (gateResult.decision === 'block' && gateResult.modifiedPrompt !== undefined) {
+          // AC4: auto-resolved; extract extension note from modifiedPrompt and inject
+          // into findingsPrompt so the agent receives the namespace extension guidance.
+          // modifiedPrompt = storyContent + '\n\n' + extensionNote
+          const extensionNote = gateResult.modifiedPrompt.slice(storyContent.length).trim()
+          if (extensionNote.length > 0) {
+            findingsPrompt = findingsPrompt !== ''
+              ? `${findingsPrompt}\n\n${extensionNote}`
+              : extensionNote
+          }
+        } else if (gateResult.decision === 'gated') {
+          // AC5: non-resolvable conflict; place story in gated phase
+          options.eventBus.emit('pipeline:story-gated', {
+            storyKey,
+            conflictType: gateResult.conflictType ?? 'namespace-collision',
+            reason: gateResult.reason ?? 'dispatch gate: non-resolvable conflict',
+            ...(gateResult.completedStoryKey !== undefined
+              ? { completedStoryKey: gateResult.completedStoryKey }
+              : {}),
+          })
+          // Return early without dispatching — story stays in gated phase
+          return {
+            status: 'FAILURE',
+            failureReason: gateResult.reason ?? 'dispatch gate: story gated — operator review required',
+          }
+        }
+      } catch {
+        // AC7: gate error must never block dispatch
+        console.debug('[sdlc-dev-story-handler] DispatchGate.check failed; proceeding with original dispatch')
+      }
+    }
+
     // Build DevStoryParams with required + optional fields
     const devStoryParams: DevStoryParams = {
       storyKey,
@@ -171,6 +290,8 @@ export function createSdlcDevStoryHandler(options: SdlcDevStoryHandlerOptions): 
       ...(priorAcFailures.length > 0
         ? { taskScope: `Prior attempt failed ACs: ${priorAcFailures.join(', ')}` }
         : {}),
+      // Story 53-8 AC2 + Story 53-9 AC4: findings + gate extension note (if any)
+      ...(findingsPrompt !== '' ? { findingsPrompt } : {}),
     }
 
     // AC5: Emit phase-start telemetry before calling runDevStory
@@ -218,6 +339,22 @@ export function createSdlcDevStoryHandler(options: SdlcDevStoryHandlerOptions): 
             devStoryFilesModified: workflowResult.files_modified,
           },
         }
+
+        // ---------------------------------------------------------------------------
+        // Story 53-8 AC4: Retire contradicted findings on success
+        // ---------------------------------------------------------------------------
+        if (options.db != null) {
+          const successCtx: SuccessContext = {
+            modifiedFiles: workflowResult.files_modified,
+            runId: pipelineRunIdRaw !== '' ? pipelineRunIdRaw : 'unknown',
+          }
+          try {
+            await FindingLifecycleManager.retireContradictedFindings(successCtx, options.db)
+          } catch {
+            // AC5: Non-fatal — DB errors must never block success outcome
+            console.warn('[sdlc-dev-story-handler] retireContradictedFindings failed; continuing')
+          }
+        }
       } else {
         // AC3: Map failure result to FAILURE Outcome with remediation context
         const failureReason =
@@ -236,6 +373,34 @@ export function createSdlcDevStoryHandler(options: SdlcDevStoryHandlerOptions): 
             devStoryFilesModified: workflowResult.files_modified,
             devStoryAcFailures: workflowResult.ac_failures,
           },
+        }
+
+        // ---------------------------------------------------------------------------
+        // Story 53-8 AC1: Classify and persist failure finding
+        // ---------------------------------------------------------------------------
+        if (options.db != null) {
+          const failureCtx: StoryFailureContext = {
+            storyKey,
+            runId: pipelineRunIdRaw !== '' ? pipelineRunIdRaw : 'unknown',
+            // exactOptionalPropertyTypes: omit 'error' when undefined rather than set to undefined
+            ...(workflowResult.error !== undefined ? { error: workflowResult.error } : {}),
+            affectedFiles: workflowResult.files_modified,
+            buildFailed: workflowResult.ac_failures.includes('build-verification'),
+            testsFailed: workflowResult.tests === 'fail',
+          }
+          try {
+            const finding = await classifyAndPersist(failureCtx, options.db)
+
+            // AC6: Emit pipeline:finding-captured after successful persist
+            options.eventBus.emit('pipeline:finding-captured', {
+              storyKey,
+              runId: failureCtx.runId,
+              rootCause: finding.root_cause,
+            })
+          } catch {
+            // AC5: Non-fatal — DB errors must never block failure outcome
+            console.warn('[sdlc-dev-story-handler] classifyAndPersist failed; continuing')
+          }
         }
       }
     } catch (err) {

@@ -147,6 +147,8 @@ export const SubstrateConfigSchema = z
     default_agent: z.string().optional(),
     /** Supervisor poll interval in seconds. Overrides --poll-interval CLI flag when set (Story 53-1 AC6). Default: 30. */
     supervisor_poll_interval_seconds: z.number().int().positive().optional(),
+    /** Per-story maximum retry count before mandatory escalation (Story 53-4 AC7). Default: 2. */
+    retry_budget: z.number().int().positive().optional(),
   })
   .strict()
 
@@ -177,6 +179,8 @@ export const PartialSubstrateConfigSchema = z
     default_agent: z.string().optional(),
     /** Supervisor poll interval in seconds. Overrides --poll-interval CLI flag when set (Story 53-1 AC6). Default: 30. */
     supervisor_poll_interval_seconds: z.number().int().positive().optional(),
+    /** Per-story maximum retry count before mandatory escalation (Story 53-4 AC7). Default: 2. */
+    retry_budget: z.number().int().positive().optional(),
   })
   .strict()
 

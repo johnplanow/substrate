@@ -132,6 +132,13 @@ export interface DevStoryParams {
    * Injected into the prompt as prior context for subsequent batch dispatches.
    */
   priorFiles?: string[]
+  /**
+   * Optional pre-computed learning loop findings prompt (Story 53-8).
+   * When provided by the sdlc-dev-story-handler (which calls FindingsInjector.inject()
+   * before dispatch), this value is used directly and the monolith skips its own
+   * FindingsInjector.inject() call to avoid a redundant double DB query.
+   */
+  findingsPrompt?: string
 }
 
 /**

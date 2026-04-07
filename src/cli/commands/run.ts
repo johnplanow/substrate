@@ -465,6 +465,30 @@ export function wireNdjsonEmitter(
       duration_ms: payload.duration_ms,
     })
   })
+
+  // Cost governance events (Story 53-3)
+  eventBus.on('cost:warning', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'cost:warning',
+      ts: new Date().toISOString(),
+      cumulative_cost: payload.cumulative_cost,
+      ceiling: payload.ceiling,
+      percent_used: payload.percent_used,
+    })
+  })
+
+  eventBus.on('cost:ceiling-reached', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'cost:ceiling-reached',
+      ts: new Date().toISOString(),
+      cumulative_cost: payload.cumulative_cost,
+      ceiling: payload.ceiling,
+      halt_on: payload.halt_on,
+      action: payload.action,
+      skipped_stories: payload.skipped_stories,
+      ...(payload.severity !== undefined ? { severity: payload.severity } : {}),
+    })
+  })
 }
 
 export interface RunOptions {
@@ -691,6 +715,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   let telemetryPort = 4318
   let meshUrl: string | undefined
   let meshProjectId: string | undefined
+  let configRetryBudget: number | undefined
   try {
     const configSystem = createConfigSystem({ projectConfigDir: dbDir })
     await configSystem.load()
@@ -709,6 +734,9 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     if (cfg.telemetry?.meshUrl) {
       meshUrl = cfg.telemetry.meshUrl
       meshProjectId = cfg.telemetry.projectId
+    }
+    if (typeof cfg.retry_budget === 'number') {
+      configRetryBudget = cfg.retry_budget
     }
   } catch {
     logger.debug('Config loading skipped — using default token ceilings and telemetry settings')
@@ -834,6 +862,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(meshUrl !== undefined ? { meshUrl, meshProjectId } : {}),
       engineType: resolvedEngine,
       maxReviewCycles: effectiveMaxReviewCycles,
+      retryBudget: configRetryBudget ?? 2,
       agentId,
     })
   }
@@ -1544,6 +1573,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         eventBus,
         pipelineRunId: pipelineRun.id,
         maxReviewCycles: effectiveMaxReviewCycles,
+        retryBudget: configRetryBudget ?? 2,
         gcPauseMs: 0,
       })
 
@@ -1569,6 +1599,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         config: {
           maxConcurrency: concurrency,
           maxReviewCycles: effectiveMaxReviewCycles,
+          retryBudget: configRetryBudget ?? 2,
           pipelineRunId: pipelineRun.id,
           // Only enable heartbeat/watchdog timer when --events mode is active (AC1/Issue 5)
           enableHeartbeat: eventsFlag === true,
@@ -1754,15 +1785,15 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       process.stdout.write(formatTokenTelemetry(tokenSummary) + '\n')
     }
 
-    // Push RunReport to agent-mesh telemetry server (best-effort, never blocks pipeline exit)
+    // Push RunReport to agent-mesh telemetry server (best-effort, never throws)
     if (meshUrl !== undefined) {
-      reportToMesh(adapter, pipelineRun.id, meshUrl, {
+      await reportToMesh(adapter, pipelineRun.id, meshUrl, {
         projectId: meshProjectId,
         projectRoot,
         agentBackend: agentId ?? 'claude-code',
         engineType: resolvedEngine,
         concurrency,
-      }).catch(() => {})
+      })
     }
 
     return 0
@@ -1815,6 +1846,8 @@ export interface FullPipelineOptions {
   skipVerification?: boolean
   /** Maximum number of review cycles per story (default: 2) */
   maxReviewCycles?: number
+  /** Per-story maximum retry count before mandatory escalation (Story 53-4). Default: 2. */
+  retryBudget?: number
   /** Optional per-workflow token ceiling overrides from config (Story 25-1) */
   tokenCeilings?: TokenCeilings
   /** Explicit story keys from --stories flag (passed through to implementation phase) */
@@ -1836,7 +1869,7 @@ export interface FullPipelineOptions {
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType } =
     options
 
   // Ensure database directory
@@ -2238,6 +2271,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           config: {
             maxConcurrency: concurrency,
             maxReviewCycles,
+            retryBudget: retryBudget ?? 2,
             pipelineRunId: runId,
             // Skip pre-flight build check when --skip-preflight is set (Story 25-2)
             skipPreflight: skipPreflight === true,
@@ -2455,15 +2489,15 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
       })
     }
 
-    // Push RunReport to agent-mesh telemetry server (best-effort, never blocks pipeline exit)
+    // Push RunReport to agent-mesh telemetry server (best-effort, never throws)
     if (fpMeshUrl !== undefined) {
-      reportToMesh(adapter, runId, fpMeshUrl, {
+      await reportToMesh(adapter, runId, fpMeshUrl, {
         projectId: fpMeshProjectId,
         projectRoot,
         agentBackend: agentId ?? 'claude-code',
         engineType: fpEngineType ?? 'linear',
         concurrency,
-      }).catch(() => {})
+      })
     }
 
     return 0

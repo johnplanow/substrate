@@ -752,6 +752,52 @@ export interface VerificationStoryCompleteEvent {
 }
 
 // ---------------------------------------------------------------------------
+// CostWarningEvent (Story 53-3: cost governance events)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted at most once per run when cumulative pipeline cost crosses 80% of
+ * the --cost-ceiling threshold.
+ */
+export interface CostWarningEvent {
+  type: 'cost:warning'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Cumulative pipeline cost in USD at the time of the check */
+  cumulative_cost: number
+  /** Configured cost ceiling in USD */
+  ceiling: number
+  /** (cumulative / ceiling) * 100, rounded to two decimal places */
+  percent_used: number
+}
+
+// ---------------------------------------------------------------------------
+// CostCeilingReachedEvent (Story 53-3: cost governance events)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted between story dispatches when cumulative cost ≥ 100% of the
+ * --cost-ceiling. Remaining undispatched stories are skipped.
+ */
+export interface CostCeilingReachedEvent {
+  type: 'cost:ceiling-reached'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Cumulative pipeline cost in USD at the time of the check */
+  cumulative_cost: number
+  /** Configured cost ceiling in USD */
+  ceiling: number
+  /** --halt-on value in effect ('none', 'all', or 'critical') */
+  halt_on: string
+  /** 'stopped' for all halt-on modes in this story; interactive prompt is Epic 54 scope */
+  action: string
+  /** Story keys skipped because budget was exhausted */
+  skipped_stories: string[]
+  /** 'critical' when halt_on is 'all' or 'critical'; absent when 'none' */
+  severity?: string
+}
+
+// ---------------------------------------------------------------------------
 // PipelineEvent discriminated union
 // ---------------------------------------------------------------------------
 
@@ -804,6 +850,8 @@ export type PipelineEvent =
   | StoryAutoApprovedEvent
   | VerificationCheckCompleteEvent
   | VerificationStoryCompleteEvent
+  | CostWarningEvent
+  | CostCeilingReachedEvent
 
 // ---------------------------------------------------------------------------
 // Compile-time source of truth for all event type discriminants
@@ -870,6 +918,9 @@ export const EVENT_TYPE_NAMES = [
   // Story 51-6: verification pipeline events
   'verification:check-complete',
   'verification:story-complete',
+  // Story 53-3: cost governance events
+  'cost:warning',
+  'cost:ceiling-reached',
 ] as const
 
 /**

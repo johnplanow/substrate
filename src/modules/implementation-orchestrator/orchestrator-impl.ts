@@ -72,6 +72,9 @@ import type { RunManifest, PerStoryStatus } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus } from '@substrate-ai/core'
 import { assembleVerificationContext, VerificationStore, persistVerificationResult } from './verification-integration.js'
 import type { OrchestratorEvents } from '../../core/event-bus.types.js'
+import { CostGovernanceChecker } from './cost-governance.js'
+import type { CeilingCheckResult } from './cost-governance.js'
+import type { RunManifestData } from '@substrate-ai/sdlc'
 
 // ---------------------------------------------------------------------------
 // Compile-time safety assertions for verificationBusAdapter (Story 51-5)
@@ -647,6 +650,7 @@ export function createImplementationOrchestrator(
   const _phaseStartMs = new Map<string, Map<string, number>>() // storyKey → phase → start ms
   const _phaseEndMs = new Map<string, Map<string, number>>()   // storyKey → phase → end ms
   const _storyDispatches = new Map<string, number>()           // storyKey → dispatch count
+  const _storyRetryCount = new Map<string, number>()           // storyKey → retry count (Story 53-4)
   let _completedDispatches = 0                                  // total completed dispatch count (for heartbeat)
 
   // -- actual peak concurrency observed during runWithConcurrency --
@@ -657,6 +661,11 @@ export function createImplementationOrchestrator(
 
   // -- post-sprint contract verification mismatches (Story 25-6) --
   let _contractMismatches: ContractMismatch[] | undefined
+
+  // -- cost governance state (Story 53-3) --
+  const _costChecker = new CostGovernanceChecker()
+  let _costWarningEmitted = false
+  let _budgetExhausted = false
 
   // -- OTLP telemetry endpoint (Story 27-9) --
   // Set once when ingestionServer.start() resolves; cleared after run() completes.
@@ -708,6 +717,43 @@ export function createImplementationOrchestrator(
 
   function incrementDispatches(storyKey: string): void {
     _storyDispatches.set(storyKey, (_storyDispatches.get(storyKey) ?? 0) + 1)
+  }
+
+  /**
+   * Initialize `_storyRetryCount` from the run manifest for crash-recovery durability (AC6, Story 53-4).
+   * Reads persisted retry_count so that budget gate correctly accounts for prior-session retries.
+   * Best-effort: failures result in a starting count of 0 (safe — may allow one extra retry).
+   */
+  async function initRetryCount(storyKey: string): Promise<void> {
+    if (runManifest === null || runManifest === undefined) {
+      _storyRetryCount.set(storyKey, 0)
+      return
+    }
+    try {
+      const data = await runManifest.read()
+      const storyState = data.per_story_state[storyKey]
+      const existingCount = storyState?.retry_count ?? 0
+      _storyRetryCount.set(storyKey, existingCount)
+    } catch (err) {
+      logger.warn({ err, storyKey }, 'initRetryCount: failed to read manifest — starting at 0')
+      _storyRetryCount.set(storyKey, 0)
+    }
+  }
+
+  /**
+   * Increment the in-memory retry count and persist best-effort to the run manifest (AC4, Story 53-4).
+   */
+  function incrementRetryCount(storyKey: string): void {
+    const current = _storyRetryCount.get(storyKey) ?? 0
+    const next = current + 1
+    _storyRetryCount.set(storyKey, next)
+    if (runManifest !== null && runManifest !== undefined) {
+      runManifest
+        .patchStoryState(storyKey, { retry_count: next })
+        .catch((err: unknown) =>
+          logger.warn({ err, storyKey }, 'patchStoryState(retry_count) failed — pipeline continues'),
+        )
+    }
   }
 
   function buildPhaseDurationsJson(storyKey: string): string {
@@ -948,6 +994,10 @@ export function createImplementationOrchestrator(
     lastVerdict: string
     reviewCycles: number
     issues: unknown[]
+    /** Named retry budget — present when escalation reason is retry_budget_exhausted (Story 53-4 AC5) */
+    retryBudget?: number
+    /** Named retry count — present when escalation reason is retry_budget_exhausted (Story 53-4 AC5) */
+    retryCount?: number
   }): Promise<void> {
     const diagnosis = generateEscalationDiagnosis(
       payload.issues,
@@ -1350,6 +1400,9 @@ export function createImplementationOrchestrator(
    */
   async function processStory(storyKey: string, storyOptions?: { optimizationDirectives?: string }): Promise<void> {
     logger.info({ storyKey }, 'Processing story')
+
+    // -- initialize retry count from manifest for crash-recovery durability (Story 53-4, AC6) --
+    await initRetryCount(storyKey)
 
     // -- memory pressure pre-check (Story 23-8, AC1) --
     // Before starting any dispatch, verify memory is available. If pressured,
@@ -2560,6 +2613,39 @@ export function createImplementationOrchestrator(
       if (_state !== 'RUNNING') return
 
       if (reviewCycles === 0) startPhase(storyKey, 'code-review')
+
+      // -- Story 53-4: Retry budget gate (AC5) --
+      // Gate positioned BEFORE any retry dispatch, unconditional (cannot be bypassed).
+      // reviewCycles === 0 → initial dev dispatch (not a retry), skip gate.
+      // reviewCycles > 0  → retry attempt — check and enforce budget.
+      if (reviewCycles > 0) {
+        const currentRetries = _storyRetryCount.get(storyKey) ?? 0
+        const budget = config.retryBudget ?? 2
+        if (currentRetries >= budget) {
+          // Budget exhausted — mandatory escalation
+          endPhase(storyKey, 'code-review')
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            reviewCycles,
+            completedAt: new Date().toISOString(),
+            error: 'retry_budget_exhausted',
+          })
+          await writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles)
+          await emitEscalation({
+            storyKey,
+            lastVerdict: 'retry_budget_exhausted',
+            reviewCycles,
+            issues: [`retry budget exhausted: ${currentRetries}/${budget} retries used`],
+            retryBudget: budget,
+            retryCount: currentRetries,
+          })
+          await persistState()
+          return
+        }
+        // Budget not exhausted — increment counter and proceed with retry
+        incrementRetryCount(storyKey)
+      }
+
       updateStory(storyKey, {
         phase: 'IN_REVIEW' as StoryPhase,
         reviewCycles,
@@ -3359,6 +3445,68 @@ export function createImplementationOrchestrator(
   }
 
   /**
+   * Handle the cost ceiling being exceeded before dispatching a story (Story 53-3).
+   *
+   * Transitions all skipped stories to ESCALATED phase, emits the
+   * cost:ceiling-reached NDJSON event, and sets _budgetExhausted so that
+   * runWithConcurrency stops enqueuing new groups.
+   *
+   * @param triggeredStoryKey - The story that would have been dispatched next
+   * @param remainingInGroup - Other stories in the same conflict group after triggeredStoryKey
+   * @param result - The ceiling check result
+   * @param manifest - The current run manifest data
+   */
+  async function handleCeilingExceeded(
+    triggeredStoryKey: string,
+    remainingInGroup: string[],
+    result: CeilingCheckResult,
+    manifest: RunManifestData,
+  ): Promise<void> {
+    const haltOn = (manifest.cli_flags.halt_on as string | undefined) ?? 'none'
+
+    // Collect all skipped stories: triggeredStoryKey + remainingInGroup + all PENDING stories
+    const allSkipped: string[] = [triggeredStoryKey, ...remainingInGroup]
+    for (const [key, state] of _stories) {
+      if (state.phase === 'PENDING' && !allSkipped.includes(key)) {
+        allSkipped.push(key)
+      }
+    }
+
+    // Transition each skipped story to ESCALATED
+    for (const key of allSkipped) {
+      updateStory(key, {
+        phase: 'ESCALATED' as StoryPhase,
+        error: 'cost-ceiling-reached',
+        completedAt: new Date().toISOString(),
+      })
+      // Best-effort manifest update
+      if (runManifest !== null && runManifest !== undefined) {
+        runManifest
+          .patchStoryState(key, { status: 'escalated' })
+          .catch(() => { /* best-effort — ignore errors */ })
+      }
+    }
+
+    // Emit cost:ceiling-reached event
+    eventBus.emit('cost:ceiling-reached', {
+      cumulative_cost: result.cumulative,
+      ceiling: result.ceiling,
+      halt_on: haltOn,
+      action: 'stopped',
+      skipped_stories: allSkipped,
+      ...(haltOn !== 'none' ? { severity: 'critical' } : {}),
+    })
+
+    // Mark budget as exhausted so runWithConcurrency stops enqueuing
+    _budgetExhausted = true
+
+    logger.warn(
+      { skipped: allSkipped.length, cumulative: result.cumulative, ceiling: result.ceiling },
+      'Cost ceiling reached — stopping dispatch',
+    )
+  }
+
+  /**
    * Process a conflict group: run stories sequentially within the group.
    *
    * After each story completes (any outcome), a GC hint is issued and a short
@@ -3370,6 +3518,32 @@ export function createImplementationOrchestrator(
     const completedStoryKeys: string[] = []
 
     for (const storyKey of group) {
+      // -- Cost ceiling check (Story 53-3): enforce between dispatches --
+      if (runManifest !== null && runManifest !== undefined) {
+        try {
+          const manifestData = await runManifest.read()
+          const ceiling = manifestData.cli_flags.cost_ceiling as number | undefined
+          if (ceiling !== undefined && ceiling > 0) {
+            const checkResult = _costChecker.checkCeiling(manifestData, ceiling)
+            if (checkResult.status === 'warning' && !_costWarningEmitted) {
+              _costWarningEmitted = true
+              eventBus.emit('cost:warning', {
+                cumulative_cost: checkResult.cumulative,
+                ceiling: checkResult.ceiling,
+                percent_used: checkResult.percentUsed,
+              })
+            }
+            if (checkResult.status === 'exceeded') {
+              const remainingInGroup = group.slice(group.indexOf(storyKey) + 1)
+              await handleCeilingExceeded(storyKey, remainingInGroup, checkResult, manifestData)
+              return // stop processing remaining stories in this group
+            }
+          }
+        } catch (err) {
+          logger.debug({ err }, 'Cost ceiling check failed — proceeding without enforcement')
+        }
+      }
+
       // Query optimization directives from prior completed stories (Story 30-6)
       let optimizationDirectives: string | undefined
       if (telemetryAdvisor !== undefined && completedStoryKeys.length > 0) {
@@ -3409,6 +3583,7 @@ export function createImplementationOrchestrator(
     const running = new Set<Promise<void>>()
 
     function enqueue(): void {
+      if (_budgetExhausted) return  // budget ceiling reached — no new dispatches
       const group = queue.shift()
       if (group === undefined) return
 

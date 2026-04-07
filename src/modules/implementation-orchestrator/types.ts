@@ -72,6 +72,8 @@ export interface OrchestratorConfig {
   maxConcurrency: number
   /** Maximum number of code review cycles per story before escalation */
   maxReviewCycles: number
+  /** Per-story maximum retry attempts before mandatory escalation. Default: 2 (Story 53-4). */
+  retryBudget?: number
   /** Optional pipeline run ID for state persistence */
   pipelineRunId?: string
   /**

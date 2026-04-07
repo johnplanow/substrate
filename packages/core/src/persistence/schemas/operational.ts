@@ -182,3 +182,25 @@ export const TEST_PLAN = 'test-plan' as const
  * ```
  */
 export const ADVISORY_NOTES = 'advisory-notes' as const
+
+/**
+ * Category for root cause taxonomy findings persisted by the learning loop.
+ *
+ * Key schema: "{storyKey}:{runId}"
+ *
+ * Value shape: JSON-serialized `Finding` object from the learning loop, e.g.:
+ * ```json
+ * {
+ *   "id": "uuid",
+ *   "run_id": "run-abc",
+ *   "story_key": "53-5",
+ *   "root_cause": "build-failure",
+ *   "affected_files": ["src/foo.ts"],
+ *   "description": "Build failed after story dispatch",
+ *   "confidence": "high",
+ *   "created_at": "2026-04-06T00:00:00.000Z",
+ *   "expires_after_runs": 5
+ * }
+ * ```
+ */
+export const LEARNING_FINDING = 'finding' as const
