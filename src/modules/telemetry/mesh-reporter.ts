@@ -15,6 +15,14 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readdir
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLogger } from '../../utils/logger.js'
+import type { DatabaseAdapter } from '@substrate-ai/core'
+import {
+  getRunMetrics,
+  getStoryMetricsForRun,
+} from '../../persistence/queries/metrics.js'
+import { RunManifest } from '@substrate-ai/sdlc'
+
+const logger = createLogger('mesh-reporter')
 
 /** Lazy-loaded substrate version (avoids module-load-time side effects that break test mocking). */
 let _cachedVersion: string | undefined
@@ -29,17 +37,24 @@ function getSubstrateVersion(): string {
   }
   return _cachedVersion
 }
-import type { DatabaseAdapter } from '@substrate-ai/core'
-import {
-  getRunMetrics,
-  getStoryMetricsForRun,
-} from '../../persistence/queries/metrics.js'
-
-const logger = createLogger('mesh-reporter')
 
 // ---------------------------------------------------------------------------
 // RunReport types (mirrors agent-mesh RunReport schema)
 // ---------------------------------------------------------------------------
+
+interface VerificationCheck {
+  checkName: string
+  status: 'pass' | 'warn' | 'fail'
+  details?: string
+  durationMs?: number
+}
+
+interface ContractMismatch {
+  exporter: string
+  importer: string | null
+  contractName: string
+  mismatchDescription: string
+}
 
 interface StoryReport {
   storyKey: string
@@ -52,6 +67,9 @@ interface StoryReport {
   dispatches: number
   phaseDurations?: Record<string, number>
   escalationReason?: string
+  verificationStatus?: 'pass' | 'warn' | 'fail'
+  verificationChecks?: VerificationCheck[]
+  qualityScore?: number
 }
 
 interface RunReport {
@@ -72,13 +90,142 @@ interface RunReport {
   totalDispatches: number
   restarts: number
   stories: StoryReport[]
+  contractVerification?: {
+    verified: number
+    mismatches: number
+    verdict: 'pass' | 'fail' | 'skipped'
+    details?: ContractMismatch[]
+  }
+  warnings?: string[]
+  efficiencyScore?: number
   agentBackend: string
   engineType: string
   concurrency: number
 }
 
 // ---------------------------------------------------------------------------
-// Build RunReport from database metrics
+// Enrichment: verification results from RunManifest
+// ---------------------------------------------------------------------------
+
+async function loadVerificationResults(
+  runId: string,
+  runsDir: string,
+): Promise<Record<string, { status: string; checks: VerificationCheck[] }>> {
+  const results: Record<string, { status: string; checks: VerificationCheck[] }> = {}
+  try {
+    const manifest = RunManifest.open(runId, runsDir)
+    const data = await manifest.read()
+    if (data?.per_story_state) {
+      for (const [storyKey, state] of Object.entries(data.per_story_state)) {
+        const vr = (state as Record<string, unknown>)['verification_result'] as {
+          status?: string
+          checks?: Array<{ checkName: string; status: string; details?: string; duration_ms?: number }>
+        } | undefined
+        if (vr) {
+          results[storyKey] = {
+            status: vr.status ?? 'pass',
+            checks: (vr.checks ?? []).map(c => ({
+              checkName: c.checkName,
+              status: c.status as 'pass' | 'warn' | 'fail',
+              ...(c.details !== undefined && { details: c.details }),
+              ...(c.duration_ms !== undefined && { durationMs: c.duration_ms }),
+            })),
+          }
+        }
+      }
+    }
+  } catch {
+    logger.debug({ runId }, 'Could not read RunManifest for verification results — skipping')
+  }
+  return results
+}
+
+// ---------------------------------------------------------------------------
+// Enrichment: efficiency scores from database
+// ---------------------------------------------------------------------------
+
+async function loadEfficiencyScores(
+  adapter: DatabaseAdapter,
+  storyKeys: string[],
+): Promise<Record<string, number>> {
+  const scores: Record<string, number> = {}
+  if (storyKeys.length === 0) return scores
+
+  try {
+    // Get the latest composite score per story
+    for (const key of storyKeys) {
+      const rows = await adapter.query<{ composite_score: number }>(
+        'SELECT composite_score FROM efficiency_scores WHERE story_key = ? ORDER BY timestamp DESC LIMIT 1',
+        [key],
+      )
+      if (rows.length > 0 && rows[0] !== undefined) {
+        scores[key] = rows[0].composite_score
+      }
+    }
+  } catch {
+    logger.debug('Could not query efficiency_scores table — skipping')
+  }
+  return scores
+}
+
+// ---------------------------------------------------------------------------
+// Enrichment: contract verification from decisions table
+// ---------------------------------------------------------------------------
+
+async function loadContractVerification(
+  adapter: DatabaseAdapter,
+  runId: string,
+): Promise<RunReport['contractVerification'] | undefined> {
+  try {
+    // Query interface-contract decisions for this run
+    const rows = await adapter.query<{ key: string; value: string }>(
+      `SELECT key, value FROM decisions WHERE pipeline_run_id = ? AND category = 'interface-contract'`,
+      [runId],
+    )
+
+    if (rows.length === 0) return undefined
+
+    const mismatches: ContractMismatch[] = []
+    let verified = 0
+
+    for (const row of rows) {
+      try {
+        const parsed = JSON.parse(row.value) as {
+          verdict?: string
+          exporter?: string
+          importer?: string | null
+          contractName?: string
+          mismatchDescription?: string
+        }
+        if (parsed.verdict === 'fail' && parsed.contractName && parsed.mismatchDescription) {
+          mismatches.push({
+            exporter: parsed.exporter ?? row.key,
+            importer: parsed.importer ?? null,
+            contractName: parsed.contractName,
+            mismatchDescription: parsed.mismatchDescription,
+          })
+        } else {
+          verified++
+        }
+      } catch {
+        // Malformed decision — skip
+      }
+    }
+
+    return {
+      verified,
+      mismatches: mismatches.length,
+      verdict: mismatches.length > 0 ? 'fail' : 'pass',
+      ...(mismatches.length > 0 && { details: mismatches }),
+    }
+  } catch {
+    logger.debug('Could not query contract verification decisions — skipping')
+    return undefined
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Build RunReport from database metrics + enrichment sources
 // ---------------------------------------------------------------------------
 
 export async function buildRunReport(
@@ -100,6 +247,16 @@ export async function buildRunReport(
   }
 
   const storyMetrics = await getStoryMetricsForRun(adapter, runId)
+  const storyKeys = storyMetrics.map(s => s.story_key)
+
+  // Load enrichment data (all best-effort — failures don't block the report)
+  const dbDir = opts.projectRoot ? join(opts.projectRoot, '.substrate') : '.substrate'
+  const runsDir = join(dbDir, 'runs')
+  const verificationResults = await loadVerificationResults(runId, runsDir)
+  const efficiencyScores = await loadEfficiencyScores(adapter, storyKeys)
+  const contractVerification = await loadContractVerification(adapter, runId)
+
+  const warnings: string[] = []
 
   const stories: StoryReport[] = storyMetrics.map((s) => {
     let phaseDurations: Record<string, number> | undefined
@@ -111,6 +268,9 @@ export async function buildRunReport(
       }
     }
 
+    const vr = verificationResults[s.story_key]
+    const qualityScore = efficiencyScores[s.story_key]
+
     return {
       storyKey: s.story_key,
       result: s.result,
@@ -121,10 +281,21 @@ export async function buildRunReport(
       reviewCycles: s.review_cycles,
       dispatches: s.dispatches,
       ...(phaseDurations !== undefined && { phaseDurations }),
+      ...(vr !== undefined && {
+        verificationStatus: vr.status as 'pass' | 'warn' | 'fail',
+        verificationChecks: vr.checks,
+      }),
+      ...(qualityScore !== undefined && { qualityScore }),
     }
   })
 
-  // Derive status from the run_metrics status field
+  // Compute aggregate efficiency score (average across stories that have scores)
+  const storyScores = stories.map(s => s.qualityScore).filter((s): s is number => s !== undefined)
+  const avgEfficiencyScore = storyScores.length > 0
+    ? Math.round(storyScores.reduce((a, b) => a + b, 0) / storyScores.length)
+    : undefined
+
+  // Derive status
   const rawStatus = runMetrics.status.toLowerCase()
   const status: 'completed' | 'partial' | 'failed' =
     rawStatus === 'completed' ? 'completed'
@@ -153,6 +324,9 @@ export async function buildRunReport(
     totalDispatches: runMetrics.total_dispatches,
     restarts: runMetrics.restarts,
     stories,
+    ...(contractVerification !== undefined && { contractVerification }),
+    ...(warnings.length > 0 && { warnings }),
+    ...(avgEfficiencyScore !== undefined && { efficiencyScore: avgEfficiencyScore }),
     agentBackend: opts.agentBackend ?? 'claude-code',
     engineType: opts.engineType ?? 'linear',
     concurrency: opts.concurrency ?? runMetrics.concurrency_setting,
