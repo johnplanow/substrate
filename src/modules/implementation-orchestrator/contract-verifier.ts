@@ -97,7 +97,9 @@ export function verifyContracts(
   for (const exp of exports) {
     if (!exp.filePath) continue
 
-    const absPath = join(projectRoot, exp.filePath)
+    // Strip backticks — LLM agents sometimes emit paths wrapped in markdown code ticks
+    const cleanPath = exp.filePath.replace(/`/g, '')
+    const absPath = join(projectRoot, cleanPath)
     if (!existsSync(absPath)) {
       // Find all stories that import this contract
       const importers = imports.filter((i) => i.contractName === exp.contractName)
@@ -108,7 +110,7 @@ export function verifyContracts(
             exporter: exp.storyKey,
             importer: imp.storyKey,
             contractName: exp.contractName,
-            mismatchDescription: `Exported file not found: ${exp.filePath}`,
+            mismatchDescription: `Exported file not found: ${cleanPath}`,
           })
         }
       } else {
@@ -117,7 +119,7 @@ export function verifyContracts(
           exporter: exp.storyKey,
           importer: null,
           contractName: exp.contractName,
-          mismatchDescription: `Exported file not found: ${exp.filePath}`,
+          mismatchDescription: `Exported file not found: ${cleanPath}`,
         })
       }
     }
