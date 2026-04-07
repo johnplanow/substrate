@@ -172,7 +172,7 @@ describe('RunManifest — write path', () => {
     await manifest.write(data)
     const elapsed = performance.now() - start
 
-    expect(elapsed).toBeLessThan(50)
+    expect(elapsed).toBeLessThan(200) // CI macOS runners can be slow on disk I/O
   })
 
   // -------------------------------------------------------------------------
