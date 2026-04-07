@@ -97,7 +97,10 @@ const SDLC_NODE_PHASE_MAP: Record<string, string> = {
 export function createSdlcEventBridge(opts: SdlcEventBridgeOptions): { teardown(): void } {
   const { storyKey, pipelineRunId, sdlcBus, graphEvents } = opts
 
-  // Tracks dev_story retry count — used for reviewCycles in complete/escalated events (AC3, AC4)
+  // Tracks dev_story retry count — used for reviewCycles in complete/escalated events (AC3, AC4).
+  // Each dev_story retry corresponds to one additional code review dispatch (a failed code_review
+  // triggers a dev_story retry before the next code_review is run). Adding 1 converts the retry
+  // count into the total code-review dispatch count (Story 53-13).
   let devStoryRetries = 0
 
   // -------------------------------------------------------------------------
@@ -133,9 +136,13 @@ export function createSdlcEventBridge(opts: SdlcEventBridgeOptions): { teardown(
   const onGraphCompleted = (data: unknown): void => {
     const { finalOutcome } = data as { finalOutcome: { status: string } }
     if (finalOutcome.status === 'SUCCESS') {
+      // devStoryRetries counts additional dev_story dispatches after failed code reviews.
+      // Adding 1 converts the retry count into the total code-review dispatch count:
+      //   0 retries (first-pass SHIP_IT) → reviewCycles: 1 (Story 53-13)
+      //   1 retry (NEEDS_MINOR_FIXES → SHIP_IT) → reviewCycles: 2
       sdlcBus.emit('orchestrator:story-complete', {
         storyKey,
-        reviewCycles: devStoryRetries,
+        reviewCycles: devStoryRetries + 1,
       })
     }
   }

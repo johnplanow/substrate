@@ -25,6 +25,7 @@ import { CodeReviewResultSchema } from './schemas.js'
 import type { WorkflowDeps, CodeReviewParams, CodeReviewResult } from './types.js'
 import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitDiffStatForFiles, stageIntentToAdd, getGitChangedFiles } from './git-helpers.js'
 import { getTokenCeiling } from './token-ceiling.js'
+import { ScopeGuardrail } from './scope-guardrail.js'
 
 const logger = createLogger('compiled-workflows:code-review')
 
@@ -274,6 +275,14 @@ export async function runCodeReview(
     logger.debug({ storyKey }, 'Injecting verified test-count metrics into code-review context')
   }
 
+  // Compute pre-parsed scope analysis (AC7: inject expected vs actual file delta)
+  const scopeAnalysisContent = storyContent && filesModified
+    ? ScopeGuardrail.buildAnalysis(storyContent, filesModified)
+    : ''
+  if (scopeAnalysisContent) {
+    logger.debug({ storyKey }, 'Scope analysis detected out-of-scope files')
+  }
+
   const buildStatusPrefix = buildPassed === true
     ? 'BUILD STATUS: PASSED — code compiles and passes build verification. Focus on logic correctness, style, and acceptance criteria rather than compilation errors.\n\n'
     : ''
@@ -282,6 +291,7 @@ export async function runCodeReview(
     { name: 'story_content', content: buildStatusPrefix + storyContent, priority: 'required' as const },
     { name: 'git_diff', content: gitDiffContent, priority: 'important' as const },
     { name: 'test_metrics', content: testMetricsContent, priority: 'important' as const },
+    { name: 'scope_analysis', content: scopeAnalysisContent, priority: 'optional' as const },
     { name: 'previous_findings', content: previousFindingsContent, priority: 'optional' as const },
     { name: 'arch_constraints', content: archConstraintsContent, priority: 'optional' as const },
     { name: 'repo_context', content: repoContextContent, priority: 'optional' as const },

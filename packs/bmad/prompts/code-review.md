@@ -19,6 +19,9 @@
 ### Prior Run Findings
 {{prior_findings}}
 
+<!-- scope_analysis -->
+{{scope_analysis}}
+
 ---
 
 ## Mission
@@ -39,12 +42,13 @@ Adversarial code review. Find what's wrong. Validate story claims against actual
 
 3. **Build AC Checklist** — For each acceptance criterion (AC1, AC2, ...) in the story, determine: `met` (code implements it), `not_met` (code does not implement it), or `partial` (partially implemented). Cite the specific file and function as evidence.
 
-4. **Execute adversarial review** across 5 dimensions:
+4. **Execute adversarial review** across 6 dimensions:
    - **AC Validation** — Is each acceptance criterion implemented?
    - **AC-to-Test Traceability** — For each AC, identify the specific test file and test function that validates it. If an AC has no corresponding test evidence, flag it as a major issue: "AC{N} has no test evidence". A test "covers" an AC if it directly exercises the behavior described in the criterion — tangential tests do not count.
    - **Task Audit** — Tasks marked `[x]` that aren't done are BLOCKER issues
    - **Code Quality** — Security, error handling, edge cases, maintainability
    - **Test Quality** — Real assertions, not placeholders or skipped tests
+   - **Scope Compliance** — Compare files in the git diff against the expected file set from the story spec's "Key File Paths", "File Paths to Create", "File Paths to Modify", and "Tasks / Subtasks" sections. Any non-test file created or modified that does not appear in that expected set should be recorded as a `scope-creep` finding with `category: scope-creep` and `severity: minor`. **Test files (paths containing `.test.ts`, `.spec.ts`, `__tests__/`, or `__mocks__/`) are always exempt from scope checking — do not flag them, regardless of whether they appear in the story spec.** If a pre-computed scope analysis is provided in the `scope_analysis` section above, use it as ground truth — do not re-parse the story spec manually. **ADVISORY ONLY: Scope-creep findings are informational. If the only issues found are `scope-creep` entries, the verdict must be SHIP_IT or LGTM_WITH_NOTES — scope-creep findings do not independently trigger NEEDS_MINOR_FIXES or NEEDS_MAJOR_REWORK.**
 
 5. **Severity classification:**
    - **blocker** — Task `[x]` but not implemented; security vulnerability; data loss risk
@@ -85,6 +89,10 @@ issue_list:
     description: "Variable name `d` should be more descriptive"
     file: "src/modules/foo/foo.ts"
     line: 15
+  - severity: minor
+    category: scope-creep
+    description: "File src/modules/foo/extra.ts was created but not listed in the story spec's expected file set"
+    file: "src/modules/foo/extra.ts"
 ac_checklist:
   - ac_id: AC1
     status: met

@@ -1060,6 +1060,43 @@ describe('createImplementationOrchestrator', () => {
       )
     })
 
+    // Story 53-13: Review cycle counter accuracy (AC1, AC2, AC5)
+    it('emits orchestrator:story-complete with reviewCycles: 1 for single-pass SHIP_IT (AC5)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        'orchestrator:story-complete',
+        expect.objectContaining({ storyKey: '5-1', reviewCycles: 1 }),
+      )
+    })
+
+    it('emits orchestrator:story-complete with reviewCycles: 2 for NEEDS_MINOR_FIXES → SHIP_IT (AC5)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeCodeReviewMinorFixes())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        'orchestrator:story-complete',
+        expect.objectContaining({ storyKey: '5-1', reviewCycles: 2 }),
+      )
+    })
+
     it('emits orchestrator:complete when all stories are done', async () => {
       mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
       mockRunDevStory.mockResolvedValue(makeDevStorySuccess())

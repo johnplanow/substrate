@@ -121,7 +121,7 @@ describe('AC2: graph:node-completed → orchestrator:story-phase-complete', () =
 // ---------------------------------------------------------------------------
 
 describe('AC3: graph:completed → orchestrator:story-complete', () => {
-  it('emits story-complete with reviewCycles=0 when no retries occurred', () => {
+  it('emits story-complete with reviewCycles=1 when no code_review retries occurred (Story 53-13)', () => {
     const { graphEvents, sdlcBus } = makeFixture()
     graphEvents.emit('graph:completed', {
       runId: 'r1',
@@ -129,16 +129,17 @@ describe('AC3: graph:completed → orchestrator:story-complete', () => {
       totalCostUsd: 0,
       durationMs: 0,
     })
+    // codeReviewDispatches=0 retries + 1 base dispatch = reviewCycles 1
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-complete',
-      expect.objectContaining({ storyKey: '43-9', reviewCycles: 0 }),
+      expect.objectContaining({ storyKey: '43-9', reviewCycles: 1 }),
     )
   })
 
-  it('emits story-complete with reviewCycles=2 after two graph:node-retried events for dev_story', () => {
+  it('emits story-complete with reviewCycles=2 after one graph:node-retried event for dev_story (Story 53-13)', () => {
     const { graphEvents, sdlcBus } = makeFixture()
+    // One dev_story retry (triggered after a failed code review) = 2 total code-review dispatches
     graphEvents.emit('graph:node-retried', { runId: 'r1', nodeId: 'dev_story', attempt: 1, maxAttempts: 3, delayMs: 0 })
-    graphEvents.emit('graph:node-retried', { runId: 'r1', nodeId: 'dev_story', attempt: 2, maxAttempts: 3, delayMs: 0 })
     graphEvents.emit('graph:completed', {
       runId: 'r1',
       finalOutcome: { status: 'SUCCESS' },
@@ -276,19 +277,20 @@ describe('AC5: non-SDLC nodes are silently ignored', () => {
     expect(sdlcBus.emit).not.toHaveBeenCalled()
   })
 
-  it('does NOT count graph:node-retried for non-dev_story nodes in reviewCycles', () => {
+  it('does NOT count graph:node-retried for non-dev_story/non-code_review nodes in reviewCycles (Story 53-13)', () => {
     const { graphEvents, sdlcBus } = makeFixture()
-    // Retry on code_review (not dev_story) should NOT count toward reviewCycles
-    graphEvents.emit('graph:node-retried', { runId: 'r1', nodeId: 'code_review', attempt: 1, maxAttempts: 3, delayMs: 0 })
+    // Retry on an unknown node should NOT count toward reviewCycles
+    graphEvents.emit('graph:node-retried', { runId: 'r1', nodeId: 'unknown_node', attempt: 1, maxAttempts: 3, delayMs: 0 })
     graphEvents.emit('graph:completed', {
       runId: 'r1',
       finalOutcome: { status: 'SUCCESS' },
       totalCostUsd: 0,
       durationMs: 0,
     })
+    // unknown_node retry does not affect devStoryRetries; base dispatch = reviewCycles 1
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-complete',
-      expect.objectContaining({ reviewCycles: 0 }),
+      expect.objectContaining({ reviewCycles: 1 }),
     )
   })
 })

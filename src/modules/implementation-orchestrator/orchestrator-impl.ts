@@ -2954,9 +2954,10 @@ export function createImplementationOrchestrator(
           phase: 'COMPLETE' as StoryPhase,
           completedAt: new Date().toISOString(),
         })
-        await writeStoryMetricsBestEffort(storyKey, verdict, reviewCycles + 1)
-        await writeStoryOutcomeBestEffort(storyKey, 'complete', reviewCycles + 1)
-        eventBus.emit('orchestrator:story-complete', { storyKey, reviewCycles })
+        const completedReviewCycles = reviewCycles + 1
+        await writeStoryMetricsBestEffort(storyKey, verdict, completedReviewCycles)
+        await writeStoryOutcomeBestEffort(storyKey, 'complete', completedReviewCycles)
+        eventBus.emit('orchestrator:story-complete', { storyKey, reviewCycles: completedReviewCycles })
         await persistState()
 
         // LGTM_WITH_NOTES: persist advisory notes to decision store for learning loop

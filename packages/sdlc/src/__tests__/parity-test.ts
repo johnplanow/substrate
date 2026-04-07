@@ -120,9 +120,11 @@ function buildReferenceEvents(scenario: PariityScenario): ParityEvent[] {
       },
     })
   } else {
+    // devStoryRetries counts additional dev_story dispatches after failed code reviews.
+    // Adding 1 converts to total code-review dispatch count (Story 53-13 fix).
     events.push({
       name: 'orchestrator:story-complete',
-      payload: { storyKey, reviewCycles: devStoryRetries },
+      payload: { storyKey, reviewCycles: devStoryRetries + 1 },
     })
   }
 
@@ -339,7 +341,7 @@ describe('AC5: phase event payload shape matches linear contract', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC2: rework-cycle parity — review retry event sequence matches', () => {
-  it('emits two phase-start/complete pairs for dev and review; story-complete reviewCycles: 1', async () => {
+  it('emits two phase-start/complete pairs for dev and review; story-complete reviewCycles: 2 (Story 53-13)', async () => {
     const scenario: PariityScenario = { storyKey: 'test-rework', phases: reworkPhases }
     const referenceEvents = buildReferenceEvents(scenario)
     const capture = await runGraphScenario(scenario, { maxReviewCycles: 2 })
@@ -356,11 +358,12 @@ describe('AC2: rework-cycle parity — review retry event sequence matches', () 
     )
     expect(reviewStarts).toHaveLength(2)
 
-    // AC2: terminal event is story-complete with reviewCycles: 1
+    // AC2: terminal event is story-complete with reviewCycles: 2
+    // (1 dev_story retry after failed code_review + 1 base dispatch = 2 total code-review dispatches)
     const terminal = capture.events.at(-1)
     expect(terminal).toBeDefined()
     expect(terminal!.name).toBe('orchestrator:story-complete')
-    expect(terminal!.payload['reviewCycles']).toBe(1)
+    expect(terminal!.payload['reviewCycles']).toBe(2)
 
     // Full parity assertion
     assertParity(referenceEvents, capture.events)
