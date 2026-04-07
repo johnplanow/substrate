@@ -2416,6 +2416,18 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             runId,
           })
           process.stdout.write(summary + '\n')
+
+          // Push RunReport to agent-mesh telemetry server (best-effort, never throws)
+          if (fpMeshUrl !== undefined) {
+            await reportToMesh(adapter, runId, fpMeshUrl, {
+              projectId: fpMeshProjectId,
+              projectRoot,
+              agentBackend: agentId ?? 'claude-code',
+              engineType: fpEngineType ?? 'linear',
+              concurrency,
+            })
+          }
+
           return 0
         }
       }
