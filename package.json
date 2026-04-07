@@ -1,6 +1,6 @@
 {
   "name": "substrate-ai",
-  "version": "0.19.32",
+  "version": "0.19.33",
   "description": "Substrate — multi-agent orchestration daemon for AI coding agents",
   "type": "module",
   "license": "MIT",
@@ -68,7 +68,6 @@
     "substrate:dev": "node dist/cli/index.js"
   },
   "dependencies": {
-    "@substrate-ai/sdlc": "^0.1.0",
     "bmad-method": "^6.2.2",
     "commander": "^12.1.0",
     "js-yaml": "^4.1.1",
