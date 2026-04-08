@@ -818,7 +818,7 @@ export function createImplementationOrchestrator(
         cost_usd: tokenAgg.cost,
         review_cycles: reviewCycles,
         dispatches: _storyDispatches.get(storyKey) ?? 0,
-        primary_agent_id: storyAgentId ?? agentId ?? undefined,
+        primary_agent_id: storyAgentId ?? agentId ?? 'claude-code',
         dispatch_agents_json: _storyAgents.has(storyKey) ? JSON.stringify(_storyAgents.get(storyKey)) : undefined,
       })
       // AC1 of Story 26-5: also record to StateStore for Dolt-backed metric persistence
