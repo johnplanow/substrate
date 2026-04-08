@@ -293,11 +293,17 @@ export function runBuildVerification(options: {
   try {
     // Use bash (not /bin/sh which may be dash) so user-provided commands
     // containing bashisms like `source .venv/bin/activate` work correctly.
+    // Prepend node_modules/.bin to PATH so locally-installed tools (turbo, tsc, etc.)
+    // are found even when not installed globally. This mirrors how npm/npx scripts work.
+    const binPath = join(projectRoot, 'node_modules', '.bin')
+    const envPath = `${binPath}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH ?? ''}`
+
     const stdout = execSync(cmd, {
       cwd: projectRoot,
       timeout: timeoutMs,
       encoding: 'utf-8',
       shell: process.env.SHELL || '/bin/bash',
+      env: { ...process.env, PATH: envPath },
     })
 
     return {
