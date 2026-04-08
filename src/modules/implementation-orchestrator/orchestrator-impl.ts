@@ -714,6 +714,8 @@ export function createImplementationOrchestrator(
     if (!_phaseEndMs.has(storyKey)) _phaseEndMs.set(storyKey, new Map())
     _phaseEndMs.get(storyKey)!.set(phase, Date.now())
     _completedDispatches++
+    // Record the agent used for this phase dispatch (for telemetry)
+    recordDispatchAgent(storyKey, phase, agentId ?? 'claude-code')
   }
 
   function incrementDispatches(storyKey: string): void {
