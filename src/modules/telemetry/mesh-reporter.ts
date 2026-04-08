@@ -32,10 +32,13 @@ function getSubstrateVersion(): string {
   // Try multiple paths — the bundled dist layout differs from source layout.
   const candidates: string[] = []
 
-  // 1. Relative to this source file (works in dev/tsx)
+  // 1. Relative to this file's location (works in both dev/tsx and bundled dist)
+  //    In source: src/modules/telemetry/mesh-reporter.ts → ../../../package.json
+  //    In bundle: dist/run-XXXX.js → ../package.json
   try {
     const __dirname = dirname(fileURLToPath(import.meta.url))
-    candidates.push(join(__dirname, '..', '..', '..', 'package.json'))
+    candidates.push(join(__dirname, '..', 'package.json'))              // bundled: dist/ → ../package.json
+    candidates.push(join(__dirname, '..', '..', '..', 'package.json'))  // source: src/modules/telemetry/ → ../../../package.json
   } catch { /* import.meta.url unavailable */ }
 
   // 2. Relative to CLI entry point (works in published npm package)
