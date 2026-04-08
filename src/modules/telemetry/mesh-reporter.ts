@@ -307,6 +307,24 @@ export async function buildRunReport(
     }
   }
 
+  // Normalize story result values from the database to the RunReport enum.
+  // The DB stores mixed-case values: SHIP_IT, LGTM_WITH_NOTES, escalated, failed,
+  // verification-failed. The RunReport schema expects uppercase enum values.
+  const RESULT_MAP: Record<string, string> = {
+    'SHIP_IT': 'SHIP_IT',
+    'LGTM_WITH_NOTES': 'LGTM_WITH_NOTES',
+    'NEEDS_MINOR_FIXES': 'NEEDS_MINOR_FIXES',
+    'NEEDS_MAJOR_FIXES': 'NEEDS_MAJOR_FIXES',
+    'ESCALATED': 'ESCALATED',
+    'escalated': 'ESCALATED',
+    'FAILED': 'FAILED',
+    'failed': 'FAILED',
+    'verification-failed': 'FAILED',
+  }
+  function normalizeResult(raw: string): string {
+    return RESULT_MAP[raw] ?? raw.toUpperCase()
+  }
+
   const stories: StoryReport[] = storyMetrics.map((s) => {
     let phaseDurations: Record<string, number> | undefined
     if (s.phase_durations_json) {
@@ -322,7 +340,7 @@ export async function buildRunReport(
 
     return {
       storyKey: s.story_key,
-      result: s.result,
+      result: normalizeResult(s.result),
       wallClockSeconds: s.wall_clock_seconds,
       inputTokens: s.input_tokens,
       outputTokens: s.output_tokens,
