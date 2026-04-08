@@ -11,7 +11,7 @@
  */
 
 import { basename } from 'node:path'
-import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readdirSync, realpathSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLogger } from '../../utils/logger.js'
@@ -39,10 +39,14 @@ function getSubstrateVersion(): string {
   } catch { /* import.meta.url unavailable */ }
 
   // 2. Relative to CLI entry point (works in published npm package)
+  //    Resolve symlinks first — npm/Homebrew global installs use symlinks
+  //    (e.g., /opt/homebrew/bin/substrate → ../lib/node_modules/substrate-ai/dist/cli/index.js)
   if (process.argv[1]) {
-    const cliDir = dirname(process.argv[1])
+    let cliPath = process.argv[1]
+    try { cliPath = realpathSync(cliPath) } catch { /* use original if realpath fails */ }
+    const cliDir = dirname(cliPath)
     candidates.push(join(cliDir, '..', 'package.json'))  // dist/cli/index.js → ../package.json
-    candidates.push(join(cliDir, '..', '..', 'package.json'))  // in case of nested dist
+    candidates.push(join(cliDir, '..', '..', 'package.json'))  // dist/cli/ → ../../package.json
   }
 
   for (const candidate of candidates) {
