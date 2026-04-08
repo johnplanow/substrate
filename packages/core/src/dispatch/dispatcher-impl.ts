@@ -793,6 +793,8 @@ export class DispatcherImpl implements Dispatcher {
             inputTokens,
             outputTokens: Math.ceil(stdout.length / CHARS_PER_TOKEN),
             qualityScore: quality.qualityScore,
+            agent,
+            ...(effectiveModel !== undefined && { model: effectiveModel }),
           } as never)
 
           this._logger.warn(
@@ -837,6 +839,8 @@ export class DispatcherImpl implements Dispatcher {
           inputTokens,
           outputTokens: Math.ceil(stdout.length / CHARS_PER_TOKEN),
           qualityScore: quality.qualityScore,
+          agent,
+          ...(effectiveModel !== undefined && { model: effectiveModel }),
         } as never)
 
         this._logger.debug({ id, agent, taskType, durationMs, qualityScore: quality.qualityScore }, 'Agent completed')

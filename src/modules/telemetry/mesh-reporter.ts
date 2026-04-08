@@ -70,6 +70,9 @@ interface StoryReport {
   verificationStatus?: 'pass' | 'warn' | 'fail'
   verificationChecks?: VerificationCheck[]
   qualityScore?: number
+  agentId?: string
+  model?: string
+  dispatchAgents?: Array<{ agent: string; model?: string; phase: string }>
 }
 
 interface RunReport {
@@ -353,6 +356,12 @@ export async function buildRunReport(
         verificationChecks: vr.checks,
       }),
       ...(qualityScore !== undefined && { qualityScore }),
+      ...(s.primary_agent_id && { agentId: s.primary_agent_id }),
+      ...(s.primary_model && { model: s.primary_model }),
+      ...(s.dispatch_agents_json && (() => {
+        try { return { dispatchAgents: JSON.parse(s.dispatch_agents_json) as Array<{ agent: string; model?: string; phase: string }> } }
+        catch { return {} }
+      })()),
     }
   })
 

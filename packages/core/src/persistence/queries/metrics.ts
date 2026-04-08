@@ -52,6 +52,9 @@ export interface StoryMetricsInput {
   cost_usd?: number
   review_cycles?: number
   dispatches?: number
+  primary_agent_id?: string
+  primary_model?: string
+  dispatch_agents_json?: string
 }
 
 export interface StoryMetricsRow extends Required<StoryMetricsInput> {
@@ -246,8 +249,8 @@ export async function writeStoryMetrics(
       `INSERT INTO story_metrics (
         run_id, story_key, result, phase_durations_json, started_at, completed_at,
         wall_clock_seconds, input_tokens, output_tokens, cost_usd,
-        review_cycles, dispatches
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        review_cycles, dispatches, primary_agent_id, primary_model, dispatch_agents_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.run_id,
         input.story_key,
@@ -261,6 +264,9 @@ export async function writeStoryMetrics(
         input.cost_usd ?? 0,
         input.review_cycles ?? 0,
         input.dispatches ?? 0,
+        input.primary_agent_id ?? null,
+        input.primary_model ?? null,
+        input.dispatch_agents_json ?? null,
       ],
     )
   })

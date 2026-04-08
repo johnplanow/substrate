@@ -323,6 +323,11 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
     )
   `)
 
+  // -- story_metrics agent/model columns (mesh telemetry enrichment) ---------
+  for (const col of ['primary_agent_id VARCHAR(64)', 'primary_model VARCHAR(128)', 'dispatch_agents_json TEXT']) {
+    try { await adapter.exec(`ALTER TABLE story_metrics ADD COLUMN ${col}`) } catch { /* column already exists */ }
+  }
+
   // -- Monitor tables (from 001-monitor-schema) -----------------------------
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS task_metrics (

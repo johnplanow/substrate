@@ -650,6 +650,7 @@ export function createImplementationOrchestrator(
   const _phaseStartMs = new Map<string, Map<string, number>>() // storyKey → phase → start ms
   const _phaseEndMs = new Map<string, Map<string, number>>()   // storyKey → phase → end ms
   const _storyDispatches = new Map<string, number>()           // storyKey → dispatch count
+  const _storyAgents = new Map<string, Array<{ agent: string; model?: string; phase: string }>>() // storyKey → dispatch agent info
   const _storyRetryCount = new Map<string, number>()           // storyKey → retry count (Story 53-4)
   let _completedDispatches = 0                                  // total completed dispatch count (for heartbeat)
 
@@ -719,6 +720,11 @@ export function createImplementationOrchestrator(
     _storyDispatches.set(storyKey, (_storyDispatches.get(storyKey) ?? 0) + 1)
   }
 
+  function recordDispatchAgent(storyKey: string, phase: string, agent: string, model?: string): void {
+    if (!_storyAgents.has(storyKey)) _storyAgents.set(storyKey, [])
+    _storyAgents.get(storyKey)!.push({ agent, phase, ...(model !== undefined && { model }) })
+  }
+
   /**
    * Initialize `_storyRetryCount` from the run manifest for crash-recovery durability (AC6, Story 53-4).
    * Reads persisted retry_count so that budget gate correctly accounts for prior-session retries.
@@ -775,7 +781,7 @@ export function createImplementationOrchestrator(
     return JSON.stringify(durations)
   }
 
-  async function writeStoryMetricsBestEffort(storyKey: string, result: string, reviewCycles: number): Promise<void> {
+  async function writeStoryMetricsBestEffort(storyKey: string, result: string, reviewCycles: number, storyAgentId?: string): Promise<void> {
     if (config.pipelineRunId === undefined) return
     try {
       const storyState = _stories.get(storyKey)
@@ -812,6 +818,8 @@ export function createImplementationOrchestrator(
         cost_usd: tokenAgg.cost,
         review_cycles: reviewCycles,
         dispatches: _storyDispatches.get(storyKey) ?? 0,
+        primary_agent_id: storyAgentId ?? agentId ?? undefined,
+        dispatch_agents_json: _storyAgents.has(storyKey) ? JSON.stringify(_storyAgents.get(storyKey)) : undefined,
       })
       // AC1 of Story 26-5: also record to StateStore for Dolt-backed metric persistence
       if (stateStore !== undefined) {
