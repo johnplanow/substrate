@@ -28,13 +28,34 @@ const logger = createLogger('mesh-reporter')
 let _cachedVersion: string | undefined
 function getSubstrateVersion(): string {
   if (_cachedVersion !== undefined) return _cachedVersion
+
+  // Try multiple paths — the bundled dist layout differs from source layout.
+  const candidates: string[] = []
+
+  // 1. Relative to this source file (works in dev/tsx)
   try {
     const __dirname = dirname(fileURLToPath(import.meta.url))
-    const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'package.json'), 'utf-8')) as { version: string }
-    _cachedVersion = pkg.version
-  } catch {
-    _cachedVersion = 'unknown'
+    candidates.push(join(__dirname, '..', '..', '..', 'package.json'))
+  } catch { /* import.meta.url unavailable */ }
+
+  // 2. Relative to CLI entry point (works in published npm package)
+  if (process.argv[1]) {
+    const cliDir = dirname(process.argv[1])
+    candidates.push(join(cliDir, '..', 'package.json'))  // dist/cli/index.js → ../package.json
+    candidates.push(join(cliDir, '..', '..', 'package.json'))  // in case of nested dist
   }
+
+  for (const candidate of candidates) {
+    try {
+      const pkg = JSON.parse(readFileSync(candidate, 'utf-8')) as { version?: string; name?: string }
+      if (pkg.version && (pkg.name === 'substrate-ai' || pkg.name === 'substrate')) {
+        _cachedVersion = pkg.version
+        return _cachedVersion
+      }
+    } catch { /* not found — try next */ }
+  }
+
+  _cachedVersion = 'unknown'
   return _cachedVersion
 }
 
