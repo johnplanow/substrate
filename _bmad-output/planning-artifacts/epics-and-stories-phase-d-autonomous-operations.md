@@ -646,6 +646,48 @@ Phase D transforms substrate from a tool requiring human babysitting into reliab
 
 **Goal:** The system can recover from failures autonomously, operate at configurable halt severity levels, and produce a structured completion report for morning review — the capstone that enables overnight runs.
 
+---
+
+### Story 53-14: Dolt Adapter Transaction Safety
+
+**Priority**: must
+
+**Description**: The DoltDatabaseAdapter's `transaction()` method is fundamentally broken in both operating modes. In pool mode, BEGIN and subsequent queries may hit different connections from the mysql2 pool — the transaction boundary is meaningless. In CLI mode, each `dolt sql -q` invocation is a separate Dolt session — BEGIN/COMMIT across separate invocations have no effect. This causes intermittent data loss on all transactional writes (story_metrics, run_metrics, decisions).
+
+Root cause found by analyzing missing `story_metrics` rows via agent-mesh telemetry: the mesh reporter read the row within the same process (same connection), but after process exit the data was not persisted to Dolt's committed state.
+
+**Acceptance Criteria**:
+
+AC1: Pool mode transactions use a dedicated connection
+- `transaction()` acquires a single connection from the pool via `getConnection()`
+- BEGIN, all queries within the transaction function, and COMMIT/ROLLBACK execute on that same connection
+- The connection is released back to the pool in a `finally` block regardless of success or failure
+- Unit test: two concurrent transactions on the same adapter do not interleave their queries
+
+AC2: CLI mode transactions use a single multi-statement invocation
+- When in CLI mode, `transaction()` collects all SQL statements issued within `fn()` and executes them as a single `dolt sql -q "BEGIN; stmt1; stmt2; COMMIT"` invocation
+- Alternatively: CLI mode wraps the statements in a single session using `dolt sql` with stdin piping
+- If the combined statement fails, none of the individual statements persist (atomic)
+- Unit test: a transaction that inserts two rows in CLI mode either persists both or neither
+
+AC3: Data survives process exit
+- After `adapter.close()` is called, all committed transaction data is readable by a subsequent `dolt sql -q` CLI invocation from a new process
+- Integration test: write via adapter transaction, close adapter, verify via fresh CLI query
+
+AC4: Backward compatible
+- Existing code that calls `adapter.transaction()` does not need changes
+- The `DatabaseAdapter` interface does not change
+- Non-Dolt adapters (InMemoryAdapter) continue to work as before
+
+**Key Files**:
+- `packages/core/src/persistence/dolt-adapter.ts` — `transaction()` method
+- `packages/core/src/persistence/dolt-client.ts` — `DoltClient.query()`, pool vs CLI mode
+- `packages/core/src/persistence/dolt-adapter.test.ts` or new test file
+
+**FRs:** FR-R4 (crash recovery), NFR-C1 (adapter reliability)
+
+---
+
 **Architecture Increment:** 5
 **Dependency:** Epics 52 and 53
 **Estimated Stories:** 8
