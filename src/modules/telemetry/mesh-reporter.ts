@@ -342,6 +342,170 @@ async function loadEscalationDiagnoses(
 }
 
 // ---------------------------------------------------------------------------
+// Fallback: build RunReport from RunManifest (JSON file) when Dolt unavailable
+// ---------------------------------------------------------------------------
+
+async function buildRunReportFromManifest(
+  runId: string,
+  runsDir: string,
+  adapter: DatabaseAdapter,
+  opts: {
+    projectId?: string
+    projectRoot?: string
+    substrateVersion?: string
+    agentBackend?: string
+    engineType?: string
+    concurrency?: number
+  },
+): Promise<RunReport | null> {
+  try {
+    const manifest = RunManifest.open(runId, runsDir)
+    const data = await manifest.read()
+    if (!data?.per_story_state || Object.keys(data.per_story_state).length === 0) {
+      logger.warn({ runId }, 'RunManifest has no per_story_state — cannot build RunReport')
+      return null
+    }
+
+    const MANIFEST_RESULT_MAP: Record<string, string> = {
+      'complete': 'SHIP_IT',
+      'escalated': 'ESCALATED',
+      'failed': 'FAILED',
+      'verification-failed': 'FAILED',
+      'gated': 'FAILED',
+    }
+
+    const stories: StoryReport[] = []
+    let totalInputTokens = 0
+    let totalOutputTokens = 0
+    let totalCostUsd = 0
+    let totalReviewCycles = 0
+    let totalDispatches = 0
+    let storiesSucceeded = 0
+    let storiesFailed = 0
+    let storiesEscalated = 0
+
+    // Load escalation diagnoses from Dolt (best-effort — may also fail)
+    const storyKeys = Object.keys(data.per_story_state)
+    const escalationDiagnoses = await loadEscalationDiagnoses(adapter, runId)
+
+    for (const [storyKey, state] of Object.entries(data.per_story_state)) {
+      const result = MANIFEST_RESULT_MAP[state.status] ?? state.status.toUpperCase()
+
+      // Compute wall clock from timestamps if available
+      let wallClockSeconds = 0
+      if (state.started_at && state.completed_at) {
+        wallClockSeconds = Math.round(
+          (new Date(state.completed_at).getTime() - new Date(state.started_at).getTime()) / 1000,
+        )
+      }
+
+      const costUsd = state.cost_usd ?? 0
+      const reviewCycles = state.review_cycles ?? 0
+      const dispatches = state.dispatches ?? 0
+      totalCostUsd += costUsd
+      totalReviewCycles += reviewCycles
+      totalDispatches += dispatches
+
+      if (result === 'SHIP_IT' || result === 'LGTM_WITH_NOTES' || result === 'NEEDS_MINOR_FIXES') {
+        storiesSucceeded++
+      } else if (result === 'ESCALATED') {
+        storiesEscalated++
+      } else {
+        storiesFailed++
+      }
+
+      // Verification results from manifest
+      const vr = state.verification_result
+        ? {
+            status: (state.verification_result as { status?: string }).status ?? 'pass',
+            checks: ((state.verification_result as { checks?: Array<{ checkName: string; status: string; details?: string; duration_ms?: number }> }).checks ?? []).map(c => ({
+              checkName: c.checkName,
+              status: c.status as 'pass' | 'warn' | 'fail',
+              ...(c.details !== undefined && { details: c.details }),
+              ...(c.duration_ms !== undefined && { durationMs: c.duration_ms }),
+            })),
+          }
+        : undefined
+
+      const escalation = escalationDiagnoses[storyKey]
+
+      stories.push({
+        storyKey,
+        result,
+        wallClockSeconds,
+        ...(state.started_at && { startedAt: state.started_at }),
+        ...(state.completed_at && { completedAt: state.completed_at }),
+        inputTokens: 0, // not available in manifest
+        outputTokens: 0,
+        costUsd,
+        reviewCycles,
+        dispatches,
+        ...(escalation !== undefined && {
+          escalationReason: escalation.reason,
+          ...(escalation.issues.length > 0 && { escalationIssues: escalation.issues }),
+        }),
+        ...(vr !== undefined && {
+          verificationStatus: vr.status as 'pass' | 'warn' | 'fail',
+          verificationChecks: vr.checks,
+        }),
+      })
+    }
+
+    // Build escalation findings
+    const escalationFindings: EscalationFinding[] = Object.values(escalationDiagnoses).map(d => d.finding)
+
+    // Compute run-level wall clock
+    let wallClockSeconds = 0
+    if (data.created_at && data.updated_at) {
+      wallClockSeconds = Math.round(
+        (new Date(data.updated_at).getTime() - new Date(data.created_at).getTime()) / 1000,
+      )
+    }
+
+    const rawStatus = data.run_status ?? 'completed'
+    const status: 'completed' | 'partial' | 'failed' =
+      rawStatus === 'completed' ? 'completed'
+      : rawStatus === 'failed' ? 'failed'
+      : 'partial'
+
+    const projectId =
+      opts.projectId ??
+      (opts.projectRoot ? basename(opts.projectRoot) : 'unknown')
+
+    logger.info({ runId, storyCount: stories.length }, 'Built RunReport from manifest fallback')
+
+    return {
+      runId,
+      projectId,
+      substrateVersion: opts.substrateVersion ?? getSubstrateVersion(),
+      timestamp: data.updated_at ?? new Date().toISOString(),
+      ...(data.created_at && { startedAt: data.created_at }),
+      ...(data.updated_at && { completedAt: data.updated_at }),
+      status,
+      wallClockSeconds,
+      totalInputTokens,
+      totalOutputTokens,
+      totalCostUsd,
+      storiesAttempted: stories.length,
+      storiesSucceeded,
+      storiesFailed,
+      storiesEscalated,
+      totalReviewCycles,
+      totalDispatches,
+      restarts: data.restart_count ?? 0,
+      stories,
+      ...(escalationFindings.length > 0 && { escalationFindings }),
+      agentBackend: opts.agentBackend ?? 'claude-code',
+      engineType: opts.engineType ?? 'linear',
+      concurrency: opts.concurrency ?? 3,
+    }
+  } catch (err) {
+    logger.warn({ runId, err }, 'Failed to build RunReport from manifest fallback')
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Build RunReport from database metrics + enrichment sources
 // ---------------------------------------------------------------------------
 
@@ -358,17 +522,22 @@ export async function buildRunReport(
   },
 ): Promise<RunReport | null> {
   const runMetrics = await getRunMetrics(adapter, runId)
-  if (!runMetrics) {
-    logger.warn({ runId }, 'No run_metrics found — cannot build RunReport')
-    return null
-  }
 
-  const storyMetrics = await getStoryMetricsForRun(adapter, runId)
-  const storyKeys = storyMetrics.map(s => s.story_key)
+  const storyMetrics = runMetrics ? await getStoryMetricsForRun(adapter, runId) : []
 
   // Load enrichment data (all best-effort — failures don't block the report)
   const dbDir = opts.projectRoot ? join(opts.projectRoot, '.substrate') : '.substrate'
   const runsDir = join(dbDir, 'runs')
+
+  // If Dolt metrics are missing, try building the report from the RunManifest
+  // (JSON file). This is the critical fallback for CLI-mode Dolt environments
+  // where concurrent writes cause "database is read only" errors.
+  if (!runMetrics) {
+    logger.warn({ runId }, 'No run_metrics in Dolt — falling back to RunManifest')
+    return buildRunReportFromManifest(runId, runsDir, adapter, opts)
+  }
+
+  const storyKeys = storyMetrics.map(s => s.story_key)
   const verificationResults = await loadVerificationResults(runId, runsDir)
   const efficiencyScores = await loadEfficiencyScores(adapter, storyKeys)
   const contractVerification = await loadContractVerification(adapter, runId)
