@@ -88,6 +88,82 @@ export class DoltClient {
     return this._queryPool<T>(sql, params, branch)
   }
 
+  /**
+   * Execute a function within an explicit SQL transaction, enforcing
+   * atomicity in both pool mode and CLI mode.
+   *
+   * Pool mode: acquires a dedicated connection from the pool, executes
+   * BEGIN/COMMIT on that connection, and passes a connection-bound query
+   * lambda to `fn`. Connection is released in a `finally` block.
+   *
+   * CLI mode: collects all SQL statements issued within `fn()` via a
+   * statement-collecting query lambda (returns [] immediately), then
+   * executes the combined batch as a single `dolt sql -q "BEGIN; ...; COMMIT"`
+   * invocation via `_withCliLock()`. This ensures atomicity for pure-write
+   * transactions. NOTE: read-then-write patterns within `fn()` are not
+   * supported in CLI mode — SELECT queries always return [] in the collector.
+   * See Dev Notes in story 53-14 for documented call-site exceptions.
+   */
+  async transact<T>(
+    fn: (query: <R>(sql: string, params?: unknown[]) => Promise<R[]>) => Promise<T>,
+  ): Promise<T> {
+    if (!this._connected) {
+      await this.connect()
+    }
+
+    if (!this._useCliMode) {
+      // Pool mode: acquire a dedicated connection so all queries in the
+      // transaction use the same session/connection (no scatter across pool).
+      const conn = await this._pool!.getConnection()
+      try {
+        await conn.execute('BEGIN')
+        const txQuery = async <R>(sql: string, params?: unknown[]): Promise<R[]> => {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const [rows] = await conn.execute(sql, params as any)
+            return rows as R[]
+          } catch (err: unknown) {
+            throw new DoltQueryError(sql, err instanceof Error ? err.message : String(err))
+          }
+        }
+        const result = await fn(txQuery)
+        await conn.execute('COMMIT')
+        return result
+      } catch (err) {
+        try {
+          await conn.execute('ROLLBACK')
+        } catch {
+          // ignore rollback error
+        }
+        throw err
+      } finally {
+        conn.release()
+      }
+    } else {
+      // CLI mode: collect all SQL statements issued within fn(), then
+      // execute them as a single batched dolt sql invocation.
+      const statements: string[] = []
+      const txQuery = async <R>(sql: string, params?: unknown[]): Promise<R[]> => {
+        statements.push(this._resolveParams(sql, params))
+        return [] as R[]
+      }
+      const result = await fn(txQuery)
+      if (statements.length > 0) {
+        const batchSql = `BEGIN; ${statements.join('; ')}; COMMIT`
+        await this._withCliLock(async () => {
+          try {
+            await runExecFile('dolt', ['sql', '-q', batchSql, '--result-format', 'json'], {
+              cwd: this.repoPath,
+            })
+          } catch (err: unknown) {
+            throw new DoltQueryError(batchSql, err instanceof Error ? err.message : String(err))
+          }
+        })
+      }
+      return result
+    }
+  }
+
   private async _queryPool<T>(sql: string, params?: unknown[], branch?: string): Promise<T[]> {
     try {
       if (branch !== undefined && branch !== 'main') {
@@ -125,20 +201,25 @@ export class DoltClient {
     return prev.then(fn).finally(() => release())
   }
 
-  private async _queryCli<T>(sql: string, params?: unknown[], branch?: string): Promise<T[]> {
-    // Substitute params with escaped literals
-    let resolvedSql = sql
-    if (params && params.length > 0) {
-      let i = 0
-      resolvedSql = sql.replace(/\?/g, () => {
-        const val = params[i++]
-        if (val === null || val === undefined) return 'NULL'
-        if (typeof val === 'number') return String(val)
-        return `'${String(val).replace(/'/g, "''")}'`
-      })
-    }
+  /**
+   * Substitute `?` placeholders in a SQL string with properly escaped literal
+   * values from the `params` array.  Used by both `_queryCli` and the CLI
+   * `transact` path to produce a fully-resolved SQL string for shell execution.
+   */
+  private _resolveParams(sql: string, params?: unknown[]): string {
+    if (!params || params.length === 0) return sql
+    let i = 0
+    return sql.replace(/\?/g, () => {
+      const val = params[i++]
+      if (val === null || val === undefined) return 'NULL'
+      if (typeof val === 'number') return String(val)
+      return `'${String(val).replace(/'/g, "''")}'`
+    })
+  }
 
-    const finalSql = resolvedSql
+  private async _queryCli<T>(sql: string, params?: unknown[], branch?: string): Promise<T[]> {
+    // Substitute params with escaped literals using the shared helper
+    const finalSql = this._resolveParams(sql, params)
     return this._withCliLock(async () => {
       try {
         // Dolt CLI has no branch flag for `dolt sql`. Prepend DOLT_CHECKOUT

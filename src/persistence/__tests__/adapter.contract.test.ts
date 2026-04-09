@@ -24,10 +24,34 @@ import type { DoltClient } from '../../modules/state/dolt-client.js'
 
 /** Build a mocked DoltClient object suitable for DoltDatabaseAdapter tests. */
 function makeMockedDoltClient() {
-  return {
+  const client = {
     query: vi.fn<(sql: string, params?: unknown[]) => Promise<unknown[]>>(),
+    transact: vi.fn<
+      (
+        fn: (q: (sql: string, p?: unknown[]) => Promise<unknown[]>) => Promise<unknown>,
+      ) => Promise<unknown>
+    >(),
     close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
   }
+  // Default transact() implementation: delegate to query() with BEGIN/COMMIT
+  // so existing contract tests that verify BEGIN/COMMIT calls still pass.
+  client.transact.mockImplementation(
+    async (fn: (q: (sql: string, p?: unknown[]) => Promise<unknown[]>) => Promise<unknown>) => {
+      await client.query('BEGIN', undefined)
+      try {
+        const txQuery = async (sql: string, params?: unknown[]): Promise<unknown[]> => {
+          return client.query(sql, params)
+        }
+        const result = await fn(txQuery)
+        await client.query('COMMIT', undefined)
+        return result
+      } catch (err) {
+        await client.query('ROLLBACK', undefined)
+        throw err
+      }
+    },
+  )
+  return client
 }
 
 // ---------------------------------------------------------------------------
