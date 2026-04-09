@@ -6,9 +6,19 @@
  * project directory. No files are written to disk — detection is in-memory only.
  */
 
+import { execFile as execFileCb } from 'node:child_process'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Language, BuildTool, PackageEntry, ProjectProfile } from './types.js'
+
+function execFileAsync(cmd: string, args: string[], opts: { cwd?: string }): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFileCb(cmd, args, { ...opts, timeout: 5_000 }, (err, stdout) => {
+      if (err) reject(err)
+      else resolve(stdout)
+    })
+  })
+}
 
 // ---------------------------------------------------------------------------
 // Stack marker detection table
@@ -178,20 +188,17 @@ export async function detectTaskRunner(dir: string): Promise<{
   return null
 }
 
-async function detectJustTargets(dir: string, filename: string): Promise<{
+async function detectJustTargets(dir: string, _filename: string): Promise<{
   runner: string
   buildCommand?: string
   testCommand?: string
 }> {
   const result: { runner: string; buildCommand?: string; testCommand?: string } = { runner: 'just' }
   try {
-    const content = await fs.readFile(path.join(dir, filename), 'utf-8')
-    // Extract recipe names: lines that start with a word (not indented, not comments)
-    const recipes = content
-      .split('\n')
-      .map(line => line.match(/^([a-zA-Z_][\w-]*)\s*(?:[:=]|$)/))
-      .filter((m): m is RegExpMatchArray => m !== null)
-      .map(m => m[1]!)
+    // Use `just --summary` for reliable recipe listing — outputs space-separated
+    // recipe names without formatting, parameters, or descriptions.
+    const stdout = await execFileAsync('just', ['--summary'], { cwd: dir })
+    const recipes = stdout.trim().split(/\s+/)
 
     for (const target of BUILD_TARGETS) {
       if (recipes.includes(target)) {
@@ -206,7 +213,31 @@ async function detectJustTargets(dir: string, filename: string): Promise<{
       }
     }
   } catch {
-    // Can't read justfile — still report the runner but no command overrides
+    // just binary not available or failed — fall back to file parsing
+    try {
+      const content = await fs.readFile(path.join(dir, _filename), 'utf-8')
+      // Match recipe declarations: name, optionally followed by params, then ':'
+      const recipes = content
+        .split('\n')
+        .map(line => line.match(/^([a-zA-Z_][\w-]*)(?:\s+[^:]*)?:/))
+        .filter((m): m is RegExpMatchArray => m !== null)
+        .map(m => m[1]!)
+
+      for (const target of BUILD_TARGETS) {
+        if (recipes.includes(target)) {
+          result.buildCommand = `just ${target}`
+          break
+        }
+      }
+      for (const target of TEST_TARGETS) {
+        if (recipes.includes(target)) {
+          result.testCommand = `just ${target}`
+          break
+        }
+      }
+    } catch {
+      // Can't read justfile either — report runner with no command overrides
+    }
   }
   return result
 }
