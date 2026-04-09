@@ -142,15 +142,12 @@ interface TaskRunnerMarker {
   file: string
   /** Name of the runner binary. */
   runner: string
-  /** Command to list available targets/recipes. */
-  listCommand: string[]
 }
 
 const TASK_RUNNER_MARKERS: TaskRunnerMarker[] = [
-  { file: 'justfile', runner: 'just', listCommand: ['just', '--list'] },
-  { file: 'Justfile', runner: 'just', listCommand: ['just', '--list'] },
-  { file: 'Makefile', runner: 'make', listCommand: [] }, // make targets require parsing
-  { file: 'Taskfile.yml', runner: 'task', listCommand: ['task', '--list'] },
+  { file: 'justfile', runner: 'just' },
+  { file: 'Justfile', runner: 'just' },
+  { file: 'Makefile', runner: 'make' },
 ]
 
 /** Known build-related target names, in preference order. */
@@ -181,9 +178,6 @@ export async function detectTaskRunner(dir: string): Promise<{
     if (marker.runner === 'make') {
       return detectMakeTargets(dir)
     }
-
-    // For Taskfile.yml: just note it exists (basic support)
-    return { runner: 'task' }
   }
   return null
 }
@@ -217,9 +211,10 @@ async function detectJustTargets(dir: string, _filename: string): Promise<{
     try {
       const content = await fs.readFile(path.join(dir, _filename), 'utf-8')
       // Match recipe declarations: name, optionally followed by params, then ':'
+      // The :(?!=) negative lookahead excludes variable assignments (var := "value")
       const recipes = content
         .split('\n')
-        .map(line => line.match(/^([a-zA-Z_][\w-]*)(?:\s+[^:]*)?:/))
+        .map(line => line.match(/^([a-zA-Z_][\w-]*)(?:\s+[^:]*)?:(?!=)/))
         .filter((m): m is RegExpMatchArray => m !== null)
         .map(m => m[1]!)
 

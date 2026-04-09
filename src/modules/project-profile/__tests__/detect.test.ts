@@ -374,20 +374,21 @@ describe('detectTaskRunner', () => {
     expect(result!.testCommand).toBe('make test-unit')
   })
 
-  it('detects Taskfile.yml', async () => {
-    setupAccess(['Taskfile.yml'])
-
-    const result = await detectTaskRunner('/project')
-    expect(result).not.toBeNull()
-    expect(result!.runner).toBe('task')
-  })
-
   it('justfile takes priority over Makefile', async () => {
     setupAccess(['justfile', 'Makefile'])
     mockReadFile.mockResolvedValue('build:\n  just build\n')
 
     const result = await detectTaskRunner('/project')
     expect(result!.runner).toBe('just')
+  })
+
+  it('file parsing ignores variable assignments (var := value)', async () => {
+    setupAccess(['justfile'])
+    mockReadFile.mockResolvedValue('build := "something"\ntest-unit log=\'quiet\':\n  mvn test\n')
+
+    const result = await detectTaskRunner('/project')
+    expect(result!.buildCommand).toBeUndefined()
+    expect(result!.testCommand).toBe('just test-unit')
   })
 })
 
