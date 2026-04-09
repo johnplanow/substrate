@@ -288,6 +288,122 @@ export async function scaffoldClaudeMd(
 }
 
 // ---------------------------------------------------------------------------
+// AGENTS.md scaffold (Codex CLI)
+// ---------------------------------------------------------------------------
+
+export async function scaffoldAgentsMd(
+  projectRoot: string,
+  profile?: ProjectProfile | null,
+): Promise<void> {
+  const agentsMdPath = join(projectRoot, 'AGENTS.md')
+  const pkgRoot = findPackageRoot(__dirname)
+  const templateName = 'agents-md-substrate-section.md'
+  let templatePath = join(pkgRoot, 'dist', 'cli', 'templates', templateName)
+  if (!existsSync(templatePath)) {
+    templatePath = join(pkgRoot, 'src', 'cli', 'templates', templateName)
+  }
+
+  let sectionContent: string
+  try {
+    sectionContent = await readFile(templatePath, 'utf8')
+  } catch {
+    logger.warn({ templatePath }, 'AGENTS.md substrate section template not found; skipping')
+    return
+  }
+
+  const substrateVersion = readSubstrateVersion(pkgRoot)
+  sectionContent = sectionContent.replace('{{SUBSTRATE_VERSION}}', substrateVersion)
+  if (!sectionContent.endsWith('\n')) sectionContent += '\n'
+
+  const devNotesSection = buildStackAwareDevNotes(profile ?? null)
+
+  let existingContent = ''
+  let fileExists = false
+  try {
+    existingContent = await readFile(agentsMdPath, 'utf8')
+    fileExists = true
+  } catch {
+    // File does not exist — will create it
+  }
+
+  let newContent: string
+  if (!fileExists) {
+    newContent = devNotesSection ? devNotesSection + '\n\n' + sectionContent : sectionContent
+  } else if (existingContent.includes(CLAUDE_MD_START_MARKER)) {
+    newContent = existingContent.replace(
+      new RegExp(
+        `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+      ),
+      sectionContent.trimEnd(),
+    )
+  } else {
+    const separator = existingContent.endsWith('\n') ? '\n' : '\n\n'
+    newContent = existingContent + separator + sectionContent
+  }
+
+  await writeFile(agentsMdPath, newContent, 'utf8')
+  logger.info({ agentsMdPath }, 'Wrote substrate section to AGENTS.md')
+}
+
+// ---------------------------------------------------------------------------
+// GEMINI.md scaffold (Gemini CLI)
+// ---------------------------------------------------------------------------
+
+export async function scaffoldGeminiMd(
+  projectRoot: string,
+  profile?: ProjectProfile | null,
+): Promise<void> {
+  const geminiMdPath = join(projectRoot, 'GEMINI.md')
+  const pkgRoot = findPackageRoot(__dirname)
+  const templateName = 'gemini-md-substrate-section.md'
+  let templatePath = join(pkgRoot, 'dist', 'cli', 'templates', templateName)
+  if (!existsSync(templatePath)) {
+    templatePath = join(pkgRoot, 'src', 'cli', 'templates', templateName)
+  }
+
+  let sectionContent: string
+  try {
+    sectionContent = await readFile(templatePath, 'utf8')
+  } catch {
+    logger.warn({ templatePath }, 'GEMINI.md substrate section template not found; skipping')
+    return
+  }
+
+  const substrateVersion = readSubstrateVersion(pkgRoot)
+  sectionContent = sectionContent.replace('{{SUBSTRATE_VERSION}}', substrateVersion)
+  if (!sectionContent.endsWith('\n')) sectionContent += '\n'
+
+  const devNotesSection = buildStackAwareDevNotes(profile ?? null)
+
+  let existingContent = ''
+  let fileExists = false
+  try {
+    existingContent = await readFile(geminiMdPath, 'utf8')
+    fileExists = true
+  } catch {
+    // File does not exist — will create it
+  }
+
+  let newContent: string
+  if (!fileExists) {
+    newContent = devNotesSection ? devNotesSection + '\n\n' + sectionContent : sectionContent
+  } else if (existingContent.includes(CLAUDE_MD_START_MARKER)) {
+    newContent = existingContent.replace(
+      new RegExp(
+        `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+      ),
+      sectionContent.trimEnd(),
+    )
+  } else {
+    const separator = existingContent.endsWith('\n') ? '\n' : '\n\n'
+    newContent = existingContent + separator + sectionContent
+  }
+
+  await writeFile(geminiMdPath, newContent, 'utf8')
+  logger.info({ geminiMdPath }, 'Wrote substrate section to GEMINI.md')
+}
+
+// ---------------------------------------------------------------------------
 // .claude/statusline.sh scaffold
 // ---------------------------------------------------------------------------
 
@@ -1257,9 +1373,11 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     await dbAdapter.close()
 
     // ---------------------------------------------------------------
-    // Step 5: Scaffold CLAUDE.md, statusline, settings, commands
+    // Step 5: Scaffold agent instruction files, statusline, settings, commands
     // ---------------------------------------------------------------
     await scaffoldClaudeMd(projectRoot, detectedProfile)
+    await scaffoldAgentsMd(projectRoot, detectedProfile)
+    await scaffoldGeminiMd(projectRoot, detectedProfile)
     await scaffoldStatuslineScript(projectRoot)
     await scaffoldClaudeSettings(projectRoot)
     await scaffoldClaudeCommands(projectRoot, outputFormat)
@@ -1357,6 +1475,8 @@ export async function runInitAction(options: InitOptions): Promise<number> {
 
       process.stdout.write(`  Scaffolded:\n`)
       process.stdout.write(`    CLAUDE.md             pipeline instructions for Claude Code\n`)
+      process.stdout.write(`    AGENTS.md             pipeline instructions for Codex CLI\n`)
+      process.stdout.write(`    GEMINI.md             pipeline instructions for Gemini CLI\n`)
       process.stdout.write(`    .claude/commands/     /substrate-run, /substrate-supervisor, /substrate-metrics\n`)
       process.stdout.write(`    .substrate/           config, database, routing policy\n`)
 
