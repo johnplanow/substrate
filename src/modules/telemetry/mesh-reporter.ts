@@ -454,12 +454,21 @@ export async function buildRunReport(
     }
 
     const vr = verificationResults[s.story_key]
-    const qualityScore = efficiencyScores[s.story_key]
+    const rawQualityScore = efficiencyScores[s.story_key]
     const escalation = escalationDiagnoses[s.story_key]
+
+    // Penalize efficiency score for failed/escalated stories — a story that
+    // used tokens efficiently but didn't ship is not truly "efficient".
+    const normalizedStoryResult = normalizeResult(s.result)
+    const qualityScore = rawQualityScore !== undefined
+      ? (normalizedStoryResult === 'ESCALATED' || normalizedStoryResult === 'FAILED')
+        ? Math.min(rawQualityScore, 40)  // cap at 40 for failed outcomes
+        : rawQualityScore
+      : undefined
 
     return {
       storyKey: s.story_key,
-      result: normalizeResult(s.result),
+      result: normalizedStoryResult,
       wallClockSeconds: s.wall_clock_seconds,
       ...(s.started_at && { startedAt: s.started_at }),
       ...(s.completed_at && { completedAt: s.completed_at }),
