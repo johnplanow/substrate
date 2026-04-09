@@ -27,6 +27,8 @@ import { createTuiApp, isTuiCapable, printNonTtyWarning } from '../../tui/index.
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createEventBus } from '../../core/event-bus.js'
 import { createDatabaseAdapter } from '../../persistence/adapter.js'
+import { startDoltServer, registerServerCleanup } from '../../persistence/dolt-server.js'
+import type { DoltServerHandle } from '../../persistence/dolt-server.js'
 import { initSchema } from '../../persistence/schema.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler, RepoMapInjector } from '../../modules/context-compiler/index.js'
@@ -873,6 +875,16 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   // Ensure database directory
   if (!existsSync(dbDir)) {
     mkdirSync(dbDir, { recursive: true })
+  }
+
+  // Start a Dolt SQL server for the duration of this run to eliminate CLI-mode
+  // concurrent write failures. The server is killed in the finally block.
+  let doltServer: DoltServerHandle | null = null
+  try {
+    doltServer = await startDoltServer(projectRoot)
+    if (doltServer) registerServerCleanup(doltServer)
+  } catch {
+    // Non-fatal — adapter will fall back to CLI mode
   }
 
   // Open database
@@ -1812,6 +1824,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     } catch {
       // ignore
     }
+    doltServer?.stop()
   }
 }
 
@@ -1875,6 +1888,15 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
   // Ensure database directory
   if (!existsSync(dbDir)) {
     mkdirSync(dbDir, { recursive: true })
+  }
+
+  // Start a Dolt SQL server for the duration of this run
+  let doltServerFull: DoltServerHandle | null = null
+  try {
+    doltServerFull = await startDoltServer(projectRoot)
+    if (doltServerFull) registerServerCleanup(doltServerFull)
+  } catch {
+    // Non-fatal — adapter will fall back to CLI mode
   }
 
   const adapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
@@ -2528,6 +2550,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     } catch {
       // ignore
     }
+    doltServerFull?.stop()
   }
 }
 
