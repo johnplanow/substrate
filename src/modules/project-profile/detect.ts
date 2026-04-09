@@ -124,6 +124,127 @@ async function detectNodeBuildTool(dir: string): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// Task runner overlay detection (just, make, task)
+// ---------------------------------------------------------------------------
+
+interface TaskRunnerMarker {
+  /** File that indicates this task runner is in use. */
+  file: string
+  /** Name of the runner binary. */
+  runner: string
+  /** Command to list available targets/recipes. */
+  listCommand: string[]
+}
+
+const TASK_RUNNER_MARKERS: TaskRunnerMarker[] = [
+  { file: 'justfile', runner: 'just', listCommand: ['just', '--list'] },
+  { file: 'Justfile', runner: 'just', listCommand: ['just', '--list'] },
+  { file: 'Makefile', runner: 'make', listCommand: [] }, // make targets require parsing
+  { file: 'Taskfile.yml', runner: 'task', listCommand: ['task', '--list'] },
+]
+
+/** Known build-related target names, in preference order. */
+const BUILD_TARGETS = ['build-skip-tests', 'build-no-tests', 'compile', 'build']
+/** Known unit-test target names, in preference order. */
+const TEST_TARGETS = ['test-unit', 'test-fast', 'test']
+
+/**
+ * Detect a task runner (justfile, Makefile, Taskfile.yml) in the given directory
+ * and extract build/test command overrides from its available targets.
+ *
+ * Returns overrides for buildCommand and testCommand, or null if no task runner found.
+ */
+export async function detectTaskRunner(dir: string): Promise<{
+  runner: string
+  buildCommand?: string
+  testCommand?: string
+} | null> {
+  for (const marker of TASK_RUNNER_MARKERS) {
+    if (!(await fileExists(path.join(dir, marker.file)))) continue
+
+    // For justfile: parse available recipes from the file content
+    if (marker.runner === 'just') {
+      return detectJustTargets(dir, marker.file)
+    }
+
+    // For Makefile: parse targets from file content
+    if (marker.runner === 'make') {
+      return detectMakeTargets(dir)
+    }
+
+    // For Taskfile.yml: just note it exists (basic support)
+    return { runner: 'task' }
+  }
+  return null
+}
+
+async function detectJustTargets(dir: string, filename: string): Promise<{
+  runner: string
+  buildCommand?: string
+  testCommand?: string
+}> {
+  const result: { runner: string; buildCommand?: string; testCommand?: string } = { runner: 'just' }
+  try {
+    const content = await fs.readFile(path.join(dir, filename), 'utf-8')
+    // Extract recipe names: lines that start with a word (not indented, not comments)
+    const recipes = content
+      .split('\n')
+      .map(line => line.match(/^([a-zA-Z_][\w-]*)\s*(?:[:=]|$)/))
+      .filter((m): m is RegExpMatchArray => m !== null)
+      .map(m => m[1]!)
+
+    for (const target of BUILD_TARGETS) {
+      if (recipes.includes(target)) {
+        result.buildCommand = `just ${target}`
+        break
+      }
+    }
+    for (const target of TEST_TARGETS) {
+      if (recipes.includes(target)) {
+        result.testCommand = `just ${target}`
+        break
+      }
+    }
+  } catch {
+    // Can't read justfile — still report the runner but no command overrides
+  }
+  return result
+}
+
+async function detectMakeTargets(dir: string): Promise<{
+  runner: string
+  buildCommand?: string
+  testCommand?: string
+}> {
+  const result: { runner: string; buildCommand?: string; testCommand?: string } = { runner: 'make' }
+  try {
+    const content = await fs.readFile(path.join(dir, 'Makefile'), 'utf-8')
+    // Extract target names: lines matching "target:" at start of line
+    const targets = content
+      .split('\n')
+      .map(line => line.match(/^([a-zA-Z_][\w-]*):/))
+      .filter((m): m is RegExpMatchArray => m !== null)
+      .map(m => m[1]!)
+
+    for (const target of BUILD_TARGETS) {
+      if (targets.includes(target)) {
+        result.buildCommand = `make ${target}`
+        break
+      }
+    }
+    for (const target of TEST_TARGETS) {
+      if (targets.includes(target)) {
+        result.testCommand = `make ${target}`
+        break
+      }
+    }
+  } catch {
+    // Can't read Makefile — still report the runner but no command overrides
+  }
+  return result
+}
+
+// ---------------------------------------------------------------------------
 // Single-project detection
 // ---------------------------------------------------------------------------
 
@@ -138,6 +259,8 @@ async function detectNodeBuildTool(dir: string): Promise<{
  * @returns A `PackageEntry` describing the detected stack.
  */
 export async function detectSingleProjectStack(dir: string): Promise<PackageEntry> {
+  let baseEntry: PackageEntry | undefined
+
   for (const marker of STACK_MARKERS) {
     const markerPath = path.join(dir, marker.file)
     if (!(await fileExists(markerPath))) {
@@ -147,7 +270,7 @@ export async function detectSingleProjectStack(dir: string): Promise<PackageEntr
     // package.json: detect build tool from lock files
     if (marker.file === 'package.json') {
       const nodeInfo = await detectNodeBuildTool(dir)
-      return {
+      baseEntry = {
         path: dir,
         language: 'typescript',
         buildTool: nodeInfo.buildTool,
@@ -155,6 +278,7 @@ export async function detectSingleProjectStack(dir: string): Promise<PackageEntr
         testCommand: nodeInfo.testCommand,
         installCommand: nodeInfo.installCommand,
       }
+      break
     }
 
     // pyproject.toml: detect poetry vs pip from poetry.lock presence.
@@ -163,7 +287,7 @@ export async function detectSingleProjectStack(dir: string): Promise<PackageEntr
     if (marker.file === 'pyproject.toml') {
       const hasPoetry = await fileExists(path.join(dir, 'poetry.lock'))
       if (hasPoetry) {
-        return {
+        baseEntry = {
           path: dir,
           language: 'python',
           buildTool: 'poetry',
@@ -171,14 +295,11 @@ export async function detectSingleProjectStack(dir: string): Promise<PackageEntr
           testCommand: 'poetry run pytest',
           installCommand: 'poetry add <package>',
         }
+        break
       }
-      // Pip project: check for .venv and build activation-aware commands.
-      // PEP 668 on modern distros blocks system-level pip install; using
-      // a venv avoids this. The `source` command requires bash (not sh/dash),
-      // which is handled by the shell: '/bin/bash' option in execSync.
       const hasVenv = await fileExists(path.join(dir, '.venv', 'bin', 'activate'))
       const venvPrefix = hasVenv ? 'source .venv/bin/activate && ' : ''
-      return {
+      baseEntry = {
         path: dir,
         language: 'python',
         buildTool: 'pip',
@@ -186,10 +307,11 @@ export async function detectSingleProjectStack(dir: string): Promise<PackageEntr
         testCommand: `${venvPrefix}pytest`,
         installCommand: `${venvPrefix}pip install <package>`,
       }
+      break
     }
 
     // All other markers: direct mapping
-    return {
+    baseEntry = {
       path: dir,
       language: marker.language,
       buildTool: marker.buildTool,
@@ -197,16 +319,38 @@ export async function detectSingleProjectStack(dir: string): Promise<PackageEntr
       testCommand: marker.testCommand,
       installCommand: marker.installCommand,
     }
+    break
   }
 
   // Fallback: no marker found — assume TypeScript/npm
+  if (!baseEntry) {
+    baseEntry = {
+      path: dir,
+      language: 'typescript',
+      buildTool: 'npm',
+      buildCommand: 'npm run build',
+      testCommand: 'npm test',
+      installCommand: 'npm install <package>',
+    }
+  }
+
+  // Apply task runner overlay (just/make/task) — overrides build/test commands
+  // if a task runner file exists with matching targets.
+  return applyTaskRunnerOverlay(dir, baseEntry)
+}
+
+/**
+ * Apply task runner overlay to a detected PackageEntry.
+ * If a justfile/Makefile/Taskfile.yml exists with matching targets,
+ * override the buildCommand and testCommand with task runner commands.
+ */
+async function applyTaskRunnerOverlay(dir: string, entry: PackageEntry): Promise<PackageEntry> {
+  const runner = await detectTaskRunner(dir)
+  if (!runner) return entry
   return {
-    path: dir,
-    language: 'typescript',
-    buildTool: 'npm',
-    buildCommand: 'npm run build',
-    testCommand: 'npm test',
-    installCommand: 'npm install <package>',
+    ...entry,
+    ...(runner.buildCommand && { buildCommand: runner.buildCommand }),
+    ...(runner.testCommand && { testCommand: runner.testCommand }),
   }
 }
 

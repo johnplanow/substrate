@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest'
 import * as fs from 'node:fs/promises'
-import { detectSingleProjectStack, detectMonorepoProfile, detectProjectProfile } from '../detect.js'
+import { detectSingleProjectStack, detectMonorepoProfile, detectProjectProfile, detectTaskRunner } from '../detect.js'
 
 // ---------------------------------------------------------------------------
 // Mock node:fs/promises
@@ -17,6 +17,7 @@ vi.mock('node:fs/promises')
 
 const mockAccess = fs.access as MockedFunction<typeof fs.access>
 const mockReaddir = fs.readdir as MockedFunction<typeof fs.readdir>
+const mockReadFile = fs.readFile as MockedFunction<typeof fs.readFile>
 
 /** Helper: make access succeed for listed paths, fail for all others. */
 function setupAccess(existingPaths: string[]): void {
@@ -273,5 +274,139 @@ describe('detectProjectProfile', () => {
     expect(result!.project.tool).toBeNull()
     expect(result!.project.buildCommand).toBe('pnpm run build')
     expect(result!.project.testCommand).toBe('pnpm test')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// detectTaskRunner
+// ---------------------------------------------------------------------------
+
+describe('detectTaskRunner', () => {
+  it('returns null when no task runner file exists', async () => {
+    const result = await detectTaskRunner('/project')
+    expect(result).toBeNull()
+  })
+
+  it('detects justfile and extracts build/test targets', async () => {
+    setupAccess(['justfile'])
+    mockReadFile.mockResolvedValue(
+      'build:\n  mvn compile\n\nbuild-skip-tests:\n  mvn install -DskipTests\n\ntest-unit:\n  mvn test -Dtest.unit\n\ntest:\n  mvn test\n',
+    )
+
+    const result = await detectTaskRunner('/project')
+    expect(result).not.toBeNull()
+    expect(result!.runner).toBe('just')
+    expect(result!.buildCommand).toBe('just build-skip-tests')
+    expect(result!.testCommand).toBe('just test-unit')
+  })
+
+  it('prefers build-skip-tests over build', async () => {
+    setupAccess(['justfile'])
+    mockReadFile.mockResolvedValue('build:\n  echo build\n\nbuild-skip-tests:\n  echo skip\n')
+
+    const result = await detectTaskRunner('/project')
+    expect(result!.buildCommand).toBe('just build-skip-tests')
+  })
+
+  it('falls back to build when build-skip-tests is absent', async () => {
+    setupAccess(['justfile'])
+    mockReadFile.mockResolvedValue('build:\n  mvn compile\n\ntest:\n  mvn test\n')
+
+    const result = await detectTaskRunner('/project')
+    expect(result!.buildCommand).toBe('just build')
+    expect(result!.testCommand).toBe('just test')
+  })
+
+  it('prefers test-unit over test', async () => {
+    setupAccess(['justfile'])
+    mockReadFile.mockResolvedValue('test:\n  all tests\n\ntest-unit:\n  unit only\n')
+
+    const result = await detectTaskRunner('/project')
+    expect(result!.testCommand).toBe('just test-unit')
+  })
+
+  it('returns runner with no command overrides when justfile has no matching targets', async () => {
+    setupAccess(['justfile'])
+    mockReadFile.mockResolvedValue('deploy:\n  deploy stuff\n\nclean:\n  clean stuff\n')
+
+    const result = await detectTaskRunner('/project')
+    expect(result).not.toBeNull()
+    expect(result!.runner).toBe('just')
+    expect(result!.buildCommand).toBeUndefined()
+    expect(result!.testCommand).toBeUndefined()
+  })
+
+  it('detects Makefile and extracts targets', async () => {
+    setupAccess(['Makefile'])
+    mockReadFile.mockResolvedValue('build:\n\tmvn compile\n\ntest-unit:\n\tmvn test -Dunit\n')
+
+    const result = await detectTaskRunner('/project')
+    expect(result).not.toBeNull()
+    expect(result!.runner).toBe('make')
+    expect(result!.buildCommand).toBe('make build')
+    expect(result!.testCommand).toBe('make test-unit')
+  })
+
+  it('detects Taskfile.yml', async () => {
+    setupAccess(['Taskfile.yml'])
+
+    const result = await detectTaskRunner('/project')
+    expect(result).not.toBeNull()
+    expect(result!.runner).toBe('task')
+  })
+
+  it('justfile takes priority over Makefile', async () => {
+    setupAccess(['justfile', 'Makefile'])
+    mockReadFile.mockResolvedValue('build:\n  just build\n')
+
+    const result = await detectTaskRunner('/project')
+    expect(result!.runner).toBe('just')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task runner overlay integration
+// ---------------------------------------------------------------------------
+
+describe('detectSingleProjectStack — task runner overlay', () => {
+  it('overrides Maven commands with just when justfile exists', async () => {
+    setupAccess(['pom.xml', 'justfile'])
+    mockReadFile.mockResolvedValue(
+      'build-skip-tests:\n  mvn install -DskipTests\n\ntest-unit:\n  mvn test -Dunit\n',
+    )
+
+    const result = await detectSingleProjectStack('/project')
+    expect(result.language).toBe('java')
+    expect(result.buildTool).toBe('maven')
+    expect(result.buildCommand).toBe('just build-skip-tests')
+    expect(result.testCommand).toBe('just test-unit')
+  })
+
+  it('preserves base commands when justfile has no matching targets', async () => {
+    setupAccess(['pom.xml', 'justfile'])
+    mockReadFile.mockResolvedValue('deploy:\n  deploy only\n')
+
+    const result = await detectSingleProjectStack('/project')
+    expect(result.buildCommand).toBe('mvn compile')
+    expect(result.testCommand).toBe('mvn test')
+  })
+
+  it('overrides Gradle commands with make when Makefile exists', async () => {
+    setupAccess(['build.gradle', 'Makefile'])
+    mockReadFile.mockResolvedValue('build:\n\t./gradlew build\n\ntest:\n\t./gradlew test\n')
+
+    const result = await detectSingleProjectStack('/project')
+    expect(result.language).toBe('java')
+    expect(result.buildTool).toBe('gradle')
+    expect(result.buildCommand).toBe('make build')
+    expect(result.testCommand).toBe('make test')
+  })
+
+  it('does not override when no task runner file exists', async () => {
+    setupAccess(['pom.xml'])
+
+    const result = await detectSingleProjectStack('/project')
+    expect(result.buildCommand).toBe('mvn compile')
+    expect(result.testCommand).toBe('mvn test')
   })
 })
