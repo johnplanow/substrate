@@ -88,6 +88,8 @@ interface StoryReport {
   storyKey: string
   result: string
   wallClockSeconds: number
+  startedAt?: string
+  completedAt?: string
   inputTokens: number
   outputTokens: number
   costUsd: number
@@ -95,6 +97,7 @@ interface StoryReport {
   dispatches: number
   phaseDurations?: Record<string, number>
   escalationReason?: string
+  escalationIssues?: string[]
   verificationStatus?: 'pass' | 'warn' | 'fail'
   verificationChecks?: VerificationCheck[]
   qualityScore?: number
@@ -103,11 +106,26 @@ interface StoryReport {
   dispatchAgents?: Array<{ agent: string; model?: string; phase: string }>
 }
 
+interface EscalationFinding {
+  storyKey: string
+  totalIssues?: number
+  blockerCount?: number
+  majorCount?: number
+  minorCount?: number
+  issueDistribution?: string
+  severityProfile?: string
+  affectedFiles?: string[]
+  recommendedAction?: string
+  rationale?: string
+}
+
 interface RunReport {
   runId: string
   projectId: string
   substrateVersion: string
   timestamp: string
+  startedAt?: string
+  completedAt?: string
   status: 'completed' | 'partial' | 'failed'
   wallClockSeconds: number
   totalInputTokens: number
@@ -121,6 +139,7 @@ interface RunReport {
   totalDispatches: number
   restarts: number
   stories: StoryReport[]
+  escalationFindings?: EscalationFinding[]
   contractVerification?: {
     verified: number
     mismatches: number
@@ -132,6 +151,7 @@ interface RunReport {
   agentBackend: string
   engineType: string
   concurrency: number
+  maxConcurrentActual?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +276,72 @@ async function loadContractVerification(
 }
 
 // ---------------------------------------------------------------------------
+// Enrichment: escalation diagnosis from decisions table
+// ---------------------------------------------------------------------------
+
+interface EscalationDiagnosisRow {
+  key: string
+  value: string
+}
+
+async function loadEscalationDiagnoses(
+  adapter: DatabaseAdapter,
+  runId: string,
+): Promise<Record<string, { finding: EscalationFinding; reason: string; issues: string[] }>> {
+  const results: Record<string, { finding: EscalationFinding; reason: string; issues: string[] }> = {}
+  try {
+    const rows = await adapter.query<EscalationDiagnosisRow>(
+      `SELECT key, value FROM decisions WHERE pipeline_run_id = ? AND category = 'escalation-diagnosis'`,
+      [runId],
+    )
+
+    for (const row of rows) {
+      try {
+        const parsed = JSON.parse(row.value) as {
+          totalIssues?: number
+          blockerCount?: number
+          majorCount?: number
+          minorCount?: number
+          issueDistribution?: string
+          severityProfile?: string
+          affectedFiles?: string[]
+          recommendedAction?: string
+          rationale?: string
+          issues?: Array<{ severity?: string; description?: string; file?: string }>
+        }
+        const storyKey = row.key.split(':')[0] ?? 'unknown'
+
+        const issueDescriptions = (parsed.issues ?? [])
+          .map(i => i.description ? `[${i.severity ?? 'unknown'}] ${i.description}` : '')
+          .filter(Boolean)
+
+        results[storyKey] = {
+          finding: {
+            storyKey,
+            ...(parsed.totalIssues !== undefined && { totalIssues: parsed.totalIssues }),
+            ...(parsed.blockerCount !== undefined && { blockerCount: parsed.blockerCount }),
+            ...(parsed.majorCount !== undefined && { majorCount: parsed.majorCount }),
+            ...(parsed.minorCount !== undefined && { minorCount: parsed.minorCount }),
+            ...(parsed.issueDistribution && { issueDistribution: parsed.issueDistribution }),
+            ...(parsed.severityProfile && { severityProfile: parsed.severityProfile }),
+            ...(parsed.affectedFiles && parsed.affectedFiles.length > 0 && { affectedFiles: parsed.affectedFiles }),
+            ...(parsed.recommendedAction && { recommendedAction: parsed.recommendedAction }),
+            ...(parsed.rationale && { rationale: parsed.rationale }),
+          },
+          reason: parsed.recommendedAction ?? 'unknown',
+          issues: issueDescriptions,
+        }
+      } catch {
+        // Malformed decision — skip
+      }
+    }
+  } catch {
+    logger.debug('Could not query escalation-diagnosis decisions — skipping')
+  }
+  return results
+}
+
+// ---------------------------------------------------------------------------
 // Build RunReport from database metrics + enrichment sources
 // ---------------------------------------------------------------------------
 
@@ -286,6 +372,7 @@ export async function buildRunReport(
   const verificationResults = await loadVerificationResults(runId, runsDir)
   const efficiencyScores = await loadEfficiencyScores(adapter, storyKeys)
   const contractVerification = await loadContractVerification(adapter, runId)
+  const escalationDiagnoses = await loadEscalationDiagnoses(adapter, runId)
 
   // Load interface change warnings from decisions
   const warnings: string[] = []
@@ -368,17 +455,24 @@ export async function buildRunReport(
 
     const vr = verificationResults[s.story_key]
     const qualityScore = efficiencyScores[s.story_key]
+    const escalation = escalationDiagnoses[s.story_key]
 
     return {
       storyKey: s.story_key,
       result: normalizeResult(s.result),
       wallClockSeconds: s.wall_clock_seconds,
+      ...(s.started_at && { startedAt: s.started_at }),
+      ...(s.completed_at && { completedAt: s.completed_at }),
       inputTokens: s.input_tokens,
       outputTokens: s.output_tokens,
       costUsd: s.cost_usd,
       reviewCycles: s.review_cycles,
       dispatches: s.dispatches,
       ...(phaseDurations !== undefined && { phaseDurations }),
+      ...(escalation !== undefined && {
+        escalationReason: escalation.reason,
+        ...(escalation.issues.length > 0 && { escalationIssues: escalation.issues }),
+      }),
       ...(vr !== undefined && {
         verificationStatus: vr.status as 'pass' | 'warn' | 'fail',
         verificationChecks: vr.checks,
@@ -410,11 +504,19 @@ export async function buildRunReport(
     opts.projectId ??
     (opts.projectRoot ? basename(opts.projectRoot) : 'unknown')
 
+  // Build escalation findings from diagnosis data
+  const escalationFindings: EscalationFinding[] = Object.values(escalationDiagnoses).map(d => d.finding)
+
+  // Use completed_at from run_metrics when available (more accurate than now() for outbox reports)
+  const timestamp = runMetrics.completed_at ?? new Date().toISOString()
+
   return {
     runId,
     projectId,
     substrateVersion: opts.substrateVersion ?? getSubstrateVersion(),
-    timestamp: new Date().toISOString(),
+    timestamp,
+    ...(runMetrics.started_at && { startedAt: runMetrics.started_at }),
+    ...(runMetrics.completed_at && { completedAt: runMetrics.completed_at }),
     status,
     wallClockSeconds: runMetrics.wall_clock_seconds,
     totalInputTokens: runMetrics.total_input_tokens,
@@ -428,12 +530,15 @@ export async function buildRunReport(
     totalDispatches: runMetrics.total_dispatches,
     restarts: runMetrics.restarts,
     stories,
+    ...(escalationFindings.length > 0 && { escalationFindings }),
     ...(contractVerification !== undefined && { contractVerification }),
     ...(warnings.length > 0 && { warnings }),
     ...(avgEfficiencyScore !== undefined && { efficiencyScore: avgEfficiencyScore }),
     agentBackend: opts.agentBackend ?? 'claude-code',
     engineType: opts.engineType ?? 'linear',
     concurrency: opts.concurrency ?? runMetrics.concurrency_setting,
+    ...(runMetrics.max_concurrent_actual !== undefined &&
+      runMetrics.max_concurrent_actual !== null && { maxConcurrentActual: runMetrics.max_concurrent_actual }),
   }
 }
 
