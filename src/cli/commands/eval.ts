@@ -12,7 +12,8 @@
  */
 
 import type { Command } from 'commander'
-import { join } from 'path'
+import { fileURLToPath } from 'node:url'
+import { join, dirname } from 'path'
 import { existsSync } from 'node:fs'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import yaml from 'js-yaml'
@@ -39,6 +40,9 @@ const PHASE_TO_PROMPT_KEY: Record<EvalPhase, string> = {
   implementation: 'dev-story',
 }
 
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
 const EVAL_PHASES: EvalPhase[] = ['analysis', 'planning', 'solutioning', 'implementation']
 
 export interface EvalCommandOptions {
@@ -48,6 +52,24 @@ export interface EvalCommandOptions {
   concept?: string
   report: ReportFormat
   projectRoot: string
+}
+
+/**
+ * Resolve the fixtures directory. In dev (src/), fixtures live in
+ * src/modules/eval/fixtures. In a built package (dist/), they should
+ * live at dist/modules/eval/fixtures (see postbuild script).
+ */
+function resolveFixturesDir(): string {
+  // Try compiled dist path first (most common at runtime)
+  const distPath = join(__dirname, '..', '..', 'modules', 'eval', 'fixtures')
+  if (existsSync(distPath)) return distPath
+
+  // Fall back to source path (for running under tsx/vitest/dev mode)
+  const srcPath = join(__dirname, '..', '..', '..', 'modules', 'eval', 'fixtures')
+  if (existsSync(srcPath)) return srcPath
+
+  // Last resort: fixtures not found — caller will gracefully degrade
+  return distPath
 }
 
 async function loadRubric(fixturesDir: string, phase: string): Promise<Rubric | undefined> {
@@ -151,7 +173,13 @@ export async function runEvalAction(options: EvalCommandOptions): Promise<number
     }
 
     // Resolve fixtures directory (co-located with the eval module)
-    const fixturesDir = join(dbRoot, 'src', 'modules', 'eval', 'fixtures')
+    const fixturesDir = resolveFixturesDir()
+
+    if (depth === 'deep' && !existsSync(fixturesDir)) {
+      process.stderr.write(
+        `Warning: Deep tier fixtures not found at ${fixturesDir}. Running without golden examples or rubrics.\n`,
+      )
+    }
 
     // Enrich with deep tier data
     if (depth === 'deep') {
