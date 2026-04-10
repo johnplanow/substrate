@@ -14,7 +14,8 @@
 import type { Command } from 'commander'
 import { join } from 'path'
 import { existsSync } from 'node:fs'
-import { writeFile, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import yaml from 'js-yaml'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createDatabaseAdapter } from '../../persistence/adapter.js'
 import { initSchema } from '../../persistence/schema.js'
@@ -26,7 +27,7 @@ import {
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createLogger } from '../../utils/logger.js'
 import { EvalEngine, PromptfooAdapter, EvalReporter } from '../../modules/eval/index.js'
-import type { EvalDepth, EvalPhase, ReportFormat, PhaseData } from '../../modules/eval/index.js'
+import type { EvalDepth, EvalPhase, ReportFormat, PhaseData, Rubric } from '../../modules/eval/index.js'
 
 const logger = createLogger('eval-cmd')
 
@@ -36,12 +37,30 @@ export interface EvalCommandOptions {
   depth: EvalDepth
   phases: EvalPhase[]
   runId?: string
+  concept?: string
   report: ReportFormat
   projectRoot: string
 }
 
+async function loadRubric(fixturesDir: string, phase: string): Promise<Rubric | undefined> {
+  try {
+    const content = await readFile(join(fixturesDir, 'rubrics', `${phase}.yaml`), 'utf-8')
+    return yaml.load(content) as Rubric
+  } catch {
+    return undefined
+  }
+}
+
+async function loadGoldenExample(fixturesDir: string, concept: string, phase: string): Promise<string | undefined> {
+  try {
+    return await readFile(join(fixturesDir, 'golden', concept, `${phase}.yaml`), 'utf-8')
+  } catch {
+    return undefined
+  }
+}
+
 export async function runEvalAction(options: EvalCommandOptions): Promise<number> {
-  const { depth, phases, runId, report, projectRoot } = options
+  const { depth, phases, runId, concept, report, projectRoot } = options
 
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
@@ -120,6 +139,30 @@ export async function runEvalAction(options: EvalCommandOptions): Promise<number
       return 1
     }
 
+    // Resolve fixtures directory (co-located with the eval module)
+    const fixturesDir = join(dbRoot, 'src', 'modules', 'eval', 'fixtures')
+
+    // Enrich with deep tier data
+    if (depth === 'deep') {
+      for (let i = 0; i < phaseDataList.length; i++) {
+        const pd = phaseDataList[i]
+
+        // Load rubric
+        pd.rubric = await loadRubric(fixturesDir, pd.phase)
+
+        // Load golden example (when --concept is specified)
+        if (concept) {
+          pd.goldenExample = await loadGoldenExample(fixturesDir, concept, pd.phase)
+        }
+
+        // Wire upstream output for cross-phase coherence
+        if (i > 0) {
+          pd.upstreamOutput = phaseDataList[i - 1].output
+          pd.upstreamPhase = phaseDataList[i - 1].phase
+        }
+      }
+    }
+
     // Run eval
     const evalAdapter = new PromptfooAdapter()
     const engine = new EvalEngine(evalAdapter)
@@ -161,6 +204,7 @@ export function registerEvalCommand(
     .option('--depth <depth>', 'Eval depth: standard or deep', 'standard')
     .option('--phase <phases>', 'Comma-separated phases to evaluate')
     .option('--run-id <id>', 'Pipeline run ID (defaults to latest)')
+    .option('--concept <name>', 'Canonical test concept for golden example comparison')
     .option('--report <format>', 'Output format: table, json, or markdown', 'table')
     .option('--project-root <path>', 'Project root directory', projectRoot)
     .action(
@@ -168,6 +212,7 @@ export function registerEvalCommand(
         depth: string
         phase?: string
         runId?: string
+        concept?: string
         report: string
         projectRoot: string
       }) => {
@@ -186,6 +231,7 @@ export function registerEvalCommand(
           depth,
           phases,
           runId: opts.runId,
+          concept: opts.concept,
           report: reportFmt,
           projectRoot: opts.projectRoot,
         })
