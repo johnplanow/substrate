@@ -109,19 +109,27 @@ describe('Helper Utilities', () => {
 
   describe('assertDefined', () => {
     it('should not throw for defined values', () => {
-      expect(() => { assertDefined('hello', 'should not throw'); }).not.toThrow()
-      expect(() => { assertDefined(0, 'should not throw'); }).not.toThrow()
-      expect(() => { assertDefined(false, 'should not throw'); }).not.toThrow()
+      expect(() => {
+        assertDefined('hello', 'should not throw')
+      }).not.toThrow()
+      expect(() => {
+        assertDefined(0, 'should not throw')
+      }).not.toThrow()
+      expect(() => {
+        assertDefined(false, 'should not throw')
+      }).not.toThrow()
     })
 
     it('should throw for null', () => {
-      expect(() => { assertDefined(null, 'value is null'); }).toThrow('value is null')
+      expect(() => {
+        assertDefined(null, 'value is null')
+      }).toThrow('value is null')
     })
 
     it('should throw for undefined', () => {
-      expect(() => { assertDefined(undefined, 'value is undefined'); }).toThrow(
-        'value is undefined'
-      )
+      expect(() => {
+        assertDefined(undefined, 'value is undefined')
+      }).toThrow('value is undefined')
     })
   })
 

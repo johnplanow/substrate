@@ -56,7 +56,9 @@ describe('Logger Utility', () => {
       const child = childLogger(parent, { taskId: 'task-123', agentId: 'claude' })
       expect(child).toBeDefined()
       // Child logger should function correctly
-      expect(() => { child.info('Child logger test message'); }).not.toThrow()
+      expect(() => {
+        child.info('Child logger test message')
+      }).not.toThrow()
     })
   })
 
