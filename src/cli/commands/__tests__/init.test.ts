@@ -20,7 +20,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // ---------------------------------------------------------------------------
 
 // Mock adapter
-const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+const mockAdapter = {
+  query: vi.fn().mockResolvedValue([]),
+  exec: vi.fn().mockResolvedValue(undefined),
+  transaction: vi.fn(),
+  close: vi.fn().mockResolvedValue(undefined),
+}
 
 vi.mock('../../../persistence/adapter.js', () => ({
   createDatabaseAdapter: vi.fn(() => mockAdapter),
@@ -107,13 +112,17 @@ vi.mock('../../../modules/state/dolt-init.js', () => ({
   initializeDolt: (...args: unknown[]) => mockInitializeDolt(...args),
   DoltNotInstalled: class DoltNotInstalled extends Error {
     constructor() {
-      super('Dolt CLI not found in PATH. Install Dolt from https://docs.dolthub.com/introduction/installation')
+      super(
+        'Dolt CLI not found in PATH. Install Dolt from https://docs.dolthub.com/introduction/installation'
+      )
       this.name = 'DoltNotInstalled'
     }
   },
   DoltInitError: class DoltInitError extends Error {
     constructor(args: string[], exitCode: number, stderr: string) {
-      super(`Dolt command "dolt ${args.join(' ')}" failed with exit code ${exitCode}${stderr ? `: ${stderr}` : ''}`)
+      super(
+        `Dolt command "dolt ${args.join(' ')}" failed with exit code ${exitCode}${stderr ? `: ${stderr}` : ''}`
+      )
       this.name = 'DoltInitError'
     }
   },
@@ -162,8 +171,10 @@ function setupDefaultMocks() {
 
   // fs/promises: readFile for CLAUDE.md template and others
   mockReadFile.mockImplementation((path: string) => {
-    if (String(path).includes('claude-md-substrate-section.md') ||
-        String(path).includes('statusline.sh')) {
+    if (
+      String(path).includes('claude-md-substrate-section.md') ||
+      String(path).includes('statusline.sh')
+    ) {
       return Promise.resolve('# template content\n')
     }
     if (String(path).includes('settings.json')) {
@@ -215,7 +226,9 @@ describe('Dolt bootstrapping', () => {
     expect(exitCode).toBe(INIT_EXIT_SUCCESS)
     expect(mockCheckDoltInstalled).toHaveBeenCalledOnce()
     expect(mockInitializeDolt).toHaveBeenCalledOnce()
-    expect(mockInitializeDolt).toHaveBeenCalledWith(expect.objectContaining({ projectRoot: '/test/project' }))
+    expect(mockInitializeDolt).toHaveBeenCalledWith(
+      expect.objectContaining({ projectRoot: '/test/project' })
+    )
   })
 
   it('AC5/AC7: doltMode auto + Dolt installed — output includes Dolt status line', async () => {
@@ -415,7 +428,9 @@ describe('Dolt bootstrapping', () => {
     // checkDoltInstalled should NOT be called in force mode (initializeDolt is called directly)
     expect(mockCheckDoltInstalled).not.toHaveBeenCalled()
     expect(mockInitializeDolt).toHaveBeenCalledOnce()
-    expect(mockInitializeDolt).toHaveBeenCalledWith(expect.objectContaining({ projectRoot: '/test/project' }))
+    expect(mockInitializeDolt).toHaveBeenCalledWith(
+      expect.objectContaining({ projectRoot: '/test/project' })
+    )
   })
 
   // -------------------------------------------------------------------------

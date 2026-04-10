@@ -14,16 +14,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { InMemoryDatabaseAdapter } from '../../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
-import {
-  createPipelineRun,
-  createDecision,
-} from '../../../../persistence/queries/decisions.js'
+import { createPipelineRun, createDecision } from '../../../../persistence/queries/decisions.js'
 import { runSolutioningPhase } from '../solutioning.js'
-import type {
-  PhaseDeps,
-  ArchitectureDecision,
-  EpicDefinition,
-} from '../types.js'
+import type { PhaseDeps, ArchitectureDecision, EpicDefinition } from '../types.js'
 import type { MethodologyPack } from '../../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../../agent-dispatch/types.js'
@@ -48,11 +41,17 @@ async function seedPlanningRequirements(adapter: DatabaseAdapter, runId: string)
   const frs = [
     {
       key: 'FR-0',
-      value: JSON.stringify({ description: 'User can create tasks with title and description', priority: 'must' }),
+      value: JSON.stringify({
+        description: 'User can create tasks with title and description',
+        priority: 'must',
+      }),
     },
     {
       key: 'FR-1',
-      value: JSON.stringify({ description: 'User can assign tasks to team members', priority: 'must' }),
+      value: JSON.stringify({
+        description: 'User can assign tasks to team members',
+        priority: 'must',
+      }),
     },
   ]
   for (const { key, value } of frs) {
@@ -72,7 +71,12 @@ async function seedPlanningRequirements(adapter: DatabaseAdapter, runId: string)
 
 const SAMPLE_ARCHITECTURE_DECISIONS: ArchitectureDecision[] = [
   { category: 'language', key: 'language', value: 'TypeScript ~5.9', rationale: 'Type safety' },
-  { category: 'database', key: 'database', value: 'better-sqlite3 WAL mode', rationale: 'Performance' },
+  {
+    category: 'database',
+    key: 'database',
+    value: 'better-sqlite3 WAL mode',
+    rationale: 'Performance',
+  },
 ]
 
 const SAMPLE_EPICS: EpicDefinition[] = [
@@ -84,14 +88,20 @@ const SAMPLE_EPICS: EpicDefinition[] = [
         key: '1-1',
         title: 'Create a task',
         description: 'Users can create tasks with title and description. Allows task creation.',
-        acceptance_criteria: ['User can create task with title', 'Task creation stores in database'],
+        acceptance_criteria: [
+          'User can create task with title',
+          'Task creation stores in database',
+        ],
         priority: 'must',
       },
       {
         key: '1-2',
         title: 'Assign tasks to team members',
         description: 'Users can assign tasks. Allows task assignment to members.',
-        acceptance_criteria: ['User can select assignee from list', 'Assignment updates task record'],
+        acceptance_criteria: [
+          'User can select assignee from list',
+          'Assignment updates task record',
+        ],
         priority: 'must',
       },
     ],
@@ -102,7 +112,9 @@ const SAMPLE_EPICS: EpicDefinition[] = [
 // Factory helpers
 // ---------------------------------------------------------------------------
 
-function makeArchDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}): DispatchResult<unknown> {
+function makeArchDispatchResult(
+  overrides: Partial<DispatchResult<unknown>> = {}
+): DispatchResult<unknown> {
   return {
     id: 'dispatch-arch-001',
     status: 'completed',
@@ -116,7 +128,9 @@ function makeArchDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}
   }
 }
 
-function makeStoryDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}): DispatchResult<unknown> {
+function makeStoryDispatchResult(
+  overrides: Partial<DispatchResult<unknown>> = {}
+): DispatchResult<unknown> {
   return {
     id: 'dispatch-story-001',
     status: 'completed',
@@ -135,7 +149,7 @@ function makeReadinessDispatchResult(
   blockerCount = 0,
   majorCount = 0,
   minorCount = 0,
-  overrides: Partial<DispatchResult<unknown>> = {},
+  overrides: Partial<DispatchResult<unknown>> = {}
 ): DispatchResult<unknown> {
   const findings: Array<{
     category: string
@@ -211,7 +225,7 @@ const DEFAULT_READINESS_TEMPLATE =
 function makePack(
   archTemplate = 'Generate architecture for:\n\n{{requirements}}\n\nOutput YAML.',
   storyTemplate = 'Generate stories for:\n\n{{requirements}}\n\n{{architecture_decisions}}\n\n{{gap_analysis}}\n\nOutput YAML.',
-  readinessTemplate = DEFAULT_READINESS_TEMPLATE,
+  readinessTemplate = DEFAULT_READINESS_TEMPLATE
 ): MethodologyPack {
   const getPrompt = vi.fn().mockImplementation((name: string) => {
     if (name === 'architecture') return Promise.resolve(archTemplate)
@@ -225,7 +239,10 @@ function makePack(
       version: '1.0.0',
       description: 'Test',
       phases: [],
-      prompts: { architecture: 'prompts/architecture.md', 'story-generation': 'prompts/story-generation.md' },
+      prompts: {
+        architecture: 'prompts/architecture.md',
+        'story-generation': 'prompts/story-generation.md',
+      },
       constraints: {},
       templates: {},
     },
@@ -238,7 +255,9 @@ function makePack(
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
@@ -254,7 +273,7 @@ function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
-  eventBus?: TypedEventBus,
+  eventBus?: TypedEventBus
 ): PhaseDeps {
   return {
     db: adapter,
@@ -312,7 +331,7 @@ describe('Verdict handling: READY path (AC8)', () => {
 
     expect(eventBus.emit).toHaveBeenCalledWith(
       'solutioning:readiness-check',
-      expect.objectContaining({ verdict: 'READY', runId }),
+      expect.objectContaining({ verdict: 'READY', runId })
     )
   })
 
@@ -330,7 +349,7 @@ describe('Verdict handling: READY path (AC8)', () => {
 
     expect(eventBus.emit).toHaveBeenCalledWith(
       'solutioning:readiness-check',
-      expect.objectContaining({ coverageScore: 100, blockerCount: 0 }),
+      expect.objectContaining({ coverageScore: 100, blockerCount: 0 })
     )
   })
 
@@ -396,7 +415,7 @@ describe('Verdict handling: READY path (AC8)', () => {
 
     expect(eventBus.emit).toHaveBeenCalledWith(
       'solutioning:readiness-check',
-      expect.objectContaining({ verdict: 'READY', findingCount: 2, blockerCount: 0 }),
+      expect.objectContaining({ verdict: 'READY', findingCount: 2, blockerCount: 0 })
     )
   })
 
@@ -507,7 +526,7 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
 
     const findings = await adapter.query<{ key: string; value: string }>(
       "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning' AND category = 'readiness-findings' ORDER BY key ASC",
-      [runId],
+      [runId]
     )
 
     expect(findings).toHaveLength(2)
@@ -528,7 +547,7 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
 
     const findings = await adapter.query<{ value: string }>(
       "SELECT value FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' AND key = 'finding-1'",
-      [runId],
+      [runId]
     )
     const finding = findings[0]
 
@@ -557,7 +576,7 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
 
     expect(eventBus.emit).toHaveBeenCalledWith(
       'solutioning:readiness-check',
-      expect.objectContaining({ verdict: 'NOT_READY', runId }),
+      expect.objectContaining({ verdict: 'NOT_READY', runId })
     )
   })
 
@@ -578,10 +597,8 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
       expect.objectContaining({
         runId,
         verdict: 'NOT_READY',
-        findings: expect.arrayContaining([
-          expect.objectContaining({ severity: 'blocker' }),
-        ]),
-      }),
+        findings: expect.arrayContaining([expect.objectContaining({ severity: 'blocker' })]),
+      })
     )
   })
 
@@ -599,7 +616,7 @@ describe('Verdict handling: NOT_READY path (AC7)', () => {
 
     expect(eventBus.emit).toHaveBeenCalledWith(
       'solutioning:readiness-check',
-      expect.objectContaining({ blockerCount: 3 }),
+      expect.objectContaining({ blockerCount: 3 })
     )
   })
 
@@ -698,7 +715,7 @@ describe('Verdict handling: NEEDS_WORK without blockers path', () => {
 
     expect(eventBus.emit).toHaveBeenCalledWith(
       'solutioning:readiness-check',
-      expect.objectContaining({ verdict: 'NEEDS_WORK', blockerCount: 0 }),
+      expect.objectContaining({ verdict: 'NEEDS_WORK', blockerCount: 0 })
     )
   })
 
@@ -732,7 +749,7 @@ describe('Verdict handling: NEEDS_WORK without blockers path', () => {
 
     const findings = await adapter.query<{ key: string }>(
       "SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings'",
-      [runId],
+      [runId]
     )
 
     expect(findings).toHaveLength(0)

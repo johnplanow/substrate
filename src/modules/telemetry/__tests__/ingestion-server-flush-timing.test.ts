@@ -88,7 +88,10 @@ describe('flushAndAwait() awaits processBatch() before resolving', () => {
             'Content-Length': Buffer.byteLength(body),
           },
         },
-        (res) => { res.resume(); res.on('end', resolve) },
+        (res) => {
+          res.resume()
+          res.on('end', resolve)
+        }
       )
       req.on('error', reject)
       req.write(body)
@@ -100,7 +103,9 @@ describe('flushAndAwait() awaits processBatch() before resolving', () => {
 
     // Track whether flushAndAwait resolved before/after batch
     let awaited = false
-    const flushPromise = server.flushAndAwait().then(() => { awaited = true })
+    const flushPromise = server.flushAndAwait().then(() => {
+      awaited = true
+    })
 
     // Give microtasks a chance to run — should not be resolved yet
     await new Promise<void>((r) => setImmediate(r))
@@ -125,7 +130,12 @@ describe('flushAndAwait() awaits processBatch() before resolving', () => {
       processBatch: vi.fn().mockResolvedValue(undefined),
     } as unknown as TelemetryPipeline
 
-    const server = new IngestionServer({ port: 0, pipeline: mockPipeline, batchSize: 100, flushIntervalMs: 60000 })
+    const server = new IngestionServer({
+      port: 0,
+      pipeline: mockPipeline,
+      batchSize: 100,
+      flushIntervalMs: 60000,
+    })
     await server.start()
 
     // No items pushed — no pending batches

@@ -59,26 +59,19 @@ async function createTestDb(): Promise<InMemoryDatabaseAdapter> {
   return adapter
 }
 
-function insertArtifact(
-  adapter: InMemoryDatabaseAdapter,
-  phase: string,
-  type: string,
-): void {
+function insertArtifact(adapter: InMemoryDatabaseAdapter, phase: string, type: string): void {
   adapter.querySync(
     `INSERT INTO artifacts (id, phase, type, path, summary)
      VALUES (?, ?, ?, ?, ?)`,
-    [crypto.randomUUID(), phase, type, `decision-store://${phase}/${type}`, 'test'],
+    [crypto.randomUUID(), phase, type, `decision-store://${phase}/${type}`, 'test']
   )
 }
 
-function insertStoryDecision(
-  adapter: InMemoryDatabaseAdapter,
-  key: string,
-): void {
+function insertStoryDecision(adapter: InMemoryDatabaseAdapter, key: string): void {
   adapter.querySync(
     `INSERT INTO decisions (id, phase, category, key, value)
      VALUES (?, 'solutioning', 'stories', ?, ?)`,
-    [crypto.randomUUID(), key, JSON.stringify({ key, title: `Story ${key}` })],
+    [crypto.randomUUID(), key, JSON.stringify({ key, title: `Story ${key}` })]
   )
 }
 

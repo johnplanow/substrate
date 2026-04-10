@@ -32,7 +32,11 @@ export class RepoMapModule {
    *
    * Returns `{ storedSha, headSha, fileCount }` when the repo-map is stale.
    */
-  async checkStaleness(): Promise<{ storedSha: string; headSha: string; fileCount: number } | null> {
+  async checkStaleness(): Promise<{
+    storedSha: string
+    headSha: string
+    fileCount: number
+  } | null> {
     const meta = await this._metaRepo.getMeta()
     if (!meta?.commitSha) {
       this._logger.debug('checkStaleness: no meta found, skipping')
@@ -45,7 +49,10 @@ export class RepoMapModule {
         this._logger.debug({ sha: headSha }, 'checkStaleness: repo-map is current')
         return null
       }
-      this._logger.debug({ storedSha: meta.commitSha, headSha }, 'checkStaleness: repo-map is stale')
+      this._logger.debug(
+        { storedSha: meta.commitSha, headSha },
+        'checkStaleness: repo-map is stale'
+      )
       return {
         storedSha: meta.commitSha,
         headSha,

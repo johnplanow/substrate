@@ -11,11 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import {
-  renderStoryPanelHeader,
-  renderStoryRow,
-  renderStoryPanel,
-} from '../story-panel.js'
+import { renderStoryPanelHeader, renderStoryRow, renderStoryPanel } from '../story-panel.js'
 import type { TuiStoryState } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -223,10 +219,7 @@ describe('renderStoryPanel', () => {
   })
 
   it('marks the correct row as selected', () => {
-    const stories = [
-      makeStory({ key: '10-1' }),
-      makeStory({ key: '10-2' }),
-    ]
+    const stories = [makeStory({ key: '10-1' }), makeStory({ key: '10-2' })]
     const lines = renderStoryPanel({ stories, selectedIndex: 1, useColor: false, width: 80 })
     // The second row should have selection marker
     // With no color, selected row starts with >
@@ -242,7 +235,9 @@ describe('renderStoryPanel', () => {
   })
 
   it('handles a single story', () => {
-    const stories = [makeStory({ key: '5-1', status: 'succeeded', statusLabel: 'SHIP_IT', phase: 'done' })]
+    const stories = [
+      makeStory({ key: '5-1', status: 'succeeded', statusLabel: 'SHIP_IT', phase: 'done' }),
+    ]
     const lines = renderStoryPanel({ stories, selectedIndex: 0, useColor: false, width: 80 })
     const output = lines.join('\n')
     expect(output).toContain('5-1')

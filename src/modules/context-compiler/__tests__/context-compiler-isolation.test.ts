@@ -65,7 +65,7 @@ function makeDescriptor(overrides: Partial<TaskDescriptor> = {}): TaskDescriptor
 function makeTemplate(
   taskType: string,
   sectionText: string,
-  priority: 'required' | 'important' | 'optional' = 'required',
+  priority: 'required' | 'important' | 'optional' = 'required'
 ): ContextTemplate {
   return {
     taskType,
@@ -137,10 +137,7 @@ describe('ContextCompiler exclusion filter (AC4)', () => {
     })
 
     compiler.registerTemplate(
-      makeTemplate(
-        'isolation-test',
-        'See .substrate/scenarios/scenario-x.sh for details',
-      ),
+      makeTemplate('isolation-test', 'See .substrate/scenarios/scenario-x.sh for details')
     )
 
     const result = await compiler.compile(makeDescriptor())
@@ -155,10 +152,7 @@ describe('ContextCompiler exclusion filter (AC4)', () => {
     })
 
     compiler.registerTemplate(
-      makeTemplate(
-        'isolation-test',
-        'Scenario reference: .substrate/scenarios/scenario-login.sh',
-      ),
+      makeTemplate('isolation-test', 'Scenario reference: .substrate/scenarios/scenario-login.sh')
     )
 
     await compiler.compile(makeDescriptor())
@@ -168,7 +162,7 @@ describe('ContextCompiler exclusion filter (AC4)', () => {
         sectionName: 'TestSection',
         excludedPath: '.substrate/scenarios/',
       }),
-      expect.stringContaining('exclusion list'),
+      expect.stringContaining('exclusion list')
     )
   })
 
@@ -179,10 +173,7 @@ describe('ContextCompiler exclusion filter (AC4)', () => {
     })
 
     compiler.registerTemplate(
-      makeTemplate(
-        'isolation-test',
-        '.substrate/scenarios/scenario-secret.sh is referenced here',
-      ),
+      makeTemplate('isolation-test', '.substrate/scenarios/scenario-secret.sh is referenced here')
     )
 
     const result = await compiler.compile(makeDescriptor())
@@ -254,8 +245,7 @@ describe('ContextCompiler security test (AC6)', () => {
           name: 'LeakSection',
           priority: 'required',
           query: { table: 'decisions', filters: { phase: 'planning' } },
-          format: () =>
-            'SCENARIO_SECRET_TOKEN=xyz789 from .substrate/scenarios/scenario-login.sh',
+          format: () => 'SCENARIO_SECRET_TOKEN=xyz789 from .substrate/scenarios/scenario-login.sh',
         },
       ],
     }

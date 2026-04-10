@@ -72,7 +72,7 @@ function setupCapture(): void {
 }
 
 async function runIntegrated(
-  args: string[],
+  args: string[]
 ): Promise<{ output: string; error: string; exitCode: number }> {
   setupCapture()
   const program = new Command()
@@ -146,7 +146,9 @@ describe('worktrees command - integration', () => {
   it('outputs valid JSON with --output-format json', async () => {
     mockListWorktrees.mockResolvedValue([WORKTREE_1])
     const { output } = await runIntegrated(['worktrees', '--output-format', 'json'])
-    expect((): void => { JSON.parse(output) }).not.toThrow()
+    expect((): void => {
+      JSON.parse(output)
+    }).not.toThrow()
     const parsed = JSON.parse(output) as {
       data: { taskId: string; branchName: string }[]
       command: string
@@ -174,7 +176,14 @@ describe('worktrees command - integration', () => {
     mockListWorktrees.mockResolvedValue([WORKTREE_1])
     const { output } = await runIntegrated(['worktrees', '--json'])
     const parsed = JSON.parse(output) as {
-      data: { taskId: string; branchName: string; worktreePath: string; taskStatus: string; createdAt: string; completedAt: string | null }[]
+      data: {
+        taskId: string
+        branchName: string
+        worktreePath: string
+        taskStatus: string
+        createdAt: string
+        completedAt: string | null
+      }[]
     }
     const entry = parsed.data[0]
     expect(entry).toHaveProperty('taskId')
@@ -216,12 +225,12 @@ describe('worktrees command - integration', () => {
 
   it('sorts by created time newest first by default', async () => {
     mockListWorktrees.mockResolvedValue([
-      WORKTREE_1,   // 2024-01-15 (older)
-      WORKTREE_2,   // 2024-01-16 (newer)
+      WORKTREE_1, // 2024-01-15 (older)
+      WORKTREE_2, // 2024-01-16 (newer)
     ])
     const { output } = await runIntegrated(['worktrees', '--json'])
     const parsed = JSON.parse(output) as { data: { taskId: string }[] }
-    expect(parsed.data[0]!.taskId).toBe('task-beta')  // newer
+    expect(parsed.data[0]!.taskId).toBe('task-beta') // newer
     expect(parsed.data[1]!.taskId).toBe('task-alpha') // older
   })
 
@@ -246,7 +255,9 @@ describe('worktrees command - integration', () => {
   it('JSON output is parseable (valid UTF-8 JSON)', async () => {
     mockListWorktrees.mockResolvedValue([WORKTREE_1])
     const { output } = await runIntegrated(['worktrees', '--json'])
-    expect((): void => { JSON.parse(output) }).not.toThrow()
+    expect((): void => {
+      JSON.parse(output)
+    }).not.toThrow()
     expect(output.endsWith('\n')).toBe(true)
   })
 })

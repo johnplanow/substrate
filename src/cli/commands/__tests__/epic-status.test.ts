@@ -318,7 +318,9 @@ describe('epic-status command', () => {
       mockGetBlockedStories.mockResolvedValue([
         {
           story: STORY_31_4,
-          blockers: [{ key: '31-1', title: 'Create Dolt Work Graph Schema', status: 'in_progress' }],
+          blockers: [
+            { key: '31-1', title: 'Create Dolt Work Graph Schema', status: 'in_progress' },
+          ],
         },
       ])
 
@@ -540,7 +542,7 @@ describe('epic-status command', () => {
       await runEpicStatusAction('31', { outputFormat: 'human' })
 
       expect(mockCreateDatabaseAdapter).toHaveBeenCalledWith(
-        expect.objectContaining({ backend: 'auto' }),
+        expect.objectContaining({ backend: 'auto' })
       )
     })
 
@@ -582,7 +584,14 @@ describe('epic-status command', () => {
       mockListStories.mockResolvedValue([STORY_31_1])
 
       const program = createTestProgram()
-      await program.parseAsync(['node', 'substrate', 'epic-status', '31', '--output-format', 'json'])
+      await program.parseAsync([
+        'node',
+        'substrate',
+        'epic-status',
+        '31',
+        '--output-format',
+        'json',
+      ])
 
       const rawOutput = stdoutSpy.mock.calls.map((c) => String(c[0])).join('')
       // Verify it's valid JSON

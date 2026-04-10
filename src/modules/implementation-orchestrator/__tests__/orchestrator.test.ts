@@ -58,14 +58,18 @@ vi.mock('node:fs', () => ({
   readdirSync: vi.fn().mockReturnValue([]),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
 }))
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 // Mock @substrate-ai/sdlc so the Tier A verification pipeline always passes in unit tests (Story 51-5)
 vi.mock('@substrate-ai/sdlc', () => ({
@@ -76,7 +80,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
         checks: [],
         status: 'pass',
         duration_ms: 0,
-      }),
+      })
     ),
     register: vi.fn(),
   })),
@@ -161,7 +165,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -308,7 +314,12 @@ describe('createImplementationOrchestrator', () => {
   describe('getStatus()', () => {
     it('returns IDLE state before run() is called', () => {
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
       const status = orchestrator.getStatus()
       expect(status.state).toBe('IDLE')
@@ -327,7 +338,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -345,7 +361,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       expect(orchestrator.getStatus().state).toBe('IDLE')
@@ -365,7 +386,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['1-1'])
@@ -388,7 +414,12 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -397,7 +428,7 @@ describe('createImplementationOrchestrator', () => {
       expect(status.stories['5-1']?.phase).toBe('COMPLETE')
       expect(mockRunCodeReview).toHaveBeenCalledTimes(2)
       expect(dispatcher.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ taskType: 'minor-fixes' }),
+        expect.objectContaining({ taskType: 'minor-fixes' })
       )
     })
 
@@ -409,7 +440,12 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -432,14 +468,19 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
 
       expect(status.stories['5-1']?.phase).toBe('COMPLETE')
       expect(dispatcher.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ taskType: 'major-rework' }),
+        expect.objectContaining({ taskType: 'major-rework' })
       )
     })
 
@@ -451,14 +492,19 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       // The fix dispatch (not the code-review dispatch) should include model escalation
       expect(dispatcher.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ taskType: 'major-rework', model: 'claude-opus-4-6' }),
+        expect.objectContaining({ taskType: 'major-rework', model: 'claude-opus-4-6' })
       )
     })
 
@@ -470,15 +516,20 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       // minor-fixes dispatch should NOT have model override
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const fixCall = dispatchCalls.find((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      const fixCall = dispatchCalls.find(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'minor-fixes'
       )
       expect(fixCall).toBeDefined()
       expect((fixCall![0] as { model?: string }).model).toBeUndefined()
@@ -498,7 +549,12 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -527,7 +583,11 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewMinorFixes())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxReviewCycles: 2 }),
       })
 
@@ -544,7 +604,11 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewMinorFixes())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxReviewCycles: 2 }),
       })
 
@@ -554,7 +618,7 @@ describe('createImplementationOrchestrator', () => {
         'orchestrator:story-complete',
         expect.objectContaining({
           storyKey: '5-1',
-        }),
+        })
       )
     })
 
@@ -565,7 +629,11 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewMajorRework())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxReviewCycles: 2 }),
       })
 
@@ -577,7 +645,7 @@ describe('createImplementationOrchestrator', () => {
         expect.objectContaining({
           storyKey: '5-1',
           lastVerdict: 'NEEDS_MAJOR_REWORK',
-        }),
+        })
       )
     })
 
@@ -592,7 +660,11 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxReviewCycles: 2, maxConcurrency: 1 }),
       })
 
@@ -623,7 +695,12 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -646,7 +723,11 @@ describe('createImplementationOrchestrator', () => {
       })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxReviewCycles: 3 }),
       })
 
@@ -675,7 +756,11 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxReviewCycles: 2 }),
       })
 
@@ -711,7 +796,11 @@ describe('createImplementationOrchestrator', () => {
       })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxConcurrency: 3 }),
       })
 
@@ -729,13 +818,17 @@ describe('createImplementationOrchestrator', () => {
       // so detectConflictGroups assigns each to its own group.  With maxConcurrency=3
       // all three groups are enqueued together, meaning maxConcurrentActual should be 3.
       mockRunCreateStory.mockImplementation(async (_deps, params) =>
-        makeCreateStorySuccess(params.storyKey),
+        makeCreateStorySuccess(params.storyKey)
       )
       mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxConcurrency: 3 }),
       })
 
@@ -779,7 +872,11 @@ describe('createImplementationOrchestrator', () => {
       }
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack: packWithConflicts, contextCompiler, dispatcher, eventBus,
+        db,
+        pack: packWithConflicts,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxConcurrency: 3 }),
       })
 
@@ -812,7 +909,11 @@ describe('createImplementationOrchestrator', () => {
 
       // No conflictGroups in pack → cross-project: every story is its own group
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxConcurrency: 3 }),
       })
 
@@ -838,7 +939,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -858,7 +964,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -881,7 +992,9 @@ describe('createImplementationOrchestrator', () => {
       let orchestratorRef!: ReturnType<typeof createImplementationOrchestrator>
 
       let pausePoint!: () => void
-      const pauseBarrier = new Promise<void>((res) => { pausePoint = res })
+      const pauseBarrier = new Promise<void>((res) => {
+        pausePoint = res
+      })
 
       mockRunCreateStory.mockImplementation(async () => {
         // Signal test to pause, then wait
@@ -893,7 +1006,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       orchestratorRef = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const runPromise = orchestratorRef.run(['5-1'])
@@ -912,7 +1030,9 @@ describe('createImplementationOrchestrator', () => {
       let orchestratorRef!: ReturnType<typeof createImplementationOrchestrator>
 
       let pausePoint!: () => void
-      const pauseBarrier = new Promise<void>((res) => { pausePoint = res })
+      const pauseBarrier = new Promise<void>((res) => {
+        pausePoint = res
+      })
 
       mockRunCreateStory.mockImplementation(async () => {
         pausePoint()
@@ -923,7 +1043,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       orchestratorRef = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const runPromise = orchestratorRef.run(['5-1'])
@@ -950,7 +1075,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -960,7 +1090,7 @@ describe('createImplementationOrchestrator', () => {
       expect(mockUpdatePipelineRun).toHaveBeenCalledWith(
         db,
         'test-run-id',
-        expect.objectContaining({ current_phase: 'implementation' }),
+        expect.objectContaining({ current_phase: 'implementation' })
       )
     })
 
@@ -970,7 +1100,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -990,7 +1125,11 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ pipelineRunId: undefined }),
       })
 
@@ -1011,14 +1150,19 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       expect(eventBus.emit).toHaveBeenCalledWith(
         'orchestrator:started',
-        expect.objectContaining({ storyKeys: ['5-1'] }),
+        expect.objectContaining({ storyKeys: ['5-1'] })
       )
     })
 
@@ -1028,13 +1172,18 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       const phaseCompleteEmits = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
-        (call: unknown[]) => call[0] === 'orchestrator:story-phase-complete',
+        (call: unknown[]) => call[0] === 'orchestrator:story-phase-complete'
       )
       expect(phaseCompleteEmits.length).toBeGreaterThanOrEqual(3)
       const phases = phaseCompleteEmits.map((c: unknown[]) => (c[1] as { phase: string }).phase)
@@ -1049,14 +1198,19 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       expect(eventBus.emit).toHaveBeenCalledWith(
         'orchestrator:story-complete',
-        expect.objectContaining({ storyKey: '5-1' }),
+        expect.objectContaining({ storyKey: '5-1' })
       )
     })
 
@@ -1067,14 +1221,19 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       expect(eventBus.emit).toHaveBeenCalledWith(
         'orchestrator:story-complete',
-        expect.objectContaining({ storyKey: '5-1', reviewCycles: 1 }),
+        expect.objectContaining({ storyKey: '5-1', reviewCycles: 1 })
       )
     })
 
@@ -1086,14 +1245,19 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       expect(eventBus.emit).toHaveBeenCalledWith(
         'orchestrator:story-complete',
-        expect.objectContaining({ storyKey: '5-1', reviewCycles: 2 }),
+        expect.objectContaining({ storyKey: '5-1', reviewCycles: 2 })
       )
     })
 
@@ -1103,14 +1267,19 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       expect(eventBus.emit).toHaveBeenCalledWith(
         'orchestrator:complete',
-        expect.objectContaining({ totalStories: 1, completed: 1 }),
+        expect.objectContaining({ totalStories: 1, completed: 1 })
       )
     })
 
@@ -1120,13 +1289,18 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       const emittedEvents = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.map(
-        (c: unknown[]) => c[0] as string,
+        (c: unknown[]) => c[0] as string
       )
 
       expect(emittedEvents[0]).toBe('orchestrator:started')
@@ -1144,7 +1318,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCreateStory.mockResolvedValue(makeCreateStoryFailure('Epic not found'))
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -1158,7 +1337,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCreateStory.mockRejectedValue(new Error('Network error'))
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -1178,7 +1362,11 @@ describe('createImplementationOrchestrator', () => {
       })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxReviewCycles: 1 }),
       })
 
@@ -1215,7 +1403,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -1236,7 +1429,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -1251,7 +1449,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -1267,7 +1470,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -1292,7 +1500,12 @@ describe('createImplementationOrchestrator', () => {
       const bus = { ...createMockEventBus(), emit: mockEmit }
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus: bus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus: bus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -1317,7 +1530,12 @@ describe('createImplementationOrchestrator', () => {
       const bus = { ...createMockEventBus(), emit: mockEmit }
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus: bus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus: bus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -1336,7 +1554,12 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -1344,7 +1567,9 @@ describe('createImplementationOrchestrator', () => {
       const infoMessages = mockLogger.info.mock.calls.map((c) => c[1])
       const warnMessages = mockLogger.warn.mock.calls.map((c) => c[1])
       expect(infoMessages).toContain('Test plan generated successfully')
-      expect(warnMessages).not.toContain('Test planning returned failed result — proceeding to dev-story without test plan')
+      expect(warnMessages).not.toContain(
+        'Test planning returned failed result — proceeding to dev-story without test plan'
+      )
     })
 
     it('logs warn (not info) when runTestPlan() returns result=failed', async () => {
@@ -1357,14 +1582,21 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       const infoMessages = mockLogger.info.mock.calls.map((c) => c[1])
       const warnMessages = mockLogger.warn.mock.calls.map((c) => c[1])
-      expect(warnMessages).toContain('Test planning returned failed result — proceeding to dev-story without test plan')
+      expect(warnMessages).toContain(
+        'Test planning returned failed result — proceeding to dev-story without test plan'
+      )
       expect(infoMessages).not.toContain('Test plan generated successfully')
     })
   })
@@ -1382,7 +1614,12 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -1401,7 +1638,12 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -1422,7 +1664,12 @@ describe('createImplementationOrchestrator', () => {
           verdict: 'NEEDS_MAJOR_REWORK' as const,
           issues: 2,
           issue_list: [
-            { severity: 'blocker' as const, description: 'Wrong story implemented', file: 'src/foo.ts', line: 42 },
+            {
+              severity: 'blocker' as const,
+              description: 'Wrong story implemented',
+              file: 'src/foo.ts',
+              line: 42,
+            },
             { severity: 'major' as const, description: 'Missing tests', file: 'src/bar.ts' },
           ],
           tokenUsage: { input: 150, output: 80 },
@@ -1442,15 +1689,20 @@ describe('createImplementationOrchestrator', () => {
       })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       // The dispatch call should contain the review findings with severity
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const reworkCall = dispatchCalls.find((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'major-rework'
+      const reworkCall = dispatchCalls.find(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'major-rework'
       )
       expect(reworkCall).toBeDefined()
       const capturedPrompt = (reworkCall![0] as { prompt: string }).prompt
@@ -1473,14 +1725,19 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const reworkCall = dispatchCalls.find((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'major-rework'
+      const reworkCall = dispatchCalls.find(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'major-rework'
       )
       expect(reworkCall).toBeDefined()
       expect((reworkCall![0] as { model?: string }).model).toBe('claude-opus-4-6')
@@ -1494,14 +1751,19 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const fixCall = dispatchCalls.find((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      const fixCall = dispatchCalls.find(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'minor-fixes'
       )
       expect(fixCall).toBeDefined()
       expect((fixCall![0] as { model?: string }).model).toBeUndefined()
@@ -1515,14 +1777,19 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const reworkCall = dispatchCalls.find((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'major-rework'
+      const reworkCall = dispatchCalls.find(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'major-rework'
       )
       expect(reworkCall).toBeDefined()
       // Verify outputSchema is passed for major-rework
@@ -1537,14 +1804,19 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const fixCall = dispatchCalls.find((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      const fixCall = dispatchCalls.find(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'minor-fixes'
       )
       expect(fixCall).toBeDefined()
       // Minor-fixes should NOT have outputSchema
@@ -1572,7 +1844,12 @@ describe('createImplementationOrchestrator', () => {
         })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -1599,7 +1876,12 @@ describe('createImplementationOrchestrator', () => {
         })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -1610,7 +1892,7 @@ describe('createImplementationOrchestrator', () => {
           storyKey: '5-1',
           exitCode: 1,
           output: expect.stringContaining('Cannot find module'),
-        }),
+        })
       )
     })
 
@@ -1629,7 +1911,12 @@ describe('createImplementationOrchestrator', () => {
         })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -1654,7 +1941,12 @@ describe('createImplementationOrchestrator', () => {
         })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -1665,7 +1957,7 @@ describe('createImplementationOrchestrator', () => {
           storyKey: '5-1',
           exitCode: -1,
           output: 'Process timed out',
-        }),
+        })
       )
     })
 
@@ -1685,13 +1977,18 @@ describe('createImplementationOrchestrator', () => {
         })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       const failedCall = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.find(
-        (call: unknown[]) => call[0] === 'story:build-verification-failed',
+        (call: unknown[]) => call[0] === 'story:build-verification-failed'
       )
       expect(failedCall).toBeDefined()
       const eventPayload = failedCall![1] as { output: string }
@@ -1710,14 +2007,19 @@ describe('createImplementationOrchestrator', () => {
       })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       expect(eventBus.emit).toHaveBeenCalledWith(
         'story:build-verification-passed',
-        expect.objectContaining({ storyKey: '5-1' }),
+        expect.objectContaining({ storyKey: '5-1' })
       )
       // Code review should proceed
       expect(mockRunCodeReview).toHaveBeenCalled()
@@ -1733,14 +2035,19 @@ describe('createImplementationOrchestrator', () => {
       })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       expect(eventBus.emit).not.toHaveBeenCalledWith(
         'story:build-verification-failed',
-        expect.anything(),
+        expect.anything()
       )
       // Should proceed to code-review normally
       expect(mockRunCodeReview).toHaveBeenCalled()
@@ -1764,7 +2071,12 @@ describe('createImplementationOrchestrator', () => {
       })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -1775,7 +2087,7 @@ describe('createImplementationOrchestrator', () => {
           storyKey: '5-1',
           modifiedInterfaces: ['MyInterface'],
           potentiallyAffectedTests: ['src/other/__tests__/other.test.ts'],
-        }),
+        })
       )
       // Warning is non-blocking — code-review must still run
       expect(mockRunCodeReview).toHaveBeenCalled()
@@ -1796,7 +2108,12 @@ describe('createImplementationOrchestrator', () => {
       })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -1805,7 +2122,7 @@ describe('createImplementationOrchestrator', () => {
       expect(mockDetectInterfaceChanges).toHaveBeenCalledWith(
         expect.objectContaining({
           filesModified: ['src/real-change.ts', 'src/other-change.ts'],
-        }),
+        })
       )
     })
 
@@ -1825,7 +2142,12 @@ describe('createImplementationOrchestrator', () => {
       })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -1835,7 +2157,7 @@ describe('createImplementationOrchestrator', () => {
       expect(mockDetectInterfaceChanges).toHaveBeenCalledWith(
         expect.objectContaining({
           filesModified: ['src/partial-work.ts'],
-        }),
+        })
       )
     })
 
@@ -1851,14 +2173,19 @@ describe('createImplementationOrchestrator', () => {
       })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       expect(eventBus.emit).not.toHaveBeenCalledWith(
         'story:interface-change-warning',
-        expect.anything(),
+        expect.anything()
       )
     })
   })
@@ -1876,16 +2203,27 @@ describe('createImplementationOrchestrator', () => {
           verdict: 'NEEDS_MINOR_FIXES' as const,
           issues: 2,
           issue_list: [
-            { severity: 'minor' as const, description: 'Missing type annotation', file: 'src/foo.ts', line: 42 },
-            { severity: 'minor' as const, description: 'Unused import', file: 'src/bar.ts', line: 7 },
+            {
+              severity: 'minor' as const,
+              description: 'Missing type annotation',
+              file: 'src/foo.ts',
+              line: 42,
+            },
+            {
+              severity: 'minor' as const,
+              description: 'Unused import',
+              file: 'src/bar.ts',
+              line: 7,
+            },
           ],
           tokenUsage: { input: 150, output: 50 },
         })
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const mockReadFile = vi.mocked(readFile)
-      mockReadFile.mockResolvedValue('# Story 5-1\n- [ ] Task 1: Do something\n- [ ] Task 2: Do more' as never)
-
+      mockReadFile.mockResolvedValue(
+        '# Story 5-1\n- [ ] Task 1: Do something\n- [ ] Task 2: Do more' as never
+      )
       ;(pack.getPrompt as ReturnType<typeof vi.fn>).mockImplementation(async (name: string) => {
         if (name === 'fix-story') {
           return '{{story_content}}\n\n{{review_feedback}}\n\n{{arch_constraints}}\n\n{{targeted_files}}'
@@ -1894,14 +2232,19 @@ describe('createImplementationOrchestrator', () => {
       })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const fixCall = dispatchCalls.find((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      const fixCall = dispatchCalls.find(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'minor-fixes'
       )
       expect(fixCall).toBeDefined()
       const capturedPrompt = (fixCall![0] as { prompt: string }).prompt
@@ -1919,16 +2262,13 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce({
           verdict: 'NEEDS_MINOR_FIXES' as const,
           issues: 1,
-          issue_list: [
-            { severity: 'minor' as const, description: 'Generic issue without file' },
-          ],
+          issue_list: [{ severity: 'minor' as const, description: 'Generic issue without file' }],
           tokenUsage: { input: 150, output: 50 },
         })
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const mockReadFile = vi.mocked(readFile)
       mockReadFile.mockResolvedValue('# Story 5-1\n- [ ] Task 1: Do something' as never)
-
       ;(pack.getPrompt as ReturnType<typeof vi.fn>).mockImplementation(async (name: string) => {
         if (name === 'fix-story') {
           return '{{story_content}}\n\n{{review_feedback}}\n\n{{arch_constraints}}\n\n{{targeted_files}}'
@@ -1937,15 +2277,20 @@ describe('createImplementationOrchestrator', () => {
       })
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       // targeted_files placeholder should be replaced with empty string (no file references)
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const fixCall = dispatchCalls.find((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      const fixCall = dispatchCalls.find(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'minor-fixes'
       )
       expect(fixCall).toBeDefined()
       // The prompt should NOT contain file bullet points
@@ -1966,14 +2311,19 @@ describe('createImplementationOrchestrator', () => {
       mockReadFile.mockResolvedValue('# Story 5-1\n- [ ] Task 1: Do something' as never)
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const fixCall = dispatchCalls.find((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      const fixCall = dispatchCalls.find(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'minor-fixes'
       )
       expect(fixCall).toBeDefined()
       // maxTurns should be set — minor-fixes gets half the complexity budget (50/2 = 25)
@@ -1992,7 +2342,11 @@ describe('createImplementationOrchestrator', () => {
       mockReadFile.mockResolvedValue('# Story 5-1\n- [ ] Task 1: Do something' as never)
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxReviewCycles: 2 }),
       })
 
@@ -2000,8 +2354,8 @@ describe('createImplementationOrchestrator', () => {
 
       // Find the auto-approve fix dispatch (last minor-fixes dispatch)
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const fixCalls = dispatchCalls.filter((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      const fixCalls = dispatchCalls.filter(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'minor-fixes'
       )
       expect(fixCalls.length).toBeGreaterThan(0)
       const lastFixCall = fixCalls[fixCalls.length - 1]
@@ -2022,14 +2376,19 @@ describe('createImplementationOrchestrator', () => {
       mockReadFile.mockResolvedValue('# Story 5-1\n- [ ] Task 1: Do something' as never)
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const reworkCall = dispatchCalls.find((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'major-rework'
+      const reworkCall = dispatchCalls.find(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'major-rework'
       )
       expect(reworkCall).toBeDefined()
       // Major rework should still have maxTurns set (from existing Story 24-6 behavior)
@@ -2050,7 +2409,11 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ perStoryContextCeilings: { '5-1': 80000 } }),
       })
 
@@ -2067,7 +2430,11 @@ describe('createImplementationOrchestrator', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ perStoryContextCeilings: { '5-1': 80000 } }),
       })
 
@@ -2086,15 +2453,19 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ perStoryContextCeilings: { '5-1': 80000 } }),
       })
 
       await orchestrator.run(['5-1'])
 
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const fixCall = dispatchCalls.find((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'minor-fixes'
+      const fixCall = dispatchCalls.find(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'minor-fixes'
       )
       expect(fixCall).toBeDefined()
       expect((fixCall![0] as { maxContextTokens?: number }).maxContextTokens).toBe(80000)
@@ -2108,15 +2479,19 @@ describe('createImplementationOrchestrator', () => {
         .mockResolvedValueOnce(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ perStoryContextCeilings: { '5-1': 80000 } }),
       })
 
       await orchestrator.run(['5-1'])
 
       const dispatchCalls = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls
-      const reworkCall = dispatchCalls.find((call: unknown[]) =>
-        (call[0] as { taskType: string }).taskType === 'major-rework'
+      const reworkCall = dispatchCalls.find(
+        (call: unknown[]) => (call[0] as { taskType: string }).taskType === 'major-rework'
       )
       expect(reworkCall).toBeDefined()
       expect((reworkCall![0] as { maxContextTokens?: number }).maxContextTokens).toBe(80000)
@@ -2129,7 +2504,11 @@ describe('createImplementationOrchestrator', () => {
 
       // perStoryContextCeilings only has '9-1', but we run '5-1'
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ perStoryContextCeilings: { '9-1': 80000 } }),
       })
 
@@ -2146,14 +2525,18 @@ describe('createImplementationOrchestrator', () => {
 
     it('passes maxContextTokens only to the story in perStoryContextCeilings when multiple stories run', async () => {
       mockRunCreateStory.mockImplementation(async (_deps, params) =>
-        makeCreateStorySuccess(params.storyKey),
+        makeCreateStorySuccess(params.storyKey)
       )
       mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       // Only '5-1' has a ceiling; '9-1' should not
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
         config: defaultConfig({ maxConcurrency: 1, perStoryContextCeilings: { '5-1': 80000 } }),
       })
 

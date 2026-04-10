@@ -143,11 +143,15 @@ vi.mock('../../../persistence/queries/metrics.js', () => ({
 }))
 
 vi.mock('../health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phase-detection.js', () => ({
-  detectStartPhase: vi.fn().mockResolvedValue({ phase: 'implementation', reason: 'test', needsConcept: false }),
+  detectStartPhase: vi
+    .fn()
+    .mockResolvedValue({ phase: 'implementation', reason: 'test', needsConcept: false }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/index.js', () => ({
@@ -161,23 +165,33 @@ vi.mock('../../../modules/phase-orchestrator/index.js', () => ({
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/analysis.js', () => ({
-  runAnalysisPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runAnalysisPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/planning.js', () => ({
-  runPlanningPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runPlanningPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/solutioning.js', () => ({
-  runSolutioningPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runSolutioningPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/ux-design.js', () => ({
-  runUxDesignPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runUxDesignPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/research.js', () => ({
-  runResearchPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runResearchPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../core/event-bus.js', () => ({
@@ -206,7 +220,9 @@ vi.mock('../../../modules/routing/index.js', () => ({
     maybeAutoTune: vi.fn().mockResolvedValue(undefined),
   })),
   RoutingRecommender: vi.fn().mockImplementation(() => ({})),
-  loadModelRoutingConfig: vi.fn().mockImplementation(() => { throw new Error('No config') }),
+  loadModelRoutingConfig: vi.fn().mockImplementation(() => {
+    throw new Error('No config')
+  }),
 }))
 
 vi.mock('../../../modules/telemetry/ingestion-server.js', () => ({
@@ -272,23 +288,35 @@ vi.mock('fs/promises', () => ({
 }))
 
 vi.mock('../../../modules/compiled-workflows/create-story.js', () => ({
-  runCreateStory: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runCreateStory: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/compiled-workflows/dev-story.js', () => ({
-  runDevStory: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runDevStory: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/compiled-workflows/code-review.js', () => ({
-  runCodeReview: vi.fn().mockResolvedValue({ verdict: 'SHIP_IT', tokenUsage: { input: 0, output: 0 } }),
+  runCodeReview: vi
+    .fn()
+    .mockResolvedValue({ verdict: 'SHIP_IT', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../sdlc-graph-setup.js', () => ({
-  buildSdlcHandlerRegistry: vi.fn().mockReturnValue({ resolve: vi.fn(), setDefault: vi.fn(), register: vi.fn() }),
+  buildSdlcHandlerRegistry: vi
+    .fn()
+    .mockReturnValue({ resolve: vi.fn(), setDefault: vi.fn(), register: vi.fn() }),
 }))
 
 vi.mock('@substrate-ai/sdlc', () => ({
-  createGraphOrchestrator: vi.fn().mockReturnValue({ run: vi.fn().mockResolvedValue({ successCount: 1, failureCount: 0, totalStories: 1, stories: {} }) }),
+  createGraphOrchestrator: vi.fn().mockReturnValue({
+    run: vi
+      .fn()
+      .mockResolvedValue({ successCount: 1, failureCount: 0, totalStories: 1, stories: {} }),
+  }),
   resolveGraphPath: vi.fn().mockReturnValue('/fake/path/sdlc-pipeline.dot'),
   applyConfigToGraph: vi.fn(),
   RunManifest: {
@@ -405,37 +433,38 @@ describe('Story 52-3: CLI flag persistence', () => {
   // -------------------------------------------------------------------------
 
   it('AC1: calls patchCLIFlags with all provided flags', async () => {
-    const exitCode = await runRunAction(makeBaseOptions({
-      stories: '51-1,51-2',
-      haltOn: 'critical',
-      costCeiling: 5.00,
-      agent: 'codex',
-      skipVerification: true,
-      events: true,
-    }))
+    const exitCode = await runRunAction(
+      makeBaseOptions({
+        stories: '51-1,51-2',
+        haltOn: 'critical',
+        costCeiling: 5.0,
+        agent: 'codex',
+        skipVerification: true,
+        events: true,
+      })
+    )
 
     expect(exitCode).toBe(0)
     expect(mockRunManifestOpen).toHaveBeenCalledWith(
       'run-persist-test-123',
-      expect.stringContaining('runs'),
+      expect.stringContaining('runs')
     )
-    expect(mockPatchCLIFlags).toHaveBeenCalledWith(expect.objectContaining({
-      stories: ['51-1', '51-2'],
-      halt_on: 'critical',
-      cost_ceiling: 5.00,
-      agent: 'codex',
-      skip_verification: true,
-      events: true,
-    }))
+    expect(mockPatchCLIFlags).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stories: ['51-1', '51-2'],
+        halt_on: 'critical',
+        cost_ceiling: 5.0,
+        agent: 'codex',
+        skip_verification: true,
+        events: true,
+      })
+    )
   })
 
   it('AC1: passes correct run ID to RunManifest.open', async () => {
     await runRunAction(makeBaseOptions({ stories: '51-1' }))
 
-    expect(mockRunManifestOpen).toHaveBeenCalledWith(
-      'run-persist-test-123',
-      expect.any(String),
-    )
+    expect(mockRunManifestOpen).toHaveBeenCalledWith('run-persist-test-123', expect.any(String))
   })
 
   // -------------------------------------------------------------------------
@@ -445,9 +474,11 @@ describe('Story 52-3: CLI flag persistence', () => {
   it('AC3: halt_on defaults to "none" when --halt-on is not provided', async () => {
     await runRunAction(makeBaseOptions({ stories: '51-1' }))
 
-    expect(mockPatchCLIFlags).toHaveBeenCalledWith(expect.objectContaining({
-      halt_on: 'none',
-    }))
+    expect(mockPatchCLIFlags).toHaveBeenCalledWith(
+      expect.objectContaining({
+        halt_on: 'none',
+      })
+    )
   })
 
   it('AC3: cost_ceiling is omitted when --cost-ceiling is not provided', async () => {
@@ -476,42 +507,52 @@ describe('Story 52-3: CLI flag persistence', () => {
   // -------------------------------------------------------------------------
 
   it('AC2: --halt-on with invalid value returns exit code 1', async () => {
-    const exitCode = await runRunAction(makeBaseOptions({
-      haltOn: 'invalid-value' as 'all' | 'critical' | 'none',
-    }))
+    const exitCode = await runRunAction(
+      makeBaseOptions({
+        haltOn: 'invalid-value' as 'all' | 'critical' | 'none',
+      })
+    )
 
     expect(exitCode).toBe(1)
   })
 
   it('AC2: --halt-on error message mentions valid values "all | critical | none"', async () => {
-    await runRunAction(makeBaseOptions({
-      haltOn: 'severe' as 'all' | 'critical' | 'none',
-    }))
+    await runRunAction(
+      makeBaseOptions({
+        haltOn: 'severe' as 'all' | 'critical' | 'none',
+      })
+    )
 
     const allWrites = (stderrSpy.mock.calls as [string][]).map(([msg]) => msg).join('')
     expect(allWrites).toMatch(/all \| critical \| none/)
   })
 
   it('AC2: --cost-ceiling with negative value returns exit code 1', async () => {
-    const exitCode = await runRunAction(makeBaseOptions({
-      costCeiling: -1,
-    }))
+    const exitCode = await runRunAction(
+      makeBaseOptions({
+        costCeiling: -1,
+      })
+    )
 
     expect(exitCode).toBe(1)
   })
 
   it('AC2: --cost-ceiling with zero returns exit code 1', async () => {
-    const exitCode = await runRunAction(makeBaseOptions({
-      costCeiling: 0,
-    }))
+    const exitCode = await runRunAction(
+      makeBaseOptions({
+        costCeiling: 0,
+      })
+    )
 
     expect(exitCode).toBe(1)
   })
 
   it('AC2: --cost-ceiling error message mentions "positive"', async () => {
-    await runRunAction(makeBaseOptions({
-      costCeiling: -5,
-    }))
+    await runRunAction(
+      makeBaseOptions({
+        costCeiling: -5,
+      })
+    )
 
     const allWrites = (stderrSpy.mock.calls as [string][]).map(([msg]) => msg).join('')
     expect(allWrites).toMatch(/positive/i)
@@ -522,7 +563,12 @@ describe('Story 52-3: CLI flag persistence', () => {
       vi.clearAllMocks()
       mockPackLoad.mockResolvedValue(mockPack())
       mockLinearOrchestratorRun.mockResolvedValue({
-        state: 'COMPLETE', stories: {}, startedAt: '', completedAt: '', totalDurationMs: 0, maxConcurrentActual: 1,
+        state: 'COMPLETE',
+        stories: {},
+        startedAt: '',
+        completedAt: '',
+        totalDurationMs: 0,
+        maxConcurrentActual: 1,
       })
 
       const exitCode = await runRunAction(makeBaseOptions({ haltOn: value, stories: '51-1' }))

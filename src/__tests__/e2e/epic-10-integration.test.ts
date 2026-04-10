@@ -58,10 +58,12 @@ vi.mock('../../modules/compiled-workflows/code-review.js', () => ({
   runCodeReview: vi.fn(),
 }))
 vi.mock('../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../modules/agent-dispatch/dispatcher-impl.js', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
@@ -88,10 +90,7 @@ import {
   DevStoryResultSchema,
   CodeReviewResultSchema,
 } from '../../modules/compiled-workflows/schemas.js'
-import {
-  formatOutput,
-  formatTokenTelemetry,
-} from '../../cli/commands/pipeline-shared.js'
+import { formatOutput, formatTokenTelemetry } from '../../cli/commands/pipeline-shared.js'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockRunDevStory = vi.mocked(runDevStory)
@@ -125,7 +124,9 @@ function makePack(): MethodologyPack {
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockReturnValue({ prompt: 'fallback', tokenCount: 10, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockReturnValue({ prompt: 'fallback', tokenCount: 10, sections: [], truncated: false }),
     registerTemplate: vi.fn(),
     getTemplate: vi.fn().mockReturnValue(undefined),
   } as unknown as ContextCompiler
@@ -160,7 +161,9 @@ function makeDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(handle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -260,7 +263,7 @@ describe('Gap 1: create-story → dev-story storyFilePath handoff', () => {
     expect(mockRunDevStory).not.toHaveBeenCalled()
     expect(eventBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-escalated',
-      expect.objectContaining({ storyKey: '10-2', lastVerdict: 'create-story-no-file' }),
+      expect.objectContaining({ storyKey: '10-2', lastVerdict: 'create-story-no-file' })
     )
   })
 
@@ -412,7 +415,7 @@ describe('Gap 4: Prompt assembler required sections never truncated', () => {
         { name: 'required_section', content: requiredContent, priority: 'required' },
         { name: 'optional_section', content: optionalContent, priority: 'optional' },
       ],
-      500, // very low ceiling
+      500 // very low ceiling
     )
 
     // Required content must always be present
@@ -431,7 +434,7 @@ describe('Gap 4: Prompt assembler required sections never truncated', () => {
         { name: 'important_section', content: importantContent, priority: 'important' },
         { name: 'optional_section', content: optionalContent, priority: 'optional' },
       ],
-      300, // ceiling that forces optional removal
+      300 // ceiling that forces optional removal
     )
 
     // Optional eliminated, important should still be substantially present
@@ -446,7 +449,7 @@ describe('Gap 4: Prompt assembler required sections never truncated', () => {
         { name: 'section_a', content: 'short a', priority: 'required' },
         { name: 'section_b', content: 'short b', priority: 'optional' },
       ],
-      2000,
+      2000
     )
 
     expect(result.truncated).toBe(false)
@@ -465,7 +468,7 @@ describe('Gap 4: Prompt assembler required sections never truncated', () => {
         { name: 'important', content: importantContent, priority: 'important' },
         { name: 'optional', content: optionalContent, priority: 'optional' },
       ],
-      400, // low ceiling
+      400 // low ceiling
     )
 
     // Optional should be eliminated before important is truncated
@@ -474,7 +477,7 @@ describe('Gap 4: Prompt assembler required sections never truncated', () => {
     const tokenEstimate = Math.ceil(result.prompt.length / 4)
     // May exceed if required sections alone are too large, but should be reduced
     expect(result.tokenCount).toBeLessThan(
-      Math.ceil((optionalContent.length + importantContent.length) / 4),
+      Math.ceil((optionalContent.length + importantContent.length) / 4)
     )
   })
 })
@@ -509,7 +512,9 @@ describe('Gap 5: Orchestrator epicId extraction from storyKey', () => {
   })
 
   it('extracts epicId correctly for multi-part storyKey like "10-2-dev-story"', async () => {
-    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('10-2-dev-story', '/stories/10-2.md'))
+    mockRunCreateStory.mockResolvedValue(
+      makeCreateStorySuccess('10-2-dev-story', '/stories/10-2.md')
+    )
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
@@ -593,7 +598,7 @@ describe('Gap 6: Orchestrator run([]) completes cleanly', () => {
 
     expect(eventBus.emit).toHaveBeenCalledWith(
       'orchestrator:complete',
-      expect.objectContaining({ totalStories: 0, completed: 0 }),
+      expect.objectContaining({ totalStories: 0, completed: 0 })
     )
   })
 })
@@ -849,7 +854,9 @@ describe('Gap 9: Conflict detector wiring with orchestrator', () => {
   })
 
   it('conflict detector puts 10-1 through 10-3 together and 10-4, 10-5 separately (AC4)', () => {
-    const groups = detectConflictGroups(['10-1', '10-2', '10-3', '10-4', '10-5'], { moduleMap: SUBSTRATE_MODULE_MAP })
+    const groups = detectConflictGroups(['10-1', '10-2', '10-3', '10-4', '10-5'], {
+      moduleMap: SUBSTRATE_MODULE_MAP,
+    })
     expect(groups).toHaveLength(3)
     const moduleGroups = groups.map((g) => g.sort())
     // Find the compiled-workflows group
@@ -915,7 +922,7 @@ describe('Gap 9: Conflict detector wiring with orchestrator', () => {
   it('orchestrator uses maxConcurrentActual > 1 for cross-project run with no conflictGroups (AC5)', async () => {
     // Pack with NO conflictGroups — simulates a cross-project run
     mockRunCreateStory.mockImplementation(async (_deps, params) =>
-      makeCreateStorySuccess(params.storyKey, `/stories/${params.storyKey}.md`),
+      makeCreateStorySuccess(params.storyKey, `/stories/${params.storyKey}.md`)
     )
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
@@ -949,7 +956,9 @@ describe('Gap 10: Orchestrator run() idempotency and state guards', () => {
 
   it('ignores second run() call while orchestrator is already running', async () => {
     let unblockCreate!: () => void
-    const createBarrier = new Promise<void>((res) => { unblockCreate = res })
+    const createBarrier = new Promise<void>((res) => {
+      unblockCreate = res
+    })
 
     mockRunCreateStory.mockImplementation(async (_deps, params) => {
       // Block until test unblocks

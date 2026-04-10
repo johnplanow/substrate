@@ -42,7 +42,7 @@ function makeBreakdown(
   phase: string,
   model: string,
   inputTokens: number,
-  outputTokens: number,
+  outputTokens: number
 ): PhaseTokenBreakdown {
   return {
     runId,
@@ -63,7 +63,10 @@ function makeBreakdown(
  * Repeat a single breakdown N times (each with a unique runId) to simulate
  * a history of N runs with identical token distributions.
  */
-function repeatBreakdown(base: Omit<PhaseTokenBreakdown, 'runId'>, count: number): PhaseTokenBreakdown[] {
+function repeatBreakdown(
+  base: Omit<PhaseTokenBreakdown, 'runId'>,
+  count: number
+): PhaseTokenBreakdown[] {
   return Array.from({ length: count }, (_, i) => ({
     ...base,
     runId: `run-${i}`,
@@ -124,10 +127,7 @@ describe('RoutingRecommender.analyze — insufficient data (AC2)', () => {
 
   it('returns insufficientData:true when exactly 2 breakdowns provided', () => {
     const recommender = new RoutingRecommender(createMockLogger())
-    const breakdowns = repeatBreakdown(
-      { baselineModel: 'claude-sonnet-4-5', entries: [] },
-      2,
-    )
+    const breakdowns = repeatBreakdown({ baselineModel: 'claude-sonnet-4-5', entries: [] }, 2)
     const result = recommender.analyze(breakdowns, BASE_CONFIG)
 
     expect(result.insufficientData).toBe(true)
@@ -139,7 +139,7 @@ describe('RoutingRecommender.analyze — insufficient data (AC2)', () => {
     // Neutral ratio: 0.25 output — in the 0.15..0.40 zone
     const breakdowns = repeatBreakdown(
       makeBreakdown('base', 'explore', 'claude-sonnet-4-5', 750, 250),
-      3,
+      3
     )
     const result = recommender.analyze(breakdowns, BASE_CONFIG)
 
@@ -157,7 +157,7 @@ describe('RoutingRecommender.analyze — downgrade recommendation (AC1)', () => 
     // outputRatio = 100 / (1000 + 100) ≈ 0.091 → below 0.15
     const breakdowns = repeatBreakdown(
       makeBreakdown('base', 'explore', 'claude-sonnet-4-5', 1000, 100),
-      5,
+      5
     )
     const result = recommender.analyze(breakdowns, BASE_CONFIG)
 
@@ -178,7 +178,7 @@ describe('RoutingRecommender.analyze — downgrade recommendation (AC1)', () => 
     // Low output ratio — would normally trigger downgrade, but we're already at haiku
     const breakdowns = repeatBreakdown(
       makeBreakdown('base', 'explore', 'claude-haiku-4-5', 1000, 50),
-      5,
+      5
     )
     const result = recommender.analyze(breakdowns, HAIKU_EXPLORE_CONFIG)
 
@@ -190,7 +190,7 @@ describe('RoutingRecommender.analyze — downgrade recommendation (AC1)', () => 
     const recommender = new RoutingRecommender(createMockLogger())
     const breakdowns = repeatBreakdown(
       makeBreakdown('base', 'explore', 'claude-sonnet-4-5', 900, 50),
-      4,
+      4
     )
     const result = recommender.analyze(breakdowns, BASE_CONFIG)
 
@@ -211,7 +211,7 @@ describe('RoutingRecommender.analyze — upgrade recommendation (AC1)', () => {
     // outputRatio = 500 / (600 + 500) ≈ 0.455 → above 0.40
     const breakdowns = repeatBreakdown(
       makeBreakdown('base', 'generate', 'claude-sonnet-4-5', 600, 500),
-      5,
+      5
     )
     const result = recommender.analyze(breakdowns, BASE_CONFIG)
 
@@ -229,7 +229,7 @@ describe('RoutingRecommender.analyze — upgrade recommendation (AC1)', () => {
     // High output ratio — would trigger upgrade, but already at opus
     const breakdowns = repeatBreakdown(
       makeBreakdown('base', 'generate', 'claude-opus-4-6', 300, 500),
-      5,
+      5
     )
     const result = recommender.analyze(breakdowns, OPUS_GENERATE_CONFIG)
 
@@ -248,7 +248,7 @@ describe('RoutingRecommender.analyze — neutral zone (AC1)', () => {
     // outputRatio = 250 / (750 + 250) = 0.25 → in neutral 0.15..0.40
     const breakdowns = repeatBreakdown(
       makeBreakdown('base', 'review', 'claude-sonnet-4-5', 750, 250),
-      4,
+      4
     )
     const result = recommender.analyze(breakdowns, BASE_CONFIG)
 
@@ -261,7 +261,7 @@ describe('RoutingRecommender.analyze — neutral zone (AC1)', () => {
     // outputRatio = 150 / 1000 = 0.15 → exactly at threshold, not < 0.15
     const breakdowns = repeatBreakdown(
       makeBreakdown('base', 'review', 'claude-sonnet-4-5', 850, 150),
-      4,
+      4
     )
     const result = recommender.analyze(breakdowns, BASE_CONFIG)
 
@@ -291,7 +291,7 @@ describe('RoutingRecommender — zero-denominator guard', () => {
           },
         ],
       },
-      4,
+      4
     )
     const result = recommender.analyze(breakdowns, BASE_CONFIG)
 
@@ -316,8 +316,20 @@ describe('RoutingRecommender.analyze — phaseOutputRatios', () => {
       runId: `run-${i}`,
       baselineModel: 'claude-sonnet-4-5',
       entries: [
-        { phase: 'explore', model: 'claude-sonnet-4-5', inputTokens: 800, outputTokens: 200, dispatchCount: 1 },
-        { phase: 'generate', model: 'claude-sonnet-4-5', inputTokens: 400, outputTokens: 600, dispatchCount: 2 },
+        {
+          phase: 'explore',
+          model: 'claude-sonnet-4-5',
+          inputTokens: 800,
+          outputTokens: 200,
+          dispatchCount: 1,
+        },
+        {
+          phase: 'generate',
+          model: 'claude-sonnet-4-5',
+          inputTokens: 400,
+          outputTokens: 600,
+          dispatchCount: 2,
+        },
       ],
     }))
 
@@ -337,7 +349,7 @@ describe('RoutingRecommender.analyze — confidence', () => {
     const recommender = new RoutingRecommender(createMockLogger())
     const breakdowns = repeatBreakdown(
       makeBreakdown('base', 'explore', 'claude-sonnet-4-5', 1000, 50),
-      12,
+      12
     )
     const result = recommender.analyze(breakdowns, BASE_CONFIG)
 
@@ -350,7 +362,7 @@ describe('RoutingRecommender.analyze — confidence', () => {
     const recommender = new RoutingRecommender(createMockLogger())
     const breakdowns = repeatBreakdown(
       makeBreakdown('base', 'explore', 'claude-sonnet-4-5', 1000, 50),
-      5,
+      5
     )
     const result = recommender.analyze(breakdowns, BASE_CONFIG)
 

@@ -27,7 +27,7 @@ function makeScored(overrides: Partial<ScoredSymbol> = {}): ScoredSymbol {
 
 function makeResult(
   symbols: ScoredSymbol[],
-  opts: Partial<Omit<RepoMapQueryResult, 'symbols'>> = {},
+  opts: Partial<Omit<RepoMapQueryResult, 'symbols'>> = {}
 ): RepoMapQueryResult {
   return {
     symbols,
@@ -63,9 +63,7 @@ describe('RepoMapFormatter', () => {
       expect(lines[0]).toBe('# repo-map: 3 symbols')
 
       // Should have blank lines separating file groups
-      const blankIndices = lines
-        .map((l, i) => (l === '' ? i : -1))
-        .filter(i => i !== -1)
+      const blankIndices = lines.map((l, i) => (l === '' ? i : -1)).filter((i) => i !== -1)
       expect(blankIndices.length).toBeGreaterThanOrEqual(2)
     })
 

@@ -63,8 +63,16 @@ async function createTestPack(
   } = options
 
   if (writePrompts) {
-    await writeFile(join(packDir, 'prompts', 'create-story.md'), '# Create Story\nDo things {{phase}} with {{methodology}}', 'utf-8')
-    await writeFile(join(packDir, 'prompts', 'dev-story.md'), '# Dev Story\nImplement all tasks', 'utf-8')
+    await writeFile(
+      join(packDir, 'prompts', 'create-story.md'),
+      '# Create Story\nDo things {{phase}} with {{methodology}}',
+      'utf-8'
+    )
+    await writeFile(
+      join(packDir, 'prompts', 'dev-story.md'),
+      '# Dev Story\nImplement all tasks',
+      'utf-8'
+    )
   }
 
   if (writeConstraints) {
@@ -81,7 +89,11 @@ async function createTestPack(
   }
 
   if (writeTemplates) {
-    await writeFile(join(packDir, 'templates', 'story.md'), '# Story Template\n{{epic_num}}.{{story_num}}', 'utf-8')
+    await writeFile(
+      join(packDir, 'templates', 'story.md'),
+      '# Story Template\n{{epic_num}}.{{story_num}}',
+      'utf-8'
+    )
   }
 
   if (customManifestYaml) {
@@ -131,15 +143,9 @@ async function createTestPack(
 function buildManifestYaml(manifest: PackManifest): string {
   const phases = manifest.phases
     .map((p) => {
-      const entryGates = p.entryGates.length
-        ? `[${p.entryGates.join(', ')}]`
-        : '[]'
-      const exitGates = p.exitGates.length
-        ? `[${p.exitGates.join(', ')}]`
-        : '[]'
-      const artifacts = p.artifacts.length
-        ? `[${p.artifacts.join(', ')}]`
-        : '[]'
+      const entryGates = p.entryGates.length ? `[${p.entryGates.join(', ')}]` : '[]'
+      const exitGates = p.exitGates.length ? `[${p.exitGates.join(', ')}]` : '[]'
+      const artifacts = p.artifacts.length ? `[${p.artifacts.join(', ')}]` : '[]'
       return `  - name: ${p.name}\n    description: ${p.description}\n    entryGates: ${entryGates}\n    exitGates: ${exitGates}\n    artifacts: ${artifacts}`
     })
     .join('\n')
@@ -211,7 +217,11 @@ describe('PackLoader.load()', () => {
     const packDir = join(testDir, 'missing-prompts-pack')
     await mkdir(packDir, { recursive: true })
     // Write manifest but NOT prompt files
-    await createTestPack(packDir, { writePrompts: false, writeConstraints: true, writeTemplates: true })
+    await createTestPack(packDir, {
+      writePrompts: false,
+      writeConstraints: true,
+      writeTemplates: true,
+    })
 
     const loader = createPackLoader()
     await expect(loader.load(packDir)).rejects.toThrow(/missing files/)
@@ -220,7 +230,11 @@ describe('PackLoader.load()', () => {
   it('throws when referenced constraint files are missing', async () => {
     const packDir = join(testDir, 'missing-constraints-pack')
     await mkdir(packDir, { recursive: true })
-    await createTestPack(packDir, { writePrompts: true, writeConstraints: false, writeTemplates: true })
+    await createTestPack(packDir, {
+      writePrompts: true,
+      writeConstraints: false,
+      writeTemplates: true,
+    })
 
     const loader = createPackLoader()
     await expect(loader.load(packDir)).rejects.toThrow(/missing files/)
@@ -516,9 +530,7 @@ describe('MethodologyPack.getTemplate()', () => {
     const loader = createPackLoader()
     const pack = await loader.load(packDir)
 
-    await expect(pack.getTemplate('nonexistent')).rejects.toThrow(
-      /no template named "nonexistent"/
-    )
+    await expect(pack.getTemplate('nonexistent')).rejects.toThrow(/no template named "nonexistent"/)
   })
 })
 

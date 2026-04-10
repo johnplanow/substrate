@@ -66,26 +66,20 @@ export class EpicIngester {
       for (const story of stories) {
         const existing = await tx.query<{ status: string }>(
           'SELECT status FROM wg_stories WHERE story_key = ?',
-          [story.story_key],
+          [story.story_key]
         )
 
         if (existing.length > 0) {
-          await tx.query(
-            'UPDATE wg_stories SET title = ?, updated_at = ? WHERE story_key = ?',
-            [story.title, new Date().toISOString(), story.story_key],
-          )
+          await tx.query('UPDATE wg_stories SET title = ?, updated_at = ? WHERE story_key = ?', [
+            story.title,
+            new Date().toISOString(),
+            story.story_key,
+          ])
         } else {
           const now = new Date().toISOString()
           await tx.query(
             'INSERT INTO wg_stories (story_key, epic, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-            [
-              story.story_key,
-              String(story.epic_num),
-              story.title,
-              'planned',
-              now,
-              now,
-            ],
+            [story.story_key, String(story.epic_num), story.title, 'planned', now, now]
           )
           storiesUpserted++
         }
@@ -103,7 +97,7 @@ export class EpicIngester {
       if (epicNum !== null) {
         await tx.query(
           `DELETE FROM story_dependencies WHERE source = 'explicit' AND story_key LIKE ?`,
-          [`${epicNum}-%`],
+          [`${epicNum}-%`]
         )
       }
 
@@ -111,7 +105,7 @@ export class EpicIngester {
       for (const dep of dependencies) {
         await tx.query(
           'INSERT INTO story_dependencies (story_key, depends_on, dependency_type, source) VALUES (?, ?, ?, ?)',
-          [dep.story_key, dep.depends_on, dep.dependency_type, dep.source],
+          [dep.story_key, dep.depends_on, dep.dependency_type, dep.source]
         )
       }
 

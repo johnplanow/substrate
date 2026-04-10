@@ -64,7 +64,7 @@ export interface StoryAnalysis {
  */
 export function analyzeStoryComplexity(
   storyContent: string,
-  tasksPerBatch: number = TASKS_PER_BATCH,
+  tasksPerBatch: number = TASKS_PER_BATCH
 ): StoryAnalysis {
   try {
     const acCount = parseAcCount(storyContent)
@@ -187,7 +187,11 @@ function parseTaskList(content: string): StoryTask[] {
       const tNum = namedMatch[2] // from "T1"
       const taskNum = namedMatch[3] // from "Task 1"
       const rawTitle = namedMatch[4] || ''
-      const taskNumber = tNum ? parseInt(tNum, 10) : taskNum ? parseInt(taskNum, 10) : ++taskIdCounter
+      const taskNumber = tNum
+        ? parseInt(tNum, 10)
+        : taskNum
+          ? parseInt(taskNum, 10)
+          : ++taskIdCounter
 
       currentTask = {
         id: taskNumber,

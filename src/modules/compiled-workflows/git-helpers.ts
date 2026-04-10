@@ -18,7 +18,11 @@ const logger = createLogger('compiled-workflows:git-helpers')
  */
 function hasCommits(cwd: string): boolean {
   try {
-    execSync('git rev-parse --verify HEAD', { cwd, stdio: ['ignore', 'pipe', 'pipe'], timeout: 3000 })
+    execSync('git rev-parse --verify HEAD', {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 3000,
+    })
     return true
   } catch {
     return false
@@ -64,7 +68,9 @@ export async function getGitDiffSummary(workingDirectory: string = process.cwd()
  * @param workingDirectory - Directory to run git in (defaults to process.cwd())
  * @returns The stat summary string, or '' on error
  */
-export async function getGitDiffStatSummary(workingDirectory: string = process.cwd()): Promise<string> {
+export async function getGitDiffStatSummary(
+  workingDirectory: string = process.cwd()
+): Promise<string> {
   if (!hasCommits(workingDirectory)) {
     logger.debug({ cwd: workingDirectory }, 'No commits in repo — returning empty stat')
     return ''
@@ -92,7 +98,7 @@ export async function getGitDiffStatSummary(workingDirectory: string = process.c
  */
 export async function getGitDiffForFiles(
   files: string[],
-  workingDirectory: string = process.cwd(),
+  workingDirectory: string = process.cwd()
 ): Promise<string> {
   if (files.length === 0) return ''
   if (!hasCommits(workingDirectory)) {
@@ -123,14 +129,18 @@ export async function getGitDiffForFiles(
  */
 export async function getGitDiffStatForFiles(
   files: string[],
-  workingDirectory: string = process.cwd(),
+  workingDirectory: string = process.cwd()
 ): Promise<string> {
   if (files.length === 0) return ''
   if (!hasCommits(workingDirectory)) {
     logger.debug({ cwd: workingDirectory }, 'No commits in repo — returning empty stat for files')
     return ''
   }
-  return runGitCommand(['diff', '--stat', 'HEAD', '--', ...files], workingDirectory, 'git-diff-stat-files')
+  return runGitCommand(
+    ['diff', '--stat', 'HEAD', '--', ...files],
+    workingDirectory,
+    'git-diff-stat-files'
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -149,8 +159,14 @@ export async function getGitDiffStatForFiles(
  * @param workingDirectory - Directory to run git in (defaults to process.cwd())
  * @returns Array of file paths, or [] on error
  */
-export async function getGitChangedFiles(workingDirectory: string = process.cwd()): Promise<string[]> {
-  const output = await runGitCommand(['status', '--porcelain'], workingDirectory, 'git-changed-files')
+export async function getGitChangedFiles(
+  workingDirectory: string = process.cwd()
+): Promise<string[]> {
+  const output = await runGitCommand(
+    ['status', '--porcelain'],
+    workingDirectory,
+    'git-changed-files'
+  )
   if (output === '') return []
 
   return output
@@ -182,10 +198,7 @@ export async function getGitChangedFiles(workingDirectory: string = process.cwd(
  * @param files - List of file paths to mark for intent-to-add
  * @param workingDirectory - Directory to run git in
  */
-export async function stageIntentToAdd(
-  files: string[],
-  workingDirectory: string,
-): Promise<void> {
+export async function stageIntentToAdd(files: string[], workingDirectory: string): Promise<void> {
   if (files.length === 0) return
   // Filter out nonexistent files to avoid git errors (AC3 of story 23-2)
   const existing = files.filter((f) => {
@@ -208,11 +221,7 @@ export async function stageIntentToAdd(
  * Run a git command in the specified directory and return its stdout output.
  * Returns '' on any error and logs a warning.
  */
-async function runGitCommand(
-  args: string[],
-  cwd: string,
-  logLabel: string,
-): Promise<string> {
+async function runGitCommand(args: string[], cwd: string, logLabel: string): Promise<string> {
   return new Promise<string>((resolve) => {
     let stdout = ''
     let stderr = ''
@@ -237,7 +246,7 @@ async function runGitCommand(
     proc.on('error', (err: Error) => {
       logger.warn(
         { label: logLabel, cwd, error: err.message },
-        'Failed to spawn git process — returning empty diff',
+        'Failed to spawn git process — returning empty diff'
       )
       resolve('')
     })
@@ -246,7 +255,7 @@ async function runGitCommand(
       if (code !== 0) {
         logger.warn(
           { label: logLabel, cwd, code, stderr: stderr.trim() },
-          'Git process exited non-zero — returning empty diff',
+          'Git process exited non-zero — returning empty diff'
         )
         resolve('')
         return

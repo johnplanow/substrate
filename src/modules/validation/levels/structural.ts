@@ -80,8 +80,7 @@ export class StructuralValidator implements ValidationLevel {
 
     // AC2: files_modified existence check (dev-story only)
     if (taskType === 'dev-story') {
-      const filesModified: string[] =
-        (parsed as { files_modified?: string[] }).files_modified ?? []
+      const filesModified: string[] = (parsed as { files_modified?: string[] }).files_modified ?? []
       for (const filePath of filesModified) {
         if (!existsSync(filePath)) {
           failures.push({

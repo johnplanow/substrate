@@ -45,17 +45,23 @@ describe('ClaudeCodeAdapter.buildCommand()', () => {
   })
 
   it('injects OTEL_RESOURCE_ATTRIBUTES when storyKey is set', () => {
-    const cmd = adapter.buildCommand('test prompt', makeOptions({
-      otlpEndpoint: 'http://localhost:9317',
-      storyKey: '28-1',
-    }))
+    const cmd = adapter.buildCommand(
+      'test prompt',
+      makeOptions({
+        otlpEndpoint: 'http://localhost:9317',
+        storyKey: '28-1',
+      })
+    )
     expect(cmd.env?.OTEL_RESOURCE_ATTRIBUTES).toBe('substrate.story_key=28-1')
   })
 
   it('does not inject OTEL_RESOURCE_ATTRIBUTES when storyKey is not set', () => {
-    const cmd = adapter.buildCommand('test prompt', makeOptions({
-      otlpEndpoint: 'http://localhost:9317',
-    }))
+    const cmd = adapter.buildCommand(
+      'test prompt',
+      makeOptions({
+        otlpEndpoint: 'http://localhost:9317',
+      })
+    )
     expect(cmd.env).not.toHaveProperty('OTEL_RESOURCE_ATTRIBUTES')
   })
 
@@ -72,7 +78,7 @@ describe('ClaudeCodeAdapter.buildCommand()', () => {
         billingMode: 'api',
         apiKey: 'sk-test',
         otlpEndpoint: 'http://localhost:4318',
-      }),
+      })
     )
     expect(cmd.env).toHaveProperty('ANTHROPIC_API_KEY', 'sk-test')
     expect(cmd.env).toHaveProperty('CLAUDE_CODE_ENABLE_TELEMETRY', '1')
@@ -104,8 +110,12 @@ describe('ClaudeCodeAdapter.buildCommand()', () => {
   // ---------------------------------------------------------------------------
 
   it('appends optimization directives to system prompt when optimizationDirectives is set', () => {
-    const directives = 'OPTIMIZATION (critical): Enable caching. Use prompt caching to reduce costs.'
-    const cmd = adapter.buildCommand('test prompt', makeOptions({ optimizationDirectives: directives }))
+    const directives =
+      'OPTIMIZATION (critical): Enable caching. Use prompt caching to reduce costs.'
+    const cmd = adapter.buildCommand(
+      'test prompt',
+      makeOptions({ optimizationDirectives: directives })
+    )
     const systemPromptIdx = cmd.args.indexOf('--system-prompt')
     expect(systemPromptIdx).toBeGreaterThan(-1)
     const systemPrompt = cmd.args[systemPromptIdx + 1]
@@ -115,7 +125,10 @@ describe('ClaudeCodeAdapter.buildCommand()', () => {
 
   it('system prompt contains base prompt text before the directives section', () => {
     const directives = 'OPTIMIZATION (warning): Reduce tool calls.'
-    const cmd = adapter.buildCommand('test prompt', makeOptions({ optimizationDirectives: directives }))
+    const cmd = adapter.buildCommand(
+      'test prompt',
+      makeOptions({ optimizationDirectives: directives })
+    )
     const systemPromptIdx = cmd.args.indexOf('--system-prompt')
     const systemPrompt = cmd.args[systemPromptIdx + 1] ?? ''
     expect(systemPrompt).toContain('You are an autonomous coding agent')

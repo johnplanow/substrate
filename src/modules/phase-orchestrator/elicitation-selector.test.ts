@@ -25,7 +25,7 @@ function makeMethod(
   name: string,
   category: string,
   description = 'A test method.',
-  output_pattern = 'input → output',
+  output_pattern = 'input → output'
 ): ElicitationMethod {
   return { name, category, description, output_pattern }
 }
@@ -284,7 +284,7 @@ describe('selectMethods', () => {
     const ctx: ElicitationContext = { content_type: 'architecture', complexity_score: 0.9 }
     const selected = selectMethods(ctx, [], techPool)
     const technicalSelected = selected.filter(
-      (m) => m.category === 'technical' || m.category === 'advanced',
+      (m) => m.category === 'technical' || m.category === 'advanced'
     )
     expect(technicalSelected.length).toBeGreaterThan(0)
   })

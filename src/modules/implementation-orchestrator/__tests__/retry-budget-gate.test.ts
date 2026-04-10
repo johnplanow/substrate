@@ -85,7 +85,9 @@ vi.mock('node:fs', () => ({
   readFileSync: vi.fn().mockReturnValue('{}'),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../../utils/helpers.js', () => ({
   sleep: vi.fn().mockResolvedValue(undefined),
@@ -95,7 +97,9 @@ vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
 }))
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 vi.mock('../seed-methodology-context.js', () => ({
   seedMethodologyContext: vi.fn().mockReturnValue({ decisionsCreated: 0, skippedCategories: [] }),
@@ -132,7 +136,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
         checks: [],
         status: 'pass',
         duration_ms: 0,
-      }),
+      })
     ),
     register: vi.fn(),
   })),
@@ -210,7 +214,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -313,7 +319,7 @@ function createMockRunManifest(initialRetryCounts: Record<string, number> = {}) 
         generation: 1,
         created_at: '2026-04-06T00:00:00.000Z',
         updated_at: '2026-04-06T00:00:00.000Z',
-      }),
+      })
     ),
     patchStoryState: vi.fn().mockResolvedValue(undefined),
     appendRecoveryEntry: vi.fn().mockResolvedValue(undefined),
@@ -362,9 +368,9 @@ describe('Story 53-4: Per-Story Retry Budget Gate', () => {
     expect(status.stories[storyKey]?.error).toBe('retry_budget_exhausted')
 
     // Verify escalation event was emitted
-    const escalationCalls = vi.mocked(eventBus.emit).mock.calls.filter(
-      (call) => call[0] === 'orchestrator:story-escalated',
-    )
+    const escalationCalls = vi
+      .mocked(eventBus.emit)
+      .mock.calls.filter((call) => call[0] === 'orchestrator:story-escalated')
     expect(escalationCalls.length).toBeGreaterThan(0)
     const lastEscalation = escalationCalls[escalationCalls.length - 1]
     expect(lastEscalation[1]).toMatchObject({
@@ -543,9 +549,11 @@ describe('Story 53-4: Per-Story Retry Budget Gate', () => {
     await orchestrator.run([storyKey])
 
     // patchStoryState should have been called with retry_count: 1 then retry_count: 2
-    const retryCountCalls = vi.mocked(mockManifest.patchStoryState).mock.calls.filter(
-      (call) => typeof (call[1] as Record<string, unknown>)?.retry_count === 'number',
-    )
+    const retryCountCalls = vi
+      .mocked(mockManifest.patchStoryState)
+      .mock.calls.filter(
+        (call) => typeof (call[1] as Record<string, unknown>)?.retry_count === 'number'
+      )
     expect(retryCountCalls.length).toBeGreaterThanOrEqual(2)
 
     // First call: retry_count: 1
@@ -577,9 +585,9 @@ describe('Story 53-4: Per-Story Retry Budget Gate', () => {
 
     await orchestrator.run([storyKey])
 
-    const escalationCalls = vi.mocked(eventBus.emit).mock.calls.filter(
-      (call) => call[0] === 'orchestrator:story-escalated',
-    )
+    const escalationCalls = vi
+      .mocked(eventBus.emit)
+      .mock.calls.filter((call) => call[0] === 'orchestrator:story-escalated')
     expect(escalationCalls.length).toBeGreaterThan(0)
 
     const escalationPayload = escalationCalls[escalationCalls.length - 1][1] as {

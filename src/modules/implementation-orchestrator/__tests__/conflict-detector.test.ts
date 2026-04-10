@@ -36,7 +36,9 @@ describe('detectConflictGroups — default (no moduleMap)', () => {
     const result = detectConflictGroups(['4-1', '4-2', '4-3', '4-4', '4-5', '4-6'])
     // Without a map, every story is its own conflict group → max parallelism
     expect(result).toHaveLength(6)
-    expect(result.flat()).toEqual(expect.arrayContaining(['4-1', '4-2', '4-3', '4-4', '4-5', '4-6']))
+    expect(result.flat()).toEqual(
+      expect.arrayContaining(['4-1', '4-2', '4-3', '4-4', '4-5', '4-6'])
+    )
     for (const group of result) {
       expect(group).toHaveLength(1)
     }
@@ -122,7 +124,9 @@ describe('detectConflictGroups — with moduleMap (pack-configured conflict grou
 
 describe('detectConflictGroups — substrate self-run backward compatibility', () => {
   it('groups same-module stories into the same conflict group (substrate map)', () => {
-    const result = detectConflictGroups(['10-1', '10-2', '10-3'], { moduleMap: SUBSTRATE_MODULE_MAP })
+    const result = detectConflictGroups(['10-1', '10-2', '10-3'], {
+      moduleMap: SUBSTRATE_MODULE_MAP,
+    })
     // All map to 'compiled-workflows'
     expect(result).toHaveLength(1)
     const group = result[0]
@@ -147,7 +151,9 @@ describe('detectConflictGroups — substrate self-run backward compatibility', (
     // 10-1, 10-2 → compiled-workflows (same group)
     // 10-4 → implementation-orchestrator (own group)
     // 10-5 → cli (own group)
-    const result = detectConflictGroups(['10-1', '10-2', '10-4', '10-5'], { moduleMap: SUBSTRATE_MODULE_MAP })
+    const result = detectConflictGroups(['10-1', '10-2', '10-4', '10-5'], {
+      moduleMap: SUBSTRATE_MODULE_MAP,
+    })
     expect(result).toHaveLength(3)
 
     const compiledGroup = result.find((g) => g.includes('10-1'))
@@ -177,14 +183,18 @@ describe('detectConflictGroups — substrate self-run backward compatibility', (
 
   it('auto-splits single-module groups by epic for cross-epic parallelism', () => {
     // Stories 1-1, 2-1, 3-1, 4-1, 5-1 all map to 'core' but auto-split by epic
-    const result = detectConflictGroups(['1-1', '2-1', '3-1', '4-1', '5-1'], { moduleMap: SUBSTRATE_MODULE_MAP })
+    const result = detectConflictGroups(['1-1', '2-1', '3-1', '4-1', '5-1'], {
+      moduleMap: SUBSTRATE_MODULE_MAP,
+    })
     expect(result).toHaveLength(5) // one group per epic
     expect(result.flat()).toHaveLength(5)
   })
 
   it('does not auto-split when stories are from the same epic', () => {
     // All from epic 1 — stays as 1 group (can't split further)
-    const result = detectConflictGroups(['1-1', '1-2', '1-3', '1-4'], { moduleMap: SUBSTRATE_MODULE_MAP })
+    const result = detectConflictGroups(['1-1', '1-2', '1-3', '1-4'], {
+      moduleMap: SUBSTRATE_MODULE_MAP,
+    })
     expect(result).toHaveLength(1)
     expect(result[0]).toHaveLength(4)
   })
@@ -196,10 +206,9 @@ describe('detectConflictGroups — substrate self-run backward compatibility', (
   })
 
   it('auto-split preserves within-epic story grouping', () => {
-    const result = detectConflictGroups(
-      ['1-1', '1-2', '2-1', '2-2', '3-1'],
-      { moduleMap: SUBSTRATE_MODULE_MAP },
-    )
+    const result = detectConflictGroups(['1-1', '1-2', '2-1', '2-2', '3-1'], {
+      moduleMap: SUBSTRATE_MODULE_MAP,
+    })
     expect(result).toHaveLength(3) // 3 epics
     const epic1 = result.find((g) => g.includes('1-1'))
     expect(epic1).toContain('1-2')

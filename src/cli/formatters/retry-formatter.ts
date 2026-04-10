@@ -32,7 +32,7 @@ export interface FailedTaskDetail {
  */
 export async function fetchFailedTaskDetails(
   db: DatabaseAdapter,
-  sessionId: string,
+  sessionId: string
 ): Promise<FailedTaskDetail[]> {
   const rows = await db.query<{
     id: string
@@ -46,7 +46,7 @@ export async function fetchFailedTaskDetails(
      FROM tasks
      WHERE session_id = ? AND status = 'failed'
      ORDER BY created_at ASC`,
-    [sessionId],
+    [sessionId]
   )
 
   return rows.map((row) => ({

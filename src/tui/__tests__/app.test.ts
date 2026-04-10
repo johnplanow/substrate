@@ -49,8 +49,13 @@ function makeOutput(): { stream: Writable; output(): string } {
  * Creates a mock readable stream that also acts as a mock TTY
  * so we can emit keypress events manually.
  */
-function makeInput(): { stream: PassThrough & { isTTY?: boolean; setRawMode?: (mode: boolean) => void } } {
-  const stream = new PassThrough() as PassThrough & { isTTY?: boolean; setRawMode?: (mode: boolean) => void }
+function makeInput(): {
+  stream: PassThrough & { isTTY?: boolean; setRawMode?: (mode: boolean) => void }
+} {
+  const stream = new PassThrough() as PassThrough & {
+    isTTY?: boolean
+    setRawMode?: (mode: boolean) => void
+  }
   stream.isTTY = false
   stream.setRawMode = vi.fn()
   return { stream }
@@ -74,7 +79,7 @@ function phaseEvent(
   key: string,
   phase: StoryPhaseEvent['phase'],
   status: StoryPhaseEvent['status'],
-  verdict?: string,
+  verdict?: string
 ): StoryPhaseEvent {
   return { type: 'story:phase', ts: new Date().toISOString(), key, phase, status, verdict }
 }
@@ -105,7 +110,7 @@ function logEvent(key: string, msg: string): StoryLogEvent {
 function completeEvent(
   succeeded: string[] = [],
   failed: string[] = [],
-  escalated: string[] = [],
+  escalated: string[] = []
 ): PipelineCompleteEvent {
   return { type: 'pipeline:complete', ts: new Date().toISOString(), succeeded, failed, escalated }
 }
@@ -708,10 +713,12 @@ describe('printNonTtyWarning', () => {
   it('writes the non-TTY warning message to stderr', () => {
     const chunks: string[] = []
     const origWrite = process.stderr.write.bind(process.stderr)
-    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      chunks.push(chunk.toString())
-      return true
-    })
+    const spy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        chunks.push(chunk.toString())
+        return true
+      })
 
     printNonTtyWarning()
 

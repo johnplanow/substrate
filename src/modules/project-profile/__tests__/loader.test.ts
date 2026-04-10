@@ -128,7 +128,7 @@ project:
     mockReadFile.mockResolvedValue(invalidYaml as unknown as Buffer)
 
     await expect(loadProjectProfile('/project')).rejects.toThrow(
-      'Invalid .substrate/project-profile.yaml:',
+      'Invalid .substrate/project-profile.yaml:'
     )
   })
 
@@ -142,7 +142,7 @@ project:
     mockReadFile.mockResolvedValue(invalidYaml as unknown as Buffer)
 
     await expect(loadProjectProfile('/project')).rejects.toThrow(
-      'Invalid .substrate/project-profile.yaml:',
+      'Invalid .substrate/project-profile.yaml:'
     )
   })
 

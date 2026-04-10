@@ -25,16 +25,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { InMemoryDatabaseAdapter } from '../../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
-import {
-  createPipelineRun,
-  createDecision,
-} from '../../../../persistence/queries/decisions.js'
+import { createPipelineRun, createDecision } from '../../../../persistence/queries/decisions.js'
 import { runSolutioningPhase } from '../solutioning.js'
-import type {
-  PhaseDeps,
-  ArchitectureDecision,
-  EpicDefinition,
-} from '../types.js'
+import type { PhaseDeps, ArchitectureDecision, EpicDefinition } from '../types.js'
 import type { MethodologyPack } from '../../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../../agent-dispatch/types.js'
@@ -61,13 +54,55 @@ async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
  */
 async function seedFunctionalRequirements(adapter: DatabaseAdapter, runId: string): Promise<void> {
   const frs = [
-    { key: 'FR-1', value: JSON.stringify({ description: 'User can register an account with email and password', priority: 'must' }) },
-    { key: 'FR-2', value: JSON.stringify({ description: 'User can log in with email and password', priority: 'must' }) },
-    { key: 'FR-3', value: JSON.stringify({ description: 'User can create project workspaces', priority: 'must' }) },
-    { key: 'FR-4', value: JSON.stringify({ description: 'User can invite team members to workspaces', priority: 'must' }) },
-    { key: 'FR-5', value: JSON.stringify({ description: 'User can create and assign tasks within a workspace', priority: 'must' }) },
-    { key: 'FR-6', value: JSON.stringify({ description: 'User can set task due dates and priorities', priority: 'should' }) },
-    { key: 'FR-7', value: JSON.stringify({ description: 'User receives email notifications for task assignments', priority: 'could' }) },
+    {
+      key: 'FR-1',
+      value: JSON.stringify({
+        description: 'User can register an account with email and password',
+        priority: 'must',
+      }),
+    },
+    {
+      key: 'FR-2',
+      value: JSON.stringify({
+        description: 'User can log in with email and password',
+        priority: 'must',
+      }),
+    },
+    {
+      key: 'FR-3',
+      value: JSON.stringify({
+        description: 'User can create project workspaces',
+        priority: 'must',
+      }),
+    },
+    {
+      key: 'FR-4',
+      value: JSON.stringify({
+        description: 'User can invite team members to workspaces',
+        priority: 'must',
+      }),
+    },
+    {
+      key: 'FR-5',
+      value: JSON.stringify({
+        description: 'User can create and assign tasks within a workspace',
+        priority: 'must',
+      }),
+    },
+    {
+      key: 'FR-6',
+      value: JSON.stringify({
+        description: 'User can set task due dates and priorities',
+        priority: 'should',
+      }),
+    },
+    {
+      key: 'FR-7',
+      value: JSON.stringify({
+        description: 'User receives email notifications for task assignments',
+        priority: 'could',
+      }),
+    },
   ]
   for (const { key, value } of frs) {
     await createDecision(adapter, {
@@ -83,11 +118,32 @@ async function seedFunctionalRequirements(adapter: DatabaseAdapter, runId: strin
 /**
  * Seed non-functional requirements.
  */
-async function seedNonFunctionalRequirements(adapter: DatabaseAdapter, runId: string): Promise<void> {
+async function seedNonFunctionalRequirements(
+  adapter: DatabaseAdapter,
+  runId: string
+): Promise<void> {
   const nfrs = [
-    { key: 'NFR-1', value: JSON.stringify({ description: 'API response time under 200ms for 95th percentile', category: 'performance' }) },
-    { key: 'NFR-2', value: JSON.stringify({ description: 'System supports 10,000 concurrent users', category: 'scalability' }) },
-    { key: 'NFR-3', value: JSON.stringify({ description: 'All user data encrypted at rest using AES-256', category: 'security' }) },
+    {
+      key: 'NFR-1',
+      value: JSON.stringify({
+        description: 'API response time under 200ms for 95th percentile',
+        category: 'performance',
+      }),
+    },
+    {
+      key: 'NFR-2',
+      value: JSON.stringify({
+        description: 'System supports 10,000 concurrent users',
+        category: 'scalability',
+      }),
+    },
+    {
+      key: 'NFR-3',
+      value: JSON.stringify({
+        description: 'All user data encrypted at rest using AES-256',
+        category: 'security',
+      }),
+    },
   ]
   for (const { key, value } of nfrs) {
     await createDecision(adapter, {
@@ -105,9 +161,21 @@ async function seedNonFunctionalRequirements(adapter: DatabaseAdapter, runId: st
  */
 async function seedUxDecisions(adapter: DatabaseAdapter, runId: string): Promise<void> {
   const uxDecisions = [
-    { key: 'ux-component-library', value: 'Tailwind UI components with shadcn/ui', category: 'component-library' },
-    { key: 'ux-accessibility', value: 'WCAG 2.1 AA compliance required for all interactive elements', category: 'accessibility' },
-    { key: 'ux-navigation', value: 'Sidebar navigation with collapsible menu for mobile', category: 'navigation' },
+    {
+      key: 'ux-component-library',
+      value: 'Tailwind UI components with shadcn/ui',
+      category: 'component-library',
+    },
+    {
+      key: 'ux-accessibility',
+      value: 'WCAG 2.1 AA compliance required for all interactive elements',
+      category: 'accessibility',
+    },
+    {
+      key: 'ux-navigation',
+      value: 'Sidebar navigation with collapsible menu for mobile',
+      category: 'navigation',
+    },
   ]
   for (const { key, value, category } of uxDecisions) {
     await createDecision(adapter, {
@@ -125,11 +193,36 @@ async function seedUxDecisions(adapter: DatabaseAdapter, runId: string): Promise
 // ---------------------------------------------------------------------------
 
 const COMPREHENSIVE_ARCHITECTURE_DECISIONS: ArchitectureDecision[] = [
-  { category: 'language', key: 'language', value: 'TypeScript 5.x', rationale: 'Type safety and developer productivity' },
-  { category: 'database', key: 'database', value: 'PostgreSQL 16 with Prisma ORM', rationale: 'Relational data with strong typing' },
-  { category: 'api', key: 'api-style', value: 'REST over HTTPS with OpenAPI 3.0 spec', rationale: 'Wide tooling support' },
-  { category: 'auth', key: 'auth', value: 'JWT with refresh token rotation', rationale: 'Stateless auth for horizontal scaling' },
-  { category: 'notifications', key: 'notifications', value: 'Async email via AWS SES with SQS queue', rationale: 'Decoupled, reliable delivery' },
+  {
+    category: 'language',
+    key: 'language',
+    value: 'TypeScript 5.x',
+    rationale: 'Type safety and developer productivity',
+  },
+  {
+    category: 'database',
+    key: 'database',
+    value: 'PostgreSQL 16 with Prisma ORM',
+    rationale: 'Relational data with strong typing',
+  },
+  {
+    category: 'api',
+    key: 'api-style',
+    value: 'REST over HTTPS with OpenAPI 3.0 spec',
+    rationale: 'Wide tooling support',
+  },
+  {
+    category: 'auth',
+    key: 'auth',
+    value: 'JWT with refresh token rotation',
+    rationale: 'Stateless auth for horizontal scaling',
+  },
+  {
+    category: 'notifications',
+    key: 'notifications',
+    value: 'Async email via AWS SES with SQS queue',
+    rationale: 'Decoupled, reliable delivery',
+  },
 ]
 
 const COMPREHENSIVE_EPICS: EpicDefinition[] = [
@@ -140,7 +233,8 @@ const COMPREHENSIVE_EPICS: EpicDefinition[] = [
       {
         key: '1-1',
         title: 'User registration with email and password',
-        description: 'Users register with email/password. Handles email validation and duplicate detection.',
+        description:
+          'Users register with email/password. Handles email validation and duplicate detection.',
         acceptance_criteria: [
           'Given a new user, When they submit valid email and password, Then account is created and verification email sent',
           'Given duplicate email, When registration attempted, Then error "Email already registered" is returned',
@@ -229,7 +323,9 @@ const COMPREHENSIVE_EPICS: EpicDefinition[] = [
 // Factory helpers
 // ---------------------------------------------------------------------------
 
-function makeArchDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}): DispatchResult<unknown> {
+function makeArchDispatchResult(
+  overrides: Partial<DispatchResult<unknown>> = {}
+): DispatchResult<unknown> {
   return {
     id: 'dispatch-arch-001',
     status: 'completed',
@@ -245,7 +341,7 @@ function makeArchDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}
 
 function makeStoryDispatchResult(
   epics = COMPREHENSIVE_EPICS,
-  overrides: Partial<DispatchResult<unknown>> = {},
+  overrides: Partial<DispatchResult<unknown>> = {}
 ): DispatchResult<unknown> {
   return {
     id: 'dispatch-story-001',
@@ -268,7 +364,7 @@ function makeReadinessDispatchResult(
     description: string
     affected_items: string[]
   }> = [],
-  overrides: Partial<DispatchResult<unknown>> = {},
+  overrides: Partial<DispatchResult<unknown>> = {}
 ): DispatchResult<unknown> {
   const coverageScore = verdict === 'READY' ? 100 : verdict === 'NEEDS_WORK' ? 72 : 25
   return {
@@ -342,7 +438,7 @@ const ARCH_PROMPT_TEMPLATE = 'Generate architecture:\n\n{{requirements}}\n\nOutp
 function makePack(
   archTemplate = ARCH_PROMPT_TEMPLATE,
   storyTemplate = STORY_PROMPT_TEMPLATE,
-  readinessTemplate = READINESS_PROMPT_TEMPLATE,
+  readinessTemplate = READINESS_PROMPT_TEMPLATE
 ): MethodologyPack {
   const getPrompt = vi.fn().mockImplementation((name: string) => {
     if (name === 'architecture') return Promise.resolve(archTemplate)
@@ -373,7 +469,9 @@ function makePack(
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
@@ -389,7 +487,7 @@ function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
-  eventBus?: TypedEventBus,
+  eventBus?: TypedEventBus
 ): PhaseDeps {
   return {
     db: adapter,
@@ -711,15 +809,25 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
         coverageScore: 100,
         findingCount: 0,
         blockerCount: 0,
-      }),
+      })
     )
   })
 
   it('READY verdict with mixed findings (major + minor) stores no findings in decision store', async () => {
     await seedFunctionalRequirements(adapter, runId)
     const readinessFindings = [
-      { category: 'story_quality', severity: 'major', description: 'Story 2-2 ACs not testable', affected_items: ['2-2'] },
-      { category: 'ux_alignment', severity: 'minor', description: 'Story 1-1 missing accessibility reference', affected_items: ['1-1'] },
+      {
+        category: 'story_quality',
+        severity: 'major',
+        description: 'Story 2-2 ACs not testable',
+        affected_items: ['2-2'],
+      },
+      {
+        category: 'ux_alignment',
+        severity: 'minor',
+        description: 'Story 1-1 missing accessibility reference',
+        affected_items: ['1-1'],
+      },
     ]
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
@@ -733,7 +841,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
     // READY verdict should NOT store findings in decision store
     const storedFindings = await adapter.query<{ key: string }>(
       "SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings'",
-      [runId],
+      [runId]
     )
 
     expect(storedFindings).toHaveLength(0)
@@ -742,10 +850,30 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   it('NOT_READY verdict stores all findings (blockers + major + minor) in decision store', async () => {
     await seedFunctionalRequirements(adapter, runId)
     const readinessFindings = [
-      { category: 'fr_coverage', severity: 'blocker', description: 'FR-7 notifications not covered', affected_items: ['FR-7'] },
-      { category: 'architecture_compliance', severity: 'blocker', description: 'Story 1-2 uses session auth, not JWT', affected_items: ['1-2', 'auth'] },
-      { category: 'story_quality', severity: 'major', description: 'Story 2-1 ACs not in GWT format', affected_items: ['2-1'] },
-      { category: 'ux_alignment', severity: 'minor', description: 'Stories omit accessibility references', affected_items: ['1-1', '1-2'] },
+      {
+        category: 'fr_coverage',
+        severity: 'blocker',
+        description: 'FR-7 notifications not covered',
+        affected_items: ['FR-7'],
+      },
+      {
+        category: 'architecture_compliance',
+        severity: 'blocker',
+        description: 'Story 1-2 uses session auth, not JWT',
+        affected_items: ['1-2', 'auth'],
+      },
+      {
+        category: 'story_quality',
+        severity: 'major',
+        description: 'Story 2-1 ACs not in GWT format',
+        affected_items: ['2-1'],
+      },
+      {
+        category: 'ux_alignment',
+        severity: 'minor',
+        description: 'Stories omit accessibility references',
+        affected_items: ['1-1', '1-2'],
+      },
     ]
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
@@ -758,7 +886,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
 
     const storedFindings = await adapter.query<{ key: string; value: string }>(
       "SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' ORDER BY key ASC",
-      [runId],
+      [runId]
     )
 
     expect(storedFindings).toHaveLength(4)
@@ -772,8 +900,18 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   it('NOT_READY stored findings contain correct category and severity', async () => {
     await seedFunctionalRequirements(adapter, runId)
     const readinessFindings = [
-      { category: 'fr_coverage', severity: 'blocker', description: 'FR-7 notifications not covered', affected_items: ['FR-7'] },
-      { category: 'story_quality', severity: 'major', description: 'Story quality issue', affected_items: ['2-1'] },
+      {
+        category: 'fr_coverage',
+        severity: 'blocker',
+        description: 'FR-7 notifications not covered',
+        affected_items: ['FR-7'],
+      },
+      {
+        category: 'story_quality',
+        severity: 'major',
+        description: 'Story quality issue',
+        affected_items: ['2-1'],
+      },
     ]
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
@@ -786,7 +924,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
 
     const findingRows = await adapter.query<{ value: string }>(
       "SELECT value FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' AND key = 'finding-1'",
-      [runId],
+      [runId]
     )
     const firstFinding = findingRows[0]
 
@@ -845,9 +983,24 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   it('NOT_READY result includes gaps from fr_coverage blocker findings', async () => {
     await seedFunctionalRequirements(adapter, runId)
     const readinessFindings = [
-      { category: 'fr_coverage', severity: 'blocker', description: 'FR-7 (email notifications) not covered by any story', affected_items: ['FR-7'] },
-      { category: 'fr_coverage', severity: 'blocker', description: 'FR-4 (invite team members) not traceable to story ACs', affected_items: ['FR-4'] },
-      { category: 'story_quality', severity: 'major', description: 'Story 3-2 ACs are vague', affected_items: ['3-2'] },
+      {
+        category: 'fr_coverage',
+        severity: 'blocker',
+        description: 'FR-7 (email notifications) not covered by any story',
+        affected_items: ['FR-7'],
+      },
+      {
+        category: 'fr_coverage',
+        severity: 'blocker',
+        description: 'FR-4 (invite team members) not traceable to story ACs',
+        affected_items: ['FR-4'],
+      },
+      {
+        category: 'story_quality',
+        severity: 'major',
+        description: 'Story 3-2 ACs are vague',
+        affected_items: ['3-2'],
+      },
     ]
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
@@ -870,8 +1023,18 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
     const blockerDesc1 = 'FR-6 (task due dates) is not covered by any story'
     const blockerDesc2 = 'FR-7 (email notifications) is not covered by any story'
     const readinessFindings = [
-      { category: 'fr_coverage', severity: 'blocker', description: blockerDesc1, affected_items: ['FR-6'] },
-      { category: 'fr_coverage', severity: 'blocker', description: blockerDesc2, affected_items: ['FR-7'] },
+      {
+        category: 'fr_coverage',
+        severity: 'blocker',
+        description: blockerDesc1,
+        affected_items: ['FR-6'],
+      },
+      {
+        category: 'fr_coverage',
+        severity: 'blocker',
+        description: blockerDesc2,
+        affected_items: ['FR-7'],
+      },
     ]
 
     const improvedEpics: EpicDefinition[] = [
@@ -911,8 +1074,18 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
   it('pipeline emits solutioning:readiness-failed event with detailed findings on NOT_READY', async () => {
     await seedFunctionalRequirements(adapter, runId)
     const readinessFindings = [
-      { category: 'fr_coverage', severity: 'blocker', description: 'FR-1 not covered', affected_items: ['FR-1'] },
-      { category: 'architecture_compliance', severity: 'blocker', description: 'Story uses REST', affected_items: ['1-1', 'api-style'] },
+      {
+        category: 'fr_coverage',
+        severity: 'blocker',
+        description: 'FR-1 not covered',
+        affected_items: ['FR-1'],
+      },
+      {
+        category: 'architecture_compliance',
+        severity: 'blocker',
+        description: 'Story uses REST',
+        affected_items: ['1-1', 'api-style'],
+      },
     ]
     const dispatcher = makeSequentialDispatcher([
       makeArchDispatchResult(),
@@ -933,7 +1106,7 @@ describe('Readiness check integration: full pipeline with realistic mock data', 
           expect.objectContaining({ category: 'fr_coverage', severity: 'blocker' }),
           expect.objectContaining({ category: 'architecture_compliance', severity: 'blocker' }),
         ]),
-      }),
+      })
     )
   })
 })
@@ -1011,8 +1184,18 @@ describe('Readiness check integration: edge cases', () => {
   it('NEEDS_WORK without blockers proceeds successfully with warning (no retry)', async () => {
     await seedFunctionalRequirements(adapter, runId)
     const readinessFindings = [
-      { category: 'story_quality', severity: 'major', description: 'Story 3-2 ACs are vague', affected_items: ['3-2'] },
-      { category: 'ux_alignment', severity: 'minor', description: 'Story missing accessibility reference', affected_items: ['1-1'] },
+      {
+        category: 'story_quality',
+        severity: 'major',
+        description: 'Story 3-2 ACs are vague',
+        affected_items: ['3-2'],
+      },
+      {
+        category: 'ux_alignment',
+        severity: 'minor',
+        description: 'Story missing accessibility reference',
+        affected_items: ['1-1'],
+      },
     ]
     // NEEDS_WORK but no blockers — should succeed with warnings
     const dispatcher = makeSequentialDispatcher([

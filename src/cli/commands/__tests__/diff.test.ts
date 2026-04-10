@@ -22,16 +22,17 @@ vi.mock('node:fs', () => ({
 }))
 
 // Use vi.hoisted so these are available before vi.mock factories run
-const { mockInitialize, mockClose, mockDiffStory, mockQueryStories, MockFileStateStore } = vi.hoisted(() => {
-  class MockFileStateStore {}
-  return {
-    mockInitialize: vi.fn().mockResolvedValue(undefined),
-    mockClose: vi.fn().mockResolvedValue(undefined),
-    mockDiffStory: vi.fn(),
-    mockQueryStories: vi.fn(),
-    MockFileStateStore,
-  }
-})
+const { mockInitialize, mockClose, mockDiffStory, mockQueryStories, MockFileStateStore } =
+  vi.hoisted(() => {
+    class MockFileStateStore {}
+    return {
+      mockInitialize: vi.fn().mockResolvedValue(undefined),
+      mockClose: vi.fn().mockResolvedValue(undefined),
+      mockDiffStory: vi.fn(),
+      mockQueryStories: vi.fn(),
+      MockFileStateStore,
+    }
+  })
 
 vi.mock('../../../modules/state/index.js', () => ({
   createStateStore: vi.fn(() => ({
@@ -46,7 +47,8 @@ vi.mock('../../../modules/state/index.js', () => ({
 // Mock the degraded-mode-hint utility so we can assert its usage without
 // triggering real Dolt detection in unit tests.
 const { mockEmitDegradedModeHint } = vi.hoisted(() => ({
-  mockEmitDegradedModeHint: vi.fn<(opts: unknown) => Promise<{ hint: string; doltInstalled: boolean }>>(),
+  mockEmitDegradedModeHint:
+    vi.fn<(opts: unknown) => Promise<{ hint: string; doltInstalled: boolean }>>(),
 }))
 
 vi.mock('../../../utils/degraded-mode-hint.js', () => ({
@@ -72,7 +74,7 @@ function makeTableDiff(
   table: string,
   addedCount: number,
   deletedCount: number,
-  modifiedCount: number,
+  modifiedCount: number
 ): StoryDiff['tables'][number] {
   return {
     table,
@@ -100,7 +102,8 @@ function createProgram(): Command {
 }
 
 // Default hint returned by the mock in file-backend tests
-const MOCK_HINT = 'Note: Dolt is not installed. Install it from https://docs.dolthub.com/introduction/installation, then run `substrate init --dolt` to enable diff and history features.'
+const MOCK_HINT =
+  'Note: Dolt is not installed. Install it from https://docs.dolthub.com/introduction/installation, then run `substrate init --dolt` to enable diff and history features.'
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -145,7 +148,7 @@ describe('diff command', () => {
         makeStoryDiff('26-7', [
           makeTableDiff('stories', 4, 2, 2),
           makeTableDiff('metrics', 1, 0, 0),
-        ]),
+        ])
       )
 
       const program = createProgram()
@@ -192,15 +195,20 @@ describe('diff command', () => {
 
   describe('file backend degraded mode', () => {
     async function makeFileStoreInstance() {
-      const { createStateStore, FileStateStore: MockFS } = await import('../../../modules/state/index.js')
-      const fileStoreInstance = Object.create((MockFS as unknown as { prototype: object }).prototype) as object
+      const { createStateStore, FileStateStore: MockFS } =
+        await import('../../../modules/state/index.js')
+      const fileStoreInstance = Object.create(
+        (MockFS as unknown as { prototype: object }).prototype
+      ) as object
       Object.assign(fileStoreInstance, {
         initialize: mockInitialize,
         close: mockClose,
         diffStory: vi.fn().mockResolvedValue(makeStoryDiff('26-7', [])),
         queryStories: mockQueryStories,
       })
-      vi.mocked(createStateStore).mockReturnValueOnce(fileStoreInstance as ReturnType<typeof createStateStore>)
+      vi.mocked(createStateStore).mockReturnValueOnce(
+        fileStoreInstance as ReturnType<typeof createStateStore>
+      )
     }
 
     it('calls emitDegradedModeHint when file backend is active (text mode)', async () => {
@@ -211,7 +219,7 @@ describe('diff command', () => {
 
       expect(mockEmitDegradedModeHint).toHaveBeenCalledOnce()
       expect(mockEmitDegradedModeHint).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'diff', outputFormat: 'text' }),
+        expect.objectContaining({ command: 'diff', outputFormat: 'text' })
       )
     })
 
@@ -268,7 +276,12 @@ describe('diff command', () => {
       ])
       mockDiffStory
         .mockResolvedValueOnce(makeStoryDiff('26-7', [makeTableDiff('stories', 2, 1, 1)]))
-        .mockResolvedValueOnce(makeStoryDiff('26-8', [makeTableDiff('stories', 3, 0, 0), makeTableDiff('metrics', 1, 0, 0)]))
+        .mockResolvedValueOnce(
+          makeStoryDiff('26-8', [
+            makeTableDiff('stories', 3, 0, 0),
+            makeTableDiff('metrics', 1, 0, 0),
+          ])
+        )
 
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'diff', '--sprint', 'sprint-3'])
@@ -284,7 +297,15 @@ describe('diff command', () => {
       mockDiffStory.mockResolvedValue(makeStoryDiff('26-7', [makeTableDiff('contracts', 1, 0, 0)]))
 
       const program = createProgram()
-      await program.parseAsync(['node', 'substrate', 'diff', '--sprint', 'sprint-3', '--output-format', 'json'])
+      await program.parseAsync([
+        'node',
+        'substrate',
+        'diff',
+        '--sprint',
+        'sprint-3',
+        '--output-format',
+        'json',
+      ])
 
       const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as Record<string, unknown>
       expect(parsed.sprint).toBe('sprint-3')
@@ -292,22 +313,27 @@ describe('diff command', () => {
     })
 
     it('calls emitDegradedModeHint for sprint diff on file backend', async () => {
-      const { createStateStore, FileStateStore: MockFS } = await import('../../../modules/state/index.js')
-      const fileStoreInstance = Object.create((MockFS as unknown as { prototype: object }).prototype) as object
+      const { createStateStore, FileStateStore: MockFS } =
+        await import('../../../modules/state/index.js')
+      const fileStoreInstance = Object.create(
+        (MockFS as unknown as { prototype: object }).prototype
+      ) as object
       Object.assign(fileStoreInstance, {
         initialize: mockInitialize,
         close: mockClose,
         diffStory: vi.fn().mockResolvedValue(makeStoryDiff('26-7', [])),
         queryStories: vi.fn().mockResolvedValue([]),
       })
-      vi.mocked(createStateStore).mockReturnValueOnce(fileStoreInstance as ReturnType<typeof createStateStore>)
+      vi.mocked(createStateStore).mockReturnValueOnce(
+        fileStoreInstance as ReturnType<typeof createStateStore>
+      )
 
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'diff', '--sprint', 'sprint-3'])
 
       expect(mockEmitDegradedModeHint).toHaveBeenCalledOnce()
       expect(mockEmitDegradedModeHint).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'diff', outputFormat: 'text' }),
+        expect.objectContaining({ command: 'diff', outputFormat: 'text' })
       )
     })
   })

@@ -38,7 +38,13 @@ export { FileStateStore } from './file-store.js'
 export type { FileStateStoreOptions } from './file-store.js'
 
 // Re-export Dolt initialization utilities.
-export { initializeDolt, checkDoltInstalled, runDoltCommand, DoltNotInstalled, DoltInitError } from './dolt-init.js'
+export {
+  initializeDolt,
+  checkDoltInstalled,
+  runDoltCommand,
+  DoltNotInstalled,
+  DoltInitError,
+} from './dolt-init.js'
 export type { DoltInitConfig } from './dolt-init.js'
 
 // Re-export the DoltStateStore class and related helpers.
@@ -122,7 +128,9 @@ export function createStateStore(config: StateStoreConfig = {}): StateStore {
     const repoPath = config.basePath ?? process.cwd()
     const detection = detectDoltAvailableSync(repoPath)
     if (detection.available) {
-      logger.debug(`Dolt detected, using DoltStateStore (state path: ${join(repoPath, '.substrate', 'state')})`)
+      logger.debug(
+        `Dolt detected, using DoltStateStore (state path: ${join(repoPath, '.substrate', 'state')})`
+      )
       const client = new DoltClient({ repoPath })
       return new DoltStateStore({ repoPath, client })
     } else {

@@ -23,9 +23,5 @@ export type { GatePipeline } from './gate-pipeline.js'
 export { GatePipelineImpl, createGatePipeline } from './gate-pipeline.js'
 
 // Registry
-export {
-  registerGateType,
-  createGate,
-  getRegisteredGateTypes,
-} from './gate-registry.js'
+export { registerGateType, createGate, getRegisteredGateTypes } from './gate-registry.js'
 export type { CreateGateOptions } from './gate-registry.js'

@@ -137,12 +137,10 @@ describe('createAmendmentContextHandler()', () => {
   })
 
   it('propagates errors thrown by loadParentRunDecisions', async () => {
-    mockLoadParentRunDecisions.mockRejectedValue(
-      new Error('Parent run not found: nonexistent-id'),
-    )
+    mockLoadParentRunDecisions.mockRejectedValue(new Error('Parent run not found: nonexistent-id'))
 
     await expect(createAmendmentContextHandler(mockDb, 'nonexistent-id')).rejects.toThrow(
-      'Parent run not found: nonexistent-id',
+      'Parent run not found: nonexistent-id'
     )
   })
 
@@ -151,7 +149,9 @@ describe('createAmendmentContextHandler()', () => {
       framingConcept: 'Add dark mode support',
       phaseFilter: ['analysis', 'planning'],
     }
-    await expect(createAmendmentContextHandler(mockDb, PARENT_RUN_ID, options)).resolves.toBeDefined()
+    await expect(
+      createAmendmentContextHandler(mockDb, PARENT_RUN_ID, options)
+    ).resolves.toBeDefined()
   })
 })
 
@@ -532,7 +532,10 @@ describe('Exported types', () => {
   })
 
   it('AmendmentContextHandler is an interface (handler satisfies it)', async () => {
-    const handler: AmendmentContextHandler = await createAmendmentContextHandler(mockDb, PARENT_RUN_ID)
+    const handler: AmendmentContextHandler = await createAmendmentContextHandler(
+      mockDb,
+      PARENT_RUN_ID
+    )
     expect(handler).toBeDefined()
   })
 })
@@ -561,7 +564,7 @@ describe('No direct database writes', () => {
         key: 'target_users',
         reason: 'test',
         loggedAt: '2026-01-01T00:00:00Z',
-      }),
+      })
     ).not.toThrow()
 
     // DB should have been touched only at construction

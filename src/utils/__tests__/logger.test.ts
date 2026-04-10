@@ -39,7 +39,7 @@ function createCapturingLogger(name: string): { logger: pino.Logger; getLines: (
       timestamp: pino.stdTimeFunctions.isoTime,
       base: { pid: process.pid },
     },
-    stream,
+    stream
   )
 
   return { logger, getLines: () => lines }

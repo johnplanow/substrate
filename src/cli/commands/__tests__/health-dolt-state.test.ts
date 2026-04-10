@@ -76,7 +76,11 @@ function makeDoltStore(responsive: boolean): StateStore {
     rollbackStory: vi.fn().mockResolvedValue(undefined),
     diffStory: vi.fn().mockResolvedValue({ storyKey: '', tables: [] }),
     getHistory: responsive
-      ? vi.fn().mockResolvedValue([{ hash: 'abc1234', timestamp: '2026-03-08T10:00:00Z', storyKey: null, message: 'init' }])
+      ? vi
+          .fn()
+          .mockResolvedValue([
+            { hash: 'abc1234', timestamp: '2026-03-08T10:00:00Z', storyKey: null, message: 'init' },
+          ])
       : vi.fn().mockRejectedValue(new Error('connection refused')),
   } as unknown as StateStore
 }

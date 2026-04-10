@@ -316,7 +316,12 @@ describe('selectMethods() — method rotation / deduplication (AC6)', () => {
     const methods: ElicitationMethod[] = [
       { name: 'Top Core', category: 'core', description: 'desc', output_pattern: 'a → b' },
       { name: 'Second Core', category: 'core', description: 'desc', output_pattern: 'a → b' },
-      { name: 'Collab Method', category: 'collaboration', description: 'desc', output_pattern: 'a → b' },
+      {
+        name: 'Collab Method',
+        category: 'collaboration',
+        description: 'desc',
+        output_pattern: 'a → b',
+      },
       { name: 'Risk Method', category: 'risk', description: 'desc', output_pattern: 'a → b' },
       { name: 'Tech Method', category: 'technical', description: 'desc', output_pattern: 'a → b' },
     ]

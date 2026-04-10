@@ -173,14 +173,16 @@ function makeNoStepsPack(): MethodologyPack {
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack: MethodologyPack,
+  pack: MethodologyPack
 ): PhaseDeps {
   return { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
@@ -366,7 +368,7 @@ describe('runAnalysisPhase() multi-step path', () => {
           constraints: [],
         },
       },
-      0,
+      0
     )
     const dispatcher: Dispatcher = {
       dispatch: vi.fn().mockReturnValue({
@@ -403,7 +405,7 @@ describe('runAnalysisPhase() multi-step path', () => {
           constraints: [],
         },
       },
-      0,
+      0
     )
     const dispatcher: Dispatcher = {
       dispatch: vi.fn().mockReturnValue({
@@ -478,7 +480,8 @@ describe('runAnalysisPhase() multi-step path — prior findings injection', () =
   })
 
   it('AC1: assembled step-1-vision prompt contains findings text when findings are present', async () => {
-    const findingsText = '**Recurring patterns:** missing error handling\n**Prior stalls:** 2 stall event(s) recorded'
+    const findingsText =
+      '**Recurring patterns:** missing error handling\n**Prior stalls:** 2 stall event(s) recorded'
     vi.mocked(getProjectFindings).mockResolvedValue(findingsText)
 
     const pack = makeMultiStepPackWithFindingsTemplate()

@@ -206,14 +206,18 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
     // Add new columns for existing databases (Epic 35)
     try {
       await this._adapter.exec(
-        `ALTER TABLE efficiency_scores ADD COLUMN token_density_sub_score DOUBLE NOT NULL DEFAULT 0`,
+        `ALTER TABLE efficiency_scores ADD COLUMN token_density_sub_score DOUBLE NOT NULL DEFAULT 0`
       )
-    } catch { /* column already exists */ }
+    } catch {
+      /* column already exists */
+    }
     try {
       await this._adapter.exec(
-        `ALTER TABLE efficiency_scores ADD COLUMN cold_start_turns_excluded INTEGER NOT NULL DEFAULT 0`,
+        `ALTER TABLE efficiency_scores ADD COLUMN cold_start_turns_excluded INTEGER NOT NULL DEFAULT 0`
       )
-    } catch { /* column already exists */ }
+    } catch {
+      /* column already exists */
+    }
 
     await this._adapter.exec(`
       CREATE TABLE IF NOT EXISTS recommendations (
@@ -284,10 +288,10 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
     await this._adapter.transaction(async (adapter) => {
       for (const turn of turns) {
         // DELETE + INSERT instead of INSERT OR REPLACE
-        await adapter.query(
-          `DELETE FROM turn_analysis WHERE story_key = ? AND span_id = ?`,
-          [storyKey, turn.spanId],
-        )
+        await adapter.query(`DELETE FROM turn_analysis WHERE story_key = ? AND span_id = ?`, [
+          storyKey,
+          turn.spanId,
+        ])
         await adapter.query(
           `INSERT INTO turn_analysis (
             story_key, span_id, turn_number, name, timestamp, source, model,
@@ -325,7 +329,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
             turn.taskType ?? null,
             turn.phase ?? null,
             turn.dispatchId ?? null,
-          ],
+          ]
         )
       }
     })
@@ -336,7 +340,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
   async getTurnAnalysis(storyKey: string): Promise<TurnAnalysis[]> {
     const rows = await this._adapter.query<TurnAnalysisRow>(
       `SELECT * FROM turn_analysis WHERE story_key = ? ORDER BY turn_number ASC`,
-      [storyKey],
+      [storyKey]
     )
     if (rows.length === 0) return []
 
@@ -376,7 +380,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
     // DELETE + INSERT instead of INSERT OR REPLACE
     await this._adapter.query(
       `DELETE FROM efficiency_scores WHERE story_key = ? AND timestamp = ?`,
-      [score.storyKey, score.timestamp],
+      [score.storyKey, score.timestamp]
     )
     await this._adapter.query(
       `INSERT INTO efficiency_scores (
@@ -414,11 +418,11 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
         score.dispatchId ?? null,
         score.taskType ?? null,
         score.phase ?? null,
-      ],
+      ]
     )
     logger.debug(
       { storyKey: score.storyKey, compositeScore: score.compositeScore },
-      'Stored efficiency score',
+      'Stored efficiency score'
     )
   }
 
@@ -448,7 +452,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
   async getEfficiencyScore(storyKey: string): Promise<EfficiencyScore | null> {
     const rows = await this._adapter.query<EfficiencyScoreRow>(
       `SELECT * FROM efficiency_scores WHERE story_key = ? AND dispatch_id IS NULL ORDER BY timestamp DESC LIMIT 1`,
-      [storyKey],
+      [storyKey]
     )
     if (rows.length === 0) return null
 
@@ -458,7 +462,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
   async getEfficiencyScores(limit = 20): Promise<EfficiencyScore[]> {
     const rows = await this._adapter.query<EfficiencyScoreRow>(
       `SELECT * FROM efficiency_scores WHERE dispatch_id IS NULL ORDER BY timestamp DESC LIMIT ?`,
-      [limit],
+      [limit]
     )
     if (rows.length === 0) return []
 
@@ -468,7 +472,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
   async getDispatchEfficiencyScores(storyKey: string): Promise<EfficiencyScore[]> {
     const rows = await this._adapter.query<EfficiencyScoreRow>(
       `SELECT * FROM efficiency_scores WHERE story_key = ? AND dispatch_id IS NOT NULL ORDER BY timestamp ASC`,
-      [storyKey],
+      [storyKey]
     )
     if (rows.length === 0) return []
 
@@ -485,10 +489,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
     await this._adapter.transaction(async (adapter) => {
       for (const rec of recs) {
         // DELETE + INSERT instead of INSERT OR REPLACE
-        await adapter.query(
-          `DELETE FROM recommendations WHERE id = ?`,
-          [rec.id],
-        )
+        await adapter.query(`DELETE FROM recommendations WHERE id = ?`, [rec.id])
         await adapter.query(
           `INSERT INTO recommendations (
             id, story_key, sprint_id, rule_id, severity, title, description,
@@ -509,7 +510,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
             rec.potentialSavingsUsd ?? null,
             rec.actionTarget ?? null,
             rec.generatedAt,
-          ],
+          ]
         )
       }
     })
@@ -528,7 +529,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
            ELSE 3
          END,
          COALESCE(potential_savings_tokens, 0) DESC`,
-      [storyKey],
+      [storyKey]
     )
     if (rows.length === 0) return []
 
@@ -541,8 +542,10 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
         severity: row.severity,
         title: row.title,
         description: row.description,
-        potentialSavingsTokens: row.potential_savings_tokens != null ? Number(row.potential_savings_tokens) : undefined,
-        potentialSavingsUsd: row.potential_savings_usd != null ? Number(row.potential_savings_usd) : undefined,
+        potentialSavingsTokens:
+          row.potential_savings_tokens != null ? Number(row.potential_savings_tokens) : undefined,
+        potentialSavingsUsd:
+          row.potential_savings_usd != null ? Number(row.potential_savings_usd) : undefined,
         actionTarget: row.action_target ?? undefined,
         generatedAt: row.generated_at,
       }
@@ -561,7 +564,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
          END,
          COALESCE(potential_savings_tokens, 0) DESC
        LIMIT ?`,
-      [limit],
+      [limit]
     )
     if (rows.length === 0) return []
 
@@ -574,8 +577,10 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
         severity: row.severity,
         title: row.title,
         description: row.description,
-        potentialSavingsTokens: row.potential_savings_tokens != null ? Number(row.potential_savings_tokens) : undefined,
-        potentialSavingsUsd: row.potential_savings_usd != null ? Number(row.potential_savings_usd) : undefined,
+        potentialSavingsTokens:
+          row.potential_savings_tokens != null ? Number(row.potential_savings_tokens) : undefined,
+        potentialSavingsUsd:
+          row.potential_savings_usd != null ? Number(row.potential_savings_usd) : undefined,
         actionTarget: row.action_target ?? undefined,
         generatedAt: row.generated_at,
       }
@@ -607,7 +612,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
               stat.eventCount,
               stat.avgTokensPerEvent,
               stat.trend,
-            ],
+            ]
           )
         } catch {
           // Row already exists for (story_key, category) — skip (INSERT OR IGNORE semantics)
@@ -620,21 +625,22 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
 
   async getCategoryStats(storyKey: string): Promise<CategoryStats[]> {
     // Empty string means "all stories" — use the aggregate query
-    const rows = storyKey === ''
-      ? await this._adapter.query<CategoryStatsRow>(
-          `SELECT category, SUM(total_tokens) AS total_tokens,
+    const rows =
+      storyKey === ''
+        ? await this._adapter.query<CategoryStatsRow>(
+            `SELECT category, SUM(total_tokens) AS total_tokens,
                   AVG(percentage) AS percentage,
                   SUM(event_count) AS event_count,
                   AVG(avg_tokens_per_event) AS avg_tokens_per_event,
                   MAX(trend) AS trend
            FROM category_stats
            GROUP BY category
-           ORDER BY total_tokens DESC`,
-        )
-      : await this._adapter.query<CategoryStatsRow>(
-          `SELECT * FROM category_stats WHERE story_key = ? ORDER BY total_tokens DESC`,
-          [storyKey],
-        )
+           ORDER BY total_tokens DESC`
+          )
+        : await this._adapter.query<CategoryStatsRow>(
+            `SELECT * FROM category_stats WHERE story_key = ? ORDER BY total_tokens DESC`,
+            [storyKey]
+          )
     if (rows.length === 0) return []
 
     return rows.map((row) => {
@@ -674,7 +680,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
               consumer.percentage,
               consumer.eventCount,
               JSON.stringify(consumer.topInvocations),
-            ],
+            ]
           )
         } catch {
           // Row already exists for (story_key, consumer_key) — skip (INSERT OR IGNORE semantics)
@@ -688,7 +694,7 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
   async getConsumerStats(storyKey: string): Promise<ConsumerStats[]> {
     const rows = await this._adapter.query<ConsumerStatsRow>(
       `SELECT * FROM consumer_stats WHERE story_key = ? ORDER BY total_tokens DESC`,
-      [storyKey],
+      [storyKey]
     )
     if (rows.length === 0) return []
 

@@ -179,7 +179,9 @@ describe('VersionManagerImpl', () => {
       const mockChecker = buildMockChecker('2.0.0')
       ;(mockChecker.isBreaking as ReturnType<typeof vi.fn>).mockImplementation(
         (current: string, latest: string) => {
-          return parseInt(latest.split('.')[0] ?? '0', 10) > parseInt(current.split('.')[0] ?? '0', 10)
+          return (
+            parseInt(latest.split('.')[0] ?? '0', 10) > parseInt(current.split('.')[0] ?? '0', 10)
+          )
         }
       )
 

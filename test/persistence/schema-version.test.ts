@@ -10,11 +10,7 @@
 
 import { describe, it, expect } from 'vitest'
 import type { DatabaseAdapter } from '@substrate-ai/core'
-import {
-  checkSchemaVersion,
-  CORE_SCHEMA_NAME,
-  type SchemaVersionRecord,
-} from '@substrate-ai/core'
+import { checkSchemaVersion, CORE_SCHEMA_NAME, type SchemaVersionRecord } from '@substrate-ai/core'
 
 // ---------------------------------------------------------------------------
 // Minimal DatabaseAdapter mock — only `query` is needed by checkSchemaVersion
@@ -22,11 +18,9 @@ import {
 
 function makeMockAdapter(rows: SchemaVersionRecord[]): DatabaseAdapter {
   return {
-    query: async <T>(_sql: string, _params?: unknown[]): Promise<T[]> =>
-      rows as unknown as T[],
+    query: async <T>(_sql: string, _params?: unknown[]): Promise<T[]> => rows as unknown as T[],
     exec: async (_sql: string): Promise<void> => {},
-    transaction: async <T>(fn: (a: DatabaseAdapter) => Promise<T>) =>
-      fn(makeMockAdapter(rows)),
+    transaction: async <T>(fn: (a: DatabaseAdapter) => Promise<T>) => fn(makeMockAdapter(rows)),
     close: async () => {},
     queryReadyStories: async () => [],
   }

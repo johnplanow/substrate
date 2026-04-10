@@ -33,7 +33,9 @@ const {
   const MockDoltSymbolRepository = vi.fn().mockImplementation(() => ({}))
   const MockDoltRepoMapMetaRepository = vi.fn().mockImplementation(() => ({}))
   const MockRepoMapQueryEngine = vi.fn().mockImplementation(() => ({
-    query: vi.fn().mockResolvedValue({ symbols: [], symbolCount: 0, truncated: false, queryDurationMs: 1 }),
+    query: vi
+      .fn()
+      .mockResolvedValue({ symbols: [], symbolCount: 0, truncated: false, queryDurationMs: 1 }),
   }))
   const MockRepoMapModule = vi.fn().mockImplementation(() => ({
     checkStaleness: vi.fn().mockResolvedValue(null),
@@ -65,7 +67,12 @@ const {
 // vi.mock declarations
 // ---------------------------------------------------------------------------
 
-const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+const mockAdapter = {
+  query: vi.fn().mockResolvedValue([]),
+  exec: vi.fn().mockResolvedValue(undefined),
+  transaction: vi.fn(),
+  close: vi.fn().mockResolvedValue(undefined),
+}
 
 vi.mock('../../../persistence/adapter.js', () => ({
   createDatabaseAdapter: vi.fn(() => mockAdapter),
@@ -148,7 +155,9 @@ vi.mock('../../../persistence/queries/metrics.js', () => ({
 }))
 
 vi.mock('../health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phase-detection.js', () => ({
@@ -314,7 +323,10 @@ describe('run.ts — RepoMapInjector wiring (Story 28-9 AC7)', () => {
 
       expect(exitCode).toBe(0)
       expect(mockCreateImplementationOrchestrator).toHaveBeenCalledOnce()
-      const callArgs = mockCreateImplementationOrchestrator.mock.calls[0][0] as Record<string, unknown>
+      const callArgs = mockCreateImplementationOrchestrator.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >
       expect(callArgs.repoMapInjector).toBeUndefined()
 
       stdoutWrite.mockRestore()
@@ -341,7 +353,10 @@ describe('run.ts — RepoMapInjector wiring (Story 28-9 AC7)', () => {
 
       expect(exitCode).toBe(0)
       expect(mockCreateImplementationOrchestrator).toHaveBeenCalledOnce()
-      const callArgs = mockCreateImplementationOrchestrator.mock.calls[0][0] as Record<string, unknown>
+      const callArgs = mockCreateImplementationOrchestrator.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >
       expect(callArgs.repoMapInjector).toBeDefined()
       expect(callArgs.maxRepoMapTokens).toBe(2000)
 
@@ -407,7 +422,7 @@ describe('run.ts — RepoMapInjector wiring (Story 28-9 AC7)', () => {
 
       expect(mockEventBusEmit).not.toHaveBeenCalledWith(
         'pipeline:repo-map-stale',
-        expect.anything(),
+        expect.anything()
       )
 
       stdoutWrite.mockRestore()
@@ -459,7 +474,9 @@ describe('run.ts — RepoMapInjector wiring (Story 28-9 AC7)', () => {
         }
       })
       expect(jsonLine).toBeDefined()
-      const parsed = JSON.parse(jsonLine!) as { stories: Array<{ storyKey: string; phases: unknown[] }> }
+      const parsed = JSON.parse(jsonLine!) as {
+        stories: Array<{ storyKey: string; phases: unknown[] }>
+      }
       expect(parsed.stories).toHaveLength(1)
       expect(parsed.stories[0]?.storyKey).toBe('28-1')
       expect(parsed.stories[0]?.phases).toHaveLength(3) // explore, generate, review

@@ -16,9 +16,7 @@
 import type { Command } from 'commander'
 
 import { createDatabaseAdapter } from '../../persistence/adapter.js'
-import {
-  WorkGraphRepository,
-} from '../../modules/state/index.js'
+import { WorkGraphRepository } from '../../modules/state/index.js'
 import type { BlockedStoryInfo } from '../../modules/state/index.js'
 import type { WgStory } from '../../modules/state/index.js'
 import {
@@ -73,10 +71,7 @@ function getBadge(status: string, isBlocked: boolean): string {
 // Main action
 // ---------------------------------------------------------------------------
 
-export async function runEpicStatusAction(
-  epicNum: string,
-  opts: EpicStatusOptions,
-): Promise<void> {
+export async function runEpicStatusAction(epicNum: string, opts: EpicStatusOptions): Promise<void> {
   const adapter = createDatabaseAdapter({ backend: 'auto', basePath: process.cwd() })
 
   try {
@@ -91,7 +86,7 @@ export async function runEpicStatusAction(
 
     if (rawStories.length === 0) {
       process.stderr.write(
-        `No stories found for epic ${epicNum} (work graph not populated — run \`substrate ingest-epic\` first)\n`,
+        `No stories found for epic ${epicNum} (work graph not populated — run \`substrate ingest-epic\` first)\n`
       )
       process.exitCode = 1
       return
@@ -102,15 +97,13 @@ export async function runEpicStatusAction(
     // Fetch blocked stories and filter to this epic
     const allBlocked = await repo.getBlockedStories()
     const epicBlockedMap = new Map<string, BlockedStoryInfo>(
-      allBlocked
-        .filter((b) => b.story.epic === epicNum)
-        .map((b) => [b.story.story_key, b]),
+      allBlocked.filter((b) => b.story.epic === epicNum).map((b) => [b.story.story_key, b])
     )
 
     // Fetch ready stories and filter to this epic
     const allReady = await repo.getReadyStories()
     const epicReadySet = new Set<string>(
-      allReady.filter((s) => s.epic === epicNum).map((s) => s.story_key),
+      allReady.filter((s) => s.epic === epicNum).map((s) => s.story_key)
     )
 
     // Build summary counts
@@ -125,7 +118,7 @@ export async function runEpicStatusAction(
         (s) =>
           (s.status === 'planned' || s.status === 'ready') &&
           !epicBlockedMap.has(s.story_key) &&
-          !epicReadySet.has(s.story_key),
+          !epicReadySet.has(s.story_key)
       ).length,
     }
 
@@ -170,9 +163,7 @@ export async function runEpicStatusAction(
 
         if (isBlocked) {
           const blockedInfo = epicBlockedMap.get(story.story_key)!
-          const blockerList = blockedInfo.blockers
-            .map((b) => `${b.key} (${b.status})`)
-            .join(', ')
+          const blockerList = blockedInfo.blockers.map((b) => `${b.key} (${b.status})`).join(', ')
           line += `  [waiting on: ${blockerList}]`
         }
 
@@ -182,7 +173,7 @@ export async function runEpicStatusAction(
       process.stdout.write('\n')
 
       process.stdout.write(
-        `Epic ${epicNum}: ${summary.complete} complete · ${summary.inProgress} in_progress · ${summary.ready} ready · ${summary.blocked} blocked · ${summary.planned} planned · ${summary.escalated} escalated\n`,
+        `Epic ${epicNum}: ${summary.complete} complete · ${summary.inProgress} in_progress · ${summary.ready} ready · ${summary.blocked} blocked · ${summary.planned} planned · ${summary.escalated} escalated\n`
       )
     }
   } finally {

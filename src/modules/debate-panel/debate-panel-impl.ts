@@ -63,7 +63,7 @@ export interface DebatePanelOptions {
 export type PerspectiveGeneratorFn = (
   viewpoint: string,
   question: string,
-  context: string,
+  context: string
 ) => Promise<Perspective>
 
 // ---------------------------------------------------------------------------
@@ -85,7 +85,10 @@ function buildPerspectivePrompt(viewpoint: string, question: string, context: st
   ].join('\n')
 }
 
-function createDefaultPerspectiveGenerator(dispatcher: Dispatcher, agentId?: string): PerspectiveGeneratorFn {
+function createDefaultPerspectiveGenerator(
+  dispatcher: Dispatcher,
+  agentId?: string
+): PerspectiveGeneratorFn {
   return async (viewpoint: string, question: string, context: string): Promise<Perspective> => {
     const prompt = buildPerspectivePrompt(viewpoint, question, context)
     const handle = dispatcher.dispatch({
@@ -170,7 +173,8 @@ export class DebatePanelImpl implements DebatePanel {
     this._dispatcher = options.dispatcher
     this._db = options.db
     this._generatePerspective =
-      options.perspectiveGenerator ?? createDefaultPerspectiveGenerator(options.dispatcher, options.agentId)
+      options.perspectiveGenerator ??
+      createDefaultPerspectiveGenerator(options.dispatcher, options.agentId)
   }
 
   async decide(request: DecisionRequest): Promise<DebateResult> {
@@ -228,7 +232,7 @@ export class DebatePanelImpl implements DebatePanel {
     const perspective = await this._generatePerspective(
       'general',
       request.question,
-      request.context,
+      request.context
     )
 
     return {
@@ -249,9 +253,7 @@ export class DebatePanelImpl implements DebatePanel {
 
     // Dispatch all perspectives in parallel
     const perspectives = await Promise.all(
-      viewpoints.map((vp) =>
-        this._generatePerspective(vp, request.question, request.context),
-      ),
+      viewpoints.map((vp) => this._generatePerspective(vp, request.question, request.context))
     )
 
     return this._computeSignificantResult(request, perspectives)
@@ -259,7 +261,7 @@ export class DebatePanelImpl implements DebatePanel {
 
   private async _computeSignificantResult(
     request: DecisionRequest,
-    perspectives: Perspective[],
+    perspectives: Perspective[]
   ): Promise<DebateResult> {
     const { winner, margin, votes } = computeWeightedVote(perspectives)
 
@@ -272,7 +274,7 @@ export class DebatePanelImpl implements DebatePanel {
       const tieBreakPerspective = await this._generatePerspective(
         'tie-break',
         request.question,
-        request.context,
+        request.context
       )
       finalPerspectives = [...perspectives, tieBreakPerspective]
     }
@@ -291,9 +293,7 @@ export class DebatePanelImpl implements DebatePanel {
     const rationale = [
       `Significant decision: ${String(finalPerspectives.length)} perspectives, confidence-weighted vote.`,
       `Winner: ${final.winner} (margin: ${(final.margin * 100).toFixed(1)}%)`,
-      winnerPerspective?.risks.length
-        ? `Risks: ${winnerPerspective.risks.join('; ')}`
-        : '',
+      winnerPerspective?.risks.length ? `Risks: ${winnerPerspective.risks.join('; ')}` : '',
     ]
       .filter(Boolean)
       .join(' ')
@@ -316,9 +316,7 @@ export class DebatePanelImpl implements DebatePanel {
 
     // Dispatch all 5 perspectives in parallel
     const perspectives = await Promise.all(
-      viewpoints.map((vp) =>
-        this._generatePerspective(vp, request.question, request.context),
-      ),
+      viewpoints.map((vp) => this._generatePerspective(vp, request.question, request.context))
     )
 
     const { winner, margin, votes } = computeWeightedVote(perspectives)
@@ -352,9 +350,7 @@ export class DebatePanelImpl implements DebatePanel {
     const rationale = [
       `Architectural decision: 5 specialized perspectives. Supermajority achieved (${(supermajority * 100).toFixed(1)}%).`,
       `Winner: ${winner}`,
-      winnerPerspective?.risks.length
-        ? `Risks: ${winnerPerspective.risks.join('; ')}`
-        : '',
+      winnerPerspective?.risks.length ? `Risks: ${winnerPerspective.risks.join('; ')}` : '',
     ]
       .filter(Boolean)
       .join(' ')

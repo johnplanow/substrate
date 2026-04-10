@@ -9,10 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import {
-  analyzeStoryComplexity,
-  TASKS_PER_BATCH,
-} from '../story-analyzer.js'
+import { analyzeStoryComplexity, TASKS_PER_BATCH } from '../story-analyzer.js'
 import type { StoryAnalysis, StoryTask } from '../story-analyzer.js'
 
 // ---------------------------------------------------------------------------

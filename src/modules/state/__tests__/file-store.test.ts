@@ -84,9 +84,18 @@ describe('FileStateStore', () => {
 
   describe('queryStories', () => {
     beforeEach(async () => {
-      await store.setStoryState('26-1', makeStory({ storyKey: '26-1', phase: 'COMPLETE', sprint: 'sprint-1' }))
-      await store.setStoryState('26-2', makeStory({ storyKey: '26-2', phase: 'ESCALATED', sprint: 'sprint-1' }))
-      await store.setStoryState('26-3', makeStory({ storyKey: '26-3', phase: 'IN_DEV', sprint: 'sprint-2' }))
+      await store.setStoryState(
+        '26-1',
+        makeStory({ storyKey: '26-1', phase: 'COMPLETE', sprint: 'sprint-1' })
+      )
+      await store.setStoryState(
+        '26-2',
+        makeStory({ storyKey: '26-2', phase: 'ESCALATED', sprint: 'sprint-1' })
+      )
+      await store.setStoryState(
+        '26-3',
+        makeStory({ storyKey: '26-3', phase: 'IN_DEV', sprint: 'sprint-2' })
+      )
     })
 
     it('returns only stories matching a single phase', async () => {
@@ -212,7 +221,7 @@ describe('FileStateStore', () => {
       expect(mockWriteFile).toHaveBeenCalledWith(
         expect.stringContaining('kv-metrics.json'),
         expect.any(String),
-        'utf-8',
+        'utf-8'
       )
     })
 
@@ -259,10 +268,20 @@ describe('FileStateStore', () => {
 
     it('replaces the previous contract list on subsequent calls', async () => {
       await store.setContracts('26-1', [
-        { storyKey: '26-1', contractName: 'OldContract', direction: 'export', schemaPath: 'old.ts' },
+        {
+          storyKey: '26-1',
+          contractName: 'OldContract',
+          direction: 'export',
+          schemaPath: 'old.ts',
+        },
       ])
       await store.setContracts('26-1', [
-        { storyKey: '26-1', contractName: 'NewContract', direction: 'import', schemaPath: 'new.ts' },
+        {
+          storyKey: '26-1',
+          contractName: 'NewContract',
+          direction: 'import',
+          schemaPath: 'new.ts',
+        },
       ])
 
       const result = await store.getContracts('26-1')
@@ -276,11 +295,26 @@ describe('FileStateStore', () => {
   describe('queryContracts', () => {
     beforeEach(async () => {
       await store.setContracts('26-1', [
-        { storyKey: '26-1', contractName: 'StateStore', direction: 'export', schemaPath: 'src/modules/state/types.ts' },
-        { storyKey: '26-1', contractName: 'DoltClient', direction: 'import', schemaPath: 'src/modules/state/dolt-client.ts' },
+        {
+          storyKey: '26-1',
+          contractName: 'StateStore',
+          direction: 'export',
+          schemaPath: 'src/modules/state/types.ts',
+        },
+        {
+          storyKey: '26-1',
+          contractName: 'DoltClient',
+          direction: 'import',
+          schemaPath: 'src/modules/state/dolt-client.ts',
+        },
       ])
       await store.setContracts('26-2', [
-        { storyKey: '26-2', contractName: 'MetricRecord', direction: 'export', schemaPath: 'src/modules/state/types.ts' },
+        {
+          storyKey: '26-2',
+          contractName: 'MetricRecord',
+          direction: 'export',
+          schemaPath: 'src/modules/state/types.ts',
+        },
       ])
     })
 
@@ -352,10 +386,20 @@ describe('FileStateStore', () => {
 
     it('overwrites existing records on subsequent calls', async () => {
       await store.setContractVerification('26-1', [
-        { storyKey: '26-1', contractName: 'OldContract', verdict: 'pass', verifiedAt: '2026-03-08T10:00:00.000Z' },
+        {
+          storyKey: '26-1',
+          contractName: 'OldContract',
+          verdict: 'pass',
+          verifiedAt: '2026-03-08T10:00:00.000Z',
+        },
       ])
       await store.setContractVerification('26-1', [
-        { storyKey: '26-1', contractName: 'NewContract', verdict: 'fail', verifiedAt: '2026-03-08T11:00:00.000Z' },
+        {
+          storyKey: '26-1',
+          contractName: 'NewContract',
+          verdict: 'fail',
+          verifiedAt: '2026-03-08T11:00:00.000Z',
+        },
       ])
 
       const result = await store.getContractVerification('26-1')
@@ -373,7 +417,12 @@ describe('FileStateStore', () => {
 
       const storeWithPath = new FileStateStore({ basePath: '/tmp/test-state' })
       const records: ContractVerificationRecord[] = [
-        { storyKey: '26-1', contractName: 'StateStore', verdict: 'pass', verifiedAt: '2026-03-08T10:00:00.000Z' },
+        {
+          storyKey: '26-1',
+          contractName: 'StateStore',
+          verdict: 'pass',
+          verifiedAt: '2026-03-08T10:00:00.000Z',
+        },
       ]
 
       await storeWithPath.setContractVerification('26-1', records)
@@ -381,7 +430,7 @@ describe('FileStateStore', () => {
       expect(mockWriteFile).toHaveBeenCalledWith(
         expect.stringContaining('contract-verifications.json'),
         expect.any(String),
-        'utf-8',
+        'utf-8'
       )
     })
   })

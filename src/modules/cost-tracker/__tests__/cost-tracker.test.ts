@@ -48,23 +48,26 @@ async function createTestDb(): Promise<{ adapter: DatabaseAdapter }> {
   return { adapter }
 }
 
-async function createTestSession(adapter: DatabaseAdapter, sessionId: string = 'session-1'): Promise<void> {
+async function createTestSession(
+  adapter: DatabaseAdapter,
+  sessionId: string = 'session-1'
+): Promise<void> {
   await adapter.query(
     `INSERT INTO sessions (id, name, graph_file, status)
      VALUES (?, ?, ?, ?)`,
-    [sessionId, 'Test Session', 'test-graph.yaml', 'active'],
+    [sessionId, 'Test Session', 'test-graph.yaml', 'active']
   )
 }
 
 async function createTestTask(
   adapter: DatabaseAdapter,
   taskId: string,
-  sessionId: string = 'session-1',
+  sessionId: string = 'session-1'
 ): Promise<void> {
   await adapter.query(
     `INSERT INTO tasks (id, session_id, name, prompt, status)
      VALUES (?, ?, ?, ?, ?)`,
-    [taskId, sessionId, `Task ${taskId}`, 'Do something', 'completed'],
+    [taskId, sessionId, `Task ${taskId}`, 'Do something', 'completed']
   )
 }
 
@@ -520,7 +523,7 @@ describe('Cost Persistence Queries', () => {
   describe('Index verification (AC6)', () => {
     it('has idx_cost_entries_session_task composite index', async () => {
       const indexes = await adapter.query<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'",
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'"
       )
       const names = indexes.map((i) => i.name)
       expect(names).toContain('idx_cost_entries_session_task')
@@ -528,7 +531,7 @@ describe('Cost Persistence Queries', () => {
 
     it('has idx_cost_entries_provider index', async () => {
       const indexes = await adapter.query<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'",
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'"
       )
       const names = indexes.map((i) => i.name)
       expect(names).toContain('idx_cost_entries_provider')
@@ -536,7 +539,7 @@ describe('Cost Persistence Queries', () => {
 
     it('has idx_cost_agent index', async () => {
       const indexes = await adapter.query<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'",
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'"
       )
       const names = indexes.map((i) => i.name)
       expect(names).toContain('idx_cost_agent')
@@ -544,7 +547,7 @@ describe('Cost Persistence Queries', () => {
 
     it('has idx_cost_session index from migration 001', async () => {
       const indexes = await adapter.query<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'",
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'"
       )
       const names = indexes.map((i) => i.name)
       expect(names).toContain('idx_cost_session')
@@ -552,7 +555,7 @@ describe('Cost Persistence Queries', () => {
 
     it('has idx_cost_task index from migration 001', async () => {
       const indexes = await adapter.query<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'",
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'"
       )
       const names = indexes.map((i) => i.name)
       expect(names).toContain('idx_cost_task')
@@ -560,7 +563,7 @@ describe('Cost Persistence Queries', () => {
 
     it('has idx_cost_session_agent composite index for agent breakdown queries (Fix #3)', async () => {
       const indexes = await adapter.query<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'",
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cost_entries'"
       )
       const names = indexes.map((i) => i.name)
       expect(names).toContain('idx_cost_session_agent')
@@ -602,7 +605,7 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         1000,
         500,
-        'api',
+        'api'
       )
 
       expect(typeof entry.id).toBe('number')
@@ -623,7 +626,7 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         1000,
         500,
-        'subscription',
+        'subscription'
       )
 
       expect(entry.billing_mode).toBe('subscription')
@@ -647,7 +650,7 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         1000,
         500,
-        'api',
+        'api'
       )
 
       expect(handler).toHaveBeenCalledOnce()
@@ -656,7 +659,7 @@ describe('CostTrackerImpl', () => {
           taskId: 'task-1',
           sessionId: 'session-1',
           billingMode: 'api',
-        }),
+        })
       )
     })
 
@@ -669,12 +672,12 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         1000,
         500,
-        'api',
+        'api'
       )
 
       const [row] = await adapter.query<{ cost_usd: number }>(
         'SELECT cost_usd FROM tasks WHERE id = ?',
-        ['task-1'],
+        ['task-1']
       )
       expect(row!.cost_usd).toBeGreaterThan(0)
     })
@@ -688,11 +691,11 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         1000,
         500,
-        'api',
+        'api'
       )
       const firstRows = await adapter.query<{ cost_usd: number }>(
         'SELECT cost_usd FROM tasks WHERE id = ?',
-        ['task-1'],
+        ['task-1']
       )
       const firstCost = firstRows[0]!.cost_usd
 
@@ -704,11 +707,11 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         2000,
         1000,
-        'api',
+        'api'
       )
       const secondRows = await adapter.query<{ cost_usd: number }>(
         'SELECT cost_usd FROM tasks WHERE id = ?',
-        ['task-1'],
+        ['task-1']
       )
       const secondCost = secondRows[0]!.cost_usd
 
@@ -724,7 +727,7 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         100,
         50,
-        'api',
+        'api'
       )
 
       // id should be a number assigned by SQLite AUTOINCREMENT
@@ -744,7 +747,7 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         1000,
         500,
-        'api',
+        'api'
       )
 
       const summary = await tracker.getTaskCost('task-1')
@@ -765,7 +768,7 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         1000,
         500,
-        'api',
+        'api'
       )
       await tracker.recordTaskCost(
         'session-1',
@@ -775,7 +778,7 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         500,
         200,
-        'subscription',
+        'subscription'
       )
 
       const summary = await tracker.getTaskCost('task-1')
@@ -793,7 +796,7 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         1000,
         500,
-        'api',
+        'api'
       )
       await tracker.recordTaskCost(
         'session-1',
@@ -803,7 +806,7 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         2000,
         1000,
-        'subscription',
+        'subscription'
       )
 
       const summary = await tracker.getSessionCost('session-1')
@@ -830,7 +833,7 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         10000,
         5000,
-        'subscription',
+        'subscription'
       )
 
       const summary = await tracker.getSessionCost('session-1')
@@ -850,12 +853,14 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         10000,
         5000,
-        'subscription',
+        'subscription'
       )
 
       const summary = await tracker.getSessionCost('session-1')
 
-      expect(summary.savingsSummary).toMatch(/^Saved ~\$[\d.]+ by routing \d+ tasks? through subscriptions vs\. equivalent API pricing$/)
+      expect(summary.savingsSummary).toMatch(
+        /^Saved ~\$[\d.]+ by routing \d+ tasks? through subscriptions vs\. equivalent API pricing$/
+      )
     })
 
     it('returns savingsSummary "no savings" message when no subscription tasks (AC5, Fix #6)', async () => {
@@ -867,7 +872,7 @@ describe('CostTrackerImpl', () => {
         'claude-3-sonnet',
         1000,
         500,
-        'api',
+        'api'
       )
 
       const summary = await tracker.getSessionCost('session-1')
@@ -883,8 +888,26 @@ describe('CostTrackerImpl', () => {
 
   describe('getAgentCostBreakdown', () => {
     it('returns breakdown with billing_breakdown', async () => {
-      await tracker.recordTaskCost('session-1', 'task-1', 'claude', 'anthropic', 'claude-3-sonnet', 1000, 500, 'api')
-      await tracker.recordTaskCost('session-1', 'task-2', 'claude', 'anthropic', 'claude-3-sonnet', 500, 200, 'subscription')
+      await tracker.recordTaskCost(
+        'session-1',
+        'task-1',
+        'claude',
+        'anthropic',
+        'claude-3-sonnet',
+        1000,
+        500,
+        'api'
+      )
+      await tracker.recordTaskCost(
+        'session-1',
+        'task-2',
+        'claude',
+        'anthropic',
+        'claude-3-sonnet',
+        500,
+        200,
+        'subscription'
+      )
 
       const breakdown = await tracker.getAgentCostBreakdown('session-1', 'claude')
 
@@ -897,8 +920,26 @@ describe('CostTrackerImpl', () => {
 
   describe('getAllCosts', () => {
     it('returns all cost entries for a session', async () => {
-      await tracker.recordTaskCost('session-1', 'task-1', 'claude', 'anthropic', 'claude-3-sonnet', 100, 50, 'api')
-      await tracker.recordTaskCost('session-1', 'task-2', 'codex', 'openai', 'gpt-4o', 200, 100, 'api')
+      await tracker.recordTaskCost(
+        'session-1',
+        'task-1',
+        'claude',
+        'anthropic',
+        'claude-3-sonnet',
+        100,
+        50,
+        'api'
+      )
+      await tracker.recordTaskCost(
+        'session-1',
+        'task-2',
+        'codex',
+        'openai',
+        'gpt-4o',
+        200,
+        100,
+        'api'
+      )
 
       const entries = await tracker.getAllCosts('session-1')
 
@@ -906,8 +947,26 @@ describe('CostTrackerImpl', () => {
     })
 
     it('supports limit parameter', async () => {
-      await tracker.recordTaskCost('session-1', 'task-1', 'claude', 'anthropic', 'claude-3-sonnet', 100, 50, 'api')
-      await tracker.recordTaskCost('session-1', 'task-2', 'codex', 'openai', 'gpt-4o', 200, 100, 'api')
+      await tracker.recordTaskCost(
+        'session-1',
+        'task-1',
+        'claude',
+        'anthropic',
+        'claude-3-sonnet',
+        100,
+        50,
+        'api'
+      )
+      await tracker.recordTaskCost(
+        'session-1',
+        'task-2',
+        'codex',
+        'openai',
+        'gpt-4o',
+        200,
+        100,
+        'api'
+      )
 
       const entries = await tracker.getAllCosts('session-1', 1)
 
@@ -1200,7 +1259,7 @@ describe('createCostTracker', () => {
       'claude-3-sonnet',
       100,
       50,
-      'api',
+      'api'
     )
     expect(entry.cost_usd).toBeGreaterThan(0)
 
@@ -1229,7 +1288,7 @@ describe('createCostTracker', () => {
       'claude-3-sonnet',
       1000,
       500,
-      'api',
+      'api'
     )
     // With custom rates: (1000 * 1000.0 + 500 * 2000.0) / 1_000_000 = $2.00
     // With global rates: (1000 * 3.0 + 500 * 15.0) / 1_000_000 = $0.0105

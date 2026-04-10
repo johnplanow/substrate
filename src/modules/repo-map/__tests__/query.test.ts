@@ -30,7 +30,7 @@ function makeSymbol(overrides: Partial<RepoMapSymbol> = {}): RepoMapSymbol {
 function makeRepo(
   overrides: Partial<{
     [K in keyof ISymbolRepository]: ISymbolRepository[K]
-  }> = {},
+  }> = {}
 ): ISymbolRepository {
   return {
     upsertFileSymbols: vi.fn(),
@@ -59,8 +59,14 @@ const silentLogger = {
 describe('RepoMapQueryEngine', () => {
   describe('AC1: files glob filter', () => {
     it('returns only symbols whose filePath matches the glob', async () => {
-      const matching = makeSymbol({ filePath: 'src/modules/state/store.ts', symbolName: 'StateStore' })
-      const nonMatching = makeSymbol({ filePath: 'src/utils/logger.ts', symbolName: 'createLogger' })
+      const matching = makeSymbol({
+        filePath: 'src/modules/state/store.ts',
+        symbolName: 'StateStore',
+      })
+      const nonMatching = makeSymbol({
+        filePath: 'src/utils/logger.ts',
+        symbolName: 'createLogger',
+      })
 
       const repo = makeRepo({
         findAll: vi.fn().mockResolvedValue([matching, nonMatching]),
@@ -86,23 +92,47 @@ describe('RepoMapQueryEngine', () => {
     })
 
     it('orders results by filePath asc then lineNumber asc when scores are equal', async () => {
-      const a = makeSymbol({ filePath: 'src/modules/state/a.ts', symbolName: 'Alpha', lineNumber: 20 })
-      const b = makeSymbol({ filePath: 'src/modules/state/a.ts', symbolName: 'Beta', lineNumber: 5 })
-      const c = makeSymbol({ filePath: 'src/modules/state/b.ts', symbolName: 'Gamma', lineNumber: 1 })
+      const a = makeSymbol({
+        filePath: 'src/modules/state/a.ts',
+        symbolName: 'Alpha',
+        lineNumber: 20,
+      })
+      const b = makeSymbol({
+        filePath: 'src/modules/state/a.ts',
+        symbolName: 'Beta',
+        lineNumber: 5,
+      })
+      const c = makeSymbol({
+        filePath: 'src/modules/state/b.ts',
+        symbolName: 'Gamma',
+        lineNumber: 1,
+      })
 
       const repo = makeRepo({ findAll: vi.fn().mockResolvedValue([a, b, c]) })
       const engine = new RepoMapQueryEngine(repo, silentLogger)
       const result = await engine.query({ files: ['src/modules/state/**'] })
 
-      expect(result.symbols.map(s => s.symbolName)).toEqual(['Beta', 'Alpha', 'Gamma'])
+      expect(result.symbols.map((s) => s.symbolName)).toEqual(['Beta', 'Alpha', 'Gamma'])
     })
   })
 
   describe('AC2: multi-filter AND composition', () => {
     it('returns intersection of symbols and types filters', async () => {
-      const doltClass = makeSymbol({ symbolName: 'DoltClient', symbolType: 'class', filePath: 'src/a.ts' })
-      const stateInterface = makeSymbol({ symbolName: 'StateStore', symbolType: 'interface', filePath: 'src/b.ts' })
-      const doltFn = makeSymbol({ symbolName: 'DoltClient', symbolType: 'function', filePath: 'src/c.ts' })
+      const doltClass = makeSymbol({
+        symbolName: 'DoltClient',
+        symbolType: 'class',
+        filePath: 'src/a.ts',
+      })
+      const stateInterface = makeSymbol({
+        symbolName: 'StateStore',
+        symbolType: 'interface',
+        filePath: 'src/b.ts',
+      })
+      const doltFn = makeSymbol({
+        symbolName: 'DoltClient',
+        symbolType: 'function',
+        filePath: 'src/c.ts',
+      })
 
       const repo = makeRepo({
         findBySymbolNames: vi.fn().mockResolvedValue([doltClass, stateInterface, doltFn]),
@@ -116,11 +146,11 @@ describe('RepoMapQueryEngine', () => {
       })
 
       // AND logic: only symbols present in BOTH result sets
-      const names = result.symbols.map(s => s.symbolName)
+      const names = result.symbols.map((s) => s.symbolName)
       expect(names).toContain('DoltClient')
       expect(names).toContain('StateStore')
       // doltFn is in findBySymbolNames but NOT in findByTypes (it's a function)
-      expect(result.symbols.some(s => s.filePath === 'src/c.ts')).toBe(false)
+      expect(result.symbols.some((s) => s.filePath === 'src/c.ts')).toBe(false)
     })
 
     it('returns all symbols when no filter fields are specified', async () => {
@@ -164,12 +194,22 @@ describe('RepoMapQueryEngine', () => {
       expect(result.symbols.length).toBeGreaterThanOrEqual(1)
       const first = result.symbols[0]
       expect(first.symbolName).toBe('StateStore')
-      expect(first.relevanceScore).toBeGreaterThan(result.symbols[result.symbols.length - 1].relevanceScore || 0)
+      expect(first.relevanceScore).toBeGreaterThan(
+        result.symbols[result.symbols.length - 1].relevanceScore || 0
+      )
     })
 
     it('results are ordered by score descending', async () => {
-      const highScore = makeSymbol({ filePath: 'src/modules/state/store.ts', symbolName: 'StateStore', symbolType: 'class' })
-      const lowScore = makeSymbol({ filePath: 'src/utils/other.ts', symbolName: 'Other', symbolType: 'function' })
+      const highScore = makeSymbol({
+        filePath: 'src/modules/state/store.ts',
+        symbolName: 'StateStore',
+        symbolType: 'class',
+      })
+      const lowScore = makeSymbol({
+        filePath: 'src/utils/other.ts',
+        symbolName: 'Other',
+        symbolType: 'function',
+      })
 
       const repo = makeRepo({
         findAll: vi.fn().mockResolvedValue([lowScore, highScore]),
@@ -192,7 +232,7 @@ describe('RepoMapQueryEngine', () => {
       // Each symbol with filePath='src/a.ts' (8), symbolName='Sym' (3), no sig, overhead 30 = 41 chars
       // maxTokens=10 → budget = 40 chars → only 0 or 1 symbols fit
       const syms = Array.from({ length: 5 }, (_, i) =>
-        makeSymbol({ symbolName: `Sym${i}`, filePath: 'src/a.ts', lineNumber: i + 1 }),
+        makeSymbol({ symbolName: `Sym${i}`, filePath: 'src/a.ts', lineNumber: i + 1 })
       )
       const repo = makeRepo({ findAll: vi.fn().mockResolvedValue(syms) })
       const engine = new RepoMapQueryEngine(repo, silentLogger)
@@ -215,7 +255,11 @@ describe('RepoMapQueryEngine', () => {
 
     it('symbolCount reflects returned array length after truncation', async () => {
       const syms = Array.from({ length: 10 }, (_, i) =>
-        makeSymbol({ symbolName: `Symbol${i}`, filePath: 'src/very/long/path/to/file.ts', lineNumber: i + 1 }),
+        makeSymbol({
+          symbolName: `Symbol${i}`,
+          filePath: 'src/very/long/path/to/file.ts',
+          lineNumber: i + 1,
+        })
       )
       const repo = makeRepo({ findAll: vi.fn().mockResolvedValue(syms) })
       const engine = new RepoMapQueryEngine(repo, silentLogger)
@@ -258,8 +302,8 @@ describe('RepoMapQueryEngine', () => {
 
       expect(repo.findBySymbolNames).toHaveBeenCalledWith(['StoryRunner'])
       expect(repo.findByFilePaths).toHaveBeenCalledWith(['src/dep-a.ts', 'src/dep-b.ts'])
-      expect(result.symbols.map(s => s.symbolName)).toContain('DepA')
-      expect(result.symbols.map(s => s.symbolName)).toContain('DepB')
+      expect(result.symbols.map((s) => s.symbolName)).toContain('DepA')
+      expect(result.symbols.map((s) => s.symbolName)).toContain('DepB')
     })
 
     it('dependsOn with no dependencies returns empty result', async () => {

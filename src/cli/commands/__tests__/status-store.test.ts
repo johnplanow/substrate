@@ -156,7 +156,12 @@ describe('runStatusAction — --history flag (AC4)', () => {
 
   it('returns JSON array of history entries when history=true with stateStore (json format)', async () => {
     const entries: HistoryEntry[] = [
-      { hash: 'abc1234', timestamp: '2026-03-08T10:00:00Z', storyKey: '26-1', message: 'feat: story 26-1' },
+      {
+        hash: 'abc1234',
+        timestamp: '2026-03-08T10:00:00Z',
+        storyKey: '26-1',
+        message: 'feat: story 26-1',
+      },
       { hash: 'def5678', timestamp: '2026-03-08T09:00:00Z', storyKey: null, message: 'init repo' },
     ]
     const store = makeHistoryStore(entries)
@@ -177,7 +182,12 @@ describe('runStatusAction — --history flag (AC4)', () => {
 
   it('renders human-format history table with header', async () => {
     const entries: HistoryEntry[] = [
-      { hash: 'abc1234', timestamp: '2026-03-08T10:00:00Z', storyKey: '26-1', message: 'feat: implement story 26-1' },
+      {
+        hash: 'abc1234',
+        timestamp: '2026-03-08T10:00:00Z',
+        storyKey: '26-1',
+        message: 'feat: implement story 26-1',
+      },
     ]
     const store = makeHistoryStore(entries)
 
@@ -232,9 +242,7 @@ describe('runStatusAction — early return when no DB (story_states not queried)
 
   it('returns exit code 1 when DB does not exist, even with stateStore provided', async () => {
     // existsSync returns false for the DB path (mocked at top level)
-    const store = makeStoreStories([
-      { storyKey: '26-1', phase: 'COMPLETE', reviewCycles: 2 },
-    ])
+    const store = makeStoreStories([{ storyKey: '26-1', phase: 'COMPLETE', reviewCycles: 2 }])
     const exitCode = await runStatusAction({
       outputFormat: 'json',
       projectRoot: '/tmp/test',

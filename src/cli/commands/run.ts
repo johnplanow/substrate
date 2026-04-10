@@ -33,7 +33,14 @@ import { initSchema } from '../../persistence/schema.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler, RepoMapInjector } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
-import { RoutingResolver, RoutingTokenAccumulator, RoutingTelemetry, RoutingTuner, RoutingRecommender, loadModelRoutingConfig } from '../../modules/routing/index.js'
+import {
+  RoutingResolver,
+  RoutingTokenAccumulator,
+  RoutingTelemetry,
+  RoutingTuner,
+  RoutingRecommender,
+  loadModelRoutingConfig,
+} from '../../modules/routing/index.js'
 import type { ModelRoutingConfig } from '../../modules/routing/index.js'
 import {
   DoltSymbolRepository,
@@ -44,7 +51,11 @@ import {
 } from '../../modules/repo-map/index.js'
 import { DoltClient, FileStateStore } from '../../modules/state/index.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
-import { createImplementationOrchestrator, discoverPendingStoryKeys, resolveStoryKeys } from '../../modules/implementation-orchestrator/index.js'
+import {
+  createImplementationOrchestrator,
+  discoverPendingStoryKeys,
+  resolveStoryKeys,
+} from '../../modules/implementation-orchestrator/index.js'
 import { detectStartPhase } from '../../modules/phase-orchestrator/phase-detection.js'
 import { createPhaseOrchestrator } from '../../modules/phase-orchestrator/index.js'
 import { runAnalysisPhase } from '../../modules/phase-orchestrator/phases/analysis.js'
@@ -137,10 +148,12 @@ const logger = createLogger('run-cmd')
 export function resolveMaxReviewCycles(
   cliValue: number,
   agentId: string | undefined,
-  registry: AdapterRegistry | undefined,
+  registry: AdapterRegistry | undefined
 ): number {
   if (agentId == null || registry == null) return cliValue
-  const adapter = registry.get(agentId) as { getCapabilities?: () => { defaultMaxReviewCycles?: number } } | undefined
+  const adapter = registry.get(agentId) as
+    | { getCapabilities?: () => { defaultMaxReviewCycles?: number } }
+    | undefined
   const adapterDefault = adapter?.getCapabilities?.()?.defaultMaxReviewCycles
   return adapterDefault != null ? Math.max(cliValue, adapterDefault) : cliValue
 }
@@ -210,7 +223,7 @@ function mapInternalPhaseToEventPhase(internalPhase: string): PipelinePhase | nu
  */
 export function wireNdjsonEmitter(
   eventBus: ReturnType<typeof createEventBus>,
-  ndjsonEmitter: ReturnType<typeof createEventEmitter>,
+  ndjsonEmitter: ReturnType<typeof createEventEmitter>
 ): void {
   // story:phase events for each pipeline phase (in_progress on start)
   eventBus.on('orchestrator:story-phase-start', (payload) => {
@@ -406,7 +419,9 @@ export function wireNdjsonEmitter(
       type: 'pipeline:pre-flight-failure',
       ts: new Date().toISOString(),
       exitCode: payload.exitCode,
-      output: payload.output + '\nTip: Use --skip-preflight to bypass, or check your build command in .substrate/project-profile.yaml',
+      output:
+        payload.output +
+        '\nTip: Use --skip-preflight to bypass, or check your build command in .substrate/project-profile.yaml',
     })
   })
 
@@ -590,7 +605,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   }
 
   // Validate --cost-ceiling flag (Story 52-3): must be a positive number when provided
-  if (costCeiling !== undefined && (typeof costCeiling !== 'number' || isNaN(costCeiling) || costCeiling <= 0)) {
+  if (
+    costCeiling !== undefined &&
+    (typeof costCeiling !== 'number' || isNaN(costCeiling) || costCeiling <= 0)
+  ) {
     const errorMsg = `Invalid --cost-ceiling value '${costCeiling}'. Must be a positive number (USD)`
     if (outputFormat === 'json') {
       process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
@@ -614,7 +632,11 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
   // Resolve per-agent review cycles: Codex defaults to 3, Claude to 2.
   // The adapter's defaultMaxReviewCycles acts as a floor (Math.max).
-  const effectiveMaxReviewCycles = resolveMaxReviewCycles(maxReviewCycles, agentId, injectedRegistry)
+  const effectiveMaxReviewCycles = resolveMaxReviewCycles(
+    maxReviewCycles,
+    agentId,
+    injectedRegistry
+  )
 
   // Validate --from phase
   if (startPhase !== undefined && !VALID_PHASES.includes(startPhase)) {
@@ -645,7 +667,9 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       if (outputFormat === 'json') {
         process.stdout.write(formatOutput(null, 'json', false, conflictResult.error) + '\n')
       } else {
-        process.stderr.write(`Error: ${conflictResult.error ?? 'Invalid --stop-after / --from combination'}\n`)
+        process.stderr.write(
+          `Error: ${conflictResult.error ?? 'Invalid --stop-after / --from combination'}\n`
+        )
       }
       return 1
     }
@@ -671,7 +695,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       concept = conceptArg
     } else if (startPhase === 'research' || startPhase === 'analysis') {
       // Analysis requires concept
-      const errorMsg = '--concept or --concept-file required when starting from research or analysis phase'
+      const errorMsg =
+        '--concept or --concept-file required when starting from research or analysis phase'
       if (outputFormat === 'json') {
         process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
       } else {
@@ -695,7 +720,11 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   try {
     writeFileSync(pidFilePath, String(process.pid), 'utf-8')
     const cleanupPidFile = () => {
-      try { unlinkSync(pidFilePath) } catch { /* ignore */ }
+      try {
+        unlinkSync(pidFilePath)
+      } catch {
+        /* ignore */
+      }
     }
     // Clean up on normal exit (covers most graceful shutdowns).
     process.on('exit', cleanupPidFile)
@@ -703,8 +732,14 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // after signal-based termination. SIGKILL cannot be caught — the alive-check
     // in inspectProcessTree handles that residual case by verifying the PID is
     // still present in ps output before treating it as a live orchestrator.
-    process.once('SIGTERM', () => { cleanupPidFile(); process.exit(0) })
-    process.once('SIGINT', () => { cleanupPidFile(); process.exit(130) })
+    process.once('SIGTERM', () => {
+      cleanupPidFile()
+      process.exit(0)
+    })
+    process.once('SIGINT', () => {
+      cleanupPidFile()
+      process.exit(130)
+    })
   } catch {
     // Non-fatal: process detection falls back to command-line matching
   }
@@ -725,7 +760,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     tokenCeilings = cfg.token_ceilings as typeof tokenCeilings
     if (cfg.dispatch_timeouts) {
       dispatchTimeouts = Object.fromEntries(
-        Object.entries(cfg.dispatch_timeouts).filter(([, v]) => v !== undefined),
+        Object.entries(cfg.dispatch_timeouts).filter(([, v]) => v !== undefined)
       ) as Record<string, number>
       logger.info({ dispatchTimeouts }, 'Loaded dispatch timeout overrides from config')
     }
@@ -789,9 +824,14 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         // Story file validation is informational — the orchestrator's create-story
         // phase generates missing files. Only log which stories need creation.
         if (files !== undefined) {
-          const missing = parsedStoryKeys.filter((key) => !files!.some((f) => f.startsWith(`${key}-`) && f.endsWith('.md')))
+          const missing = parsedStoryKeys.filter(
+            (key) => !files!.some((f) => f.startsWith(`${key}-`) && f.endsWith('.md'))
+          )
           if (missing.length > 0) {
-            logger.info({ missing }, `Story files not found for ${missing.length} key(s) — create-story phase will generate them`)
+            logger.info(
+              { missing },
+              `Story files not found for ${missing.length} key(s) — create-story phase will generate them`
+            )
           }
         }
       }
@@ -895,8 +935,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   if (adapter.backendType === 'memory' && existsSync(join(dbDir, 'state', '.dolt'))) {
     process.stderr.write(
       'Warning: Dolt is initialized but the adapter fell back to in-memory storage.\n' +
-      'Pipeline state, telemetry, and artifacts will NOT persist after this run exits.\n' +
-      'Check that the `dolt` binary is on PATH and not locked by another process.\n',
+        'Pipeline state, telemetry, and artifacts will NOT persist after this run exits.\n' +
+        'Check that the `dolt` binary is on PATH and not locked by another process.\n'
     )
   }
 
@@ -943,7 +983,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     if (storyKeys.length === 0) {
       // Query requirements table for active stories
       const activeReqs = await adapter.query<{ description: string }>(
-        `SELECT description FROM requirements WHERE status = 'active' AND type = 'story'`,
+        `SELECT description FROM requirements WHERE status = 'active' AND type = 'story'`
       )
 
       for (const req of activeReqs) {
@@ -958,7 +998,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         const completedStoryKeys = new Set<string>()
         try {
           const completedRuns = await adapter.query<{ token_usage_json: string }>(
-            `SELECT token_usage_json FROM pipeline_runs WHERE status = 'completed' AND token_usage_json IS NOT NULL`,
+            `SELECT token_usage_json FROM pipeline_runs WHERE status = 'completed' AND token_usage_json IS NOT NULL`
           )
 
           for (const row of completedRuns) {
@@ -990,7 +1030,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         if (storyKeys.length > 0) {
           const scopeLabel = epicNumber !== undefined ? `epic ${epicNumber}` : 'epics.md'
           process.stdout.write(
-            `Discovered ${storyKeys.length} pending stories from ${scopeLabel}: ${storyKeys.join(', ')}\n`,
+            `Discovered ${storyKeys.length} pending stories from ${scopeLabel}: ${storyKeys.join(', ')}\n`
           )
         }
       }
@@ -1001,7 +1041,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         } else {
           process.stdout.write(
             formatOutput({ storyKeys: [], message: 'No pending stories found.' }, 'json', true) +
-              '\n',
+              '\n'
           )
         }
         return 0
@@ -1032,7 +1072,11 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     const pipelineRun = await createPipelineRun(adapter, {
       methodology: pack.manifest.name,
       start_phase: 'implementation',
-      config_json: JSON.stringify({ storyKeys, concurrency, ...(parsedStoryKeys.length > 0 ? { explicitStories: parsedStoryKeys } : {}) }),
+      config_json: JSON.stringify({
+        storyKeys,
+        concurrency,
+        ...(parsedStoryKeys.length > 0 ? { explicitStories: parsedStoryKeys } : {}),
+      }),
     })
 
     // Story 52-3: Persist CLI flags to run manifest for supervisor scope preservation.
@@ -1061,15 +1105,25 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     try {
       writeFileSync(runIdFilePath, pipelineRun.id, 'utf-8')
       const cleanupRunIdFile = () => {
-        try { unlinkSync(runIdFilePath) } catch { /* ignore */ }
+        try {
+          unlinkSync(runIdFilePath)
+        } catch {
+          /* ignore */
+        }
       }
       // Clean up on normal exit (covers most graceful shutdowns).
       process.on('exit', cleanupRunIdFile)
       // Also clean up on SIGTERM and SIGINT so stale run ID files don't persist
       // after signal-based termination. SIGKILL cannot be caught — status falls
       // back to getLatestRun() in that case.
-      process.once('SIGTERM', () => { cleanupRunIdFile(); process.exit(0) })
-      process.once('SIGINT', () => { cleanupRunIdFile(); process.exit(130) })
+      process.once('SIGTERM', () => {
+        cleanupRunIdFile()
+        process.exit(0)
+      })
+      process.once('SIGINT', () => {
+        cleanupRunIdFile()
+        process.exit(130)
+      })
     } catch {
       // Non-fatal: status/health fall back to getLatestRun()
     }
@@ -1125,7 +1179,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           new RoutingRecommender(logger),
           eventBus,
           routingConfigPath,
-          logger,
+          logger
         )
       }
     }
@@ -1145,9 +1199,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         const symbolRepo = new DoltSymbolRepository(doltClient, logger)
         const metaRepo = new DoltRepoMapMetaRepository(doltClient)
         // AC6: Inject RepoMapTelemetry when telemetry is enabled
-        const repoMapTelemetry = telemetryPersistence !== undefined
-          ? new RepoMapTelemetry(telemetryPersistence, logger)
-          : undefined
+        const repoMapTelemetry =
+          telemetryPersistence !== undefined
+            ? new RepoMapTelemetry(telemetryPersistence, logger)
+            : undefined
         const queryEngine = new RepoMapQueryEngine(symbolRepo, logger, repoMapTelemetry)
         repoMapInjector = new RepoMapInjector(queryEngine, logger)
         repoMapModule = new RepoMapModule(metaRepo, logger)
@@ -1162,7 +1217,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // for each story × phase combination, then exit without spawning any sub-agents.
     if (dryRun === true) {
       const phases = ['explore', 'generate', 'review']
-      const storiesPreview: Array<{ storyKey: string; phases: Array<{ phase: string; model: string; estimatedSymbolCount: number }> }> = []
+      const storiesPreview: Array<{
+        storyKey: string
+        phases: Array<{ phase: string; model: string; estimatedSymbolCount: number }>
+      }> = []
       const artifactsDir = join(projectRoot, '_bmad-output', 'implementation-artifacts')
       for (const storyKey of storyKeys) {
         let storyContent = ''
@@ -1184,7 +1242,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           let estimatedSymbolCount = 0
           if (repoMapInjector !== undefined) {
             try {
-              const injection = await repoMapInjector.buildContext(storyContent, MAX_REPO_MAP_TOKENS)
+              const injection = await repoMapInjector.buildContext(
+                storyContent,
+                MAX_REPO_MAP_TOKENS
+              )
               estimatedSymbolCount = injection.symbolCount
             } catch {
               // ignore injection errors
@@ -1213,7 +1274,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
                 p.phase.padEnd(COL.phase) +
                 p.model.padEnd(COL.model) +
                 String(p.estimatedSymbolCount) +
-                '\n',
+                '\n'
             )
           }
         }
@@ -1256,9 +1317,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       }
 
       if (outputFormat === 'human') {
-        process.stdout.write(
-          `  [${payload.phase}] ${payload.storyKey} — phase complete\n`,
-        )
+        process.stdout.write(`  [${payload.phase}] ${payload.storyKey} — phase complete\n`)
       }
     })
 
@@ -1266,13 +1325,11 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     if (outputFormat === 'human') {
       eventBus.on('orchestrator:story-complete', (payload) => {
         process.stdout.write(
-          `  [COMPLETE] ${payload.storyKey} (${payload.reviewCycles} review cycle(s))\n`,
+          `  [COMPLETE] ${payload.storyKey} (${payload.reviewCycles} review cycle(s))\n`
         )
       })
       eventBus.on('orchestrator:story-escalated', (payload) => {
-        process.stdout.write(
-          `  [ESCALATED] ${payload.storyKey}: ${payload.lastVerdict}\n`,
-        )
+        process.stdout.write(`  [ESCALATED] ${payload.storyKey}: ${payload.lastVerdict}\n`)
       })
     }
 
@@ -1340,7 +1397,12 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       eventBus.on('orchestrator:story-escalated', (payload) => {
         const rawIssues = Array.isArray(payload.issues) ? payload.issues : []
         const issues = rawIssues.map((issue) => {
-          const iss = issue as { severity?: string; file?: string; description?: string; desc?: string }
+          const iss = issue as {
+            severity?: string
+            file?: string
+            description?: string
+            desc?: string
+          }
           return {
             severity: (iss.severity ?? 'unknown') as 'blocker' | 'major' | 'minor' | 'unknown',
             file: iss.file ?? '',
@@ -1423,7 +1485,12 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       eventBus.on('orchestrator:story-escalated', (payload) => {
         const rawIssues = Array.isArray(payload.issues) ? payload.issues : []
         const issues = rawIssues.map((issue) => {
-          const iss = issue as { severity?: string; file?: string; description?: string; desc?: string }
+          const iss = issue as {
+            severity?: string
+            file?: string
+            description?: string
+            desc?: string
+          }
           return {
             severity: (iss.severity ?? 'unknown') as 'blocker' | 'major' | 'minor' | 'unknown',
             file: iss.file ?? '',
@@ -1481,9 +1548,17 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // Ensure the telemetry ingestion server releases its port on process exit
     // to prevent EADDRINUSE on the next run.
     if (ingestionServer !== undefined) {
-      process.on('exit', () => { ingestionServer.stop() })
-      process.on('SIGINT', () => { ingestionServer.stop(); process.exit(130) })
-      process.on('SIGTERM', () => { ingestionServer.stop(); process.exit(143) })
+      process.on('exit', () => {
+        ingestionServer.stop()
+      })
+      process.on('SIGINT', () => {
+        ingestionServer.stop()
+        process.exit(130)
+      })
+      process.on('SIGTERM', () => {
+        ingestionServer.stop()
+        process.exit(143)
+      })
     }
 
     // --- Story 28-6 AC5: Wire RoutingTelemetry — emit OTEL spans for each routing decision ---
@@ -1514,13 +1589,16 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       } catch (err) {
         logger.warn(
           { error: err instanceof Error ? err.message : String(err) },
-          'Staleness check failed — skipping',
+          'Staleness check failed — skipping'
         )
       }
     }
 
     // Create and run orchestrator — linear (default) or graph engine (story 43-10)
-    let status: { stories: Record<string, { phase: string; error?: string }>; maxConcurrentActual?: number }
+    let status: {
+      stories: Record<string, { phase: string; error?: string }>
+      maxConcurrentActual?: number
+    }
 
     if (resolvedEngine === 'graph') {
       // ── Graph engine branch (story 43-10) ───────────────────────────────────
@@ -1529,7 +1607,9 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       const dotSource = readFileSync(resolveGraphPath(), 'utf-8')
       const parsedGraph = parseGraph(dotSource)
       // Story 43-8: Map --max-review-cycles to dev_story.maxRetries in the graph
-      applyConfigToGraph(parsedGraph as unknown as Parameters<typeof applyConfigToGraph>[0], { maxReviewCycles })
+      applyConfigToGraph(parsedGraph as unknown as Parameters<typeof applyConfigToGraph>[0], {
+        maxReviewCycles,
+      })
       const executor = createGraphExecutor()
 
       const phaseOrchestrator = createPhaseOrchestrator({ db: adapter, pack })
@@ -1556,11 +1636,12 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           deps: workflowDeps,
           eventBus: sdlcEventBus,
           runDevStory: runDevStory as unknown as RunDevStoryFn,
-          buildVerifier: (root: string) => runBuildVerification({
-            verifyCommand: pack.manifest.verifyCommand,
-            verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
-            projectRoot: root,
-          }),
+          buildVerifier: (root: string) =>
+            runBuildVerification({
+              verifyCommand: pack.manifest.verifyCommand,
+              verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
+              projectRoot: root,
+            }),
         },
         codeReviewOptions: {
           deps: workflowDeps,
@@ -1590,9 +1671,13 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       })
 
       // Display startup header for graph mode
-      if (outputFormat === 'human' && progressRenderer === undefined && ndjsonEmitter === undefined) {
+      if (
+        outputFormat === 'human' &&
+        progressRenderer === undefined &&
+        ndjsonEmitter === undefined
+      ) {
         process.stdout.write(
-          `Starting pipeline (graph engine): ${storyKeys.length} story/stories, concurrency=${concurrency}\n`,
+          `Starting pipeline (graph engine): ${storyKeys.length} story/stories, concurrency=${concurrency}\n`
         )
         process.stdout.write(`Pipeline run ID: ${pipelineRun.id}\n`)
         process.stdout.write(`Stories: ${storyKeys.join(', ')}\n`)
@@ -1626,13 +1711,19 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         runManifest: RunManifest.open(pipelineRun.id, join(dbDir, 'runs')),
         ...(ingestionServer !== undefined ? { ingestionServer } : {}),
         ...(telemetryPersistence !== undefined ? { telemetryPersistence } : {}),
-        ...(repoMapInjector !== undefined ? { repoMapInjector, maxRepoMapTokens: MAX_REPO_MAP_TOKENS } : {}),
+        ...(repoMapInjector !== undefined
+          ? { repoMapInjector, maxRepoMapTokens: MAX_REPO_MAP_TOKENS }
+          : {}),
       })
 
       // Display startup header (only in legacy human mode without progress renderer or NDJSON emitter)
-      if (outputFormat === 'human' && progressRenderer === undefined && ndjsonEmitter === undefined) {
+      if (
+        outputFormat === 'human' &&
+        progressRenderer === undefined &&
+        ndjsonEmitter === undefined
+      ) {
         process.stdout.write(
-          `Starting pipeline: ${storyKeys.length} story/stories, concurrency=${concurrency}\n`,
+          `Starting pipeline: ${storyKeys.length} story/stories, concurrency=${concurrency}\n`
         )
         process.stdout.write(`Pipeline run ID: ${pipelineRun.id}\n`)
         process.stdout.write(`Stories: ${storyKeys.join(', ')}\n`)
@@ -1687,11 +1778,12 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       await writeRunMetrics(adapter, {
         run_id: pipelineRun.id,
         methodology: pack.manifest.name,
-        status: failedKeys.length > 0
-          ? 'failed'
-          : escalatedKeys.length > 0
-            ? 'completed_with_escalations'
-            : 'completed',
+        status:
+          failedKeys.length > 0
+            ? 'failed'
+            : escalatedKeys.length > 0
+              ? 'completed_with_escalations'
+              : 'completed',
         started_at: pipelineRun.created_at ?? '',
         completed_at: new Date().toISOString(),
         wall_clock_seconds: Math.round((runEndMs - runStartMs) / 1000),
@@ -1705,7 +1797,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         total_review_cycles: totalReviewCycles,
         total_dispatches: totalDispatches,
         concurrency_setting: concurrency,
-        max_concurrent_actual: status.maxConcurrentActual ?? Math.min(concurrency, storyKeys.length),
+        max_concurrent_actual:
+          status.maxConcurrentActual ?? Math.min(concurrency, storyKeys.length),
         // restarts: not passed — writeRunMetrics preserves the DB-side value on upsert
       })
     } catch (metricsErr) {
@@ -1775,8 +1868,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
             tokenSummary,
           },
           'json',
-          true,
-        ) + '\n',
+          true
+        ) + '\n'
       )
     } else if (tuiApp === undefined && ndjsonEmitter === undefined) {
       // Only write plain-text summary when TUI and NDJSON emitter are not active;
@@ -1791,7 +1884,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         else if (s.phase === 'ESCALATED') escalated++
       }
       process.stdout.write(
-        `Pipeline complete: ${completed}/${storyKeys.length} stories completed, ${escalated} escalated\n`,
+        `Pipeline complete: ${completed}/${storyKeys.length} stories completed, ${escalated} escalated\n`
       )
       process.stdout.write('\n')
       process.stdout.write(formatTokenTelemetry(tokenSummary) + '\n')
@@ -1882,8 +1975,35 @@ export interface FullPipelineOptions {
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType } =
-    options
+  const {
+    packName,
+    packPath,
+    dbDir,
+    dbPath,
+    startPhase,
+    stopAfter,
+    concept,
+    concurrency,
+    outputFormat,
+    projectRoot,
+    events: eventsFlag,
+    skipUx,
+    research: researchFlag,
+    skipResearch: skipResearchFlag,
+    skipPreflight,
+    skipVerification,
+    maxReviewCycles = 2,
+    retryBudget,
+    registry: injectedRegistry,
+    tokenCeilings,
+    stories: explicitStories,
+    telemetryEnabled: fullTelemetryEnabled,
+    telemetryPort: fullTelemetryPort,
+    agentId,
+    meshUrl: fpMeshUrl,
+    meshProjectId: fpMeshProjectId,
+    engineType: fpEngineType,
+  } = options
 
   // Ensure database directory
   if (!existsSync(dbDir)) {
@@ -1905,8 +2025,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
   if (adapter.backendType === 'memory' && existsSync(join(dbDir, 'state', '.dolt'))) {
     process.stderr.write(
       'Warning: Dolt is initialized but the adapter fell back to in-memory storage.\n' +
-      'Pipeline state, telemetry, and artifacts will NOT persist after this run exits.\n' +
-      'Check that the `dolt` binary is on PATH and not locked by another process.\n',
+        'Pipeline state, telemetry, and artifacts will NOT persist after this run exits.\n' +
+        'Check that the `dolt` binary is on PATH and not locked by another process.\n'
     )
   }
 
@@ -1983,7 +2103,10 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         for (const stale of staleRuns) {
           await updatePipelineRun(adapter, stale.id, { status: 'failed' })
         }
-        logger.info({ count: staleRuns.length }, 'Swept stale pipeline run(s) from crashed orchestrator')
+        logger.info(
+          { count: staleRuns.length },
+          'Swept stale pipeline run(s) from crashed orchestrator'
+        )
       }
     } catch {
       // Best-effort — don't block pipeline start
@@ -1999,28 +2122,49 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     try {
       writeFileSync(runIdFilePath, runId, 'utf-8')
       const cleanupRunIdFile = () => {
-        try { unlinkSync(runIdFilePath) } catch { /* ignore */ }
+        try {
+          unlinkSync(runIdFilePath)
+        } catch {
+          /* ignore */
+        }
       }
       // Clean up on normal exit (covers most graceful shutdowns).
       process.on('exit', cleanupRunIdFile)
       // Also clean up on SIGTERM and SIGINT so stale run ID files don't persist
       // after signal-based termination.
-      process.once('SIGTERM', () => { cleanupRunIdFile(); process.exit(0) })
-      process.once('SIGINT', () => { cleanupRunIdFile(); process.exit(130) })
+      process.once('SIGTERM', () => {
+        cleanupRunIdFile()
+        process.exit(0)
+      })
+      process.once('SIGINT', () => {
+        cleanupRunIdFile()
+        process.exit(130)
+      })
     } catch {
       // Non-fatal: status/health fall back to getLatestRun()
     }
 
     // Persist original CLI scope flags so supervisor can replay them on restart
-    if (explicitStories !== undefined && explicitStories.length > 0 || options.epic !== undefined) {
-      const existingRun = (await adapter.query<{ config_json: string | null }>('SELECT config_json FROM pipeline_runs WHERE id = ?', [runId]))[0]
+    if (
+      (explicitStories !== undefined && explicitStories.length > 0) ||
+      options.epic !== undefined
+    ) {
+      const existingRun = (
+        await adapter.query<{ config_json: string | null }>(
+          'SELECT config_json FROM pipeline_runs WHERE id = ?',
+          [runId]
+        )
+      )[0]
       const existing = JSON.parse(existingRun?.config_json ?? '{}')
       const updated = {
         ...existing,
         ...(explicitStories !== undefined && explicitStories.length > 0 ? { explicitStories } : {}),
         ...(options.epic !== undefined ? { epic: options.epic } : {}),
       }
-      await adapter.query('UPDATE pipeline_runs SET config_json = ? WHERE id = ?', [JSON.stringify(updated), runId])
+      await adapter.query('UPDATE pipeline_runs SET config_json = ? WHERE id = ?', [
+        JSON.stringify(updated),
+        runId,
+      ])
     }
 
     if (outputFormat === 'human') {
@@ -2081,15 +2225,16 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         // Record token usage
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
-          const costUsd =
-            (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'analysis',
             agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
-          }).catch((err) => { logger.warn({ err }, 'Failed to record analysis token usage (non-fatal)') })
+          }).catch((err) => {
+            logger.warn({ err }, 'Failed to record analysis token usage (non-fatal)')
+          })
         }
 
         if (result.result === 'failed') {
@@ -2105,10 +2250,10 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         if (outputFormat === 'human') {
           process.stdout.write(
-            `[ANALYSIS] Complete — product brief created (artifact: ${result.artifact_id ?? 'n/a'})\n`,
+            `[ANALYSIS] Complete — product brief created (artifact: ${result.artifact_id ?? 'n/a'})\n`
           )
           process.stdout.write(
-            `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`,
+            `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`
           )
         }
       } else if (currentPhase === 'planning') {
@@ -2116,15 +2261,16 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         // Record token usage
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
-          const costUsd =
-            (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'planning',
             agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
-          }).catch((err) => { logger.warn({ err }, 'Failed to record planning token usage (non-fatal)') })
+          }).catch((err) => {
+            logger.warn({ err }, 'Failed to record planning token usage (non-fatal)')
+          })
         }
 
         if (result.result === 'failed') {
@@ -2140,10 +2286,10 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         if (outputFormat === 'human') {
           process.stdout.write(
-            `[PLANNING] Complete — ${result.requirements_count ?? 0} requirements, ${result.user_stories_count ?? 0} user stories\n`,
+            `[PLANNING] Complete — ${result.requirements_count ?? 0} requirements, ${result.user_stories_count ?? 0} user stories\n`
           )
           process.stdout.write(
-            `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`,
+            `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`
           )
         }
       } else if (currentPhase === 'research') {
@@ -2151,15 +2297,16 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         // Record token usage
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
-          const costUsd =
-            (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'research',
             agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
-          }).catch((err) => { logger.warn({ err }, 'Failed to record research token usage (non-fatal)') })
+          }).catch((err) => {
+            logger.warn({ err }, 'Failed to record research token usage (non-fatal)')
+          })
         }
 
         if (result.result === 'failed') {
@@ -2175,10 +2322,10 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         if (outputFormat === 'human') {
           process.stdout.write(
-            `[RESEARCH] Complete — research findings artifact registered (artifact: ${result.artifact_id ?? 'n/a'})\n`,
+            `[RESEARCH] Complete — research findings artifact registered (artifact: ${result.artifact_id ?? 'n/a'})\n`
           )
           process.stdout.write(
-            `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`,
+            `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`
           )
         }
       } else if (currentPhase === 'ux-design') {
@@ -2186,15 +2333,16 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         // Record token usage
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
-          const costUsd =
-            (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'ux-design',
             agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
-          }).catch((err) => { logger.warn({ err }, 'Failed to record ux-design token usage (non-fatal)') })
+          }).catch((err) => {
+            logger.warn({ err }, 'Failed to record ux-design token usage (non-fatal)')
+          })
         }
 
         if (result.result === 'failed') {
@@ -2210,10 +2358,10 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         if (outputFormat === 'human') {
           process.stdout.write(
-            `[UX-DESIGN] Complete — UX design artifact registered (artifact: ${result.artifact_id ?? 'n/a'})\n`,
+            `[UX-DESIGN] Complete — UX design artifact registered (artifact: ${result.artifact_id ?? 'n/a'})\n`
           )
           process.stdout.write(
-            `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`,
+            `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`
           )
         }
       } else if (currentPhase === 'solutioning') {
@@ -2221,15 +2369,16 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         // Record token usage
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
-          const costUsd =
-            (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
+          const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, runId, {
             phase: 'solutioning',
             agent: agentId ?? 'claude-code',
             input_tokens: result.tokenUsage.input,
             output_tokens: result.tokenUsage.output,
             cost_usd: costUsd,
-          }).catch((err) => { logger.warn({ err }, 'Failed to record solutioning token usage (non-fatal)') })
+          }).catch((err) => {
+            logger.warn({ err }, 'Failed to record solutioning token usage (non-fatal)')
+          })
         }
 
         if (result.result === 'failed') {
@@ -2256,10 +2405,10 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         if (outputFormat === 'human') {
           process.stdout.write(
-            `[SOLUTIONING] Complete — ${result.architecture_decisions ?? 0} architecture decisions, ${result.epics ?? 0} epics, ${result.stories ?? 0} stories\n`,
+            `[SOLUTIONING] Complete — ${result.architecture_decisions ?? 0} architecture decisions, ${result.epics ?? 0} epics, ${result.stories ?? 0} stories\n`
           )
           process.stdout.write(
-            `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`,
+            `  Tokens: ${result.tokenUsage.input.toLocaleString()} input / ${result.tokenUsage.output.toLocaleString()} output\n`
           )
         }
       } else if (currentPhase === 'implementation') {
@@ -2271,9 +2420,17 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         // Ensure the telemetry ingestion server releases its port on process exit
         // to prevent EADDRINUSE on the next run.
         if (fpIngestionServer !== undefined) {
-          process.on('exit', () => { fpIngestionServer.stop() })
-          process.on('SIGINT', () => { fpIngestionServer.stop(); process.exit(130) })
-          process.on('SIGTERM', () => { fpIngestionServer.stop(); process.exit(143) })
+          process.on('exit', () => {
+            fpIngestionServer.stop()
+          })
+          process.on('SIGINT', () => {
+            fpIngestionServer.stop()
+            process.exit(130)
+          })
+          process.on('SIGTERM', () => {
+            fpIngestionServer.stop()
+            process.exit(143)
+          })
         }
 
         const fpTelemetryPersistence = fullTelemetryEnabled
@@ -2305,7 +2462,9 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           agentId,
           runManifest: RunManifest.open(runId, join(dbDir, 'runs')),
           ...(fpIngestionServer !== undefined ? { ingestionServer: fpIngestionServer } : {}),
-          ...(fpTelemetryPersistence !== undefined ? { telemetryPersistence: fpTelemetryPersistence } : {}),
+          ...(fpTelemetryPersistence !== undefined
+            ? { telemetryPersistence: fpTelemetryPersistence }
+            : {}),
         })
 
         // Subscribe to events for progress reporting
@@ -2339,7 +2498,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         if (outputFormat === 'human') {
           eventBus.on('orchestrator:story-complete', (payload) => {
             process.stdout.write(
-              `  [COMPLETE] ${payload.storyKey} (${payload.reviewCycles} review cycle(s))\n`,
+              `  [COMPLETE] ${payload.storyKey} (${payload.reviewCycles} review cycle(s))\n`
             )
           })
           eventBus.on('orchestrator:story-escalated', (payload) => {
@@ -2356,13 +2515,13 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         if (storyKeys.length === 0 && outputFormat === 'human') {
           process.stdout.write(
-            '[IMPLEMENTATION] No stories found. Run solutioning first or pass --stories.\n',
+            '[IMPLEMENTATION] No stories found. Run solutioning first or pass --stories.\n'
           )
         }
 
         if (outputFormat === 'human') {
           process.stdout.write(
-            `[IMPLEMENTATION] Starting ${storyKeys.length} stories with concurrency=${concurrency}\n`,
+            `[IMPLEMENTATION] Starting ${storyKeys.length} stories with concurrency=${concurrency}\n`
           )
         }
 
@@ -2408,7 +2567,10 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           })
         } catch (exportErr) {
           // Best-effort — don't block pipeline on export failure, but log for diagnostics
-          logger.warn({ err: exportErr }, 'Auto-export failed after phase completion (non-blocking)')
+          logger.warn(
+            { err: exportErr },
+            'Auto-export failed after phase completion (non-blocking)'
+          )
         }
       }
 
@@ -2417,13 +2579,18 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         const gate = createStopAfterGate(stopAfter)
         if (gate.shouldHalt()) {
           // Count decisions for summary
-          const stopCountRows = await adapter.query<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`, [runId])
+          const stopCountRows = await adapter.query<{ cnt: number }>(
+            `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`,
+            [runId]
+          )
           const decisionsCount = stopCountRows[0]?.cnt ?? 0
 
           // Update run status to 'stopped' atomically before emitting summary (AC4)
           await updatePipelineRun(adapter, runId, { status: 'stopped' })
           // Source demotion: mirror to manifest (authoritative)
-          RunManifest.open(runId, join(dbDir, 'runs')).update({ run_status: 'stopped' }).catch(() => {})
+          RunManifest.open(runId, join(dbDir, 'runs'))
+            .update({ run_status: 'stopped' })
+            .catch(() => {})
 
           // Emit phase completion summary (AC5)
           const phaseStartedAt = new Date(startedAt).toISOString()
@@ -2458,7 +2625,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
       if (i < phaseOrder.length - 1) {
         const advanceResult = await phaseOrchestrator.advancePhase(runId)
         if (!advanceResult.advanced) {
-          const gateErrors = advanceResult.gateFailures?.map((f) => f.error).join('; ') ?? 'unknown gate failure'
+          const gateErrors =
+            advanceResult.gateFailures?.map((f) => f.error).join('; ') ?? 'unknown gate failure'
           const errorMsg = `Phase gate check failed after ${currentPhase}: ${gateErrors}`
           if (outputFormat === 'human') {
             process.stderr.write(`Error: ${errorMsg}\n`)
@@ -2475,17 +2643,23 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
     const durationMs = Date.now() - startedAt
 
     // Count decisions and stories
-    const decRows = await adapter.query<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`, [runId])
+    const decRows = await adapter.query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`,
+      [runId]
+    )
     const decisionsCount = decRows[0]?.cnt ?? 0
 
     const storyRows = await adapter.query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
-      [runId],
+      [runId]
     )
     const storiesCount = storyRows[0]?.cnt ?? 0
 
     // Get pipeline run for summary
-    const finalRunRows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [runId])
+    const finalRunRows = await adapter.query<PipelineRun>(
+      'SELECT * FROM pipeline_runs WHERE id = ?',
+      [runId]
+    )
     const finalRun = finalRunRows[0]
 
     if (outputFormat === 'json') {
@@ -2493,7 +2667,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
         finalRun ?? ({ id: runId } as PipelineRun),
         tokenSummary,
         decisionsCount,
-        storiesCount,
+        storiesCount
       )
       process.stdout.write(formatOutput(statusOutput, 'json', true) + '\n')
     } else {
@@ -2505,8 +2679,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           decisionsCount,
           storiesCount,
           durationMs,
-          'human',
-        ) + '\n',
+          'human'
+        ) + '\n'
       )
       process.stdout.write('\n')
       process.stdout.write(formatTokenTelemetry(tokenSummary, BMAD_BASELINE_TOKENS_FULL) + '\n')
@@ -2562,7 +2736,7 @@ export function registerRunCommand(
   program: Command,
   _version = '0.0.0',
   projectRoot = process.cwd(),
-  registry?: AdapterRegistry,
+  registry?: AdapterRegistry
 ): void {
   program
     .command('run')
@@ -2570,20 +2744,18 @@ export function registerRunCommand(
     .option('--pack <name>', 'Methodology pack name', 'bmad')
     .option(
       '--from <phase>',
-      'Start from this phase: analysis, planning, solutioning, implementation',
+      'Start from this phase: analysis, planning, solutioning, implementation'
     )
     .option('--stop-after <phase>', 'Stop pipeline after this phase completes')
     .option('--concept <text>', 'Inline concept text (required when --from analysis)')
     .option('--concept-file <path>', 'Path to a file containing the concept text')
     .option('--stories <keys>', 'Comma-separated story keys (e.g., 10-1,10-2)')
-    .option('--epic <n>', 'Scope story discovery to a single epic number (e.g., 27)', (v) => parseInt(v, 10))
+    .option('--epic <n>', 'Scope story discovery to a single epic number (e.g., 27)', (v) =>
+      parseInt(v, 10)
+    )
     .option('--concurrency <n>', 'Maximum parallel conflict groups', (v) => parseInt(v, 10), 3)
     .option('--project-root <path>', 'Project root directory', projectRoot)
-    .option(
-      '--output-format <format>',
-      'Output format: human (default) or json',
-      'human',
-    )
+    .option('--output-format <format>', 'Output format: human (default) or json', 'human')
     .option('--events', 'Emit structured NDJSON events on stdout for programmatic consumption')
     .option('--verbose', 'Show detailed pino log output')
     .option('--help-agent', 'Print a machine-optimized prompt fragment for AI agents and exit')
@@ -2591,14 +2763,30 @@ export function registerRunCommand(
     .option('--skip-ux', 'Skip the UX design phase even if enabled in the pack manifest')
     .option('--research', 'Enable the research phase even if not set in the pack manifest')
     .option('--skip-research', 'Skip the research phase even if enabled in the pack manifest')
-    .option('--skip-preflight', 'Skip the pre-flight build check (escape hatch for known-broken projects)')
+    .option(
+      '--skip-preflight',
+      'Skip the pre-flight build check (escape hatch for known-broken projects)'
+    )
     .option('--skip-verification', 'Skip the post-dispatch verification pipeline (Story 51-5)')
-    .option('--max-review-cycles <n>', 'Maximum review cycles per story (default: 2)', (v: string) => parseInt(v, 10), 2)
+    .option(
+      '--max-review-cycles <n>',
+      'Maximum review cycles per story (default: 2)',
+      (v: string) => parseInt(v, 10),
+      2
+    )
     .option('--dry-run', 'Preview routing and repo-map injection without dispatching (Story 28-9)')
     .option('--engine <type>', 'Execution engine: linear (default) or graph')
     .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
-    .option('--halt-on <severity>', 'Halt pipeline on escalation severity: all | critical | none (default: none)', 'none')
-    .option('--cost-ceiling <amount>', 'Maximum cost ceiling in USD (positive number); halts pipeline when exceeded', parseFloat)
+    .option(
+      '--halt-on <severity>',
+      'Halt pipeline on escalation severity: all | critical | none (default: none)',
+      'none'
+    )
+    .option(
+      '--cost-ceiling <amount>',
+      'Maximum cost ceiling in USD (positive number); halts pipeline when exceeded',
+      parseFloat
+    )
     .action(
       async (opts: {
         pack: string
@@ -2679,6 +2867,6 @@ export function registerRunCommand(
           costCeiling: opts.costCeiling,
         })
         process.exitCode = exitCode
-      },
+      }
     )
 }

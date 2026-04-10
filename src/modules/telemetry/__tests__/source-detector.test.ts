@@ -140,15 +140,17 @@ describe('detectSource', () => {
   })
 
   it('returns unknown for payload with no service.name attribute', () => {
-    expect(detectSource({
-      resourceSpans: [{
-        resource: {
-          attributes: [
-            { key: 'other.key', value: { stringValue: 'value' } },
-          ],
-        },
-      }],
-    })).toBe('unknown')
+    expect(
+      detectSource({
+        resourceSpans: [
+          {
+            resource: {
+              attributes: [{ key: 'other.key', value: { stringValue: 'value' } }],
+            },
+          },
+        ],
+      })
+    ).toBe('unknown')
   })
 
   // -- telemetry.sdk.name attribute --
@@ -161,13 +163,13 @@ describe('detectSource', () => {
 
   it('handles malformed attribute value gracefully', () => {
     const payload = {
-      resourceSpans: [{
-        resource: {
-          attributes: [
-            { key: 'service.name', value: null },
-          ],
+      resourceSpans: [
+        {
+          resource: {
+            attributes: [{ key: 'service.name', value: null }],
+          },
         },
-      }],
+      ],
     }
     expect(detectSource(payload)).toBe('unknown')
   })

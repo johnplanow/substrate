@@ -42,7 +42,7 @@ async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
 }
 
 function makeDispatchResult(
-  overrides: Partial<DispatchResult<unknown>> = {},
+  overrides: Partial<DispatchResult<unknown>> = {}
 ): DispatchResult<unknown> {
   return {
     id: `dispatch-${Math.random().toString(36).slice(2, 8)}`,
@@ -101,14 +101,16 @@ function makePack(prompts: Record<string, string> = {}): MethodologyPack {
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack?: MethodologyPack,
+  pack?: MethodologyPack
 ): PhaseDeps {
   return {
     db: adapter,
@@ -150,7 +152,13 @@ describe('runCritiqueLoop', () => {
     const dispatcher = makeDispatcher([critiqueResult])
     const deps = makeDeps(adapter, dispatcher)
 
-    const result = await runCritiqueLoop('artifact content', 'solutioning', runId, 'solutioning', deps)
+    const result = await runCritiqueLoop(
+      'artifact content',
+      'solutioning',
+      runId,
+      'solutioning',
+      deps
+    )
 
     expect(result.verdict).toBe('pass')
     expect(result.iterations).toBe(1)
@@ -186,7 +194,14 @@ describe('runCritiqueLoop', () => {
       parsed: {
         verdict: 'needs_work',
         issue_count: 1,
-        issues: [{ severity: 'major', category: 'clarity', description: 'Too vague', suggestion: 'Be specific' }],
+        issues: [
+          {
+            severity: 'major',
+            category: 'clarity',
+            description: 'Too vague',
+            suggestion: 'Be specific',
+          },
+        ],
       },
       tokenEstimate: { input: 200, output: 80 },
     })
@@ -215,7 +230,7 @@ describe('runCritiqueLoop', () => {
       runId,
       'solutioning',
       deps,
-      { maxIterations: 2 },
+      { maxIterations: 2 }
     )
 
     expect(result.verdict).toBe('pass')
@@ -229,7 +244,9 @@ describe('runCritiqueLoop', () => {
       parsed: {
         verdict: 'needs_work',
         issue_count: 1,
-        issues: [{ severity: 'minor', category: 'style', description: 'Bad style', suggestion: 'Fix it' }],
+        issues: [
+          { severity: 'minor', category: 'style', description: 'Bad style', suggestion: 'Fix it' },
+        ],
       },
       tokenEstimate: { input: 200, output: 80 },
     })
@@ -248,7 +265,9 @@ describe('runCritiqueLoop', () => {
     const dispatcher = makeDispatcher([critiqueResult, refineResult, critiqueResult2])
     const deps = makeDeps(adapter, dispatcher)
 
-    const result = await runCritiqueLoop('artifact', 'analysis', runId, 'analysis', deps, { maxIterations: 2 })
+    const result = await runCritiqueLoop('artifact', 'analysis', runId, 'analysis', deps, {
+      maxIterations: 2,
+    })
 
     // Critique tokens: 200 + 190 = 390 input, 80 + 75 = 155 output
     expect(result.critiqueTokens.input).toBe(390)
@@ -268,8 +287,18 @@ describe('runCritiqueLoop', () => {
         verdict: 'needs_work',
         issue_count: 2,
         issues: [
-          { severity: 'major', category: 'clarity', description: 'Too vague', suggestion: 'Be specific' },
-          { severity: 'minor', category: 'style', description: 'Formatting', suggestion: 'Fix indentation' },
+          {
+            severity: 'major',
+            category: 'clarity',
+            description: 'Too vague',
+            suggestion: 'Be specific',
+          },
+          {
+            severity: 'minor',
+            category: 'style',
+            description: 'Formatting',
+            suggestion: 'Fix indentation',
+          },
         ],
       },
       tokenEstimate: { input: 200, output: 80 },
@@ -278,7 +307,9 @@ describe('runCritiqueLoop', () => {
     const dispatcher = makeDispatcher([critiqueResult])
     const deps = makeDeps(adapter, dispatcher)
 
-    const result = await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps, { maxIterations: 1 })
+    const result = await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps, {
+      maxIterations: 1,
+    })
 
     expect(result.verdict).toBe('needs_work')
     expect(result.iterations).toBe(1)
@@ -292,7 +323,14 @@ describe('runCritiqueLoop', () => {
       parsed: {
         verdict: 'needs_work',
         issue_count: 1,
-        issues: [{ severity: 'blocker', category: 'completeness', description: 'Missing FR', suggestion: 'Add FR' }],
+        issues: [
+          {
+            severity: 'blocker',
+            category: 'completeness',
+            description: 'Missing FR',
+            suggestion: 'Add FR',
+          },
+        ],
       },
       tokenEstimate: { input: 200, output: 80 },
     })
@@ -307,7 +345,9 @@ describe('runCritiqueLoop', () => {
     const dispatcher = makeDispatcher([needsWorkResult, refineResult, needsWorkResult])
     const deps = makeDeps(adapter, dispatcher)
 
-    const result = await runCritiqueLoop('artifact', 'planning', runId, 'planning', deps, { maxIterations: 2 })
+    const result = await runCritiqueLoop('artifact', 'planning', runId, 'planning', deps, {
+      maxIterations: 2,
+    })
 
     expect(result.verdict).toBe('needs_work')
     expect(result.iterations).toBe(2)
@@ -342,7 +382,14 @@ describe('runCritiqueLoop', () => {
       parsed: {
         verdict: 'needs_work',
         issue_count: 1,
-        issues: [{ severity: 'major', category: 'security', description: 'No auth', suggestion: 'Add auth' }],
+        issues: [
+          {
+            severity: 'major',
+            category: 'security',
+            description: 'No auth',
+            suggestion: 'Add auth',
+          },
+        ],
       },
       tokenEstimate: { input: 200, output: 80 },
     })
@@ -362,7 +409,9 @@ describe('runCritiqueLoop', () => {
     const dispatcher = makeDispatcher([critiqueResult, refineResult, critiqueResult2])
     const deps = makeDeps(adapter, dispatcher)
 
-    await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps, { maxIterations: 2 })
+    await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps, {
+      maxIterations: 2,
+    })
 
     const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
     const critiqueDecisions = decisions.filter((d) => d.category === 'critique')
@@ -378,14 +427,23 @@ describe('runCritiqueLoop', () => {
       parsed: {
         verdict: 'needs_work',
         issue_count: 1,
-        issues: [{ severity: 'minor', category: 'style', description: 'Bad formatting', suggestion: 'Fix it' }],
+        issues: [
+          {
+            severity: 'minor',
+            category: 'style',
+            description: 'Bad formatting',
+            suggestion: 'Fix it',
+          },
+        ],
       },
     })
 
     const dispatcher = makeDispatcher([critiqueResult])
     const deps = makeDeps(adapter, dispatcher)
 
-    await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps, { maxIterations: 1 })
+    await runCritiqueLoop('artifact', 'solutioning', runId, 'solutioning', deps, {
+      maxIterations: 1,
+    })
 
     const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'solutioning')
     const critiqueDecisions = decisions.filter((d) => d.category === 'critique')

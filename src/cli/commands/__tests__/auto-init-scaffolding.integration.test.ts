@@ -60,7 +60,9 @@ import { PACKAGE_ROOT } from '../pipeline-shared.js'
 // Mock AdapterRegistry
 // ---------------------------------------------------------------------------
 
-const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+const mockRegistry = {
+  discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }),
+} as any
 
 // ---------------------------------------------------------------------------
 // Helpers

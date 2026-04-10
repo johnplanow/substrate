@@ -40,7 +40,7 @@ async function registerArtifactForRun(
   adapter: DatabaseAdapter,
   runId: string,
   phase: string,
-  type: string,
+  type: string
 ): Promise<void> {
   await registerArtifact(adapter, {
     pipeline_run_id: runId,

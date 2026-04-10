@@ -5,7 +5,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { ParsedSymbol, ISymbolRepository, IRepoMapMetaRepository, IGitClient, ISymbolParser, RepoMapMeta } from '../interfaces.js'
+import type {
+  ParsedSymbol,
+  ISymbolRepository,
+  IRepoMapMetaRepository,
+  IGitClient,
+  ISymbolParser,
+  RepoMapMeta,
+} from '../interfaces.js'
 import type { DoltClient } from '../../state/dolt-client.js'
 
 // ---------------------------------------------------------------------------
@@ -36,7 +43,12 @@ vi.mock('../../../utils/logger.js', () => ({
 // Imports (after mock setup)
 // ---------------------------------------------------------------------------
 
-import { DoltSymbolRepository, DoltRepoMapMetaRepository, RepoMapStorage, computeFileHash } from '../storage.js'
+import {
+  DoltSymbolRepository,
+  DoltRepoMapMetaRepository,
+  RepoMapStorage,
+  computeFileHash,
+} from '../storage.js'
 import { readFile, stat } from 'node:fs/promises'
 
 // ---------------------------------------------------------------------------
@@ -162,15 +174,17 @@ describe('DoltSymbolRepository', () => {
   })
 
   describe('getSymbols', () => {
-    const rowFixture = [{
-      file_path: 'src/foo.ts',
-      symbol_name: 'myFunction',
-      symbol_kind: 'function',
-      signature: '(x: number): void',
-      line_number: 10,
-      exported: 1,
-      file_hash: 'abc123',
-    }]
+    const rowFixture = [
+      {
+        file_path: 'src/foo.ts',
+        symbol_name: 'myFunction',
+        symbol_kind: 'function',
+        signature: '(x: number): void',
+        line_number: 10,
+        exported: 1,
+        file_hash: 'abc123',
+      },
+    ]
 
     it('returns all symbols when no filter provided (no WHERE clause)', async () => {
       queryMock.mockResolvedValue(rowFixture)
@@ -263,16 +277,18 @@ describe('DoltSymbolRepository', () => {
 
   describe('findByDependedBy', () => {
     it('queries with JSON_CONTAINS and returns mapped symbols', async () => {
-      queryMock.mockResolvedValue([{
-        file_path: 'src/consumer.ts',
-        symbol_name: 'Consumer',
-        symbol_kind: 'class',
-        signature: null,
-        line_number: 5,
-        exported: 1,
-        file_hash: 'abc',
-        dependencies: '["./types.js","react"]',
-      }])
+      queryMock.mockResolvedValue([
+        {
+          file_path: 'src/consumer.ts',
+          symbol_name: 'Consumer',
+          symbol_kind: 'class',
+          signature: null,
+          line_number: 5,
+          exported: 1,
+          file_hash: 'abc',
+          dependencies: '["./types.js","react"]',
+        },
+      ])
       const result = await repo.findByDependedBy('./types.js')
 
       const sql = queryMock.mock.calls[0]![0] as string
@@ -295,16 +311,18 @@ describe('DoltSymbolRepository', () => {
       // Existing rows written before the `dependencies` column existed will have NULL
       // after `ALTER TABLE repo_map_symbols ADD COLUMN dependencies JSON`.
       // _rowToRepoMapSymbol must treat NULL as [] so downstream callers never see undefined.
-      queryMock.mockResolvedValue([{
-        file_path: 'src/legacy.ts',
-        symbol_name: 'legacyFn',
-        symbol_kind: 'function',
-        signature: null,
-        line_number: 1,
-        exported: 1,
-        file_hash: 'oldhash',
-        dependencies: null,
-      }])
+      queryMock.mockResolvedValue([
+        {
+          file_path: 'src/legacy.ts',
+          symbol_name: 'legacyFn',
+          symbol_kind: 'function',
+          signature: null,
+          line_number: 1,
+          exported: 1,
+          file_hash: 'oldhash',
+          dependencies: null,
+        },
+      ])
       const result = await repo.findByDependedBy('anything')
       expect(result).toHaveLength(1)
       expect(result[0]!.dependencies).toEqual([])
@@ -349,12 +367,14 @@ describe('DoltRepoMapMetaRepository', () => {
     })
 
     it('returns mapped RepoMapMeta when row exists', async () => {
-      queryMock.mockResolvedValue([{
-        id: 1,
-        commit_sha: 'sha456',
-        updated_at: '2026-01-15T12:00:00.000Z',
-        file_count: 99,
-      }])
+      queryMock.mockResolvedValue([
+        {
+          id: 1,
+          commit_sha: 'sha456',
+          updated_at: '2026-01-15T12:00:00.000Z',
+          file_count: 99,
+        },
+      ])
       const result = await repo.getMeta()
 
       expect(result).not.toBeNull()
@@ -364,12 +384,14 @@ describe('DoltRepoMapMetaRepository', () => {
     })
 
     it('handles null commit_sha gracefully', async () => {
-      queryMock.mockResolvedValue([{
-        id: 1,
-        commit_sha: null,
-        updated_at: null,
-        file_count: 0,
-      }])
+      queryMock.mockResolvedValue([
+        {
+          id: 1,
+          commit_sha: null,
+          updated_at: null,
+          file_count: 0,
+        },
+      ])
       const result = await repo.getMeta()
       expect(result!.commitSha).toBe('')
       expect(result!.updatedAt).toBeInstanceOf(Date)
@@ -547,7 +569,7 @@ describe('RepoMapStorage', () => {
       expect(symbolRepo.upsertFileSymbols).toHaveBeenCalledWith(
         'src/changed.ts',
         expect.any(Array),
-        expect.any(String),
+        expect.any(String)
       )
     })
 
@@ -557,7 +579,10 @@ describe('RepoMapStorage', () => {
         updatedAt: new Date(),
         fileCount: 0,
       } as RepoMapMeta)
-      ;(gitClient.getChangedFiles as ReturnType<typeof vi.fn>).mockResolvedValue(['README.md', 'package.json'])
+      ;(gitClient.getChangedFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
+        'README.md',
+        'package.json',
+      ])
 
       await storage.incrementalUpdate('/project', parser)
 
@@ -584,7 +609,10 @@ describe('RepoMapStorage', () => {
         updatedAt: new Date(),
         fileCount: 1,
       } as RepoMapMeta)
-      ;(gitClient.getChangedFiles as ReturnType<typeof vi.fn>).mockResolvedValue(['src/a.ts', 'src/b.ts'])
+      ;(gitClient.getChangedFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
+        'src/a.ts',
+        'src/b.ts',
+      ])
       statMock.mockResolvedValue({}) // all files exist
       readFileMock.mockResolvedValue(Buffer.from('content'))
       ;(parser.parseFile as ReturnType<typeof vi.fn>)
@@ -640,7 +668,10 @@ describe('RepoMapStorage', () => {
     })
 
     it('calls parser for each supported file and upserts symbols', async () => {
-      ;(gitClient.listTrackedFiles as ReturnType<typeof vi.fn>).mockResolvedValue(['src/a.ts', 'src/b.ts'])
+      ;(gitClient.listTrackedFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
+        'src/a.ts',
+        'src/b.ts',
+      ])
       readFileMock.mockResolvedValue(Buffer.from('content'))
       const symbols = [makeSymbol()]
       ;(parser.parseFile as ReturnType<typeof vi.fn>).mockResolvedValue(symbols)
@@ -651,7 +682,10 @@ describe('RepoMapStorage', () => {
     })
 
     it('logs and skips files that fail to parse', async () => {
-      ;(gitClient.listTrackedFiles as ReturnType<typeof vi.fn>).mockResolvedValue(['src/a.ts', 'src/b.ts'])
+      ;(gitClient.listTrackedFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
+        'src/a.ts',
+        'src/b.ts',
+      ])
       readFileMock.mockResolvedValue(Buffer.from('content'))
       ;(parser.parseFile as ReturnType<typeof vi.fn>)
         .mockRejectedValueOnce(new Error('parse error'))
@@ -664,7 +698,10 @@ describe('RepoMapStorage', () => {
     })
 
     it('calls metaRepo.updateMeta with current HEAD SHA and parsed file count', async () => {
-      ;(gitClient.listTrackedFiles as ReturnType<typeof vi.fn>).mockResolvedValue(['src/a.ts', 'src/b.ts'])
+      ;(gitClient.listTrackedFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
+        'src/a.ts',
+        'src/b.ts',
+      ])
       ;(gitClient.getCurrentSha as ReturnType<typeof vi.fn>).mockResolvedValue('headsha123')
       readFileMock.mockResolvedValue(Buffer.from('content'))
       ;(parser.parseFile as ReturnType<typeof vi.fn>).mockResolvedValue([makeSymbol()])
@@ -672,7 +709,8 @@ describe('RepoMapStorage', () => {
       await storage.fullBootstrap('/project', parser)
 
       expect(metaRepo.updateMeta).toHaveBeenCalledOnce()
-      const callArg = (metaRepo.updateMeta as ReturnType<typeof vi.fn>).mock.calls[0]![0] as RepoMapMeta
+      const callArg = (metaRepo.updateMeta as ReturnType<typeof vi.fn>).mock
+        .calls[0]![0] as RepoMapMeta
       expect(callArg.commitSha).toBe('headsha123')
       expect(callArg.fileCount).toBe(2)
       expect(callArg.updatedAt).toBeInstanceOf(Date)
@@ -685,7 +723,8 @@ describe('RepoMapStorage', () => {
 
       expect(parser.parseFile).not.toHaveBeenCalled()
       expect(metaRepo.updateMeta).toHaveBeenCalledOnce()
-      const callArg = (metaRepo.updateMeta as ReturnType<typeof vi.fn>).mock.calls[0]![0] as RepoMapMeta
+      const callArg = (metaRepo.updateMeta as ReturnType<typeof vi.fn>).mock
+        .calls[0]![0] as RepoMapMeta
       expect(callArg.fileCount).toBe(0)
     })
   })

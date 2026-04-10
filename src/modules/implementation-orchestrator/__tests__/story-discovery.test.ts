@@ -497,10 +497,7 @@ describe('topologicalSortByDependencies', () => {
 `)
     mockReaddirSync.mockReturnValue([])
 
-    const result = topologicalSortByDependencies(
-      ['50-5', '50-2', '50-4', '50-1'],
-      '/project',
-    )
+    const result = topologicalSortByDependencies(['50-5', '50-2', '50-4', '50-1'], '/project')
     // 50-1, 50-4, 50-5 are independent → come first; 50-2 depends on 50-1 → comes last
     expect(result.indexOf('50-2')).toBe(result.length - 1)
     // 50-1, 50-4, 50-5 should all come before 50-2

@@ -27,11 +27,7 @@ const log = createLogger('validation:cascade')
  * caller that needs to run a validation cascade.
  */
 export interface ValidationHarness {
-  runCascade(
-    story: StoryRecord,
-    result: unknown,
-    attempt: number
-  ): Promise<ValidationResult>
+  runCascade(story: StoryRecord, result: unknown, attempt: number): Promise<ValidationResult>
 }
 
 // ---------------------------------------------------------------------------

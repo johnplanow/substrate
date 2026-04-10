@@ -132,7 +132,7 @@ export function formatOutput(
   data: unknown,
   format: OutputFormat,
   success = true,
-  errorMessage?: string,
+  errorMessage?: string
 ): string {
   if (format === 'json') {
     if (!success) {
@@ -148,7 +148,10 @@ export function formatOutput(
 /**
  * Build a human-readable token telemetry display from summary rows.
  */
-export function formatTokenTelemetry(summary: TokenUsageSummary[], baselineTokens = BMAD_BASELINE_TOKENS): string {
+export function formatTokenTelemetry(
+  summary: TokenUsageSummary[],
+  baselineTokens = BMAD_BASELINE_TOKENS
+): string {
   if (summary.length === 0) {
     return 'No token usage recorded.'
   }
@@ -164,28 +167,22 @@ export function formatTokenTelemetry(summary: TokenUsageSummary[], baselineToken
     totalCost += row.total_cost_usd
     const cost = `$${row.total_cost_usd.toFixed(4)}`
     lines.push(
-      `  ${row.phase} (${row.agent}): ${row.total_input_tokens.toLocaleString()} input / ${row.total_output_tokens.toLocaleString()} output (${cost})`,
+      `  ${row.phase} (${row.agent}): ${row.total_input_tokens.toLocaleString()} input / ${row.total_output_tokens.toLocaleString()} output (${cost})`
     )
   }
   lines.push('  ' + '─'.repeat(55))
 
   const costDisplay = `$${totalCost.toFixed(4)}`
   lines.push(
-    `  Total:  ${totalInput.toLocaleString()} input / ${totalOutput.toLocaleString()} output (${costDisplay})`,
+    `  Total:  ${totalInput.toLocaleString()} input / ${totalOutput.toLocaleString()} output (${costDisplay})`
   )
 
   const totalTokens = totalInput + totalOutput
   const savingsPct =
-    baselineTokens > 0
-      ? Math.round(((baselineTokens - totalTokens) / baselineTokens) * 100)
-      : 0
+    baselineTokens > 0 ? Math.round(((baselineTokens - totalTokens) / baselineTokens) * 100) : 0
   const savingsLabel =
-    savingsPct >= 0
-      ? `Savings: ${savingsPct}%`
-      : `Overhead: +${Math.abs(savingsPct)}%`
-  lines.push(
-    `  BMAD Baseline: ${baselineTokens.toLocaleString()} tokens → ${savingsLabel}`,
-  )
+    savingsPct >= 0 ? `Savings: ${savingsPct}%` : `Overhead: +${Math.abs(savingsPct)}%`
+  lines.push(`  BMAD Baseline: ${baselineTokens.toLocaleString()} tokens → ${savingsLabel}`)
 
   return lines.join('\n')
 }
@@ -264,7 +261,7 @@ export function buildPipelineStatusOutput(
   run: PipelineRun,
   tokenSummary: TokenUsageSummary[],
   decisionsCount: number,
-  storiesCount: number,
+  storiesCount: number
 ): PipelineStatusOutput {
   const phases: Record<string, PhaseStatusInfo> = {}
 
@@ -395,7 +392,10 @@ export function buildPipelineStatusOutput(
   // runs that include a solutioning phase).
   const derivedStoriesCount =
     storiesSummary !== undefined
-      ? storiesSummary.completed + storiesSummary.in_progress + storiesSummary.escalated + storiesSummary.pending
+      ? storiesSummary.completed +
+        storiesSummary.in_progress +
+        storiesSummary.escalated +
+        storiesSummary.pending
       : storiesCount
   const derivedStoriesCompleted = storiesSummary !== undefined ? storiesSummary.completed : 0
 
@@ -412,7 +412,9 @@ export function buildPipelineStatusOutput(
     stories_count: derivedStoriesCount,
     stories_completed: derivedStoriesCompleted,
     last_activity: run.updated_at ?? '',
-    staleness_seconds: Math.round((Date.now() - parseDbTimestampAsUtc(run.updated_at ?? '').getTime()) / 1000),
+    staleness_seconds: Math.round(
+      (Date.now() - parseDbTimestampAsUtc(run.updated_at ?? '').getTime()) / 1000
+    ),
     last_event_ts: run.updated_at ?? '',
     active_dispatches: activeDispatches,
     ...(storiesSummary !== undefined ? { stories: storiesSummary } : {}),
@@ -441,14 +443,19 @@ export function formatPipelineStatusHuman(status: PipelineStatusOutput): string 
     if (phaseInfo.status === 'complete' && phaseInfo.completed_at) {
       line += ` (completed: ${phaseInfo.completed_at})`
     }
-    if (phaseInfo.token_usage && (phaseInfo.token_usage.input > 0 || phaseInfo.token_usage.output > 0)) {
+    if (
+      phaseInfo.token_usage &&
+      (phaseInfo.token_usage.input > 0 || phaseInfo.token_usage.output > 0)
+    ) {
       line += ` — tokens: ${phaseInfo.token_usage.input.toLocaleString()} in / ${phaseInfo.token_usage.output.toLocaleString()} out`
     }
     lines.push(line)
   }
 
   lines.push('')
-  lines.push(`  Total Tokens: ${(status.total_tokens.input + status.total_tokens.output).toLocaleString()} (in: ${status.total_tokens.input.toLocaleString()}, out: ${status.total_tokens.output.toLocaleString()})`)
+  lines.push(
+    `  Total Tokens: ${(status.total_tokens.input + status.total_tokens.output).toLocaleString()} (in: ${status.total_tokens.input.toLocaleString()}, out: ${status.total_tokens.output.toLocaleString()})`
+  )
   lines.push(`  Total Cost: $${status.total_tokens.cost_usd.toFixed(4)}`)
   lines.push(`  Decisions: ${status.decisions_count}`)
   lines.push(`  Stories: ${status.stories_count}`)
@@ -458,19 +465,17 @@ export function formatPipelineStatusHuman(status: PipelineStatusOutput): string 
     lines.push('')
     lines.push('  Sprint Progress:')
     lines.push('  ' + '─'.repeat(68))
-    lines.push(
-      `  ${'STORY'.padEnd(10)} ${'PHASE'.padEnd(24)} ${'CYCLES'.padEnd(8)} ELAPSED`,
-    )
+    lines.push(`  ${'STORY'.padEnd(10)} ${'PHASE'.padEnd(24)} ${'CYCLES'.padEnd(8)} ELAPSED`)
     lines.push('  ' + '─'.repeat(68))
     for (const [key, detail] of Object.entries(status.stories.details)) {
       const elapsed = detail.elapsed_seconds > 0 ? `${detail.elapsed_seconds}s` : '-'
       lines.push(
-        `  ${key.padEnd(10)} ${detail.phase.padEnd(24)} ${String(detail.review_cycles).padEnd(8)} ${elapsed}`,
+        `  ${key.padEnd(10)} ${detail.phase.padEnd(24)} ${String(detail.review_cycles).padEnd(8)} ${elapsed}`
       )
     }
     lines.push('  ' + '─'.repeat(68))
     lines.push(
-      `  Completed: ${status.stories.completed}  In Progress: ${status.stories.in_progress}  Escalated: ${status.stories.escalated}  Pending: ${status.stories.pending}`,
+      `  Completed: ${status.stories.completed}  In Progress: ${status.stories.in_progress}  Escalated: ${status.stories.escalated}  Pending: ${status.stories.pending}`
     )
   }
 
@@ -490,7 +495,7 @@ export function formatPipelineSummary(
   decisionsCount: number,
   storiesCount: number,
   durationMs: number,
-  format: OutputFormat,
+  format: OutputFormat
 ): string {
   let totalInput = 0
   let totalOutput = 0

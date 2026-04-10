@@ -27,7 +27,10 @@ let projectConfigDir: string
 let globalConfigDir: string
 
 beforeEach(async () => {
-  testDir = join(tmpdir(), `substrate-config-test-${String(Date.now())}-${Math.random().toString(36).slice(2)}`)
+  testDir = join(
+    tmpdir(),
+    `substrate-config-test-${String(Date.now())}-${Math.random().toString(36).slice(2)}`
+  )
   projectConfigDir = join(testDir, 'project', '.substrate')
   globalConfigDir = join(testDir, 'global', '.substrate')
   await mkdir(projectConfigDir, { recursive: true })
@@ -48,7 +51,9 @@ afterEach(async () => {
 // Helper
 // ---------------------------------------------------------------------------
 
-function createSystem(overrides: Record<string, unknown> = {}): ReturnType<typeof createConfigSystem> {
+function createSystem(
+  overrides: Record<string, unknown> = {}
+): ReturnType<typeof createConfigSystem> {
   return createConfigSystem({
     projectConfigDir,
     globalConfigDir,
@@ -103,11 +108,7 @@ describe('ConfigSystem - default config', () => {
 
 describe('ConfigSystem - hierarchy loading', () => {
   it('global config overrides defaults', async () => {
-    await writeYaml(
-      globalConfigDir,
-      'config.yaml',
-      'global:\n  log_level: debug\n'
-    )
+    await writeYaml(globalConfigDir, 'config.yaml', 'global:\n  log_level: debug\n')
 
     const system = createSystem()
     await system.load()
@@ -116,16 +117,8 @@ describe('ConfigSystem - hierarchy loading', () => {
   })
 
   it('project config overrides global config', async () => {
-    await writeYaml(
-      globalConfigDir,
-      'config.yaml',
-      'global:\n  log_level: debug\n'
-    )
-    await writeYaml(
-      projectConfigDir,
-      'config.yaml',
-      'global:\n  log_level: warn\n'
-    )
+    await writeYaml(globalConfigDir, 'config.yaml', 'global:\n  log_level: debug\n')
+    await writeYaml(projectConfigDir, 'config.yaml', 'global:\n  log_level: warn\n')
 
     const system = createSystem()
     await system.load()
@@ -134,11 +127,7 @@ describe('ConfigSystem - hierarchy loading', () => {
   })
 
   it('env var overrides project config', async () => {
-    await writeYaml(
-      projectConfigDir,
-      'config.yaml',
-      'global:\n  log_level: warn\n'
-    )
+    await writeYaml(projectConfigDir, 'config.yaml', 'global:\n  log_level: warn\n')
     process.env.ADT_LOG_LEVEL = 'error'
 
     const system = createSystem()
@@ -148,11 +137,7 @@ describe('ConfigSystem - hierarchy loading', () => {
   })
 
   it('CLI overrides take highest priority', async () => {
-    await writeYaml(
-      projectConfigDir,
-      'config.yaml',
-      'global:\n  log_level: warn\n'
-    )
+    await writeYaml(projectConfigDir, 'config.yaml', 'global:\n  log_level: warn\n')
     process.env.ADT_LOG_LEVEL = 'error'
 
     const system = createSystem({
@@ -167,12 +152,7 @@ describe('ConfigSystem - hierarchy loading', () => {
     await writeYaml(
       projectConfigDir,
       'config.yaml',
-      [
-        'providers:',
-        '  claude:',
-        '    enabled: true',
-        '    max_concurrent: 5',
-      ].join('\n') + '\n'
+      ['providers:', '  claude:', '    enabled: true', '    max_concurrent: 5'].join('\n') + '\n'
     )
 
     const system = createSystem()
@@ -183,11 +163,7 @@ describe('ConfigSystem - hierarchy loading', () => {
   })
 
   it('defaults preserved when not overridden by project config', async () => {
-    await writeYaml(
-      projectConfigDir,
-      'config.yaml',
-      'global:\n  log_level: debug\n'
-    )
+    await writeYaml(projectConfigDir, 'config.yaml', 'global:\n  log_level: debug\n')
 
     const system = createSystem()
     await system.load()
@@ -204,22 +180,14 @@ describe('ConfigSystem - hierarchy loading', () => {
 
 describe('ConfigSystem - validation errors', () => {
   it('throws ConfigError for invalid log_level in project config', async () => {
-    await writeYaml(
-      projectConfigDir,
-      'config.yaml',
-      'global:\n  log_level: INVALID\n'
-    )
+    await writeYaml(projectConfigDir, 'config.yaml', 'global:\n  log_level: INVALID\n')
 
     const system = createSystem()
     await expect(system.load()).rejects.toThrow(ConfigError)
   })
 
   it('throws ConfigError for invalid max_concurrent_tasks', async () => {
-    await writeYaml(
-      projectConfigDir,
-      'config.yaml',
-      'global:\n  max_concurrent_tasks: 0\n'
-    )
+    await writeYaml(projectConfigDir, 'config.yaml', 'global:\n  max_concurrent_tasks: 0\n')
 
     const system = createSystem()
     await expect(system.load()).rejects.toThrow(ConfigError)
@@ -229,11 +197,7 @@ describe('ConfigSystem - validation errors', () => {
     await writeYaml(
       projectConfigDir,
       'config.yaml',
-      [
-        'providers:',
-        '  claude:',
-        '    max_concurrent: 100',
-      ].join('\n') + '\n'
+      ['providers:', '  claude:', '    max_concurrent: 100'].join('\n') + '\n'
     )
 
     const system = createSystem()

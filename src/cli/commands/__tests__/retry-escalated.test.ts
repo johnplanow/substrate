@@ -18,7 +18,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // ---------------------------------------------------------------------------
 
 // Mock adapter
-const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+const mockAdapter = {
+  query: vi.fn().mockResolvedValue([]),
+  exec: vi.fn().mockResolvedValue(undefined),
+  transaction: vi.fn(),
+  close: vi.fn().mockResolvedValue(undefined),
+}
 
 vi.mock('../../../persistence/adapter.js', () => ({
   createDatabaseAdapter: vi.fn(() => mockAdapter),
@@ -117,7 +122,9 @@ vi.mock('../../../core/event-bus.js', () => ({
 // Registry mock instance — required by runRetryEscalatedAction
 // ---------------------------------------------------------------------------
 
-const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+const mockRegistry = {
+  discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }),
+} as any
 
 // ---------------------------------------------------------------------------
 // Import module under test AFTER mocks
@@ -209,7 +216,10 @@ describe('runRetryEscalatedAction', () => {
     const calls = stdoutWrite.mock.calls.map((c) => String(c[0]))
     const jsonLine = calls.find((c) => c.includes('"success"'))
     expect(jsonLine).toBeDefined()
-    const parsed = JSON.parse(jsonLine!) as { success: boolean; data: { retryKeys: string[]; skippedKeys: unknown[] } }
+    const parsed = JSON.parse(jsonLine!) as {
+      success: boolean
+      data: { retryKeys: string[]; skippedKeys: unknown[] }
+    }
     expect(parsed.success).toBe(true)
     expect(parsed.data.retryKeys).toEqual([])
     expect(parsed.data.skippedKeys).toHaveLength(1)
@@ -390,7 +400,7 @@ describe('runRetryEscalatedAction', () => {
     expect(mockOrchestratorRun).toHaveBeenCalledWith(['22-3'])
     expect(mockCreatePipelineRun).toHaveBeenCalledWith(
       mockAdapter,
-      expect.objectContaining({ start_phase: 'implementation' }),
+      expect.objectContaining({ start_phase: 'implementation' })
     )
     stdoutWrite.mockRestore()
   })
@@ -447,7 +457,9 @@ describe('runRetryEscalatedAction', () => {
     })
 
     expect(exitCode).toBe(1)
-    expect(stderrWrite).toHaveBeenCalledWith(expect.stringContaining('Decision store not initialized'))
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining('Decision store not initialized')
+    )
     stderrWrite.mockRestore()
   })
 
@@ -489,7 +501,9 @@ describe('runRetryEscalatedAction', () => {
     })
 
     expect(exitCode).toBe(1)
-    expect(stderrWrite).toHaveBeenCalledWith(expect.stringContaining("Methodology pack 'bmad' not found"))
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining("Methodology pack 'bmad' not found")
+    )
     stderrWrite.mockRestore()
   })
 })

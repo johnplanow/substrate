@@ -91,7 +91,7 @@ describe('AC1: Migration 007 creates all required tables', () => {
 
   it('creates index idx_decisions_phase', () => {
     const indexes = db.querySync<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decisions'",
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decisions'"
     )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_decisions_phase')
@@ -99,7 +99,7 @@ describe('AC1: Migration 007 creates all required tables', () => {
 
   it('creates index idx_decisions_key', () => {
     const indexes = db.querySync<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decisions'",
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decisions'"
     )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_decisions_key')
@@ -107,7 +107,7 @@ describe('AC1: Migration 007 creates all required tables', () => {
 
   it('creates index idx_requirements_type', () => {
     const indexes = db.querySync<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='requirements'",
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='requirements'"
     )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_requirements_type')
@@ -115,7 +115,7 @@ describe('AC1: Migration 007 creates all required tables', () => {
 
   it('creates index idx_requirements_status', () => {
     const indexes = db.querySync<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='requirements'",
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='requirements'"
     )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_requirements_status')
@@ -123,7 +123,7 @@ describe('AC1: Migration 007 creates all required tables', () => {
 
   it('creates index idx_artifacts_phase', () => {
     const indexes = db.querySync<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='artifacts'",
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='artifacts'"
     )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_artifacts_phase')
@@ -131,7 +131,7 @@ describe('AC1: Migration 007 creates all required tables', () => {
 
   it('creates index idx_pipeline_runs_status', () => {
     const indexes = db.querySync<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='pipeline_runs'",
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='pipeline_runs'"
     )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_pipeline_runs_status')
@@ -139,7 +139,7 @@ describe('AC1: Migration 007 creates all required tables', () => {
 
   it('creates index idx_token_usage_run', () => {
     const indexes = db.querySync<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='token_usage'",
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='token_usage'"
     )
     const indexNames = indexes.map((i) => i.name)
     expect(indexNames).toContain('idx_token_usage_run')
@@ -168,7 +168,7 @@ describe('AC2: Decisions table CRUD', () => {
 
     expect(decision.id).toBeDefined()
     expect(decision.id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     )
     expect(decision.phase).toBe('analysis')
     expect(decision.category).toBe('tech-stack')
@@ -242,8 +242,18 @@ describe('AC2: Decisions table CRUD', () => {
   })
 
   it('generates unique UUIDs for each decision', async () => {
-    const d1 = await createDecision(db, { phase: 'analysis', category: 'a', key: 'k1', value: 'v1' })
-    const d2 = await createDecision(db, { phase: 'analysis', category: 'a', key: 'k2', value: 'v2' })
+    const d1 = await createDecision(db, {
+      phase: 'analysis',
+      category: 'a',
+      key: 'k1',
+      value: 'v1',
+    })
+    const d2 = await createDecision(db, {
+      phase: 'analysis',
+      category: 'a',
+      key: 'k2',
+      value: 'v2',
+    })
     expect(d1.id).not.toBe(d2.id)
   })
 })
@@ -387,7 +397,11 @@ describe('AC4: Constraints table CRUD', () => {
 
   it('listConstraints returns all constraints without filter', async () => {
     await createConstraint(db, { category: 'security', description: 'Encryption', source: 's' })
-    await createConstraint(db, { category: 'performance', description: 'Latency limit', source: 's' })
+    await createConstraint(db, {
+      category: 'performance',
+      description: 'Latency limit',
+      source: 's',
+    })
 
     const results = await listConstraints(db)
     expect(results.length).toBeGreaterThanOrEqual(2)
@@ -459,10 +473,9 @@ describe('AC5: Artifacts table CRUD', () => {
       path: '/output/req-v1.md',
     })
     // Update first artifact's created_at to an earlier time so v2 is clearly "later"
-    await db.query(
-      "UPDATE artifacts SET created_at = '2020-01-01T00:00:00.000Z' WHERE path = ?",
-      ['/output/req-v1.md'],
-    )
+    await db.query("UPDATE artifacts SET created_at = '2020-01-01T00:00:00.000Z' WHERE path = ?", [
+      '/output/req-v1.md',
+    ])
     await registerArtifact(db, {
       phase: 'analysis',
       type: 'requirements-doc',
@@ -498,9 +511,7 @@ describe('AC6: Pipeline runs table CRUD', () => {
     })
 
     expect(run.id).toBeDefined()
-    expect(run.id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    )
+    expect(run.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
     expect(run.status).toBe('running')
     expect(run.methodology).toBe('agile')
     expect(run.created_at).toBeDefined()
@@ -534,7 +545,7 @@ describe('AC6: Pipeline runs table CRUD', () => {
     // Set first run's created_at to an earlier time so the second run is clearly "latest"
     await db.query(
       "UPDATE pipeline_runs SET created_at = '2020-01-01T00:00:00.000Z' WHERE id = ?",
-      [first.id],
+      [first.id]
     )
     const latest = await createPipelineRun(db, { methodology: 'kanban' })
 
@@ -578,7 +589,7 @@ describe('AC7: Zod schemas validate inputs at persistence boundary', () => {
         category: 'a',
         key: 'k',
         value: 'v',
-      }),
+      })
     ).toThrow()
   })
 
@@ -589,7 +600,7 @@ describe('AC7: Zod schemas validate inputs at persistence boundary', () => {
         category: 'a',
         key: '',
         value: 'v',
-      }),
+      })
     ).toThrow()
   })
 
@@ -600,7 +611,7 @@ describe('AC7: Zod schemas validate inputs at persistence boundary', () => {
         type: 'invalid-type',
         description: 'desc',
         priority: 'must',
-      }),
+      })
     ).toThrow()
   })
 
@@ -611,7 +622,7 @@ describe('AC7: Zod schemas validate inputs at persistence boundary', () => {
         type: 'functional',
         description: 'desc',
         priority: 'critical', // not a valid value
-      }),
+      })
     ).toThrow()
   })
 
@@ -620,7 +631,7 @@ describe('AC7: Zod schemas validate inputs at persistence boundary', () => {
       CreateConstraintInputSchema.parse({
         category: 'security',
         description: 'must encrypt',
-      }),
+      })
     ).toThrow()
   })
 
@@ -629,7 +640,7 @@ describe('AC7: Zod schemas validate inputs at persistence boundary', () => {
       RegisterArtifactInputSchema.parse({
         phase: 'analysis',
         type: 'doc',
-      }),
+      })
     ).toThrow()
   })
 
@@ -645,7 +656,7 @@ describe('AC7: Zod schemas validate inputs at persistence boundary', () => {
         input_tokens: -1,
         output_tokens: 0,
         cost_usd: 0,
-      }),
+      })
     ).toThrow()
   })
 
@@ -682,7 +693,7 @@ describe('AC8: Token usage tracking', () => {
         input_tokens: 100,
         output_tokens: 200,
         cost_usd: 0.05,
-      }),
+      })
     ).resolves.not.toThrow()
   })
 
@@ -706,7 +717,7 @@ describe('AC8: Token usage tracking', () => {
       agent: 'claude',
       input_tokens: 300,
       output_tokens: 400,
-      cost_usd: 0.10,
+      cost_usd: 0.1,
     })
 
     const summary = await getTokenUsageSummary(db, runId)
@@ -748,12 +759,8 @@ describe('AC8: Token usage tracking', () => {
     const summary = await getTokenUsageSummary(db, runId)
     expect(summary).toHaveLength(2)
 
-    const claudeSummary = summary.find(
-      (s) => s.phase === 'analysis' && s.agent === 'claude',
-    )
-    const gptSummary = summary.find(
-      (s) => s.phase === 'analysis' && s.agent === 'gpt-4',
-    )
+    const claudeSummary = summary.find((s) => s.phase === 'analysis' && s.agent === 'claude')
+    const gptSummary = summary.find((s) => s.phase === 'analysis' && s.agent === 'gpt-4')
 
     expect(claudeSummary?.total_input_tokens).toBe(100)
     expect(gptSummary?.total_input_tokens).toBe(50)
@@ -792,13 +799,13 @@ describe('Story 12-6: PipelineRunStatusEnum includes stopped', () => {
     expect(PipelineRunStatusEnum.parse('stopped')).toBe('stopped')
   })
 
-  it("parses all existing statuses without regression", () => {
+  it('parses all existing statuses without regression', () => {
     for (const status of ['running', 'paused', 'completed', 'failed'] as const) {
       expect(() => PipelineRunStatusEnum.parse(status)).not.toThrow()
     }
   })
 
-  it("throws ZodError for invalid status value", () => {
+  it('throws ZodError for invalid status value', () => {
     expect(() => PipelineRunStatusEnum.parse('invalid')).toThrow()
     expect(() => PipelineRunStatusEnum.parse('halted')).toThrow()
   })

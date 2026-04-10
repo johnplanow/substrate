@@ -54,9 +54,9 @@ export interface SupersessionLogEntry {
   originalDecisionId: string
   supersedingDecisionId: string
   phase: string
-  key: string       // Decision key (category/key tuple's key part)
+  key: string // Decision key (category/key tuple's key part)
   reason: string
-  loggedAt: string  // ISO 8601
+  loggedAt: string // ISO 8601
 }
 
 /**
@@ -125,7 +125,7 @@ function formatDecision(decision: Decision): string {
 function buildContextBlock(
   decisions: Decision[],
   phaseName: PhaseName,
-  framingConcept?: string,
+  framingConcept?: string
 ): string {
   // Filter decisions to the given phase
   const phaseDecisions = decisions.filter((d) => d.phase === phaseName)
@@ -174,7 +174,7 @@ function buildContextBlock(
 export async function createAmendmentContextHandler(
   db: DatabaseAdapter,
   parentRunId: string,
-  options?: Partial<AmendmentPhaseRunOptions>,
+  options?: Partial<AmendmentPhaseRunOptions>
 ): Promise<AmendmentContextHandler> {
   // Eagerly load parent decisions at construction time (AC5, Dev Notes: Loading Strategy)
   const allDecisions: Decision[] = await loadParentRunDecisions(db, parentRunId)

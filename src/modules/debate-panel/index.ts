@@ -17,8 +17,5 @@ export type {
 export type { DebatePanel } from './debate-panel.js'
 
 // Implementation and factory
-export {
-  DebatePanelImpl,
-  createDebatePanel,
-} from './debate-panel-impl.js'
+export { DebatePanelImpl, createDebatePanel } from './debate-panel-impl.js'
 export type { DebatePanelOptions, PerspectiveGeneratorFn } from './debate-panel-impl.js'

@@ -122,15 +122,35 @@ async function detectNodeBuildTool(dir: string): Promise<{
   installCommand: string
 }> {
   if (await fileExists(path.join(dir, 'pnpm-lock.yaml'))) {
-    return { buildTool: 'pnpm', buildCommand: 'pnpm run build', testCommand: 'pnpm test', installCommand: 'pnpm add <package>' }
+    return {
+      buildTool: 'pnpm',
+      buildCommand: 'pnpm run build',
+      testCommand: 'pnpm test',
+      installCommand: 'pnpm add <package>',
+    }
   }
   if (await fileExists(path.join(dir, 'yarn.lock'))) {
-    return { buildTool: 'yarn', buildCommand: 'yarn build', testCommand: 'yarn test', installCommand: 'yarn add <package>' }
+    return {
+      buildTool: 'yarn',
+      buildCommand: 'yarn build',
+      testCommand: 'yarn test',
+      installCommand: 'yarn add <package>',
+    }
   }
   if (await fileExists(path.join(dir, 'bun.lockb'))) {
-    return { buildTool: 'bun', buildCommand: 'bun run build', testCommand: 'bun test', installCommand: 'bun add <package>' }
+    return {
+      buildTool: 'bun',
+      buildCommand: 'bun run build',
+      testCommand: 'bun test',
+      installCommand: 'bun add <package>',
+    }
   }
-  return { buildTool: 'npm', buildCommand: 'npm run build', testCommand: 'npm test', installCommand: 'npm install <package>' }
+  return {
+    buildTool: 'npm',
+    buildCommand: 'npm run build',
+    testCommand: 'npm test',
+    installCommand: 'npm install <package>',
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +202,10 @@ export async function detectTaskRunner(dir: string): Promise<{
   return null
 }
 
-async function detectJustTargets(dir: string, _filename: string): Promise<{
+async function detectJustTargets(
+  dir: string,
+  _filename: string
+): Promise<{
   runner: string
   buildCommand?: string
   testCommand?: string
@@ -214,9 +237,9 @@ async function detectJustTargets(dir: string, _filename: string): Promise<{
       // The :(?!=) negative lookahead excludes variable assignments (var := "value")
       const recipes = content
         .split('\n')
-        .map(line => line.match(/^([a-zA-Z_][\w-]*)(?:\s+[^:]*)?:(?!=)/))
+        .map((line) => line.match(/^([a-zA-Z_][\w-]*)(?:\s+[^:]*)?:(?!=)/))
         .filter((m): m is RegExpMatchArray => m !== null)
-        .map(m => m[1]!)
+        .map((m) => m[1]!)
 
       for (const target of BUILD_TARGETS) {
         if (recipes.includes(target)) {
@@ -248,9 +271,9 @@ async function detectMakeTargets(dir: string): Promise<{
     // Extract target names: lines matching "target:" at start of line
     const targets = content
       .split('\n')
-      .map(line => line.match(/^([a-zA-Z_][\w-]*):/))
+      .map((line) => line.match(/^([a-zA-Z_][\w-]*):/))
       .filter((m): m is RegExpMatchArray => m !== null)
-      .map(m => m[1]!)
+      .map((m) => m[1]!)
 
     for (const target of BUILD_TARGETS) {
       if (targets.includes(target)) {

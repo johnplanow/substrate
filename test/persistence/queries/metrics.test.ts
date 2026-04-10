@@ -126,7 +126,11 @@ describe('run metrics queries', () => {
 
     it('returns all rows when fewer than limit', async () => {
       await writeRunMetrics(adapter, BASE_RUN)
-      await writeRunMetrics(adapter, { ...BASE_RUN, run_id: 'run-002', started_at: '2026-01-02T00:00:00Z' })
+      await writeRunMetrics(adapter, {
+        ...BASE_RUN,
+        run_id: 'run-002',
+        started_at: '2026-01-02T00:00:00Z',
+      })
       const rows = await listRunMetrics(adapter)
       expect(rows).toHaveLength(2)
     })
@@ -144,9 +148,21 @@ describe('run metrics queries', () => {
     })
 
     it('returns rows in descending started_at order', async () => {
-      await writeRunMetrics(adapter, { ...BASE_RUN, run_id: 'run-a', started_at: '2026-01-01T00:00:00Z' })
-      await writeRunMetrics(adapter, { ...BASE_RUN, run_id: 'run-b', started_at: '2026-01-03T00:00:00Z' })
-      await writeRunMetrics(adapter, { ...BASE_RUN, run_id: 'run-c', started_at: '2026-01-02T00:00:00Z' })
+      await writeRunMetrics(adapter, {
+        ...BASE_RUN,
+        run_id: 'run-a',
+        started_at: '2026-01-01T00:00:00Z',
+      })
+      await writeRunMetrics(adapter, {
+        ...BASE_RUN,
+        run_id: 'run-b',
+        started_at: '2026-01-03T00:00:00Z',
+      })
+      await writeRunMetrics(adapter, {
+        ...BASE_RUN,
+        run_id: 'run-c',
+        started_at: '2026-01-02T00:00:00Z',
+      })
       const rows = await listRunMetrics(adapter)
       expect(rows[0].run_id).toBe('run-b')
       expect(rows[1].run_id).toBe('run-c')
@@ -164,7 +180,11 @@ describe('run metrics queries', () => {
 
     it('clears existing baseline when tagging a new one', async () => {
       await writeRunMetrics(adapter, BASE_RUN)
-      await writeRunMetrics(adapter, { ...BASE_RUN, run_id: 'run-002', started_at: '2026-01-02T00:00:00Z' })
+      await writeRunMetrics(adapter, {
+        ...BASE_RUN,
+        run_id: 'run-002',
+        started_at: '2026-01-02T00:00:00Z',
+      })
       await tagRunAsBaseline(adapter, 'run-001')
       await tagRunAsBaseline(adapter, 'run-002')
       const row1 = await getRunMetrics(adapter, 'run-001')
@@ -214,13 +234,13 @@ describe('run metrics queries', () => {
     it('computes correct token deltas', async () => {
       const delta = await compareRunMetrics(adapter, 'run-001', 'run-002')
       expect(delta).not.toBeNull()
-      expect(delta?.token_input_delta).toBe(2000)   // 12000 - 10000
-      expect(delta?.token_output_delta).toBe(1000)  // 6000 - 5000
+      expect(delta?.token_input_delta).toBe(2000) // 12000 - 10000
+      expect(delta?.token_output_delta).toBe(1000) // 6000 - 5000
     })
 
     it('computes correct token percentage deltas', async () => {
       const delta = await compareRunMetrics(adapter, 'run-001', 'run-002')
-      expect(delta?.token_input_pct).toBe(20)  // 2000/10000 * 100
+      expect(delta?.token_input_pct).toBe(20) // 2000/10000 * 100
       expect(delta?.token_output_pct).toBe(20) // 1000/5000 * 100
     })
 
@@ -263,13 +283,15 @@ describe('story metrics queries', () => {
 
   describe('writeStoryMetrics', () => {
     it('inserts a story metrics row without error', async () => {
-      await expect(writeStoryMetrics(adapter, {
-        run_id: 'run-001',
-        story_key: '17-1',
-        result: 'success',
-        review_cycles: 2,
-        dispatches: 3,
-      })).resolves.not.toThrow()
+      await expect(
+        writeStoryMetrics(adapter, {
+          run_id: 'run-001',
+          story_key: '17-1',
+          result: 'success',
+          review_cycles: 2,
+          dispatches: 3,
+        })
+      ).resolves.not.toThrow()
     })
 
     it('round-trips the story metrics row', async () => {
@@ -345,7 +367,11 @@ describe('story metrics queries', () => {
 
     it('returns multiple story rows for a run', async () => {
       await writeStoryMetrics(adapter, { run_id: 'run-001', story_key: '17-1', result: 'success' })
-      await writeStoryMetrics(adapter, { run_id: 'run-001', story_key: '17-2', result: 'escalated' })
+      await writeStoryMetrics(adapter, {
+        run_id: 'run-001',
+        story_key: '17-2',
+        result: 'escalated',
+      })
       const rows = await getStoryMetricsForRun(adapter, 'run-001')
       expect(rows).toHaveLength(2)
     })
@@ -385,10 +411,14 @@ describe('aggregateTokenUsageForRun', () => {
     // Insert a pipeline run and token usage records
     await adapter.exec(`INSERT INTO pipeline_runs (id, methodology, current_phase, status, created_at, updated_at)
       VALUES ('run-tok', 'bmad', 'implementation', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`)
-    await adapter.query(`INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?)`,
-      ['run-tok', 'create-story', 'claude-code', 1000, 500, 0.01])
-    await adapter.query(`INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?)`,
-      ['run-tok', 'dev-story', 'claude-code', 2000, 1000, 0.02])
+    await adapter.query(
+      `INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?)`,
+      ['run-tok', 'create-story', 'claude-code', 1000, 500, 0.01]
+    )
+    await adapter.query(
+      `INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?)`,
+      ['run-tok', 'dev-story', 'claude-code', 2000, 1000, 0.02]
+    )
 
     const agg = await aggregateTokenUsageForRun(adapter, 'run-tok')
     expect(agg.input).toBe(3000)

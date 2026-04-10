@@ -217,7 +217,7 @@ describe('RoutingResolver.createWithFallback (AC5)', () => {
 
   it('AC5: returns a resolver where all resolveModel calls return null when config is missing', () => {
     mockReadFileSync.mockImplementation(() => {
-      throw new Error('ENOENT: no such file or directory, open \'/missing.yml\'')
+      throw new Error("ENOENT: no such file or directory, open '/missing.yml'")
     })
 
     const resolver = RoutingResolver.createWithFallback('/missing.yml', logger)
@@ -238,8 +238,12 @@ describe('RoutingResolver.createWithFallback (AC5)', () => {
     RoutingResolver.createWithFallback('/missing.yml', logger)
 
     expect(logger.debug).toHaveBeenCalledWith(
-      expect.objectContaining({ component: 'routing', reason: 'config not found', configPath: '/missing.yml' }),
-      expect.any(String),
+      expect.objectContaining({
+        component: 'routing',
+        reason: 'config not found',
+        configPath: '/missing.yml',
+      }),
+      expect.any(String)
     )
   })
 
@@ -253,20 +257,24 @@ describe('RoutingResolver.createWithFallback (AC5)', () => {
 
   it('rethrows non-NOT_FOUND errors (e.g. SCHEMA_INVALID)', () => {
     // Valid YAML but schema validation fails (wrong version)
-    mockReadFileSync.mockReturnValue(`version: 2\nbaseline_model: x\nphases: {}` as unknown as Buffer)
+    mockReadFileSync.mockReturnValue(
+      `version: 2\nbaseline_model: x\nphases: {}` as unknown as Buffer
+    )
 
     expect(() => RoutingResolver.createWithFallback('/bad-schema.yml', logger)).toThrow()
     expect(logger.warn).not.toHaveBeenCalled()
   })
 
   it('constructs a valid resolver when config exists', () => {
-    mockReadFileSync.mockReturnValue(`
+    mockReadFileSync.mockReturnValue(
+      `
 version: 1
 baseline_model: claude-sonnet-4-5
 phases:
   generate:
     model: claude-sonnet-4-5
-` as unknown as Buffer)
+` as unknown as Buffer
+    )
 
     const resolver = RoutingResolver.createWithFallback('/valid.yml', logger)
     const result = resolver.resolveModel('dev-story')

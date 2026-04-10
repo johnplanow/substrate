@@ -97,7 +97,7 @@ export function renderStoryRow(
   story: TuiStoryState,
   isSelected: boolean,
   useColor: boolean,
-  width: number,
+  width: number
 ): string {
   const symbol = statusSymbol(story.status)
   const color = statusColor(story.status)

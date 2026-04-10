@@ -13,7 +13,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
-import type { Dispatcher, DispatchHandle, DispatchResult, DispatcherMemoryState } from '../../agent-dispatch/types.js'
+import type {
+  Dispatcher,
+  DispatchHandle,
+  DispatchResult,
+  DispatcherMemoryState,
+} from '../../agent-dispatch/types.js'
 import type { TypedEventBus } from '../../../core/event-bus.js'
 import type { OrchestratorConfig } from '../types.js'
 import { createImplementationOrchestrator } from '../orchestrator-impl.js'
@@ -68,7 +73,9 @@ vi.mock('node:fs', () => ({
   readdirSync: vi.fn().mockReturnValue([]),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 // Mock sleep to be instant so tests don't wait 30+60+120 seconds
@@ -96,7 +103,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
         checks: [],
         status: 'pass',
         duration_ms: 0,
-      }),
+      })
     ),
     register: vi.fn(),
   })),
@@ -460,7 +467,7 @@ describe('Memory backoff-retry on dispatch hold (AC1, AC3, AC4)', () => {
         arg !== null &&
         'freeMB' in (arg as Record<string, unknown>) &&
         'thresholdMB' in (arg as Record<string, unknown>) &&
-        'pressureLevel' in (arg as Record<string, unknown>),
+        'pressureLevel' in (arg as Record<string, unknown>)
     )
     expect(warnCallWithMemory).toBeDefined()
     const memArg = warnCallWithMemory as Record<string, unknown>

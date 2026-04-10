@@ -54,7 +54,8 @@ export function registerContractsCommand(program: Command): void {
             contractName: c.contractName,
             direction: c.direction,
             schemaPath: c.schemaPath,
-            verificationStatus: verdict === 'pass' ? '✓ pass' : verdict === 'fail' ? '✗ fail' : '? pending',
+            verificationStatus:
+              verdict === 'pass' ? '✓ pass' : verdict === 'fail' ? '✗ fail' : '? pending',
             verdict: verdict ?? 'pending',
           }
         })
@@ -66,11 +67,20 @@ export function registerContractsCommand(program: Command): void {
 
         // Table output
         const headers = ['Story Key', 'Contract Name', 'Direction', 'Schema Path', 'Status']
-        const rows = mergedRecords.map((r) => [r.storyKey, r.contractName, r.direction, r.schemaPath, r.verificationStatus])
+        const rows = mergedRecords.map((r) => [
+          r.storyKey,
+          r.contractName,
+          r.direction,
+          r.schemaPath,
+          r.verificationStatus,
+        ])
 
-        const colWidths = headers.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? '').length)))
+        const colWidths = headers.map((h, i) =>
+          Math.max(h.length, ...rows.map((r) => (r[i] ?? '').length))
+        )
 
-        const formatRow = (cells: string[]) => cells.map((c, i) => c.padEnd(colWidths[i]!)).join('  ')
+        const formatRow = (cells: string[]) =>
+          cells.map((c, i) => c.padEnd(colWidths[i]!)).join('  ')
 
         console.log(formatRow(headers))
         console.log(colWidths.map((w) => '-'.repeat(w)).join('  '))

@@ -98,7 +98,7 @@ describe('RoutingTelemetry.recordModelResolved (AC5 — span emission)', () => {
     expect(logger.debug).toHaveBeenCalledOnce()
     expect(logger.debug).toHaveBeenCalledWith(
       expect.objectContaining({ dispatchId: 'dispatch-1', phase: 'generate' }),
-      expect.any(String),
+      expect.any(String)
     )
   })
 

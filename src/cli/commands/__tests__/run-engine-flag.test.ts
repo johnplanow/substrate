@@ -141,11 +141,15 @@ vi.mock('../../../persistence/queries/metrics.js', () => ({
 }))
 
 vi.mock('../health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phase-detection.js', () => ({
-  detectStartPhase: vi.fn().mockResolvedValue({ phase: 'implementation', reason: 'test', needsConcept: false }),
+  detectStartPhase: vi
+    .fn()
+    .mockResolvedValue({ phase: 'implementation', reason: 'test', needsConcept: false }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/index.js', () => ({
@@ -159,23 +163,33 @@ vi.mock('../../../modules/phase-orchestrator/index.js', () => ({
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/analysis.js', () => ({
-  runAnalysisPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runAnalysisPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/planning.js', () => ({
-  runPlanningPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runPlanningPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/solutioning.js', () => ({
-  runSolutioningPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runSolutioningPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/ux-design.js', () => ({
-  runUxDesignPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runUxDesignPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/research.js', () => ({
-  runResearchPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runResearchPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../core/event-bus.js', () => ({
@@ -204,7 +218,9 @@ vi.mock('../../../modules/routing/index.js', () => ({
     maybeAutoTune: vi.fn().mockResolvedValue(undefined),
   })),
   RoutingRecommender: vi.fn().mockImplementation(() => ({})),
-  loadModelRoutingConfig: vi.fn().mockImplementation(() => { throw new Error('No config') }),
+  loadModelRoutingConfig: vi.fn().mockImplementation(() => {
+    throw new Error('No config')
+  }),
 }))
 
 vi.mock('../../../modules/telemetry/ingestion-server.js', () => ({
@@ -274,15 +290,21 @@ vi.mock('fs/promises', () => ({
 // ---------------------------------------------------------------------------
 
 vi.mock('../../../modules/compiled-workflows/create-story.js', () => ({
-  runCreateStory: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runCreateStory: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/compiled-workflows/dev-story.js', () => ({
-  runDevStory: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runDevStory: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/compiled-workflows/code-review.js', () => ({
-  runCodeReview: vi.fn().mockResolvedValue({ verdict: 'SHIP_IT', tokenUsage: { input: 0, output: 0 } }),
+  runCodeReview: vi
+    .fn()
+    .mockResolvedValue({ verdict: 'SHIP_IT', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../sdlc-graph-setup.js', () => ({
@@ -525,7 +547,9 @@ describe('Story 43-10: --engine flag routing', () => {
 
       await runRunAction(makeBaseOptions({ engine: 'bogus' }))
 
-      expect(stderrMessages.join('')).toContain("Invalid engine 'bogus'. Valid values: linear, graph")
+      expect(stderrMessages.join('')).toContain(
+        "Invalid engine 'bogus'. Valid values: linear, graph"
+      )
 
       stderrWrite.mockRestore()
     })
@@ -549,7 +573,7 @@ describe('Story 43-10: --engine flag routing', () => {
       })
 
       const exitCode = await runRunAction(
-        makeBaseOptions({ engine: 'bogus', outputFormat: 'json' }),
+        makeBaseOptions({ engine: 'bogus', outputFormat: 'json' })
       )
 
       expect(exitCode).toBe(1)
@@ -573,7 +597,7 @@ describe('Story 43-10: --engine flag routing', () => {
           engine: 'graph',
           concurrency: 2,
           maxReviewCycles: 3,
-        }),
+        })
       )
 
       expect(mockCreateGraphOrchestrator).toHaveBeenCalled()
@@ -584,7 +608,7 @@ describe('Story 43-10: --engine flag routing', () => {
     })
 
     it('calls applyConfigToGraph with maxReviewCycles before creating orchestrator', async () => {
-      const { applyConfigToGraph: mockApply } = await import('@substrate-ai/sdlc') as any
+      const { applyConfigToGraph: mockApply } = (await import('@substrate-ai/sdlc')) as any
       const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
       await runRunAction(makeBaseOptions({ engine: 'graph', maxReviewCycles: 5 }))
@@ -592,7 +616,7 @@ describe('Story 43-10: --engine flag routing', () => {
       expect(mockApply).toHaveBeenCalledOnce()
       expect(mockApply).toHaveBeenCalledWith(
         expect.anything(), // parsed graph
-        { maxReviewCycles: 5 },
+        { maxReviewCycles: 5 }
       )
 
       stdoutWrite.mockRestore()

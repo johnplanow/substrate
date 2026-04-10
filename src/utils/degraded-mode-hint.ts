@@ -36,7 +36,9 @@ export interface DegradedModeHintResult {
  * @param statePath - Absolute path to the substrate state directory
  *                    (e.g. `/project/.substrate/state`).
  */
-export async function getDegradedModeHint(statePath: string): Promise<{ hint: string; doltInstalled: boolean }> {
+export async function getDegradedModeHint(
+  statePath: string
+): Promise<{ hint: string; doltInstalled: boolean }> {
   try {
     await checkDoltInstalled()
     // Dolt binary found — check if repo is initialized
@@ -77,7 +79,9 @@ export async function getDegradedModeHint(statePath: string): Promise<{ hint: st
  *                  the resolved state directory path.
  * @returns The hint message and a flag indicating whether Dolt is installed.
  */
-export async function emitDegradedModeHint(options: DegradedModeHintOptions): Promise<DegradedModeHintResult> {
+export async function emitDegradedModeHint(
+  options: DegradedModeHintOptions
+): Promise<DegradedModeHintResult> {
   const { hint, doltInstalled } = await getDegradedModeHint(options.statePath)
 
   if (options.outputFormat !== 'json') {

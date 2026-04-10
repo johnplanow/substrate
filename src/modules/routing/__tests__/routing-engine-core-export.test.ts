@@ -12,11 +12,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-  createRoutingEngine,
-  createRoutingEngineImpl,
-  createEventBus,
-} from '@substrate-ai/core'
+import { createRoutingEngine, createRoutingEngineImpl, createEventBus } from '@substrate-ai/core'
 import type {
   CoreEvents,
   IAdapterRegistry,

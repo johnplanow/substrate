@@ -161,7 +161,9 @@ function makeMultiStepPack(): MethodologyPack {
             {
               name: 'planning-step-1-classification',
               template: 'planning-step-1-classification',
-              context: [{ placeholder: 'product_brief', source: 'decision:analysis.product-brief' }],
+              context: [
+                { placeholder: 'product_brief', source: 'decision:analysis.product-brief' },
+              ],
               outputCategory: 'classification',
             },
             {
@@ -203,7 +205,9 @@ function makeMultiStepPack(): MethodologyPack {
         return Promise.resolve('Define FRs for: {{product_brief}} with {{classification}}')
       }
       if (key === 'planning-step-3-nfrs') {
-        return Promise.resolve('Define NFRs for: {{product_brief}} with {{classification}} and {{functional_requirements}}')
+        return Promise.resolve(
+          'Define NFRs for: {{product_brief}} with {{classification}} and {{functional_requirements}}'
+        )
       }
       return Promise.resolve('{{product_brief}}')
     }),
@@ -241,14 +245,16 @@ function makeNoStepsPack(): MethodologyPack {
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack: MethodologyPack,
+  pack: MethodologyPack
 ): PhaseDeps {
   return { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
@@ -368,7 +374,7 @@ describe('runPlanningPhase() multi-step path', () => {
         domain_model: { Task: { title: 'string' } },
         out_of_scope: [],
       },
-      0,
+      0
     )
     const dispatcher: Dispatcher = {
       dispatch: vi.fn().mockReturnValue({
@@ -410,7 +416,7 @@ describe('runPlanningPhase() multi-step path', () => {
         domain_model: { Task: { title: 'string' } },
         out_of_scope: [],
       },
-      0,
+      0
     )
     const dispatcher: Dispatcher = {
       dispatch: vi.fn().mockReturnValue({
@@ -464,7 +470,10 @@ describe('runPlanningPhase() multi-step path', () => {
     const dispatcher = makeMultiStepDispatcher()
     const deps = makeDeps(adapter, dispatcher, pack)
     // Create a new run WITHOUT seeding analysis decisions
-    const emptyRun = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: 'analysis' })
+    const emptyRun = await createPipelineRun(adapter, {
+      methodology: 'bmad',
+      start_phase: 'analysis',
+    })
     const params: PlanningPhaseParams = { runId: emptyRun.id }
 
     const result = await runPlanningPhase(deps, params)

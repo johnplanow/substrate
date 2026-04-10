@@ -59,10 +59,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
 }))
 
 // Import after mocks are set up
-import {
-  buildSdlcHandlerRegistry,
-  type SdlcRegistryDeps,
-} from '../sdlc-graph-setup.js'
+import { buildSdlcHandlerRegistry, type SdlcRegistryDeps } from '../sdlc-graph-setup.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -296,19 +293,36 @@ describe('AC5: default handler from createDefaultRegistry', () => {
     const registry = buildSdlcHandlerRegistry(makeDeps())
     // createDefaultRegistry sets codergen as the default handler for unrecognised types.
     // SDLC registry inherits this — structural nodes (start/exit) use shape-based resolution.
-    const handler = registry.resolve({ id: 'unknown_node', type: 'sdlc.unknown', label: '', prompt: '' })
+    const handler = registry.resolve({
+      id: 'unknown_node',
+      type: 'sdlc.unknown',
+      label: '',
+      prompt: '',
+    })
     expect(typeof handler).toBe('function')
   })
 
   it('resolving start shape returns a handler (shape-based resolution via Mdiamond)', () => {
     const registry = buildSdlcHandlerRegistry(makeDeps())
-    const handler = registry.resolve({ id: 'start', type: '', shape: 'Mdiamond', label: '', prompt: '' })
+    const handler = registry.resolve({
+      id: 'start',
+      type: '',
+      shape: 'Mdiamond',
+      label: '',
+      prompt: '',
+    })
     expect(typeof handler).toBe('function')
   })
 
   it('resolving exit shape returns a handler (shape-based resolution via Msquare)', () => {
     const registry = buildSdlcHandlerRegistry(makeDeps())
-    const handler = registry.resolve({ id: 'exit', type: '', shape: 'Msquare', label: '', prompt: '' })
+    const handler = registry.resolve({
+      id: 'exit',
+      type: '',
+      shape: 'Msquare',
+      label: '',
+      prompt: '',
+    })
     expect(typeof handler).toBe('function')
   })
 })

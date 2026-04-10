@@ -37,7 +37,10 @@ const log = createLogger('modules:state:dolt')
 const STORY_KEY_PATTERN = /^[A-Za-z0-9]+(-[A-Za-z0-9]+)?$/
 function assertValidStoryKey(storyKey: string): void {
   if (!STORY_KEY_PATTERN.test(storyKey)) {
-    throw new DoltQueryError('assertValidStoryKey', `Invalid story key: '${storyKey}'. Must match pattern <key> or <epic>-<story> (e.g. "E6", "10-1", "1-1a", "NEW-26").`)
+    throw new DoltQueryError(
+      'assertValidStoryKey',
+      `Invalid story key: '${storyKey}'. Must match pattern <key> or <epic>-<story> (e.g. "E6", "10-1", "1-1a", "NEW-26").`
+    )
   }
 }
 
@@ -231,16 +234,21 @@ export class DoltStateStore implements StateStore {
     // Skips silently if repo_map_symbols does not yet exist (fresh DB or non-Dolt env).
     try {
       const colRows = await this._client.query<Record<string, unknown>>(
-        `SHOW COLUMNS FROM repo_map_symbols LIKE 'dependencies'`,
+        `SHOW COLUMNS FROM repo_map_symbols LIKE 'dependencies'`
       )
       if (colRows.length === 0) {
         await this._client.query(`ALTER TABLE repo_map_symbols ADD COLUMN dependencies JSON`)
         await this._client.query(
-          `INSERT IGNORE INTO _schema_version (version, description) VALUES (6, 'Add dependencies JSON column to repo_map_symbols (Epic 28-3)')`,
+          `INSERT IGNORE INTO _schema_version (version, description) VALUES (6, 'Add dependencies JSON column to repo_map_symbols (Epic 28-3)')`
         )
         log.info(
-          { component: 'dolt-state', migration: 'v5-to-v6', column: 'dependencies', table: 'repo_map_symbols' },
-          'Applied migration v5-to-v6: added dependencies column to repo_map_symbols',
+          {
+            component: 'dolt-state',
+            migration: 'v5-to-v6',
+            column: 'dependencies',
+            table: 'repo_map_symbols',
+          },
+          'Applied migration v5-to-v6: added dependencies column to repo_map_symbols'
         )
       }
     } catch {
@@ -275,10 +283,9 @@ export class DoltStateStore implements StateStore {
   // ---------------------------------------------------------------------------
 
   async getStoryState(storyKey: string): Promise<StoryRecord | undefined> {
-    const rows = await this._client.query<StoryRow>(
-      'SELECT * FROM stories WHERE story_key = ?',
-      [storyKey],
-    )
+    const rows = await this._client.query<StoryRow>('SELECT * FROM stories WHERE story_key = ?', [
+      storyKey,
+    ])
     if (rows.length === 0) return undefined
     return this._rowToStory(rows[0])
   }
@@ -288,16 +295,20 @@ export class DoltStateStore implements StateStore {
     const sql = `REPLACE INTO stories
       (story_key, phase, review_cycles, last_verdict, error, started_at, completed_at, sprint)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    await this._client.query(sql, [
-      storyKey,
-      state.phase,
-      state.reviewCycles,
-      state.lastVerdict ?? null,
-      state.error ?? null,
-      state.startedAt ?? null,
-      state.completedAt ?? null,
-      state.sprint ?? null,
-    ], branch)
+    await this._client.query(
+      sql,
+      [
+        storyKey,
+        state.phase,
+        state.reviewCycles,
+        state.lastVerdict ?? null,
+        state.error ?? null,
+        state.startedAt ?? null,
+        state.completedAt ?? null,
+        state.sprint ?? null,
+      ],
+      branch
+    )
   }
 
   async queryStories<T extends StoryFilter>(filter: T): Promise<StoryRecord[]> {
@@ -351,21 +362,25 @@ export class DoltStateStore implements StateStore {
       (story_key, task_type, model, tokens_in, tokens_out, cache_read_tokens,
        cost_usd, wall_clock_ms, review_cycles, stall_count, result, recorded_at, sprint)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    await this._client.query(sql, [
-      metric.storyKey,
-      metric.taskType,
-      metric.model ?? null,
-      metric.tokensIn ?? null,
-      metric.tokensOut ?? null,
-      metric.cacheReadTokens ?? null,
-      metric.costUsd ?? null,
-      metric.wallClockMs ?? null,
-      metric.reviewCycles ?? null,
-      metric.stallCount ?? null,
-      metric.result ?? null,
-      recordedAt,
-      metric.sprint ?? null,
-    ], branch)
+    await this._client.query(
+      sql,
+      [
+        metric.storyKey,
+        metric.taskType,
+        metric.model ?? null,
+        metric.tokensIn ?? null,
+        metric.tokensOut ?? null,
+        metric.cacheReadTokens ?? null,
+        metric.costUsd ?? null,
+        metric.wallClockMs ?? null,
+        metric.reviewCycles ?? null,
+        metric.stallCount ?? null,
+        metric.result ?? null,
+        recordedAt,
+        metric.sprint ?? null,
+      ],
+      branch
+    )
   }
 
   async queryMetrics(filter: MetricFilter): Promise<MetricRecord[]> {
@@ -457,7 +472,7 @@ export class DoltStateStore implements StateStore {
   async getContracts(storyKey: string): Promise<ContractRecord[]> {
     const rows = await this._client.query<ContractRow>(
       'SELECT * FROM contracts WHERE story_key = ? ORDER BY contract_name',
-      [storyKey],
+      [storyKey]
     )
     return rows.map((r) => this._rowToContract(r))
   }
@@ -470,7 +485,7 @@ export class DoltStateStore implements StateStore {
         `INSERT INTO contracts (story_key, contract_name, direction, schema_path, transport)
          VALUES (?, ?, ?, ?, ?)`,
         [c.storyKey, c.contractName, c.direction, c.schemaPath, c.transport ?? null],
-        branch,
+        branch
       )
     }
   }
@@ -504,12 +519,15 @@ export class DoltStateStore implements StateStore {
     return rows.map((r) => this._rowToContract(r))
   }
 
-  async setContractVerification(storyKey: string, results: ContractVerificationRecord[]): Promise<void> {
+  async setContractVerification(
+    storyKey: string,
+    results: ContractVerificationRecord[]
+  ): Promise<void> {
     const branch = this._branchFor(storyKey)
     await this._client.query(
       `DELETE FROM review_verdicts WHERE story_key = ? AND task_type = 'contract-verification'`,
       [storyKey],
-      branch,
+      branch
     )
 
     const failCount = results.filter((r) => r.verdict === 'fail').length
@@ -522,10 +540,13 @@ export class DoltStateStore implements StateStore {
           storyKey,
           r.verdict,
           failCount,
-          JSON.stringify({ contractName: r.contractName, mismatchDescription: r.mismatchDescription }),
+          JSON.stringify({
+            contractName: r.contractName,
+            mismatchDescription: r.mismatchDescription,
+          }),
           r.verifiedAt,
         ],
-        branch,
+        branch
       )
     }
 
@@ -535,7 +556,7 @@ export class DoltStateStore implements StateStore {
   async getContractVerification(storyKey: string): Promise<ContractVerificationRecord[]> {
     const rows = await this._client.query<ReviewVerdictRow>(
       `SELECT * FROM review_verdicts WHERE story_key = ? AND task_type = 'contract-verification' ORDER BY timestamp DESC`,
-      [storyKey],
+      [storyKey]
     )
 
     return rows.map((row) => {
@@ -546,7 +567,8 @@ export class DoltStateStore implements StateStore {
         try {
           const parsed = JSON.parse(row.notes) as Record<string, unknown>
           if (typeof parsed.contractName === 'string') contractName = parsed.contractName
-          if (typeof parsed.mismatchDescription === 'string') mismatchDescription = parsed.mismatchDescription
+          if (typeof parsed.mismatchDescription === 'string')
+            mismatchDescription = parsed.mismatchDescription
         } catch {
           // Ignore malformed notes
         }
@@ -592,15 +614,11 @@ export class DoltStateStore implements StateStore {
       // Without this, writes remain in the working set and DOLT_MERGE
       // only sees the committed state.
       try {
-        await this._client.query(
-          `CALL DOLT_ADD('-A')`,
-          [],
-          branchName,
-        )
+        await this._client.query(`CALL DOLT_ADD('-A')`, [], branchName)
         await this._client.query(
           `CALL DOLT_COMMIT('-m', 'Story ${storyKey}: pre-merge commit', '--allow-empty')`,
           [],
-          branchName,
+          branchName
         )
       } catch {
         // Best-effort — branch may already be clean
@@ -613,7 +631,7 @@ export class DoltStateStore implements StateStore {
         await this._client.query(
           `CALL DOLT_COMMIT('-m', 'substrate: pre-merge auto-commit', '--allow-empty')`,
           [],
-          'main',
+          'main'
         )
       } catch {
         // Best-effort — main may already be clean
@@ -623,7 +641,7 @@ export class DoltStateStore implements StateStore {
       const mergeRows = await this._client.query<MergeResultRow>(
         `CALL DOLT_MERGE('${branchName}')`,
         [],
-        'main',
+        'main'
       )
       // Check for conflicts
       const mergeResult = mergeRows[0]
@@ -637,7 +655,7 @@ export class DoltStateStore implements StateStore {
           const conflictRows = await this._client.query<ConflictRow>(
             `SELECT * FROM dolt_conflicts_stories LIMIT 1`,
             [],
-            'main',
+            'main'
           )
           if (conflictRows.length > 0) {
             const row = conflictRows[0]
@@ -657,7 +675,7 @@ export class DoltStateStore implements StateStore {
         await this._client.query(
           `CALL DOLT_COMMIT('-m', 'Merge story ${storyKey}: COMPLETE')`,
           [],
-          'main',
+          'main'
         )
       } catch (commitErr: unknown) {
         const msg = commitErr instanceof Error ? commitErr.message : String(commitErr)
@@ -723,7 +741,7 @@ export class DoltStateStore implements StateStore {
       await this._client.query(
         `CALL DOLT_COMMIT('-m', 'Story ${storyKey}: pre-diff snapshot', '--allow-empty')`,
         [],
-        branchName,
+        branchName
       )
     } catch {
       // Best-effort — may fail if nothing to commit
@@ -741,7 +759,7 @@ export class DoltStateStore implements StateStore {
     try {
       const rows = await this._client.query<{ commit_hash: string }>(
         `SELECT commit_hash FROM dolt_log WHERE message LIKE ? LIMIT 1`,
-        [`%${storyKey}%`],
+        [`%${storyKey}%`]
       )
       if (rows.length === 0) {
         return { storyKey, tables: [] }
@@ -769,7 +787,7 @@ export class DoltStateStore implements StateStore {
         const rows = await this._client.query<Record<string, unknown>>(
           `SELECT * FROM DOLT_DIFF('${fromRef}', '${toRef}', '${table}')`,
           [],
-          'main',
+          'main'
         )
 
         if (rows.length === 0) continue
@@ -783,7 +801,11 @@ export class DoltStateStore implements StateStore {
           const rowKey = this._extractRowKey(row)
           const before = this._extractPrefixedFields(row, 'before_')
           const after = this._extractPrefixedFields(row, 'after_')
-          const diffRow: DiffRow = { rowKey, ...(before !== undefined && { before }), ...(after !== undefined && { after }) }
+          const diffRow: DiffRow = {
+            rowKey,
+            ...(before !== undefined && { before }),
+            ...(after !== undefined && { after }),
+          }
           if (diffType === 'added') added.push(diffRow)
           else if (diffType === 'modified') modified.push(diffRow)
           else if (diffType === 'removed') deleted.push(diffRow)
@@ -808,7 +830,12 @@ export class DoltStateStore implements StateStore {
   private _extractRowKey(row: Record<string, unknown>): string {
     for (const prefix of ['after_', 'before_']) {
       for (const [key, val] of Object.entries(row)) {
-        if (key.startsWith(prefix) && !key.endsWith('_commit_hash') && val !== null && val !== undefined) {
+        if (
+          key.startsWith(prefix) &&
+          !key.endsWith('_commit_hash') &&
+          val !== null &&
+          val !== undefined
+        ) {
           return String(val)
         }
       }
@@ -823,7 +850,7 @@ export class DoltStateStore implements StateStore {
    */
   private _extractPrefixedFields(
     row: Record<string, unknown>,
-    prefix: string,
+    prefix: string
   ): Record<string, unknown> | undefined {
     const result: Record<string, unknown> = {}
     for (const [key, val] of Object.entries(row)) {
@@ -869,15 +896,13 @@ export class DoltStateStore implements StateStore {
       // dolt_log system table reflects the current branch; no branch parameter needed
       const rows = await this._client.query<Record<string, unknown>>(
         `SELECT commit_hash, date, message, committer FROM dolt_log LIMIT ?`,
-        [effectiveLimit],
+        [effectiveLimit]
       )
       const entries: HistoryEntry[] = []
       for (const row of rows) {
         const hash = String(row.commit_hash ?? '')
         const dateVal = row.date
-        const timestamp = dateVal instanceof Date
-          ? dateVal.toISOString()
-          : String(dateVal ?? '')
+        const timestamp = dateVal instanceof Date ? dateVal.toISOString() : String(dateVal ?? '')
         const message = String(row.message ?? '')
         const author = row.committer ? String(row.committer) : undefined
         // Extract story key from message

@@ -19,7 +19,11 @@ const mockExec = vi.mocked(exec) as unknown as ReturnType<typeof vi.fn>
 
 function mockExecResolve(stdout: string, stderr = ''): void {
   mockExec.mockImplementationOnce(
-    (_cmd: string, _opts: unknown, cb: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
+    (
+      _cmd: string,
+      _opts: unknown,
+      cb: (err: Error | null, result: { stdout: string; stderr: string }) => void
+    ) => {
       cb(null, { stdout, stderr })
     }
   )
@@ -27,7 +31,11 @@ function mockExecResolve(stdout: string, stderr = ''): void {
 
 function mockExecReject(message: string): void {
   mockExec.mockImplementationOnce(
-    (_cmd: string, _opts: unknown, cb: (err: Error | null, result: { stdout: string; stderr: string } | null) => void) => {
+    (
+      _cmd: string,
+      _opts: unknown,
+      cb: (err: Error | null, result: { stdout: string; stderr: string } | null) => void
+    ) => {
       cb(new Error(message), null)
     }
   )
@@ -35,7 +43,11 @@ function mockExecReject(message: string): void {
 
 function mockExecRejectAll(): void {
   mockExec.mockImplementation(
-    (_cmd: string, _opts: unknown, cb: (err: Error | null, result: { stdout: string; stderr: string } | null) => void) => {
+    (
+      _cmd: string,
+      _opts: unknown,
+      cb: (err: Error | null, result: { stdout: string; stderr: string } | null) => void
+    ) => {
       cb(new Error('not found'), null)
     }
   )
@@ -44,11 +56,7 @@ function mockExecRejectAll(): void {
 // ---------------------------------------------------------------------------
 // Stub adapter for testing registry CRUD
 // ---------------------------------------------------------------------------
-function createStubAdapter(
-  id: string,
-  healthy: boolean,
-  planningCapable = true
-): WorkerAdapter {
+function createStubAdapter(id: string, healthy: boolean, planningCapable = true): WorkerAdapter {
   return {
     id,
     displayName: `${id} Display`,
@@ -245,7 +253,11 @@ describe('AdapterRegistry', () => {
 
       // Codex and Gemini succeed
       mockExec.mockImplementation(
-        (_cmd: string, _opts: unknown, cb: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
+        (
+          _cmd: string,
+          _opts: unknown,
+          cb: (err: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
           cb(null, { stdout: '1.0.0\n', stderr: '' })
         }
       )

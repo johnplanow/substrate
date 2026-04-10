@@ -114,16 +114,20 @@ function createMockAdapter(id = 'claude-code'): WorkerAdapter {
     id,
     displayName: 'Claude Code',
     adapterVersion: '1.0.0',
-    buildCommand: vi.fn((_prompt: string, _options: AdapterOptions): SpawnCommand => ({
-      binary: 'claude',
-      args: ['--print'],
-      cwd: _options.worktreePath,
-    })),
-    parseOutput: vi.fn((_stdout: string, _stderr: string, _exitCode: number): TaskResult => ({
-      success: _exitCode === 0,
-      output: _stdout,
-      exitCode: _exitCode,
-    })),
+    buildCommand: vi.fn(
+      (_prompt: string, _options: AdapterOptions): SpawnCommand => ({
+        binary: 'claude',
+        args: ['--print'],
+        cwd: _options.worktreePath,
+      })
+    ),
+    parseOutput: vi.fn(
+      (_stdout: string, _stderr: string, _exitCode: number): TaskResult => ({
+        success: _exitCode === 0,
+        output: _stdout,
+        exitCode: _exitCode,
+      })
+    ),
     buildPlanningCommand: vi.fn(),
     parsePlanOutput: vi.fn(),
     estimateTokens: vi.fn(() => ({ input: 10, output: 5, total: 15 })),
@@ -346,15 +350,15 @@ describe('Routing Pipeline E2E — Config → Resolver → Dispatcher → Accumu
     const breakdown = raw as PhaseTokenBreakdown
 
     expect(breakdown.entries.length).toBe(2) // review + generate(override)
-    const phases = breakdown.entries.map(e => `${e.phase}::${e.model}`).sort()
+    const phases = breakdown.entries.map((e) => `${e.phase}::${e.model}`).sort()
     expect(phases).toEqual(['generate::claude-opus-4-6', 'review::claude-sonnet-4-5'])
 
     // dev-story dispatched twice → dispatchCount should be 2
-    const genEntry = breakdown.entries.find(e => e.phase === 'generate')!
+    const genEntry = breakdown.entries.find((e) => e.phase === 'generate')!
     expect(genEntry.dispatchCount).toBe(2)
 
     // code-review dispatched once
-    const reviewEntry = breakdown.entries.find(e => e.phase === 'review')!
+    const reviewEntry = breakdown.entries.find((e) => e.phase === 'review')!
     expect(reviewEntry.dispatchCount).toBe(1)
   })
 
@@ -439,10 +443,7 @@ describe('Routing Pipeline E2E — Config → Resolver → Dispatcher → Accumu
 
     // Mock telemetry persistence
     const mockTelemetryPersistence = { recordSpan: vi.fn() }
-    const routingTelemetry = new RoutingTelemetry(
-      mockTelemetryPersistence as never,
-      logger,
-    )
+    const routingTelemetry = new RoutingTelemetry(mockTelemetryPersistence as never, logger)
 
     // Wire telemetry to event bus (mirrors run.ts wiring)
     eventBus.on('routing:model-selected', (payload) => {
@@ -478,7 +479,7 @@ describe('Routing Pipeline E2E — Config → Resolver → Dispatcher → Accumu
           model: 'claude-sonnet-4-5',
           source: 'phase',
         }),
-      }),
+      })
     )
   })
 })
@@ -602,7 +603,11 @@ describe('Routing Pipeline E2E — FileStateStore kv-metrics persistence', () =>
     // Store 1: write breakdown
     const store1 = new FileStateStore({ basePath: tmpDir })
     const accumulator = new RoutingTokenAccumulator(config, store1, logger)
-    accumulator.onRoutingSelected({ dispatchId: 'd1', phase: 'generate', model: 'claude-sonnet-4-5' })
+    accumulator.onRoutingSelected({
+      dispatchId: 'd1',
+      phase: 'generate',
+      model: 'claude-sonnet-4-5',
+    })
     accumulator.onAgentCompleted({ dispatchId: 'd1', inputTokens: 500, outputTokens: 200 })
     await accumulator.flush('run-persist')
 

@@ -43,7 +43,8 @@ vi.mock('../../../modules/state/index.js', () => ({
 
 // Mock the degraded-mode-hint utility
 const { mockEmitDegradedModeHint } = vi.hoisted(() => ({
-  mockEmitDegradedModeHint: vi.fn<(opts: unknown) => Promise<{ hint: string; doltInstalled: boolean }>>(),
+  mockEmitDegradedModeHint:
+    vi.fn<(opts: unknown) => Promise<{ hint: string; doltInstalled: boolean }>>(),
 }))
 
 vi.mock('../../../utils/degraded-mode-hint.js', () => ({
@@ -74,7 +75,8 @@ function createProgram(): Command {
   return program
 }
 
-const MOCK_HINT = 'Note: Dolt is not installed. Install it from https://docs.dolthub.com/introduction/installation, then run `substrate init --dolt` to enable diff and history features.'
+const MOCK_HINT =
+  'Note: Dolt is not installed. Install it from https://docs.dolthub.com/introduction/installation, then run `substrate init --dolt` to enable diff and history features.'
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -100,14 +102,19 @@ describe('history command', () => {
 
   describe('file backend degraded mode', () => {
     async function makeFileStoreInstance() {
-      const { createStateStore, FileStateStore: MockFS } = await import('../../../modules/state/index.js')
-      const fileStoreInstance = Object.create((MockFS as unknown as { prototype: object }).prototype) as object
+      const { createStateStore, FileStateStore: MockFS } =
+        await import('../../../modules/state/index.js')
+      const fileStoreInstance = Object.create(
+        (MockFS as unknown as { prototype: object }).prototype
+      ) as object
       Object.assign(fileStoreInstance, {
         initialize: mockInitialize,
         close: mockClose,
         getHistory: vi.fn().mockResolvedValue([]),
       })
-      vi.mocked(createStateStore).mockReturnValueOnce(fileStoreInstance as ReturnType<typeof createStateStore>)
+      vi.mocked(createStateStore).mockReturnValueOnce(
+        fileStoreInstance as ReturnType<typeof createStateStore>
+      )
       return fileStoreInstance
     }
 
@@ -119,7 +126,7 @@ describe('history command', () => {
 
       expect(mockEmitDegradedModeHint).toHaveBeenCalledOnce()
       expect(mockEmitDegradedModeHint).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'history', outputFormat: 'text' }),
+        expect.objectContaining({ command: 'history', outputFormat: 'text' })
       )
     })
 
@@ -182,8 +189,18 @@ describe('history command', () => {
   describe('text output', () => {
     it('prints one line per entry in hash  timestamp  storyKey  message format', async () => {
       mockGetHistory.mockResolvedValue([
-        makeEntry({ hash: 'a1b2c3d', timestamp: '2026-03-08T14:23:01+00:00', storyKey: '26-7', message: 'Merge story/26-7: done' }),
-        makeEntry({ hash: 'b2c3d4e', timestamp: '2026-03-07T10:00:00+00:00', storyKey: null, message: 'substrate: auto-commit' }),
+        makeEntry({
+          hash: 'a1b2c3d',
+          timestamp: '2026-03-08T14:23:01+00:00',
+          storyKey: '26-7',
+          message: 'Merge story/26-7: done',
+        }),
+        makeEntry({
+          hash: 'b2c3d4e',
+          timestamp: '2026-03-07T10:00:00+00:00',
+          storyKey: null,
+          message: 'substrate: auto-commit',
+        }),
       ])
 
       const program = createProgram()
@@ -201,9 +218,7 @@ describe('history command', () => {
     })
 
     it('pads storyKey column to 8 characters', async () => {
-      mockGetHistory.mockResolvedValue([
-        makeEntry({ storyKey: '26-7' }),
-      ])
+      mockGetHistory.mockResolvedValue([makeEntry({ storyKey: '26-7' })])
 
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'history'])

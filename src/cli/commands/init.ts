@@ -21,7 +21,18 @@
 
 import type { Command } from 'commander'
 import { mkdir, writeFile, access, readFile } from 'fs/promises'
-import { mkdirSync, writeFileSync, existsSync, readFileSync, cpSync, chmodSync, readdirSync, unlinkSync, appendFileSync, rmSync } from 'fs'
+import {
+  mkdirSync,
+  writeFileSync,
+  existsSync,
+  readFileSync,
+  cpSync,
+  chmodSync,
+  readdirSync,
+  unlinkSync,
+  appendFileSync,
+  rmSync,
+} from 'fs'
 import { join, resolve, dirname } from 'path'
 import { fileURLToPath } from 'node:url'
 import yaml from 'js-yaml'
@@ -35,14 +46,21 @@ import type {
   SubstrateConfig,
   RoutingPolicy,
 } from '../../modules/config/config-schema.js'
-import { CURRENT_CONFIG_FORMAT_VERSION, CURRENT_TASK_GRAPH_VERSION } from '../../modules/config/config-schema.js'
+import {
+  CURRENT_CONFIG_FORMAT_VERSION,
+  CURRENT_TASK_GRAPH_VERSION,
+} from '../../modules/config/config-schema.js'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createDatabaseAdapter } from '../../persistence/adapter.js'
 import { initSchema } from '../../persistence/schema.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createLogger } from '../../utils/logger.js'
 import { ConfigError } from '../../core/errors.js'
-import { initializeDolt, checkDoltInstalled, DoltNotInstalled } from '../../modules/state/dolt-init.js'
+import {
+  initializeDolt,
+  checkDoltInstalled,
+  DoltNotInstalled,
+} from '../../modules/state/dolt-init.js'
 import type { OutputFormat } from './pipeline-shared.js'
 import {
   findPackageRoot,
@@ -75,7 +93,9 @@ const SCAFFOLD_VERSION_REGEX = /<!-- substrate:version=([\d.]+) -->/
  */
 function readSubstrateVersion(pkgRoot: string): string {
   try {
-    const pkg = JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf8')) as { version?: string }
+    const pkg = JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf8')) as {
+      version?: string
+    }
     return pkg.version ?? '0.0.0'
   } catch {
     return '0.0.0'
@@ -107,7 +127,7 @@ const BMAD_FRAMEWORK_DIRS = ['core', 'bmm', 'tea'] as const
 export async function scaffoldBmadFramework(
   projectRoot: string,
   force: boolean,
-  outputFormat: OutputFormat,
+  outputFormat: OutputFormat
 ): Promise<void> {
   const bmadDest = join(projectRoot, '_bmad')
   const bmadExists = existsSync(bmadDest)
@@ -120,7 +140,7 @@ export async function scaffoldBmadFramework(
   if (!bmadSrc) {
     if (outputFormat !== 'json') {
       process.stderr.write(
-        'Warning: bmad-method is not installed. BMAD framework not scaffolded. Run: npm install bmad-method\n',
+        'Warning: bmad-method is not installed. BMAD framework not scaffolded. Run: npm install bmad-method\n'
       )
     }
     return
@@ -130,7 +150,7 @@ export async function scaffoldBmadFramework(
 
   if (force && bmadExists) {
     process.stderr.write(
-      `Warning: Replacing existing _bmad/ framework with bmad-method@${version}\n`,
+      `Warning: Replacing existing _bmad/ framework with bmad-method@${version}\n`
     )
   }
 
@@ -151,14 +171,15 @@ export async function scaffoldBmadFramework(
   const configFile = join(configDir, 'config.yaml')
   if (!existsSync(configFile)) {
     mkdirSync(configDir, { recursive: true })
-    const configStub = [
-      '# BMAD framework configuration',
-      `# Scaffolded from bmad-method@${version} by substrate init`,
-      '# This file is project-specific — customize as needed.',
-      'user_name: Human',
-      'communication_language: English',
-      'document_output_language: English',
-    ].join('\n') + '\n'
+    const configStub =
+      [
+        '# BMAD framework configuration',
+        `# Scaffolded from bmad-method@${version} by substrate init`,
+        '# This file is project-specific — customize as needed.',
+        'user_name: Human',
+        'communication_language: English',
+        'document_output_language: English',
+      ].join('\n') + '\n'
     await writeFile(configFile, configStub, 'utf8')
     logger.info({ configFile }, 'Generated _bmad/_config/config.yaml stub')
   }
@@ -176,7 +197,7 @@ export const DEV_WORKFLOW_CLAUDE_MD_END = DEV_WORKFLOW_END_MARKER
 
 export async function scaffoldClaudeMd(
   projectRoot: string,
-  profile?: ProjectProfile | null,
+  profile?: ProjectProfile | null
 ): Promise<void> {
   const claudeMdPath = join(projectRoot, 'CLAUDE.md')
   const pkgRoot = findPackageRoot(__dirname)
@@ -233,14 +254,14 @@ export async function scaffoldClaudeMd(
       const existingVersion = extractScaffoldVersion(existingContent)
       if (existingVersion && existingVersion !== substrateVersion) {
         process.stderr.write(
-          `Updating CLAUDE.md substrate scaffold from v${existingVersion} → v${substrateVersion}\n`,
+          `Updating CLAUDE.md substrate scaffold from v${existingVersion} → v${substrateVersion}\n`
         )
       }
       updatedExisting = existingContent.replace(
         new RegExp(
-          `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+          `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
         ),
-        sectionContent.trimEnd(),
+        sectionContent.trimEnd()
       )
     } else {
       const separator = existingContent.endsWith('\n') ? '\n' : '\n\n'
@@ -253,16 +274,16 @@ export async function scaffoldClaudeMd(
         // Replace existing dev workflow block
         newContent = updatedExisting.replace(
           new RegExp(
-            `${DEV_WORKFLOW_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${DEV_WORKFLOW_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+            `${DEV_WORKFLOW_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${DEV_WORKFLOW_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
           ),
-          devNotesSection,
+          devNotesSection
         )
       } else {
         // Prepend dev workflow section before substrate section
         if (updatedExisting.includes(CLAUDE_MD_START_MARKER)) {
           newContent = updatedExisting.replace(
             CLAUDE_MD_START_MARKER,
-            devNotesSection + '\n\n' + CLAUDE_MD_START_MARKER,
+            devNotesSection + '\n\n' + CLAUDE_MD_START_MARKER
           )
         } else {
           // Append at the front (or use separator)
@@ -274,9 +295,9 @@ export async function scaffoldClaudeMd(
       // Profile is null but dev workflow block exists — remove it
       newContent = updatedExisting.replace(
         new RegExp(
-          `${DEV_WORKFLOW_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${DEV_WORKFLOW_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n?`,
+          `${DEV_WORKFLOW_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${DEV_WORKFLOW_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n?`
         ),
-        '',
+        ''
       )
     } else {
       newContent = updatedExisting
@@ -293,7 +314,7 @@ export async function scaffoldClaudeMd(
 
 export async function scaffoldAgentsMd(
   projectRoot: string,
-  profile?: ProjectProfile | null,
+  profile?: ProjectProfile | null
 ): Promise<void> {
   const agentsMdPath = join(projectRoot, 'AGENTS.md')
   const pkgRoot = findPackageRoot(__dirname)
@@ -332,9 +353,9 @@ export async function scaffoldAgentsMd(
   } else if (existingContent.includes(CLAUDE_MD_START_MARKER)) {
     newContent = existingContent.replace(
       new RegExp(
-        `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+        `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
       ),
-      sectionContent.trimEnd(),
+      sectionContent.trimEnd()
     )
   } else {
     const separator = existingContent.endsWith('\n') ? '\n' : '\n\n'
@@ -351,7 +372,7 @@ export async function scaffoldAgentsMd(
 
 export async function scaffoldGeminiMd(
   projectRoot: string,
-  profile?: ProjectProfile | null,
+  profile?: ProjectProfile | null
 ): Promise<void> {
   const geminiMdPath = join(projectRoot, 'GEMINI.md')
   const pkgRoot = findPackageRoot(__dirname)
@@ -390,9 +411,9 @@ export async function scaffoldGeminiMd(
   } else if (existingContent.includes(CLAUDE_MD_START_MARKER)) {
     newContent = existingContent.replace(
       new RegExp(
-        `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+        `${CLAUDE_MD_START_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CLAUDE_MD_END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
       ),
-      sectionContent.trimEnd(),
+      sectionContent.trimEnd()
     )
   } else {
     const separator = existingContent.endsWith('\n') ? '\n' : '\n\n'
@@ -482,7 +503,13 @@ export function scanBmadModules(bmadDir: string): string[] {
   try {
     const entries = readdirSync(bmadDir, { withFileTypes: true })
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name.startsWith('_') || entry.name === 'core') continue
+      if (
+        !entry.isDirectory() ||
+        entry.name.startsWith('.') ||
+        entry.name.startsWith('_') ||
+        entry.name === 'core'
+      )
+        continue
       const modPath = join(bmadDir, entry.name)
       const hasAgents = existsSync(join(modPath, 'agents'))
       const hasWorkflows = existsSync(join(modPath, 'workflows'))
@@ -517,7 +544,12 @@ function clearBmadCommandFiles(commandsDir: string): void {
 async function compileBmadAgents(bmadDir: string): Promise<number> {
   const _require = createRequire(join(__dirname, 'synthetic.js'))
 
-  let compileAgent: (yaml: string, answers?: Record<string, unknown>, name?: string, path?: string) => Promise<{ xml: string }>
+  let compileAgent: (
+    yaml: string,
+    answers?: Record<string, unknown>,
+    name?: string,
+    path?: string
+  ) => Promise<{ xml: string }>
   try {
     const pkgJsonPath = _require.resolve('bmad-method/package.json')
     const compilerPath = join(dirname(pkgJsonPath), 'tools', 'cli', 'lib', 'agent', 'compiler.js')
@@ -535,7 +567,13 @@ async function compileBmadAgents(bmadDir: string): Promise<number> {
   try {
     const entries = readdirSync(bmadDir, { withFileTypes: true })
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name === 'core' || entry.name.startsWith('.') || entry.name.startsWith('_')) continue
+      if (
+        !entry.isDirectory() ||
+        entry.name === 'core' ||
+        entry.name.startsWith('.') ||
+        entry.name.startsWith('_')
+      )
+        continue
       const modAgentsDir = join(bmadDir, entry.name, 'agents')
       if (existsSync(modAgentsDir)) agentDirs.push(modAgentsDir)
     }
@@ -574,7 +612,13 @@ async function compileBmadAgents(bmadDir: string): Promise<number> {
 
 // Minimal type interfaces for bmad-method CJS generators.
 // writeDashArtifacts is optional — removed in bmad-method >=6.2.0.
-interface BmadArtifact { type: string; name: string; content?: string; relativePath?: string; [key: string]: unknown }
+interface BmadArtifact {
+  type: string
+  name: string
+  content?: string
+  relativePath?: string
+  [key: string]: unknown
+}
 interface BmadAgentGenerator {
   collectAgentArtifacts(bmadDir: string, modules: string[]): Promise<{ artifacts: BmadArtifact[] }>
   writeDashArtifacts?(dir: string, artifacts: BmadArtifact[]): Promise<number>
@@ -592,7 +636,7 @@ interface BmadManifestGenerator {
     bmadDir: string,
     modules: string[],
     files: unknown[],
-    options: { ides: string[] },
+    options: { ides: string[] }
   ): Promise<unknown>
 }
 // toDashPath from bmad-method path-utils; loaded at runtime via _require.
@@ -653,7 +697,9 @@ function prepareSkillsDir(projectRoot: string): string {
         rmSync(join(skillsDir, entry.name), { recursive: true, force: true })
       }
     }
-  } catch { /* ignore cleanup errors */ }
+  } catch {
+    /* ignore cleanup errors */
+  }
 
   return skillsDir
 }
@@ -769,14 +815,16 @@ function copySkillDirsRecursive(dir: string, destRoot: string): number {
         count += copySkillDirsRecursive(childPath, destRoot)
       }
     }
-  } catch { /* ignore read errors on individual directories */ }
+  } catch {
+    /* ignore read errors on individual directories */
+  }
 
   return count
 }
 
 export async function scaffoldClaudeCommands(
   projectRoot: string,
-  outputFormat: OutputFormat,
+  outputFormat: OutputFormat
 ): Promise<void> {
   const bmadDir = join(projectRoot, '_bmad')
 
@@ -788,7 +836,9 @@ export async function scaffoldClaudeCommands(
 
   if (!installerLibPath) {
     if (outputFormat !== 'json') {
-      process.stderr.write('Warning: bmad-method not found. Skipping .claude/commands/ generation.\n')
+      process.stderr.write(
+        'Warning: bmad-method not found. Skipping .claude/commands/ generation.\n'
+      )
     }
     return
   }
@@ -819,40 +869,63 @@ export async function scaffoldClaudeCommands(
     // generators were removed in some releases). Missing modules are non-fatal.
     const agentGenPath = join(installerLibPath, 'ide', 'shared', 'agent-command-generator.js')
     const workflowGenPath = join(installerLibPath, 'ide', 'shared', 'workflow-command-generator.js')
-    const taskToolGenPath = join(installerLibPath, 'ide', 'shared', 'task-tool-command-generator.js')
+    const taskToolGenPath = join(
+      installerLibPath,
+      'ide',
+      'shared',
+      'task-tool-command-generator.js'
+    )
     const manifestGenPath = join(installerLibPath, 'core', 'manifest-generator.js')
     const pathUtilsPath = join(installerLibPath, 'ide', 'shared', 'path-utils.js')
 
     if (!existsSync(agentGenPath)) {
-      logger.info('bmad-method generators not available (requires bmad-method with agent/workflow/task-tool generators)')
+      logger.info(
+        'bmad-method generators not available (requires bmad-method with agent/workflow/task-tool generators)'
+      )
       return
     }
 
     const agentMod = _require(agentGenPath) as Record<string, unknown>
-    const AgentCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadAgentGenerator>(agentMod, 'AgentCommandGenerator')
+    const AgentCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadAgentGenerator>(
+      agentMod,
+      'AgentCommandGenerator'
+    )
 
     // Workflow and task-tool generators are optional — may not exist in all bmad-method versions.
-    let WorkflowCommandGenerator: (new (bmadFolderName: string) => BmadWorkflowGenerator) | null = null
-    let TaskToolCommandGenerator: (new (bmadFolderName: string) => BmadTaskToolGenerator) | null = null
+    let WorkflowCommandGenerator: (new (bmadFolderName: string) => BmadWorkflowGenerator) | null =
+      null
+    let TaskToolCommandGenerator: (new (bmadFolderName: string) => BmadTaskToolGenerator) | null =
+      null
 
     if (existsSync(workflowGenPath)) {
       const workflowMod = _require(workflowGenPath) as Record<string, unknown>
-      WorkflowCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadWorkflowGenerator>(workflowMod, 'WorkflowCommandGenerator')
+      WorkflowCommandGenerator = resolveExport<
+        new (bmadFolderName: string) => BmadWorkflowGenerator
+      >(workflowMod, 'WorkflowCommandGenerator')
     } else {
-      logger.info('bmad-method workflow-command-generator not available; will try skill-based installation')
+      logger.info(
+        'bmad-method workflow-command-generator not available; will try skill-based installation'
+      )
     }
 
     if (existsSync(taskToolGenPath)) {
       const taskToolMod = _require(taskToolGenPath) as Record<string, unknown>
-      TaskToolCommandGenerator = resolveExport<new (bmadFolderName: string) => BmadTaskToolGenerator>(taskToolMod, 'TaskToolCommandGenerator')
+      TaskToolCommandGenerator = resolveExport<
+        new (bmadFolderName: string) => BmadTaskToolGenerator
+      >(taskToolMod, 'TaskToolCommandGenerator')
     } else {
-      logger.info('bmad-method task-tool-command-generator not available; will try skill-based installation')
+      logger.info(
+        'bmad-method task-tool-command-generator not available; will try skill-based installation'
+      )
     }
 
     let ManifestGenerator: (new () => BmadManifestGenerator) | null = null
     if (existsSync(manifestGenPath)) {
       const manifestMod = _require(manifestGenPath) as Record<string, unknown>
-      ManifestGenerator = resolveExport<new () => BmadManifestGenerator>(manifestMod, 'ManifestGenerator')
+      ManifestGenerator = resolveExport<new () => BmadManifestGenerator>(
+        manifestMod,
+        'ManifestGenerator'
+      )
     }
 
     // Load toDashPath for the fallback writer (used when writeDashArtifacts is absent).
@@ -861,7 +934,8 @@ export async function scaffoldClaudeCommands(
       const pathUtilsMod = _require(pathUtilsPath) as Record<string, unknown>
       pathUtils = {
         toDashPath: (pathUtilsMod.toDashPath ??
-          ((pathUtilsMod.default as Record<string, unknown> | undefined)?.toDashPath)) as BmadPathUtils['toDashPath'],
+          (pathUtilsMod.default as Record<string, unknown> | undefined)
+            ?.toDashPath) as BmadPathUtils['toDashPath'],
       }
     }
 
@@ -872,7 +946,7 @@ export async function scaffoldClaudeCommands(
     const writeDashFallback = async (
       baseDir: string,
       artifacts: BmadArtifact[],
-      acceptTypes: string[],
+      acceptTypes: string[]
     ): Promise<number> => {
       if (!pathUtils) return 0
       let written = 0
@@ -897,7 +971,10 @@ export async function scaffoldClaudeCommands(
         const manifestGen = new ManifestGenerator()
         await manifestGen.generateManifests(bmadDir, allModules, [], { ides: ['claude-code'] })
       } catch (manifestErr) {
-        logger.warn({ err: manifestErr }, 'ManifestGenerator failed; workflow/task commands may be incomplete')
+        logger.warn(
+          { err: manifestErr },
+          'ManifestGenerator failed; workflow/task commands may be incomplete'
+        )
       }
     }
 
@@ -906,27 +983,36 @@ export async function scaffoldClaudeCommands(
     clearBmadCommandFiles(commandsDir)
 
     const agentGen = new AgentCommandGenerator('_bmad')
-    const { artifacts: agentArtifacts } = await agentGen.collectAgentArtifacts(bmadDir, nonCoreModules)
-    const agentCount = typeof agentGen.writeDashArtifacts === 'function'
-      ? await agentGen.writeDashArtifacts(commandsDir, agentArtifacts)
-      : await writeDashFallback(commandsDir, agentArtifacts, ['agent-launcher'])
+    const { artifacts: agentArtifacts } = await agentGen.collectAgentArtifacts(
+      bmadDir,
+      nonCoreModules
+    )
+    const agentCount =
+      typeof agentGen.writeDashArtifacts === 'function'
+        ? await agentGen.writeDashArtifacts(commandsDir, agentArtifacts)
+        : await writeDashFallback(commandsDir, agentArtifacts, ['agent-launcher'])
 
     let workflowCount = 0
     if (WorkflowCommandGenerator) {
       const workflowGen = new WorkflowCommandGenerator('_bmad')
       const { artifacts: workflowArtifacts } = await workflowGen.collectWorkflowArtifacts(bmadDir)
-      workflowCount = typeof workflowGen.writeDashArtifacts === 'function'
-        ? await workflowGen.writeDashArtifacts(commandsDir, workflowArtifacts)
-        : await writeDashFallback(commandsDir, workflowArtifacts, ['workflow-command', 'workflow-launcher'])
+      workflowCount =
+        typeof workflowGen.writeDashArtifacts === 'function'
+          ? await workflowGen.writeDashArtifacts(commandsDir, workflowArtifacts)
+          : await writeDashFallback(commandsDir, workflowArtifacts, [
+              'workflow-command',
+              'workflow-launcher',
+            ])
     }
 
     let taskToolCount = 0
     if (TaskToolCommandGenerator) {
       const taskToolGen = new TaskToolCommandGenerator('_bmad')
       const { artifacts: taskToolArtifacts } = await taskToolGen.collectTaskToolArtifacts(bmadDir)
-      taskToolCount = typeof taskToolGen.writeDashArtifacts === 'function'
-        ? await taskToolGen.writeDashArtifacts(commandsDir, taskToolArtifacts)
-        : await writeDashFallback(commandsDir, taskToolArtifacts, ['task', 'tool'])
+      taskToolCount =
+        typeof taskToolGen.writeDashArtifacts === 'function'
+          ? await taskToolGen.writeDashArtifacts(commandsDir, taskToolArtifacts)
+          : await writeDashFallback(commandsDir, taskToolArtifacts, ['task', 'tool'])
     }
 
     // Skill-based installation (bmad-method v6.2.0+): when workflow/task-tool
@@ -945,15 +1031,18 @@ export async function scaffoldClaudeCommands(
     if (outputFormat !== 'json') {
       if (skillCount > 0) {
         process.stdout.write(
-          `Generated ${String(total)} Claude Code commands (${String(agentCount)} agents, ${String(skillCount)} skills)\n`,
+          `Generated ${String(total)} Claude Code commands (${String(agentCount)} agents, ${String(skillCount)} skills)\n`
         )
       } else {
         process.stdout.write(
-          `Generated ${String(total)} Claude Code commands (${String(agentCount)} agents, ${String(workflowCount)} workflows, ${String(taskToolCount)} tasks/tools)\n`,
+          `Generated ${String(total)} Claude Code commands (${String(agentCount)} agents, ${String(workflowCount)} workflows, ${String(taskToolCount)} tasks/tools)\n`
         )
       }
     }
-    logger.info({ agentCount, workflowCount, taskToolCount, skillCount, total, commandsDir }, 'Generated .claude/commands/')
+    logger.info(
+      { agentCount, workflowCount, taskToolCount, skillCount, total, commandsDir },
+      'Generated .claude/commands/'
+    )
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (outputFormat !== 'json') {
@@ -984,7 +1073,7 @@ const PROVIDER_KEY_ENV: Record<string, string> = {
 function buildProviderConfig(
   adapterId: string,
   cliPath: string | undefined,
-  subscriptionRouting: SubscriptionRouting,
+  subscriptionRouting: SubscriptionRouting
 ): ProviderConfig {
   const providerKey = ADAPTER_TO_PROVIDER[adapterId] ?? adapterId
   const defaults = (PROVIDER_DEFAULTS as Record<string, ProviderConfig>)[providerKey]
@@ -1064,7 +1153,7 @@ async function promptProfileConfirmation(nonInteractive: boolean): Promise<boole
 
 async function promptSubscriptionRouting(
   providerName: string,
-  nonInteractive: boolean,
+  nonInteractive: boolean
 ): Promise<SubscriptionRouting> {
   if (nonInteractive) return 'auto'
 
@@ -1090,7 +1179,7 @@ async function promptSubscriptionRouting(
         } else {
           resolve('auto')
         }
-      },
+      }
     )
   })
 }
@@ -1180,7 +1269,9 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       const message = err instanceof Error ? err.message : String(err)
       logger.error({ err }, 'Adapter discovery failed')
       if (outputFormat === 'json') {
-        process.stdout.write(formatOutput(null, 'json', false, `Adapter discovery failed: ${message}`) + '\n')
+        process.stdout.write(
+          formatOutput(null, 'json', false, `Adapter discovery failed: ${message}`) + '\n'
+        )
       } else {
         process.stderr.write(`  Error: adapter discovery failed — ${message}\n`)
       }
@@ -1193,7 +1284,7 @@ export async function runInitAction(options: InitOptions): Promise<number> {
         process.stdout.write(
           `  Detected ${String(detectedAdapters.length)} provider(s): ` +
             detectedAdapters.map((a) => a.displayName).join(', ') +
-            '\n',
+            '\n'
         )
       } else {
         process.stdout.write('  No AI agents detected. You can configure them manually later.\n')
@@ -1207,14 +1298,11 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       if (!providerKey) continue
 
       if (adapterResult.registered) {
-        const routing = await promptSubscriptionRouting(
-          adapterResult.displayName,
-          nonInteractive,
-        )
+        const routing = await promptSubscriptionRouting(adapterResult.displayName, nonInteractive)
         providers[providerKey] = buildProviderConfig(
           adapterResult.adapterId,
           adapterResult.healthResult.cliPath,
-          routing,
+          routing
         )
       } else {
         const defaults = (PROVIDER_DEFAULTS as Record<string, ProviderConfig>)[providerKey]
@@ -1224,8 +1312,7 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       }
     }
 
-    const configProviders =
-      Object.keys(providers).length > 0 ? providers : DEFAULT_CONFIG.providers
+    const configProviders = Object.keys(providers).length > 0 ? providers : DEFAULT_CONFIG.providers
 
     const config: SubstrateConfig = {
       config_format_version: CURRENT_CONFIG_FORMAT_VERSION,
@@ -1277,7 +1364,7 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     if (detectedProfile === null) {
       if (outputFormat !== 'json') {
         process.stdout.write(
-          '  No project stack detected. Create .substrate/project-profile.yaml manually to enable polyglot support.\n',
+          '  No project stack detected. Create .substrate/project-profile.yaml manually to enable polyglot support.\n'
         )
       }
     } else {
@@ -1297,7 +1384,7 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       if (profileExists && !force) {
         if (outputFormat !== 'json') {
           process.stdout.write(
-            '  .substrate/project-profile.yaml already exists — skipping (use --force to overwrite)\n',
+            '  .substrate/project-profile.yaml already exists — skipping (use --force to overwrite)\n'
           )
         }
       } else {
@@ -1308,7 +1395,7 @@ export async function runInitAction(options: InitOptions): Promise<number> {
         } else {
           if (outputFormat !== 'json') {
             process.stdout.write(
-              '  Profile not written. Create .substrate/project-profile.yaml manually to enable polyglot support.\n',
+              '  Profile not written. Create .substrate/project-profile.yaml manually to enable polyglot support.\n'
             )
           }
         }
@@ -1339,7 +1426,9 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       }
       if (force && existsSync(localManifest)) {
         logger.info({ pack: packName }, 'Replacing existing pack with bundled version')
-        process.stderr.write(`Warning: Replacing existing pack '${packName}' with bundled version\n`)
+        process.stderr.write(
+          `Warning: Replacing existing pack '${packName}' with bundled version\n`
+        )
       }
       mkdirSync(dirname(packPath), { recursive: true })
       cpSync(bundledPackPath, packPath, { recursive: true })
@@ -1414,7 +1503,10 @@ export async function runInitAction(options: InitOptions): Promise<number> {
         if (doltMode === 'auto') {
           await checkDoltInstalled() // throws DoltNotInstalled if absent
         }
-        await initializeDolt({ projectRoot, schemaPath: fileURLToPath(new URL('../schema.sql', import.meta.url)) })
+        await initializeDolt({
+          projectRoot,
+          schemaPath: fileURLToPath(new URL('../schema.sql', import.meta.url)),
+        })
         doltInitialized = true
       } catch (err) {
         if (err instanceof DoltNotInstalled) {
@@ -1433,8 +1525,8 @@ export async function runInitAction(options: InitOptions): Promise<number> {
           // auto mode: print clearly so users know state persistence is broken
           process.stderr.write(
             `⚠  Dolt state store initialization failed: ${msg}\n` +
-            `   Pipeline metrics, cost tracking, and health monitoring will not persist.\n` +
-            `   Fix the issue and re-run: substrate init --dolt\n`,
+              `   Pipeline metrics, cost tracking, and health monitoring will not persist.\n` +
+              `   Fix the issue and re-run: substrate init --dolt\n`
           )
         }
       }
@@ -1448,16 +1540,20 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     const successMsg = `Pack '${packName}' and database initialized successfully at ${dbPath}`
     if (outputFormat === 'json') {
       process.stdout.write(
-        formatOutput({
-          pack: packName,
-          dbPath,
-          scaffolded,
-          configPath,
-          routingPolicyPath,
-          doltInitialized,
-          projectProfile: detectedProfile ?? null,
-          projectProfileWritten,
-        }, 'json', true) + '\n',
+        formatOutput(
+          {
+            pack: packName,
+            dbPath,
+            scaffolded,
+            configPath,
+            routingPolicyPath,
+            doltInitialized,
+            projectProfile: detectedProfile ?? null,
+            projectProfileWritten,
+          },
+          'json',
+          true
+        ) + '\n'
       )
     } else {
       process.stdout.write(`\n  Substrate initialized successfully!\n\n`)
@@ -1477,14 +1573,16 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       process.stdout.write(`    CLAUDE.md             pipeline instructions for Claude Code\n`)
       process.stdout.write(`    AGENTS.md             pipeline instructions for Codex CLI\n`)
       process.stdout.write(`    GEMINI.md             pipeline instructions for Gemini CLI\n`)
-      process.stdout.write(`    .claude/commands/     /substrate-run, /substrate-supervisor, /substrate-metrics\n`)
+      process.stdout.write(
+        `    .claude/commands/     /substrate-run, /substrate-supervisor, /substrate-metrics\n`
+      )
       process.stdout.write(`    .substrate/           config, database, routing policy\n`)
 
       if (doltInitialized) {
         process.stdout.write(`✓ Dolt state store initialized at .substrate/state/\n`)
       } else if (doltMode !== 'skip') {
         process.stdout.write(
-          `ℹ  Dolt not detected — install Dolt for versioned state, \`substrate diff\`, and observability persistence. See: https://docs.dolthub.com/introduction/installation\n`,
+          `ℹ  Dolt not detected — install Dolt for versioned state, \`substrate diff\`, and observability persistence. See: https://docs.dolthub.com/introduction/installation\n`
         )
       }
 
@@ -1492,7 +1590,7 @@ export async function runInitAction(options: InitOptions): Promise<number> {
         `\n  Next steps:\n` +
           `    1. Start a Claude Code session in this project\n` +
           `    2. Tell Claude: "Run the substrate pipeline"\n` +
-          `    3. Or use the /substrate-run slash command for a guided run\n`,
+          `    3. Or use the /substrate-run slash command for a guided run\n`
       )
     }
 
@@ -1516,46 +1614,48 @@ export async function runInitAction(options: InitOptions): Promise<number> {
 export function registerInitCommand(
   program: Command,
   _version: string,
-  registry?: AdapterRegistry,
+  registry?: AdapterRegistry
 ): void {
   program
     .command('init')
     .description(
-      'Initialize Substrate — creates config, scaffolds methodology pack, and sets up database',
+      'Initialize Substrate — creates config, scaffolds methodology pack, and sets up database'
     )
     .option('--pack <name>', 'Methodology pack name', 'bmad')
     .option('--project-root <path>', 'Project root directory', process.cwd())
     .option('-y, --yes', 'Skip all interactive prompts and use defaults', false)
     .option('--force', 'Overwrite existing files and packs', false)
+    .option('--output-format <format>', 'Output format: human (default) or json', 'human')
     .option(
-      '--output-format <format>',
-      'Output format: human (default) or json',
-      'human',
+      '--dolt',
+      'Initialize Dolt state database as part of init (forces Dolt bootstrapping)',
+      false
     )
-    .option('--dolt', 'Initialize Dolt state database as part of init (forces Dolt bootstrapping)', false)
     .option('--no-dolt', 'Skip Dolt state store initialization even if Dolt is installed')
-    .action(async (opts: {
-      pack: string
-      projectRoot: string
-      yes: boolean
-      force: boolean
-      outputFormat: string
-      dolt: boolean
-      noDolt: boolean
-    }) => {
-      const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
+    .action(
+      async (opts: {
+        pack: string
+        projectRoot: string
+        yes: boolean
+        force: boolean
+        outputFormat: string
+        dolt: boolean
+        noDolt: boolean
+      }) => {
+        const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
 
-      const doltMode = opts.noDolt ? 'skip' : opts.dolt ? 'force' : 'auto'
+        const doltMode = opts.noDolt ? 'skip' : opts.dolt ? 'force' : 'auto'
 
-      const exitCode = await runInitAction({
-        pack: opts.pack,
-        projectRoot: opts.projectRoot,
-        outputFormat,
-        force: opts.force,
-        yes: opts.yes,
-        doltMode,
-        ...(registry !== undefined && { registry }),
-      })
-      process.exitCode = exitCode
-    })
+        const exitCode = await runInitAction({
+          pack: opts.pack,
+          projectRoot: opts.projectRoot,
+          outputFormat,
+          force: opts.force,
+          yes: opts.yes,
+          doltMode,
+          ...(registry !== undefined && { registry }),
+        })
+        process.exitCode = exitCode
+      }
+    )
 }

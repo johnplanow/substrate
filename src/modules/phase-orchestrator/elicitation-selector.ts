@@ -235,7 +235,7 @@ export function loadElicitationMethods(): ElicitationMethod[] {
 export function selectMethods(
   context: ElicitationContext,
   usedMethods: string[],
-  methods?: ElicitationMethod[],
+  methods?: ElicitationMethod[]
 ): ElicitationMethod[] {
   const allMethods = methods ?? loadElicitationMethods()
   if (allMethods.length === 0) return []
@@ -259,8 +259,7 @@ export function selectMethods(
     // Complexity boost: technical and advanced categories get a 20% bonus
     // when complexity_score > 0.7
     const complexityBoost =
-      complexityScore > 0.7 &&
-      (method.category === 'technical' || method.category === 'advanced')
+      complexityScore > 0.7 && (method.category === 'technical' || method.category === 'advanced')
         ? 1.2
         : 1.0
 
@@ -300,7 +299,7 @@ export function selectMethods(
  */
 export function deriveContentType(
   phase: string,
-  stepName: string,
+  stepName: string
 ): ElicitationContext['content_type'] {
   if (phase === 'analysis') return 'brief'
   if (phase === 'planning') return 'prd'

@@ -35,8 +35,12 @@ describe('task-baselines', () => {
 
     it('should have baselines for all expected task types', () => {
       const expectedTypes = [
-        'dev-story', 'create-story', 'code-review',
-        'minor-fixes', 'test-plan', 'test-expansion',
+        'dev-story',
+        'create-story',
+        'code-review',
+        'minor-fixes',
+        'test-plan',
+        'test-expansion',
       ]
       for (const taskType of expectedTypes) {
         expect(TASK_BASELINES[taskType]).toBeDefined()

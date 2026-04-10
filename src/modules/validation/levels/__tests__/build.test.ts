@@ -24,11 +24,7 @@ vi.mock('node:child_process', () => ({
 }))
 
 // Import after mock is set up
-import {
-  BuildValidationLevel,
-  parseTscDiagnostics,
-  determineBuildScope,
-} from '../build.js'
+import { BuildValidationLevel, parseTscDiagnostics, determineBuildScope } from '../build.js'
 import type { ValidationContext } from '../../types.js'
 import type { StoryRecord } from '../../../state/index.js'
 
@@ -63,11 +59,7 @@ function makeSuccess(): SpawnSyncReturns<string> {
 }
 
 /** Returns a SpawnSyncReturns that simulates a failed (exit 1) run with given output */
-function makeFailure(
-  stdout = '',
-  stderr = '',
-  status = 1,
-): SpawnSyncReturns<string> {
+function makeFailure(stdout = '', stderr = '', status = 1): SpawnSyncReturns<string> {
   return {
     pid: 1,
     output: [null, stdout, stderr],
@@ -293,7 +285,7 @@ describe('BuildValidationLevel', () => {
   it('captures npm run build failure output when tsc passes but npm build fails', async () => {
     const buildOutput = 'Error: Cannot find module ./missing-module'
     mockSpawnSync
-      .mockReturnValueOnce(makeSuccess())                    // tsc passes
+      .mockReturnValueOnce(makeSuccess()) // tsc passes
       .mockReturnValueOnce(makeFailure(buildOutput, '', 1)) // npm run build fails
 
     const result = await level.run(baseContext)
@@ -321,9 +313,7 @@ describe('BuildValidationLevel', () => {
   // AC1: spawnSync cwd is set to projectRoot
   // -------------------------------------------------------------------------
   it('passes projectRoot as cwd to spawnSync', async () => {
-    mockSpawnSync
-      .mockReturnValueOnce(makeSuccess())
-      .mockReturnValueOnce(makeSuccess())
+    mockSpawnSync.mockReturnValueOnce(makeSuccess()).mockReturnValueOnce(makeSuccess())
 
     await level.run(baseContext)
 
@@ -338,9 +328,7 @@ describe('BuildValidationLevel', () => {
   // -------------------------------------------------------------------------
   it('falls back to context.projectRoot when config does not specify one', async () => {
     const levelNoRoot = new BuildValidationLevel({})
-    mockSpawnSync
-      .mockReturnValueOnce(makeSuccess())
-      .mockReturnValueOnce(makeSuccess())
+    mockSpawnSync.mockReturnValueOnce(makeSuccess()).mockReturnValueOnce(makeSuccess())
 
     await levelNoRoot.run({ ...baseContext, projectRoot: '/ctx-root' })
 
@@ -356,9 +344,7 @@ describe('BuildValidationLevel', () => {
   it('passes configured timeoutMs to spawnSync', async () => {
     const customTimeout = 5_000
     level = new BuildValidationLevel({ projectRoot: '/project', timeoutMs: customTimeout })
-    mockSpawnSync
-      .mockReturnValueOnce(makeSuccess())
-      .mockReturnValueOnce(makeSuccess())
+    mockSpawnSync.mockReturnValueOnce(makeSuccess()).mockReturnValueOnce(makeSuccess())
 
     await level.run(baseContext)
 

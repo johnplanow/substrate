@@ -7,7 +7,12 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Command } from 'commander'
-import { registerAdaptersCommand, EXIT_CODE_SUCCESS, EXIT_CODE_ERROR, EXIT_CODE_NO_ADAPTERS } from '../adapters.js'
+import {
+  registerAdaptersCommand,
+  EXIT_CODE_SUCCESS,
+  EXIT_CODE_ERROR,
+  EXIT_CODE_NO_ADAPTERS,
+} from '../adapters.js'
 import type { AdapterRegistry, DiscoveryReport } from '../../../adapters/adapter-registry.js'
 
 // ---------------------------------------------------------------------------
@@ -252,8 +257,15 @@ describe('adapters list command', () => {
     await runCommand(['adapters', 'list', '--output-format', 'json'], registry)
 
     const output = getOutput()
-    expect((): void => { JSON.parse(output) }).not.toThrow()
-    const parsed = JSON.parse(output) as { data: unknown[]; timestamp: string; version: string; command: string }
+    expect((): void => {
+      JSON.parse(output)
+    }).not.toThrow()
+    const parsed = JSON.parse(output) as {
+      data: unknown[]
+      timestamp: string
+      version: string
+      command: string
+    }
     expect(parsed.command).toBe('substrate adapters list')
     expect(parsed.version).toBe('0.1.0')
     expect(Array.isArray(parsed.data)).toBe(true)
@@ -366,7 +378,9 @@ describe('adapters check command', () => {
     await runCommand(['adapters', 'check', '--output-format', 'json'], registry)
 
     const output = getOutput()
-    expect((): void => { JSON.parse(output) }).not.toThrow()
+    expect((): void => {
+      JSON.parse(output)
+    }).not.toThrow()
     const parsed = JSON.parse(output) as {
       data: { adapterId: string; healthy: boolean; supportsHeadless: boolean }[]
       command: string

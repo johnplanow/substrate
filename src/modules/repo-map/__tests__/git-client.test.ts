@@ -43,7 +43,7 @@ function stubExecFile(stdout: string): void {
   execFileMock.mockImplementation(
     (_cmd: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
       cb(null, stdout, '')
-    },
+    }
   )
 }
 
@@ -51,7 +51,7 @@ function stubExecFileError(error: Error): void {
   execFileMock.mockImplementation(
     (_cmd: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
       cb(error, '', '')
-    },
+    }
   )
 }
 
@@ -89,7 +89,7 @@ describe('GitClient.getCurrentSha', () => {
       'git',
       ['rev-parse', 'HEAD'],
       { cwd: '/project' },
-      expect.any(Function),
+      expect.any(Function)
     )
   })
 
@@ -128,7 +128,7 @@ describe('GitClient.getChangedFiles', () => {
       'git',
       ['diff', '--name-only', 'abc123..HEAD'],
       { cwd: '/project' },
-      expect.any(Function),
+      expect.any(Function)
     )
   })
 
@@ -177,7 +177,7 @@ describe('GitClient.listTrackedFiles', () => {
       'git',
       ['ls-files'],
       { cwd: '/project' },
-      expect.any(Function),
+      expect.any(Function)
     )
   })
 

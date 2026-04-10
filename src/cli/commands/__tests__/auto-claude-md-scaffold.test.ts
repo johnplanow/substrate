@@ -99,7 +99,9 @@ vi.mock('../../../modules/agent-dispatch/index.js', () => ({
 }))
 vi.mock('../../../adapters/adapter-registry.js', () => ({
   AdapterRegistry: vi.fn().mockImplementation(() => ({
-    discoverAndRegister: vi.fn().mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] }),
+    discoverAndRegister: vi
+      .fn()
+      .mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] }),
   })),
 }))
 vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
@@ -133,7 +135,9 @@ import {
 } from '../init.js'
 import { PACKAGE_ROOT } from '../pipeline-shared.js'
 
-const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+const mockRegistry = {
+  discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }),
+} as any
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -417,7 +421,7 @@ describe('runInitAction CLAUDE.md scaffold integration', () => {
     expect(exitCode).toBe(0)
 
     const claudeMdCall = mockWriteFile.mock.calls.find(([path]) =>
-      String(path).includes('CLAUDE.md'),
+      String(path).includes('CLAUDE.md')
     )
     expect(claudeMdCall).toBeDefined()
     const [, content] = claudeMdCall!
@@ -466,7 +470,7 @@ describe('claude-md-substrate-section.md template', () => {
       'src',
       'cli',
       'templates',
-      'claude-md-substrate-section.md',
+      'claude-md-substrate-section.md'
     )
     // We use existsSync from the real fs since our mock only affects the module
     // under test. In this integration-style check we can use the actual fs.

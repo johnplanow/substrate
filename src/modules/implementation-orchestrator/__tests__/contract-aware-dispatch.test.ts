@@ -95,7 +95,9 @@ vi.mock('node:fs', () => ({
 }))
 
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
@@ -104,7 +106,9 @@ vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
 }))
 
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 
 // Mock @substrate-ai/sdlc so the Tier A verification pipeline always passes in unit tests (Story 51-5)
@@ -116,7 +120,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
         checks: [],
         status: 'pass',
         duration_ms: 0,
-      }),
+      })
     ),
     register: vi.fn(),
   })),
@@ -192,7 +196,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -252,7 +258,7 @@ function makeContractDecision(
   schemaName: string,
   direction: 'export' | 'import',
   filePath = 'src/types.ts',
-  transport?: string,
+  transport?: string
 ) {
   return {
     id: `decision-${storyKey}-${schemaName}`,
@@ -308,7 +314,14 @@ describe('AC5: orchestrator logs contract dependency edges when detected', () =>
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
-    const orchestrator = createImplementationOrchestrator({ db, pack, contextCompiler, dispatcher, eventBus, config })
+    const orchestrator = createImplementationOrchestrator({
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+    })
     await orchestrator.run(['25-5'])
 
     expect(mockGetDecisionsByCategory).toHaveBeenCalledWith(db, 'interface-contract')
@@ -321,12 +334,18 @@ describe('AC5: orchestrator logs contract dependency edges when detected', () =>
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
-    const orchestrator = createImplementationOrchestrator({ db, pack, contextCompiler, dispatcher, eventBus, config })
+    const orchestrator = createImplementationOrchestrator({
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+    })
     await orchestrator.run(['25-5'])
 
     const contractEdgeLogCalls = mockLogger.info.mock.calls.filter(
-      (call) =>
-        typeof call[1] === 'string' && call[1].includes('Contract dependency edges'),
+      (call) => typeof call[1] === 'string' && call[1].includes('Contract dependency edges')
     )
     expect(contractEdgeLogCalls).toHaveLength(0)
   })
@@ -346,16 +365,21 @@ describe('AC5: orchestrator logs contract dependency edges when detected', () =>
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
-    const orchestrator = createImplementationOrchestrator({ db, pack, contextCompiler, dispatcher, eventBus, config })
+    const orchestrator = createImplementationOrchestrator({
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+    })
     await orchestrator.run(['A', 'B'])
 
     // AC5: logger.info should be called with contractEdges information
-    const contractEdgeLogCall = mockLogger.info.mock.calls.find(
-      (call) => {
-        const msg = call[1]
-        return typeof msg === 'string' && msg.includes('Contract dependency edges')
-      },
-    )
+    const contractEdgeLogCall = mockLogger.info.mock.calls.find((call) => {
+      const msg = call[1]
+      return typeof msg === 'string' && msg.includes('Contract dependency edges')
+    })
     expect(contractEdgeLogCall).toBeDefined()
 
     // Verify the structured data includes the edge
@@ -383,24 +407,27 @@ describe('AC5: orchestrator logs contract dependency edges when detected', () =>
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
-    const orchestrator = createImplementationOrchestrator({ db, pack, contextCompiler, dispatcher, eventBus, config })
+    const orchestrator = createImplementationOrchestrator({
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+    })
     await orchestrator.run(['A', 'B'])
 
-    const contractEdgeLogCall = mockLogger.info.mock.calls.find(
-      (call) => {
-        const msg = call[1]
-        return typeof msg === 'string' && msg.includes('Contract dependency edges')
-      },
-    )
+    const contractEdgeLogCall = mockLogger.info.mock.calls.find((call) => {
+      const msg = call[1]
+      return typeof msg === 'string' && msg.includes('Contract dependency edges')
+    })
     expect(contractEdgeLogCall).toBeDefined()
     const logData = contractEdgeLogCall![0] as Record<string, unknown>
     expect(logData).toHaveProperty('edgeCount', 1)
   })
 
   it('pipeline completes successfully even with contract declarations (no regression)', async () => {
-    const contractDecisions = [
-      makeContractDecision('25-5', 'SomeSchema', 'export'),
-    ]
+    const contractDecisions = [makeContractDecision('25-5', 'SomeSchema', 'export')]
     mockGetDecisionsByCategory.mockImplementation((_, category) => {
       if (category === 'interface-contract') return contractDecisions
       return []
@@ -410,7 +437,14 @@ describe('AC5: orchestrator logs contract dependency edges when detected', () =>
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
-    const orchestrator = createImplementationOrchestrator({ db, pack, contextCompiler, dispatcher, eventBus, config })
+    const orchestrator = createImplementationOrchestrator({
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+    })
     const status = await orchestrator.run(['25-5'])
 
     expect(status.state).toBe('COMPLETE')
@@ -421,17 +455,19 @@ describe('AC5: orchestrator logs contract dependency edges when detected', () =>
     // Malformed JSON in the decision value
     mockGetDecisionsByCategory.mockImplementation((_, category) => {
       if (category === 'interface-contract') {
-        return [{
-          id: 'bad-decision',
-          pipeline_run_id: 'test-run-id',
-          phase: 'implementation',
-          category: 'interface-contract',
-          key: 'bad:schema',
-          value: 'NOT VALID JSON',
-          rationale: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }]
+        return [
+          {
+            id: 'bad-decision',
+            pipeline_run_id: 'test-run-id',
+            phase: 'implementation',
+            category: 'interface-contract',
+            key: 'bad:schema',
+            value: 'NOT VALID JSON',
+            rationale: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ]
       }
       return []
     })
@@ -440,7 +476,14 @@ describe('AC5: orchestrator logs contract dependency edges when detected', () =>
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
-    const orchestrator = createImplementationOrchestrator({ db, pack, contextCompiler, dispatcher, eventBus, config })
+    const orchestrator = createImplementationOrchestrator({
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+    })
     const status = await orchestrator.run(['25-5'])
 
     // Should complete without error despite malformed contract data

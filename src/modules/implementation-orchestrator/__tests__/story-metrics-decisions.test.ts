@@ -11,7 +11,11 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import { createDecision, getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
+import {
+  createDecision,
+  getDecisionsByCategory,
+  createPipelineRun,
+} from '../../../persistence/queries/decisions.js'
 import { STORY_METRICS } from '../../../persistence/schemas/operational.js'
 
 // ---------------------------------------------------------------------------

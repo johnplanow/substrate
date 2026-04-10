@@ -21,11 +21,7 @@ vi.mock('node:fs', () => ({
 }))
 
 // Use vi.hoisted so these are available before vi.mock factories run
-const {
-  mockInitialize,
-  mockClose,
-  mockGetMetric,
-} = vi.hoisted(() => ({
+const { mockInitialize, mockClose, mockGetMetric } = vi.hoisted(() => ({
   mockInitialize: vi.fn().mockResolvedValue(undefined),
   mockClose: vi.fn().mockResolvedValue(undefined),
   mockGetMetric: vi.fn().mockResolvedValue(null),
@@ -150,7 +146,14 @@ describe('routing command', () => {
       mockGetMetric.mockResolvedValue(entries)
 
       const program = createProgram()
-      await program.parseAsync(['node', 'substrate', 'routing', '--history', '--output-format', 'json'])
+      await program.parseAsync([
+        'node',
+        'substrate',
+        'routing',
+        '--history',
+        '--output-format',
+        'json',
+      ])
 
       expect(consoleSpy).toHaveBeenCalledOnce()
       const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as { entries: TuneLogEntry[] }
@@ -162,7 +165,14 @@ describe('routing command', () => {
       mockGetMetric.mockResolvedValue([])
 
       const program = createProgram()
-      await program.parseAsync(['node', 'substrate', 'routing', '--history', '--output-format', 'json'])
+      await program.parseAsync([
+        'node',
+        'substrate',
+        'routing',
+        '--history',
+        '--output-format',
+        'json',
+      ])
 
       const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as { entries: unknown[] }
       expect(parsed.entries).toEqual([])
@@ -176,7 +186,14 @@ describe('routing command', () => {
       mockGetMetric.mockResolvedValue(entries)
 
       const program = createProgram()
-      await program.parseAsync(['node', 'substrate', 'routing', '--history', '--output-format', 'json'])
+      await program.parseAsync([
+        'node',
+        'substrate',
+        'routing',
+        '--history',
+        '--output-format',
+        'json',
+      ])
 
       const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as { entries: TuneLogEntry[] }
       expect(parsed.entries[0].id).toBe('newer')

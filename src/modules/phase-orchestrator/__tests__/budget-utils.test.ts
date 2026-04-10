@@ -122,9 +122,7 @@ describe('summarizeDecisions()', () => {
   })
 
   it('returns only header when budget is too small for any decision', () => {
-    const decisions = [
-      { key: 'database', value: 'SQLite', category: 'data' },
-    ]
+    const decisions = [{ key: 'database', value: 'SQLite', category: 'data' }]
     // Budget just big enough for the header but not the decision line
     const headerLen = '## Architecture Decisions (Summarized)'.length
     const result = summarizeDecisions(decisions, headerLen + 5)

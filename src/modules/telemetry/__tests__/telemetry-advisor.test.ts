@@ -83,8 +83,16 @@ describe('TelemetryAdvisor.getRecommendationsForRun()', () => {
   })
 
   it('returns recommendations for a single story sorted by severity', async () => {
-    const infoRec = makeRecommendation({ id: 'aaaa000000000001', severity: 'info', storyKey: '30-1' })
-    const criticalRec = makeRecommendation({ id: 'aaaa000000000002', severity: 'critical', storyKey: '30-1' })
+    const infoRec = makeRecommendation({
+      id: 'aaaa000000000001',
+      severity: 'info',
+      storyKey: '30-1',
+    })
+    const criticalRec = makeRecommendation({
+      id: 'aaaa000000000002',
+      severity: 'critical',
+      storyKey: '30-1',
+    })
     const persistence = makeMockPersistence(() => Promise.resolve([infoRec, criticalRec]))
     const advisor = makeAdvisor(persistence)
 
@@ -95,8 +103,16 @@ describe('TelemetryAdvisor.getRecommendationsForRun()', () => {
   })
 
   it('deduplicates recommendations with the same id across two stories', async () => {
-    const sharedRec = makeRecommendation({ id: 'shared0000000001', severity: 'warning', storyKey: '30-1' })
-    const uniqueRec = makeRecommendation({ id: 'unique0000000001', severity: 'critical', storyKey: '30-2' })
+    const sharedRec = makeRecommendation({
+      id: 'shared0000000001',
+      severity: 'warning',
+      storyKey: '30-1',
+    })
+    const uniqueRec = makeRecommendation({
+      id: 'unique0000000001',
+      severity: 'critical',
+      storyKey: '30-2',
+    })
 
     const persistence = makeMockPersistence((key: string) => {
       if (key === '30-1') return Promise.resolve([sharedRec])
@@ -136,8 +152,16 @@ describe('TelemetryAdvisor.getRecommendationsForRun()', () => {
 
   it('sorts merged recommendations: critical → warning → info', async () => {
     const rec1 = makeRecommendation({ id: 'sort000000000001', severity: 'info', storyKey: '30-1' })
-    const rec2 = makeRecommendation({ id: 'sort000000000002', severity: 'critical', storyKey: '30-1' })
-    const rec3 = makeRecommendation({ id: 'sort000000000003', severity: 'warning', storyKey: '30-1' })
+    const rec2 = makeRecommendation({
+      id: 'sort000000000002',
+      severity: 'critical',
+      storyKey: '30-1',
+    })
+    const rec3 = makeRecommendation({
+      id: 'sort000000000003',
+      severity: 'warning',
+      storyKey: '30-1',
+    })
 
     const persistence = makeMockPersistence(() => Promise.resolve([rec1, rec2, rec3]))
     const advisor = makeAdvisor(persistence)
@@ -171,9 +195,23 @@ describe('TelemetryAdvisor.formatOptimizationDirectives()', () => {
   })
 
   it('includes critical and warning but excludes info', () => {
-    const critical = makeRecommendation({ severity: 'critical', title: 'Critical issue', description: 'Fix it' })
-    const warning = makeRecommendation({ id: 'warn0000000000001', severity: 'warning', title: 'Warning issue', description: 'Consider it' })
-    const info = makeRecommendation({ id: 'info0000000000001', severity: 'info', title: 'Info note', description: 'Optional' })
+    const critical = makeRecommendation({
+      severity: 'critical',
+      title: 'Critical issue',
+      description: 'Fix it',
+    })
+    const warning = makeRecommendation({
+      id: 'warn0000000000001',
+      severity: 'warning',
+      title: 'Warning issue',
+      description: 'Consider it',
+    })
+    const info = makeRecommendation({
+      id: 'info0000000000001',
+      severity: 'info',
+      title: 'Info note',
+      description: 'Optional',
+    })
 
     const result = advisor.formatOptimizationDirectives([critical, warning, info])
     expect(result).toContain('OPTIMIZATION (critical)')
@@ -185,7 +223,11 @@ describe('TelemetryAdvisor.formatOptimizationDirectives()', () => {
   })
 
   it('returns full string when combined length is within 2000 chars', () => {
-    const rec = makeRecommendation({ severity: 'warning', title: 'Short title', description: 'Short description' })
+    const rec = makeRecommendation({
+      severity: 'warning',
+      title: 'Short title',
+      description: 'Short description',
+    })
     const result = advisor.formatOptimizationDirectives([rec])
     expect(result.length).toBeLessThanOrEqual(2000)
     expect(result).toBe('OPTIMIZATION (warning): Short title. Short description')
@@ -207,7 +249,9 @@ describe('TelemetryAdvisor.formatOptimizationDirectives()', () => {
       description: 'Use prompt caching to reduce costs',
     })
     const result = advisor.formatOptimizationDirectives([rec])
-    expect(result).toBe('OPTIMIZATION (critical): Enable caching. Use prompt caching to reduce costs')
+    expect(result).toBe(
+      'OPTIMIZATION (critical): Enable caching. Use prompt caching to reduce costs'
+    )
   })
 
   it('puts critical before warning in the output', () => {

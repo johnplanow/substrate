@@ -58,10 +58,13 @@ vi.mock('../git-helpers.js', () => ({
 // ---------------------------------------------------------------------------
 
 vi.mock('../default-test-patterns.js', () => ({
-  resolveDefaultTestPatterns: vi.fn().mockReturnValue(
+  resolveDefaultTestPatterns: vi
+    .fn()
+    .mockReturnValue(
+      '## Test Patterns (defaults)\n- Framework: Vitest (NOT jest)\n- Mock approach: vi.mock() with hoisting'
+    ),
+  VITEST_DEFAULT_PATTERNS:
     '## Test Patterns (defaults)\n- Framework: Vitest (NOT jest)\n- Mock approach: vi.mock() with hoisting',
-  ),
-  VITEST_DEFAULT_PATTERNS: '## Test Patterns (defaults)\n- Framework: Vitest (NOT jest)\n- Mock approach: vi.mock() with hoisting',
 }))
 
 // ---------------------------------------------------------------------------
@@ -162,7 +165,9 @@ function createMockDeps(overrides?: Partial<WorkflowDeps>): WorkflowDeps {
 // Factory: create successful DispatchResult
 // ---------------------------------------------------------------------------
 
-function createSuccessDispatchResult(parsedOverrides?: Partial<z.infer<typeof DevStoryResultSchema>>): DispatchResult<z.infer<typeof DevStoryResultSchema>> {
+function createSuccessDispatchResult(
+  parsedOverrides?: Partial<z.infer<typeof DevStoryResultSchema>>
+): DispatchResult<z.infer<typeof DevStoryResultSchema>> {
   const parsed = {
     result: 'success' as const,
     ac_met: ['AC1', 'AC2'],
@@ -189,7 +194,11 @@ function createSuccessDispatchResult(parsedOverrides?: Partial<z.infer<typeof De
 // Factory: create failed DispatchResult
 // ---------------------------------------------------------------------------
 
-function createFailedDispatchResult(options?: { status?: 'failed' | 'timeout'; exitCode?: number; parseError?: string }): DispatchResult<z.infer<typeof DevStoryResultSchema>> {
+function createFailedDispatchResult(options?: {
+  status?: 'failed' | 'timeout'
+  exitCode?: number
+  parseError?: string
+}): DispatchResult<z.infer<typeof DevStoryResultSchema>> {
   return {
     id: 'test-dispatch-id',
     status: options?.status ?? 'failed',
@@ -275,15 +284,21 @@ describe('runDevStory', () => {
 
       expect(deps.contextCompiler.registerTemplate).toHaveBeenCalledOnce()
       expect(deps.contextCompiler.registerTemplate).toHaveBeenCalledWith(
-        expect.objectContaining({ taskType: 'dev-story' }),
+        expect.objectContaining({ taskType: 'dev-story' })
       )
     })
 
     it('registered template has story-content and test-patterns sections (no arch-constraints)', async () => {
       const deps = createMockDeps()
-      let capturedTemplate: { taskType: string; sections: Array<{ name: string; priority: string }> } | null = null
+      let capturedTemplate: {
+        taskType: string
+        sections: Array<{ name: string; priority: string }>
+      } | null = null
       vi.mocked(deps.contextCompiler.registerTemplate).mockImplementation((tmpl) => {
-        capturedTemplate = tmpl as { taskType: string; sections: Array<{ name: string; priority: string }> }
+        capturedTemplate = tmpl as {
+          taskType: string
+          sections: Array<{ name: string; priority: string }>
+        }
       })
       vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
         id: 'test-id',
@@ -334,7 +349,17 @@ describe('runDevStory', () => {
       mockGetDecisionsByPhase.mockImplementation((_db, phase) => {
         if (phase === 'solutioning') {
           return [
-            { id: '1', phase: 'solutioning', category: 'architecture', key: 'ADR-001', value: 'Modular Monolith', pipeline_run_id: null, rationale: null, created_at: '', updated_at: '' },
+            {
+              id: '1',
+              phase: 'solutioning',
+              category: 'architecture',
+              key: 'ADR-001',
+              value: 'Modular Monolith',
+              pipeline_run_id: null,
+              rationale: null,
+              created_at: '',
+              updated_at: '',
+            },
           ]
         }
         return []
@@ -363,7 +388,17 @@ describe('runDevStory', () => {
       mockGetDecisionsByPhase.mockImplementation((_db, phase) => {
         if (phase === 'solutioning') {
           return [
-            { id: '1', phase: 'solutioning', category: 'test-patterns', key: 'framework', value: 'vitest', pipeline_run_id: null, rationale: null, created_at: '', updated_at: '' },
+            {
+              id: '1',
+              phase: 'solutioning',
+              category: 'test-patterns',
+              key: 'framework',
+              value: 'vitest',
+              pipeline_run_id: null,
+              rationale: null,
+              created_at: '',
+              updated_at: '',
+            },
           ]
         }
         return []
@@ -389,8 +424,28 @@ describe('runDevStory', () => {
       let capturedPrompt = ''
 
       mockGetDecisionsByPhase.mockReturnValue([
-        { id: '1', phase: 'solutioning', category: 'architecture', key: 'ADR-001', value: 'Modular Monolith', pipeline_run_id: null, rationale: null, created_at: '', updated_at: '' },
-        { id: '2', phase: 'solutioning', category: 'test-patterns', key: 'framework', value: 'vitest', pipeline_run_id: null, rationale: null, created_at: '', updated_at: '' },
+        {
+          id: '1',
+          phase: 'solutioning',
+          category: 'architecture',
+          key: 'ADR-001',
+          value: 'Modular Monolith',
+          pipeline_run_id: null,
+          rationale: null,
+          created_at: '',
+          updated_at: '',
+        },
+        {
+          id: '2',
+          phase: 'solutioning',
+          category: 'test-patterns',
+          key: 'framework',
+          value: 'vitest',
+          pipeline_run_id: null,
+          rationale: null,
+          created_at: '',
+          updated_at: '',
+        },
       ])
 
       vi.mocked(deps.dispatcher.dispatch).mockImplementation((req) => {
@@ -426,7 +481,17 @@ describe('runDevStory', () => {
       const hugeTestPatterns = 'x'.repeat(80_000) // ~20,000 tokens on its own
 
       mockGetDecisionsByPhase.mockReturnValue([
-        { id: '1', phase: 'solutioning', category: 'test-patterns', key: 'patterns', value: hugeTestPatterns, pipeline_run_id: null, rationale: null, created_at: '', updated_at: '' },
+        {
+          id: '1',
+          phase: 'solutioning',
+          category: 'test-patterns',
+          key: 'patterns',
+          value: hugeTestPatterns,
+          pipeline_run_id: null,
+          rationale: null,
+          created_at: '',
+          updated_at: '',
+        },
       ])
 
       let capturedPrompt = ''
@@ -454,7 +519,17 @@ describe('runDevStory', () => {
 
       // Make arch_constraints very large to force truncation
       mockGetDecisionsByPhase.mockReturnValue([
-        { id: '1', phase: 'solutioning', category: 'architecture', key: 'arch', value: 'z'.repeat(6000), pipeline_run_id: null, rationale: null, created_at: '', updated_at: '' },
+        {
+          id: '1',
+          phase: 'solutioning',
+          category: 'architecture',
+          key: 'arch',
+          value: 'z'.repeat(6000),
+          pipeline_run_id: null,
+          rationale: null,
+          created_at: '',
+          updated_at: '',
+        },
       ])
 
       let capturedPrompt = ''
@@ -498,7 +573,7 @@ describe('runDevStory', () => {
           taskType: 'dev-story',
           timeout: 1_800_000,
           outputSchema: DevStoryResultSchema,
-        }),
+        })
       )
     })
 
@@ -515,7 +590,7 @@ describe('runDevStory', () => {
             files_modified: ['src/foo.ts', 'src/foo.test.ts'],
             tests: 'pass',
             notes: 'All good!',
-          }),
+          })
         ),
       })
 
@@ -617,7 +692,7 @@ describe('runDevStory', () => {
     it('returns story_file_not_found when file does not exist', async () => {
       const deps = createMockDeps()
       mockReadFile.mockRejectedValue(
-        Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
+        Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' })
       )
 
       const result = await runDevStory(deps, DEFAULT_PARAMS)
@@ -781,7 +856,17 @@ describe('runDevStory', () => {
       let capturedPrompt = ''
 
       mockGetDecisionsByPhase.mockReturnValue([
-        { id: '1', phase: 'solutioning', category: 'test-patterns', key: 'custom-framework', value: 'jest-custom', pipeline_run_id: null, rationale: null, created_at: '', updated_at: '' },
+        {
+          id: '1',
+          phase: 'solutioning',
+          category: 'test-patterns',
+          key: 'custom-framework',
+          value: 'jest-custom',
+          pipeline_run_id: null,
+          rationale: null,
+          created_at: '',
+          updated_at: '',
+        },
       ])
 
       vi.mocked(deps.dispatcher.dispatch).mockImplementation((req) => {
@@ -1046,7 +1131,9 @@ describe('runDevStory', () => {
         truncated: false,
       })
       const deps = createMockDeps({
-        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+        repoMapInjector: {
+          buildContext: mockBuildContext,
+        } as unknown as WorkflowDeps['repoMapInjector'],
       })
       vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
         id: 'test-id',
@@ -1063,9 +1150,13 @@ describe('runDevStory', () => {
     })
 
     it('passes maxRepoMapTokens to buildContext when provided in deps', async () => {
-      const mockBuildContext = vi.fn().mockResolvedValue({ text: '', symbolCount: 0, truncated: false })
+      const mockBuildContext = vi
+        .fn()
+        .mockResolvedValue({ text: '', symbolCount: 0, truncated: false })
       const deps = createMockDeps({
-        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+        repoMapInjector: {
+          buildContext: mockBuildContext,
+        } as unknown as WorkflowDeps['repoMapInjector'],
         maxRepoMapTokens: 1500,
       })
       vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
@@ -1090,7 +1181,9 @@ describe('runDevStory', () => {
         truncated: false,
       })
       const deps = createMockDeps({
-        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+        repoMapInjector: {
+          buildContext: mockBuildContext,
+        } as unknown as WorkflowDeps['repoMapInjector'],
       })
       vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
         id: 'test-id',
@@ -1108,7 +1201,7 @@ describe('runDevStory', () => {
           truncated: false,
           repoMapTokens: Math.ceil(injectionText.length / 4),
         }),
-        'Repo-map context assembled',
+        'Repo-map context assembled'
       )
     })
 
@@ -1125,7 +1218,7 @@ describe('runDevStory', () => {
 
       expect(mockLogger.info).not.toHaveBeenCalledWith(
         expect.anything(),
-        'Repo-map context assembled',
+        'Repo-map context assembled'
       )
     })
   })
@@ -1137,9 +1230,13 @@ describe('runDevStory', () => {
   describe('AC4/AC5 (31-8): deprecated Status field stripping', () => {
     it('strips Status field from story content before passing to buildContext (AC4)', async () => {
       // STORY_CONTENT contains 'Status: draft' — verify it is stripped before buildContext receives it
-      const mockBuildContext = vi.fn().mockResolvedValue({ text: '', symbolCount: 0, truncated: false })
+      const mockBuildContext = vi
+        .fn()
+        .mockResolvedValue({ text: '', symbolCount: 0, truncated: false })
       const deps = createMockDeps({
-        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+        repoMapInjector: {
+          buildContext: mockBuildContext,
+        } as unknown as WorkflowDeps['repoMapInjector'],
       })
       vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
         id: 'test-id',
@@ -1170,7 +1267,7 @@ describe('runDevStory', () => {
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
         { storyFilePath: DEFAULT_PARAMS.storyFilePath, staleStatus: 'draft' },
-        expect.stringContaining('deprecated Status field'),
+        expect.stringContaining('deprecated Status field')
       )
     })
 
@@ -1190,7 +1287,7 @@ describe('runDevStory', () => {
 
       expect(mockLogger.warn).not.toHaveBeenCalledWith(
         expect.objectContaining({ staleStatus: expect.anything() }),
-        expect.anything(),
+        expect.anything()
       )
     })
   })
@@ -1204,7 +1301,17 @@ describe('runDevStory', () => {
       const deps = createMockDeps()
 
       mockGetDecisionsByPhase.mockReturnValue([
-        { id: '1', phase: 'solutioning', category: 'architecture', key: 'ADR-001', value: 'Modular Monolith', pipeline_run_id: null, rationale: null, created_at: '', updated_at: '' },
+        {
+          id: '1',
+          phase: 'solutioning',
+          category: 'architecture',
+          key: 'ADR-001',
+          value: 'Modular Monolith',
+          pipeline_run_id: null,
+          rationale: null,
+          created_at: '',
+          updated_at: '',
+        },
       ])
 
       vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
@@ -1217,7 +1324,7 @@ describe('runDevStory', () => {
             files_modified: ['src/modules/compiled-workflows/dev-story.ts'],
             tests: 'pass',
             notes: 'Complete implementation.',
-          }),
+          })
         ),
       })
 

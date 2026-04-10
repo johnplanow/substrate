@@ -194,17 +194,13 @@ Some story.
   })
 
   it('names unexpected files under "Out-of-scope files" heading', () => {
-    const result = ScopeGuardrail.buildAnalysis(STORY_WITH_PATHS, [
-      'src/modules/foo/unexpected.ts',
-    ])
+    const result = ScopeGuardrail.buildAnalysis(STORY_WITH_PATHS, ['src/modules/foo/unexpected.ts'])
     expect(result).toContain('Out-of-scope files')
     expect(result).toContain('src/modules/foo/unexpected.ts')
   })
 
   it('lists expected files in the analysis output', () => {
-    const result = ScopeGuardrail.buildAnalysis(STORY_WITH_PATHS, [
-      'src/modules/foo/unexpected.ts',
-    ])
+    const result = ScopeGuardrail.buildAnalysis(STORY_WITH_PATHS, ['src/modules/foo/unexpected.ts'])
     expect(result).toContain('src/modules/foo/new-file.ts')
     expect(result).toContain('src/modules/foo/existing.ts')
   })
@@ -231,9 +227,7 @@ Some story.
 
   it('handles story with no file path sections gracefully', () => {
     const emptyStory = '## Story\nAs a developer, I want something.\n'
-    const result = ScopeGuardrail.buildAnalysis(emptyStory, [
-      'src/some/unexpected.ts',
-    ])
+    const result = ScopeGuardrail.buildAnalysis(emptyStory, ['src/some/unexpected.ts'])
     // Expected set is empty, all files are out-of-scope
     expect(result).not.toBe('')
     expect(result).toContain('src/some/unexpected.ts')

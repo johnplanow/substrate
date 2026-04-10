@@ -9,7 +9,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { DoltStateStore } from '../dolt-store.js'
 import { DoltMergeConflictError } from '../errors.js'
 import type { DoltClient } from '../dolt-client.js'
-import type { StoryRecord, MetricRecord, ContractRecord, ContractVerificationRecord } from '../types.js'
+import type {
+  StoryRecord,
+  MetricRecord,
+  ContractRecord,
+  ContractVerificationRecord,
+} from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -42,7 +47,10 @@ vi.mock('../../../utils/logger.js', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeClient(queryResults: Map<string, unknown[]> = new Map(), execResults: Map<string, string> = new Map()): DoltClient {
+function makeClient(
+  queryResults: Map<string, unknown[]> = new Map(),
+  execResults: Map<string, string> = new Map()
+): DoltClient {
   return {
     repoPath: '/tmp/testrepo',
     socketPath: '/tmp/testrepo/.dolt/dolt.sock',
@@ -119,11 +127,7 @@ describe('DoltStateStore', () => {
   describe('schema migration — dependencies column', () => {
     it('runs ALTER TABLE when dependencies column is missing (SHOW COLUMNS returns empty)', async () => {
       // Default client returns [] for all queries — SHOW COLUMNS returns 0 rows → migration applies
-      const client = makeClient(
-        new Map([
-          ['SHOW COLUMNS FROM repo_map_symbols', []],
-        ]),
-      )
+      const client = makeClient(new Map([['SHOW COLUMNS FROM repo_map_symbols', []]]))
       const store = makeStore(client)
       await store.initialize()
 
@@ -137,8 +141,20 @@ describe('DoltStateStore', () => {
       // SHOW COLUMNS returns a row — column exists, migration is a no-op
       const client = makeClient(
         new Map([
-          ['SHOW COLUMNS FROM repo_map_symbols', [{ Field: 'dependencies', Type: 'json', Null: 'YES', Key: '', Default: null, Extra: '' }]],
-        ]),
+          [
+            'SHOW COLUMNS FROM repo_map_symbols',
+            [
+              {
+                Field: 'dependencies',
+                Type: 'json',
+                Null: 'YES',
+                Key: '',
+                Default: null,
+                Extra: '',
+              },
+            ],
+          ],
+        ])
       )
       const store = makeStore(client)
       await store.initialize()
@@ -150,28 +166,21 @@ describe('DoltStateStore', () => {
 
     it('inserts schema version 6 into _schema_version after migration', async () => {
       // SHOW COLUMNS returns [] → migration runs → version 6 should be recorded
-      const client = makeClient(
-        new Map([
-          ['SHOW COLUMNS FROM repo_map_symbols', []],
-        ]),
-      )
+      const client = makeClient(new Map([['SHOW COLUMNS FROM repo_map_symbols', []]]))
       const store = makeStore(client)
       await store.initialize()
 
       const calls = vi.mocked(client.query).mock.calls
       const versionCall = calls.find(
-        ([sql]) => String(sql).includes('INSERT IGNORE INTO _schema_version') && String(sql).includes('(6,'),
+        ([sql]) =>
+          String(sql).includes('INSERT IGNORE INTO _schema_version') && String(sql).includes('(6,')
       )
       expect(versionCall).toBeDefined()
     })
 
     it('emits info-level log with migration metadata when ALTER TABLE runs (AC5)', async () => {
       mockLogInfo.mockClear()
-      const client = makeClient(
-        new Map([
-          ['SHOW COLUMNS FROM repo_map_symbols', []],
-        ]),
-      )
+      const client = makeClient(new Map([['SHOW COLUMNS FROM repo_map_symbols', []]]))
       const store = makeStore(client)
       await store.initialize()
 
@@ -182,7 +191,7 @@ describe('DoltStateStore', () => {
           column: 'dependencies',
           table: 'repo_map_symbols',
         }),
-        expect.any(String),
+        expect.any(String)
       )
     })
 
@@ -190,15 +199,32 @@ describe('DoltStateStore', () => {
       mockLogInfo.mockClear()
       const client = makeClient(
         new Map([
-          ['SHOW COLUMNS FROM repo_map_symbols', [{ Field: 'dependencies', Type: 'json', Null: 'YES', Key: '', Default: null, Extra: '' }]],
-        ]),
+          [
+            'SHOW COLUMNS FROM repo_map_symbols',
+            [
+              {
+                Field: 'dependencies',
+                Type: 'json',
+                Null: 'YES',
+                Key: '',
+                Default: null,
+                Extra: '',
+              },
+            ],
+          ],
+        ])
       )
       const store = makeStore(client)
       await store.initialize()
 
-      const migrationCall = vi.mocked(mockLogInfo).mock.calls.find(
-        ([meta]) => typeof meta === 'object' && meta !== null && (meta as Record<string, unknown>)['migration'] === 'v5-to-v6',
-      )
+      const migrationCall = vi
+        .mocked(mockLogInfo)
+        .mock.calls.find(
+          ([meta]) =>
+            typeof meta === 'object' &&
+            meta !== null &&
+            (meta as Record<string, unknown>)['migration'] === 'v5-to-v6'
+        )
       expect(migrationCall).toBeUndefined()
     })
 
@@ -252,7 +278,7 @@ describe('DoltStateStore', () => {
               },
             ],
           ],
-        ]),
+        ])
       )
       const store = makeStore(client)
       const result = await store.getStoryState('26-1')
@@ -354,10 +380,19 @@ describe('DoltStateStore', () => {
           [
             'FROM stories',
             [
-              { story_key: '26-1', phase: 'COMPLETE', review_cycles: 3, last_verdict: null, error: null, started_at: null, completed_at: null, sprint: null },
+              {
+                story_key: '26-1',
+                phase: 'COMPLETE',
+                review_cycles: 3,
+                last_verdict: null,
+                error: null,
+                started_at: null,
+                completed_at: null,
+                sprint: null,
+              },
             ],
           ],
-        ]),
+        ])
       )
       const store = makeStore(client)
       const results = await store.queryStories({})
@@ -446,7 +481,7 @@ describe('DoltStateStore', () => {
               },
             ],
           ],
-        ]),
+        ])
       )
       const store = makeStore(client)
       const results = await store.queryMetrics({})
@@ -482,7 +517,7 @@ describe('DoltStateStore', () => {
               },
             ],
           ],
-        ]),
+        ])
       )
       const store = makeStore(client)
       const results = await store.getContracts('26-1')
@@ -564,7 +599,9 @@ describe('DoltStateStore', () => {
       await store.branchForStory('26-7')
       vi.mocked(client.query).mockClear()
       // Mock merge returning no conflicts
-      vi.mocked(client.query).mockResolvedValue([{ hash: 'abc123', fast_forward: 1, conflicts: 0, message: '' }])
+      vi.mocked(client.query).mockResolvedValue([
+        { hash: 'abc123', fast_forward: 1, conflicts: 0, message: '' },
+      ])
       await store.mergeStory('26-7')
       const calls = vi.mocked(client.query).mock.calls
       const mergeCall = calls.find(([sql]) => String(sql).includes('DOLT_MERGE'))
@@ -581,7 +618,9 @@ describe('DoltStateStore', () => {
       const store = makeStore(client)
       await expect(store.rollbackStory('26-7')).resolves.toBeUndefined()
       const calls = vi.mocked(client.query).mock.calls
-      const dropCall = calls.find(([sql]) => String(sql).includes('DOLT_BRANCH') && String(sql).includes('-D'))
+      const dropCall = calls.find(
+        ([sql]) => String(sql).includes('DOLT_BRANCH') && String(sql).includes('-D')
+      )
       expect(dropCall).toBeUndefined()
     })
 
@@ -593,7 +632,9 @@ describe('DoltStateStore', () => {
       vi.mocked(client.query).mockResolvedValue([])
       await store.rollbackStory('26-7')
       const calls = vi.mocked(client.query).mock.calls
-      const dropCall = calls.find(([sql]) => String(sql).includes('DOLT_BRANCH') && String(sql).includes('-D'))
+      const dropCall = calls.find(
+        ([sql]) => String(sql).includes('DOLT_BRANCH') && String(sql).includes('-D')
+      )
       expect(dropCall).toBeDefined()
     })
 
@@ -619,13 +660,35 @@ describe('DoltStateStore', () => {
 
     it('returns row-level DiffRow arrays via DOLT_DIFF SQL when branch is registered', async () => {
       const queryResults = new Map<string, unknown[]>([
-        ["'stories'", [
-          { diff_type: 'added', after_story_key: '26-7', after_phase: 'COMPLETE', before_story_key: null },
-          { diff_type: 'modified', after_story_key: '26-7', after_phase: 'IN_REVIEW', before_story_key: '26-7', before_phase: 'IN_DEV' },
-        ]],
-        ["'contracts'", [
-          { diff_type: 'removed', before_story_key: '26-7', before_contract_name: 'old', after_story_key: null },
-        ]],
+        [
+          "'stories'",
+          [
+            {
+              diff_type: 'added',
+              after_story_key: '26-7',
+              after_phase: 'COMPLETE',
+              before_story_key: null,
+            },
+            {
+              diff_type: 'modified',
+              after_story_key: '26-7',
+              after_phase: 'IN_REVIEW',
+              before_story_key: '26-7',
+              before_phase: 'IN_DEV',
+            },
+          ],
+        ],
+        [
+          "'contracts'",
+          [
+            {
+              diff_type: 'removed',
+              before_story_key: '26-7',
+              before_contract_name: 'old',
+              after_story_key: null,
+            },
+          ],
+        ],
       ])
       const client = makeClient(queryResults)
       const store = makeStore(client)
@@ -647,9 +710,17 @@ describe('DoltStateStore', () => {
     it('finds merge commit and diffs when branch is not registered (merged story)', async () => {
       const queryResults = new Map<string, unknown[]>([
         ['dolt_log', [{ commit_hash: 'abc1234' }]],
-        ["'stories'", [
-          { diff_type: 'added', after_story_key: '26-7', after_phase: 'COMPLETE', before_story_key: null },
-        ]],
+        [
+          "'stories'",
+          [
+            {
+              diff_type: 'added',
+              after_story_key: '26-7',
+              after_phase: 'COMPLETE',
+              before_story_key: null,
+            },
+          ],
+        ],
       ])
       const client = makeClient(queryResults)
       const store = makeStore(client)
@@ -663,12 +734,12 @@ describe('DoltStateStore', () => {
       expect(client.query).toHaveBeenCalledWith(
         expect.stringContaining("DOLT_DIFF('abc1234~1', 'abc1234'"),
         [],
-        'main',
+        'main'
       )
       // Verify dolt_log was queried for the merge commit
       expect(client.query).toHaveBeenCalledWith(
         expect.stringContaining('dolt_log'),
-        expect.arrayContaining(['%26-7%']),
+        expect.arrayContaining(['%26-7%'])
       )
     })
 
@@ -695,11 +766,29 @@ describe('DoltStateStore', () => {
   describe('getHistory', () => {
     it('returns parsed HistoryEntry array from dolt_log query', async () => {
       const queryResults = new Map([
-        ['dolt_log', [
-          { commit_hash: 'a1b2c3d', date: '2026-03-08T14:23:01+00:00', message: 'Merge story/26-7: branch-per-story complete', committer: 'substrate' },
-          { commit_hash: 'b2c3d4e', date: '2026-03-07T10:00:00+00:00', message: 'substrate: auto-commit', committer: 'substrate' },
-          { commit_hash: 'c3d4e5f', date: '2026-03-06T09:00:00+00:00', message: 'Merge story/26-1: done', committer: 'substrate' },
-        ]],
+        [
+          'dolt_log',
+          [
+            {
+              commit_hash: 'a1b2c3d',
+              date: '2026-03-08T14:23:01+00:00',
+              message: 'Merge story/26-7: branch-per-story complete',
+              committer: 'substrate',
+            },
+            {
+              commit_hash: 'b2c3d4e',
+              date: '2026-03-07T10:00:00+00:00',
+              message: 'substrate: auto-commit',
+              committer: 'substrate',
+            },
+            {
+              commit_hash: 'c3d4e5f',
+              date: '2026-03-06T09:00:00+00:00',
+              message: 'Merge story/26-1: done',
+              committer: 'substrate',
+            },
+          ],
+        ],
       ])
       const client = makeClient(queryResults)
       const store = makeStore(client)
@@ -721,7 +810,7 @@ describe('DoltStateStore', () => {
       await store.getHistory()
       const calls = vi.mocked(client.query).mock.calls
       // Find the dolt_log query call
-      const logCall = calls.find(c => String(c[0]).includes('dolt_log'))
+      const logCall = calls.find((c) => String(c[0]).includes('dolt_log'))
       expect(logCall).toBeDefined()
       expect(logCall![1]).toEqual([20])
     })
@@ -778,7 +867,9 @@ describe('DoltStateStore', () => {
       const store = makeStore(client)
       await store.queryContracts()
       const calls = vi.mocked(client.query).mock.calls
-      const selectCall = calls.find(([sql]) => String(sql).includes('FROM contracts') && !String(sql).includes('WHERE'))
+      const selectCall = calls.find(
+        ([sql]) => String(sql).includes('FROM contracts') && !String(sql).includes('WHERE')
+      )
       expect(selectCall).toBeDefined()
     })
 
@@ -817,7 +908,7 @@ describe('DoltStateStore', () => {
               },
             ],
           ],
-        ]),
+        ])
       )
       const store = makeStore(client)
       const results = await store.queryContracts()
@@ -836,13 +927,24 @@ describe('DoltStateStore', () => {
         (_cmd: string, _args: readonly string[], _opts: unknown, callback?: unknown) => {
           if (typeof callback === 'function') callback(null, '', '')
           return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
-        },
+        }
       )
       const client = makeClient()
       const store = makeStore(client)
       const records: ContractVerificationRecord[] = [
-        { storyKey: '26-1', contractName: 'StateStore', verdict: 'pass', verifiedAt: '2026-03-08T10:00:00.000Z' },
-        { storyKey: '26-1', contractName: 'DoltClient', verdict: 'fail', mismatchDescription: 'Missing close()', verifiedAt: '2026-03-08T10:00:00.000Z' },
+        {
+          storyKey: '26-1',
+          contractName: 'StateStore',
+          verdict: 'pass',
+          verifiedAt: '2026-03-08T10:00:00.000Z',
+        },
+        {
+          storyKey: '26-1',
+          contractName: 'DoltClient',
+          verdict: 'fail',
+          mismatchDescription: 'Missing close()',
+          verifiedAt: '2026-03-08T10:00:00.000Z',
+        },
       ]
 
       await store.setContractVerification('26-1', records)
@@ -852,7 +954,9 @@ describe('DoltStateStore', () => {
       expect(deleteCall).toBeDefined()
       expect(deleteCall![1]).toContain('26-1')
 
-      const insertCalls = calls.filter(([sql]) => String(sql).includes('INSERT INTO review_verdicts'))
+      const insertCalls = calls.filter(([sql]) =>
+        String(sql).includes('INSERT INTO review_verdicts')
+      )
       expect(insertCalls).toHaveLength(2)
     })
 
@@ -862,12 +966,18 @@ describe('DoltStateStore', () => {
         (_cmd: string, _args: readonly string[], _opts: unknown, callback?: unknown) => {
           if (typeof callback === 'function') callback(null, '', '')
           return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
-        },
+        }
       )
       const client = makeClient()
       const store = makeStore(client)
       const records: ContractVerificationRecord[] = [
-        { storyKey: '26-1', contractName: 'StateStore', verdict: 'fail', mismatchDescription: 'Type mismatch', verifiedAt: '2026-03-08T10:00:00.000Z' },
+        {
+          storyKey: '26-1',
+          contractName: 'StateStore',
+          verdict: 'fail',
+          mismatchDescription: 'Type mismatch',
+          verifiedAt: '2026-03-08T10:00:00.000Z',
+        },
       ]
 
       await store.setContractVerification('26-1', records)
@@ -876,7 +986,10 @@ describe('DoltStateStore', () => {
       const insertCall = calls.find(([sql]) => String(sql).includes('INSERT INTO review_verdicts'))!
       const params = insertCall[1] as unknown[]
       // notes is at index 3
-      const notes = JSON.parse(params[3] as string) as { contractName: string; mismatchDescription: string }
+      const notes = JSON.parse(params[3] as string) as {
+        contractName: string
+        mismatchDescription: string
+      }
       expect(notes.contractName).toBe('StateStore')
       expect(notes.mismatchDescription).toBe('Type mismatch')
     })
@@ -901,12 +1014,15 @@ describe('DoltStateStore', () => {
                 task_type: 'contract-verification',
                 verdict: 'pass',
                 issues_count: 0,
-                notes: JSON.stringify({ contractName: 'StateStore', mismatchDescription: undefined }),
+                notes: JSON.stringify({
+                  contractName: 'StateStore',
+                  mismatchDescription: undefined,
+                }),
                 timestamp: '2026-03-08T10:00:00.000Z',
               },
             ],
           ],
-        ]),
+        ])
       )
       const store = makeStore(client)
       const results = await store.getContractVerification('26-1')

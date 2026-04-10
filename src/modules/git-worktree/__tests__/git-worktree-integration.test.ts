@@ -41,7 +41,7 @@ vi.mock('../../../../packages/core/src/git/git-utils.js', () => ({
   createWorktree: vi.fn(
     async (projectRoot: string, taskId: string, _branchName: string, _baseBranch: string) => ({
       worktreePath: path.join(projectRoot, '.substrate-worktrees', taskId),
-    }),
+    })
   ),
   removeWorktree: vi.fn(async () => {}),
   removeBranch: vi.fn(async () => {}),
@@ -104,12 +104,8 @@ function createRealEventBus(): TypedEventBus & {
       events.push({ event, payload })
       emitter.emit(event, payload)
     }),
-    on: vi.fn((event: string, handler: (payload: unknown) => void) =>
-      emitter.on(event, handler),
-    ),
-    off: vi.fn((event: string, handler: (payload: unknown) => void) =>
-      emitter.off(event, handler),
-    ),
+    on: vi.fn((event: string, handler: (payload: unknown) => void) => emitter.on(event, handler)),
+    off: vi.fn((event: string, handler: (payload: unknown) => void) => emitter.off(event, handler)),
     getEmittedEvents: () => events,
   }
 }
@@ -118,9 +114,7 @@ function createMockDb(taskStatus?: string): LegacyDbLike {
   const db = {
     prepare: vi.fn(() => ({
       get: vi.fn(() =>
-        taskStatus !== undefined
-          ? { id: 'task-1', status: taskStatus }
-          : undefined,
+        taskStatus !== undefined ? { id: 'task-1', status: taskStatus } : undefined
       ),
       all: vi.fn(() => []),
       run: vi.fn(() => ({ changes: 1 })),
@@ -231,7 +225,7 @@ describe('GitWorktreeManager Integration', () => {
       const payload = createdEvent!.payload as { branchName: string; worktreePath: string }
       expect(payload.branchName).toBe('substrate/task-task-branch-test')
       expect(payload.worktreePath).toBe(
-        path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-branch-test'),
+        path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-branch-test')
       )
 
       await manager.shutdown()
@@ -308,9 +302,7 @@ describe('GitWorktreeManager Integration', () => {
     })
 
     it('cleans up all orphaned worktrees during recovery (task status check removed)', async () => {
-      const orphanedPaths = [
-        path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-active'),
-      ]
+      const orphanedPaths = [path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-active')]
       vi.mocked(gitUtils.getOrphanedWorktrees).mockResolvedValueOnce(orphanedPaths)
 
       const db = createMockDb('running')
@@ -357,9 +349,7 @@ describe('GitWorktreeManager Integration', () => {
 
   describe('Graceful shutdown', () => {
     it('cleans all worktrees on shutdown', async () => {
-      const orphanedPaths = [
-        path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-shutdown'),
-      ]
+      const orphanedPaths = [path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-shutdown')]
 
       const eventBus = createRealEventBus()
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)

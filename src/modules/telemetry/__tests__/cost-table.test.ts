@@ -35,7 +35,7 @@ describe('COST_TABLE', () => {
       expect(typeof pricing.outputPerMToken, `${model}.outputPerMToken`).toBe('number')
       expect(typeof pricing.cacheReadPerMToken, `${model}.cacheReadPerMToken`).toBe('number')
       expect(typeof pricing.cacheCreationPerMToken, `${model}.cacheCreationPerMToken`).toBe(
-        'number',
+        'number'
       )
     }
   })

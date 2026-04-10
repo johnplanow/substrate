@@ -112,25 +112,29 @@ function makeLogTurnAnalysis(overrides?: Partial<TurnAnalysis>): TurnAnalysis {
 }
 
 function makeCategoryStats(): CategoryStats[] {
-  return [{
-    category: 'tool_outputs',
-    totalTokens: 150,
-    percentage: 100,
-    eventCount: 1,
-    avgTokensPerEvent: 150,
-    trend: 'stable',
-  }]
+  return [
+    {
+      category: 'tool_outputs',
+      totalTokens: 150,
+      percentage: 100,
+      eventCount: 1,
+      avgTokensPerEvent: 150,
+      trend: 'stable',
+    },
+  ]
 }
 
 function makeConsumerStats(): ConsumerStats[] {
-  return [{
-    consumerKey: 'test-span|',
-    category: 'tool_outputs',
-    totalTokens: 150,
-    percentage: 100,
-    eventCount: 1,
-    topInvocations: [],
-  }]
+  return [
+    {
+      consumerKey: 'test-span|',
+      category: 'tool_outputs',
+      totalTokens: 150,
+      percentage: 100,
+      eventCount: 1,
+      topInvocations: [],
+    },
+  ]
 }
 
 function makeEfficiencyScore(): EfficiencyScore {
@@ -170,7 +174,7 @@ function makeRecommendation(): Recommendation {
 
 function makeMockDeps(
   spans: NormalizedSpan[] = [makeSpan()],
-  logs: NormalizedLog[] = [],
+  logs: NormalizedLog[] = []
 ): TelemetryPipelineDeps & {
   normalizer: { normalizeSpan: ReturnType<typeof vi.fn>; normalizeLog: ReturnType<typeof vi.fn> }
   logTurnAnalyzer: { analyze: ReturnType<typeof vi.fn> }
@@ -193,7 +197,10 @@ function makeMockDeps(
     normalizer: {
       normalizeSpan: vi.fn().mockReturnValue(spans),
       normalizeLog: vi.fn().mockReturnValue(logs),
-    } as unknown as TelemetryNormalizer & { normalizeSpan: ReturnType<typeof vi.fn>; normalizeLog: ReturnType<typeof vi.fn> },
+    } as unknown as TelemetryNormalizer & {
+      normalizeSpan: ReturnType<typeof vi.fn>
+      normalizeLog: ReturnType<typeof vi.fn>
+    },
 
     turnAnalyzer: {
       analyze: vi.fn().mockReturnValue(turns),
@@ -289,73 +296,69 @@ describe('TelemetryPipeline', () => {
 
   it('calls turnAnalyzer.analyze with normalized spans grouped by storyKey', async () => {
     await pipeline.processBatch([makePayload()])
-    expect((deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ storyKey: STORY_KEY })]))
+    expect(
+      (deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ storyKey: STORY_KEY })])
+    )
   })
 
   it('calls categorizer.computeCategoryStats with spans and turns', async () => {
     await pipeline.processBatch([makePayload()])
-    expect((deps.categorizer as unknown as { computeCategoryStats: ReturnType<typeof vi.fn> }).computeCategoryStats)
-      .toHaveBeenCalled()
+    expect(
+      (deps.categorizer as unknown as { computeCategoryStats: ReturnType<typeof vi.fn> })
+        .computeCategoryStats
+    ).toHaveBeenCalled()
   })
 
   it('calls consumerAnalyzer.analyze with spans', async () => {
     await pipeline.processBatch([makePayload()])
-    expect((deps.consumerAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .toHaveBeenCalled()
+    expect(
+      (deps.consumerAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).toHaveBeenCalled()
   })
 
   it('calls efficiencyScorer.score with storyKey and turns', async () => {
     await pipeline.processBatch([makePayload()])
-    expect((deps.efficiencyScorer as unknown as { score: ReturnType<typeof vi.fn> }).score)
-      .toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
+    expect(
+      (deps.efficiencyScorer as unknown as { score: ReturnType<typeof vi.fn> }).score
+    ).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
   })
 
   it('calls recommender.analyze with context including storyKey', async () => {
     await pipeline.processBatch([makePayload()])
-    expect((deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .toHaveBeenCalledWith(expect.objectContaining({ storyKey: STORY_KEY }))
+    expect(
+      (deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).toHaveBeenCalledWith(expect.objectContaining({ storyKey: STORY_KEY }))
   })
 
   // -- persistence --
 
   it('calls persistence.storeTurnAnalysis for story with turns', async () => {
     await pipeline.processBatch([makePayload()])
-    expect(deps.persistence.storeTurnAnalysis).toHaveBeenCalledWith(
-      STORY_KEY,
-      expect.any(Array),
-    )
+    expect(deps.persistence.storeTurnAnalysis).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
   })
 
   it('calls persistence.storeCategoryStats', async () => {
     await pipeline.processBatch([makePayload()])
-    expect(deps.persistence.storeCategoryStats).toHaveBeenCalledWith(
-      STORY_KEY,
-      expect.any(Array),
-    )
+    expect(deps.persistence.storeCategoryStats).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
   })
 
   it('calls persistence.storeConsumerStats', async () => {
     await pipeline.processBatch([makePayload()])
-    expect(deps.persistence.storeConsumerStats).toHaveBeenCalledWith(
-      STORY_KEY,
-      expect.any(Array),
-    )
+    expect(deps.persistence.storeConsumerStats).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
   })
 
   it('calls persistence.storeEfficiencyScore', async () => {
     await pipeline.processBatch([makePayload()])
     expect(deps.persistence.storeEfficiencyScore).toHaveBeenCalledWith(
-      expect.objectContaining({ storyKey: STORY_KEY }),
+      expect.objectContaining({ storyKey: STORY_KEY })
     )
   })
 
   it('calls persistence.saveRecommendations', async () => {
     await pipeline.processBatch([makePayload()])
-    expect(deps.persistence.saveRecommendations).toHaveBeenCalledWith(
-      STORY_KEY,
-      expect.any(Array),
-    )
+    expect(deps.persistence.saveRecommendations).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
   })
 
   // -- spans without storyKey are skipped --
@@ -368,16 +371,18 @@ describe('TelemetryPipeline', () => {
 
     // Normalizer called, but analysis stages should not be called
     expect(deps.normalizer.normalizeSpan).toHaveBeenCalled()
-    expect((deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .not.toHaveBeenCalled()
+    expect(
+      (deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).not.toHaveBeenCalled()
     expect(deps.persistence.storeTurnAnalysis).not.toHaveBeenCalled()
   })
 
   // -- error resilience --
 
   it('does not throw when normalizer throws', async () => {
-    deps.normalizer.normalizeSpan
-      .mockImplementation(() => { throw new Error('normalizer error') })
+    deps.normalizer.normalizeSpan.mockImplementation(() => {
+      throw new Error('normalizer error')
+    })
 
     await expect(pipeline.processBatch([makePayload()])).resolves.not.toThrow()
   })
@@ -403,8 +408,9 @@ describe('TelemetryPipeline', () => {
     await pipeline.processBatch([makePayload()])
 
     // turnAnalyzer should be called once per story
-    expect((deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .toHaveBeenCalledTimes(2)
+    expect(
+      (deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).toHaveBeenCalledTimes(2)
   })
 
   // -- empty spans from normalizer --
@@ -415,8 +421,9 @@ describe('TelemetryPipeline', () => {
 
     await pipeline.processBatch([makePayload()])
 
-    expect((deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .not.toHaveBeenCalled()
+    expect(
+      (deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).not.toHaveBeenCalled()
     expect(deps.persistence.storeTurnAnalysis).not.toHaveBeenCalled()
   })
 })
@@ -438,8 +445,9 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
     // LogTurnAnalyzer should be called
     expect(deps.logTurnAnalyzer.analyze).toHaveBeenCalledWith(logs)
     // TurnAnalyzer should NOT be called (no spans)
-    expect((deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .not.toHaveBeenCalled()
+    expect(
+      (deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).not.toHaveBeenCalled()
   })
 
   // -- AC2: Dual-track turn analysis --
@@ -453,8 +461,9 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
     await pipeline.processBatch([makePayload()])
 
     // Both analyzers called
-    expect((deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .toHaveBeenCalledWith(spans)
+    expect(
+      (deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).toHaveBeenCalledWith(spans)
     expect(deps.logTurnAnalyzer.analyze).toHaveBeenCalledWith(logs)
   })
 
@@ -468,15 +477,17 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
     const logTurn = makeLogTurnAnalysis({ spanId: sharedSpanId, inputTokens: 80 })
 
     const deps = makeMockDeps(spans, logs)
-    ;(deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
-      .mockReturnValue([spanTurn])
+    ;(
+      deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }
+    ).analyze.mockReturnValue([spanTurn])
     deps.logTurnAnalyzer.analyze.mockReturnValue([logTurn])
 
     const pipeline = new TelemetryPipeline(deps)
     await pipeline.processBatch([makePayload()])
 
     // Efficiency scorer should be called with merged turns (only 1, span wins)
-    const scoreCall = (deps.efficiencyScorer as unknown as { score: ReturnType<typeof vi.fn> }).score
+    const scoreCall = (deps.efficiencyScorer as unknown as { score: ReturnType<typeof vi.fn> })
+      .score
     expect(scoreCall).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
     const actualTurns = scoreCall.mock.calls[0][1] as TurnAnalysis[]
     expect(actualTurns).toHaveLength(1)
@@ -491,14 +502,16 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
     const logTurn = makeLogTurnAnalysis({ spanId: 'log-only', timestamp: 2000000 })
 
     const deps = makeMockDeps(spans, logs)
-    ;(deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
-      .mockReturnValue([spanTurn])
+    ;(
+      deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }
+    ).analyze.mockReturnValue([spanTurn])
     deps.logTurnAnalyzer.analyze.mockReturnValue([logTurn])
 
     const pipeline = new TelemetryPipeline(deps)
     await pipeline.processBatch([makePayload()])
 
-    const scoreCall = (deps.efficiencyScorer as unknown as { score: ReturnType<typeof vi.fn> }).score
+    const scoreCall = (deps.efficiencyScorer as unknown as { score: ReturnType<typeof vi.fn> })
+      .score
     const actualTurns = scoreCall.mock.calls[0][1] as TurnAnalysis[]
     expect(actualTurns).toHaveLength(2)
     // Should be sorted by timestamp and renumbered
@@ -518,12 +531,9 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
     await pipeline.processBatch([makePayload()])
 
     // Persistence called for turns and efficiency
-    expect(deps.persistence.storeTurnAnalysis).toHaveBeenCalledWith(
-      STORY_KEY,
-      expect.any(Array),
-    )
+    expect(deps.persistence.storeTurnAnalysis).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
     expect(deps.persistence.storeEfficiencyScore).toHaveBeenCalledWith(
-      expect.objectContaining({ storyKey: STORY_KEY }),
+      expect.objectContaining({ storyKey: STORY_KEY })
     )
   })
 
@@ -535,16 +545,23 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
     await pipeline.processBatch([makePayload()])
 
     // Span-based categorizer and consumer not called
-    expect((deps.categorizer as unknown as { computeCategoryStats: ReturnType<typeof vi.fn> }).computeCategoryStats)
-      .not.toHaveBeenCalled()
-    expect((deps.consumerAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .not.toHaveBeenCalled()
+    expect(
+      (deps.categorizer as unknown as { computeCategoryStats: ReturnType<typeof vi.fn> })
+        .computeCategoryStats
+    ).not.toHaveBeenCalled()
+    expect(
+      (deps.consumerAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).not.toHaveBeenCalled()
     // Turn-based category stats IS called
-    expect((deps.categorizer as unknown as { computeCategoryStatsFromTurns: ReturnType<typeof vi.fn> }).computeCategoryStatsFromTurns)
-      .toHaveBeenCalled()
+    expect(
+      (deps.categorizer as unknown as { computeCategoryStatsFromTurns: ReturnType<typeof vi.fn> })
+        .computeCategoryStatsFromTurns
+    ).toHaveBeenCalled()
     // Turn-based consumer stats IS called (AC2 — Story 30-4)
-    expect((deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }).analyzeFromTurns)
-      .toHaveBeenCalled()
+    expect(
+      (deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> })
+        .analyzeFromTurns
+    ).toHaveBeenCalled()
   })
 
   // -- AC4: Span-only path unchanged --
@@ -556,15 +573,19 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
 
     await pipeline.processBatch([makePayload()])
 
-    expect((deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .toHaveBeenCalledWith(spans)
+    expect(
+      (deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).toHaveBeenCalledWith(spans)
     expect(deps.logTurnAnalyzer.analyze).not.toHaveBeenCalled()
 
     // Full analysis path runs
-    expect((deps.categorizer as unknown as { computeCategoryStats: ReturnType<typeof vi.fn> }).computeCategoryStats)
-      .toHaveBeenCalled()
-    expect((deps.consumerAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .toHaveBeenCalled()
+    expect(
+      (deps.categorizer as unknown as { computeCategoryStats: ReturnType<typeof vi.fn> })
+        .computeCategoryStats
+    ).toHaveBeenCalled()
+    expect(
+      (deps.consumerAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).toHaveBeenCalled()
     expect(deps.persistence.storeTurnAnalysis).toHaveBeenCalled()
     expect(deps.persistence.storeEfficiencyScore).toHaveBeenCalled()
   })
@@ -601,12 +622,9 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
     const pipeline = new TelemetryPipeline(deps)
     await pipeline.processBatch([makePayload()])
 
-    expect(deps.persistence.storeTurnAnalysis).toHaveBeenCalledWith(
-      STORY_KEY,
-      [logTurn],
-    )
+    expect(deps.persistence.storeTurnAnalysis).toHaveBeenCalledWith(STORY_KEY, [logTurn])
     expect(deps.persistence.storeEfficiencyScore).toHaveBeenCalledWith(
-      expect.objectContaining({ storyKey: STORY_KEY }),
+      expect.objectContaining({ storyKey: STORY_KEY })
     )
   })
 
@@ -618,8 +636,9 @@ describe('TelemetryPipeline dual-track (Story 27-15)', () => {
 
     await pipeline.processBatch([makePayload()])
 
-    expect((deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .not.toHaveBeenCalled()
+    expect(
+      (deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).not.toHaveBeenCalled()
     expect(deps.logTurnAnalyzer.analyze).not.toHaveBeenCalled()
     expect(deps.persistence.storeTurnAnalysis).not.toHaveBeenCalled()
   })
@@ -669,12 +688,15 @@ describe('TelemetryPipeline log-only path parity (Story 30-4)', () => {
 
     // Ensure non-empty returns from all analyzers so persistence is called
     deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
-    ;(deps.categorizer as unknown as { computeCategoryStatsFromTurns: ReturnType<typeof vi.fn> }).computeCategoryStatsFromTurns
-      .mockReturnValue(makeCategoryStats())
-    ;(deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }).analyzeFromTurns
-      .mockReturnValue(makeConsumerStats())
-    ;(deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
-      .mockReturnValue([makeRecommendation()])
+    ;(
+      deps.categorizer as unknown as { computeCategoryStatsFromTurns: ReturnType<typeof vi.fn> }
+    ).computeCategoryStatsFromTurns.mockReturnValue(makeCategoryStats())
+    ;(
+      deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }
+    ).analyzeFromTurns.mockReturnValue(makeConsumerStats())
+    ;(deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze.mockReturnValue(
+      [makeRecommendation()]
+    )
 
     const pipeline = new TelemetryPipeline(deps)
     await pipeline.processBatch([makePayload()])
@@ -682,7 +704,7 @@ describe('TelemetryPipeline log-only path parity (Story 30-4)', () => {
     // All 5 persistence methods called with the correct story key
     expect(deps.persistence.storeTurnAnalysis).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
     expect(deps.persistence.storeEfficiencyScore).toHaveBeenCalledWith(
-      expect.objectContaining({ storyKey: STORY_KEY }),
+      expect.objectContaining({ storyKey: STORY_KEY })
     )
     expect(deps.persistence.storeCategoryStats).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
     expect(deps.persistence.storeConsumerStats).toHaveBeenCalledWith(STORY_KEY, expect.any(Array))
@@ -695,8 +717,9 @@ describe('TelemetryPipeline log-only path parity (Story 30-4)', () => {
     const expectedConsumers = makeConsumerStats()
 
     deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
-    ;(deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }).analyzeFromTurns
-      .mockReturnValue(expectedConsumers)
+    ;(
+      deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }
+    ).analyzeFromTurns.mockReturnValue(expectedConsumers)
 
     const pipeline = new TelemetryPipeline(deps)
     await pipeline.processBatch([makePayload()])
@@ -710,8 +733,9 @@ describe('TelemetryPipeline log-only path parity (Story 30-4)', () => {
     const expectedRec = makeRecommendation()
 
     deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
-    ;(deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
-      .mockReturnValue([expectedRec])
+    ;(deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze.mockReturnValue(
+      [expectedRec]
+    )
 
     const pipeline = new TelemetryPipeline(deps)
     await pipeline.processBatch([makePayload()])
@@ -727,18 +751,21 @@ describe('TelemetryPipeline log-only path parity (Story 30-4)', () => {
     const pipeline = new TelemetryPipeline(deps)
     await pipeline.processBatch([makePayload()])
 
-    expect((deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze)
-      .toHaveBeenCalledWith(expect.objectContaining({ allSpans: [], storyKey: STORY_KEY }))
+    expect(
+      (deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
+    ).toHaveBeenCalledWith(expect.objectContaining({ allSpans: [], storyKey: STORY_KEY }))
   })
 
   it('persistence errors in consumer stats and recommendations do not throw', async () => {
     const logs = [makeLog()]
     const deps = makeMockDeps([], logs)
     deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
-    ;(deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }).analyzeFromTurns
-      .mockReturnValue(makeConsumerStats())
-    ;(deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
-      .mockReturnValue([makeRecommendation()])
+    ;(
+      deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }
+    ).analyzeFromTurns.mockReturnValue(makeConsumerStats())
+    ;(deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze.mockReturnValue(
+      [makeRecommendation()]
+    )
     deps.persistence.storeConsumerStats.mockRejectedValue(new Error('consumer db error'))
     deps.persistence.saveRecommendations.mockRejectedValue(new Error('recs db error'))
 
@@ -750,8 +777,9 @@ describe('TelemetryPipeline log-only path parity (Story 30-4)', () => {
     const logs = [makeLog()]
     const deps = makeMockDeps([], logs)
     deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
-    ;(deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }).analyzeFromTurns
-      .mockReturnValue([])
+    ;(
+      deps.consumerAnalyzer as unknown as { analyzeFromTurns: ReturnType<typeof vi.fn> }
+    ).analyzeFromTurns.mockReturnValue([])
 
     const pipeline = new TelemetryPipeline(deps)
     await pipeline.processBatch([makePayload()])
@@ -763,8 +791,9 @@ describe('TelemetryPipeline log-only path parity (Story 30-4)', () => {
     const logs = [makeLog()]
     const deps = makeMockDeps([], logs)
     deps.logTurnAnalyzer.analyze.mockReturnValue([makeLogTurnAnalysis()])
-    ;(deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
-      .mockReturnValue([])
+    ;(deps.recommender as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze.mockReturnValue(
+      []
+    )
 
     const pipeline = new TelemetryPipeline(deps)
     await pipeline.processBatch([makePayload()])
@@ -789,11 +818,36 @@ describe('TelemetryPipeline per-dispatch efficiency scoring (Story 30-3)', () =>
 
     // 3 turns with dispatch-1, 2 with dispatch-2, 1 with no dispatchId
     const dispatchedTurns: TurnAnalysis[] = [
-      makeTurnWithDispatch({ spanId: 'ls1', dispatchId: 'dispatch-1', taskType: 'dev-story', phase: 'implementation' }),
-      makeTurnWithDispatch({ spanId: 'ls2', dispatchId: 'dispatch-1', taskType: 'dev-story', phase: 'implementation' }),
-      makeTurnWithDispatch({ spanId: 'ls3', dispatchId: 'dispatch-1', taskType: 'dev-story', phase: 'implementation' }),
-      makeTurnWithDispatch({ spanId: 'ls4', dispatchId: 'dispatch-2', taskType: 'code-review', phase: 'review' }),
-      makeTurnWithDispatch({ spanId: 'ls5', dispatchId: 'dispatch-2', taskType: 'code-review', phase: 'review' }),
+      makeTurnWithDispatch({
+        spanId: 'ls1',
+        dispatchId: 'dispatch-1',
+        taskType: 'dev-story',
+        phase: 'implementation',
+      }),
+      makeTurnWithDispatch({
+        spanId: 'ls2',
+        dispatchId: 'dispatch-1',
+        taskType: 'dev-story',
+        phase: 'implementation',
+      }),
+      makeTurnWithDispatch({
+        spanId: 'ls3',
+        dispatchId: 'dispatch-1',
+        taskType: 'dev-story',
+        phase: 'implementation',
+      }),
+      makeTurnWithDispatch({
+        spanId: 'ls4',
+        dispatchId: 'dispatch-2',
+        taskType: 'code-review',
+        phase: 'review',
+      }),
+      makeTurnWithDispatch({
+        spanId: 'ls5',
+        dispatchId: 'dispatch-2',
+        taskType: 'code-review',
+        phase: 'review',
+      }),
       makeTurnWithDispatch({ spanId: 'ls6' }), // no dispatchId
     ]
     deps.logTurnAnalyzer.analyze.mockReturnValue(dispatchedTurns)
@@ -809,10 +863,30 @@ describe('TelemetryPipeline per-dispatch efficiency scoring (Story 30-3)', () =>
     const deps = makeMockDeps([], logs)
 
     const dispatchedTurns: TurnAnalysis[] = [
-      makeTurnWithDispatch({ spanId: 'ls1', dispatchId: 'dispatch-1', taskType: 'dev-story', phase: 'implementation' }),
-      makeTurnWithDispatch({ spanId: 'ls2', dispatchId: 'dispatch-1', taskType: 'dev-story', phase: 'implementation' }),
-      makeTurnWithDispatch({ spanId: 'ls3', dispatchId: 'dispatch-2', taskType: 'code-review', phase: 'review' }),
-      makeTurnWithDispatch({ spanId: 'ls4', dispatchId: 'dispatch-2', taskType: 'code-review', phase: 'review' }),
+      makeTurnWithDispatch({
+        spanId: 'ls1',
+        dispatchId: 'dispatch-1',
+        taskType: 'dev-story',
+        phase: 'implementation',
+      }),
+      makeTurnWithDispatch({
+        spanId: 'ls2',
+        dispatchId: 'dispatch-1',
+        taskType: 'dev-story',
+        phase: 'implementation',
+      }),
+      makeTurnWithDispatch({
+        spanId: 'ls3',
+        dispatchId: 'dispatch-2',
+        taskType: 'code-review',
+        phase: 'review',
+      }),
+      makeTurnWithDispatch({
+        spanId: 'ls4',
+        dispatchId: 'dispatch-2',
+        taskType: 'code-review',
+        phase: 'review',
+      }),
     ]
     deps.logTurnAnalyzer.analyze.mockReturnValue(dispatchedTurns)
     const pipeline = new TelemetryPipeline(deps)
@@ -882,11 +956,22 @@ describe('TelemetryPipeline per-dispatch efficiency scoring (Story 30-3)', () =>
 
     // Override turnAnalyzer to return turns with dispatchIds
     const spannedTurns: TurnAnalysis[] = [
-      makeTurnWithDispatch({ spanId: 'sp1', dispatchId: 'dispatch-A', taskType: 'dev-story', phase: 'implementation' }),
-      makeTurnWithDispatch({ spanId: 'sp2', dispatchId: 'dispatch-A', taskType: 'dev-story', phase: 'implementation' }),
+      makeTurnWithDispatch({
+        spanId: 'sp1',
+        dispatchId: 'dispatch-A',
+        taskType: 'dev-story',
+        phase: 'implementation',
+      }),
+      makeTurnWithDispatch({
+        spanId: 'sp2',
+        dispatchId: 'dispatch-A',
+        taskType: 'dev-story',
+        phase: 'implementation',
+      }),
     ]
-    ;(deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze
-      .mockReturnValue(spannedTurns)
+    ;(
+      deps.turnAnalyzer as unknown as { analyze: ReturnType<typeof vi.fn> }
+    ).analyze.mockReturnValue(spannedTurns)
 
     const pipeline = new TelemetryPipeline(deps)
     await pipeline.processBatch([makePayload()])

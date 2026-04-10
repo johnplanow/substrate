@@ -21,7 +21,12 @@ import { Command } from 'commander'
 
 // Mock adapter
 
-const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+const mockAdapter = {
+  query: vi.fn().mockResolvedValue([]),
+  exec: vi.fn().mockResolvedValue(undefined),
+  transaction: vi.fn(),
+  close: vi.fn().mockResolvedValue(undefined),
+}
 
 vi.mock('../../../persistence/adapter.js', () => ({
   createDatabaseAdapter: vi.fn(() => mockAdapter),
@@ -116,7 +121,9 @@ vi.mock('../../../persistence/queries/metrics.js', () => ({
 }))
 
 vi.mock('../health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 // Mock phase detection — default to implementation (legacy behavior)
@@ -191,11 +198,7 @@ import {
   resolveBmadMethodSrcPath,
   resolveBmadMethodVersion,
 } from '../pipeline-shared.js'
-import {
-  runInitAction,
-  scaffoldBmadFramework,
-  registerInitCommand,
-} from '../init.js'
+import { runInitAction, scaffoldBmadFramework, registerInitCommand } from '../init.js'
 import { runRunAction, registerRunCommand } from '../run.js'
 import { runStatusAction, registerStatusCommand } from '../status.js'
 import { createStubRegistry } from './registry-test-helpers.js'
@@ -204,7 +207,9 @@ import { createStubRegistry } from './registry-test-helpers.js'
 // Shared mock registry — required by action functions that throw if missing
 // ---------------------------------------------------------------------------
 
-const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+const mockRegistry = {
+  discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }),
+} as any
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -323,7 +328,9 @@ describe('runInitAction', () => {
     // Default: template readable, CLAUDE.md does not exist
     mockReadFile.mockImplementation((path: string) => {
       if (String(path).includes('claude-md-substrate-section')) {
-        return Promise.resolve('<!-- substrate:start -->\n## Substrate Pipeline\n<!-- substrate:end -->\n')
+        return Promise.resolve(
+          '<!-- substrate:start -->\n## Substrate Pipeline\n<!-- substrate:end -->\n'
+        )
       }
       return Promise.reject(new Error('ENOENT'))
     })
@@ -410,7 +417,7 @@ describe('runInitAction', () => {
 
     expect(exitCode).toBe(1)
     expect(stderrWrite).toHaveBeenCalledWith(
-      expect.stringContaining("Methodology pack 'nonexistent' not found"),
+      expect.stringContaining("Methodology pack 'nonexistent' not found")
     )
     stderrWrite.mockRestore()
   })
@@ -433,7 +440,7 @@ describe('runInitAction', () => {
     expect(jsonLine).toBeDefined()
     const parsed = JSON.parse(jsonLine!)
     expect(parsed.success).toBe(false)
-    expect(parsed.error).toContain("not found")
+    expect(parsed.error).toContain('not found')
     stdoutWrite.mockRestore()
   })
 
@@ -463,7 +470,7 @@ describe('runInitAction', () => {
     expect(mockCpSync).toHaveBeenCalledWith(
       expect.stringContaining('packs/bmad'),
       '/test/project/packs/bmad',
-      { recursive: true },
+      { recursive: true }
     )
     const allOutput = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
     expect(allOutput).toContain("Scaffolding methodology pack 'bmad' into packs/bmad/")
@@ -511,7 +518,7 @@ describe('runInitAction', () => {
     expect(exitCode).toBe(0)
     expect(mockCpSync).toHaveBeenCalled()
     expect(stderrWrite).toHaveBeenCalledWith(
-      expect.stringContaining("Replacing existing pack 'bmad' with bundled version"),
+      expect.stringContaining("Replacing existing pack 'bmad' with bundled version")
     )
     const allOutput = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
     expect(allOutput).toContain("Scaffolding methodology pack 'bmad' into packs/bmad/")
@@ -536,11 +543,9 @@ describe('runInitAction', () => {
     expect(exitCode).toBe(1)
     expect(mockCpSync).not.toHaveBeenCalled()
     expect(stderrWrite).toHaveBeenCalledWith(
-      expect.stringContaining("not found locally or in bundled packs"),
+      expect.stringContaining('not found locally or in bundled packs')
     )
-    expect(stderrWrite).toHaveBeenCalledWith(
-      expect.stringContaining("reinstalling Substrate"),
-    )
+    expect(stderrWrite).toHaveBeenCalledWith(expect.stringContaining('reinstalling Substrate'))
     stderrWrite.mockRestore()
   })
 
@@ -563,7 +568,7 @@ describe('runInitAction', () => {
     expect(jsonLine).toBeDefined()
     const parsed = JSON.parse(jsonLine!)
     expect(parsed.success).toBe(false)
-    expect(parsed.error).toContain("reinstalling Substrate")
+    expect(parsed.error).toContain('reinstalling Substrate')
     stdoutWrite.mockRestore()
   })
 
@@ -588,7 +593,8 @@ describe('runInitAction', () => {
   it('AC6: JSON output includes scaffolded field when pack is copied', async () => {
     // Local manifest missing → scaffold happens
     mockExistsSync.mockImplementation((p: string) => {
-      if (typeof p === 'string' && p.startsWith('/test/project') && p.endsWith('manifest.yaml')) return false
+      if (typeof p === 'string' && p.startsWith('/test/project') && p.endsWith('manifest.yaml'))
+        return false
       return true
     })
     mockPackLoad.mockResolvedValue(mockPack())
@@ -637,7 +643,8 @@ describe('runInitAction', () => {
 
   it('AC7: human-readable scaffold message printed when copying pack', async () => {
     mockExistsSync.mockImplementation((p: string) => {
-      if (typeof p === 'string' && p.startsWith('/test/project') && p.endsWith('manifest.yaml')) return false
+      if (typeof p === 'string' && p.startsWith('/test/project') && p.endsWith('manifest.yaml'))
+        return false
       return true
     })
     mockPackLoad.mockResolvedValue(mockPack())
@@ -705,7 +712,7 @@ describe('runRunAction', () => {
     expect(exitCode).toBe(0)
     expect(mockCreatePipelineRun).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ methodology: 'bmad' }),
+      expect.objectContaining({ methodology: 'bmad' })
     )
     expect(mockOrchestratorRun).toHaveBeenCalledWith(['10-1'])
     expect(stdoutWrite).toHaveBeenCalledWith(expect.stringContaining('substrate run —'))
@@ -773,7 +780,7 @@ describe('runRunAction', () => {
 
     expect(exitCode).toBe(1)
     expect(stderrWrite).toHaveBeenCalledWith(
-      expect.stringContaining("Story key 'bad!key' is not a valid format"),
+      expect.stringContaining("Story key 'bad!key' is not a valid format")
     )
     stderrWrite.mockRestore()
   })
@@ -815,7 +822,7 @@ describe('runRunAction', () => {
 
     expect(exitCode).toBe(1)
     expect(stderrWrite).toHaveBeenCalledWith(
-      expect.stringContaining("Methodology pack 'missing-pack' not found"),
+      expect.stringContaining("Methodology pack 'missing-pack' not found")
     )
     stderrWrite.mockRestore()
   })
@@ -997,7 +1004,7 @@ describe('runRunAction', () => {
         input_tokens: 1200,
         output_tokens: 800,
         cost_usd: expect.any(Number),
-      }),
+      })
     )
     stdoutWrite.mockRestore()
     mockEventBus.on.mockImplementation(originalOn)
@@ -1085,7 +1092,7 @@ describe('runStatusAction', () => {
 
     expect(exitCode).toBe(1)
     expect(stderrWrite).toHaveBeenCalledWith(
-      expect.stringContaining('Decision store not initialized'),
+      expect.stringContaining('Decision store not initialized')
     )
     stderrWrite.mockRestore()
   })
@@ -1101,9 +1108,7 @@ describe('runStatusAction', () => {
     })
 
     expect(exitCode).toBe(1)
-    expect(stderrWrite).toHaveBeenCalledWith(
-      expect.stringContaining('No pipeline runs found'),
-    )
+    expect(stderrWrite).toHaveBeenCalledWith(expect.stringContaining('No pipeline runs found'))
     stderrWrite.mockRestore()
   })
 

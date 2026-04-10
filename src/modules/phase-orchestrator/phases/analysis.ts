@@ -12,10 +12,18 @@
  *  8. Returns a typed AnalysisResult
  */
 
-import { createDecision, upsertDecision, registerArtifact } from '../../../persistence/queries/decisions.js'
+import {
+  createDecision,
+  upsertDecision,
+  registerArtifact,
+} from '../../../persistence/queries/decisions.js'
 import { runSteps } from '../step-runner.js'
 import type { StepDefinition } from '../step-runner.js'
-import { AnalysisOutputSchema, AnalysisVisionOutputSchema, AnalysisScopeOutputSchema } from './schemas.js'
+import {
+  AnalysisOutputSchema,
+  AnalysisVisionOutputSchema,
+  AnalysisScopeOutputSchema,
+} from './schemas.js'
 import type { AnalysisPhaseParams, AnalysisResult, PhaseDeps, ProductBrief } from './types.js'
 import { getProjectFindings } from '../../../modules/implementation-orchestrator/project-findings.js'
 
@@ -125,7 +133,11 @@ function buildAnalysisSteps(): StepDefinition[] {
         { field: 'core_features', category: 'product-brief', key: 'core_features' },
         { field: 'success_metrics', category: 'product-brief', key: 'success_metrics' },
         { field: 'constraints', category: 'product-brief', key: 'constraints' },
-        { field: 'technology_constraints', category: 'technology-constraints', key: 'technology_constraints' },
+        {
+          field: 'technology_constraints',
+          category: 'technology-constraints',
+          key: 'technology_constraints',
+        },
       ],
       registerArtifact: {
         type: 'product-brief',
@@ -144,7 +156,7 @@ function buildAnalysisSteps(): StepDefinition[] {
  */
 async function runAnalysisMultiStep(
   deps: PhaseDeps,
-  params: AnalysisPhaseParams,
+  params: AnalysisPhaseParams
 ): Promise<AnalysisResult> {
   const zeroTokenUsage = { input: 0, output: 0 }
 
@@ -254,7 +266,7 @@ async function runAnalysisMultiStep(
  */
 export async function runAnalysisPhase(
   deps: PhaseDeps,
-  params: AnalysisPhaseParams,
+  params: AnalysisPhaseParams
 ): Promise<AnalysisResult> {
   const { db, pack, dispatcher } = deps
   const { runId, concept, amendmentContext } = params
@@ -287,7 +299,8 @@ export async function runAnalysisPhase(
       if (priorFindings !== '') {
         const maxPromptChars = MAX_PROMPT_TOKENS * 4
         const framingLen = PRIOR_FINDINGS_HEADER.length + PRIOR_FINDINGS_FOOTER.length
-        const availableForFindings = maxPromptChars - prompt.length - framingLen - TRUNCATED_MARKER.length
+        const availableForFindings =
+          maxPromptChars - prompt.length - framingLen - TRUNCATED_MARKER.length
         if (availableForFindings > 0) {
           const findingsToInject =
             priorFindings.length > availableForFindings
@@ -305,7 +318,8 @@ export async function runAnalysisPhase(
       const maxPromptChars = MAX_PROMPT_TOKENS * 4
       const basePromptLen = prompt.length
       const framingLen = AMENDMENT_CONTEXT_HEADER.length + AMENDMENT_CONTEXT_FOOTER.length
-      const availableForContext = maxPromptChars - basePromptLen - framingLen - TRUNCATED_MARKER.length
+      const availableForContext =
+        maxPromptChars - basePromptLen - framingLen - TRUNCATED_MARKER.length
 
       let contextToInject = amendmentContext
       if (availableForContext <= 0) {

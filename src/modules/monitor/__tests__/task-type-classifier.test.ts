@@ -10,7 +10,11 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { TaskTypeClassifier, DEFAULT_TAXONOMY, createTaskTypeClassifier } from '../task-type-classifier.js'
+import {
+  TaskTypeClassifier,
+  DEFAULT_TAXONOMY,
+  createTaskTypeClassifier,
+} from '../task-type-classifier.js'
 
 describe('TaskTypeClassifier', () => {
   // -------------------------------------------------------------------------
@@ -185,7 +189,17 @@ describe('TaskTypeClassifier', () => {
   // -------------------------------------------------------------------------
 
   it('DEFAULT_TAXONOMY contains all expected types', () => {
-    const expectedTypes = ['coding', 'testing', 'debugging', 'refactoring', 'docs', 'api', 'database', 'ui', 'devops']
+    const expectedTypes = [
+      'coding',
+      'testing',
+      'debugging',
+      'refactoring',
+      'docs',
+      'api',
+      'database',
+      'ui',
+      'devops',
+    ]
     for (const type of expectedTypes) {
       expect(DEFAULT_TAXONOMY).toHaveProperty(type)
       expect(Array.isArray(DEFAULT_TAXONOMY[type])).toBe(true)

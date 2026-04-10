@@ -81,11 +81,16 @@ function makeMockPack(prompts: Record<string, string> = {}): MethodologyPack {
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
-function makeDispatchResult<T>(parsed: T, overrides: Partial<DispatchResult<T>> = {}): DispatchResult<T> {
+function makeDispatchResult<T>(
+  parsed: T,
+  overrides: Partial<DispatchResult<T>> = {}
+): DispatchResult<T> {
   return {
     id: `dispatch-${Date.now()}`,
     status: 'completed',
@@ -145,10 +150,16 @@ const PLANNING_OUTPUT = {
     { description: 'System encrypts all user data at rest', category: 'security' },
   ],
   user_stories: [
-    { title: 'Create a task', description: 'As a developer, I want to create tasks so that I can track my work.' },
+    {
+      title: 'Create a task',
+      description: 'As a developer, I want to create tasks so that I can track my work.',
+    },
   ],
   tech_stack: { language: 'TypeScript', framework: 'Node.js', database: 'SQLite' },
-  domain_model: { Task: { fields: ['id', 'title', 'description'] }, User: { fields: ['id', 'name'] } },
+  domain_model: {
+    Task: { fields: ['id', 'title', 'description'] },
+    User: { fields: ['id', 'name'] },
+  },
   out_of_scope: ['Mobile app', 'Offline mode'],
 }
 
@@ -287,7 +298,13 @@ describe('Gap 1: Analysis → Planning data flow (11-2 → 11-3)', () => {
     const runId2 = await createTestRun(adapter)
 
     // Seed product-brief for run1 only
-    const fields = ['problem_statement', 'target_users', 'core_features', 'success_metrics', 'constraints']
+    const fields = [
+      'problem_statement',
+      'target_users',
+      'core_features',
+      'success_metrics',
+      'constraints',
+    ]
     for (const field of fields) {
       await createDecision(adapter, {
         pipeline_run_id: runId1,
@@ -336,8 +353,20 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
 
     // Step 1: Seed planning decisions (as if planning phase ran)
     const planningFRs = [
-      { key: 'FR-0', value: JSON.stringify({ description: 'Users can create tasks with title', priority: 'must' }) },
-      { key: 'FR-1', value: JSON.stringify({ description: 'Users can assign tasks to team members', priority: 'must' }) },
+      {
+        key: 'FR-0',
+        value: JSON.stringify({
+          description: 'Users can create tasks with title',
+          priority: 'must',
+        }),
+      },
+      {
+        key: 'FR-1',
+        value: JSON.stringify({
+          description: 'Users can assign tasks to team members',
+          priority: 'must',
+        }),
+      },
     ]
     for (const fr of planningFRs) {
       await createDecision(adapter, {
@@ -356,7 +385,8 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
         if (opts.taskType === 'architecture') {
           capturedArchPrompt = opts.prompt
         }
-        const output = opts.taskType === 'architecture' ? ARCHITECTURE_OUTPUT : STORY_GENERATION_OUTPUT
+        const output =
+          opts.taskType === 'architecture' ? ARCHITECTURE_OUTPUT : STORY_GENERATION_OUTPUT
         const handle: DispatchHandle & { result: Promise<DispatchResult<unknown>> } = {
           id: `h-${opts.taskType}`,
           status: 'completed',
@@ -370,7 +400,12 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
+    const deps: PhaseDeps = {
+      db: adapter,
+      pack,
+      contextCompiler: makeContextCompiler(),
+      dispatcher,
+    }
     const result = await runSolutioningPhase(deps, { runId })
 
     expect(result.result).toBe('success')
@@ -390,7 +425,10 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
       phase: 'planning',
       category: 'functional-requirements',
       key: 'FR-0',
-      value: JSON.stringify({ description: 'Users can create tasks with title and description', priority: 'must' }),
+      value: JSON.stringify({
+        description: 'Users can create tasks with title and description',
+        priority: 'must',
+      }),
     })
 
     // Step 2: Capture both architecture and story-generation prompts
@@ -400,7 +438,8 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
         if (opts.taskType === 'story-generation') {
           capturedStoryPrompt = opts.prompt
         }
-        const output = opts.taskType === 'architecture' ? ARCHITECTURE_OUTPUT : STORY_GENERATION_OUTPUT
+        const output =
+          opts.taskType === 'architecture' ? ARCHITECTURE_OUTPUT : STORY_GENERATION_OUTPUT
         const handle: DispatchHandle & { result: Promise<DispatchResult<unknown>> } = {
           id: `h-${opts.taskType}`,
           status: 'completed',
@@ -414,7 +453,12 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
+    const deps: PhaseDeps = {
+      db: adapter,
+      pack,
+      contextCompiler: makeContextCompiler(),
+      dispatcher,
+    }
     await runSolutioningPhase(deps, { runId })
 
     // The story generation prompt should include arch decisions from the same run
@@ -441,7 +485,12 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
       architecture: ARCHITECTURE_OUTPUT,
       'story-generation': STORY_GENERATION_OUTPUT,
     })
-    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
+    const deps: PhaseDeps = {
+      db: adapter,
+      pack,
+      contextCompiler: makeContextCompiler(),
+      dispatcher,
+    }
 
     // Run solutioning for run1
     const result1 = await runSolutioningPhase(deps, { runId: runId1 })
@@ -450,7 +499,7 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
     // Verify architecture decisions are only in run1
     const archDecisions = await adapter.query<{ pipeline_run_id: string }>(
       `SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'architecture'`,
-      [runId1],
+      [runId1]
     )
     expect(archDecisions.length).toBeGreaterThan(0)
     archDecisions.forEach((d) => expect(d.pipeline_run_id).toBe(runId1))
@@ -458,7 +507,7 @@ describe('Gap 2: Planning → Solutioning data flow (11-3 → 11-4)', () => {
     // Run2 should have no decisions
     const run2Decisions = await adapter.query(
       `SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning'`,
-      [runId2],
+      [runId2]
     )
     expect(run2Decisions).toHaveLength(0)
   })
@@ -488,7 +537,12 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
 
     // Run real analysis phase
     const dispatcher = makeDispatcher({ analysis: ANALYSIS_OUTPUT })
-    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
+    const deps: PhaseDeps = {
+      db: adapter,
+      pack,
+      contextCompiler: makeContextCompiler(),
+      dispatcher,
+    }
     const analysisResult = await runAnalysisPhase(deps, { runId, concept: 'Build a task manager' })
     expect(analysisResult.result).toBe('success')
 
@@ -531,7 +585,12 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: failDispatcher }
+    const deps: PhaseDeps = {
+      db: adapter,
+      pack,
+      contextCompiler: makeContextCompiler(),
+      dispatcher: failDispatcher,
+    }
     const analysisResult = await runAnalysisPhase(deps, { runId, concept: 'Build a task manager' })
     expect(analysisResult.result).toBe('failed')
 
@@ -553,7 +612,7 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
     const analysisDispatcher = makeDispatcher({ analysis: ANALYSIS_OUTPUT })
     await runAnalysisPhase(
       { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: analysisDispatcher },
-      { runId, concept: 'Build a task manager' },
+      { runId, concept: 'Build a task manager' }
     )
 
     // Advance analysis → planning
@@ -565,7 +624,7 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
     const planningDispatcher = makeDispatcher({ planning: PLANNING_OUTPUT })
     const planningResult = await runPlanningPhase(
       { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: planningDispatcher },
-      { runId },
+      { runId }
     )
     expect(planningResult.result).toBe('success')
 
@@ -580,15 +639,22 @@ describe('Gap 3: Phase runners + Orchestrator gate enforcement (11-2/3/4 → 11-
       'story-generation': STORY_GENERATION_OUTPUT,
     })
     const solutioningResult = await runSolutioningPhase(
-      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: solutioningDispatcher },
-      { runId },
+      {
+        db: adapter,
+        pack,
+        contextCompiler: makeContextCompiler(),
+        dispatcher: solutioningDispatcher,
+      },
+      { runId }
     )
     expect(solutioningResult.result).toBe('success')
 
     // Verify all three artifacts exist
     expect(await getArtifactByTypeForRun(adapter, runId, 'analysis', 'product-brief')).toBeDefined()
     expect(await getArtifactByTypeForRun(adapter, runId, 'planning', 'prd')).toBeDefined()
-    expect(await getArtifactByTypeForRun(adapter, runId, 'solutioning', 'architecture')).toBeDefined()
+    expect(
+      await getArtifactByTypeForRun(adapter, runId, 'solutioning', 'architecture')
+    ).toBeDefined()
     expect(await getArtifactByTypeForRun(adapter, runId, 'solutioning', 'stories')).toBeDefined()
 
     // Advance solutioning → implementation
@@ -621,13 +687,23 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
 
     // Run all three phases in sequence
     await runAnalysisPhase(
-      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
-      { runId, concept: 'Build a task manager' },
+      {
+        db: adapter,
+        pack,
+        contextCompiler: makeContextCompiler(),
+        dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }),
+      },
+      { runId, concept: 'Build a task manager' }
     )
 
     await runPlanningPhase(
-      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
-      { runId },
+      {
+        db: adapter,
+        pack,
+        contextCompiler: makeContextCompiler(),
+        dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }),
+      },
+      { runId }
     )
 
     await runSolutioningPhase(
@@ -640,21 +716,21 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
           'story-generation': STORY_GENERATION_OUTPUT,
         }),
       },
-      { runId },
+      { runId }
     )
 
     // Count decisions by phase
     const [analysisDecs] = await adapter.query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND phase = 'analysis'`,
-      [runId],
+      [runId]
     )
     const [planningDecs] = await adapter.query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning'`,
-      [runId],
+      [runId]
     )
     const [solutioningDecs] = await adapter.query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND phase = 'solutioning'`,
-      [runId],
+      [runId]
     )
 
     // Analysis: 6 product-brief fields (including technology_constraints)
@@ -667,7 +743,7 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
     // Total must be across all phases
     const [totalDecs] = await adapter.query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`,
-      [runId],
+      [runId]
     )
     expect(totalDecs!.cnt).toBe(analysisDecs!.cnt + planningDecs!.cnt + solutioningDecs!.cnt)
   })
@@ -677,13 +753,23 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
     const runId = await createTestRun(adapter)
 
     await runAnalysisPhase(
-      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
-      { runId, concept: 'Build a task manager' },
+      {
+        db: adapter,
+        pack,
+        contextCompiler: makeContextCompiler(),
+        dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }),
+      },
+      { runId, concept: 'Build a task manager' }
     )
 
     await runPlanningPhase(
-      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
-      { runId },
+      {
+        db: adapter,
+        pack,
+        contextCompiler: makeContextCompiler(),
+        dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }),
+      },
+      { runId }
     )
 
     await runSolutioningPhase(
@@ -696,12 +782,12 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
           'story-generation': STORY_GENERATION_OUTPUT,
         }),
       },
-      { runId },
+      { runId }
     )
 
     const artifacts = await adapter.query<{ phase: string; type: string }>(
       `SELECT phase, type FROM artifacts WHERE pipeline_run_id = ? ORDER BY phase, type`,
-      [runId],
+      [runId]
     )
 
     const artifactKeys = artifacts.map((a) => `${a.phase}/${a.type}`)
@@ -716,13 +802,23 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
     const runId = await createTestRun(adapter)
 
     await runAnalysisPhase(
-      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
-      { runId, concept: 'Build a task manager' },
+      {
+        db: adapter,
+        pack,
+        contextCompiler: makeContextCompiler(),
+        dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }),
+      },
+      { runId, concept: 'Build a task manager' }
     )
 
     await runPlanningPhase(
-      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
-      { runId },
+      {
+        db: adapter,
+        pack,
+        contextCompiler: makeContextCompiler(),
+        dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }),
+      },
+      { runId }
     )
 
     await runSolutioningPhase(
@@ -735,16 +831,16 @@ describe('Gap 4: Full artifact chain and decision accumulation (11-2 + 11-3 + 11
           'story-generation': STORY_GENERATION_OUTPUT,
         }),
       },
-      { runId },
+      { runId }
     )
 
     const [planningReqs] = await adapter.query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'planning-phase'`,
-      [runId],
+      [runId]
     )
     const [solutioningReqs] = await adapter.query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
-      [runId],
+      [runId]
     )
 
     // Planning creates 3 FRs + 2 NFRs = 5
@@ -780,7 +876,7 @@ describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
     const dispatcher = makeDispatcher({ analysis: ANALYSIS_OUTPUT })
     await runAnalysisPhase(
       { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher },
-      { runId, concept: 'Build a task manager' },
+      { runId, concept: 'Build a task manager' }
     )
 
     // Simulate crash: status is still 'running' at analysis (no advance was called)
@@ -798,8 +894,13 @@ describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
 
     // Run analysis
     await runAnalysisPhase(
-      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
-      { runId, concept: 'Build a task manager' },
+      {
+        db: adapter,
+        pack,
+        contextCompiler: makeContextCompiler(),
+        dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }),
+      },
+      { runId, concept: 'Build a task manager' }
     )
 
     // Advance to planning
@@ -807,8 +908,13 @@ describe('Gap 5: resumeRun after partial pipeline execution (11-1)', () => {
 
     // Run planning
     await runPlanningPhase(
-      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
-      { runId },
+      {
+        db: adapter,
+        pack,
+        contextCompiler: makeContextCompiler(),
+        dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }),
+      },
+      { runId }
     )
 
     // Simulate crash at this point — resume should detect prd artifact and go to solutioning
@@ -964,7 +1070,7 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
     await orchestrator.advancePhase(runId) // analysis → planning
 
     // Get run from DB for status builder
-    const run = await getPipelineRunById(adapter, runId) as PipelineRun
+    const run = (await getPipelineRunById(adapter, runId)) as PipelineRun
 
     const statusOutput = buildPipelineStatusOutput(run, [], 5, 0)
 
@@ -982,8 +1088,13 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
 
     // Run all three phases
     await runAnalysisPhase(
-      { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
-      { runId, concept: 'Build a task manager' },
+      {
+        db: adapter,
+        pack,
+        contextCompiler: makeContextCompiler(),
+        dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }),
+      },
+      { runId, concept: 'Build a task manager' }
     )
 
     const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
@@ -997,8 +1108,13 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
 
     // Run analysis
     await runAnalysisPhase(
-      { db: adapter, pack: pack2, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }) },
-      { runId: runId2, concept: 'Build a task manager' },
+      {
+        db: adapter,
+        pack: pack2,
+        contextCompiler: makeContextCompiler(),
+        dispatcher: makeDispatcher({ analysis: ANALYSIS_OUTPUT }),
+      },
+      { runId: runId2, concept: 'Build a task manager' }
     )
 
     // Advance analysis → planning
@@ -1007,8 +1123,13 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
 
     // Run planning
     await runPlanningPhase(
-      { db: adapter, pack: pack2, contextCompiler: makeContextCompiler(), dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }) },
-      { runId: runId2 },
+      {
+        db: adapter,
+        pack: pack2,
+        contextCompiler: makeContextCompiler(),
+        dispatcher: makeDispatcher({ planning: PLANNING_OUTPUT }),
+      },
+      { runId: runId2 }
     )
 
     // Advance planning → solutioning
@@ -1032,17 +1153,45 @@ describe('Gap 7: buildPipelineStatusOutput + PhaseOrchestrator integration (11-1
       config_json: JSON.stringify({
         concept: 'test',
         phaseHistory: [
-          { phase: 'analysis', startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:01:00Z', gateResults: [] },
-          { phase: 'planning', startedAt: '2026-01-01T00:01:00Z', completedAt: '2026-01-01T00:02:00Z', gateResults: [] },
+          {
+            phase: 'analysis',
+            startedAt: '2026-01-01T00:00:00Z',
+            completedAt: '2026-01-01T00:01:00Z',
+            gateResults: [],
+          },
+          {
+            phase: 'planning',
+            startedAt: '2026-01-01T00:01:00Z',
+            completedAt: '2026-01-01T00:02:00Z',
+            gateResults: [],
+          },
           { phase: 'solutioning', startedAt: '2026-01-01T00:02:00Z', gateResults: [] },
         ],
       }),
     })
 
     const tokenSummary = [
-      { phase: 'analysis', agent: 'claude-code', total_input_tokens: 400, total_output_tokens: 150, total_cost_usd: 0.003 },
-      { phase: 'planning', agent: 'claude-code', total_input_tokens: 600, total_output_tokens: 200, total_cost_usd: 0.005 },
-      { phase: 'solutioning', agent: 'claude-code', total_input_tokens: 800, total_output_tokens: 300, total_cost_usd: 0.007 },
+      {
+        phase: 'analysis',
+        agent: 'claude-code',
+        total_input_tokens: 400,
+        total_output_tokens: 150,
+        total_cost_usd: 0.003,
+      },
+      {
+        phase: 'planning',
+        agent: 'claude-code',
+        total_input_tokens: 600,
+        total_output_tokens: 200,
+        total_cost_usd: 0.005,
+      },
+      {
+        phase: 'solutioning',
+        agent: 'claude-code',
+        total_input_tokens: 800,
+        total_output_tokens: 300,
+        total_cost_usd: 0.007,
+      },
     ]
 
     const result = buildPipelineStatusOutput(run, tokenSummary, 25, 8)
@@ -1083,8 +1232,20 @@ describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () 
 
     // Seed planning FRs
     const frs = [
-      { key: 'FR-0', value: JSON.stringify({ description: 'Users can create tasks with title', priority: 'must' }) },
-      { key: 'FR-1', value: JSON.stringify({ description: 'Users can assign tasks to team members', priority: 'must' }) },
+      {
+        key: 'FR-0',
+        value: JSON.stringify({
+          description: 'Users can create tasks with title',
+          priority: 'must',
+        }),
+      },
+      {
+        key: 'FR-1',
+        value: JSON.stringify({
+          description: 'Users can assign tasks to team members',
+          priority: 'must',
+        }),
+      },
     ]
     for (const fr of frs) {
       await createDecision(adapter, {
@@ -1127,7 +1288,12 @@ describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () 
       architecture: ARCHITECTURE_OUTPUT,
       'story-generation': coveringStoryOutput,
     })
-    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
+    const deps: PhaseDeps = {
+      db: adapter,
+      pack,
+      contextCompiler: makeContextCompiler(),
+      dispatcher,
+    }
     const result = await runSolutioningPhase(deps, { runId })
 
     expect(result.result).toBe('success')
@@ -1143,7 +1309,10 @@ describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () 
       phase: 'planning',
       category: 'functional-requirements',
       key: 'FR-0',
-      value: JSON.stringify({ description: 'Users can create tasks with title and description', priority: 'must' }),
+      value: JSON.stringify({
+        description: 'Users can create tasks with title and description',
+        priority: 'must',
+      }),
     })
 
     const READINESS_OUTPUT_TOKENS = { verdict: 'READY', coverage_score: 100, findings: [] }
@@ -1185,7 +1354,12 @@ describe('Gap 8: Readiness gate FR-to-story coverage check (11-3 → 11-4)', () 
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    const deps: PhaseDeps = { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher: dispatcherWithTokens }
+    const deps: PhaseDeps = {
+      db: adapter,
+      pack,
+      contextCompiler: makeContextCompiler(),
+      dispatcher: dispatcherWithTokens,
+    }
     const result = await runSolutioningPhase(deps, { runId })
 
     expect(result.result).toBe('success')

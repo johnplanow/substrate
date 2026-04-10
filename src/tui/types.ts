@@ -16,7 +16,15 @@ export type StoryStatus = 'pending' | 'in_progress' | 'succeeded' | 'failed' | '
 /**
  * Current phase label for a story.
  */
-export type StoryPhaseLabel = 'wait' | 'create' | 'dev' | 'review' | 'fix' | 'done' | 'escalated' | 'failed'
+export type StoryPhaseLabel =
+  | 'wait'
+  | 'create'
+  | 'dev'
+  | 'review'
+  | 'fix'
+  | 'done'
+  | 'escalated'
+  | 'failed'
 
 /**
  * Per-story state tracked by the TUI.

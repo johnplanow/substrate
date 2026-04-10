@@ -151,12 +151,7 @@ function flattenConfig(obj: unknown, prefix: string = ''): Record<string, unknow
   }
   for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
     const fullKey = prefix ? `${prefix}.${key}` : key
-    if (
-      val !== null &&
-      val !== undefined &&
-      typeof val === 'object' &&
-      !Array.isArray(val)
-    ) {
+    if (val !== null && val !== undefined && typeof val === 'object' && !Array.isArray(val)) {
       Object.assign(result, flattenConfig(val, fullKey))
     } else {
       result[fullKey] = val
@@ -320,9 +315,7 @@ export async function runConfigImport(
 
   // Display diff
   for (const { key, from, to } of changedKeys) {
-    process.stdout.write(
-      `  ${key}: ${JSON.stringify(from)} -> ${JSON.stringify(to)}\n`
-    )
+    process.stdout.write(`  ${key}: ${JSON.stringify(from)} -> ${JSON.stringify(to)}\n`)
   }
 
   // Prompt for confirmation unless --yes or autoConfirm
@@ -369,13 +362,8 @@ export async function runConfigImport(
 /**
  * Register the `config` command group on a Commander program.
  */
-export function registerConfigCommand(
-  program: Command,
-  _version: string
-): void {
-  const configCmd = program
-    .command('config')
-    .description('View and modify Substrate configuration')
+export function registerConfigCommand(program: Command, _version: string): void {
+  const configCmd = program.command('config').description('View and modify Substrate configuration')
 
   // -----------------------------------------------------------------------
   // config show
@@ -387,11 +375,7 @@ export function registerConfigCommand(
     .option('--project-config-dir <dir>', 'Path to project .substrate/ directory')
     .option('--global-config-dir <dir>', 'Path to global .substrate/ directory')
     .action(
-      async (opts: {
-        format: string
-        projectConfigDir?: string
-        globalConfigDir?: string
-      }) => {
+      async (opts: { format: string; projectConfigDir?: string; globalConfigDir?: string }) => {
         const exitCode = await runConfigShow({
           format: opts.format as 'yaml' | 'json',
           ...(opts.projectConfigDir !== undefined && { projectConfigDir: opts.projectConfigDir }),
@@ -406,9 +390,7 @@ export function registerConfigCommand(
   // -----------------------------------------------------------------------
   configCmd
     .command('set <key> <value>')
-    .description(
-      'Set a configuration value using dot-notation (e.g. global.log_level debug)'
-    )
+    .description('Set a configuration value using dot-notation (e.g. global.log_level debug)')
     .option('--project-config-dir <dir>', 'Path to project .substrate/ directory')
     .option('--global-config-dir <dir>', 'Path to global .substrate/ directory')
     .action(

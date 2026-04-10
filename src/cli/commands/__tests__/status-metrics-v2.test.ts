@@ -128,7 +128,7 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
     // Manually update the run using adapter.querySync
     adapter.querySync(
       `UPDATE pipeline_runs SET status='completed', created_at=?, updated_at=? WHERE id=?`,
-      [new Date(Date.now() - 3600000).toISOString(), new Date().toISOString(), run.id],
+      [new Date(Date.now() - 3600000).toISOString(), new Date().toISOString(), run.id]
     )
 
     await runStatusAction({
@@ -191,8 +191,12 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
     expect(data.pipeline_metrics.total_review_cycles).toBe(3) // 1 + 2
     expect(typeof data.pipeline_metrics.stories_per_hour).toBe('number')
     // AC5: total tokens aggregated at pipeline level
-    expect((data.pipeline_metrics as unknown as Record<string, number>).total_input_tokens).toBe(13000) // 5000 + 8000
-    expect((data.pipeline_metrics as unknown as Record<string, number>).total_output_tokens).toBe(5500) // 2000 + 3500
+    expect((data.pipeline_metrics as unknown as Record<string, number>).total_input_tokens).toBe(
+      13000
+    ) // 5000 + 8000
+    expect((data.pipeline_metrics as unknown as Record<string, number>).total_output_tokens).toBe(
+      5500
+    ) // 2000 + 3500
     // cost_usd is last key (deprioritized per AC6)
     const keys = Object.keys(data.pipeline_metrics)
     expect(keys[keys.length - 1]).toBe('cost_usd')
@@ -239,10 +243,11 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
     })
 
     // Set run to have a 1-hour wall clock
-    adapter.querySync(
-      `UPDATE pipeline_runs SET created_at=?, updated_at=? WHERE id=?`,
-      [new Date(Date.now() - 3600000).toISOString(), new Date().toISOString(), run.id],
-    )
+    adapter.querySync(`UPDATE pipeline_runs SET created_at=?, updated_at=? WHERE id=?`, [
+      new Date(Date.now() - 3600000).toISOString(),
+      new Date().toISOString(),
+      run.id,
+    ])
 
     await runStatusAction({
       outputFormat: 'json',
@@ -251,7 +256,10 @@ describe('AC5/AC6: status --output-format json includes pipeline metrics v2', ()
     })
 
     const output = stdoutChunks.join('')
-    const parsed = JSON.parse(output) as { success: boolean; data: { pipeline_metrics: { stories_per_hour: number; total_wall_clock_ms: number } } }
+    const parsed = JSON.parse(output) as {
+      success: boolean
+      data: { pipeline_metrics: { stories_per_hour: number; total_wall_clock_ms: number } }
+    }
     expect(parsed.success).toBe(true)
     // stories_per_hour = 1 story / (pipelineWallClockMs / 3600000)
     // pipelineWallClockMs ≈ 3600000ms (1 hour), so ≈ 1.0

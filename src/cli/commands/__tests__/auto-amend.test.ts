@@ -24,7 +24,12 @@ import { Command } from 'commander'
 // ---------------------------------------------------------------------------
 
 // Mock adapter
-const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+const mockAdapter = {
+  query: vi.fn().mockResolvedValue([]),
+  exec: vi.fn().mockResolvedValue(undefined),
+  transaction: vi.fn(),
+  close: vi.fn().mockResolvedValue(undefined),
+}
 
 vi.mock('../../../persistence/adapter.js', () => ({
   createDatabaseAdapter: vi.fn(() => mockAdapter),
@@ -67,7 +72,9 @@ vi.mock('../../../persistence/queries/amendments.js', () => ({
 }))
 
 // Mock amendment context handler (Story 12-8)
-const mockLoadContextForPhase = vi.fn().mockReturnValue('=== AMENDMENT CONTEXT ===\n=== END AMENDMENT CONTEXT ===')
+const mockLoadContextForPhase = vi
+  .fn()
+  .mockReturnValue('=== AMENDMENT CONTEXT ===\n=== END AMENDMENT CONTEXT ===')
 const mockGetParentDecisions = vi.fn().mockReturnValue([])
 const mockGetSupersessionLog = vi.fn().mockReturnValue([])
 const mockCreateAmendmentContextHandler = vi.fn()
@@ -135,7 +142,9 @@ vi.mock('../../../adapters/adapter-registry.js', () => ({
   })),
 }))
 vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
-  createImplementationOrchestrator: vi.fn(() => ({ run: vi.fn().mockResolvedValue({ stories: {} }) })),
+  createImplementationOrchestrator: vi.fn(() => ({
+    run: vi.fn().mockResolvedValue({ stories: {} }),
+  })),
 }))
 vi.mock('../../../modules/phase-orchestrator/index.js', () => ({
   createPhaseOrchestrator: vi.fn(() => ({
@@ -145,13 +154,19 @@ vi.mock('../../../modules/phase-orchestrator/index.js', () => ({
   })),
 }))
 vi.mock('../../../modules/phase-orchestrator/phases/analysis.js', () => ({
-  runAnalysisPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runAnalysisPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 vi.mock('../../../modules/phase-orchestrator/phases/planning.js', () => ({
-  runPlanningPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runPlanningPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 vi.mock('../../../modules/phase-orchestrator/phases/solutioning.js', () => ({
-  runSolutioningPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runSolutioningPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 // ---------------------------------------------------------------------------
@@ -175,7 +190,9 @@ function makeHandler() {
   }
 }
 
-const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+const mockRegistry = {
+  discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }),
+} as any
 
 const baseOptions = {
   concept: 'Add dark mode support',
@@ -201,7 +218,10 @@ beforeEach(() => {
   mockGetLatestCompletedRun.mockResolvedValue({ id: 'parent-run-id', status: 'completed' })
 
   // Default: stop-after gate
-  mockCreateStopAfterGate.mockReturnValue({ shouldHalt: mockShouldHalt, isStopPhase: mockIsStopPhase })
+  mockCreateStopAfterGate.mockReturnValue({
+    shouldHalt: mockShouldHalt,
+    isStopPhase: mockIsStopPhase,
+  })
 
   // Default: validateStopAfterFromConflict returns valid
   mockValidateStopAfterFromConflict.mockReturnValue({ valid: true })
@@ -211,7 +231,10 @@ beforeEach(() => {
     amendmentRunId: 'test-amendment-run-id',
     parentRunId: 'parent-run-id',
     generatedAt: '2026-02-22T00:00:00.000Z',
-    executiveSummary: { text: 'Test executive summary text with enough words here.', wordCount: 10 },
+    executiveSummary: {
+      text: 'Test executive summary text with enough words here.',
+      wordCount: 10,
+    },
     newDecisions: [],
     supersededDecisions: [],
     newStories: [],
@@ -286,7 +309,7 @@ describe('AC2: flag validation — --concept or --concept-file required', () => 
 
     expect(result).toBe(1)
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Either --concept or --concept-file is required for amendment runs'),
+      expect.stringContaining('Either --concept or --concept-file is required for amendment runs')
     )
   })
 
@@ -336,7 +359,7 @@ describe('AC2: flag validation — --concept or --concept-file required', () => 
 
     expect(result).toBe(1)
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Failed to read concept file '/nonexistent/concept.txt'"),
+      expect.stringContaining("Failed to read concept file '/nonexistent/concept.txt'")
     )
   })
 })
@@ -360,7 +383,7 @@ describe('AC3: --stop-after / --from conflict validation', () => {
 
     expect(result).toBe(1)
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('--stop-after phase is before start phase'),
+      expect.stringContaining('--stop-after phase is before start phase')
     )
   })
 
@@ -419,7 +442,7 @@ describe('AC4: getLatestCompletedRun() when --run-id not provided', () => {
 
     expect(result).toBe(1)
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining("No completed pipeline run found. Run 'substrate run' first."),
+      expect.stringContaining("No completed pipeline run found. Run 'substrate run' first.")
     )
   })
 
@@ -429,13 +452,16 @@ describe('AC4: getLatestCompletedRun() when --run-id not provided', () => {
   })
 
   it('uses the ID from the latest completed run', async () => {
-    mockGetLatestCompletedRun.mockResolvedValueOnce({ id: 'latest-completed-id', status: 'completed' })
+    mockGetLatestCompletedRun.mockResolvedValueOnce({
+      id: 'latest-completed-id',
+      status: 'completed',
+    })
 
     await runAmendAction({ ...baseOptions })
 
     expect(mockCreateAmendmentRun).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ parentRunId: 'latest-completed-id' }),
+      expect.objectContaining({ parentRunId: 'latest-completed-id' })
     )
   })
 })
@@ -452,7 +478,7 @@ describe('AC5: createAmendmentRun() creates DB record', () => {
       expect.anything(),
       expect.objectContaining({
         parentRunId: 'explicit-parent-id',
-      }),
+      })
     )
   })
 
@@ -464,9 +490,7 @@ describe('AC5: createAmendmentRun() creates DB record', () => {
     const result = await runAmendAction({ ...baseOptions })
 
     expect(result).toBe(1)
-    expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Parent run is not completed'),
-    )
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('Parent run is not completed'))
   })
 
   it('new run has a generated UUID', async () => {
@@ -474,7 +498,7 @@ describe('AC5: createAmendmentRun() creates DB record', () => {
 
     expect(mockCreateAmendmentRun).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ id: 'test-amendment-run-id' }),
+      expect.objectContaining({ id: 'test-amendment-run-id' })
     )
   })
 })
@@ -490,7 +514,7 @@ describe('AC6: createAmendmentContextHandler() and context injection', () => {
     expect(mockCreateAmendmentContextHandler).toHaveBeenCalledWith(
       expect.anything(),
       'parent-id',
-      expect.objectContaining({ framingConcept: 'Add dark mode support' }),
+      expect.objectContaining({ framingConcept: 'Add dark mode support' })
     )
   })
 
@@ -541,11 +565,9 @@ describe('AC7: stop-after gate reused', () => {
 
     await runAmendAction({ ...baseOptions, stopAfter: 'analysis' as any })
 
-    expect(updatePipelineRun).toHaveBeenCalledWith(
-      expect.anything(),
-      'test-amendment-run-id',
-      { status: 'stopped' },
-    )
+    expect(updatePipelineRun).toHaveBeenCalledWith(expect.anything(), 'test-amendment-run-id', {
+      status: 'stopped',
+    })
   })
 
   it('emits phase completion summary on stop-after halt', async () => {
@@ -554,7 +576,9 @@ describe('AC7: stop-after gate reused', () => {
 
     await runAmendAction({ ...baseOptions, stopAfter: 'analysis' as any })
 
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Phase stop summary for analysis'))
+    expect(stdoutSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Phase stop summary for analysis')
+    )
   })
 
   it('does not call generateDeltaDocument when stopped early', async () => {
@@ -596,7 +620,7 @@ describe('AC8: generateDeltaDocument() on completion', () => {
       expect.objectContaining({
         amendmentRunId: 'test-amendment-run-id',
         parentRunId: 'parent-run-id',
-      }),
+      })
     )
   })
 
@@ -608,7 +632,7 @@ describe('AC8: generateDeltaDocument() on completion', () => {
     expect(writeFile).toHaveBeenCalledWith(
       expect.stringContaining('amendment-delta-test-amendment-run-id.md'),
       expect.any(String),
-      'utf-8',
+      'utf-8'
     )
   })
 
@@ -618,7 +642,7 @@ describe('AC8: generateDeltaDocument() on completion', () => {
     await runAmendAction({ ...baseOptions })
 
     expect(stdoutSpy).toHaveBeenCalledWith(
-      expect.stringContaining('amendment-delta-test-amendment-run-id.md'),
+      expect.stringContaining('amendment-delta-test-amendment-run-id.md')
     )
   })
 
@@ -630,7 +654,7 @@ describe('AC8: generateDeltaDocument() on completion', () => {
 
     expect(result).toBe(0)
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Warning: Delta document generation failed'),
+      expect.stringContaining('Warning: Delta document generation failed')
     )
   })
 
@@ -646,13 +670,15 @@ describe('AC8: generateDeltaDocument() on completion', () => {
 
   it('passes parentDecisions from handler to generateDeltaDocument', async () => {
     mockShouldHalt.mockReturnValue(false)
-    const fakeDecisions = [{ id: 'decision-1', category: 'arch', key: 'k', value: 'v', phase: 'analysis' }]
+    const fakeDecisions = [
+      { id: 'decision-1', category: 'arch', key: 'k', value: 'v', phase: 'analysis' },
+    ]
     mockGetParentDecisions.mockReturnValue(fakeDecisions)
 
     await runAmendAction({ ...baseOptions })
 
     expect(mockGenerateDeltaDocument).toHaveBeenCalledWith(
-      expect.objectContaining({ parentDecisions: fakeDecisions }),
+      expect.objectContaining({ parentDecisions: fakeDecisions })
     )
   })
 })
@@ -736,7 +762,7 @@ describe('error paths', () => {
 
     expect(result).toBe(1)
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Decision store not initialized'),
+      expect.stringContaining('Decision store not initialized')
     )
   })
 

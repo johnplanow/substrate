@@ -60,7 +60,7 @@ export async function readCurrentRunId(dbRoot: string): Promise<string | null> {
  */
 export async function resolveRunManifest(
   dbRoot: string,
-  runId?: string,
+  runId?: string
 ): Promise<{ manifest: RunManifest | null; runId: string | null }> {
   const resolvedRunId = runId ?? (await readCurrentRunId(dbRoot))
   if (!resolvedRunId) {

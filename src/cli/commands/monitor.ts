@@ -34,7 +34,10 @@ import { generateMonitorReport } from '../../modules/monitor/report-generator.js
 import { formatTable, buildJsonOutput } from '../utils/formatting.js'
 import type { CLIJsonOutput } from '../utils/formatting.js'
 import type { MonitorReport } from '../../modules/monitor/report-generator.js'
-import type { Recommendation, RecommendationExport } from '../../modules/monitor/recommendation-types.js'
+import type {
+  Recommendation,
+  RecommendationExport,
+} from '../../modules/monitor/recommendation-types.js'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('monitor-cmd')
@@ -114,7 +117,14 @@ export function formatAgentSummaryTable(agents: MonitorReport['agents']): string
     return 'No agent data available'
   }
 
-  const headers = ['Agent', 'Total Tasks', 'Success Rate', 'Failure Rate', 'Avg Tokens', 'Avg Duration (ms)']
+  const headers = [
+    'Agent',
+    'Total Tasks',
+    'Success Rate',
+    'Failure Rate',
+    'Avg Tokens',
+    'Avg Duration (ms)',
+  ]
   const keys = ['agent', 'totalTasks', 'successRate', 'failureRate', 'avgTokens', 'avgDuration']
 
   const rows: Record<string, string>[] = agents.map((a) => ({
@@ -171,8 +181,22 @@ export function formatRecommendationsTable(recommendations: Recommendation[]): s
     return 'No routing recommendations available'
   }
 
-  const headers = ['Task Type', 'Current Agent', 'Recommended Agent', 'Confidence', 'Improvement %', 'Reason']
-  const keys = ['taskType', 'currentAgent', 'recommendedAgent', 'confidence', 'improvement', 'reason']
+  const headers = [
+    'Task Type',
+    'Current Agent',
+    'Recommended Agent',
+    'Confidence',
+    'Improvement %',
+    'Reason',
+  ]
+  const keys = [
+    'taskType',
+    'currentAgent',
+    'recommendedAgent',
+    'confidence',
+    'improvement',
+    'reason',
+  ]
 
   const rows: Record<string, string>[] = recommendations.map((r) => ({
     taskType: r.task_type,
@@ -241,7 +265,14 @@ export function formatMonitorReport(report: MonitorReport): string {
  * Returns exit code.
  */
 export async function runMonitorReportAction(options: MonitorReportOptions): Promise<number> {
-  const { since, days, outputFormat, includeRecommendations, projectRoot, version = '0.0.0' } = options
+  const {
+    since,
+    days,
+    outputFormat,
+    includeRecommendations,
+    projectRoot,
+    version = '0.0.0',
+  } = options
 
   // Validate mutual exclusivity of --since and --days (AC3)
   if (since !== undefined && days !== undefined) {
@@ -252,7 +283,9 @@ export async function runMonitorReportAction(options: MonitorReportOptions): Pro
   // Locate the monitor database
   const dbPath = resolveMonitorDbPath(projectRoot)
   if (dbPath === null) {
-    process.stderr.write('Error: No monitor database found. Run some tasks first to collect metrics.\n')
+    process.stderr.write(
+      'Error: No monitor database found. Run some tasks first to collect metrics.\n'
+    )
     return MONITOR_EXIT_ERROR
   }
 
@@ -262,19 +295,25 @@ export async function runMonitorReportAction(options: MonitorReportOptions): Pro
     // Validate the date string before constructing the ISO string (Issue #2)
     const parsedDate = new Date(since)
     if (isNaN(parsedDate.getTime())) {
-      process.stderr.write(`Error: Invalid date value for --since: "${since}". Use an ISO 8601 date (e.g. 2026-01-01 or 2026-01-01T00:00:00Z).\n`)
+      process.stderr.write(
+        `Error: Invalid date value for --since: "${since}". Use an ISO 8601 date (e.g. 2026-01-01 or 2026-01-01T00:00:00Z).\n`
+      )
       return MONITOR_EXIT_ERROR
     }
     sinceDate = parsedDate.toISOString()
   } else if (days !== undefined) {
     // Guard against NaN from parseInt (Issue #3)
     if (isNaN(days)) {
-      process.stderr.write('Error: Invalid value for --days. Provide a positive integer (e.g. --days 7).\n')
+      process.stderr.write(
+        'Error: Invalid value for --days. Provide a positive integer (e.g. --days 7).\n'
+      )
       return MONITOR_EXIT_ERROR
     }
     // AC3: days must be a positive integer (> 0)
     if (days <= 0) {
-      process.stderr.write('Error: --days must be a positive integer greater than zero (e.g. --days 7).\n')
+      process.stderr.write(
+        'Error: --days must be a positive integer greater than zero (e.g. --days 7).\n'
+      )
       return MONITOR_EXIT_ERROR
     }
     sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
@@ -306,7 +345,7 @@ export async function runMonitorReportAction(options: MonitorReportOptions): Pro
       const output: CLIJsonOutput<MonitorReport> = buildJsonOutput(
         'substrate monitor report',
         report,
-        version,
+        version
       )
       process.stdout.write(JSON.stringify(output, null, 2) + '\n')
     } else {
@@ -343,7 +382,9 @@ export async function runMonitorStatusAction(options: MonitorStatusOptions): Pro
 
   const dbPath = resolveMonitorDbPath(projectRoot)
   if (dbPath === null) {
-    process.stderr.write('Error: No monitor database found. Run some tasks first to collect metrics.\n')
+    process.stderr.write(
+      'Error: No monitor database found. Run some tasks first to collect metrics.\n'
+    )
     return MONITOR_EXIT_ERROR
   }
 
@@ -389,8 +430,12 @@ export async function runMonitorStatusAction(options: MonitorStatusOptions): Pro
       lines.push('=== Monitor Status ===')
       lines.push(`Total Tasks Tracked:  ${totalTasks}`)
       lines.push(`Date Range:           ${earliestDate ?? 'N/A'} — ${latestDate ?? 'N/A'}`)
-      lines.push(`Agents Tracked:       ${distinctAgents.length > 0 ? distinctAgents.join(', ') : 'None'}`)
-      lines.push(`Task Types Tracked:   ${distinctTaskTypes.length > 0 ? distinctTaskTypes.join(', ') : 'None'}`)
+      lines.push(
+        `Agents Tracked:       ${distinctAgents.length > 0 ? distinctAgents.join(', ') : 'None'}`
+      )
+      lines.push(
+        `Task Types Tracked:   ${distinctTaskTypes.length > 0 ? distinctTaskTypes.join(', ') : 'None'}`
+      )
       lines.push(`Database Path:        ${dbPath}`)
       lines.push(`Database Size:        ${(dbSizeBytes / 1024).toFixed(1)} KB`)
       process.stdout.write(lines.join('\n') + '\n')
@@ -433,7 +478,7 @@ export async function runMonitorResetAction(options: MonitorResetOptions): Promi
   // Confirmation prompt unless --force is provided (AC7)
   if (!force) {
     const confirmed = await promptConfirmation(
-      "This will delete all monitor metrics. Type 'yes' to confirm: ",
+      "This will delete all monitor metrics. Type 'yes' to confirm: "
     )
 
     if (confirmed !== 'yes') {
@@ -475,7 +520,7 @@ export async function runMonitorResetAction(options: MonitorResetOptions): Promi
  * Returns exit code.
  */
 export async function runMonitorRecommendationsAction(
-  options: MonitorRecommendationsOptions,
+  options: MonitorRecommendationsOptions
 ): Promise<number> {
   const { outputFormat, projectRoot, version = '0.0.0' } = options
 
@@ -486,7 +531,7 @@ export async function runMonitorRecommendationsAction(
       const output = buildJsonOutput(
         'substrate monitor recommendations',
         { message, recommendations: [] },
-        version,
+        version
       )
       process.stdout.write(JSON.stringify(output, null, 2) + '\n')
     } else {
@@ -572,22 +617,16 @@ function promptConfirmation(prompt: string): Promise<string> {
 export function registerMonitorCommand(
   program: Command,
   version = '0.0.0',
-  projectRoot = process.cwd(),
+  projectRoot = process.cwd()
 ): void {
-  const monitorCmd = program
-    .command('monitor')
-    .description('Monitor agent performance and metrics')
+  const monitorCmd = program.command('monitor').description('Monitor agent performance and metrics')
 
   // --- report subcommand ---
   const reportCmd = new CommanderCommand('report')
     .description('Display comprehensive agent performance report')
     .option('--since <date>', 'Only include metrics from this ISO date forward')
     .option('--days <n>', 'Only include metrics from the last N days', (v) => parseInt(v, 10))
-    .option(
-      '--output-format <format>',
-      'Output format: table (default) or json',
-      'table',
-    )
+    .option('--output-format <format>', 'Output format: table (default) or json', 'table')
     .option('--json', 'Output JSON (shorthand for --output-format json)', false)
     .option('--include-recommendations', 'Include routing recommendations in report', false)
     .action(
@@ -608,32 +647,23 @@ export function registerMonitorCommand(
           version,
         })
         process.exitCode = exitCode
-      },
+      }
     )
 
   // --- status subcommand ---
   const statusCmd = new CommanderCommand('status')
     .description('Display summary of collected monitor data')
-    .option(
-      '--output-format <format>',
-      'Output format: table (default) or json',
-      'table',
-    )
+    .option('--output-format <format>', 'Output format: table (default) or json', 'table')
     .option('--json', 'Output JSON (shorthand for --output-format json)', false)
-    .action(
-      async (opts: {
-        outputFormat: string
-        json: boolean
-      }) => {
-        const outputFormat = opts.json ? 'json' : (opts.outputFormat as 'table' | 'json')
-        const exitCode = await runMonitorStatusAction({
-          outputFormat,
-          projectRoot,
-          version,
-        })
-        process.exitCode = exitCode
-      },
-    )
+    .action(async (opts: { outputFormat: string; json: boolean }) => {
+      const outputFormat = opts.json ? 'json' : (opts.outputFormat as 'table' | 'json')
+      const exitCode = await runMonitorStatusAction({
+        outputFormat,
+        projectRoot,
+        version,
+      })
+      process.exitCode = exitCode
+    })
 
   // --- reset subcommand ---
   const resetCmd = new CommanderCommand('reset')
@@ -650,26 +680,17 @@ export function registerMonitorCommand(
   // --- recommendations subcommand ---
   const recommendationsCmd = new CommanderCommand('recommendations')
     .description('Display routing recommendations based on performance data')
-    .option(
-      '--output-format <format>',
-      'Output format: table (default) or json',
-      'table',
-    )
+    .option('--output-format <format>', 'Output format: table (default) or json', 'table')
     .option('--json', 'Output JSON (shorthand for --output-format json)', false)
-    .action(
-      async (opts: {
-        outputFormat: string
-        json: boolean
-      }) => {
-        const outputFormat = opts.json ? 'json' : (opts.outputFormat as 'table' | 'json')
-        const exitCode = await runMonitorRecommendationsAction({
-          outputFormat,
-          projectRoot,
-          version,
-        })
-        process.exitCode = exitCode
-      },
-    )
+    .action(async (opts: { outputFormat: string; json: boolean }) => {
+      const outputFormat = opts.json ? 'json' : (opts.outputFormat as 'table' | 'json')
+      const exitCode = await runMonitorRecommendationsAction({
+        outputFormat,
+        projectRoot,
+        version,
+      })
+      process.exitCode = exitCode
+    })
 
   monitorCmd.addCommand(reportCmd)
   monitorCmd.addCommand(statusCmd)

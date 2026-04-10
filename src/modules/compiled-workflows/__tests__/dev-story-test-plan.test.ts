@@ -53,7 +53,10 @@ vi.mock('../../../utils/logger.js', () => ({
 // ---------------------------------------------------------------------------
 
 import { readFile } from 'node:fs/promises'
-import { getDecisionsByPhase, getDecisionsByCategory } from '../../../persistence/queries/decisions.js'
+import {
+  getDecisionsByPhase,
+  getDecisionsByCategory,
+} from '../../../persistence/queries/decisions.js'
 
 const mockReadFile = vi.mocked(readFile)
 const mockGetDecisionsByPhase = vi.mocked(getDecisionsByPhase)
@@ -225,7 +228,10 @@ describe('AC3: Dev-story injects test plan when available', () => {
         category: 'test-plan',
         key: STORY_KEY,
         value: JSON.stringify({
-          test_files: ['src/modules/foo/__tests__/foo.test.ts', 'src/modules/bar/__tests__/bar.test.ts'],
+          test_files: [
+            'src/modules/foo/__tests__/foo.test.ts',
+            'src/modules/bar/__tests__/bar.test.ts',
+          ],
           test_categories: ['unit', 'integration'],
           coverage_notes: 'AC1 covered by foo.test.ts. AC2 covered by bar.test.ts.',
         }),
@@ -273,7 +279,8 @@ describe('AC3: Dev-story injects test plan when available', () => {
     const capturedPrompts: string[] = []
     const deps = createMockDeps(capturedPrompts)
 
-    const coverageNotes = 'AC1 covered by runTestPlan.test.ts. AC2 verified by decision-store.test.ts.'
+    const coverageNotes =
+      'AC1 covered by runTestPlan.test.ts. AC2 verified by decision-store.test.ts.'
 
     mockGetDecisionsByCategory.mockReturnValue([
       {

@@ -161,9 +161,7 @@ describe('SymbolParser', () => {
     const loader = makeGrammarLoader(grammar)
     parser = new TestSymbolParser(loader, logger)
 
-    const enumNode = makeNode('enum_declaration', 'enum Status', [
-      makeNode('identifier', 'Status'),
-    ])
+    const enumNode = makeNode('enum_declaration', 'enum Status', [makeNode('identifier', 'Status')])
     const exportNode = makeNode('export_statement', 'export enum Status', [enumNode])
     const root = makeNode('program', '', [exportNode])
 

@@ -19,10 +19,7 @@
 import { registerArtifact } from '../../../persistence/queries/decisions.js'
 import { runSteps } from '../step-runner.js'
 import type { StepDefinition } from '../step-runner.js'
-import {
-  ResearchDiscoveryOutputSchema,
-  ResearchSynthesisOutputSchema,
-} from './schemas.js'
+import { ResearchDiscoveryOutputSchema, ResearchSynthesisOutputSchema } from './schemas.js'
 import type { ResearchPhaseParams, ResearchResult, PhaseDeps } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -47,9 +44,7 @@ export function buildResearchSteps(): StepDefinition[] {
       name: 'research-step-1-discovery',
       taskType: 'research-discovery',
       outputSchema: ResearchDiscoveryOutputSchema,
-      context: [
-        { placeholder: 'concept', source: 'param:concept' },
-      ],
+      context: [{ placeholder: 'concept', source: 'param:concept' }],
       persist: [
         { field: 'concept_classification', category: 'research', key: 'concept_classification' },
         { field: 'market_findings', category: 'research', key: 'market_findings' },
@@ -78,7 +73,9 @@ export function buildResearchSteps(): StepDefinition[] {
         path: 'decision-store://research/research-findings',
         summarize: (parsed) => {
           const risks = Array.isArray(parsed.risk_flags) ? parsed.risk_flags : undefined
-          const opportunities = Array.isArray(parsed.opportunity_signals) ? parsed.opportunity_signals : undefined
+          const opportunities = Array.isArray(parsed.opportunity_signals)
+            ? parsed.opportunity_signals
+            : undefined
           const count = (risks?.length ?? 0) + (opportunities?.length ?? 0)
           return count > 0
             ? `${count} research insights captured (risks + opportunities)`
@@ -109,7 +106,7 @@ export function buildResearchSteps(): StepDefinition[] {
  */
 export async function runResearchPhase(
   deps: PhaseDeps,
-  params: ResearchPhaseParams,
+  params: ResearchPhaseParams
 ): Promise<ResearchResult> {
   const { runId } = params
   const zeroTokenUsage = { input: 0, output: 0 }

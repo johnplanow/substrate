@@ -15,7 +15,11 @@ const mockExec = vi.mocked(exec) as unknown as ReturnType<typeof vi.fn>
 
 function mockExecResolve(stdout: string, stderr = ''): void {
   mockExec.mockImplementationOnce(
-    (_cmd: string, _opts: unknown, cb: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
+    (
+      _cmd: string,
+      _opts: unknown,
+      cb: (err: Error | null, result: { stdout: string; stderr: string }) => void
+    ) => {
       cb(null, { stdout, stderr })
     }
   )
@@ -23,7 +27,11 @@ function mockExecResolve(stdout: string, stderr = ''): void {
 
 function mockExecReject(message: string): void {
   mockExec.mockImplementationOnce(
-    (_cmd: string, _opts: unknown, cb: (err: Error | null, result: { stdout: string; stderr: string } | null) => void) => {
+    (
+      _cmd: string,
+      _opts: unknown,
+      cb: (err: Error | null, result: { stdout: string; stderr: string } | null) => void
+    ) => {
       cb(new Error(message), null)
     }
   )
@@ -68,8 +76,8 @@ describe('CodexCLIAdapter', () => {
   // -------------------------------------------------------------------------
   describe('healthCheck', () => {
     it('returns healthy when codex --version succeeds', async () => {
-      mockExecResolve('codex 0.1.0\n')   // codex --version
-      mockExecResolve('/usr/local/bin/codex\n')  // which codex
+      mockExecResolve('codex 0.1.0\n') // codex --version
+      mockExecResolve('/usr/local/bin/codex\n') // which codex
 
       const result = await adapter.healthCheck()
 
@@ -246,9 +254,7 @@ describe('CodexCLIAdapter', () => {
 
     it('accepts plan array as alternative key', () => {
       const json = JSON.stringify({
-        plan: [
-          { title: 'Task 1', description: 'Do something' },
-        ],
+        plan: [{ title: 'Task 1', description: 'Do something' }],
       })
       const result = adapter.parsePlanOutput(json, '', 0)
       expect(result.success).toBe(true)

@@ -17,6 +17,15 @@
  */
 
 export type { StopAfterGate } from './gate.js'
-export type { PhaseName, CompletionSummaryParams, StopAfterGateParams, ValidationResult } from './types.js'
+export type {
+  PhaseName,
+  CompletionSummaryParams,
+  StopAfterGateParams,
+  ValidationResult,
+} from './types.js'
 export { VALID_PHASES, STOP_AFTER_VALID_PHASES } from './types.js'
-export { createStopAfterGate, validateStopAfterFromConflict, formatPhaseCompletionSummary } from './gate-impl.js'
+export {
+  createStopAfterGate,
+  validateStopAfterFromConflict,
+  formatPhaseCompletionSummary,
+} from './gate-impl.js'

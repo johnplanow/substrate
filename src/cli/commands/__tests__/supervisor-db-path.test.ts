@@ -47,7 +47,12 @@ function makeTerminal(): PipelineHealthOutput {
     staleness_seconds: 0,
     last_activity: new Date().toISOString(),
     process: { orchestrator_pid: null, child_pids: [], zombies: [] },
-    stories: { active: 0, completed: 1, escalated: 0, details: { '1-1': { phase: 'COMPLETE', review_cycles: 0 } } },
+    stories: {
+      active: 0,
+      completed: 1,
+      escalated: 0,
+      details: { '1-1': { phase: 'COMPLETE', review_cycles: 0 } },
+    },
   }
 }
 
@@ -60,7 +65,12 @@ function makeStalled(): PipelineHealthOutput {
     staleness_seconds: 700,
     last_activity: new Date().toISOString(),
     process: { orchestrator_pid: 999, child_pids: [], zombies: [] },
-    stories: { active: 1, completed: 0, escalated: 0, details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } } },
+    stories: {
+      active: 1,
+      completed: 0,
+      escalated: 0,
+      details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } },
+    },
   }
 }
 
@@ -71,7 +81,12 @@ function captureStdout(): { getOutput: () => string; restore: () => void } {
     chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString())
     return true
   }) as typeof process.stdout.write
-  return { getOutput: () => chunks.join(''), restore: () => { process.stdout.write = origWrite } }
+  return {
+    getOutput: () => chunks.join(''),
+    restore: () => {
+      process.stdout.write = origWrite
+    },
+  }
 }
 
 describe('supervisor DB path resolution via resolveMainRepoRoot', () => {

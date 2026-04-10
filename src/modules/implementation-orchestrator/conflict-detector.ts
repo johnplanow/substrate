@@ -90,7 +90,10 @@ function resolveModulePrefix(storyKey: string, effectiveMap: Record<string, stri
  * detectConflictGroups(['12-1', '12-2'], { moduleMap: { '12-': 'my-module' } })
  * // => [['12-1', '12-2']]
  */
-export function detectConflictGroups(storyKeys: string[], config?: ConflictDetectorConfig): string[][] {
+export function detectConflictGroups(
+  storyKeys: string[],
+  config?: ConflictDetectorConfig
+): string[][] {
   const effectiveMap: Record<string, string> = {
     ...(config?.moduleMap ?? {}),
   }
@@ -193,11 +196,11 @@ export interface ContractDependencyEdge {
  * @returns List of directed dependency edges
  */
 export function buildContractDependencyGraph(
-  declarations: ContractDeclaration[],
+  declarations: ContractDeclaration[]
 ): ContractDependencyEdge[] {
   const edges: ContractDependencyEdge[] = []
-  const exportsByName = new Map<string, string[]>()  // contractName → [storyKeys that export]
-  const importsByName = new Map<string, string[]>()  // contractName → [storyKeys that import]
+  const exportsByName = new Map<string, string[]>() // contractName → [storyKeys that export]
+  const importsByName = new Map<string, string[]>() // contractName → [storyKeys that import]
 
   for (const decl of declarations) {
     if (decl.direction === 'export') {
@@ -216,7 +219,7 @@ export function buildContractDependencyGraph(
     const exporterKeys = exportsByName.get(contractName) ?? []
     for (const from of exporterKeys) {
       for (const to of importerKeys) {
-        if (from === to) continue  // skip self-edges
+        if (from === to) continue // skip self-edges
         edges.push({
           from,
           to,
@@ -301,7 +304,7 @@ export interface ContractAwareConflictResult {
 export function detectConflictGroupsWithContracts(
   storyKeys: string[],
   config: ConflictDetectorConfig | undefined,
-  declarations: ContractDeclaration[],
+  declarations: ContractDeclaration[]
 ): ContractAwareConflictResult {
   // Step 1: Build file-based conflict groups (existing logic, unchanged behavior)
   const groups = detectConflictGroups(storyKeys, config)

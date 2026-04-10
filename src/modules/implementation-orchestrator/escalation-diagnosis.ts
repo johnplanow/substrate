@@ -51,7 +51,11 @@ export interface EscalationIssue {
 }
 
 export type IssueDistribution = 'concentrated' | 'widespread'
-export type SeverityProfile = 'blocker-present' | 'major-only' | 'minor-only' | 'no-structured-issues'
+export type SeverityProfile =
+  | 'blocker-present'
+  | 'major-only'
+  | 'minor-only'
+  | 'no-structured-issues'
 export type RecommendedAction = 'retry-targeted' | 'split-story' | 'human-intervention'
 
 export interface EscalationDiagnosis {
@@ -86,7 +90,7 @@ export interface EscalationDiagnosis {
 export function generateEscalationDiagnosis(
   issues: unknown[],
   reviewCycles: number,
-  lastVerdict: string,
+  lastVerdict: string
 ): EscalationDiagnosis {
   // Normalize issues: may be structured objects or plain strings
   const structured: EscalationIssue[] = issues.map((issue) => {
@@ -117,9 +121,7 @@ export function generateEscalationDiagnosis(
   }
 
   // Sort files by issue count descending
-  const sortedFiles = [...fileCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([file]) => file)
+  const sortedFiles = [...fileCounts.entries()].sort((a, b) => b[1] - a[1]).map(([file]) => file)
 
   // Classify distribution: "concentrated" if >50% of issues in top 2 files
   const issuesWithFiles = structured.filter((i) => i.file).length
@@ -151,7 +153,7 @@ export function generateEscalationDiagnosis(
     severityProfile,
     totalIssues,
     reviewCycles,
-    lastVerdict,
+    lastVerdict
   )
 
   return {
@@ -177,7 +179,7 @@ function pickRecommendation(
   profile: SeverityProfile,
   totalIssues: number,
   reviewCycles: number,
-  lastVerdict: string,
+  lastVerdict: string
 ): { action: RecommendedAction; rationale: string } {
   // Create-story or dev-story failures — no structured review data
   if (lastVerdict.startsWith('create-story') || lastVerdict.startsWith('dev-story')) {
@@ -191,7 +193,8 @@ function pickRecommendation(
   if (lastVerdict === 'fix-dispatch-timeout') {
     return {
       action: 'retry-targeted',
-      rationale: 'Fix dispatch timed out. Retry with a targeted prompt focusing on the remaining issues.',
+      rationale:
+        'Fix dispatch timed out. Retry with a targeted prompt focusing on the remaining issues.',
     }
   }
 
@@ -199,7 +202,8 @@ function pickRecommendation(
   if (profile === 'no-structured-issues') {
     return {
       action: 'retry-targeted',
-      rationale: 'Review produced no structured issues — likely a schema parse failure. Retry may resolve.',
+      rationale:
+        'Review produced no structured issues — likely a schema parse failure. Retry may resolve.',
     }
   }
 

@@ -123,7 +123,7 @@ describe('StructuralValidator', () => {
     const missingPath = '/tmp/does-not-exist.ts'
     vi.mocked(existsSync).mockReturnValueOnce(false)
     const result = await validator.run(
-      makeCtx({ ...validDevStoryResult, files_modified: [missingPath] }),
+      makeCtx({ ...validDevStoryResult, files_modified: [missingPath] })
     )
     expect(result.passed).toBe(false)
     const failure = result.failures.find((f) => f.location === missingPath)
@@ -135,9 +135,7 @@ describe('StructuralValidator', () => {
   // Test 7: Empty files_modified array skips file checks even when existsSync returns false
   it('empty files_modified array skips file checks even when existsSync returns false', async () => {
     vi.mocked(existsSync).mockReturnValue(false)
-    const result = await validator.run(
-      makeCtx({ ...validDevStoryResult, files_modified: [] }),
-    )
+    const result = await validator.run(makeCtx({ ...validDevStoryResult, files_modified: [] }))
     // existsSync should NOT be called for file-check (only for schema validation path)
     // The key assertion: no file-check failures
     const fileFailures = result.failures.filter((f) => f.evidence === 'existsSync returned false')

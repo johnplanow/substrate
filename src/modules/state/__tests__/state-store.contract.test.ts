@@ -102,9 +102,27 @@ function makeInMemoryDoltClient(): DoltClient {
 
       // REPLACE INTO stories
       if (/^REPLACE INTO stories/i.test(s)) {
-        const [story_key, phase, review_cycles, last_verdict, error, started_at, completed_at, sprint] = params
+        const [
+          story_key,
+          phase,
+          review_cycles,
+          last_verdict,
+          error,
+          started_at,
+          completed_at,
+          sprint,
+        ] = params
         tables.stories = tables.stories.filter((r) => r.story_key !== story_key)
-        tables.stories.push({ story_key, phase, review_cycles, last_verdict, error, started_at, completed_at, sprint })
+        tables.stories.push({
+          story_key,
+          phase,
+          review_cycles,
+          last_verdict,
+          error,
+          started_at,
+          completed_at,
+          sprint,
+        })
         return []
       }
 
@@ -128,10 +146,15 @@ function makeInMemoryDoltClient(): DoltClient {
           if (/sprint = \?/i.test(s)) rows = rows.filter((r) => r.sprint === params[idx])
           if (/story_key = \?/i.test(s)) rows = rows.filter((r) => r.story_key === params[idx])
         } else if (/sprint = \?/i.test(s)) {
-          const sprintIdx = params.indexOf(params.find((_p, i) => {
-            const before = s.split('?').slice(0, i + 1).join('?')
-            return /sprint = \?/i.test(before)
-          }))
+          const sprintIdx = params.indexOf(
+            params.find((_p, i) => {
+              const before = s
+                .split('?')
+                .slice(0, i + 1)
+                .join('?')
+              return /sprint = \?/i.test(before)
+            })
+          )
           rows = rows.filter((r) => r.sprint === params[Math.max(0, sprintIdx)])
         } else if (/story_key = \?/i.test(s)) {
           rows = rows.filter((r) => r.story_key === params[0])
@@ -141,8 +164,35 @@ function makeInMemoryDoltClient(): DoltClient {
 
       // INSERT INTO metrics
       if (/^INSERT INTO metrics/i.test(s)) {
-        const [story_key, task_type, model, tokens_in, tokens_out, cache_read_tokens, cost_usd, wall_clock_ms, review_cycles, stall_count, result, recorded_at] = params
-        tables.metrics.push({ id: metricId++, story_key, task_type, model, tokens_in, tokens_out, cache_read_tokens, cost_usd, wall_clock_ms, review_cycles, stall_count, result, recorded_at })
+        const [
+          story_key,
+          task_type,
+          model,
+          tokens_in,
+          tokens_out,
+          cache_read_tokens,
+          cost_usd,
+          wall_clock_ms,
+          review_cycles,
+          stall_count,
+          result,
+          recorded_at,
+        ] = params
+        tables.metrics.push({
+          id: metricId++,
+          story_key,
+          task_type,
+          model,
+          tokens_in,
+          tokens_out,
+          cache_read_tokens,
+          cost_usd,
+          wall_clock_ms,
+          review_cycles,
+          stall_count,
+          result,
+          recorded_at,
+        })
         return []
       }
 
@@ -152,8 +202,14 @@ function makeInMemoryDoltClient(): DoltClient {
         if (/story_key = \?/i.test(s)) rows = rows.filter((r) => r.story_key === params[0])
         if (/task_type = \?/i.test(s)) {
           const idx = params.findIndex((_p, i) => {
-            const before = s.split('?').slice(0, i + 1).join('?')
-            return /task_type = \?/i.test(before) && !/story_key = \?/i.test(before.replace(/.*task_type/, ''))
+            const before = s
+              .split('?')
+              .slice(0, i + 1)
+              .join('?')
+            return (
+              /task_type = \?/i.test(before) &&
+              !/story_key = \?/i.test(before.replace(/.*task_type/, ''))
+            )
           })
           // Simple: filter by taskType if present in params
           const taskTypeParam = params.find((p) => typeof p === 'string' && p !== params[0])
@@ -259,9 +315,18 @@ function runContractTests(label: string, createStore: () => StateStore): void {
 
     describe('queryStories', () => {
       beforeEach(async () => {
-        await store.setStoryState('26-1', makeStory({ storyKey: '26-1', phase: 'COMPLETE', sprint: 'sprint-1' }))
-        await store.setStoryState('26-2', makeStory({ storyKey: '26-2', phase: 'ESCALATED', sprint: 'sprint-1' }))
-        await store.setStoryState('26-3', makeStory({ storyKey: '26-3', phase: 'IN_DEV', sprint: 'sprint-2' }))
+        await store.setStoryState(
+          '26-1',
+          makeStory({ storyKey: '26-1', phase: 'COMPLETE', sprint: 'sprint-1' })
+        )
+        await store.setStoryState(
+          '26-2',
+          makeStory({ storyKey: '26-2', phase: 'ESCALATED', sprint: 'sprint-1' })
+        )
+        await store.setStoryState(
+          '26-3',
+          makeStory({ storyKey: '26-3', phase: 'IN_DEV', sprint: 'sprint-2' })
+        )
       })
 
       it('returns all stories for empty filter', async () => {
@@ -317,12 +382,19 @@ function runContractTests(label: string, createStore: () => StateStore): void {
       it('round-trips a list of contracts', async () => {
         const contracts: ContractRecord[] = [
           makeContract({ contractName: 'StateStore', direction: 'export' }),
-          makeContract({ contractName: 'createStateStore', direction: 'export', schemaPath: 'index.ts' }),
+          makeContract({
+            contractName: 'createStateStore',
+            direction: 'export',
+            schemaPath: 'index.ts',
+          }),
         ]
         await store.setContracts('26-1', contracts)
         const retrieved = await store.getContracts('26-1')
         expect(retrieved).toHaveLength(2)
-        expect(retrieved.map((c) => c.contractName).sort()).toEqual(['StateStore', 'createStateStore'])
+        expect(retrieved.map((c) => c.contractName).sort()).toEqual([
+          'StateStore',
+          'createStateStore',
+        ])
       })
 
       it('replaces contracts on subsequent call', async () => {
@@ -344,7 +416,7 @@ function runContractTests(label: string, createStore: () => StateStore): void {
           (_cmd: string, _args: readonly string[], _opts: unknown, callback?: unknown) => {
             if (typeof callback === 'function') callback(null, '', '')
             return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
-          },
+          }
         )
         await expect(store.branchForStory('26-1')).resolves.toBeUndefined()
       })
@@ -355,7 +427,7 @@ function runContractTests(label: string, createStore: () => StateStore): void {
           (_cmd: string, _args: readonly string[], _opts: unknown, callback?: unknown) => {
             if (typeof callback === 'function') callback(null, '', '')
             return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
-          },
+          }
         )
         await expect(store.mergeStory('26-1')).resolves.toBeUndefined()
       })
@@ -366,7 +438,7 @@ function runContractTests(label: string, createStore: () => StateStore): void {
           (_cmd: string, _args: readonly string[], _opts: unknown, callback?: unknown) => {
             if (typeof callback === 'function') callback(null, '', '')
             return undefined as unknown as ReturnType<typeof import('node:child_process').execFile>
-          },
+          }
         )
         await expect(store.rollbackStory('26-1')).resolves.toBeUndefined()
       })

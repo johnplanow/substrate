@@ -214,13 +214,13 @@ describe('PIPELINE_EVENT_METADATA', () => {
     // in src/modules/implementation-orchestrator/event-types.ts.
     // Update these counts when an interface gains or loses fields.
     const expectedFieldCounts: Record<string, number> = {
-      'pipeline:start': 4,    // ts, run_id, stories, concurrency
+      'pipeline:start': 4, // ts, run_id, stories, concurrency
       'pipeline:complete': 4, // ts, succeeded, failed, escalated
-      'story:phase': 6,       // ts, key, phase, status, verdict?, file?
-      'story:done': 4,        // ts, key, result, review_cycles
-      'story:escalation': 5,  // ts, key, reason, cycles, issues
-      'story:warn': 3,        // ts, key, msg
-      'story:log': 3,         // ts, key, msg
+      'story:phase': 6, // ts, key, phase, status, verdict?, file?
+      'story:done': 4, // ts, key, result, review_cycles
+      'story:escalation': 5, // ts, key, reason, cycles, issues
+      'story:warn': 3, // ts, key, msg
+      'story:log': 3, // ts, key, msg
     }
     for (const [typeName, expectedCount] of Object.entries(expectedFieldCounts)) {
       const entry = PIPELINE_EVENT_METADATA.find((e) => e.type === typeName)
@@ -482,18 +482,14 @@ describe('resolvePackageVersion', () => {
   })
 
   it('returns version from substrate package.json', async () => {
-    mockReadFile.mockResolvedValueOnce(
-      JSON.stringify({ name: 'substrate', version: '0.1.14' }),
-    )
+    mockReadFile.mockResolvedValueOnce(JSON.stringify({ name: 'substrate', version: '0.1.14' }))
     const version = await resolvePackageVersion()
     expect(version).toBe('0.1.14')
   })
 
   it('returns version from substrate-ai package.json', async () => {
     mockReadFile.mockRejectedValueOnce(new Error('not found'))
-    mockReadFile.mockResolvedValueOnce(
-      JSON.stringify({ name: 'substrate-ai', version: '0.2.0' }),
-    )
+    mockReadFile.mockResolvedValueOnce(JSON.stringify({ name: 'substrate-ai', version: '0.2.0' }))
     const version = await resolvePackageVersion()
     expect(version).toBe('0.2.0')
   })
@@ -506,7 +502,7 @@ describe('resolvePackageVersion', () => {
 
   it('returns 0.0.0 when package.json has no version', async () => {
     mockReadFile.mockResolvedValueOnce(
-      JSON.stringify({ name: 'substrate', description: 'no version' }),
+      JSON.stringify({ name: 'substrate', description: 'no version' })
     )
     const version = await resolvePackageVersion()
     expect(version).toBe('0.0.0')

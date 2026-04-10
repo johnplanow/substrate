@@ -172,9 +172,7 @@ describe('writeProjectProfile — round-trip', () => {
         tool: 'turborepo',
         buildCommand: 'turbo build',
         testCommand: 'turbo test',
-        packages: [
-          { path: 'apps/api', language: 'typescript', buildTool: 'npm' },
-        ],
+        packages: [{ path: 'apps/api', language: 'typescript', buildTool: 'npm' }],
       },
     }
 

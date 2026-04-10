@@ -11,7 +11,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Hoist mock functions so they are available when vi.mock factories execute
 // ---------------------------------------------------------------------------
 
-const { mockReadFile, mockGetGitDiffSummary, mockGetGitDiffStatSummary, mockGetGitDiffStatForFiles, mockGetGitDiffForFiles, mockStageIntentToAdd, mockGetGitChangedFiles, mockLogger } = vi.hoisted(() => ({
+const {
+  mockReadFile,
+  mockGetGitDiffSummary,
+  mockGetGitDiffStatSummary,
+  mockGetGitDiffStatForFiles,
+  mockGetGitDiffForFiles,
+  mockStageIntentToAdd,
+  mockGetGitChangedFiles,
+  mockLogger,
+} = vi.hoisted(() => ({
   mockReadFile: vi.fn(),
   mockGetGitDiffSummary: vi.fn(),
   mockGetGitDiffStatSummary: vi.fn(),
@@ -64,7 +73,9 @@ import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function makeMockDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}): DispatchResult<unknown> {
+function makeMockDispatchResult(
+  overrides: Partial<DispatchResult<unknown>> = {}
+): DispatchResult<unknown> {
   return {
     id: 'test-dispatch-id',
     status: 'completed',
@@ -78,13 +89,16 @@ function makeMockDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}
   }
 }
 
-const DEFAULT_TEMPLATE = 'Review the story: {{story_content}}\n\nGit diff: {{git_diff}}\n\nConstraints: {{arch_constraints}}\n\nFind 3-10 issues minimum. Re-examine if fewer than 3 issues found. Dimensions: AC compliance, task completion, code quality, test coverage. Severity: blocker, major, minor. Verify claims against diff.'
+const DEFAULT_TEMPLATE =
+  'Review the story: {{story_content}}\n\nGit diff: {{git_diff}}\n\nConstraints: {{arch_constraints}}\n\nFind 3-10 issues minimum. Re-examine if fewer than 3 issues found. Dimensions: AC compliance, task completion, code quality, test coverage. Severity: blocker, major, minor. Verify claims against diff.'
 
-function makeMockDeps(overrides: {
-  getPrompt?: ReturnType<typeof vi.fn>
-  dispatch?: ReturnType<typeof vi.fn>
-  db?: Partial<DatabaseAdapter>
-} = {}): WorkflowDeps {
+function makeMockDeps(
+  overrides: {
+    getPrompt?: ReturnType<typeof vi.fn>
+    dispatch?: ReturnType<typeof vi.fn>
+    db?: Partial<DatabaseAdapter>
+  } = {}
+): WorkflowDeps {
   const mockPack: MethodologyPack = {
     manifest: {
       name: 'test-pack',
@@ -104,7 +118,11 @@ function makeMockDeps(overrides: {
   const mockDb = {
     query: vi.fn().mockResolvedValue([]),
     exec: vi.fn().mockResolvedValue(undefined),
-    transaction: vi.fn().mockImplementation((fn: (adapter: DatabaseAdapter) => Promise<unknown>) => fn(mockDb as unknown as DatabaseAdapter)),
+    transaction: vi
+      .fn()
+      .mockImplementation((fn: (adapter: DatabaseAdapter) => Promise<unknown>) =>
+        fn(mockDb as unknown as DatabaseAdapter)
+      ),
     close: vi.fn().mockResolvedValue(undefined),
     ...(overrides.db ?? {}),
   } as unknown as DatabaseAdapter
@@ -159,7 +177,9 @@ const DEFAULT_PARAMS: CodeReviewParams = {
 describe('runCodeReview', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockReadFile.mockResolvedValue('## Story\nAs a developer...\n\n## Acceptance Criteria\n### AC1: ...')
+    mockReadFile.mockResolvedValue(
+      '## Story\nAs a developer...\n\n## Acceptance Criteria\n### AC1: ...'
+    )
     mockGetGitDiffSummary.mockResolvedValue('diff --git a/src/foo.ts b/src/foo.ts\n+line added\n')
     mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
     mockGetGitDiffStatForFiles.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
@@ -188,18 +208,25 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: {
-          verdict: 'NEEDS_MINOR_FIXES',
-          issues: 3,
-          issue_list: [
-            { severity: 'minor', description: 'Missing error handling' },
-            { severity: 'minor', description: 'Test coverage below threshold' },
-            { severity: 'minor', description: 'ESM import missing .js extension', file: 'src/foo.ts', line: 5 },
-          ],
-          notes: 'Fix the listed issues.',
-        },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: {
+            verdict: 'NEEDS_MINOR_FIXES',
+            issues: 3,
+            issue_list: [
+              { severity: 'minor', description: 'Missing error handling' },
+              { severity: 'minor', description: 'Test coverage below threshold' },
+              {
+                severity: 'minor',
+                description: 'ESM import missing .js extension',
+                file: 'src/foo.ts',
+                line: 5,
+              },
+            ],
+            notes: 'Fix the listed issues.',
+          },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -218,15 +245,22 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: {
-          verdict: 'NEEDS_MAJOR_REWORK',
-          issues: 1,
-          issue_list: [
-            { severity: 'blocker', description: 'Security vulnerability in auth module', file: 'src/auth.ts', line: 42 },
-          ],
-        },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: {
+            verdict: 'NEEDS_MAJOR_REWORK',
+            issues: 1,
+            issue_list: [
+              {
+                severity: 'blocker',
+                description: 'Security vulnerability in auth module',
+                file: 'src/auth.ts',
+                line: 42,
+              },
+            ],
+          },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -242,9 +276,11 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -263,14 +299,20 @@ describe('runCodeReview', () => {
   // -------------------------------------------------------------------------
 
   it('retrieves prompt via pack.getPrompt("code-review")', async () => {
-    const getPromptFn = vi.fn().mockResolvedValue('Review: {{story_content}} Diff: {{git_diff}} Constraints: {{arch_constraints}}')
+    const getPromptFn = vi
+      .fn()
+      .mockResolvedValue(
+        'Review: {{story_content}} Diff: {{git_diff}} Constraints: {{arch_constraints}}'
+      )
     const dispatchFn = vi.fn().mockReturnValue({
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ getPrompt: getPromptFn, dispatch: dispatchFn })
@@ -301,9 +343,11 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -352,9 +396,11 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn, db: dbOverride as Partial<DatabaseAdapter> })
@@ -399,17 +445,19 @@ describe('runCodeReview', () => {
     mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
 
     // Template that puts all content into the prompt without summarizing
-    const getPromptFn = vi.fn().mockResolvedValue(
-      '{{story_content}}\n{{git_diff}}\n{{arch_constraints}}'
-    )
+    const getPromptFn = vi
+      .fn()
+      .mockResolvedValue('{{story_content}}\n{{git_diff}}\n{{arch_constraints}}')
 
     const dispatchFn = vi.fn().mockReturnValue({
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ getPrompt: getPromptFn, dispatch: dispatchFn })
@@ -430,9 +478,11 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -454,9 +504,11 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -475,9 +527,11 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -492,9 +546,11 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -513,13 +569,15 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        status: 'failed',
-        exitCode: 1,
-        output: 'stderr: something went wrong',
-        parsed: null,
-        parseError: 'Agent exited with code 1',
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          status: 'failed',
+          exitCode: 1,
+          output: 'stderr: something went wrong',
+          parsed: null,
+          parseError: 'Agent exited with code 1',
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -537,13 +595,15 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        status: 'timeout',
-        exitCode: -1,
-        output: '',
-        parsed: null,
-        parseError: 'Agent timed out after 300000ms',
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          status: 'timeout',
+          exitCode: -1,
+          output: '',
+          parsed: null,
+          parseError: 'Agent timed out after 300000ms',
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -578,13 +638,15 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: {
-          verdict: 'INVALID_VERDICT',
-          issues: 0,
-          issue_list: [],
-        },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: {
+            verdict: 'INVALID_VERDICT',
+            issues: 0,
+            issue_list: [],
+          },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -603,12 +665,14 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        status: 'completed',
-        exitCode: 0,
-        parsed: null,
-        parseError: 'no_yaml_block',
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          status: 'completed',
+          exitCode: 0,
+          parsed: null,
+          parseError: 'no_yaml_block',
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -628,9 +692,11 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -665,10 +731,12 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        tokenEstimate: { input: 350, output: 120 },
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          tokenEstimate: { input: 350, output: 120 },
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -682,13 +750,15 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        status: 'failed',
-        exitCode: 1,
-        parsed: null,
-        parseError: 'failed',
-        tokenEstimate: { input: 200, output: 0 },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          status: 'failed',
+          exitCode: 1,
+          parsed: null,
+          parseError: 'failed',
+          tokenEstimate: { input: 200, output: 0 },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -702,9 +772,11 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -718,9 +790,11 @@ describe('runCodeReview', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -752,14 +826,18 @@ describe('runCodeReview', () => {
         id: 'test-id',
         status: 'running',
         cancel: vi.fn(),
-        result: Promise.resolve(makeMockDispatchResult({
-          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-        })),
+        result: Promise.resolve(
+          makeMockDispatchResult({
+            parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+          })
+        ),
       })
 
       const deps = {
         ...makeMockDeps({ dispatch: dispatchFn }),
-        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+        repoMapInjector: {
+          buildContext: mockBuildContext,
+        } as unknown as WorkflowDeps['repoMapInjector'],
       }
 
       await runCodeReview(deps, DEFAULT_PARAMS)
@@ -768,20 +846,26 @@ describe('runCodeReview', () => {
     })
 
     it('passes maxRepoMapTokens to buildContext when provided in deps', async () => {
-      const mockBuildContext = vi.fn().mockResolvedValue({ text: '', symbolCount: 0, truncated: false })
+      const mockBuildContext = vi
+        .fn()
+        .mockResolvedValue({ text: '', symbolCount: 0, truncated: false })
 
       const dispatchFn = vi.fn().mockReturnValue({
         id: 'test-id',
         status: 'running',
         cancel: vi.fn(),
-        result: Promise.resolve(makeMockDispatchResult({
-          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-        })),
+        result: Promise.resolve(
+          makeMockDispatchResult({
+            parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+          })
+        ),
       })
 
       const deps = {
         ...makeMockDeps({ dispatch: dispatchFn }),
-        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+        repoMapInjector: {
+          buildContext: mockBuildContext,
+        } as unknown as WorkflowDeps['repoMapInjector'],
         maxRepoMapTokens: 1200,
       }
 
@@ -802,14 +886,18 @@ describe('runCodeReview', () => {
         id: 'test-id',
         status: 'running',
         cancel: vi.fn(),
-        result: Promise.resolve(makeMockDispatchResult({
-          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-        })),
+        result: Promise.resolve(
+          makeMockDispatchResult({
+            parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+          })
+        ),
       })
 
       const deps = {
         ...makeMockDeps({ dispatch: dispatchFn }),
-        repoMapInjector: { buildContext: mockBuildContext } as unknown as WorkflowDeps['repoMapInjector'],
+        repoMapInjector: {
+          buildContext: mockBuildContext,
+        } as unknown as WorkflowDeps['repoMapInjector'],
       }
 
       await runCodeReview(deps, DEFAULT_PARAMS)
@@ -821,7 +909,7 @@ describe('runCodeReview', () => {
           truncated: false,
           repoMapTokens: Math.ceil(injectionText.length / 4),
         }),
-        'Repo-map context assembled',
+        'Repo-map context assembled'
       )
     })
 
@@ -830,9 +918,11 @@ describe('runCodeReview', () => {
         id: 'test-id',
         status: 'running',
         cancel: vi.fn(),
-        result: Promise.resolve(makeMockDispatchResult({
-          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-        })),
+        result: Promise.resolve(
+          makeMockDispatchResult({
+            parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+          })
+        ),
       })
 
       const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -841,7 +931,7 @@ describe('runCodeReview', () => {
 
       expect(mockLogger.info).not.toHaveBeenCalledWith(
         expect.anything(),
-        'Repo-map context assembled',
+        'Repo-map context assembled'
       )
     })
   })
@@ -934,7 +1024,7 @@ describe('CodeReviewResultSchema — ac_checklist', () => {
     expect(result.data.issue_list).toHaveLength(1)
     expect(result.data.issue_list[0].severity).toBe('major')
     expect(result.data.issue_list[0].description).toBe(
-      'AC2 not implemented: getConstraints() always returns []',
+      'AC2 not implemented: getConstraints() always returns []'
     )
     expect(result.data.issues).toBe(1)
   })
@@ -975,9 +1065,7 @@ describe('CodeReviewResultSchema — ac_checklist', () => {
           file: 'src/auth.ts',
         },
       ],
-      ac_checklist: [
-        { ac_id: 'AC1', status: 'not_met', evidence: 'No auth check implemented' },
-      ],
+      ac_checklist: [{ ac_id: 'AC1', status: 'not_met', evidence: 'No auth check implemented' }],
     }
 
     const result = CodeReviewResultSchema.safeParse(input)
@@ -1044,9 +1132,7 @@ describe('CodeReviewResultSchema — ac_checklist', () => {
           file: 'src/foo.ts',
         },
       ],
-      ac_checklist: [
-        { ac_id: 'AC1', status: 'not_met', evidence: 'AC1 core logic missing' },
-      ],
+      ac_checklist: [{ ac_id: 'AC1', status: 'not_met', evidence: 'AC1 core logic missing' }],
     }
 
     const result = CodeReviewResultSchema.safeParse(input)
@@ -1091,17 +1177,19 @@ describe('CodeReviewResultSchema — ac_checklist', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: {
-          verdict: 'SHIP_IT',
-          issues: 0,
-          issue_list: [],
-          ac_checklist: [
-            { ac_id: 'AC1', status: 'met', evidence: 'Implemented' },
-            { ac_id: 'AC2', status: 'not_met', evidence: 'No implementation found' },
-          ],
-        },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: {
+            verdict: 'SHIP_IT',
+            issues: 0,
+            issue_list: [],
+            ac_checklist: [
+              { ac_id: 'AC1', status: 'met', evidence: 'Implemented' },
+              { ac_id: 'AC2', status: 'not_met', evidence: 'No implementation found' },
+            ],
+          },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -1118,17 +1206,19 @@ describe('CodeReviewResultSchema — ac_checklist', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: {
-          verdict: 'SHIP_IT',
-          issues: 0,
-          issue_list: [],
-          ac_checklist: [
-            { ac_id: 'AC1', status: 'met', evidence: 'src/foo.ts:createFoo()' },
-            { ac_id: 'AC2', status: 'met', evidence: 'src/foo.ts:getFoo()' },
-          ],
-        },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: {
+            verdict: 'SHIP_IT',
+            issues: 0,
+            issue_list: [],
+            ac_checklist: [
+              { ac_id: 'AC1', status: 'met', evidence: 'src/foo.ts:createFoo()' },
+              { ac_id: 'AC2', status: 'met', evidence: 'src/foo.ts:getFoo()' },
+            ],
+          },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })

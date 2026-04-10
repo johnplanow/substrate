@@ -62,7 +62,18 @@ export interface RetryEscalatedOptions {
 // ---------------------------------------------------------------------------
 
 export async function runRetryEscalatedAction(options: RetryEscalatedOptions): Promise<number> {
-  const { runId, dryRun, force, outputFormat, projectRoot, concurrency, pack: packName, registry: injectedRegistry, agent: agentId, events: eventsFlag } = options
+  const {
+    runId,
+    dryRun,
+    force,
+    outputFormat,
+    projectRoot,
+    concurrency,
+    pack: packName,
+    registry: injectedRegistry,
+    agent: agentId,
+    events: eventsFlag,
+  } = options
 
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
@@ -90,7 +101,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     if (retryable.length === 0) {
       if (outputFormat === 'json') {
         process.stdout.write(
-          formatOutput({ retryKeys: [], skippedKeys: skipped }, 'json', true) + '\n',
+          formatOutput({ retryKeys: [], skippedKeys: skipped }, 'json', true) + '\n'
         )
       } else {
         process.stdout.write('No retry-targeted escalations found.\n')
@@ -112,13 +123,13 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
           if (profile === null) continue
           if (profile.compositeScore < 50) {
             process.stdout.write(
-              `[WARN] ${storyKey}: Previous run had low efficiency (score: ${profile.compositeScore}). Retry may encounter the same issues.\n`,
+              `[WARN] ${storyKey}: Previous run had low efficiency (score: ${profile.compositeScore}). Retry may encounter the same issues.\n`
             )
           }
           if (profile.contextManagementSubScore < 50) {
             perStoryContextCeilings[storyKey] = contextCeiling
             process.stdout.write(
-              `[INFO] ${storyKey}: Context ceiling set to ${contextCeiling} tokens due to prior context spike pattern.\n`,
+              `[INFO] ${storyKey}: Context ceiling set to ${contextCeiling} tokens due to prior context spike pattern.\n`
             )
           }
         } catch (err) {
@@ -131,12 +142,12 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     if (dryRun) {
       if (outputFormat === 'json') {
         process.stdout.write(
-          formatOutput({ retryKeys: retryable, skippedKeys: skipped }, 'json', true) + '\n',
+          formatOutput({ retryKeys: retryable, skippedKeys: skipped }, 'json', true) + '\n'
         )
       } else {
         const count = retryable.length
         process.stdout.write(
-          `Retrying: ${count} ${count === 1 ? 'story' : 'stories'} — ${retryable.join(', ')}\n`,
+          `Retrying: ${count} ${count === 1 ? 'story' : 'stories'} — ${retryable.join(', ')}\n`
         )
         for (const s of skipped) {
           process.stdout.write(`Skipping: ${s.key} (${s.reason})\n`)
@@ -165,7 +176,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     if (outputFormat === 'human') {
       const count = retryable.length
       process.stdout.write(
-        `Retrying: ${count} ${count === 1 ? 'story' : 'stories'} — ${retryable.join(', ')}\n`,
+        `Retrying: ${count} ${count === 1 ? 'story' : 'stories'} — ${retryable.join(', ')}\n`
       )
       for (const s of skipped) {
         process.stdout.write(`Skipping: ${s.key} (${s.reason})\n`)
@@ -176,7 +187,12 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     const pipelineRun = await createPipelineRun(adapter, {
       methodology: pack.manifest.name,
       start_phase: 'implementation',
-      config_json: JSON.stringify({ storyKeys: retryable, concurrency, retryRun: true, explicitStories: retryable }),
+      config_json: JSON.stringify({
+        storyKeys: retryable,
+        concurrency,
+        retryRun: true,
+        explicitStories: retryable,
+      }),
     })
 
     const eventBus = createEventBus()
@@ -188,8 +204,11 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
 
     // Resolve per-agent review cycles
     const agentAdapter = agentId != null ? injectedRegistry.get(agentId) : undefined
-    const adapterDefaultCycles = (agentAdapter as { getCapabilities?: () => { defaultMaxReviewCycles?: number } })?.getCapabilities?.()?.defaultMaxReviewCycles
-    const effectiveMaxReviewCycles = adapterDefaultCycles != null ? Math.max(2, adapterDefaultCycles) : 2
+    const adapterDefaultCycles = (
+      agentAdapter as { getCapabilities?: () => { defaultMaxReviewCycles?: number } }
+    )?.getCapabilities?.()?.defaultMaxReviewCycles
+    const effectiveMaxReviewCycles =
+      adapterDefaultCycles != null ? Math.max(2, adapterDefaultCycles) : 2
 
     const orchestrator = createImplementationOrchestrator({
       db: adapter,
@@ -201,9 +220,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
         maxConcurrency: concurrency,
         maxReviewCycles: effectiveMaxReviewCycles,
         pipelineRunId: pipelineRun.id,
-        ...(Object.keys(perStoryContextCeilings).length > 0
-          ? { perStoryContextCeilings }
-          : {}),
+        ...(Object.keys(perStoryContextCeilings).length > 0 ? { perStoryContextCeilings } : {}),
       },
       projectRoot,
       agentId,
@@ -225,18 +242,30 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
       // Map internal phase names to event protocol names
       const mapPhase = (p: string): PipelinePhase | null => {
         switch (p) {
-          case 'IN_STORY_CREATION': return 'create-story'
-          case 'IN_DEV': return 'dev-story'
-          case 'IN_REVIEW': return 'code-review'
-          case 'IN_MINOR_FIX': case 'IN_MAJOR_FIX': return 'fix'
-          default: return null
+          case 'IN_STORY_CREATION':
+            return 'create-story'
+          case 'IN_DEV':
+            return 'dev-story'
+          case 'IN_REVIEW':
+            return 'code-review'
+          case 'IN_MINOR_FIX':
+          case 'IN_MAJOR_FIX':
+            return 'fix'
+          default:
+            return null
         }
       }
 
       eventBus.on('orchestrator:story-phase-start', (payload) => {
         const phase = mapPhase(payload.phase)
         if (phase !== null) {
-          ndjsonEmitter.emit({ type: 'story:phase', ts: new Date().toISOString(), key: payload.storyKey, phase, status: 'in_progress' })
+          ndjsonEmitter.emit({
+            type: 'story:phase',
+            ts: new Date().toISOString(),
+            key: payload.storyKey,
+            phase,
+            status: 'in_progress',
+          })
         }
       })
 
@@ -245,23 +274,42 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
         if (phase !== null) {
           const result = payload.result as { verdict?: string; story_file?: string }
           ndjsonEmitter.emit({
-            type: 'story:phase', ts: new Date().toISOString(), key: payload.storyKey, phase, status: 'complete',
-            ...(phase === 'code-review' && result?.verdict !== undefined ? { verdict: result.verdict } : {}),
+            type: 'story:phase',
+            ts: new Date().toISOString(),
+            key: payload.storyKey,
+            phase,
+            status: 'complete',
+            ...(phase === 'code-review' && result?.verdict !== undefined
+              ? { verdict: result.verdict }
+              : {}),
           })
         }
       })
 
       eventBus.on('orchestrator:story-complete', (payload) => {
-        ndjsonEmitter.emit({ type: 'story:done', ts: new Date().toISOString(), key: payload.storyKey, result: 'success', review_cycles: payload.reviewCycles })
+        ndjsonEmitter.emit({
+          type: 'story:done',
+          ts: new Date().toISOString(),
+          key: payload.storyKey,
+          result: 'success',
+          review_cycles: payload.reviewCycles,
+        })
       })
 
       eventBus.on('orchestrator:story-escalated', (payload) => {
         ndjsonEmitter.emit({
-          type: 'story:escalation', ts: new Date().toISOString(), key: payload.storyKey,
-          reason: payload.lastVerdict, cycles: payload.reviewCycles,
+          type: 'story:escalation',
+          ts: new Date().toISOString(),
+          key: payload.storyKey,
+          reason: payload.lastVerdict,
+          cycles: payload.reviewCycles,
           issues: (payload.issues as unknown[]).map((i) => {
             const iss = i as { severity?: string; description?: string; file?: string }
-            return { severity: (iss.severity ?? 'unknown') as 'blocker' | 'major' | 'minor' | 'unknown', file: iss.file ?? '', desc: iss.description ?? '' }
+            return {
+              severity: (iss.severity ?? 'unknown') as 'blocker' | 'major' | 'minor' | 'unknown',
+              file: iss.file ?? '',
+              desc: iss.description ?? '',
+            }
           }),
           ...(payload.diagnosis !== undefined ? { diagnosis: payload.diagnosis } : {}),
         })
@@ -294,7 +342,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     if (outputFormat === 'human') {
       eventBus.on('orchestrator:story-complete', (payload) => {
         process.stdout.write(
-          `  [COMPLETE] ${payload.storyKey} (${payload.reviewCycles} review cycle(s))\n`,
+          `  [COMPLETE] ${payload.storyKey} (${payload.reviewCycles} review cycle(s))\n`
         )
       })
       eventBus.on('orchestrator:story-escalated', (payload) => {
@@ -316,7 +364,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
 
     if (outputFormat === 'json') {
       process.stdout.write(
-        formatOutput({ retryKeys: retryable, skippedKeys: skipped }, 'json', true) + '\n',
+        formatOutput({ retryKeys: retryable, skippedKeys: skipped }, 'json', true) + '\n'
       )
     } else {
       process.stdout.write('[RETRY] Complete\n')
@@ -349,12 +397,15 @@ export function registerRetryEscalatedCommand(
   program: Command,
   _version = '0.0.0',
   projectRoot = process.cwd(),
-  registry?: AdapterRegistry,
+  registry?: AdapterRegistry
 ): void {
   program
     .command('retry-escalated')
     .description('Retry escalated stories flagged as retry-targeted by escalation diagnosis')
-    .option('--run-id <id>', 'Scope to a specific pipeline run ID (defaults to latest run with escalations)')
+    .option(
+      '--run-id <id>',
+      'Scope to a specific pipeline run ID (defaults to latest run with escalations)'
+    )
     .option('--dry-run', 'Print retryable and skipped stories without invoking the orchestrator')
     .option('--force', 'Bypass efficiency-gate checks (warning and context ceiling)', false)
     .option(
@@ -367,7 +418,7 @@ export function registerRetryEscalatedCommand(
         }
         return n
       },
-      3,
+      3
     )
     .option('--pack <name>', 'Methodology pack name', 'bmad')
     .option('--project-root <path>', 'Project root directory', projectRoot)
@@ -400,6 +451,6 @@ export function registerRetryEscalatedCommand(
           registry,
         })
         process.exitCode = exitCode
-      },
+      }
     )
 }

@@ -68,14 +68,18 @@ vi.mock('node:fs', () => ({
   readFileSync: vi.fn().mockReturnValue(''),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
 }))
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 vi.mock('@substrate-ai/sdlc', () => ({
   createDefaultVerificationPipeline: vi.fn(() => ({
@@ -153,7 +157,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -165,7 +171,7 @@ function createMockEventBus(): TypedEventBus {
 function defaultConfig(overrides?: Partial<OrchestratorConfig>): OrchestratorConfig {
   return {
     maxConcurrency: 1,
-    maxReviewCycles: 3,  // allow 2 fix dispatches before escalation
+    maxReviewCycles: 3, // allow 2 fix dispatches before escalation
     pipelineRunId: 'test-run-id',
     gcPauseMs: 0,
     ...overrides,
@@ -280,7 +286,13 @@ describe('Orchestrator recovery history wiring (Story 52-8, AC5)', () => {
       .mockResolvedValueOnce(makeCodeReviewShipIt())
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, runManifest,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+      runManifest,
     })
 
     await orchestrator.run(['5-1'])
@@ -311,7 +323,13 @@ describe('Orchestrator recovery history wiring (Story 52-8, AC5)', () => {
     mockRunCodeReview.mockResolvedValueOnce(makeCodeReviewShipIt())
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, runManifest,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+      runManifest,
     })
 
     await orchestrator.run(['5-1'])
@@ -339,7 +357,13 @@ describe('Orchestrator recovery history wiring (Story 52-8, AC5)', () => {
       .mockResolvedValueOnce(makeCodeReviewShipIt())
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, runManifest,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+      runManifest,
     })
 
     // Orchestrator must not throw even though appendRecoveryEntry always rejects
@@ -361,7 +385,12 @@ describe('Orchestrator recovery history wiring (Story 52-8, AC5)', () => {
       .mockResolvedValueOnce(makeCodeReviewShipIt())
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
       runManifest: null,
     })
 

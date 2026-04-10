@@ -76,11 +76,11 @@ export function createResearchPhaseDefinition(): PhaseDefinition {
       const artifact = await getArtifactByTypeForRun(db, runId, 'research', 'research-findings')
       if (artifact === undefined) {
         logPhase(
-          `Research phase exit WARNING: research-findings artifact not found for run ${runId}`,
+          `Research phase exit WARNING: research-findings artifact not found for run ${runId}`
         )
       } else {
         logPhase(
-          `Research phase completed for run ${runId} — research-findings artifact registered: ${artifact.id}`,
+          `Research phase completed for run ${runId} — research-findings artifact registered: ${artifact.id}`
         )
       }
     },
@@ -98,10 +98,13 @@ export function createResearchPhaseDefinition(): PhaseDefinition {
  *              when research is enabled, requires 'research-findings' artifact
  * Exit gates: 'product-brief' artifact must exist for this run
  */
-export function createAnalysisPhaseDefinition(options?: { requiresResearch?: boolean }): PhaseDefinition {
-  const entryGates = options?.requiresResearch === true
-    ? [createArtifactExistsGate('research', 'research-findings')]
-    : []
+export function createAnalysisPhaseDefinition(options?: {
+  requiresResearch?: boolean
+}): PhaseDefinition {
+  const entryGates =
+    options?.requiresResearch === true
+      ? [createArtifactExistsGate('research', 'research-findings')]
+      : []
   return {
     name: 'analysis',
     description:
@@ -114,12 +117,10 @@ export function createAnalysisPhaseDefinition(options?: { requiresResearch?: boo
     onExit: async (db: DatabaseAdapter, runId: string): Promise<void> => {
       const artifact = await getArtifactByTypeForRun(db, runId, 'analysis', 'product-brief')
       if (artifact === undefined) {
-        logPhase(
-          `Analysis phase exit WARNING: product-brief artifact not found for run ${runId}`,
-        )
+        logPhase(`Analysis phase exit WARNING: product-brief artifact not found for run ${runId}`)
       } else {
         logPhase(
-          `Analysis phase completed for run ${runId} — product-brief artifact registered: ${artifact.id}`,
+          `Analysis phase completed for run ${runId} — product-brief artifact registered: ${artifact.id}`
         )
       }
     },
@@ -152,7 +153,7 @@ export function createPlanningPhaseDefinition(): PhaseDefinition {
         logPhase(`Planning phase exit WARNING: prd artifact not found for run ${runId}`)
       } else {
         logPhase(
-          `Planning phase completed for run ${runId} — prd artifact registered: ${artifact.id}`,
+          `Planning phase completed for run ${runId} — prd artifact registered: ${artifact.id}`
         )
       }
     },
@@ -185,12 +186,10 @@ export function createUxDesignPhaseDefinition(): PhaseDefinition {
     onExit: async (db: DatabaseAdapter, runId: string): Promise<void> => {
       const artifact = await getArtifactByTypeForRun(db, runId, 'ux-design', 'ux-design')
       if (artifact === undefined) {
-        logPhase(
-          `UX Design phase exit WARNING: ux-design artifact not found for run ${runId}`,
-        )
+        logPhase(`UX Design phase exit WARNING: ux-design artifact not found for run ${runId}`)
       } else {
         logPhase(
-          `UX Design phase completed for run ${runId} — ux-design artifact registered: ${artifact.id}`,
+          `UX Design phase completed for run ${runId} — ux-design artifact registered: ${artifact.id}`
         )
       }
     },

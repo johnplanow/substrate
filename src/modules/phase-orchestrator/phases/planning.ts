@@ -76,10 +76,12 @@ const BRIEF_FIELDS = [
 // ---------------------------------------------------------------------------
 
 /** Keywords indicating JavaScript/TypeScript/Node.js ecosystem */
-const JS_TS_PATTERN = /\b(TypeScript|JavaScript|Node\.js|NestJS|Express|Fastify|Hapi|Koa|Next\.js.*backend|Next\.js.*API|Deno|Bun)\b/i
+const JS_TS_PATTERN =
+  /\b(TypeScript|JavaScript|Node\.js|NestJS|Express|Fastify|Hapi|Koa|Next\.js.*backend|Next\.js.*API|Deno|Bun)\b/i
 
 /** Keywords indicating non-JS backend languages that satisfy high-concurrency constraints */
-const COMPLIANT_LANG_PATTERN = /\b(Kotlin|JVM|Java|Go\b|Golang|Rust|C#|\.NET|Scala|Erlang|Elixir)\b/i
+const COMPLIANT_LANG_PATTERN =
+  /\b(Kotlin|JVM|Java|Go\b|Golang|Rust|C#|\.NET|Scala|Erlang|Elixir)\b/i
 
 /**
  * Check whether the tech stack's language/framework fields violate technology
@@ -89,14 +91,16 @@ const COMPLIANT_LANG_PATTERN = /\b(Kotlin|JVM|Java|Go\b|Golang|Rust|C#|\.NET|Sca
  */
 function detectTechStackViolation(
   techStack: Record<string, string>,
-  technologyConstraints: Array<{ key: string; value: string }>,
+  technologyConstraints: Array<{ key: string; value: string }>
 ): string | null {
   // Check if any technology constraint discourages/excludes JS/Node
   const constraintsText = technologyConstraints.map((c) => c.value).join(' ')
   const excludesJS =
-    /\b(excluded|not.*right choice|not.*recommended|avoid|do not use|prohibited)\b/i.test(constraintsText) &&
-    /\b(JavaScript|Node\.js|TypeScript)\b/i.test(constraintsText)
-  const prefersNonJS = COMPLIANT_LANG_PATTERN.test(constraintsText) &&
+    /\b(excluded|not.*right choice|not.*recommended|avoid|do not use|prohibited)\b/i.test(
+      constraintsText
+    ) && /\b(JavaScript|Node\.js|TypeScript)\b/i.test(constraintsText)
+  const prefersNonJS =
+    COMPLIANT_LANG_PATTERN.test(constraintsText) &&
     /\b(prefer|must|required|evaluate|choose)\b/i.test(constraintsText)
 
   if (!excludesJS && !prefersNonJS) return null // No relevant constraint
@@ -106,8 +110,10 @@ function detectTechStackViolation(
   const frameworkValue = techStack['framework'] ?? techStack['backend_framework'] ?? ''
 
   if (JS_TS_PATTERN.test(langValue) || JS_TS_PATTERN.test(frameworkValue)) {
-    return `Tech stack violates technology constraints: language="${langValue}", framework="${frameworkValue}". ` +
+    return (
+      `Tech stack violates technology constraints: language="${langValue}", framework="${frameworkValue}". ` +
       `Constraints specify: ${constraintsText.substring(0, 200)}`
+    )
   }
 
   return null
@@ -124,9 +130,7 @@ function detectTechStackViolation(
  * @param decisions - All decisions from the analysis phase with category='product-brief'
  * @returns Formatted product brief string for prompt injection
  */
-function formatProductBriefFromDecisions(
-  decisions: Array<{ key: string; value: string }>,
-): string {
+function formatProductBriefFromDecisions(decisions: Array<{ key: string; value: string }>): string {
   const briefMap = Object.fromEntries(decisions.map((d) => [d.key, d.value]))
 
   const parts: string[] = ['## Product Brief']
@@ -168,9 +172,7 @@ function buildPlanningSteps(): StepDefinition[] {
       name: 'planning-step-1-classification',
       taskType: 'planning-classification',
       outputSchema: PlanningClassificationOutputSchema,
-      context: [
-        { placeholder: 'product_brief', source: 'decision:analysis.product-brief' },
-      ],
+      context: [{ placeholder: 'product_brief', source: 'decision:analysis.product-brief' }],
       persist: [
         { field: 'project_type', category: 'classification', key: 'project_type' },
         { field: 'vision', category: 'classification', key: 'vision' },
@@ -198,11 +200,18 @@ function buildPlanningSteps(): StepDefinition[] {
         { placeholder: 'product_brief', source: 'decision:analysis.product-brief' },
         { placeholder: 'classification', source: 'step:planning-step-1-classification' },
         { placeholder: 'functional_requirements', source: 'step:planning-step-2-frs' },
-        { placeholder: 'technology_constraints', source: 'decision:analysis.technology-constraints' },
+        {
+          placeholder: 'technology_constraints',
+          source: 'decision:analysis.technology-constraints',
+        },
         { placeholder: 'concept', source: 'param:concept' },
       ],
       persist: [
-        { field: 'non_functional_requirements', category: 'non-functional-requirements', key: 'array' },
+        {
+          field: 'non_functional_requirements',
+          category: 'non-functional-requirements',
+          key: 'array',
+        },
         { field: 'tech_stack', category: 'tech-stack', key: 'tech_stack' },
         { field: 'domain_model', category: 'domain-model', key: 'entities' },
         { field: 'out_of_scope', category: 'out-of-scope', key: 'items' },
@@ -224,7 +233,7 @@ function buildPlanningSteps(): StepDefinition[] {
  */
 async function runPlanningMultiStep(
   deps: PhaseDeps,
-  params: PlanningPhaseParams,
+  params: PlanningPhaseParams
 ): Promise<PlanningResult> {
   const { db, runId } = { db: deps.db, runId: params.runId }
   const zeroTokenUsage = { input: 0, output: 0 }
@@ -250,7 +259,9 @@ async function runPlanningMultiStep(
       try {
         const config = JSON.parse(run.config_json) as { concept?: string }
         concept = config.concept ?? ''
-      } catch { /* ignore parse errors */ }
+      } catch {
+        /* ignore parse errors */
+      }
     }
 
     const steps = buildPlanningSteps()
@@ -283,12 +294,15 @@ async function runPlanningMultiStep(
     const techStack = nfrsOutput.tech_stack as Record<string, string> | undefined
     if (techStack) {
       const techConstraintDecisions = allAnalysisDecisions.filter(
-        (d) => d.category === 'technology-constraints',
+        (d) => d.category === 'technology-constraints'
       )
       const violation = detectTechStackViolation(techStack, techConstraintDecisions)
 
       if (violation) {
-        logger.warn({ violation }, 'Tech stack constraint violation detected — retrying step 3 with correction')
+        logger.warn(
+          { violation },
+          'Tech stack constraint violation detected — retrying step 3 with correction'
+        )
 
         // Build a corrected prompt: prepend the violation as feedback
         const correctionPrefix =
@@ -339,7 +353,10 @@ async function runPlanningMultiStep(
             logger.info('Retry produced compliant tech stack — using corrected output')
             nfrsOutput = retryParsed
           } else {
-            logger.warn({ retryViolation }, 'Retry still violates constraints — using original output')
+            logger.warn(
+              { retryViolation },
+              'Retry still violates constraints — using original output'
+            )
           }
         } else {
           logger.warn('Retry dispatch failed — using original output')
@@ -432,7 +449,7 @@ async function runPlanningMultiStep(
  */
 export async function runPlanningPhase(
   deps: PhaseDeps,
-  params: PlanningPhaseParams,
+  params: PlanningPhaseParams
 ): Promise<PlanningResult> {
   const { db, pack, dispatcher } = deps
   const { runId, amendmentContext } = params
@@ -452,9 +469,7 @@ export async function runPlanningPhase(
 
     // Step 2: Get product brief decisions from analysis phase (scoped to current run)
     const allAnalysisDecisions = await getDecisionsByPhaseForRun(db, runId, 'analysis')
-    const productBriefDecisions = allAnalysisDecisions.filter(
-      (d) => d.category === 'product-brief',
-    )
+    const productBriefDecisions = allAnalysisDecisions.filter((d) => d.category === 'product-brief')
 
     if (productBriefDecisions.length === 0) {
       return {
@@ -475,7 +490,8 @@ export async function runPlanningPhase(
     // Step 4b: Inject amendment context if provided (AC2, AC3)
     if (amendmentContext !== undefined && amendmentContext !== '') {
       const framingLen = AMENDMENT_CONTEXT_HEADER.length + AMENDMENT_CONTEXT_FOOTER.length
-      const availableForContext = MAX_PROMPT_CHARS - prompt.length - framingLen - TRUNCATED_MARKER.length
+      const availableForContext =
+        MAX_PROMPT_CHARS - prompt.length - framingLen - TRUNCATED_MARKER.length
 
       let contextToInject = amendmentContext
       if (availableForContext <= 0) {
@@ -496,7 +512,7 @@ export async function runPlanningPhase(
     if (prompt.length > MAX_PROMPT_CHARS) {
       // Try to fit within budget by using a condensed brief (skip constraints and out_of_scope)
       const condensedDecisions = productBriefDecisions.filter(
-        (d) => d.key !== 'constraints' && d.key !== 'out_of_scope',
+        (d) => d.key !== 'constraints' && d.key !== 'out_of_scope'
       )
       const condensedBrief = formatProductBriefFromDecisions(condensedDecisions)
       prompt = template.replace(PRODUCT_BRIEF_PLACEHOLDER, condensedBrief)

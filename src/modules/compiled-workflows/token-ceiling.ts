@@ -42,7 +42,7 @@ export const TOKEN_CEILING_DEFAULTS: Record<string, number> = {
  */
 export function getTokenCeiling(
   workflowType: string,
-  tokenCeilings?: TokenCeilings,
+  tokenCeilings?: TokenCeilings
 ): { ceiling: number; source: 'config' | 'default' } {
   if (tokenCeilings !== undefined) {
     const configured = tokenCeilings[workflowType as keyof TokenCeilings]

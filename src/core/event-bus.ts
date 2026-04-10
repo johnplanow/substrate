@@ -10,10 +10,7 @@
  */
 
 import type { OrchestratorEvents } from './event-bus.types.js'
-import {
-  TypedEventBusImpl as GenericImpl,
-  createEventBus as _create,
-} from '@substrate-ai/core'
+import { TypedEventBusImpl as GenericImpl, createEventBus as _create } from '@substrate-ai/core'
 import type { TypedEventBus as GenericBus } from '@substrate-ai/core'
 
 // ---------------------------------------------------------------------------

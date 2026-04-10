@@ -40,10 +40,7 @@ const INSTALL_HINTS: Record<string, string> = {
  * both `list` and `check` subcommands so that the two never disagree about
  * whether a given adapter entry counts as "absent from the system".
  */
-function isNotInstalled(healthResult: {
-  healthy: boolean
-  cliPath?: string
-}): boolean {
+function isNotInstalled(healthResult: { healthy: boolean; cliPath?: string }): boolean {
   return !healthResult.healthy && !healthResult.cliPath
 }
 
@@ -69,11 +66,7 @@ export function registerAdaptersCommand(
   adaptersCmd
     .command('list')
     .description('List all known adapters with availability status')
-    .option(
-      '--output-format <format>',
-      'Output format: table (default) or json',
-      'table'
-    )
+    .option('--output-format <format>', 'Output format: table (default) or json', 'table')
     .option('--verbose', 'Show additional detail in output', false)
     .action(async (opts: { outputFormat: string; verbose: boolean }) => {
       const outputFormat = opts.outputFormat as OutputFormat
@@ -137,11 +130,7 @@ export function registerAdaptersCommand(
   adaptersCmd
     .command('check')
     .description('Run health checks on all adapters and verify headless mode')
-    .option(
-      '--output-format <format>',
-      'Output format: table (default) or json',
-      'table'
-    )
+    .option('--output-format <format>', 'Output format: table (default) or json', 'table')
     .option('--verbose', 'Show additional detail including error messages', false)
     .action(async (opts: { outputFormat: string; verbose: boolean }) => {
       const outputFormat = opts.outputFormat as OutputFormat
@@ -151,8 +140,7 @@ export function registerAdaptersCommand(
       // Use the single unified isNotInstalled() check so that both subcommands
       // always agree on whether an adapter is considered absent from the system.
       const noneInstalled =
-        report.results.length > 0 &&
-        report.results.every((r) => isNotInstalled(r.healthResult))
+        report.results.length > 0 && report.results.every((r) => isNotInstalled(r.healthResult))
 
       if (outputFormat === 'json') {
         const jsonData = report.results.map((r) =>

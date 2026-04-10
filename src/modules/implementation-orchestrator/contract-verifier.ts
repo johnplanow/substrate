@@ -49,9 +49,7 @@ function shouldRunTscCheck(projectRoot: string): boolean {
     // Tier 1: explicit packages list — any TypeScript/JavaScript package → keep tsc
     const packages = project['packages'] as Array<{ language?: string }> | undefined
     if (Array.isArray(packages) && packages.length > 0) {
-      return packages.some(
-        (p) => p.language === 'typescript' || p.language === 'javascript',
-      )
+      return packages.some((p) => p.language === 'typescript' || p.language === 'javascript')
     }
 
     // Tier 2: no packages array — infer from buildCommand
@@ -80,7 +78,7 @@ function shouldRunTscCheck(projectRoot: string): boolean {
  */
 export function verifyContracts(
   declarations: ContractDeclaration[],
-  projectRoot: string,
+  projectRoot: string
 ): ContractMismatch[] {
   if (declarations.length === 0) return []
 
@@ -137,110 +135,110 @@ export function verifyContracts(
   // declared contract file paths.
   // ---------------------------------------------------------------------------
   if (shouldRunTscCheck(projectRoot)) {
-  const tsconfigPath = join(projectRoot, 'tsconfig.json')
-  const tscBinPath = join(projectRoot, 'node_modules', '.bin', 'tsc')
+    const tsconfigPath = join(projectRoot, 'tsconfig.json')
+    const tscBinPath = join(projectRoot, 'node_modules', '.bin', 'tsc')
 
-  if (existsSync(tsconfigPath) && existsSync(tscBinPath)) {
-    let tscOutput = ''
-    let tscFailed = false
+    if (existsSync(tsconfigPath) && existsSync(tscBinPath)) {
+      let tscOutput = ''
+      let tscFailed = false
 
-    try {
-      execSync(`"${tscBinPath}" --noEmit`, {
-        cwd: projectRoot,
-        timeout: 120_000,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      })
-    } catch (err: unknown) {
-      tscFailed = true
-      if (err != null && typeof err === 'object') {
-        const e = err as { stdout?: unknown; stderr?: unknown; message?: string }
-        const stdoutStr =
-          typeof e.stdout === 'string'
-            ? e.stdout
-            : Buffer.isBuffer(e.stdout)
-              ? e.stdout.toString('utf-8')
-              : ''
-        const stderrStr =
-          typeof e.stderr === 'string'
-            ? e.stderr
-            : Buffer.isBuffer(e.stderr)
-              ? e.stderr.toString('utf-8')
-              : ''
-        tscOutput = [stdoutStr, stderrStr].filter((s) => s.length > 0).join('\n')
-        if (!tscOutput && e.message) tscOutput = e.message
+      try {
+        execSync(`"${tscBinPath}" --noEmit`, {
+          cwd: projectRoot,
+          timeout: 120_000,
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+      } catch (err: unknown) {
+        tscFailed = true
+        if (err != null && typeof err === 'object') {
+          const e = err as { stdout?: unknown; stderr?: unknown; message?: string }
+          const stdoutStr =
+            typeof e.stdout === 'string'
+              ? e.stdout
+              : Buffer.isBuffer(e.stdout)
+                ? e.stdout.toString('utf-8')
+                : ''
+          const stderrStr =
+            typeof e.stderr === 'string'
+              ? e.stderr
+              : Buffer.isBuffer(e.stderr)
+                ? e.stderr.toString('utf-8')
+                : ''
+          tscOutput = [stdoutStr, stderrStr].filter((s) => s.length > 0).join('\n')
+          if (!tscOutput && e.message) tscOutput = e.message
+        }
       }
-    }
 
-    if (tscFailed) {
-      const truncatedOutput = tscOutput.slice(0, 1000)
+      if (tscFailed) {
+        const truncatedOutput = tscOutput.slice(0, 1000)
 
-      // Map tsc errors to specific contract file paths where possible.
-      // For each export declaration, check if tsc output mentions its file path.
-      const matchedExports = new Set<string>()
+        // Map tsc errors to specific contract file paths where possible.
+        // For each export declaration, check if tsc output mentions its file path.
+        const matchedExports = new Set<string>()
 
-      for (const exp of exports) {
-        if (!exp.filePath) continue
-        if (tscOutput.includes(exp.filePath)) {
-          matchedExports.add(exp.contractName)
-          const importers = imports.filter((i) => i.contractName === exp.contractName)
+        for (const exp of exports) {
+          if (!exp.filePath) continue
+          if (tscOutput.includes(exp.filePath)) {
+            matchedExports.add(exp.contractName)
+            const importers = imports.filter((i) => i.contractName === exp.contractName)
 
-          if (importers.length > 0) {
-            for (const imp of importers) {
+            if (importers.length > 0) {
+              for (const imp of importers) {
+                mismatches.push({
+                  exporter: exp.storyKey,
+                  importer: imp.storyKey,
+                  contractName: exp.contractName,
+                  mismatchDescription: `TypeScript type-check failed for ${exp.filePath}: ${truncatedOutput}`,
+                })
+              }
+            } else {
               mismatches.push({
                 exporter: exp.storyKey,
-                importer: imp.storyKey,
+                importer: null,
                 contractName: exp.contractName,
                 mismatchDescription: `TypeScript type-check failed for ${exp.filePath}: ${truncatedOutput}`,
               })
             }
-          } else {
-            mismatches.push({
-              exporter: exp.storyKey,
-              importer: null,
-              contractName: exp.contractName,
-              mismatchDescription: `TypeScript type-check failed for ${exp.filePath}: ${truncatedOutput}`,
-            })
           }
         }
-      }
 
-      // If tsc failed but no specific file matched, report for all export/import pairs
-      if (matchedExports.size === 0) {
-        const reportedPairs = new Set<string>()
+        // If tsc failed but no specific file matched, report for all export/import pairs
+        if (matchedExports.size === 0) {
+          const reportedPairs = new Set<string>()
 
-        for (const exp of exports) {
-          const importers = imports.filter((i) => i.contractName === exp.contractName)
+          for (const exp of exports) {
+            const importers = imports.filter((i) => i.contractName === exp.contractName)
 
-          if (importers.length > 0) {
-            for (const imp of importers) {
-              const pairKey = `${exp.storyKey}:${imp.storyKey}:${exp.contractName}`
+            if (importers.length > 0) {
+              for (const imp of importers) {
+                const pairKey = `${exp.storyKey}:${imp.storyKey}:${exp.contractName}`
+                if (!reportedPairs.has(pairKey)) {
+                  reportedPairs.add(pairKey)
+                  mismatches.push({
+                    exporter: exp.storyKey,
+                    importer: imp.storyKey,
+                    contractName: exp.contractName,
+                    mismatchDescription: `TypeScript type-check failed: ${truncatedOutput}`,
+                  })
+                }
+              }
+            } else {
+              const pairKey = `${exp.storyKey}:null:${exp.contractName}`
               if (!reportedPairs.has(pairKey)) {
                 reportedPairs.add(pairKey)
                 mismatches.push({
                   exporter: exp.storyKey,
-                  importer: imp.storyKey,
+                  importer: null,
                   contractName: exp.contractName,
                   mismatchDescription: `TypeScript type-check failed: ${truncatedOutput}`,
                 })
               }
             }
-          } else {
-            const pairKey = `${exp.storyKey}:null:${exp.contractName}`
-            if (!reportedPairs.has(pairKey)) {
-              reportedPairs.add(pairKey)
-              mismatches.push({
-                exporter: exp.storyKey,
-                importer: null,
-                contractName: exp.contractName,
-                mismatchDescription: `TypeScript type-check failed: ${truncatedOutput}`,
-              })
-            }
           }
         }
       }
     }
-  }
   } // end shouldRunTscCheck guard
 
   return mismatches

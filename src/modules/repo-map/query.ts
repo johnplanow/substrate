@@ -8,12 +8,7 @@ import type { Logger } from 'pino'
 
 import type { ISymbolRepository } from './interfaces.js'
 import type { RepoMapTelemetry } from './repo-map-telemetry.js'
-import type {
-  RepoMapQuery,
-  RepoMapQueryResult,
-  RepoMapSymbol,
-  ScoredSymbol,
-} from './types.js'
+import type { RepoMapQuery, RepoMapQueryResult, RepoMapSymbol, ScoredSymbol } from './types.js'
 
 const DEFAULT_MAX_TOKENS = 2000
 
@@ -61,7 +56,7 @@ export class RepoMapQueryEngine {
       if (!hasAnyFilter) {
         // No filters — return all symbols
         const all = await this.repo.findAll()
-        scoredSymbols = all.map(s => ({ ...s, relevanceScore: this.scoreSymbol(s, q) }))
+        scoredSymbols = all.map((s) => ({ ...s, relevanceScore: this.scoreSymbol(s, q) }))
       } else {
         // ------------------------------------------------------------------
         // Step 1: Collect and intersect direct-match candidate sets
@@ -72,8 +67,8 @@ export class RepoMapQueryEngine {
           // TODO: For large repos (10K+ symbols), add SQL-side LIKE prefix filter
           // before client-side minimatch to avoid full table scan. See Epic 28 Known Limitations.
           const all = await this.repo.findAll()
-          const matched = all.filter(s =>
-            q.files!.some(p => minimatch(s.filePath, p, { dot: false })),
+          const matched = all.filter((s) =>
+            q.files!.some((p) => minimatch(s.filePath, p, { dot: false }))
           )
           directSets.push(matched)
         }
@@ -118,15 +113,15 @@ export class RepoMapQueryEngine {
         const directKey = (s: RepoMapSymbol) => `${s.filePath}:${s.symbolName}`
         const directKeySet = new Set(directCandidates.map(directKey))
 
-        const scoredDirect: ScoredSymbol[] = directCandidates.map(s => ({
+        const scoredDirect: ScoredSymbol[] = directCandidates.map((s) => ({
           ...s,
           relevanceScore: this.scoreSymbol(s, q, false),
         }))
 
         // Score dep-traversal candidates at base 30; exclude symbols already in direct set
         const scoredDep: ScoredSymbol[] = depCandidates
-          .filter(s => !directKeySet.has(directKey(s)))
-          .map(s => ({ ...s, relevanceScore: this.scoreSymbol(s, q, true) }))
+          .filter((s) => !directKeySet.has(directKey(s)))
+          .map((s) => ({ ...s, relevanceScore: this.scoreSymbol(s, q, true) }))
 
         scoredSymbols = [...scoredDirect, ...scoredDep]
       }
@@ -154,7 +149,7 @@ export class RepoMapQueryEngine {
 
       this.logger.debug(
         { symbolCount: result.symbolCount, truncated: result.truncated },
-        'RepoMapQueryEngine.query complete',
+        'RepoMapQueryEngine.query complete'
       )
     } catch (err) {
       didThrow = true
@@ -163,11 +158,9 @@ export class RepoMapQueryEngine {
       if (this.telemetry !== undefined) {
         const queryDurationMs = Date.now() - start
         // Compute filterFields from the query object keys that have non-undefined values
-        const filterFields = Object.keys(q).filter(
-          k => q[k as keyof RepoMapQuery] !== undefined,
-        )
-        const symbolCount = didThrow ? 0 : (result!.symbolCount)
-        const truncated = didThrow ? false : (result!.truncated)
+        const filterFields = Object.keys(q).filter((k) => q[k as keyof RepoMapQuery] !== undefined)
+        const symbolCount = didThrow ? 0 : result!.symbolCount
+        const truncated = didThrow ? false : result!.truncated
         this.telemetry.recordQuery({
           queryDurationMs,
           symbolCount,
@@ -200,12 +193,12 @@ export class RepoMapQueryEngine {
   private scoreSymbol(
     symbol: RepoMapSymbol,
     q: RepoMapQuery,
-    isDependencyTraversal = false,
+    isDependencyTraversal = false
   ): number {
     let score = isDependencyTraversal ? 30 : 50
 
     if (q.files?.length) {
-      const matchesFiles = q.files.some(p => minimatch(symbol.filePath, p, { dot: false }))
+      const matchesFiles = q.files.some((p) => minimatch(symbol.filePath, p, { dot: false }))
       if (matchesFiles) score += 40
     }
 
@@ -227,7 +220,7 @@ export class RepoMapQueryEngine {
    */
   private applyBudget(
     symbols: ScoredSymbol[],
-    maxTokens: number,
+    maxTokens: number
   ): { symbols: ScoredSymbol[]; truncated: boolean } {
     const budgetChars = maxTokens * CHARS_PER_TOKEN
     let accumulated = 0
@@ -235,7 +228,10 @@ export class RepoMapQueryEngine {
 
     for (const sym of symbols) {
       const symChars =
-        sym.filePath.length + sym.symbolName.length + (sym.signature?.length ?? 0) + SYMBOL_OVERHEAD_CHARS
+        sym.filePath.length +
+        sym.symbolName.length +
+        (sym.signature?.length ?? 0) +
+        SYMBOL_OVERHEAD_CHARS
       if (accumulated + symChars > budgetChars) {
         // Budget exceeded — stop
         return { symbols: accepted, truncated: true }
@@ -260,7 +256,7 @@ export class RepoMapQueryEngine {
     let result = sets[0]
     for (let i = 1; i < sets.length; i++) {
       const nextKeys = new Set(sets[i].map(key))
-      result = result.filter(s => nextKeys.has(key(s)))
+      result = result.filter((s) => nextKeys.has(key(s)))
     }
     return result
   }

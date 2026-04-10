@@ -39,10 +39,7 @@ function isPrettyMode(): boolean {
  * @param name - Logger name (module identifier)
  * @param options - Optional logger configuration overrides
  */
-export function createLogger(
-  name: string,
-  options: LoggerOptions = {}
-): pino.Logger {
+export function createLogger(name: string, options: LoggerOptions = {}): pino.Logger {
   const level = options.level ?? getDefaultLogLevel()
   const pretty = options.pretty ?? isPrettyMode()
 
@@ -84,9 +81,6 @@ export function createLogger(
 export const logger = createLogger('substrate')
 
 /** Create a child logger with additional context */
-export function childLogger(
-  parent: pino.Logger,
-  bindings: Record<string, unknown>
-): pino.Logger {
+export function childLogger(parent: pino.Logger, bindings: Record<string, unknown>): pino.Logger {
   return parent.child(bindings)
 }

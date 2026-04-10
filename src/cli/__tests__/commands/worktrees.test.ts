@@ -111,7 +111,11 @@ describe('buildWorktreeDisplayInfo', () => {
   })
 
   it('creates display info with specified task status', () => {
-    const info = buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_1, 'completed', new Date('2024-01-15T11:00:00Z'))
+    const info = buildWorktreeDisplayInfo(
+      SAMPLE_WORKTREE_INFO_1,
+      'completed',
+      new Date('2024-01-15T11:00:00Z')
+    )
     expect(info.taskStatus).toBe('completed')
     expect(info.completedAt).toBeDefined()
     expect(info.completedAt?.toISOString()).toBe('2024-01-15T11:00:00.000Z')
@@ -137,9 +141,9 @@ describe('sortWorktrees', () => {
 
   beforeEach(() => {
     worktrees = [
-      buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_1),    // task-001, 2024-01-15
-      buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_2),    // task-002, 2024-01-16
-      buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_3),    // task-003, 2024-01-14
+      buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_1), // task-001, 2024-01-15
+      buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_2), // task-002, 2024-01-16
+      buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_3), // task-003, 2024-01-14
     ]
   })
 
@@ -164,7 +168,7 @@ describe('sortWorktrees', () => {
       buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_3, 'failed'),
     ]
     const sorted = sortWorktrees(mixed, 'status')
-    expect(sorted[0]?.taskStatus).toBe('completed')  // c < f < r
+    expect(sorted[0]?.taskStatus).toBe('completed') // c < f < r
     expect(sorted[1]?.taskStatus).toBe('failed')
     expect(sorted[2]?.taskStatus).toBe('running')
   })
@@ -210,10 +214,7 @@ describe('filterWorktreesByStatus', () => {
   })
 
   it('filters by pending status', () => {
-    const withPending = [
-      ...worktrees,
-      buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_1, 'pending'),
-    ]
+    const withPending = [...worktrees, buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_1, 'pending')]
     const filtered = filterWorktreesByStatus(withPending, 'pending')
     expect(filtered).toHaveLength(1)
     expect(filtered[0]?.taskStatus).toBe('pending')
@@ -303,7 +304,14 @@ describe('worktreeToJsonEntry', () => {
 // ---------------------------------------------------------------------------
 
 type JsonOutputData = {
-  data: { taskId: string; branchName: string; worktreePath: string; taskStatus: string; createdAt: string; completedAt: string | null }[]
+  data: {
+    taskId: string
+    branchName: string
+    worktreePath: string
+    taskStatus: string
+    createdAt: string
+    completedAt: string | null
+  }[]
   command: string
   timestamp: string
   version: string
@@ -380,7 +388,9 @@ describe('listWorktreesAction', () => {
       projectRoot: '/project',
       version: '0.1.0',
     })
-    expect((): void => { JSON.parse(capturedStdout) }).not.toThrow()
+    expect((): void => {
+      JSON.parse(capturedStdout)
+    }).not.toThrow()
     const parsed = JSON.parse(capturedStdout) as JsonOutputData
     expect(parsed.command).toBe('substrate worktrees')
     expect(Array.isArray(parsed.data)).toBe(true)
@@ -432,8 +442,8 @@ describe('listWorktreesAction', () => {
   // AC4: Status filtering
   it('filters worktrees by running status', async () => {
     mockListWorktrees.mockResolvedValue([
-      SAMPLE_WORKTREE_INFO_1,  // will be 'running' by default
-      SAMPLE_WORKTREE_INFO_2,  // will be 'running' by default
+      SAMPLE_WORKTREE_INFO_1, // will be 'running' by default
+      SAMPLE_WORKTREE_INFO_2, // will be 'running' by default
     ])
     await listWorktreesAction({
       outputFormat: 'table',
@@ -460,9 +470,9 @@ describe('listWorktreesAction', () => {
   // AC5: Sorting
   it('sorts worktrees by created time (newest first) by default', async () => {
     mockListWorktrees.mockResolvedValue([
-      SAMPLE_WORKTREE_INFO_3,  // 2024-01-14 (oldest)
-      SAMPLE_WORKTREE_INFO_1,  // 2024-01-15
-      SAMPLE_WORKTREE_INFO_2,  // 2024-01-16 (newest)
+      SAMPLE_WORKTREE_INFO_3, // 2024-01-14 (oldest)
+      SAMPLE_WORKTREE_INFO_1, // 2024-01-15
+      SAMPLE_WORKTREE_INFO_2, // 2024-01-16 (newest)
     ])
     await listWorktreesAction({
       outputFormat: 'json',
@@ -470,15 +480,15 @@ describe('listWorktreesAction', () => {
       projectRoot: '/project',
     })
     const parsed = JSON.parse(capturedStdout) as JsonOutputData
-    expect(parsed.data[0]?.taskId).toBe('task-002')  // newest first
-    expect(parsed.data[2]?.taskId).toBe('task-003')  // oldest last
+    expect(parsed.data[0]?.taskId).toBe('task-002') // newest first
+    expect(parsed.data[2]?.taskId).toBe('task-003') // oldest last
   })
 
   it('sorts worktrees by task-id alphabetically', async () => {
     mockListWorktrees.mockResolvedValue([
-      SAMPLE_WORKTREE_INFO_2,  // task-002
-      SAMPLE_WORKTREE_INFO_3,  // task-003
-      SAMPLE_WORKTREE_INFO_1,  // task-001
+      SAMPLE_WORKTREE_INFO_2, // task-002
+      SAMPLE_WORKTREE_INFO_3, // task-003
+      SAMPLE_WORKTREE_INFO_1, // task-001
     ])
     await listWorktreesAction({
       outputFormat: 'json',

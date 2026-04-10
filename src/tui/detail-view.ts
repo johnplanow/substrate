@@ -52,11 +52,15 @@ export function renderDetailView(options: DetailViewOptions): string[] {
   const cyclesLabel = padOrTruncate('Review Cycles:', 12)
 
   lines.push(`  ${bold(phaseLabel, useColor)} ${colorize(story.phase, ANSI.CYAN, useColor)}`)
-  lines.push(`  ${bold(statusLabel, useColor)} ${colorize(story.statusLabel, ANSI.WHITE, useColor)}`)
+  lines.push(
+    `  ${bold(statusLabel, useColor)} ${colorize(story.statusLabel, ANSI.WHITE, useColor)}`
+  )
   lines.push(`  ${bold(cyclesLabel, useColor)} ${story.reviewCycles}`)
 
   if (story.escalationReason !== undefined) {
-    lines.push(`  ${bold(padOrTruncate('Escalated:', 12), useColor)} ${colorize(story.escalationReason, ANSI.RED, useColor)}`)
+    lines.push(
+      `  ${bold(padOrTruncate('Escalated:', 12), useColor)} ${colorize(story.escalationReason, ANSI.RED, useColor)}`
+    )
   }
 
   lines.push('')

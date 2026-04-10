@@ -36,7 +36,10 @@ describe.skipIf(!doltAvailable())('DoltStateStore — real Dolt binary integrati
     tempDir = mkdtempSync(join(tmpdir(), 'substrate-dolt-test-'))
 
     // dolt init
-    execFileSync('dolt', ['init', '--name', 'test', '--email', 'test@test.com'], { cwd: tempDir, stdio: 'pipe' })
+    execFileSync('dolt', ['init', '--name', 'test', '--email', 'test@test.com'], {
+      cwd: tempDir,
+      stdio: 'pipe',
+    })
 
     // Create client in CLI-only mode (no server)
     client = new DoltClient({ repoPath: tempDir, socketPath: '/nonexistent/socket.sock' })
@@ -133,8 +136,18 @@ describe.skipIf(!doltAvailable())('DoltStateStore — real Dolt binary integrati
 
   it('setContracts and getContracts round-trip', async () => {
     await store.setContracts('1-1', [
-      { storyKey: '1-1', contractName: 'StateStore', direction: 'export', schemaPath: 'src/types.ts' },
-      { storyKey: '1-1', contractName: 'DoltClient', direction: 'export', schemaPath: 'src/dolt-client.ts' },
+      {
+        storyKey: '1-1',
+        contractName: 'StateStore',
+        direction: 'export',
+        schemaPath: 'src/types.ts',
+      },
+      {
+        storyKey: '1-1',
+        contractName: 'DoltClient',
+        direction: 'export',
+        schemaPath: 'src/dolt-client.ts',
+      },
     ])
 
     const contracts = await store.getContracts('1-1')
@@ -150,7 +163,10 @@ describe.skipIf(!doltAvailable())('DoltStateStore — real Dolt binary integrati
     await store.branchForStory('3-1')
 
     // Verify branch exists via dolt branch --list
-    const branchOutput = execFileSync('dolt', ['branch', '--list'], { cwd: tempDir, encoding: 'utf-8' })
+    const branchOutput = execFileSync('dolt', ['branch', '--list'], {
+      cwd: tempDir,
+      encoding: 'utf-8',
+    })
     expect(branchOutput).toContain('story/3-1')
   })
 
@@ -192,7 +208,10 @@ describe.skipIf(!doltAvailable())('DoltStateStore — real Dolt binary integrati
 
     // Verify story commit exists in Dolt log (may be a merge commit or
     // a fast-forward bringing the pre-merge commit to main)
-    const logOutput = execFileSync('dolt', ['log', '--oneline', '-n', '5'], { cwd: tempDir, encoding: 'utf-8' })
+    const logOutput = execFileSync('dolt', ['log', '--oneline', '-n', '5'], {
+      cwd: tempDir,
+      encoding: 'utf-8',
+    })
     expect(logOutput).toMatch(/[Ss]tory 3-1/)
 
     // Branch should be cleaned up (deleted from _storyBranches)
@@ -213,7 +232,10 @@ describe.skipIf(!doltAvailable())('DoltStateStore — real Dolt binary integrati
     await store.rollbackStory('3-2')
 
     // Branch should be deleted
-    const branchOutput = execFileSync('dolt', ['branch', '--list'], { cwd: tempDir, encoding: 'utf-8' })
+    const branchOutput = execFileSync('dolt', ['branch', '--list'], {
+      cwd: tempDir,
+      encoding: 'utf-8',
+    })
     expect(branchOutput).not.toContain('story/3-2')
   })
 
@@ -272,7 +294,9 @@ describe.skipIf(!doltAvailable())('DoltStateStore — real Dolt binary integrati
   // -------------------------------------------------------------------------
 
   it('rejects invalid story keys to prevent SQL injection', async () => {
-    await expect(store.branchForStory("'; DROP TABLE stories;--")).rejects.toThrow('Invalid story key')
+    await expect(store.branchForStory("'; DROP TABLE stories;--")).rejects.toThrow(
+      'Invalid story key'
+    )
     await expect(store.diffStory('../../etc/passwd')).rejects.toThrow('Invalid story key')
     await expect(store.mergeStory('abc/../def')).rejects.toThrow('Invalid story key')
   })

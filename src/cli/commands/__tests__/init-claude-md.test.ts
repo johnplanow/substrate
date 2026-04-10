@@ -132,7 +132,10 @@ vi.mock('readline', () => ({
 // ---------------------------------------------------------------------------
 
 import { runInitAction, INIT_EXIT_SUCCESS } from '../init.js'
-import { DEV_WORKFLOW_START_MARKER, DEV_WORKFLOW_END_MARKER } from '../../templates/build-dev-notes.js'
+import {
+  DEV_WORKFLOW_START_MARKER,
+  DEV_WORKFLOW_END_MARKER,
+} from '../../templates/build-dev-notes.js'
 
 // ---------------------------------------------------------------------------
 // Mock AdapterRegistry
@@ -170,7 +173,9 @@ function setupDefaultMocks() {
 
   mockReadFile.mockImplementation((path: string) => {
     if (String(path).includes('claude-md-substrate-section.md')) {
-      return Promise.resolve('<!-- substrate:start -->\n# Substrate Pipeline\n<!-- substrate:end -->\n')
+      return Promise.resolve(
+        '<!-- substrate:start -->\n# Substrate Pipeline\n<!-- substrate:end -->\n'
+      )
     }
     if (String(path).includes('statusline.sh')) {
       return Promise.resolve('#!/bin/sh\n')

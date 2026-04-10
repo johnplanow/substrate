@@ -15,7 +15,11 @@ const mockExec = vi.mocked(exec) as unknown as ReturnType<typeof vi.fn>
 
 function mockExecResolve(stdout: string, stderr = ''): void {
   mockExec.mockImplementationOnce(
-    (_cmd: string, _opts: unknown, cb: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
+    (
+      _cmd: string,
+      _opts: unknown,
+      cb: (err: Error | null, result: { stdout: string; stderr: string }) => void
+    ) => {
       cb(null, { stdout, stderr })
     }
   )
@@ -23,7 +27,11 @@ function mockExecResolve(stdout: string, stderr = ''): void {
 
 function mockExecReject(message: string): void {
   mockExec.mockImplementationOnce(
-    (_cmd: string, _opts: unknown, cb: (err: Error | null, result: { stdout: string; stderr: string } | null) => void) => {
+    (
+      _cmd: string,
+      _opts: unknown,
+      cb: (err: Error | null, result: { stdout: string; stderr: string } | null) => void
+    ) => {
       cb(new Error(message), null)
     }
   )
@@ -68,8 +76,8 @@ describe('GeminiCLIAdapter', () => {
   // -------------------------------------------------------------------------
   describe('healthCheck', () => {
     it('returns healthy when gemini --version succeeds', async () => {
-      mockExecResolve('Gemini CLI 1.0.0\n')   // gemini --version
-      mockExecResolve('/usr/local/bin/gemini\n')  // which gemini
+      mockExecResolve('Gemini CLI 1.0.0\n') // gemini --version
+      mockExecResolve('/usr/local/bin/gemini\n') // which gemini
 
       const result = await adapter.healthCheck()
 
@@ -292,7 +300,12 @@ describe('GeminiCLIAdapter', () => {
       const json = JSON.stringify({
         tasks: [
           { title: 'Setup project', description: 'Init project structure', complexity: 2 },
-          { title: 'Implement auth', description: 'Add auth endpoints', complexity: 6, dependencies: ['Setup project'] },
+          {
+            title: 'Implement auth',
+            description: 'Add auth endpoints',
+            complexity: 6,
+            dependencies: ['Setup project'],
+          },
         ],
       })
       const result = adapter.parsePlanOutput(json, '', 0)

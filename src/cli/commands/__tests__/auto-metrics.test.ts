@@ -24,7 +24,9 @@ vi.mock('../../../persistence/adapter.js', () => {
   let mockAdapter: DatabaseAdapter | null = null
   return {
     createDatabaseAdapter: () => mockAdapter!,
-    __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
+    __setMockAdapter: (a: DatabaseAdapter) => {
+      mockAdapter = a
+    },
   }
 })
 
@@ -33,7 +35,9 @@ vi.mock('../../../persistence/schema.js', () => ({
 }))
 
 // Import the real initSchema for test setup (the mock is only for production code paths)
-const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
+const { initSchema: realInitSchema } = await vi.importActual<
+  typeof import('../../../persistence/schema.js')
+>('../../../persistence/schema.js')
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -83,13 +87,19 @@ async function createTempProject(): Promise<{ projectRoot: string; adapter: Data
   await realInitSchema(adapter)
 
   // Inject mock adapter so production code reuses the same DB
-  const adapterModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+  const adapterModule = (await import('../../../persistence/adapter.js')) as {
+    __setMockAdapter: (a: DatabaseAdapter) => void
+  }
   adapterModule.__setMockAdapter(adapter)
 
   return { projectRoot, adapter }
 }
 
-async function seedRun(adapter: DatabaseAdapter, runId: string, overrides: Record<string, unknown> = {}): Promise<void> {
+async function seedRun(
+  adapter: DatabaseAdapter,
+  runId: string,
+  overrides: Record<string, unknown> = {}
+): Promise<void> {
   await writeRunMetrics(adapter, {
     run_id: runId,
     methodology: 'bmad',
@@ -384,7 +394,12 @@ describe('runMetricsAction — AC5: --analysis flag', () => {
   function seedAnalysisReport(runId: string, data: Record<string, unknown> = {}): void {
     const dir = join(projectRoot, '_bmad-output', 'supervisor-reports')
     mkdirSync(dir, { recursive: true })
-    const reportData = { run_id: runId, generated_at: new Date().toISOString(), findings: {}, ...data }
+    const reportData = {
+      run_id: runId,
+      generated_at: new Date().toISOString(),
+      findings: {},
+      ...data,
+    }
     writeFileSync(join(dir, `${runId}-analysis.json`), JSON.stringify(reportData, null, 2), 'utf-8')
     writeFileSync(join(dir, `${runId}-analysis.md`), `# Analysis: ${runId}\n`, 'utf-8')
   }

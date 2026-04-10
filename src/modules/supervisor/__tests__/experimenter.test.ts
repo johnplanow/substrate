@@ -37,14 +37,19 @@ import type { RunMetricsRow, StoryMetricsRow } from '../../../persistence/querie
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import { getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
+import {
+  getDecisionsByCategory,
+  createPipelineRun,
+} from '../../../persistence/queries/decisions.js'
 import { EXPERIMENT_RESULT } from '../../../persistence/schemas/operational.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeRecommendation(overrides: Partial<SupervisorRecommendation> = {}): SupervisorRecommendation {
+function makeRecommendation(
+  overrides: Partial<SupervisorRecommendation> = {}
+): SupervisorRecommendation {
   return {
     type: 'token_regression',
     story_key: '7-1',
@@ -359,7 +364,11 @@ describe('createExperimenter', () => {
     })
 
     // Default: gh spawn succeeds (returns a fake PR URL)
-    mockSpawn.mockResolvedValue({ stdout: 'https://github.com/owner/repo/pull/42', stderr: '', code: 0 })
+    mockSpawn.mockResolvedValue({
+      stdout: 'https://github.com/owner/repo/pull/42',
+      stderr: '',
+      code: 0,
+    })
 
     // Default: runStory succeeds
     mockRunStory.mockResolvedValue({ runId: 'run-experiment-01', exitCode: 0 })
@@ -367,10 +376,22 @@ describe('createExperimenter', () => {
     // Default: metrics available
     mockGetRunMetrics.mockImplementation((_db: unknown, runId: string) => {
       if (runId === 'run-baseline') {
-        return makeRunMetrics({ run_id: 'run-baseline', total_input_tokens: 10000, total_output_tokens: 5000, total_cost_usd: 1.5, total_review_cycles: 2 })
+        return makeRunMetrics({
+          run_id: 'run-baseline',
+          total_input_tokens: 10000,
+          total_output_tokens: 5000,
+          total_cost_usd: 1.5,
+          total_review_cycles: 2,
+        })
       }
       // experiment run — improved metrics
-      return makeRunMetrics({ run_id: 'run-experiment-01', total_input_tokens: 8000, total_output_tokens: 4000, total_cost_usd: 1.2, total_review_cycles: 2 })
+      return makeRunMetrics({
+        run_id: 'run-experiment-01',
+        total_input_tokens: 8000,
+        total_output_tokens: 4000,
+        total_cost_usd: 1.2,
+        total_review_cycles: 2,
+      })
     })
 
     mockGetStoryMetrics.mockReturnValue([])
@@ -420,7 +441,7 @@ describe('createExperimenter', () => {
 
       // Should have called git worktree add with the branch name
       const worktreeCall = mockGit.mock.calls.find(
-        (call: string[][]) => call[0]?.[0] === 'worktree' && call[0]?.[1] === 'add',
+        (call: string[][]) => call[0]?.[0] === 'worktree' && call[0]?.[1] === 'add'
       )
       expect(worktreeCall).toBeDefined()
       // Third arg is the worktree path, fourth arg is '-b', fifth is branch name
@@ -436,7 +457,7 @@ describe('createExperimenter', () => {
 
       // Prompt file should be read from worktree path (not projectRoot)
       expect(mockReadFile).toHaveBeenCalledWith(
-        expect.stringContaining('packs/bmad/prompts/dev-story.md'),
+        expect.stringContaining('packs/bmad/prompts/dev-story.md')
       )
       const readPath: string = mockReadFile.mock.calls[0]?.[0] as string
       expect(readPath).toContain('.claude/worktrees/experiment-run-base')
@@ -445,7 +466,7 @@ describe('createExperimenter', () => {
       // Write should also be to the worktree
       expect(mockWriteFile).toHaveBeenCalledWith(
         expect.stringContaining('packs/bmad/prompts/dev-story.md'),
-        expect.stringContaining('token_regression'),
+        expect.stringContaining('token_regression')
       )
     })
 
@@ -454,9 +475,7 @@ describe('createExperimenter', () => {
       const rec = makeRecommendation()
       await experimenter.runExperiments(mockDb as any, [rec], 'run-baseline')
 
-      const commitCall = mockGit.mock.calls.find(
-        (call: string[][]) => call[0]?.[0] === 'commit',
-      )
+      const commitCall = mockGit.mock.calls.find((call: string[][]) => call[0]?.[0] === 'commit')
       expect(commitCall).toBeDefined()
       const commitMsg = commitCall![0]?.[2] as string
       expect(commitMsg).toContain('supervisor-experiment')
@@ -473,7 +492,7 @@ describe('createExperimenter', () => {
         expect.objectContaining({
           stories: '7-3',
           pack: 'bmad',
-        }),
+        })
       )
       const runStoryArgs = mockRunStory.mock.calls[0]?.[0] as { projectRoot: string }
       expect(runStoryArgs.projectRoot).toContain('.claude/worktrees/experiment-run-base')
@@ -486,14 +505,14 @@ describe('createExperimenter', () => {
 
       // Should have called git worktree remove (cleanup)
       const worktreeRemove = mockGit.mock.calls.find(
-        (call: string[][]) => call[0]?.[0] === 'worktree' && call[0]?.[1] === 'remove',
+        (call: string[][]) => call[0]?.[0] === 'worktree' && call[0]?.[1] === 'remove'
       )
       expect(worktreeRemove).toBeDefined()
       // The worktree path should be in the call
       expect(worktreeRemove![0]?.[2]).toContain('.claude/worktrees/experiment-run-base')
       // Should NOT have called checkout to switch back to original branch
       const checkoutMain = mockGit.mock.calls.find(
-        (call: string[][]) => call[0]?.[0] === 'checkout' && call[0]?.[1] === 'main',
+        (call: string[][]) => call[0]?.[0] === 'checkout' && call[0]?.[1] === 'main'
       )
       expect(checkoutMain).toBeUndefined()
     })
@@ -551,7 +570,7 @@ describe('createExperimenter', () => {
 
       // Should have tried to remove the worktree (cleanup in finally)
       const worktreeRemove = mockGit.mock.calls.find(
-        (call: string[][]) => call[0]?.[0] === 'worktree' && call[0]?.[1] === 'remove',
+        (call: string[][]) => call[0]?.[0] === 'worktree' && call[0]?.[1] === 'remove'
       )
       expect(worktreeRemove).toBeDefined()
     })
@@ -739,9 +758,19 @@ describe('createExperimenter — PR creation and branch deletion (AC5)', () => {
     mockRunStory = vi.fn().mockResolvedValue({ runId: 'run-exp-01', exitCode: 0 })
     mockGetRunMetrics = vi.fn().mockImplementation((_db: unknown, runId: string) => {
       if (runId === 'run-baseline') {
-        return makeRunMetrics({ run_id: 'run-baseline', total_input_tokens: 10000, total_output_tokens: 5000, total_review_cycles: 2 })
+        return makeRunMetrics({
+          run_id: 'run-baseline',
+          total_input_tokens: 10000,
+          total_output_tokens: 5000,
+          total_review_cycles: 2,
+        })
       }
-      return makeRunMetrics({ run_id: 'run-exp-01', total_input_tokens: 8000, total_output_tokens: 4000, total_review_cycles: 2 })
+      return makeRunMetrics({
+        run_id: 'run-exp-01',
+        total_input_tokens: 8000,
+        total_output_tokens: 4000,
+        total_review_cycles: 2,
+      })
     })
     mockGetStoryMetrics = vi.fn().mockReturnValue([])
     mockReadFile = vi.fn().mockResolvedValue('# Prompt content')
@@ -772,8 +801,15 @@ describe('createExperimenter — PR creation and branch deletion (AC5)', () => {
     expect(results[0]!.verdict).toBe('IMPROVED')
     expect(mockSpawn).toHaveBeenCalledWith(
       'gh',
-      expect.arrayContaining(['pr', 'create', '--label', 'supervisor', '--label', 'automated-experiment']),
-      expect.any(Object),
+      expect.arrayContaining([
+        'pr',
+        'create',
+        '--label',
+        'supervisor',
+        '--label',
+        'automated-experiment',
+      ]),
+      expect.any(Object)
     )
     expect(results[0]!.prLink).toBe('https://github.com/owner/repo/pull/99')
   })
@@ -782,9 +818,19 @@ describe('createExperimenter — PR creation and branch deletion (AC5)', () => {
     // Setup MIXED: tokens improve but review cycles spike
     mockGetRunMetrics.mockImplementation((_db: unknown, runId: string) => {
       if (runId === 'run-baseline') {
-        return makeRunMetrics({ run_id: 'run-baseline', total_input_tokens: 10000, total_output_tokens: 5000, total_review_cycles: 4 })
+        return makeRunMetrics({
+          run_id: 'run-baseline',
+          total_input_tokens: 10000,
+          total_output_tokens: 5000,
+          total_review_cycles: 4,
+        })
       }
-      return makeRunMetrics({ run_id: 'run-exp-01', total_input_tokens: 7000, total_output_tokens: 3500, total_review_cycles: 8 })
+      return makeRunMetrics({
+        run_id: 'run-exp-01',
+        total_input_tokens: 7000,
+        total_output_tokens: 3500,
+        total_review_cycles: 8,
+      })
     })
     const experimenter = createExperimenter(config, deps)
     const rec = makeRecommendation({ type: 'token_regression' })
@@ -799,9 +845,17 @@ describe('createExperimenter — PR creation and branch deletion (AC5)', () => {
     // Setup REGRESSED: tokens get worse
     mockGetRunMetrics.mockImplementation((_db: unknown, runId: string) => {
       if (runId === 'run-baseline') {
-        return makeRunMetrics({ run_id: 'run-baseline', total_input_tokens: 10000, total_output_tokens: 5000 })
+        return makeRunMetrics({
+          run_id: 'run-baseline',
+          total_input_tokens: 10000,
+          total_output_tokens: 5000,
+        })
       }
-      return makeRunMetrics({ run_id: 'run-exp-01', total_input_tokens: 12000, total_output_tokens: 6000 })
+      return makeRunMetrics({
+        run_id: 'run-exp-01',
+        total_input_tokens: 12000,
+        total_output_tokens: 6000,
+      })
     })
     const experimenter = createExperimenter(config, deps)
     const rec = makeRecommendation()
@@ -810,10 +864,14 @@ describe('createExperimenter — PR creation and branch deletion (AC5)', () => {
     expect(results[0]!.verdict).toBe('REGRESSED')
     expect(results[0]!.prLink).toBeNull()
     // Should NOT have called gh pr create
-    expect(mockSpawn).not.toHaveBeenCalledWith('gh', expect.arrayContaining(['pr', 'create']), expect.any(Object))
+    expect(mockSpawn).not.toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['pr', 'create']),
+      expect.any(Object)
+    )
     // Should have deleted the branch
     const deleteCall = mockGit.mock.calls.find(
-      (call: string[][]) => call[0]?.[0] === 'branch' && call[0]?.[1] === '-D',
+      (call: string[][]) => call[0]?.[0] === 'branch' && call[0]?.[1] === '-D'
     )
     expect(deleteCall).toBeDefined()
   })
@@ -836,14 +894,16 @@ describe('createExperimenter — PR creation and branch deletion (AC5)', () => {
     // writeFile should have been called at least twice: once for prompt modification, once for audit log
     // The audit log write will contain markdown content
     const auditWrite = mockWriteFile.mock.calls.find(
-      (call: unknown[]) => typeof call[1] === 'string' && (call[1] as string).includes('Experiment:'),
+      (call: unknown[]) =>
+        typeof call[1] === 'string' && (call[1] as string).includes('Experiment:')
     )
     expect(auditWrite).toBeDefined()
   })
 
   it('appends to existing audit log (append-only)', async () => {
     // Pre-populate the audit log with existing content
-    const existingContent = '# Supervisor Experiment Log\n\nRun ID: `run-baseline`\n\n## Previous entry\n\n---\n\n'
+    const existingContent =
+      '# Supervisor Experiment Log\n\nRun ID: `run-baseline`\n\n## Previous entry\n\n---\n\n'
     mockReadFile.mockImplementation((path: string) => {
       if (path.includes('-experiments.md')) return Promise.resolve(existingContent)
       return Promise.resolve('# Prompt content')
@@ -854,7 +914,8 @@ describe('createExperimenter — PR creation and branch deletion (AC5)', () => {
     await experimenter.runExperiments(mockDb as any, [rec], 'run-baseline')
 
     const auditWrite = mockWriteFile.mock.calls.find(
-      (call: unknown[]) => typeof call[1] === 'string' && (call[1] as string).includes('Previous entry'),
+      (call: unknown[]) =>
+        typeof call[1] === 'string' && (call[1] as string).includes('Previous entry')
     )
     expect(auditWrite).toBeDefined()
     // The new entry should be appended after the existing content
@@ -874,7 +935,9 @@ describe('createExperimenter — token budget cap (AC6)', () => {
       if (args[0] === 'rev-parse') return Promise.resolve({ stdout: 'main\n', stderr: '', code: 0 })
       return Promise.resolve({ stdout: '', stderr: '', code: 0 })
     })
-    const mockSpawn = vi.fn().mockResolvedValue({ stdout: 'https://github.com/pull/1', stderr: '', code: 0 })
+    const mockSpawn = vi
+      .fn()
+      .mockResolvedValue({ stdout: 'https://github.com/pull/1', stderr: '', code: 0 })
     const mockRunStory = vi.fn().mockResolvedValue({ runId: 'run-exp-01', exitCode: 0 })
     const mockLog = vi.fn()
 
@@ -882,9 +945,17 @@ describe('createExperimenter — token budget cap (AC6)', () => {
     // But story-level metrics: experiment used 3x the baseline tokens → exceeds 2x cap
     const mockGetRunMetrics = vi.fn().mockImplementation((_db: unknown, runId: string) => {
       if (runId === 'run-baseline') {
-        return makeRunMetrics({ run_id: 'run-baseline', total_input_tokens: 10000, total_output_tokens: 5000 })
+        return makeRunMetrics({
+          run_id: 'run-baseline',
+          total_input_tokens: 10000,
+          total_output_tokens: 5000,
+        })
       }
-      return makeRunMetrics({ run_id: 'run-exp-01', total_input_tokens: 8000, total_output_tokens: 4000 })
+      return makeRunMetrics({
+        run_id: 'run-exp-01',
+        total_input_tokens: 8000,
+        total_output_tokens: 4000,
+      })
     })
 
     const mockGetStoryMetrics = vi.fn().mockImplementation((_db: unknown, runId: string) => {
@@ -925,9 +996,17 @@ describe('createExperimenter — token budget cap (AC6)', () => {
     const mockRunStory = vi.fn().mockResolvedValue({ runId: 'run-exp-01', exitCode: 0 })
     const mockGetRunMetrics = vi.fn().mockImplementation((_db: unknown, runId: string) => {
       if (runId === 'run-baseline') {
-        return makeRunMetrics({ run_id: 'run-baseline', total_input_tokens: 10000, total_output_tokens: 5000 })
+        return makeRunMetrics({
+          run_id: 'run-baseline',
+          total_input_tokens: 10000,
+          total_output_tokens: 5000,
+        })
       }
-      return makeRunMetrics({ run_id: 'run-exp-01', total_input_tokens: 8000, total_output_tokens: 4000 })
+      return makeRunMetrics({
+        run_id: 'run-exp-01',
+        total_input_tokens: 8000,
+        total_output_tokens: 4000,
+      })
     })
 
     const mockGetStoryMetrics = vi.fn().mockImplementation((_db: unknown, runId: string) => {
@@ -940,7 +1019,9 @@ describe('createExperimenter — token budget cap (AC6)', () => {
 
     const deps: ExperimenterDeps = {
       git: mockGit,
-      spawn: vi.fn().mockResolvedValue({ stdout: 'https://github.com/pull/1', stderr: '', code: 0 }),
+      spawn: vi
+        .fn()
+        .mockResolvedValue({ stdout: 'https://github.com/pull/1', stderr: '', code: 0 }),
       runStory: mockRunStory,
       getRunMetrics: mockGetRunMetrics,
       getStoryMetrics: mockGetStoryMetrics,
@@ -996,7 +1077,7 @@ describe('AutoSupervisorOptions includes experiment flag (AC1)', () => {
         experiment: true,
         maxExperiments: 5,
       },
-      mockDeps,
+      mockDeps
     )
     expect(exitCode).toBe(0)
   })
@@ -1016,7 +1097,13 @@ describe('AutoSupervisorOptions includes experiment flag (AC1)', () => {
           verdict: 'NO_PIPELINE_RUNNING' as const,
           run_id: 'test-run-id',
           staleness_seconds: 0,
-          stories: { active: 0, completed: 1, escalated: 0, total: 1, details: { '7-1': { phase: 'COMPLETE' } } },
+          stories: {
+            active: 0,
+            completed: 1,
+            escalated: 0,
+            total: 1,
+            details: { '7-1': { phase: 'COMPLETE' } },
+          },
         }),
         killPid: vi.fn(),
         resumePipeline: vi.fn().mockResolvedValue(0),
@@ -1035,7 +1122,7 @@ describe('AutoSupervisorOptions includes experiment flag (AC1)', () => {
           pack: 'bmad',
           experiment: false,
         },
-        mockDeps,
+        mockDeps
       )
 
       // When experiment is false, no supervisor:experiment:start event should be emitted
@@ -1074,7 +1161,7 @@ describe('AutoSupervisorOptions includes experiment flag (AC1)', () => {
     writeFileSync(
       join(supervisorReportsDir, `${runId}-analysis.json`),
       JSON.stringify(analysisReport),
-      'utf-8',
+      'utf-8'
     )
 
     const stdoutChunks: string[] = []
@@ -1093,7 +1180,12 @@ describe('AutoSupervisorOptions includes experiment flag (AC1)', () => {
           status: 'completed',
           current_phase: null,
           last_activity: new Date().toISOString(),
-          stories: { active: 0, completed: 1, escalated: 0, details: { '7-1': { phase: 'COMPLETE', review_cycles: 0 } } },
+          stories: {
+            active: 0,
+            completed: 1,
+            escalated: 0,
+            details: { '7-1': { phase: 'COMPLETE', review_cycles: 0 } },
+          },
           process: { orchestrator_pid: null, child_pids: [], zombies: [] },
         }),
         killPid: vi.fn(),
@@ -1114,7 +1206,7 @@ describe('AutoSupervisorOptions includes experiment flag (AC1)', () => {
           experiment: true,
           maxExperiments: 1,
         },
-        mockDeps,
+        mockDeps
       )
 
       // The supervisor should have entered the experiment block and emitted
@@ -1131,7 +1223,11 @@ describe('AutoSupervisorOptions includes experiment flag (AC1)', () => {
       expect(hasRecsEvent || hasErrorEvent || hasSkipEvent).toBe(true)
     } finally {
       writeSpy.mockRestore()
-      try { rmSync(projectRoot, { recursive: true, force: true }) } catch { /* ignore */ }
+      try {
+        rmSync(projectRoot, { recursive: true, force: true })
+      } catch {
+        /* ignore */
+      }
     }
   })
 })
@@ -1156,13 +1252,27 @@ describe('Story 21-1 AC3: experiment result written to decision store', () => {
 
     const experimentDeps: ExperimenterDeps = {
       git: mockGit,
-      spawn: vi.fn().mockResolvedValue({ stdout: 'https://github.com/pull/1', stderr: '', code: 0 }),
+      spawn: vi
+        .fn()
+        .mockResolvedValue({ stdout: 'https://github.com/pull/1', stderr: '', code: 0 }),
       runStory: vi.fn().mockResolvedValue({ runId: 'run-exp-01', exitCode: 0 }),
       getRunMetrics: vi.fn().mockImplementation((_db: unknown, runId: string) => {
         if (runId === baselineRunId) {
-          return makeRunMetrics({ run_id: baselineRunId, total_input_tokens: 10000, total_output_tokens: 5000, total_cost_usd: 1.5, total_review_cycles: 2 })
+          return makeRunMetrics({
+            run_id: baselineRunId,
+            total_input_tokens: 10000,
+            total_output_tokens: 5000,
+            total_cost_usd: 1.5,
+            total_review_cycles: 2,
+          })
         }
-        return makeRunMetrics({ run_id: 'run-exp-01', total_input_tokens: 7000, total_output_tokens: 3000, total_cost_usd: 1.0, total_review_cycles: 1 })
+        return makeRunMetrics({
+          run_id: 'run-exp-01',
+          total_input_tokens: 7000,
+          total_output_tokens: 3000,
+          total_cost_usd: 1.0,
+          total_review_cycles: 1,
+        })
       }),
       getStoryMetrics: vi.fn().mockReturnValue([]),
       readFile: vi.fn().mockResolvedValue('# Prompt content'),

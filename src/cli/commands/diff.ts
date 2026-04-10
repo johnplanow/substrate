@@ -74,7 +74,9 @@ export function registerDiffCommand(program: Command): void {
             console.log('  (no changes)')
           } else {
             for (const t of diff.tables) {
-              console.log(`  ${t.table}: +${t.added.length} -${t.deleted.length} ~${t.modified.length}`)
+              console.log(
+                `  ${t.table}: +${t.added.length} -${t.deleted.length} ~${t.modified.length}`
+              )
             }
           }
         } else {
@@ -87,7 +89,12 @@ export function registerDiffCommand(program: Command): void {
             for (const t of diff.tables) {
               const existing = tableMap.get(t.table)
               if (existing === undefined) {
-                tableMap.set(t.table, { table: t.table, added: [...t.added], deleted: [...t.deleted], modified: [...t.modified] })
+                tableMap.set(t.table, {
+                  table: t.table,
+                  added: [...t.added],
+                  deleted: [...t.deleted],
+                  modified: [...t.modified],
+                })
               } else {
                 existing.added = [...existing.added, ...t.added]
                 existing.deleted = [...existing.deleted, ...t.deleted]
@@ -108,7 +115,9 @@ export function registerDiffCommand(program: Command): void {
             console.log('  (no changes)')
           } else {
             for (const t of aggregated) {
-              console.log(`  ${t.table}: +${t.added.length} -${t.deleted.length} ~${t.modified.length}`)
+              console.log(
+                `  ${t.table}: +${t.added.length} -${t.deleted.length} ~${t.modified.length}`
+              )
             }
           }
         }

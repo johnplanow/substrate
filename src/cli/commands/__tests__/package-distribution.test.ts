@@ -93,7 +93,7 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
 
     it('should include dist output in files', () => {
       const hasDistEntry = packageJson.files.some(
-        (f: string) => f.startsWith('dist') || f === 'dist/**',
+        (f: string) => f.startsWith('dist') || f === 'dist/**'
       )
       expect(hasDistEntry).toBe(true)
     })

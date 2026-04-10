@@ -60,7 +60,7 @@ function phaseEvent(
   key: string,
   phase: StoryPhaseEvent['phase'],
   status: StoryPhaseEvent['status'],
-  verdict?: string,
+  verdict?: string
 ): StoryPhaseEvent {
   return { type: 'story:phase', ts: new Date().toISOString(), key, phase, status, verdict }
 }
@@ -91,7 +91,7 @@ function warnEvent(key: string, msg: string): StoryWarnEvent {
 function completeEvent(
   succeeded: string[],
   failed: string[] = [],
-  escalated: string[] = [],
+  escalated: string[] = []
 ): PipelineCompleteEvent {
   return { type: 'pipeline:complete', ts: new Date().toISOString(), succeeded, failed, escalated }
 }

@@ -14,7 +14,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { TelemetryPersistence } from '../persistence.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
-import type { EfficiencyScore, ModelEfficiency, SourceEfficiency, Recommendation } from '../types.js'
+import type {
+  EfficiencyScore,
+  ModelEfficiency,
+  SourceEfficiency,
+  Recommendation,
+} from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Test database setup
@@ -113,7 +118,7 @@ describe('TelemetryPersistence — getEfficiencyScores', () => {
     // Insert 25 scores with unique (storyKey, timestamp) combos
     for (let i = 0; i < 25; i++) {
       await persistence.storeEfficiencyScore(
-        makeEfficiencyScore({ storyKey: `story-${i}`, timestamp: i + 1000, compositeScore: 50 }),
+        makeEfficiencyScore({ storyKey: `story-${i}`, timestamp: i + 1000, compositeScore: 50 })
       )
     }
 
@@ -124,7 +129,7 @@ describe('TelemetryPersistence — getEfficiencyScores', () => {
   it('should apply custom limit', async () => {
     for (let i = 0; i < 10; i++) {
       await persistence.storeEfficiencyScore(
-        makeEfficiencyScore({ storyKey: `story-${i}`, timestamp: i + 1000, compositeScore: 50 }),
+        makeEfficiencyScore({ storyKey: `story-${i}`, timestamp: i + 1000, compositeScore: 50 })
       )
     }
 
@@ -133,8 +138,12 @@ describe('TelemetryPersistence — getEfficiencyScores', () => {
   })
 
   it('should return fewer records than limit when fewer exist', async () => {
-    await persistence.storeEfficiencyScore(makeEfficiencyScore({ storyKey: '27-6', timestamp: 1000 }))
-    await persistence.storeEfficiencyScore(makeEfficiencyScore({ storyKey: '27-7', timestamp: 2000 }))
+    await persistence.storeEfficiencyScore(
+      makeEfficiencyScore({ storyKey: '27-6', timestamp: 1000 })
+    )
+    await persistence.storeEfficiencyScore(
+      makeEfficiencyScore({ storyKey: '27-7', timestamp: 2000 })
+    )
 
     const scores = await persistence.getEfficiencyScores(10)
     expect(scores).toHaveLength(2)
@@ -186,8 +195,12 @@ describe('TelemetryPersistence — getEfficiencyScore (single story lookup)', ()
   })
 
   it('should return the most recent score for a story when multiple timestamps exist', async () => {
-    await persistence.storeEfficiencyScore(makeEfficiencyScore({ storyKey: '27-6', timestamp: 500, compositeScore: 40 }))
-    await persistence.storeEfficiencyScore(makeEfficiencyScore({ storyKey: '27-6', timestamp: 1000, compositeScore: 90 }))
+    await persistence.storeEfficiencyScore(
+      makeEfficiencyScore({ storyKey: '27-6', timestamp: 500, compositeScore: 40 })
+    )
+    await persistence.storeEfficiencyScore(
+      makeEfficiencyScore({ storyKey: '27-6', timestamp: 1000, compositeScore: 90 })
+    )
 
     const result = await persistence.getEfficiencyScore('27-6')
     expect(result).not.toBeNull()
@@ -196,8 +209,12 @@ describe('TelemetryPersistence — getEfficiencyScore (single story lookup)', ()
   })
 
   it('should return correct score for the queried story key and not another', async () => {
-    await persistence.storeEfficiencyScore(makeEfficiencyScore({ storyKey: '27-6', compositeScore: 60 }))
-    await persistence.storeEfficiencyScore(makeEfficiencyScore({ storyKey: '27-7', timestamp: 999_999, compositeScore: 80 }))
+    await persistence.storeEfficiencyScore(
+      makeEfficiencyScore({ storyKey: '27-6', compositeScore: 60 })
+    )
+    await persistence.storeEfficiencyScore(
+      makeEfficiencyScore({ storyKey: '27-7', timestamp: 999_999, compositeScore: 80 })
+    )
 
     const r6 = await persistence.getEfficiencyScore('27-6')
     const r7 = await persistence.getEfficiencyScore('27-7')
@@ -231,9 +248,24 @@ describe('TelemetryPersistence — getAllRecommendations', () => {
 
   it('should return recommendations ordered: critical first, then warning, then info', async () => {
     const recs: Recommendation[] = [
-      makeRecommendation({ id: 'info0000info0000', severity: 'info', ruleId: 'growing_categories', potentialSavingsTokens: 100 }),
-      makeRecommendation({ id: 'warn0000warn0000', severity: 'warning', ruleId: 'cache_efficiency', potentialSavingsTokens: 500 }),
-      makeRecommendation({ id: 'crit0000crit0000', severity: 'critical', ruleId: 'biggest_consumers', potentialSavingsTokens: 1000 }),
+      makeRecommendation({
+        id: 'info0000info0000',
+        severity: 'info',
+        ruleId: 'growing_categories',
+        potentialSavingsTokens: 100,
+      }),
+      makeRecommendation({
+        id: 'warn0000warn0000',
+        severity: 'warning',
+        ruleId: 'cache_efficiency',
+        potentialSavingsTokens: 500,
+      }),
+      makeRecommendation({
+        id: 'crit0000crit0000',
+        severity: 'critical',
+        ruleId: 'biggest_consumers',
+        potentialSavingsTokens: 1000,
+      }),
     ]
     await persistence.saveRecommendations('27-7', recs)
 
@@ -246,9 +278,24 @@ describe('TelemetryPersistence — getAllRecommendations', () => {
 
   it('should order within same severity by potentialSavingsTokens DESC', async () => {
     const recs: Recommendation[] = [
-      makeRecommendation({ id: 'warn1111warn1111', severity: 'warning', ruleId: 'cache_efficiency', potentialSavingsTokens: 200 }),
-      makeRecommendation({ id: 'warn2222warn2222', severity: 'warning', ruleId: 'large_file_reads', potentialSavingsTokens: 800 }),
-      makeRecommendation({ id: 'warn3333warn3333', severity: 'warning', ruleId: 'expensive_bash', potentialSavingsTokens: 500 }),
+      makeRecommendation({
+        id: 'warn1111warn1111',
+        severity: 'warning',
+        ruleId: 'cache_efficiency',
+        potentialSavingsTokens: 200,
+      }),
+      makeRecommendation({
+        id: 'warn2222warn2222',
+        severity: 'warning',
+        ruleId: 'large_file_reads',
+        potentialSavingsTokens: 800,
+      }),
+      makeRecommendation({
+        id: 'warn3333warn3333',
+        severity: 'warning',
+        ruleId: 'expensive_bash',
+        potentialSavingsTokens: 500,
+      }),
     ]
     await persistence.saveRecommendations('27-7', recs)
 
@@ -262,7 +309,7 @@ describe('TelemetryPersistence — getAllRecommendations', () => {
   it('should apply default limit of 20', async () => {
     // Pad index to produce exactly 16-char hex IDs
     const recs: Recommendation[] = Array.from({ length: 25 }, (_, i) =>
-      makeRecommendation({ id: `aa${String(i).padStart(14, '0')}`, ruleId: 'cache_efficiency' }),
+      makeRecommendation({ id: `aa${String(i).padStart(14, '0')}`, ruleId: 'cache_efficiency' })
     )
     await persistence.saveRecommendations('27-7', recs)
 
@@ -272,7 +319,7 @@ describe('TelemetryPersistence — getAllRecommendations', () => {
 
   it('should apply custom limit', async () => {
     const recs: Recommendation[] = Array.from({ length: 10 }, (_, i) =>
-      makeRecommendation({ id: `bb${String(i).padStart(14, '0')}`, ruleId: 'cache_efficiency' }),
+      makeRecommendation({ id: `bb${String(i).padStart(14, '0')}`, ruleId: 'cache_efficiency' })
     )
     await persistence.saveRecommendations('27-7', recs)
 
@@ -281,8 +328,16 @@ describe('TelemetryPersistence — getAllRecommendations', () => {
   })
 
   it('should include recommendations from multiple story keys', async () => {
-    const rec1 = makeRecommendation({ id: 'story1rec1story1', storyKey: '27-7', severity: 'critical' })
-    const rec2 = makeRecommendation({ id: 'story2rec2story2', storyKey: '27-8', severity: 'warning' })
+    const rec1 = makeRecommendation({
+      id: 'story1rec1story1',
+      storyKey: '27-7',
+      severity: 'critical',
+    })
+    const rec2 = makeRecommendation({
+      id: 'story2rec2story2',
+      storyKey: '27-8',
+      severity: 'warning',
+    })
     await persistence.saveRecommendations('27-7', [rec1])
     await persistence.saveRecommendations('27-8', [rec2])
 

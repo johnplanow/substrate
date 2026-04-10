@@ -131,7 +131,9 @@ vi.mock('../../../persistence/queries/metrics.js', () => ({
 }))
 
 vi.mock('../health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phase-detection.js', () => ({
@@ -149,23 +151,33 @@ vi.mock('../../../modules/phase-orchestrator/index.js', () => ({
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/analysis.js', () => ({
-  runAnalysisPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runAnalysisPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/planning.js', () => ({
-  runPlanningPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runPlanningPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/solutioning.js', () => ({
-  runSolutioningPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runSolutioningPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/ux-design.js', () => ({
-  runUxDesignPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runUxDesignPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/research.js', () => ({
-  runResearchPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runResearchPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../core/event-bus.js', () => ({
@@ -194,7 +206,9 @@ vi.mock('../../../modules/routing/index.js', () => ({
     maybeAutoTune: vi.fn().mockResolvedValue(undefined),
   })),
   RoutingRecommender: vi.fn().mockImplementation(() => ({})),
-  loadModelRoutingConfig: vi.fn().mockImplementation(() => { throw new Error('No config') }),
+  loadModelRoutingConfig: vi.fn().mockImplementation(() => {
+    throw new Error('No config')
+  }),
 }))
 
 vi.mock('../../../modules/telemetry/ingestion-server.js', () => ({

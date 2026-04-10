@@ -105,7 +105,7 @@ describe('RepoMapTelemetry.recordQuery (AC6 — span emission)', () => {
     expect(logger.debug).toHaveBeenCalledOnce()
     expect(logger.debug).toHaveBeenCalledWith(
       expect.objectContaining({ queryDurationMs: 30, symbolCount: 5 }),
-      expect.any(String),
+      expect.any(String)
     )
   })
 

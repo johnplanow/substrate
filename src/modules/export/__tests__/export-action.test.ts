@@ -14,10 +14,7 @@ import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
-import {
-  createDecision,
-  createPipelineRun,
-} from '../../../persistence/queries/decisions.js'
+import { createDecision, createPipelineRun } from '../../../persistence/queries/decisions.js'
 import { runExportAction } from '../../../cli/commands/export.js'
 
 // ---------------------------------------------------------------------------
@@ -39,7 +36,7 @@ const { mockCreateDatabaseAdapter } = vi.hoisted(() => {
 })
 
 vi.mock('../../../persistence/adapter.js', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     createDatabaseAdapter: mockCreateDatabaseAdapter,
@@ -150,7 +147,7 @@ describe('T13: runExportAction --output-format json', () => {
     process.stdout.write = function (
       chunk: string | Uint8Array,
       encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
-      cb?: (err?: Error | null) => void,
+      cb?: (err?: Error | null) => void
     ): boolean {
       stdoutOutput.push(typeof chunk === 'string' ? chunk : chunk.toString())
       const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb
@@ -351,7 +348,7 @@ describe('runExportAction with injected adapter', () => {
     process.stdout.write = function (
       chunk: string | Uint8Array,
       encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
-      cb?: (err?: Error | null) => void,
+      cb?: (err?: Error | null) => void
     ): boolean {
       stdoutOutput.push(typeof chunk === 'string' ? chunk : chunk.toString())
       const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb
@@ -448,7 +445,7 @@ describe('runExportAction with injected adapter', () => {
     // (proves it was not closed by the export action)
     const rows = await pipelineAdapter.query<{ id: string }>(
       'SELECT id FROM pipeline_runs WHERE id = ?',
-      [run.id],
+      [run.id]
     )
     expect(rows.length).toBe(1)
     expect(rows[0]!.id).toBe(run.id)

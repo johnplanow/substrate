@@ -16,7 +16,11 @@ const mockExec = vi.mocked(exec) as unknown as ReturnType<typeof vi.fn>
 /** Helper to make mockExec resolve like promisified exec */
 function mockExecResolve(stdout: string, stderr = ''): void {
   mockExec.mockImplementationOnce(
-    (_cmd: string, _opts: unknown, cb: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
+    (
+      _cmd: string,
+      _opts: unknown,
+      cb: (err: Error | null, result: { stdout: string; stderr: string }) => void
+    ) => {
       cb(null, { stdout, stderr })
     }
   )
@@ -25,7 +29,11 @@ function mockExecResolve(stdout: string, stderr = ''): void {
 /** Helper to make mockExec reject like promisified exec */
 function mockExecReject(message: string): void {
   mockExec.mockImplementationOnce(
-    (_cmd: string, _opts: unknown, cb: (err: Error | null, result: { stdout: string; stderr: string } | null) => void) => {
+    (
+      _cmd: string,
+      _opts: unknown,
+      cb: (err: Error | null, result: { stdout: string; stderr: string } | null) => void
+    ) => {
       cb(new Error(message), null)
     }
   )
@@ -70,8 +78,8 @@ describe('ClaudeCodeAdapter', () => {
   // -------------------------------------------------------------------------
   describe('healthCheck', () => {
     it('returns healthy when claude --version succeeds', async () => {
-      mockExecResolve('1.0.0\n')   // claude --version
-      mockExecResolve('/usr/local/bin/claude\n')  // which claude
+      mockExecResolve('1.0.0\n') // claude --version
+      mockExecResolve('/usr/local/bin/claude\n') // which claude
 
       const result = await adapter.healthCheck()
 
@@ -91,8 +99,8 @@ describe('ClaudeCodeAdapter', () => {
     })
 
     it('handles "which" failure gracefully (no cliPath)', async () => {
-      mockExecResolve('1.2.3\n')   // claude --version
-      mockExecReject('which: not found')  // which fails
+      mockExecResolve('1.2.3\n') // claude --version
+      mockExecReject('which: not found') // which fails
 
       const result = await adapter.healthCheck()
 
@@ -227,18 +235,12 @@ describe('ClaudeCodeAdapter', () => {
   // -------------------------------------------------------------------------
   describe('buildPlanningCommand', () => {
     it('returns SpawnCommand with binary claude', () => {
-      const cmd = adapter.buildPlanningCommand(
-        { goal: 'Build a REST API' },
-        defaultOptions
-      )
+      const cmd = adapter.buildPlanningCommand({ goal: 'Build a REST API' }, defaultOptions)
       expect(cmd.binary).toBe('claude')
     })
 
     it('does not include --output-format json (causes Claude event envelope wrapping)', () => {
-      const cmd = adapter.buildPlanningCommand(
-        { goal: 'Build auth' },
-        defaultOptions
-      )
+      const cmd = adapter.buildPlanningCommand({ goal: 'Build auth' }, defaultOptions)
       expect(cmd.args).not.toContain('--output-format')
     })
 
@@ -252,10 +254,7 @@ describe('ClaudeCodeAdapter', () => {
     })
 
     it('sets cwd to worktreePath', () => {
-      const cmd = adapter.buildPlanningCommand(
-        { goal: 'Build auth' },
-        defaultOptions
-      )
+      const cmd = adapter.buildPlanningCommand({ goal: 'Build auth' }, defaultOptions)
       expect(cmd.cwd).toBe('/tmp/worktree')
     })
   })
@@ -289,7 +288,11 @@ describe('ClaudeCodeAdapter', () => {
     })
 
     it('returns failure when JSON has error field', () => {
-      const json = JSON.stringify({ status: 'completed', error: 'Something went wrong', output: '' })
+      const json = JSON.stringify({
+        status: 'completed',
+        error: 'Something went wrong',
+        output: '',
+      })
       const result = adapter.parseOutput(json, '', 0)
       expect(result.success).toBe(false)
       expect(result.error).toBe('Something went wrong')
@@ -333,7 +336,12 @@ describe('ClaudeCodeAdapter', () => {
       const json = JSON.stringify({
         tasks: [
           { title: 'Setup DB', description: 'Configure database', complexity: 3 },
-          { title: 'Auth endpoints', description: 'Create auth routes', complexity: 5, dependencies: ['Setup DB'] },
+          {
+            title: 'Auth endpoints',
+            description: 'Create auth routes',
+            complexity: 5,
+            dependencies: ['Setup DB'],
+          },
         ],
       })
       const result = adapter.parsePlanOutput(json, '', 0)
@@ -393,7 +401,9 @@ describe('ClaudeCodeAdapter', () => {
 
     it('larger prompts produce larger estimates', () => {
       const short = adapter.estimateTokens('Fix it')
-      const long = adapter.estimateTokens('Fix all the failing tests in the authentication module and ensure the JWT validation works correctly with all edge cases')
+      const long = adapter.estimateTokens(
+        'Fix all the failing tests in the authentication module and ensure the JWT validation works correctly with all edge cases'
+      )
       expect(long.input).toBeGreaterThan(short.input)
     })
   })

@@ -47,7 +47,7 @@ export interface ContractDeclaration {
  */
 export function parseInterfaceContracts(
   storyContent: string,
-  storyKey: string,
+  storyKey: string
 ): ContractDeclaration[] {
   if (!storyContent || !storyKey) return []
 
@@ -60,15 +60,12 @@ export function parseInterfaceContracts(
   // Find the next ## heading to delimit the section boundary
   const afterSection = storyContent.slice(sectionStart)
   const nextHeading = /^##\s+/m.exec(afterSection)
-  const sectionContent = nextHeading
-    ? afterSection.slice(0, nextHeading.index)
-    : afterSection
+  const sectionContent = nextHeading ? afterSection.slice(0, nextHeading.index) : afterSection
 
   // Parse bullet items:
   //   - **Export**: SchemaName @ src/path/to/file.ts (queue: some-queue)
   //   - **Import**: SchemaName @ src/path/to/file.ts (from story 25-X)
-  const linePattern =
-    /^\s*-\s+\*\*(Export|Import)\*\*:\s+(\S+)\s+@\s+(\S+)(?:\s+\(([^)]+)\))?/gim
+  const linePattern = /^\s*-\s+\*\*(Export|Import)\*\*:\s+(\S+)\s+@\s+(\S+)(?:\s+\(([^)]+)\))?/gim
 
   const declarations: ContractDeclaration[] = []
   let match: RegExpExecArray | null

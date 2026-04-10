@@ -66,10 +66,7 @@ export interface TscDiagnostic {
  *
  * Multi-line supplement lines (indented context / caret lines) are ignored.
  */
-export function parseTscDiagnostics(
-  output: string,
-  projectRoot: string,
-): TscDiagnostic[] {
+export function parseTscDiagnostics(output: string, projectRoot: string): TscDiagnostic[] {
   const diagnostics: TscDiagnostic[] = []
 
   // Regex: path(line,col): error TSxxx: message
@@ -108,9 +105,7 @@ export function parseTscDiagnostics(
  * - ≤2 distinct files → `'surgical'`
  * - >2 distinct files → `'partial'`
  */
-export function determineBuildScope(
-  diagnostics: TscDiagnostic[],
-): 'surgical' | 'partial' {
+export function determineBuildScope(diagnostics: TscDiagnostic[]): 'surgical' | 'partial' {
   const distinctFiles = new Set(diagnostics.map((d) => d.file))
   return distinctFiles.size <= 2 ? 'surgical' : 'partial'
 }
@@ -156,10 +151,7 @@ export class BuildValidationLevel implements ValidationLevel {
     }
 
     if (tscResult.status !== 0) {
-      const combinedOutput = [
-        tscResult.stdout ?? '',
-        tscResult.stderr ?? '',
-      ].join('\n')
+      const combinedOutput = [tscResult.stdout ?? '', tscResult.stderr ?? ''].join('\n')
       return this._buildTscFailureResult(combinedOutput, projectRoot, timeoutMs)
     }
 
@@ -177,10 +169,7 @@ export class BuildValidationLevel implements ValidationLevel {
     }
 
     if (buildResult.status !== 0) {
-      const combinedOutput = [
-        buildResult.stdout ?? '',
-        buildResult.stderr ?? '',
-      ].join('\n')
+      const combinedOutput = [buildResult.stdout ?? '', buildResult.stderr ?? ''].join('\n')
       return this._buildNpmFailureResult(combinedOutput, projectRoot, timeoutMs)
     }
 
@@ -221,7 +210,7 @@ export class BuildValidationLevel implements ValidationLevel {
   private _buildTscFailureResult(
     output: string,
     projectRoot: string,
-    timeoutMs: number,
+    timeoutMs: number
   ): LevelResult {
     const diagnostics = parseTscDiagnostics(output, projectRoot)
     return this._buildFailureResult(diagnostics, output, projectRoot, timeoutMs, 'tsc')
@@ -230,7 +219,7 @@ export class BuildValidationLevel implements ValidationLevel {
   private _buildNpmFailureResult(
     output: string,
     projectRoot: string,
-    timeoutMs: number,
+    timeoutMs: number
   ): LevelResult {
     // npm run build may emit tsc diagnostics too; parse them if present
     const diagnostics = parseTscDiagnostics(output, projectRoot)
@@ -242,18 +231,20 @@ export class BuildValidationLevel implements ValidationLevel {
     evidence: string,
     projectRoot: string,
     _timeoutMs: number,
-    _source: string,
+    _source: string
   ): LevelResult {
     let failures: FailureDetail[]
 
     if (diagnostics.length > 0) {
-      failures = diagnostics.map((d): FailureDetail => ({
-        category: 'build',
-        description: d.message,
-        location: `${d.file}:${d.line}`,
-        evidence,
-        suggestedAction: 'Fix type errors',
-      }))
+      failures = diagnostics.map(
+        (d): FailureDetail => ({
+          category: 'build',
+          description: d.message,
+          location: `${d.file}:${d.line}`,
+          evidence,
+          suggestedAction: 'Fix type errors',
+        })
+      )
     } else {
       // No parseable diagnostics — generic build failure
       failures = [
@@ -266,9 +257,7 @@ export class BuildValidationLevel implements ValidationLevel {
       ]
     }
 
-    const scope = diagnostics.length > 0
-      ? determineBuildScope(diagnostics)
-      : 'partial'
+    const scope = diagnostics.length > 0 ? determineBuildScope(diagnostics) : 'partial'
 
     const remediationContext: RemediationContext = {
       level: this.level,

@@ -66,14 +66,18 @@ vi.mock('node:fs', () => ({
   readdirSync: vi.fn().mockReturnValue([]),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
 }))
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 
 /**
@@ -156,7 +160,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -269,7 +275,12 @@ describe('Orchestrator Verification Pipeline Integration (AC7)', () => {
 
   it('invokes verificationPipeline.run() with correct storyKey after SHIP_IT verdict', async () => {
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     const status = await orchestrator.run(['5-1'])
@@ -277,10 +288,7 @@ describe('Orchestrator Verification Pipeline Integration (AC7)', () => {
     expect(status.stories['5-1']?.phase).toBe('COMPLETE')
     // Pipeline must have been called exactly once for this story
     expect(mockPipelineRun).toHaveBeenCalledOnce()
-    expect(mockPipelineRun).toHaveBeenCalledWith(
-      expect.objectContaining({ storyKey: '5-1' }),
-      'A',
-    )
+    expect(mockPipelineRun).toHaveBeenCalledWith(expect.objectContaining({ storyKey: '5-1' }), 'A')
   })
 
   // -------------------------------------------------------------------------
@@ -289,7 +297,12 @@ describe('Orchestrator Verification Pipeline Integration (AC7)', () => {
 
   it('sets VERIFICATION_FAILED phase when pipeline returns fail status', async () => {
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     // Override to return fail before running
@@ -302,7 +315,12 @@ describe('Orchestrator Verification Pipeline Integration (AC7)', () => {
 
   it('does not emit orchestrator:story-complete when pipeline returns fail', async () => {
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     mockPipelineRun.mockResolvedValue(makeVerifSummary('5-1', 'fail'))
@@ -312,7 +330,7 @@ describe('Orchestrator Verification Pipeline Integration (AC7)', () => {
     // story-complete must NOT be emitted for a VERIFICATION_FAILED story
     const emitCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls
     const storyCompleteCalls = emitCalls.filter(
-      (call: unknown[]) => call[0] === 'orchestrator:story-complete',
+      (call: unknown[]) => call[0] === 'orchestrator:story-complete'
     )
     expect(storyCompleteCalls).toHaveLength(0)
   })
@@ -323,7 +341,12 @@ describe('Orchestrator Verification Pipeline Integration (AC7)', () => {
 
   it('proceeds to COMPLETE when pipeline returns warn status', async () => {
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     mockPipelineRun.mockResolvedValue(makeVerifSummary('5-1', 'warn'))
@@ -341,7 +364,11 @@ describe('Orchestrator Verification Pipeline Integration (AC7)', () => {
 
   it('does not invoke pipeline when skipVerification is true', async () => {
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
       config: defaultConfig({ skipVerification: true }),
     })
 
@@ -358,13 +385,17 @@ describe('Orchestrator Verification Pipeline Integration (AC7)', () => {
 
   it('invokes pipeline for each story that reaches SHIP_IT', async () => {
     mockRunCreateStory.mockImplementation(async (_deps, params: { storyKey: string }) =>
-      makeCreateStorySuccess(params.storyKey),
+      makeCreateStorySuccess(params.storyKey)
     )
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
       config: defaultConfig({ maxConcurrency: 1 }),
     })
 

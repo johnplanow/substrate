@@ -50,7 +50,9 @@ export function renderHelpOverlay(options: HelpOverlayOptions): string[] {
   const horizontalBorder = '─'.repeat(boxWidth - 2)
 
   lines.push(colorize(`  ┌${horizontalBorder}┐`, ANSI.CYAN, useColor))
-  lines.push(colorize(`  │${padOrTruncate(' Keyboard Shortcuts', boxWidth - 2)}│`, ANSI.CYAN, useColor))
+  lines.push(
+    colorize(`  │${padOrTruncate(' Keyboard Shortcuts', boxWidth - 2)}│`, ANSI.CYAN, useColor)
+  )
   lines.push(colorize(`  ├${horizontalBorder}┤`, ANSI.CYAN, useColor))
 
   for (const binding of KEY_BINDINGS) {
@@ -59,7 +61,7 @@ export function renderHelpOverlay(options: HelpOverlayOptions): string[] {
     lines.push(
       useColor
         ? `${ANSI.CYAN}  │${ANSI.RESET}  ${keyPart}  ${descPart}${ANSI.CYAN}│${ANSI.RESET}`
-        : `  │  ${keyPart}  ${descPart}│`,
+        : `  │  ${keyPart}  ${descPart}│`
     )
   }
 

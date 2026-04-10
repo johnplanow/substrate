@@ -276,7 +276,10 @@ describe('runMetricsAction — --routing-recommendations JSON mode (AC3)', () =>
       routingRecommendations: true,
     })
     cap.restore()
-    const parsed = JSON.parse(cap.output().trim()) as { success: boolean; data: Record<string, unknown> }
+    const parsed = JSON.parse(cap.output().trim()) as {
+      success: boolean
+      data: Record<string, unknown>
+    }
     expect(parsed.success).toBe(true)
     expect(parsed.data).toHaveProperty('recommendations')
     expect(parsed.data).toHaveProperty('analysisRuns', 0)
@@ -295,7 +298,10 @@ describe('runMetricsAction — --routing-recommendations JSON mode (AC3)', () =>
       routingRecommendations: true,
     })
     cap.restore()
-    const parsed = JSON.parse(cap.output().trim()) as { success: boolean; data: Record<string, unknown> }
+    const parsed = JSON.parse(cap.output().trim()) as {
+      success: boolean
+      data: Record<string, unknown>
+    }
     expect(parsed.success).toBe(true)
     expect(parsed.data).toHaveProperty('insufficientData', false)
     expect(parsed.data).toHaveProperty('analysisRuns', 7)
@@ -351,9 +357,7 @@ describe('runMetricsAction — --routing-recommendations StateStore lifecycle', 
       projectRoot: '/tmp/test-project',
       routingRecommendations: true,
     })
-    expect(createStateStore).toHaveBeenCalledWith(
-      expect.objectContaining({ backend: 'file' }),
-    )
+    expect(createStateStore).toHaveBeenCalledWith(expect.objectContaining({ backend: 'file' }))
   })
 
   it('uses dolt backend when dolt state path exists', async () => {
@@ -372,8 +376,6 @@ describe('runMetricsAction — --routing-recommendations StateStore lifecycle', 
       projectRoot: '/tmp/test-project',
       routingRecommendations: true,
     })
-    expect(createStateStore).toHaveBeenCalledWith(
-      expect.objectContaining({ backend: 'dolt' }),
-    )
+    expect(createStateStore).toHaveBeenCalledWith(expect.objectContaining({ backend: 'dolt' }))
   })
 })

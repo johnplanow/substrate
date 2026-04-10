@@ -60,11 +60,7 @@ async function createTestDb(): Promise<InMemoryDatabaseAdapter> {
   return adapter
 }
 
-function insertStoryDecision(
-  adapter: InMemoryDatabaseAdapter,
-  key: string,
-  runId?: string,
-): void {
+function insertStoryDecision(adapter: InMemoryDatabaseAdapter, key: string, runId?: string): void {
   adapter.querySync(
     `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value)
      VALUES (?, ?, 'solutioning', 'stories', ?, ?)`,
@@ -73,7 +69,7 @@ function insertStoryDecision(
       runId ?? null,
       key,
       JSON.stringify({ key, title: `Story ${key}`, description: 'test' }),
-    ],
+    ]
   )
 }
 
@@ -81,27 +77,22 @@ function insertEpicShard(
   adapter: InMemoryDatabaseAdapter,
   shardKey: string,
   content: string,
-  runId?: string,
+  runId?: string
 ): void {
   adapter.querySync(
     `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value)
      VALUES (?, ?, 'solutioning', 'epic-shard', ?, ?)`,
-    [crypto.randomUUID(), runId ?? null, shardKey, content],
+    [crypto.randomUUID(), runId ?? null, shardKey, content]
   )
 }
 
-function insertCompletedRun(
-  adapter: InMemoryDatabaseAdapter,
-  completedStories: string[],
-): void {
+function insertCompletedRun(adapter: InMemoryDatabaseAdapter, completedStories: string[]): void {
   const state = {
-    stories: Object.fromEntries(
-      completedStories.map((k) => [k, { phase: 'COMPLETE' }]),
-    ),
+    stories: Object.fromEntries(completedStories.map((k) => [k, { phase: 'COMPLETE' }])),
   }
   adapter.querySync(
     `INSERT INTO pipeline_runs (id, status, token_usage_json) VALUES (?, 'completed', ?)`,
-    [crypto.randomUUID(), JSON.stringify(state)],
+    [crypto.randomUUID(), JSON.stringify(state)]
   )
 }
 

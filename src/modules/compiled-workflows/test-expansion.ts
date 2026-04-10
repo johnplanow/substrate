@@ -32,7 +32,10 @@ const logger = createLogger('compiled-workflows:test-expansion')
 // Graceful fallback
 // ---------------------------------------------------------------------------
 
-function defaultFallbackResult(error: string, tokenUsage: { input: number; output: number }): TestExpansionResult {
+function defaultFallbackResult(
+  error: string,
+  tokenUsage: { input: number; output: number }
+): TestExpansionResult {
   return {
     expansion_priority: 'low',
     coverage_gaps: [],
@@ -65,7 +68,7 @@ function defaultFallbackResult(error: string, tokenUsage: { input: number; outpu
  */
 export async function runTestExpansion(
   deps: WorkflowDeps,
-  params: TestExpansionParams,
+  params: TestExpansionParams
 ): Promise<TestExpansionResult> {
   const { storyKey, storyFilePath, pipelineRunId, filesModified, workingDirectory } = params
   const cwd = workingDirectory ?? process.cwd()
@@ -75,9 +78,12 @@ export async function runTestExpansion(
   // Resolve token ceiling: config override takes priority over hardcoded default
   const { ceiling: TOKEN_CEILING, source: tokenCeilingSource } = getTokenCeiling(
     'test-expansion',
-    deps.tokenCeilings,
+    deps.tokenCeilings
   )
-  logger.info({ workflow: 'test-expansion', ceiling: TOKEN_CEILING, source: tokenCeilingSource }, 'Token ceiling resolved')
+  logger.info(
+    { workflow: 'test-expansion', ceiling: TOKEN_CEILING, source: tokenCeilingSource },
+    'Token ceiling resolved'
+  )
 
   // Step 1: Get compiled prompt template
   let template: string
@@ -86,7 +92,10 @@ export async function runTestExpansion(
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     logger.warn({ error }, 'Failed to retrieve test-expansion prompt template')
-    return defaultFallbackResult(`Failed to retrieve prompt template: ${error}`, { input: 0, output: 0 })
+    return defaultFallbackResult(`Failed to retrieve prompt template: ${error}`, {
+      input: 0,
+      output: 0,
+    })
   }
 
   // Step 2: Read story file
@@ -106,10 +115,14 @@ export async function runTestExpansion(
   let testPatternsContent = ''
   try {
     const solutioningDecisions = await getDecisionsByPhase(deps.db, 'solutioning')
-    const testPatternDecisions = solutioningDecisions.filter(d => d.category === 'test-patterns')
+    const testPatternDecisions = solutioningDecisions.filter((d) => d.category === 'test-patterns')
     if (testPatternDecisions.length > 0) {
-      testPatternsContent = '## Test Patterns\n' + testPatternDecisions.map(d => `- ${d.key}: ${d.value}`).join('\n')
-      logger.debug({ storyKey, count: testPatternDecisions.length }, 'Loaded test patterns from decision store')
+      testPatternsContent =
+        '## Test Patterns\n' + testPatternDecisions.map((d) => `- ${d.key}: ${d.value}`).join('\n')
+      logger.debug(
+        { storyKey, count: testPatternDecisions.length },
+        'Loaded test patterns from decision store'
+      )
     } else {
       testPatternsContent = resolveDefaultTestPatterns(deps.projectRoot)
       logger.debug({ storyKey }, 'No test-pattern decisions — using stack-aware defaults')
@@ -131,16 +144,22 @@ export async function runTestExpansion(
       const scopedTotal = nonDiffTokens + countTokens(scopedDiff)
       if (scopedTotal <= TOKEN_CEILING) {
         gitDiffContent = scopedDiff
-        logger.debug({ fileCount: filesModified.length, tokenCount: scopedTotal }, 'Using scoped file diff')
+        logger.debug(
+          { fileCount: filesModified.length, tokenCount: scopedTotal },
+          'Using scoped file diff'
+        )
       } else {
         logger.warn(
           { estimatedTotal: scopedTotal, ceiling: TOKEN_CEILING, fileCount: filesModified.length },
-          'Scoped diff exceeds token ceiling — falling back to stat-only summary',
+          'Scoped diff exceeds token ceiling — falling back to stat-only summary'
         )
         gitDiffContent = await getGitDiffStatForFiles(filesModified, cwd)
       }
     } catch (err) {
-      logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to get git diff — proceeding with empty diff')
+      logger.warn(
+        { error: err instanceof Error ? err.message : String(err) },
+        'Failed to get git diff — proceeding with empty diff'
+      )
     }
   }
 
@@ -157,13 +176,13 @@ export async function runTestExpansion(
   if (assembleResult.truncated) {
     logger.warn(
       { storyKey, tokenCount: assembleResult.tokenCount },
-      'Test-expansion prompt truncated to fit token ceiling',
+      'Test-expansion prompt truncated to fit token ceiling'
     )
   }
 
   logger.debug(
     { storyKey, tokenCount: assembleResult.tokenCount, truncated: assembleResult.truncated },
-    'Prompt assembled for test-expansion',
+    'Prompt assembled for test-expansion'
   )
 
   const { prompt } = assembleResult
@@ -198,7 +217,8 @@ export async function runTestExpansion(
 
   // Handle dispatch failures
   if (dispatchResult.status === 'failed') {
-    const errorMsg = `Dispatch status: failed. Exit code: ${dispatchResult.exitCode}. ${dispatchResult.parseError ?? ''}`.trim()
+    const errorMsg =
+      `Dispatch status: failed. Exit code: ${dispatchResult.exitCode}. ${dispatchResult.parseError ?? ''}`.trim()
     logger.warn({ storyKey, exitCode: dispatchResult.exitCode }, 'Test-expansion dispatch failed')
     return defaultFallbackResult(errorMsg, tokenUsage)
   }
@@ -207,7 +227,7 @@ export async function runTestExpansion(
     logger.warn({ storyKey }, 'Test-expansion dispatch timed out')
     return defaultFallbackResult(
       'Dispatch status: timeout. The agent did not complete within the allowed time.',
-      tokenUsage,
+      tokenUsage
     )
   }
 
@@ -234,7 +254,7 @@ export async function runTestExpansion(
       coverage_gaps: parsed.coverage_gaps.length,
       suggested_tests: parsed.suggested_tests.length,
     },
-    'Test-expansion workflow completed successfully',
+    'Test-expansion workflow completed successfully'
   )
 
   return {
@@ -263,7 +283,7 @@ async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
   } catch (err) {
     logger.warn(
       { error: err instanceof Error ? err.message : String(err) },
-      'Failed to retrieve architecture constraints',
+      'Failed to retrieve architecture constraints'
     )
     return ''
   }

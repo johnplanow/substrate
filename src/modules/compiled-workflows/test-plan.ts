@@ -47,7 +47,7 @@ const DEFAULT_TIMEOUT_MS = 300_000
  */
 export async function runTestPlan(
   deps: WorkflowDeps,
-  params: TestPlanParams,
+  params: TestPlanParams
 ): Promise<TestPlanResult> {
   const { storyKey, storyFilePath, pipelineRunId } = params
 
@@ -56,9 +56,12 @@ export async function runTestPlan(
   // Resolve token ceiling: config override takes priority over hardcoded default
   const { ceiling: TOKEN_CEILING, source: tokenCeilingSource } = getTokenCeiling(
     'test-plan',
-    deps.tokenCeilings,
+    deps.tokenCeilings
   )
-  logger.info({ workflow: 'test-plan', ceiling: TOKEN_CEILING, source: tokenCeilingSource }, 'Token ceiling resolved')
+  logger.info(
+    { workflow: 'test-plan', ceiling: TOKEN_CEILING, source: tokenCeilingSource },
+    'Token ceiling resolved'
+  )
 
   // ---------------------------------------------------------------------------
   // Step 1: Retrieve compiled prompt template from methodology pack
@@ -105,10 +108,14 @@ export async function runTestPlan(
   let testPatternsContent = ''
   try {
     const solutioningDecisions = await getDecisionsByPhase(deps.db, 'solutioning')
-    const testPatternDecisions = solutioningDecisions.filter(d => d.category === 'test-patterns')
+    const testPatternDecisions = solutioningDecisions.filter((d) => d.category === 'test-patterns')
     if (testPatternDecisions.length > 0) {
-      testPatternsContent = '## Test Patterns\n' + testPatternDecisions.map(d => `- ${d.key}: ${d.value}`).join('\n')
-      logger.debug({ storyKey, count: testPatternDecisions.length }, 'Loaded test patterns from decision store')
+      testPatternsContent =
+        '## Test Patterns\n' + testPatternDecisions.map((d) => `- ${d.key}: ${d.value}`).join('\n')
+      logger.debug(
+        { storyKey, count: testPatternDecisions.length },
+        'Loaded test patterns from decision store'
+      )
     } else {
       testPatternsContent = resolveDefaultTestPatterns(deps.projectRoot)
       logger.debug({ storyKey }, 'No test-pattern decisions — using stack-aware defaults')
@@ -128,12 +135,12 @@ export async function runTestPlan(
       { name: 'architecture_constraints', content: archConstraintsContent, priority: 'optional' },
       { name: 'test_patterns', content: testPatternsContent, priority: 'optional' as const },
     ],
-    TOKEN_CEILING,
+    TOKEN_CEILING
   )
 
   logger.info(
     { storyKey, tokenCount, ceiling: TOKEN_CEILING, truncated },
-    'Assembled test-plan prompt',
+    'Assembled test-plan prompt'
   )
 
   // ---------------------------------------------------------------------------
@@ -171,13 +178,16 @@ export async function runTestPlan(
 
   if (dispatchResult.status === 'timeout') {
     logger.warn({ storyKey, durationMs: dispatchResult.durationMs }, 'Test-plan dispatch timed out')
-    return { ...makeTestPlanFailureResult(`dispatch_timeout after ${dispatchResult.durationMs}ms`), tokenUsage }
+    return {
+      ...makeTestPlanFailureResult(`dispatch_timeout after ${dispatchResult.durationMs}ms`),
+      tokenUsage,
+    }
   }
 
   if (dispatchResult.status === 'failed' || dispatchResult.exitCode !== 0) {
     logger.warn(
       { storyKey, exitCode: dispatchResult.exitCode, status: dispatchResult.status },
-      'Test-plan dispatch failed',
+      'Test-plan dispatch failed'
     )
     return {
       ...makeTestPlanFailureResult(`dispatch_failed with exit_code=${dispatchResult.exitCode}`),
@@ -215,11 +225,14 @@ export async function runTestPlan(
     })
     logger.info(
       { storyKey, fileCount: parsed.test_files.length, categories: parsed.test_categories },
-      'Test plan stored in decision store',
+      'Test plan stored in decision store'
     )
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
-    logger.warn({ storyKey, error }, 'Failed to store test plan in decision store — proceeding anyway')
+    logger.warn(
+      { storyKey, error },
+      'Failed to store test plan in decision store — proceeding anyway'
+    )
   }
 
   // ---------------------------------------------------------------------------
@@ -269,7 +282,7 @@ async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
   } catch (err) {
     logger.warn(
       { error: err instanceof Error ? err.message : String(err) },
-      'Failed to retrieve architecture constraints for test-plan — proceeding without them',
+      'Failed to retrieve architecture constraints for test-plan — proceeding without them'
     )
     return ''
   }

@@ -101,7 +101,10 @@ function makeOtlpLogPayload(storyKey: string, inputTokens = 1000, outputTokens =
                   { key: 'event.name', value: { stringValue: 'api_request' } },
                   { key: 'gen_ai.usage.input_tokens', value: { intValue: inputTokens } },
                   { key: 'gen_ai.usage.output_tokens', value: { intValue: outputTokens } },
-                  { key: 'gen_ai.request.model', value: { stringValue: 'claude-3-5-sonnet-20241022' } },
+                  {
+                    key: 'gen_ai.request.model',
+                    value: { stringValue: 'claude-3-5-sonnet-20241022' },
+                  },
                 ],
               },
             ],
@@ -122,7 +125,7 @@ function makeOtlpLogPayloadWithDispatchAttrs(
   taskType: string,
   dispatchId: string,
   inputTokens = 1000,
-  outputTokens = 200,
+  outputTokens = 200
 ): unknown {
   return {
     resourceLogs: [
@@ -149,7 +152,10 @@ function makeOtlpLogPayloadWithDispatchAttrs(
                   { key: 'event.name', value: { stringValue: 'api_request' } },
                   { key: 'gen_ai.usage.input_tokens', value: { intValue: inputTokens } },
                   { key: 'gen_ai.usage.output_tokens', value: { intValue: outputTokens } },
-                  { key: 'gen_ai.request.model', value: { stringValue: 'claude-3-5-sonnet-20241022' } },
+                  {
+                    key: 'gen_ai.request.model',
+                    value: { stringValue: 'claude-3-5-sonnet-20241022' },
+                  },
                 ],
               },
             ],
@@ -175,7 +181,11 @@ describe('TelemetryNormalizer.normalizeLog — dispatch context propagation', ()
 
   it('propagates taskType, phase, dispatchId to all NormalizedLog records when dispatchContext is provided', () => {
     const payload = makeOtlpLogPayload('30-1')
-    const ctx: DispatchContext = { taskType: 'dev-story', phase: 'IN_DEV', dispatchId: 'dispatch-abc' }
+    const ctx: DispatchContext = {
+      taskType: 'dev-story',
+      phase: 'IN_DEV',
+      dispatchId: 'dispatch-abc',
+    }
     const logs = normalizer.normalizeLog(payload, ctx)
     expect(logs.length).toBeGreaterThan(0)
     for (const log of logs) {
@@ -333,7 +343,11 @@ describe('TelemetryPipeline.processBatch — dispatch context flows through norm
       body: makeOtlpLogPayload(storyKey),
       source: 'claude-code',
       receivedAt: Date.now(),
-      dispatchContext: { taskType: 'dev-story', phase: 'IN_DEV', dispatchId: 'dispatch-pipeline-01' },
+      dispatchContext: {
+        taskType: 'dev-story',
+        phase: 'IN_DEV',
+        dispatchId: 'dispatch-pipeline-01',
+      },
     }
 
     await pipeline.processBatch([payload])
@@ -448,7 +462,7 @@ describe('IngestionServer — HTTP payload stamping with dispatch context', () =
         (res) => {
           res.resume()
           res.on('end', () => resolve({ status: res.statusCode ?? 0 }))
-        },
+        }
       )
       req.on('error', reject)
       req.write(body)
@@ -493,7 +507,9 @@ describe('IngestionServer — HTTP payload stamping with dispatch context', () =
 
     // NO setActiveDispatch call — dispatch context should come from resource attributes
     const storyKey = '30-1-resource-attrs'
-    const body = JSON.stringify(makeOtlpLogPayloadWithDispatchAttrs(storyKey, 'dev-story', 'dispatch-abc'))
+    const body = JSON.stringify(
+      makeOtlpLogPayloadWithDispatchAttrs(storyKey, 'dev-story', 'dispatch-abc')
+    )
     const endpoint = server.getOtlpEnvVars().OTEL_EXPORTER_OTLP_ENDPOINT
     await sendPost(endpoint!, body)
 

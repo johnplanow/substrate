@@ -41,7 +41,7 @@ async function registerArtifactForRun(
   adapter: DatabaseAdapter,
   runId: string,
   phase: string,
-  type: string,
+  type: string
 ): Promise<void> {
   await registerArtifact(adapter, {
     pipeline_run_id: runId,
@@ -683,7 +683,14 @@ describe('createBuiltInPhases - conditional research registration (Story 20.1)',
   it('phase order with research and ux-design enabled is research, analysis, planning, ux-design, solutioning, implementation', () => {
     const phases = createBuiltInPhases({ researchEnabled: true, uxDesignEnabled: true })
     const names = phases.map((p) => p.name)
-    expect(names).toEqual(['research', 'analysis', 'planning', 'ux-design', 'solutioning', 'implementation'])
+    expect(names).toEqual([
+      'research',
+      'analysis',
+      'planning',
+      'ux-design',
+      'solutioning',
+      'implementation',
+    ])
   })
 })
 

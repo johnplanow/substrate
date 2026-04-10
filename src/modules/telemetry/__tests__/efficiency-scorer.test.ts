@@ -106,10 +106,7 @@ describe('EfficiencyScorer', () => {
     })
 
     it('should compute cacheHitSubScore = 0 when all turns have cacheHitRate = 0', () => {
-      const turns = [
-        makeTurn({ cacheHitRate: 0 }),
-        makeTurn({ spanId: 'span-2', cacheHitRate: 0 }),
-      ]
+      const turns = [makeTurn({ cacheHitRate: 0 }), makeTurn({ spanId: 'span-2', cacheHitRate: 0 })]
       const result = scorer.score('27-6', turns)
       expect(result.cacheHitSubScore).toBe(0)
     })
@@ -124,28 +121,36 @@ describe('EfficiencyScorer', () => {
     describe('ioRatioSubScore (logarithmic curve)', () => {
       it('should score 0 when io_ratio = 1 (log10(1) = 0)', () => {
         // output/freshInput = 1000/1000 = 1.0 → log10(1)/log10(100)*100 = 0
-        const turns = [makeTurn({ inputTokens: 1000, outputTokens: 1000, cacheReadTokens: 0, cacheHitRate: 0 })]
+        const turns = [
+          makeTurn({ inputTokens: 1000, outputTokens: 1000, cacheReadTokens: 0, cacheHitRate: 0 }),
+        ]
         const result = scorer.score('27-6', turns)
         expect(result.ioRatioSubScore).toBe(0)
       })
 
       it('should score 50 when io_ratio = 10 (default TARGET=100)', () => {
         // output/freshInput = 1000/100 = 10 → log10(10)/log10(100)*100 = 1/2*100 = 50
-        const turns = [makeTurn({ inputTokens: 100, outputTokens: 1000, cacheReadTokens: 0, cacheHitRate: 0 })]
+        const turns = [
+          makeTurn({ inputTokens: 100, outputTokens: 1000, cacheReadTokens: 0, cacheHitRate: 0 }),
+        ]
         const result = scorer.score('27-6', turns)
         expect(result.ioRatioSubScore).toBeCloseTo(50, 1)
       })
 
       it('should score 100 when io_ratio = TARGET (100)', () => {
         // output/freshInput = 1000/10 = 100 → log10(100)/log10(100)*100 = 100
-        const turns = [makeTurn({ inputTokens: 10, outputTokens: 1000, cacheReadTokens: 0, cacheHitRate: 0 })]
+        const turns = [
+          makeTurn({ inputTokens: 10, outputTokens: 1000, cacheReadTokens: 0, cacheHitRate: 0 }),
+        ]
         const result = scorer.score('27-6', turns)
         expect(result.ioRatioSubScore).toBe(100)
       })
 
       it('should clamp to 100 when io_ratio exceeds TARGET', () => {
         // output/freshInput = 10000/10 = 1000 → log10(1000)/log10(100)*100 = 3/2*100 = 150 → clamped 100
-        const turns = [makeTurn({ inputTokens: 10, outputTokens: 10000, cacheReadTokens: 0, cacheHitRate: 0 })]
+        const turns = [
+          makeTurn({ inputTokens: 10, outputTokens: 10000, cacheReadTokens: 0, cacheHitRate: 0 }),
+        ]
         const result = scorer.score('27-6', turns)
         expect(result.ioRatioSubScore).toBe(100)
       })
@@ -298,7 +303,7 @@ describe('EfficiencyScorer', () => {
       scorer.score('27-6', [makeTurn()])
       expect(logger.info).toHaveBeenCalledWith(
         expect.objectContaining({ storyKey: '27-6' }),
-        expect.any(String),
+        expect.any(String)
       )
     })
 
@@ -307,10 +312,30 @@ describe('EfficiencyScorer', () => {
       it('should exclude first turn per dispatchId from scoring', () => {
         // 2 dispatches, each with 2 turns. First turn of each = cold-start
         const turns = [
-          makeTurn({ spanId: 'cold-1', dispatchId: 'dispatch-a', cacheHitRate: 0.0, outputTokens: 10 }),
-          makeTurn({ spanId: 'warm-1', dispatchId: 'dispatch-a', cacheHitRate: 1.0, outputTokens: 800 }),
-          makeTurn({ spanId: 'cold-2', dispatchId: 'dispatch-b', cacheHitRate: 0.0, outputTokens: 10 }),
-          makeTurn({ spanId: 'warm-2', dispatchId: 'dispatch-b', cacheHitRate: 1.0, outputTokens: 800 }),
+          makeTurn({
+            spanId: 'cold-1',
+            dispatchId: 'dispatch-a',
+            cacheHitRate: 0.0,
+            outputTokens: 10,
+          }),
+          makeTurn({
+            spanId: 'warm-1',
+            dispatchId: 'dispatch-a',
+            cacheHitRate: 1.0,
+            outputTokens: 800,
+          }),
+          makeTurn({
+            spanId: 'cold-2',
+            dispatchId: 'dispatch-b',
+            cacheHitRate: 0.0,
+            outputTokens: 10,
+          }),
+          makeTurn({
+            spanId: 'warm-2',
+            dispatchId: 'dispatch-b',
+            cacheHitRate: 1.0,
+            outputTokens: 800,
+          }),
         ]
         const result = scorer.score('27-6', turns)
         expect(result.coldStartTurnsExcluded).toBe(2)
@@ -380,9 +405,7 @@ describe('EfficiencyScorer', () => {
       })
 
       it('should use default baseline for unknown task types', () => {
-        const turns = [
-          makeTurn({ taskType: 'custom-task', outputTokens: 800 }),
-        ]
+        const turns = [makeTurn({ taskType: 'custom-task', outputTokens: 800 })]
         const result = scorer.score('27-6', turns)
         expect(result.tokenDensitySubScore).toBe(100) // 800/800 (default) = 1.0 → 100
       })
@@ -391,9 +414,26 @@ describe('EfficiencyScorer', () => {
     describe('per-model breakdown', () => {
       it('should group turns by model correctly', () => {
         const turns = [
-          makeTurn({ model: 'claude-opus', inputTokens: 2000, outputTokens: 1000, cacheHitRate: 0.8 }),
-          makeTurn({ spanId: 'span-2', model: 'claude-sonnet', inputTokens: 1000, outputTokens: 500, cacheHitRate: 0.6 }),
-          makeTurn({ spanId: 'span-3', model: 'claude-opus', inputTokens: 1500, outputTokens: 750, cacheHitRate: 0.7 }),
+          makeTurn({
+            model: 'claude-opus',
+            inputTokens: 2000,
+            outputTokens: 1000,
+            cacheHitRate: 0.8,
+          }),
+          makeTurn({
+            spanId: 'span-2',
+            model: 'claude-sonnet',
+            inputTokens: 1000,
+            outputTokens: 500,
+            cacheHitRate: 0.6,
+          }),
+          makeTurn({
+            spanId: 'span-3',
+            model: 'claude-opus',
+            inputTokens: 1500,
+            outputTokens: 750,
+            cacheHitRate: 0.7,
+          }),
         ]
         const result = scorer.score('27-6', turns)
         expect(result.perModelBreakdown).toHaveLength(2)
@@ -524,8 +564,19 @@ describe('EfficiencyScorer', () => {
     describe('determinism', () => {
       it('should return identical compositeScore for identical inputs', () => {
         const turns = [
-          makeTurn({ inputTokens: 2000, outputTokens: 800, cacheHitRate: 0.6, isContextSpike: false }),
-          makeTurn({ spanId: 'span-2', inputTokens: 3000, outputTokens: 500, cacheHitRate: 0.4, isContextSpike: true }),
+          makeTurn({
+            inputTokens: 2000,
+            outputTokens: 800,
+            cacheHitRate: 0.6,
+            isContextSpike: false,
+          }),
+          makeTurn({
+            spanId: 'span-2',
+            inputTokens: 3000,
+            outputTokens: 500,
+            cacheHitRate: 0.4,
+            isContextSpike: true,
+          }),
         ]
         const result1 = scorer.score('27-6', turns)
         const result2 = scorer.score('27-6', turns)

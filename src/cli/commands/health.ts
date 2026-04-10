@@ -19,10 +19,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createDatabaseAdapter } from '../../persistence/adapter.js'
 import { initSchema } from '../../persistence/schema.js'
-import {
-  getLatestRun,
-  getPipelineRunById,
-} from '../../persistence/queries/decisions.js'
+import { getLatestRun, getPipelineRunById } from '../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 import type { OutputFormat } from './pipeline-shared.js'
@@ -156,7 +153,7 @@ export function isOrchestratorProcessLine(line: string, projectRoot?: string): b
 export type ExecFileSyncFn = (
   file: string,
   args: string[],
-  opts: { encoding: string; timeout: number },
+  opts: { encoding: string; timeout: number }
 ) => string
 
 export interface InspectProcessTreeOptions {
@@ -176,15 +173,26 @@ export interface InspectProcessTreeOptions {
 }
 
 export function inspectProcessTree(opts?: InspectProcessTreeOptions): ProcessInfo {
-  const { projectRoot, substrateDirPath, execFileSync: execFileSyncOverride, readFileSync: readFileSyncOverride } = opts ?? {}
+  const {
+    projectRoot,
+    substrateDirPath,
+    execFileSync: execFileSyncOverride,
+    readFileSync: readFileSyncOverride,
+  } = opts ?? {}
   const result: ProcessInfo = { orchestrator_pid: null, child_pids: [], zombies: [] }
   try {
     let psOutput: string
     if (execFileSyncOverride !== undefined) {
-      psOutput = execFileSyncOverride('ps', ['-eo', 'pid,ppid,stat,command'], { encoding: 'utf-8', timeout: 5000 })
+      psOutput = execFileSyncOverride('ps', ['-eo', 'pid,ppid,stat,command'], {
+        encoding: 'utf-8',
+        timeout: 5000,
+      })
     } else {
       const { execFileSync } = require('node:child_process') as typeof import('node:child_process')
-      psOutput = execFileSync('ps', ['-eo', 'pid,ppid,stat,command'], { encoding: 'utf-8', timeout: 5000 }) as string
+      psOutput = execFileSync('ps', ['-eo', 'pid,ppid,stat,command'], {
+        encoding: 'utf-8',
+        timeout: 5000,
+      }) as string
     }
     const lines = psOutput.split('\n')
 
@@ -199,7 +207,8 @@ export function inspectProcessTree(opts?: InspectProcessTreeOptions): ProcessInf
     // -----------------------------------------------------------------------
     if (substrateDirPath !== undefined) {
       try {
-        const readFileSyncFn = readFileSyncOverride ??
+        const readFileSyncFn =
+          readFileSyncOverride ??
           ((path: string, encoding: string) => readFileSync(path, encoding as BufferEncoding))
         const pidContent = readFileSyncFn(join(substrateDirPath, 'orchestrator.pid'), 'utf-8')
         const pid = parseInt(pidContent.trim(), 10)
@@ -279,16 +288,22 @@ export function inspectProcessTree(opts?: InspectProcessTreeOptions): ProcessInf
  */
 export function getAllDescendantPids(
   rootPids: number[],
-  execFileSyncOverride?: ExecFileSyncFn,
+  execFileSyncOverride?: ExecFileSyncFn
 ): number[] {
   if (rootPids.length === 0) return []
   try {
     let psOutput: string
     if (execFileSyncOverride !== undefined) {
-      psOutput = execFileSyncOverride('ps', ['-eo', 'pid,ppid'], { encoding: 'utf-8', timeout: 5000 })
+      psOutput = execFileSyncOverride('ps', ['-eo', 'pid,ppid'], {
+        encoding: 'utf-8',
+        timeout: 5000,
+      })
     } else {
       const { execFileSync } = require('node:child_process') as typeof import('node:child_process')
-      psOutput = execFileSync('ps', ['-eo', 'pid,ppid'], { encoding: 'utf-8', timeout: 5000 }) as string
+      psOutput = execFileSync('ps', ['-eo', 'pid,ppid'], {
+        encoding: 'utf-8',
+        timeout: 5000,
+      }) as string
     }
 
     // Build parent → children map from ps output
@@ -346,9 +361,15 @@ interface ManifestStoryCounts {
  * Maps manifest status strings to health output buckets.
  */
 function buildHealthStoryCountsFromManifest(
-  perStoryState: Record<string, PerStoryState>,
+  perStoryState: Record<string, PerStoryState>
 ): ManifestStoryCounts {
-  const counts: ManifestStoryCounts = { active: 0, completed: 0, escalated: 0, pending: 0, failed: 0 }
+  const counts: ManifestStoryCounts = {
+    active: 0,
+    completed: 0,
+    escalated: 0,
+    pending: 0,
+    failed: 0,
+  }
   for (const entry of Object.values(perStoryState)) {
     switch (entry.status) {
       case 'complete':
@@ -421,7 +442,9 @@ export async function getAutoHealthData(options: {
         const { stdout } = await execFileAsync('dolt', ['version'])
         const match = stdout.match(/dolt version (\S+)/)
         if (match) version = match[1]
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       // List branches
       try {
         const { execFile: ef } = await import('node:child_process')
@@ -437,7 +460,9 @@ export async function getAutoHealthData(options: {
           }
           return trimmed
         })
-      } catch { /* ignore — dolt branch may fail if not a dolt repo */ }
+      } catch {
+        /* ignore — dolt branch may fail if not a dolt repo */
+      }
     } catch {
       responsive = false
     }
@@ -569,7 +594,10 @@ export async function getAutoHealthData(options: {
       }
     } catch {
       // Non-fatal: fall back to token_usage_json counts (AC4)
-      logger.debug({ runId: run.id }, 'health: manifest read failed — using token_usage_json counts')
+      logger.debug(
+        { runId: run.id },
+        'health: manifest read failed — using token_usage_json counts'
+      )
     }
 
     // Use manifest counts if available; fall back to token_usage_json counts (AC4)
@@ -585,7 +613,8 @@ export async function getAutoHealthData(options: {
     // by `substrate run` — this is the primary fix for cross-project detection
     // where --project-root may not appear in the process command line (AC1, AC3).
     const substrateDirPath = join(dbRoot, '.substrate')
-    const processInfo = options._processInfoOverride ?? inspectProcessTree({ projectRoot, substrateDirPath })
+    const processInfo =
+      options._processInfoOverride ?? inspectProcessTree({ projectRoot, substrateDirPath })
 
     // Derive verdict
     // Priority order (AC1 → AC2 → AC3 heuristics):
@@ -626,7 +655,9 @@ export async function getAutoHealthData(options: {
     // Collect non-fatal degradation warnings
     const warnings: string[] = []
     if (doltStateInfo !== undefined && doltStateInfo.responsive === false) {
-      warnings.push('Dolt not connected — decision store queries may fail, story context will be degraded')
+      warnings.push(
+        'Dolt not connected — decision store queries may fail, story context will be degraded'
+      )
     }
     if (finalEscalated > 0) {
       warnings.push(`${finalEscalated} story(ies) escalated — operator intervention may be needed`)
@@ -677,16 +708,21 @@ export async function runHealthAction(options: HealthOptions): Promise<number> {
       process.stdout.write(formatOutput(health, 'json', true) + '\n')
     } else {
       // Human-readable output
-      const verdictLabel = health.verdict === 'HEALTHY' ? 'HEALTHY'
-        : health.verdict === 'STALLED' ? 'STALLED'
-        : 'NO PIPELINE RUNNING'
+      const verdictLabel =
+        health.verdict === 'HEALTHY'
+          ? 'HEALTHY'
+          : health.verdict === 'STALLED'
+            ? 'STALLED'
+            : 'NO PIPELINE RUNNING'
       process.stdout.write(`\nPipeline Health: ${verdictLabel}\n`)
 
       if (health.run_id !== null) {
         process.stdout.write(`  Run:          ${health.run_id}\n`)
         process.stdout.write(`  Status:       ${health.status}\n`)
         process.stdout.write(`  Phase:        ${health.current_phase ?? 'N/A'}\n`)
-        process.stdout.write(`  Last Active:  ${health.last_activity} (${health.staleness_seconds}s ago)\n`)
+        process.stdout.write(
+          `  Last Active:  ${health.last_activity} (${health.staleness_seconds}s ago)\n`
+        )
 
         const processInfo = health.process
         if (processInfo.orchestrator_pid !== null) {
@@ -707,23 +743,30 @@ export async function runHealthAction(options: HealthOptions): Promise<number> {
             process.stdout.write(`    ${key}: ${s.phase} (${s.review_cycles} review cycles)\n`)
           }
           process.stdout.write(
-            `\n  Summary: ${health.stories.active} active, ${health.stories.completed} completed, ${health.stories.escalated} escalated\n`,
+            `\n  Summary: ${health.stories.active} active, ${health.stories.completed} completed, ${health.stories.escalated} escalated\n`
           )
         }
-
       }
 
       // Recommended next actions based on verdict
       if (health.verdict === 'STALLED') {
         process.stdout.write('\n  Recommended Actions:\n')
         if (health.process.orchestrator_pid !== null) {
-          process.stdout.write(`    1. Kill stalled orchestrator: kill ${health.process.orchestrator_pid}\n`)
+          process.stdout.write(
+            `    1. Kill stalled orchestrator: kill ${health.process.orchestrator_pid}\n`
+          )
         }
         if (health.process.zombies.length > 0) {
-          process.stdout.write(`    ${health.process.orchestrator_pid !== null ? '2' : '1'}. Kill zombie processes: kill ${health.process.zombies.join(' ')}\n`)
+          process.stdout.write(
+            `    ${health.process.orchestrator_pid !== null ? '2' : '1'}. Kill zombie processes: kill ${health.process.zombies.join(' ')}\n`
+          )
         }
-        process.stdout.write(`    ${health.process.orchestrator_pid !== null ? '3' : '2'}. Resume the run: substrate resume\n`)
-        process.stdout.write(`    ${health.process.orchestrator_pid !== null ? '4' : '3'}. Or start fresh: substrate run --events --stories <keys>\n`)
+        process.stdout.write(
+          `    ${health.process.orchestrator_pid !== null ? '3' : '2'}. Resume the run: substrate resume\n`
+        )
+        process.stdout.write(
+          `    ${health.process.orchestrator_pid !== null ? '4' : '3'}. Or start fresh: substrate run --events --stories <keys>\n`
+        )
       } else if (health.verdict === 'NO_PIPELINE_RUNNING' && health.stories.escalated > 0) {
         process.stdout.write('\n  Recommended Actions:\n')
         process.stdout.write('    1. Retry escalated stories: substrate retry-escalated\n')
@@ -744,7 +787,9 @@ export async function runHealthAction(options: HealthOptions): Promise<number> {
         const initStr = ds.initialized ? 'yes' : 'no'
         const respStr = ds.responsive ? 'yes' : 'no'
         const verStr = ds.version !== undefined ? ` (v${ds.version})` : ''
-        process.stdout.write(`\n  Dolt State:   initialized=${initStr} responsive=${respStr}${verStr}\n`)
+        process.stdout.write(
+          `\n  Dolt State:   initialized=${initStr} responsive=${respStr}${verStr}\n`
+        )
       }
     }
 
@@ -768,18 +813,14 @@ export async function runHealthAction(options: HealthOptions): Promise<number> {
 export function registerHealthCommand(
   program: Command,
   _version = '0.0.0',
-  projectRoot = process.cwd(),
+  projectRoot = process.cwd()
 ): void {
   program
     .command('health')
     .description('Check pipeline health: process status, stall detection, and verdict')
     .option('--run-id <id>', 'Pipeline run ID to query (defaults to latest)')
     .option('--project-root <path>', 'Project root directory', projectRoot)
-    .option(
-      '--output-format <format>',
-      'Output format: human (default) or json',
-      'human',
-    )
+    .option('--output-format <format>', 'Output format: human (default) or json', 'human')
     .action(async (opts: { runId?: string; projectRoot: string; outputFormat: string }) => {
       const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
       const root = opts.projectRoot
@@ -810,7 +851,11 @@ export function registerHealthCommand(
         })
         process.exitCode = exitCode
       } finally {
-        try { await stateStore?.close() } catch { /* ignore */ }
+        try {
+          await stateStore?.close()
+        } catch {
+          /* ignore */
+        }
       }
     })
 }

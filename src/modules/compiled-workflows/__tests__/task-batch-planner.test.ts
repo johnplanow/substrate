@@ -23,7 +23,7 @@ function makeTask(
   title: string,
   acRefs: string[] = [],
   subtaskCount = 0,
-  completed = false,
+  completed = false
 ): StoryTask {
   return { id, title, acRefs, subtaskCount, completed }
 }
@@ -31,7 +31,7 @@ function makeTask(
 function makeAnalysis(
   tasks: StoryTask[],
   estimatedScope: 'small' | 'medium' | 'large',
-  overrides: Partial<StoryAnalysis> = {},
+  overrides: Partial<StoryAnalysis> = {}
 ): StoryAnalysis {
   const taskCount = tasks.length
   const suggestedBatchCount = Math.ceil(taskCount / TASKS_PER_BATCH) || 0
@@ -180,7 +180,7 @@ describe('planTaskBatches — batch size limit', () => {
 
   it('no batch exceeds TASKS_PER_BATCH tasks (stress test with 20 tasks)', () => {
     const tasks20: StoryTask[] = Array.from({ length: 20 }, (_, i) =>
-      makeTask(i + 1, `Task ${i + 1}`, []),
+      makeTask(i + 1, `Task ${i + 1}`, [])
     )
     const analysis = makeAnalysis(tasks20, 'large')
     const result = planTaskBatches(analysis)
@@ -192,7 +192,7 @@ describe('planTaskBatches — batch size limit', () => {
 
   it('all 20 tasks are included across batches', () => {
     const tasks20: StoryTask[] = Array.from({ length: 20 }, (_, i) =>
-      makeTask(i + 1, `Task ${i + 1}`, []),
+      makeTask(i + 1, `Task ${i + 1}`, [])
     )
     const analysis = makeAnalysis(tasks20, 'large')
     const result = planTaskBatches(analysis)
@@ -400,7 +400,7 @@ describe('planTaskBatches — large story batching', () => {
 
   it('returns 2 batches for 10-task large story', () => {
     const tasks10: StoryTask[] = Array.from({ length: 10 }, (_, i) =>
-      makeTask(i + 1, `Task ${i + 1}`, []),
+      makeTask(i + 1, `Task ${i + 1}`, [])
     )
     const analysis = makeAnalysis(tasks10, 'large')
     const result = planTaskBatches(analysis)
@@ -474,7 +474,10 @@ describe('planTaskBatches — integration: story 13-2 scenario (5 tasks, small)'
   it('5 tasks with small scope → 1 batch with all 5 tasks', () => {
     const tasks: StoryTask[] = [
       makeTask(1, 'Create task-batch-planner.ts with TaskBatch type export', ['AC1']),
-      makeTask(2, 'Implement sequential batching algorithm with TASKS_PER_BATCH limit', ['AC2', 'AC3']),
+      makeTask(2, 'Implement sequential batching algorithm with TASKS_PER_BATCH limit', [
+        'AC2',
+        'AC3',
+      ]),
       makeTask(3, 'Implement AC-reference grouping heuristic', ['AC4']),
       makeTask(4, 'Implement small/medium passthrough (single batch)', ['AC5']),
       makeTask(5, 'Write unit tests', ['AC8']),
@@ -569,7 +572,7 @@ describe('planTaskBatches — edge cases', () => {
 
   it('exactly TASKS_PER_BATCH tasks with large scope → 1 batch', () => {
     const tasks5: StoryTask[] = Array.from({ length: TASKS_PER_BATCH }, (_, i) =>
-      makeTask(i + 1, `Task ${i + 1}`, []),
+      makeTask(i + 1, `Task ${i + 1}`, [])
     )
     const analysis = makeAnalysis(tasks5, 'large')
     const result = planTaskBatches(analysis)
@@ -579,7 +582,7 @@ describe('planTaskBatches — edge cases', () => {
 
   it('TASKS_PER_BATCH + 1 tasks with large scope → 2 batches', () => {
     const tasks6: StoryTask[] = Array.from({ length: TASKS_PER_BATCH + 1 }, (_, i) =>
-      makeTask(i + 1, `Task ${i + 1}`, []),
+      makeTask(i + 1, `Task ${i + 1}`, [])
     )
     const analysis = makeAnalysis(tasks6, 'large')
     const result = planTaskBatches(analysis)

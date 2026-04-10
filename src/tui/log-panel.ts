@@ -58,8 +58,9 @@ export function renderLogEntry(entry: TuiLogEntry, useColor: boolean, width: num
       return colorize(line, ANSI.YELLOW, useColor)
     }
     // Key in cyan, message in default
-    const coloredPrefix = colorize(`[${ts}] `, ANSI.BRIGHT_BLACK, useColor) +
-                          colorize(`[${entry.key}] `, ANSI.CYAN, useColor)
+    const coloredPrefix =
+      colorize(`[${ts}] `, ANSI.BRIGHT_BLACK, useColor) +
+      colorize(`[${entry.key}] `, ANSI.CYAN, useColor)
     return `${coloredPrefix}${msg}`
   }
 
@@ -77,16 +78,12 @@ export function renderLogPanel(options: LogPanelOptions): string[] {
   const lines: string[] = []
 
   // Title bar
-  const title = filterKey !== undefined
-    ? `  Logs for ${filterKey}`
-    : '  Live Logs'
+  const title = filterKey !== undefined ? `  Logs for ${filterKey}` : '  Live Logs'
   lines.push(bold(colorize(title, ANSI.CYAN, useColor), useColor))
   lines.push('  ' + '─'.repeat(Math.max(width - 4, 20)))
 
   // Filter entries if detail view
-  const filtered = filterKey !== undefined
-    ? entries.filter((e) => e.key === filterKey)
-    : entries
+  const filtered = filterKey !== undefined ? entries.filter((e) => e.key === filterKey) : entries
 
   if (filtered.length === 0) {
     lines.push(colorize('  (no log entries)', ANSI.BRIGHT_BLACK, useColor))

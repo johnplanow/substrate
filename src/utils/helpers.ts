@@ -17,10 +17,7 @@ export function sleep(ms: number): Promise<void> {
  * @param value - Value to check
  * @param message - Error message if undefined
  */
-export function assertDefined<T>(
-  value: T | null | undefined,
-  message: string
-): asserts value is T {
+export function assertDefined<T>(value: T | null | undefined, message: string): asserts value is T {
   if (value === null || value === undefined) {
     throw new Error(message)
   }

@@ -89,20 +89,26 @@ vi.mock('node:fs', () => ({
   readdirSync: vi.fn().mockReturnValue([]),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
 }))
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 vi.mock('../seed-methodology-context.js', () => ({
   seedMethodologyContext: vi.fn().mockReturnValue({ decisionsCreated: 0, skippedCategories: [] }),
 }))
 vi.mock('../conflict-detector.js', () => ({
-  detectConflictGroupsWithContracts: vi.fn().mockReturnValue({ batches: [[['31-6-test']]], edges: [] }),
+  detectConflictGroupsWithContracts: vi
+    .fn()
+    .mockReturnValue({ batches: [[['31-6-test']]], edges: [] }),
 }))
 vi.mock('../contract-verifier.js', () => ({
   verifyContracts: vi.fn().mockReturnValue([]),
@@ -125,7 +131,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
         checks: [],
         status: 'pass',
         duration_ms: 0,
-      }),
+      })
     ),
     register: vi.fn(),
   })),
@@ -140,12 +146,21 @@ import { runCodeReview } from '../../compiled-workflows/code-review.js'
 import { runTestPlan } from '../../compiled-workflows/test-plan.js'
 import { runTestExpansion } from '../../compiled-workflows/test-expansion.js'
 import { analyzeStoryComplexity, planTaskBatches } from '../../compiled-workflows/index.js'
-import { getDecisionsByPhase, getDecisionsByCategory } from '../../../persistence/queries/decisions.js'
-import { aggregateTokenUsageForRun, aggregateTokenUsageForStory } from '../../../persistence/queries/metrics.js'
+import {
+  getDecisionsByPhase,
+  getDecisionsByCategory,
+} from '../../../persistence/queries/decisions.js'
+import {
+  aggregateTokenUsageForRun,
+  aggregateTokenUsageForStory,
+} from '../../../persistence/queries/metrics.js'
 import { detectConflictGroupsWithContracts } from '../conflict-detector.js'
 import { verifyContracts } from '../contract-verifier.js'
 import { parseInterfaceContracts } from '../../compiled-workflows/interface-contracts.js'
-import { computeStoryComplexity, resolveFixStoryMaxTurns } from '../../compiled-workflows/story-complexity.js'
+import {
+  computeStoryComplexity,
+  resolveFixStoryMaxTurns,
+} from '../../compiled-workflows/story-complexity.js'
 import { runBuildVerification, checkGitDiffFiles } from '../../agent-dispatch/dispatcher-impl.js'
 import { detectInterfaceChanges } from '../../agent-dispatch/interface-change-detector.js'
 import { seedMethodologyContext } from '../seed-methodology-context.js'
@@ -167,9 +182,7 @@ const mockGetDecisionsByPhase = vi.mocked(getDecisionsByPhase)
 
 const STORY_KEY = '31-6-test'
 
-const MOCK_EDGES = [
-  { from: '31-1', to: '31-2', reason: '31-1 exports FooSchema, 31-2 imports it' },
-]
+const MOCK_EDGES = [{ from: '31-1', to: '31-2', reason: '31-1 exports FooSchema, 31-2 imports it' }]
 
 function createMockDb(): DatabaseAdapter {
   return {} as DatabaseAdapter
@@ -222,7 +235,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -297,26 +312,52 @@ beforeEach(() => {
   mockGetDecisionsByCategory.mockReturnValue([] as any)
   vi.mocked(aggregateTokenUsageForRun).mockReturnValue({ input: 0, output: 0, cost: 0 } as any)
   vi.mocked(aggregateTokenUsageForStory).mockReturnValue({ input: 0, output: 0, cost: 0 } as any)
-  vi.mocked(analyzeStoryComplexity).mockReturnValue({ estimatedScope: 'small', taskCount: 2, complexity: 'simple', reason: 'test' } as any)
+  vi.mocked(analyzeStoryComplexity).mockReturnValue({
+    estimatedScope: 'small',
+    taskCount: 2,
+    complexity: 'simple',
+    reason: 'test',
+  } as any)
   vi.mocked(planTaskBatches).mockReturnValue([] as any)
-  vi.mocked(runTestExpansion).mockResolvedValue({ expansion_priority: 'low', coverage_gaps: [], recommended_tests: [], rationale: 'mock' } as any)
+  vi.mocked(runTestExpansion).mockResolvedValue({
+    expansion_priority: 'low',
+    coverage_gaps: [],
+    recommended_tests: [],
+    rationale: 'mock',
+  } as any)
   vi.mocked(runBuildVerification).mockReturnValue({ status: 'passed', exitCode: 0 } as any)
   vi.mocked(checkGitDiffFiles).mockReturnValue(['src/some-modified-file.ts'] as any)
-  vi.mocked(detectInterfaceChanges).mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] } as any)
-  vi.mocked(seedMethodologyContext).mockReturnValue({ decisionsCreated: 0, skippedCategories: [] } as any)
+  vi.mocked(detectInterfaceChanges).mockReturnValue({
+    modifiedInterfaces: [],
+    potentiallyAffectedTests: [],
+  } as any)
+  vi.mocked(seedMethodologyContext).mockReturnValue({
+    decisionsCreated: 0,
+    skippedCategories: [],
+  } as any)
   // Default: no contract edges (will be overridden per test)
-  mockDetectConflictGroupsWithContracts.mockReturnValue({ batches: [[[STORY_KEY]]], edges: [] } as any)
+  mockDetectConflictGroupsWithContracts.mockReturnValue({
+    batches: [[[STORY_KEY]]],
+    edges: [],
+  } as any)
   vi.mocked(verifyContracts).mockReturnValue([] as any)
   vi.mocked(parseInterfaceContracts).mockReturnValue([] as any)
   vi.mocked(computeStoryComplexity).mockReturnValue({ complexityScore: 5, taskCount: 2 } as any)
   vi.mocked(resolveFixStoryMaxTurns).mockReturnValue(20 as any)
-  vi.mocked(inspectProcessTree).mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] } as any)
-  vi.mocked(createLogger).mockImplementation(() => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: mockWarnFn,
-    error: vi.fn(),
-  }) as any)
+  vi.mocked(inspectProcessTree).mockReturnValue({
+    orchestrator_pid: null,
+    child_pids: [],
+    zombies: [],
+  } as any)
+  vi.mocked(createLogger).mockImplementation(
+    () =>
+      ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: mockWarnFn,
+        error: vi.fn(),
+      }) as any
+  )
 })
 
 afterEach(() => {
@@ -335,7 +376,9 @@ describe('Story 31-6 AC5: addContractDependencies() called after contract detect
       edges: MOCK_EDGES,
     } as any)
 
-    const spy = vi.spyOn(WorkGraphRepository.prototype, 'addContractDependencies').mockResolvedValue(undefined)
+    const spy = vi
+      .spyOn(WorkGraphRepository.prototype, 'addContractDependencies')
+      .mockResolvedValue(undefined)
 
     mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess() as any)
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
@@ -364,7 +407,9 @@ describe('Story 31-6 AC5: addContractDependencies() called after contract detect
       edges: [],
     } as any)
 
-    const spy = vi.spyOn(WorkGraphRepository.prototype, 'addContractDependencies').mockResolvedValue(undefined)
+    const spy = vi
+      .spyOn(WorkGraphRepository.prototype, 'addContractDependencies')
+      .mockResolvedValue(undefined)
 
     mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess() as any)
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
@@ -428,7 +473,7 @@ describe('Story 31-6 AC6: addContractDependencies() errors are suppressed', () =
     } as any)
 
     vi.spyOn(WorkGraphRepository.prototype, 'addContractDependencies').mockRejectedValue(
-      new Error('DB write failed'),
+      new Error('DB write failed')
     )
 
     mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess() as any)
@@ -456,7 +501,7 @@ describe('Story 31-6 AC6: addContractDependencies() errors are suppressed', () =
     } as any)
 
     vi.spyOn(WorkGraphRepository.prototype, 'addContractDependencies').mockRejectedValue(
-      new Error('DB write failed'),
+      new Error('DB write failed')
     )
 
     mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess() as any)
@@ -478,7 +523,7 @@ describe('Story 31-6 AC6: addContractDependencies() errors are suppressed', () =
     await Promise.resolve()
 
     const warnCalls = mockWarnFn.mock.calls.filter(
-      (call) => typeof call[1] === 'string' && call[1].includes('contract dep persistence'),
+      (call) => typeof call[1] === 'string' && call[1].includes('contract dep persistence')
     )
     expect(warnCalls.length).toBeGreaterThan(0)
   })

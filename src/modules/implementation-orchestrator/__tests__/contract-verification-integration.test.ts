@@ -69,15 +69,21 @@ vi.mock('node:fs', () => ({
   readdirSync: vi.fn().mockReturnValue([]),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
-  detectPackageManager: vi.fn().mockReturnValue({ packageManager: 'npm', lockfile: null, command: 'npm run build' }),
+  detectPackageManager: vi
+    .fn()
+    .mockReturnValue({ packageManager: 'npm', lockfile: null, command: 'npm run build' }),
 }))
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 vi.mock('../contract-verifier.js', () => ({
   verifyContracts: vi.fn().mockReturnValue([]),
@@ -156,7 +162,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -295,10 +303,7 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
     // verifyContracts must have been called
     expect(mockVerifyContracts).toHaveBeenCalledOnce()
     // With projectRoot
-    expect(mockVerifyContracts).toHaveBeenCalledWith(
-      expect.any(Array),
-      '/project',
-    )
+    expect(mockVerifyContracts).toHaveBeenCalledWith(expect.any(Array), '/project')
   })
 
   it('AC1: verifyContracts is NOT called when no projectRoot provided', async () => {
@@ -397,17 +402,20 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
 
     const mockEmit = vi.mocked(eventBus.emit)
     const mismatchEvents = mockEmit.mock.calls.filter(
-      ([eventName]) => eventName === 'pipeline:contract-mismatch',
+      ([eventName]) => eventName === 'pipeline:contract-mismatch'
     )
 
     expect(mismatchEvents).toHaveLength(2)
 
-    const payloads = mismatchEvents.map(([, payload]) => payload as {
-      exporter: string
-      importer: string | null
-      contractName: string
-      mismatchDescription: string
-    })
+    const payloads = mismatchEvents.map(
+      ([, payload]) =>
+        payload as {
+          exporter: string
+          importer: string | null
+          contractName: string
+          mismatchDescription: string
+        }
+    )
 
     expect(payloads[0]!.exporter).toBe('25-6')
     expect(payloads[0]!.importer).toBe('25-6')
@@ -453,7 +461,7 @@ describe('orchestrator: post-sprint contract verification (Story 25-6)', () => {
 
     const mockEmit = vi.mocked(eventBus.emit)
     const mismatchEvents = mockEmit.mock.calls.filter(
-      ([eventName]) => eventName === 'pipeline:contract-mismatch',
+      ([eventName]) => eventName === 'pipeline:contract-mismatch'
     )
     expect(mismatchEvents).toHaveLength(0)
   })

@@ -17,15 +17,34 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { join, basename } from 'node:path'
 import yaml from 'js-yaml'
-import { updatePipelineRun, getDecisionsByPhase, getDecisionsByCategory, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
+import {
+  updatePipelineRun,
+  getDecisionsByPhase,
+  getDecisionsByCategory,
+  registerArtifact,
+  createDecision,
+} from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
-import { writeStoryMetrics, aggregateTokenUsageForStory } from '../../persistence/queries/metrics.js'
-import { STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME, TEST_EXPANSION_FINDING, ADVISORY_NOTES } from '../../persistence/schemas/operational.js'
+import {
+  writeStoryMetrics,
+  aggregateTokenUsageForStory,
+} from '../../persistence/queries/metrics.js'
+import {
+  STORY_METRICS,
+  ESCALATION_DIAGNOSIS,
+  STORY_OUTCOME,
+  TEST_EXPANSION_FINDING,
+  ADVISORY_NOTES,
+} from '../../persistence/schemas/operational.js'
 import { generateEscalationDiagnosis } from './escalation-diagnosis.js'
 import { getProjectFindings } from './project-findings.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { DevStoryResultSchema } from '../compiled-workflows/schemas.js'
-import { runCreateStory, isValidStoryFile, extractStorySection } from '../compiled-workflows/create-story.js'
+import {
+  runCreateStory,
+  isValidStoryFile,
+  extractStorySection,
+} from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
 import { runTestPlan } from '../compiled-workflows/test-plan.js'
@@ -47,19 +66,42 @@ import type {
 import { addTokenUsage } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 import { seedMethodologyContext } from './seed-methodology-context.js'
-import { capturePackageSnapshot, detectPackageChanges, restorePackageSnapshot } from './package-snapshot.js'
+import {
+  capturePackageSnapshot,
+  detectPackageChanges,
+  restorePackageSnapshot,
+} from './package-snapshot.js'
 import type { PackageSnapshotData } from './package-snapshot.js'
 import { sleep } from '../../utils/helpers.js'
 import { runBuildVerification, checkGitDiffFiles } from '../agent-dispatch/dispatcher-impl.js'
 import { detectInterfaceChanges } from '../agent-dispatch/interface-change-detector.js'
-import { computeStoryComplexity, resolveFixStoryMaxTurns, resolveDevStoryMaxTurns, logComplexityResult } from '../compiled-workflows/story-complexity.js'
+import {
+  computeStoryComplexity,
+  resolveFixStoryMaxTurns,
+  resolveDevStoryMaxTurns,
+  logComplexityResult,
+} from '../compiled-workflows/story-complexity.js'
 import { parseInterfaceContracts } from '../compiled-workflows/interface-contracts.js'
 import { verifyContracts } from './contract-verifier.js'
 import type { ContractMismatch } from './types.js'
-import type { StateStore, StoryRecord, ContractRecord, ContractVerificationRecord, WgStoryStatus } from '../state/index.js'
+import type {
+  StateStore,
+  StoryRecord,
+  ContractRecord,
+  ContractVerificationRecord,
+  WgStoryStatus,
+} from '../state/index.js'
 import { DoltMergeConflict, WorkGraphRepository } from '../state/index.js'
 import type { ITelemetryPersistence } from '../telemetry/index.js'
-import { EfficiencyScorer, Categorizer, ConsumerAnalyzer, TelemetryNormalizer, TurnAnalyzer, LogTurnAnalyzer, Recommender } from '../telemetry/index.js'
+import {
+  EfficiencyScorer,
+  Categorizer,
+  ConsumerAnalyzer,
+  TelemetryNormalizer,
+  TurnAnalyzer,
+  LogTurnAnalyzer,
+  Recommender,
+} from '../telemetry/index.js'
 import type { IngestionServer } from '../telemetry/ingestion-server.js'
 import { TelemetryPipeline } from '../telemetry/telemetry-pipeline.js'
 import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
@@ -70,7 +112,11 @@ import { createDefaultVerificationPipeline } from '@substrate-ai/sdlc'
 import type { ReviewSignals } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus } from '@substrate-ai/core'
-import { assembleVerificationContext, VerificationStore, persistVerificationResult } from './verification-integration.js'
+import {
+  assembleVerificationContext,
+  VerificationStore,
+  persistVerificationResult,
+} from './verification-integration.js'
 import type { OrchestratorEvents } from '../../core/event-bus.types.js'
 import { CostGovernanceChecker } from './cost-governance.js'
 import type { CeilingCheckResult } from './cost-governance.js'
@@ -237,7 +283,7 @@ function titleToWordSet(title: string): Set<string> {
       .toLowerCase()
       .replace(/[^a-z0-9\s-]/g, ' ')
       .split(/[\s-]+/)
-      .filter((w) => w.length > 2 && !stopWords.has(w)),
+      .filter((w) => w.length > 2 && !stopWords.has(w))
   )
 }
 
@@ -319,7 +365,7 @@ function isImplicitlyCovered(storyKey: string, projectRoot: string): boolean {
   let epicsPath: string | undefined
   try {
     const entries = readdirSync(planningDir, { encoding: 'utf-8' })
-    const match = entries.find((e) => /^epics[-.].*\.md$/i.test(e) && !(/^epic-\d+/.test(e)))
+    const match = entries.find((e) => /^epics[-.].*\.md$/i.test(e) && !/^epic-\d+/.test(e))
     if (match) epicsPath = join(planningDir, match)
   } catch {
     return false
@@ -342,7 +388,8 @@ function isImplicitlyCovered(storyKey: string, projectRoot: string): boolean {
   // Extract section until next story heading or end
   const sectionStart = headingMatch.index
   const nextHeading = content.indexOf('\n### Story ', sectionStart + 1)
-  const section = nextHeading > 0 ? content.slice(sectionStart, nextHeading) : content.slice(sectionStart)
+  const section =
+    nextHeading > 0 ? content.slice(sectionStart, nextHeading) : content.slice(sectionStart)
 
   // Find "Files likely touched:" block
   const filesIdx = section.indexOf('Files likely touched:')
@@ -385,7 +432,7 @@ import { parseEpicsDependencies, findEpicsFile } from './story-discovery.js'
  */
 async function autoIngestEpicsDependencies(
   db: DatabaseAdapter,
-  projectRoot: string,
+  projectRoot: string
 ): Promise<{ storiesIngested: number; dependenciesIngested: number }> {
   const epicsPath = findEpicsFile(projectRoot)
   if (!epicsPath) return { storiesIngested: 0, dependenciesIngested: 0 }
@@ -481,10 +528,14 @@ const TITLE_OVERLAP_WARNING_THRESHOLD = 0.3
  */
 function mapPhaseToManifestStatus(phase: StoryPhase): PerStoryStatus {
   switch (phase) {
-    case 'COMPLETE':           return 'complete'
-    case 'ESCALATED':          return 'escalated'
-    case 'VERIFICATION_FAILED': return 'verification-failed'
-    default:                   return 'dispatched'
+    case 'COMPLETE':
+      return 'complete'
+    case 'ESCALATED':
+      return 'escalated'
+    case 'VERIFICATION_FAILED':
+      return 'verification-failed'
+    default:
+      return 'dispatched'
   }
 }
 
@@ -608,16 +659,31 @@ export function checkProfileStaleness(projectRoot: string): string[] {
  * @returns A fully-configured ImplementationOrchestrator ready to call run()
  */
 export function createImplementationOrchestrator(
-  deps: OrchestratorDeps,
+  deps: OrchestratorDeps
 ): ImplementationOrchestrator {
-  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer, repoMapInjector, maxRepoMapTokens, agentId, runManifest = null } = deps
+  const {
+    db,
+    pack,
+    contextCompiler,
+    dispatcher,
+    eventBus,
+    config,
+    projectRoot,
+    tokenCeilings,
+    stateStore,
+    telemetryPersistence,
+    ingestionServer,
+    repoMapInjector,
+    maxRepoMapTokens,
+    agentId,
+    runManifest = null,
+  } = deps
 
   const logger = createLogger('implementation-orchestrator')
 
   // -- TelemetryAdvisor for optimization directive injection (Story 30-6) --
-  const telemetryAdvisor: TelemetryAdvisor | undefined = db !== undefined
-    ? createTelemetryAdvisor({ db })
-    : undefined
+  const telemetryAdvisor: TelemetryAdvisor | undefined =
+    db !== undefined ? createTelemetryAdvisor({ db }) : undefined
 
   // -- work-graph repository (best-effort wg_stories updates) --
   const wgRepo = new WorkGraphRepository(db)
@@ -648,11 +714,11 @@ export function createImplementationOrchestrator(
 
   // -- per-story phase timing state (for AC2 of Story 17-2) --
   const _phaseStartMs = new Map<string, Map<string, number>>() // storyKey → phase → start ms
-  const _phaseEndMs = new Map<string, Map<string, number>>()   // storyKey → phase → end ms
-  const _storyDispatches = new Map<string, number>()           // storyKey → dispatch count
+  const _phaseEndMs = new Map<string, Map<string, number>>() // storyKey → phase → end ms
+  const _storyDispatches = new Map<string, number>() // storyKey → dispatch count
   const _storyAgents = new Map<string, Array<{ agent: string; model?: string; phase: string }>>() // storyKey → dispatch agent info
-  const _storyRetryCount = new Map<string, number>()           // storyKey → retry count (Story 53-4)
-  let _completedDispatches = 0                                  // total completed dispatch count (for heartbeat)
+  const _storyRetryCount = new Map<string, number>() // storyKey → retry count (Story 53-4)
+  let _completedDispatches = 0 // total completed dispatch count (for heartbeat)
 
   // -- actual peak concurrency observed during runWithConcurrency --
   let _maxConcurrentActual = 0
@@ -698,7 +764,6 @@ export function createImplementationOrchestrator(
   }
   const _checkpoints = new Map<string, CheckpointContext>()
 
-
   // -- memory pressure backoff (Story 23-8, AC1) --
   // Exponential backoff intervals (ms) before retrying a story dispatch
   // when memory pressure is detected.  After all intervals are exhausted
@@ -722,7 +787,12 @@ export function createImplementationOrchestrator(
     _storyDispatches.set(storyKey, (_storyDispatches.get(storyKey) ?? 0) + 1)
   }
 
-  function recordDispatchAgent(storyKey: string, phase: string, agent: string, model?: string): void {
+  function recordDispatchAgent(
+    storyKey: string,
+    phase: string,
+    agent: string,
+    model?: string
+  ): void {
     if (!_storyAgents.has(storyKey)) _storyAgents.set(storyKey, [])
     _storyAgents.get(storyKey)!.push({ agent, phase, ...(model !== undefined && { model }) })
   }
@@ -759,7 +829,7 @@ export function createImplementationOrchestrator(
       runManifest
         .patchStoryState(storyKey, { retry_count: next })
         .catch((err: unknown) =>
-          logger.warn({ err, storyKey }, 'patchStoryState(retry_count) failed — pipeline continues'),
+          logger.warn({ err, storyKey }, 'patchStoryState(retry_count) failed — pipeline continues')
         )
     }
   }
@@ -775,7 +845,7 @@ export function createImplementationOrchestrator(
       if (endMs === undefined) {
         logger.warn(
           { storyKey, phase },
-          'Phase has no end time — story may have errored mid-phase. Duration capped to now() and may be inflated.',
+          'Phase has no end time — story may have errored mid-phase. Duration capped to now() and may be inflated.'
         )
       }
       durations[phase] = Math.round(((endMs ?? nowMs) - startMs) / 1000)
@@ -783,7 +853,12 @@ export function createImplementationOrchestrator(
     return JSON.stringify(durations)
   }
 
-  async function writeStoryMetricsBestEffort(storyKey: string, result: string, reviewCycles: number, storyAgentId?: string): Promise<void> {
+  async function writeStoryMetricsBestEffort(
+    storyKey: string,
+    result: string,
+    reviewCycles: number,
+    storyAgentId?: string
+  ): Promise<void> {
     if (config.pipelineRunId === undefined) return
     try {
       const storyState = _stories.get(storyKey)
@@ -802,7 +877,7 @@ export function createImplementationOrchestrator(
         runManifest
           .patchStoryState(storyKey, { cost_usd: tokenAgg.cost })
           .catch((err: unknown) =>
-            logger.warn({ err, storyKey }, 'patchStoryState(cost_usd) failed — pipeline continues'),
+            logger.warn({ err, storyKey }, 'patchStoryState(cost_usd) failed — pipeline continues')
           )
       }
       // Capture phase durations JSON once so it can be reused for the event payload
@@ -821,27 +896,34 @@ export function createImplementationOrchestrator(
         review_cycles: reviewCycles,
         dispatches: _storyDispatches.get(storyKey) ?? 0,
         primary_agent_id: storyAgentId ?? agentId ?? 'claude-code',
-        dispatch_agents_json: _storyAgents.has(storyKey) ? JSON.stringify(_storyAgents.get(storyKey)) : undefined,
+        dispatch_agents_json: _storyAgents.has(storyKey)
+          ? JSON.stringify(_storyAgents.get(storyKey))
+          : undefined,
       })
       // AC1 of Story 26-5: also record to StateStore for Dolt-backed metric persistence
       if (stateStore !== undefined) {
-        stateStore.recordMetric({
-          storyKey,
-          taskType: 'dev-story',
-          model: undefined,            // model not tracked per-story at orchestrator level
-          tokensIn: tokenAgg.input,
-          tokensOut: tokenAgg.output,
-          cacheReadTokens: undefined,  // cache read tokens not separately tracked at orchestrator level
-          costUsd: tokenAgg.cost,
-          wallClockMs,
-          reviewCycles,
-          stallCount: _storiesWithStall.has(storyKey) ? 1 : 0,
-          result,
-          recordedAt: completedAt,
-          timestamp: completedAt,
-        }).catch((storeErr: unknown) => {
-          logger.warn({ err: storeErr, storyKey }, 'Failed to record metric to StateStore (best-effort)')
-        })
+        stateStore
+          .recordMetric({
+            storyKey,
+            taskType: 'dev-story',
+            model: undefined, // model not tracked per-story at orchestrator level
+            tokensIn: tokenAgg.input,
+            tokensOut: tokenAgg.output,
+            cacheReadTokens: undefined, // cache read tokens not separately tracked at orchestrator level
+            costUsd: tokenAgg.cost,
+            wallClockMs,
+            reviewCycles,
+            stallCount: _storiesWithStall.has(storyKey) ? 1 : 0,
+            result,
+            recordedAt: completedAt,
+            timestamp: completedAt,
+          })
+          .catch((storeErr: unknown) => {
+            logger.warn(
+              { err: storeErr, storyKey },
+              'Failed to record metric to StateStore (best-effort)'
+            )
+          })
       }
       // AC4 of Story 21-1: also write story-metrics decision for queryable insight
       try {
@@ -861,7 +943,10 @@ export function createImplementationOrchestrator(
           rationale: `Story ${storyKey} completed with result=${result} in ${wallClockSeconds}s. Tokens: ${tokenAgg.input}+${tokenAgg.output}. Review cycles: ${reviewCycles}.`,
         })
       } catch (decisionErr) {
-        logger.warn({ err: decisionErr, storyKey }, 'Failed to write story-metrics decision (best-effort)')
+        logger.warn(
+          { err: decisionErr, storyKey },
+          'Failed to write story-metrics decision (best-effort)'
+        )
       }
       // Story 24-4 (AC8): emit story:metrics event for NDJSON consumers
       try {
@@ -905,7 +990,9 @@ export function createImplementationOrchestrator(
                   if (!isNaN(del)) deletions += del
                 }
               }
-            } catch { /* numstat failure is non-fatal */ }
+            } catch {
+              /* numstat failure is non-fatal */
+            }
 
             // Count lines in untracked new files (not captured by git diff)
             try {
@@ -917,11 +1004,20 @@ export function createImplementationOrchestrator(
               })
               for (const file of untracked.trim().split('\n').filter(Boolean)) {
                 try {
-                  const wc = execSync(`wc -l < "${file}"`, { cwd, encoding: 'utf-8', timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
+                  const wc = execSync(`wc -l < "${file}"`, {
+                    cwd,
+                    encoding: 'utf-8',
+                    timeout: 3000,
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                  })
                   insertions += parseInt(wc.trim(), 10) || 0
-                } catch { /* skip individual file failures */ }
+                } catch {
+                  /* skip individual file failures */
+                }
               }
-            } catch { /* untracked listing failure is non-fatal */ }
+            } catch {
+              /* untracked listing failure is non-fatal */
+            }
 
             diffStats = { filesChanged: changedFiles.length, insertions, deletions }
           }
@@ -937,7 +1033,7 @@ export function createImplementationOrchestrator(
         if (unverified) {
           logger.warn(
             { storyKey, outputTokens: tokenAgg.output, threshold: LOW_OUTPUT_TOKEN_THRESHOLD },
-            'Story completed with very low output tokens — marking as unverified',
+            'Story completed with very low output tokens — marking as unverified'
           )
           eventBus.emit('orchestrator:story-warn', {
             storyKey,
@@ -973,7 +1069,7 @@ export function createImplementationOrchestrator(
     storyKey: string,
     outcome: 'complete' | 'escalated',
     reviewCycles: number,
-    issuePatterns?: string[],
+    issuePatterns?: string[]
   ): Promise<void> {
     if (config.pipelineRunId === undefined) return
     try {
@@ -1012,7 +1108,7 @@ export function createImplementationOrchestrator(
     const diagnosis = generateEscalationDiagnosis(
       payload.issues,
       payload.reviewCycles,
-      payload.lastVerdict,
+      payload.lastVerdict
     )
 
     eventBus.emit('orchestrator:story-escalated', {
@@ -1042,13 +1138,21 @@ export function createImplementationOrchestrator(
           rationale: `Escalation diagnosis for ${payload.storyKey}: ${diagnosis.recommendedAction} — ${diagnosis.rationale}`,
         })
       } catch (err) {
-        logger.warn({ err, storyKey: payload.storyKey }, 'Failed to persist escalation diagnosis (best-effort)')
+        logger.warn(
+          { err, storyKey: payload.storyKey },
+          'Failed to persist escalation diagnosis (best-effort)'
+        )
       }
     }
 
     // Persist story outcome for learning loop (Story 22-1, AC4)
     const issuePatterns = extractIssuePatterns(payload.issues)
-    await writeStoryOutcomeBestEffort(payload.storyKey, 'escalated', payload.reviewCycles, issuePatterns)
+    await writeStoryOutcomeBestEffort(
+      payload.storyKey,
+      'escalated',
+      payload.reviewCycles,
+      issuePatterns
+    )
   }
 
   /**
@@ -1099,8 +1203,7 @@ export function createImplementationOrchestrator(
     if (_completedAt !== undefined) {
       status.completedAt = _completedAt
       if (_startedAt !== undefined) {
-        status.totalDurationMs =
-          new Date(_completedAt).getTime() - new Date(_startedAt).getTime()
+        status.totalDurationMs = new Date(_completedAt).getTime() - new Date(_startedAt).getTime()
       }
     }
     if (_decomposition !== undefined) {
@@ -1121,7 +1224,7 @@ export function createImplementationOrchestrator(
       Object.assign(existing, updates)
       // Fire-and-forget persistence to StateStore after every in-memory update.
       persistStoryState(storyKey, existing).catch((err) =>
-        logger.warn({ err, storyKey }, 'StateStore write failed after updateStory'),
+        logger.warn({ err, storyKey }, 'StateStore write failed after updateStory')
       )
       // Branch lifecycle: fire-and-forget on terminal phase transitions.
       if (updates.phase === 'COMPLETE') {
@@ -1133,9 +1236,11 @@ export function createImplementationOrchestrator(
           }
         })
       } else if (updates.phase === 'ESCALATED' || updates.phase === 'VERIFICATION_FAILED') {
-        void stateStore?.rollbackStory(storyKey).catch((err: unknown) =>
-          logger.warn({ err, storyKey }, 'rollbackStory failed — branch may persist'),
-        )
+        void stateStore
+          ?.rollbackStory(storyKey)
+          .catch((err: unknown) =>
+            logger.warn({ err, storyKey }, 'rollbackStory failed — branch may persist')
+          )
       }
       // wg_stories status update: fire-and-forget (AC5).
       if (updates.phase !== undefined) {
@@ -1152,7 +1257,7 @@ export function createImplementationOrchestrator(
             void wgRepo
               .updateStoryStatus(storyKey, targetStatus, opts)
               .catch((err: unknown) =>
-                logger.warn({ err, storyKey }, 'wg_stories status update failed (best-effort)'),
+                logger.warn({ err, storyKey }, 'wg_stories status update failed (best-effort)')
               )
             if (targetStatus === 'in_progress') {
               _wgInProgressWritten.add(storyKey)
@@ -1173,7 +1278,10 @@ export function createImplementationOrchestrator(
               started_at: fullUpdated.startedAt ?? new Date().toISOString(),
             })
             .catch((err: unknown) =>
-              logger.warn({ err, storyKey }, 'patchStoryState(dispatched) failed — pipeline continues'),
+              logger.warn(
+                { err, storyKey },
+                'patchStoryState(dispatched) failed — pipeline continues'
+              )
             )
         } else if (
           updates.phase === 'COMPLETE' ||
@@ -1193,7 +1301,10 @@ export function createImplementationOrchestrator(
               dispatches: _storyDispatches.get(storyKey) ?? 0,
             })
             .catch((err: unknown) =>
-              logger.warn({ err, storyKey }, `patchStoryState(${manifestStatus}) failed — pipeline continues`),
+              logger.warn(
+                { err, storyKey },
+                `patchStoryState(${manifestStatus}) failed — pipeline continues`
+              )
             )
         }
       }
@@ -1258,7 +1369,12 @@ export function createImplementationOrchestrator(
       let queued = 0
       for (const s of _stories.values()) {
         if (s.phase === 'PENDING') queued++
-        else if (s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED' && s.phase !== 'VERIFICATION_FAILED') active++
+        else if (
+          s.phase !== 'COMPLETE' &&
+          s.phase !== 'ESCALATED' &&
+          s.phase !== 'VERIFICATION_FAILED'
+        )
+          active++
       }
       const completed = _completedDispatches
 
@@ -1298,7 +1414,13 @@ export function createImplementationOrchestrator(
       let processInspected = false
 
       for (const [key, s] of _stories) {
-        if (s.phase === 'PENDING' || s.phase === 'COMPLETE' || s.phase === 'ESCALATED' || s.phase === 'VERIFICATION_FAILED') continue
+        if (
+          s.phase === 'PENDING' ||
+          s.phase === 'COMPLETE' ||
+          s.phase === 'ESCALATED' ||
+          s.phase === 'VERIFICATION_FAILED'
+        )
+          continue
         const threshold = getStallThresholdMs(s.phase)
         if (elapsed < threshold) continue
 
@@ -1334,7 +1456,10 @@ export function createImplementationOrchestrator(
 
         _stalledStories.add(key)
         _storiesWithStall.add(key)
-        logger.warn({ storyKey: key, phase: s.phase, elapsedMs: elapsed, childPids, childActive }, 'Watchdog: possible stall detected')
+        logger.warn(
+          { storyKey: key, phase: s.phase, elapsedMs: elapsed, childPids, childActive },
+          'Watchdog: possible stall detected'
+        )
         eventBus.emit('orchestrator:stall', {
           runId: config.pipelineRunId ?? '',
           storyKey: key,
@@ -1393,7 +1518,7 @@ export function createImplementationOrchestrator(
           attempt: attempt + 1,
           maxAttempts: MEMORY_PRESSURE_BACKOFF_MS.length,
         },
-        'Memory pressure before story dispatch — backing off',
+        'Memory pressure before story dispatch — backing off'
       )
       await sleep(MEMORY_PRESSURE_BACKOFF_MS[attempt] ?? 0)
     }
@@ -1408,7 +1533,10 @@ export function createImplementationOrchestrator(
    * to maxReviewCycles). On SHIP_IT the story is marked COMPLETE. On
    * exhausted retries the story is ESCALATED.
    */
-  async function processStory(storyKey: string, storyOptions?: { optimizationDirectives?: string }): Promise<void> {
+  async function processStory(
+    storyKey: string,
+    storyOptions?: { optimizationDirectives?: string }
+  ): Promise<void> {
     logger.info({ storyKey }, 'Processing story')
 
     // -- initialize retry count from manifest for crash-recovery durability (Story 53-4, AC6) --
@@ -1431,7 +1559,7 @@ export function createImplementationOrchestrator(
         }
         _stories.set(storyKey, memPressureState)
         persistStoryState(storyKey, memPressureState).catch((err) =>
-          logger.warn({ err, storyKey }, 'StateStore write failed after memory-pressure escalation'),
+          logger.warn({ err, storyKey }, 'StateStore write failed after memory-pressure escalation')
         )
         await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
         await emitEscalation({
@@ -1453,9 +1581,14 @@ export function createImplementationOrchestrator(
     if (_state !== 'RUNNING') return
 
     // Story 26-7: create a branch for this story before any state writes.
-    void stateStore?.branchForStory(storyKey).catch((err: unknown) =>
-      logger.warn({ err, storyKey }, 'branchForStory failed — continuing without branch isolation'),
-    )
+    void stateStore
+      ?.branchForStory(storyKey)
+      .catch((err: unknown) =>
+        logger.warn(
+          { err, storyKey },
+          'branchForStory failed — continuing without branch isolation'
+        )
+      )
 
     startPhase(storyKey, 'create-story')
     updateStory(storyKey, {
@@ -1468,7 +1601,9 @@ export function createImplementationOrchestrator(
     // Check if a story file already exists for this story key.
     // Pre-existing stories (e.g., from BMAD auto-implement) should be reused
     // so their full task list is available for complexity analysis and batching.
-    const artifactsDir = projectRoot ? join(projectRoot, '_bmad-output', 'implementation-artifacts') : undefined
+    const artifactsDir = projectRoot
+      ? join(projectRoot, '_bmad-output', 'implementation-artifacts')
+      : undefined
     if (artifactsDir && existsSync(artifactsDir)) {
       try {
         const files = readdirSync(artifactsDir)
@@ -1479,12 +1614,15 @@ export function createImplementationOrchestrator(
           if (!validation.valid) {
             logger.warn(
               { storyKey, storyFilePath: candidatePath, reason: validation.reason },
-              `Existing story file for ${storyKey} is invalid (${validation.reason}) — re-creating`,
+              `Existing story file for ${storyKey} is invalid (${validation.reason}) — re-creating`
             )
             // Fall through to create-story by leaving storyFilePath undefined
           } else {
             storyFilePath = candidatePath
-            logger.info({ storyKey, storyFilePath }, 'Found existing story file — skipping create-story')
+            logger.info(
+              { storyKey, storyFilePath },
+              'Found existing story file — skipping create-story'
+            )
             endPhase(storyKey, 'create-story')
             eventBus.emit('orchestrator:story-phase-complete', {
               storyKey,
@@ -1505,7 +1643,7 @@ export function createImplementationOrchestrator(
     if (storyFilePath === undefined && projectRoot && isImplicitlyCovered(storyKey, projectRoot)) {
       logger.info(
         { storyKey },
-        `Story ${storyKey} appears implicitly covered — all expected new files already exist. Skipping create-story.`,
+        `Story ${storyKey} appears implicitly covered — all expected new files already exist. Skipping create-story.`
       )
       endPhase(storyKey, 'create-story')
       eventBus.emit('orchestrator:story-phase-complete', {
@@ -1513,162 +1651,186 @@ export function createImplementationOrchestrator(
         phase: 'IN_STORY_CREATION',
         result: { result: 'success', story_key: storyKey, implicitlyCovered: true },
       })
-      updateStory(storyKey, { phase: 'COMPLETE' as StoryPhase, completedAt: new Date().toISOString() })
+      updateStory(storyKey, {
+        phase: 'COMPLETE' as StoryPhase,
+        completedAt: new Date().toISOString(),
+      })
       await persistState()
       return
     }
 
     if (storyFilePath === undefined) {
-    try {
-      incrementDispatches(storyKey)
-      const createResult = await runCreateStory(
-        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
-        { epicId: storyKey.split('-')[0] ?? storyKey, storyKey, pipelineRunId: config.pipelineRunId },
-      )
-
-      endPhase(storyKey, 'create-story')
-      eventBus.emit('orchestrator:story-phase-complete', {
-        storyKey,
-        phase: 'IN_STORY_CREATION',
-        result: createResult,
-      })
-
-      // Record create-story token usage for accurate per-story cost attribution
-      if (config.pipelineRunId !== undefined && createResult.tokenUsage !== undefined) {
-        try {
-          addTokenUsage(db, config.pipelineRunId, {
-            phase: 'create-story',
-            agent: 'create-story',
-            input_tokens: createResult.tokenUsage.input,
-            output_tokens: createResult.tokenUsage.output,
-            cost_usd: estimateDispatchCost(createResult.tokenUsage.input, createResult.tokenUsage.output),
-            metadata: JSON.stringify({ storyKey }),
-          })
-        } catch (tokenErr) {
-          logger.warn({ storyKey, err: tokenErr }, 'Failed to record create-story token usage')
-        }
-      }
-
-      await persistState()
-
-      if (createResult.result === 'failed') {
-        const errMsg = createResult.error ?? 'create-story failed'
-        // Extract the most diagnostic portion of the error for structured logging
-        const stderrSnippet = errMsg.includes('--- stderr ---')
-          ? errMsg.slice(errMsg.indexOf('--- stderr ---') + 15, errMsg.indexOf('--- stderr ---') + 515)
-          : errMsg.slice(0, 500)
-        logger.error(
-          { storyKey, stderrSnippet },
-          `Create-story failed: ${stderrSnippet.split('\n')[0]}`,
-        )
-        updateStory(storyKey, {
-          phase: 'ESCALATED' as StoryPhase,
-          error: errMsg,
-          completedAt: new Date().toISOString(),
-        })
-        await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
-        await emitEscalation({
-          storyKey,
-          lastVerdict: 'create-story-failed',
-          reviewCycles: 0,
-          issues: [errMsg],
-        })
-        await persistState()
-        return
-      }
-
-      if (createResult.story_file === undefined || createResult.story_file === '') {
-        const errMsg = 'create-story succeeded but returned no story_file path'
-        updateStory(storyKey, {
-          phase: 'ESCALATED' as StoryPhase,
-          error: errMsg,
-          completedAt: new Date().toISOString(),
-        })
-        await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
-        await emitEscalation({
-          storyKey,
-          lastVerdict: 'create-story-no-file',
-          reviewCycles: 0,
-          issues: [errMsg],
-        })
-        await persistState()
-        return
-      }
-
-      storyFilePath = createResult.story_file
-
-      // -- Story title validation (safety net for hallucinated titles) --
-      // Compare the generated story title against the expected title from the
-      // epic shard. If word overlap is below the threshold, emit a non-blocking
-      // warning so operators can spot context-truncation regressions early.
-      if (createResult.story_title) {
-        try {
-          const epicId = storyKey.split('-')[0] ?? storyKey
-          const implDecisions = await getDecisionsByPhase(db, 'implementation')
-          // Replicate the shard lookup order from create-story.ts:
-          // 1. Per-story shard (post-37-0), 2. Per-epic shard + extraction (pre-37-0)
-          let shardContent: string | undefined
-          const perStoryShard = implDecisions.find(
-            (d) => d.category === 'epic-shard' && d.key === storyKey,
-          )
-          if (perStoryShard?.value) {
-            shardContent = perStoryShard.value
-          } else {
-            const epicShard = implDecisions.find(
-              (d) => d.category === 'epic-shard' && d.key === epicId,
-            )
-            if (epicShard?.value) {
-              shardContent = extractStorySection(epicShard.value, storyKey) ?? epicShard.value
-            }
+      try {
+        incrementDispatches(storyKey)
+        const createResult = await runCreateStory(
+          {
+            db,
+            pack,
+            contextCompiler,
+            dispatcher,
+            projectRoot,
+            tokenCeilings,
+            otlpEndpoint: _otlpEndpoint,
+            agentId,
+          },
+          {
+            epicId: storyKey.split('-')[0] ?? storyKey,
+            storyKey,
+            pipelineRunId: config.pipelineRunId,
           }
+        )
 
-          if (shardContent) {
-            const expectedTitle = extractExpectedStoryTitle(shardContent, storyKey)
-            if (expectedTitle) {
-              const overlap = computeTitleOverlap(expectedTitle, createResult.story_title)
-              if (overlap < TITLE_OVERLAP_WARNING_THRESHOLD) {
-                const msg =
-                  `Story title mismatch: expected "${expectedTitle}" ` +
-                  `but got "${createResult.story_title}" ` +
-                  `(word overlap: ${Math.round(overlap * 100)}%). ` +
-                  `This may indicate the create-story agent received truncated context.`
-                logger.warn({ storyKey, expectedTitle, generatedTitle: createResult.story_title, overlap }, msg)
-                eventBus.emit('orchestrator:story-warn', { storyKey, msg })
-              } else {
-                logger.debug(
-                  { storyKey, expectedTitle, generatedTitle: createResult.story_title, overlap },
-                  'Story title validation passed',
-                )
+        endPhase(storyKey, 'create-story')
+        eventBus.emit('orchestrator:story-phase-complete', {
+          storyKey,
+          phase: 'IN_STORY_CREATION',
+          result: createResult,
+        })
+
+        // Record create-story token usage for accurate per-story cost attribution
+        if (config.pipelineRunId !== undefined && createResult.tokenUsage !== undefined) {
+          try {
+            addTokenUsage(db, config.pipelineRunId, {
+              phase: 'create-story',
+              agent: 'create-story',
+              input_tokens: createResult.tokenUsage.input,
+              output_tokens: createResult.tokenUsage.output,
+              cost_usd: estimateDispatchCost(
+                createResult.tokenUsage.input,
+                createResult.tokenUsage.output
+              ),
+              metadata: JSON.stringify({ storyKey }),
+            })
+          } catch (tokenErr) {
+            logger.warn({ storyKey, err: tokenErr }, 'Failed to record create-story token usage')
+          }
+        }
+
+        await persistState()
+
+        if (createResult.result === 'failed') {
+          const errMsg = createResult.error ?? 'create-story failed'
+          // Extract the most diagnostic portion of the error for structured logging
+          const stderrSnippet = errMsg.includes('--- stderr ---')
+            ? errMsg.slice(
+                errMsg.indexOf('--- stderr ---') + 15,
+                errMsg.indexOf('--- stderr ---') + 515
+              )
+            : errMsg.slice(0, 500)
+          logger.error(
+            { storyKey, stderrSnippet },
+            `Create-story failed: ${stderrSnippet.split('\n')[0]}`
+          )
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            error: errMsg,
+            completedAt: new Date().toISOString(),
+          })
+          await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+          await emitEscalation({
+            storyKey,
+            lastVerdict: 'create-story-failed',
+            reviewCycles: 0,
+            issues: [errMsg],
+          })
+          await persistState()
+          return
+        }
+
+        if (createResult.story_file === undefined || createResult.story_file === '') {
+          const errMsg = 'create-story succeeded but returned no story_file path'
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            error: errMsg,
+            completedAt: new Date().toISOString(),
+          })
+          await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+          await emitEscalation({
+            storyKey,
+            lastVerdict: 'create-story-no-file',
+            reviewCycles: 0,
+            issues: [errMsg],
+          })
+          await persistState()
+          return
+        }
+
+        storyFilePath = createResult.story_file
+
+        // -- Story title validation (safety net for hallucinated titles) --
+        // Compare the generated story title against the expected title from the
+        // epic shard. If word overlap is below the threshold, emit a non-blocking
+        // warning so operators can spot context-truncation regressions early.
+        if (createResult.story_title) {
+          try {
+            const epicId = storyKey.split('-')[0] ?? storyKey
+            const implDecisions = await getDecisionsByPhase(db, 'implementation')
+            // Replicate the shard lookup order from create-story.ts:
+            // 1. Per-story shard (post-37-0), 2. Per-epic shard + extraction (pre-37-0)
+            let shardContent: string | undefined
+            const perStoryShard = implDecisions.find(
+              (d) => d.category === 'epic-shard' && d.key === storyKey
+            )
+            if (perStoryShard?.value) {
+              shardContent = perStoryShard.value
+            } else {
+              const epicShard = implDecisions.find(
+                (d) => d.category === 'epic-shard' && d.key === epicId
+              )
+              if (epicShard?.value) {
+                shardContent = extractStorySection(epicShard.value, storyKey) ?? epicShard.value
               }
             }
-          }
-        } catch (titleValidationErr) {
-          // Title validation is best-effort — never block the pipeline
-          logger.debug(
-            { storyKey, err: titleValidationErr },
-            'Story title validation skipped due to error',
-          )
-        }
-      }
 
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      endPhase(storyKey, 'create-story')
-      updateStory(storyKey, {
-        phase: 'ESCALATED' as StoryPhase,
-        error: errMsg,
-        completedAt: new Date().toISOString(),
-      })
-      await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
-      await emitEscalation({
-        storyKey,
-        lastVerdict: 'create-story-exception',
-        reviewCycles: 0,
-        issues: [errMsg],
-      })
-      await persistState()
-      return
-    }
+            if (shardContent) {
+              const expectedTitle = extractExpectedStoryTitle(shardContent, storyKey)
+              if (expectedTitle) {
+                const overlap = computeTitleOverlap(expectedTitle, createResult.story_title)
+                if (overlap < TITLE_OVERLAP_WARNING_THRESHOLD) {
+                  const msg =
+                    `Story title mismatch: expected "${expectedTitle}" ` +
+                    `but got "${createResult.story_title}" ` +
+                    `(word overlap: ${Math.round(overlap * 100)}%). ` +
+                    `This may indicate the create-story agent received truncated context.`
+                  logger.warn(
+                    { storyKey, expectedTitle, generatedTitle: createResult.story_title, overlap },
+                    msg
+                  )
+                  eventBus.emit('orchestrator:story-warn', { storyKey, msg })
+                } else {
+                  logger.debug(
+                    { storyKey, expectedTitle, generatedTitle: createResult.story_title, overlap },
+                    'Story title validation passed'
+                  )
+                }
+              }
+            }
+          } catch (titleValidationErr) {
+            // Title validation is best-effort — never block the pipeline
+            logger.debug(
+              { storyKey, err: titleValidationErr },
+              'Story title validation skipped due to error'
+            )
+          }
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        endPhase(storyKey, 'create-story')
+        updateStory(storyKey, {
+          phase: 'ESCALATED' as StoryPhase,
+          error: errMsg,
+          completedAt: new Date().toISOString(),
+        })
+        await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+        await emitEscalation({
+          storyKey,
+          lastVerdict: 'create-story-exception',
+          reviewCycles: 0,
+          issues: [errMsg],
+        })
+        await persistState()
+        return
+      }
     } // end if (storyFilePath === undefined)
 
     // -- interface contract parsing (Story 25-4: AC3) --
@@ -1710,13 +1872,13 @@ export function createImplementationOrchestrator(
           }
           logger.info(
             { storyKey, contractCount: contracts.length, contracts },
-            'Stored interface contract declarations',
+            'Stored interface contract declarations'
           )
         }
       } catch (err) {
         logger.warn(
           { storyKey, error: err instanceof Error ? err.message : String(err) },
-          'Failed to parse interface contracts — continuing without contract declarations',
+          'Failed to parse interface contracts — continuing without contract declarations'
         )
       }
     }
@@ -1734,18 +1896,33 @@ export function createImplementationOrchestrator(
     let testPlanTokenUsage: { input: number; output: number } | undefined
     try {
       const testPlanResult = await runTestPlan(
-        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
-        { storyKey, storyFilePath: storyFilePath ?? '', pipelineRunId: config.pipelineRunId ?? '' },
+        {
+          db,
+          pack,
+          contextCompiler,
+          dispatcher,
+          projectRoot,
+          tokenCeilings,
+          otlpEndpoint: _otlpEndpoint,
+          agentId,
+        },
+        { storyKey, storyFilePath: storyFilePath ?? '', pipelineRunId: config.pipelineRunId ?? '' }
       )
       testPlanPhaseResult = testPlanResult.result
       testPlanTokenUsage = testPlanResult.tokenUsage
       if (testPlanResult.result === 'success') {
         logger.info({ storyKey }, 'Test plan generated successfully')
       } else {
-        logger.warn({ storyKey }, 'Test planning returned failed result — proceeding to dev-story without test plan')
+        logger.warn(
+          { storyKey },
+          'Test planning returned failed result — proceeding to dev-story without test plan'
+        )
       }
     } catch (err) {
-      logger.warn({ storyKey, err }, 'Test planning failed — proceeding to dev-story without test plan')
+      logger.warn(
+        { storyKey, err },
+        'Test planning failed — proceeding to dev-story without test plan'
+      )
     }
 
     endPhase(storyKey, 'test-plan')
@@ -1816,7 +1993,7 @@ export function createImplementationOrchestrator(
         // If we can't read for analysis, fall back to single dispatch
         logger.error(
           { storyKey, storyFilePath, error: err instanceof Error ? err.message : String(err) },
-          'Could not read story file for complexity analysis — falling back to single dispatch',
+          'Could not read story file for complexity analysis — falling back to single dispatch'
         )
       }
 
@@ -1824,8 +2001,13 @@ export function createImplementationOrchestrator(
       const batches = planTaskBatches(analysis)
 
       logger.info(
-        { storyKey, estimatedScope: analysis.estimatedScope, batchCount: batches.length, taskCount: analysis.taskCount },
-        'Story complexity analyzed',
+        {
+          storyKey,
+          estimatedScope: analysis.estimatedScope,
+          batchCount: batches.length,
+          taskCount: analysis.taskCount,
+        },
+        'Story complexity analyzed'
       )
 
       if (analysis.estimatedScope === 'large' && batches.length > 1) {
@@ -1853,7 +2035,7 @@ export function createImplementationOrchestrator(
 
           logger.info(
             { storyKey, batchIndex: batch.batchIndex, taskCount: batch.taskIds.length },
-            'Dispatching dev-story batch',
+            'Dispatching dev-story batch'
           )
 
           const batchStartMs = Date.now()
@@ -1861,23 +2043,38 @@ export function createImplementationOrchestrator(
           let batchResult
           try {
             batchResult = await runDevStory(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
-                ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}),
-                ...(storyOptions?.optimizationDirectives !== undefined ? { optimizationDirectives: storyOptions.optimizationDirectives } : {}) },
+              {
+                db,
+                pack,
+                contextCompiler,
+                dispatcher,
+                projectRoot,
+                tokenCeilings,
+                otlpEndpoint: _otlpEndpoint,
+                repoMapInjector,
+                maxRepoMapTokens,
+                agentId,
+                ...(config.perStoryContextCeilings?.[storyKey] !== undefined
+                  ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
+                  : {}),
+                ...(storyOptions?.optimizationDirectives !== undefined
+                  ? { optimizationDirectives: storyOptions.optimizationDirectives }
+                  : {}),
+              },
               {
                 storyKey,
                 storyFilePath: storyFilePath ?? '',
                 pipelineRunId: config.pipelineRunId,
                 taskScope,
                 priorFiles,
-              },
+              }
             )
           } catch (batchErr) {
             // AC6: Batch failure — log and continue with partial files
             const errMsg = batchErr instanceof Error ? batchErr.message : String(batchErr)
             logger.warn(
               { storyKey, batchIndex: batch.batchIndex, error: errMsg },
-              'Batch dispatch threw an exception — continuing with partial files',
+              'Batch dispatch threw an exception — continuing with partial files'
             )
             continue
           }
@@ -1917,7 +2114,10 @@ export function createImplementationOrchestrator(
                 agent: `batch-${batch.batchIndex}`,
                 input_tokens: batchResult.tokenUsage.input,
                 output_tokens: batchResult.tokenUsage.output,
-                cost_usd: estimateDispatchCost(batchResult.tokenUsage.input, batchResult.tokenUsage.output),
+                cost_usd: estimateDispatchCost(
+                  batchResult.tokenUsage.input,
+                  batchResult.tokenUsage.output
+                ),
                 metadata: JSON.stringify({
                   storyKey,
                   batchIndex: batch.batchIndex,
@@ -1927,7 +2127,10 @@ export function createImplementationOrchestrator(
                 }),
               })
             } catch (tokenErr) {
-              logger.warn({ storyKey, batchIndex: batch.batchIndex, err: tokenErr }, 'Failed to record batch token usage')
+              logger.warn(
+                { storyKey, batchIndex: batch.batchIndex, err: tokenErr },
+                'Failed to record batch token usage'
+              )
             }
           }
 
@@ -1940,7 +2143,7 @@ export function createImplementationOrchestrator(
             // AC6: Batch returned failure — log and continue (partial progress)
             logger.warn(
               { storyKey, batchIndex: batch.batchIndex, error: batchResult.error },
-              'Batch dev-story reported failure — continuing with partial files',
+              'Batch dev-story reported failure — continuing with partial files'
             )
           } else {
             // At least one batch reported success — track for zero-diff gate (Story 24-1)
@@ -1960,14 +2163,29 @@ export function createImplementationOrchestrator(
         // AC7: Small/medium story — single dispatch (existing behavior)
         incrementDispatches(storyKey)
         const devResult = await runDevStory(
-          { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
-            ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}),
-            ...(storyOptions?.optimizationDirectives !== undefined ? { optimizationDirectives: storyOptions.optimizationDirectives } : {}) },
+          {
+            db,
+            pack,
+            contextCompiler,
+            dispatcher,
+            projectRoot,
+            tokenCeilings,
+            otlpEndpoint: _otlpEndpoint,
+            repoMapInjector,
+            maxRepoMapTokens,
+            agentId,
+            ...(config.perStoryContextCeilings?.[storyKey] !== undefined
+              ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
+              : {}),
+            ...(storyOptions?.optimizationDirectives !== undefined
+              ? { optimizationDirectives: storyOptions.optimizationDirectives }
+              : {}),
+          },
           {
             storyKey,
             storyFilePath: storyFilePath ?? '',
             pipelineRunId: config.pipelineRunId,
-          },
+          }
         )
 
         devFilesModified = devResult.files_modified ?? []
@@ -1982,7 +2200,10 @@ export function createImplementationOrchestrator(
               agent: 'dev-story',
               input_tokens: devResult.tokenUsage.input,
               output_tokens: devResult.tokenUsage.output,
-              cost_usd: estimateDispatchCost(devResult.tokenUsage.input, devResult.tokenUsage.output),
+              cost_usd: estimateDispatchCost(
+                devResult.tokenUsage.input,
+                devResult.tokenUsage.output
+              ),
               metadata: JSON.stringify({ storyKey }),
             })
           } catch (tokenErr) {
@@ -2012,7 +2233,7 @@ export function createImplementationOrchestrator(
             // AC3: No partial files on disk — escalate immediately (nothing to retry from)
             logger.warn(
               { storyKey },
-              'Dev-story timeout with zero modified files — escalating immediately (no checkpoint)',
+              'Dev-story timeout with zero modified files — escalating immediately (no checkpoint)'
             )
             updateStory(storyKey, {
               phase: 'ESCALATED' as StoryPhase,
@@ -2033,24 +2254,21 @@ export function createImplementationOrchestrator(
           // AC1, AC2: Partial files exist — capture checkpoint
           logger.info(
             { storyKey, filesCount: timeoutFiles.length },
-            'Dev-story timeout with partial files — capturing checkpoint',
+            'Dev-story timeout with partial files — capturing checkpoint'
           )
 
           let gitDiff = ''
           try {
-            gitDiff = execSync(
-              `git diff HEAD -- ${timeoutFiles.map((f) => `"${f}"`).join(' ')}`,
-              {
-                cwd: projectRoot ?? process.cwd(),
-                encoding: 'utf-8',
-                timeout: 10_000,
-                stdio: ['ignore', 'pipe', 'pipe'],
-              },
-            ).trim()
+            gitDiff = execSync(`git diff HEAD -- ${timeoutFiles.map((f) => `"${f}"`).join(' ')}`, {
+              cwd: projectRoot ?? process.cwd(),
+              encoding: 'utf-8',
+              timeout: 10_000,
+              stdio: ['ignore', 'pipe', 'pipe'],
+            }).trim()
           } catch (diffErr) {
             logger.warn(
               { storyKey, error: diffErr instanceof Error ? diffErr.message : String(diffErr) },
-              'Failed to capture git diff for checkpoint — proceeding with empty diff',
+              'Failed to capture git diff for checkpoint — proceeding with empty diff'
             )
           }
 
@@ -2061,7 +2279,10 @@ export function createImplementationOrchestrator(
           })
 
           // AC2: Set story phase to CHECKPOINT (AC5: store filesCount for status display)
-          updateStory(storyKey, { phase: 'CHECKPOINT' as StoryPhase, checkpointFilesCount: timeoutFiles.length })
+          updateStory(storyKey, {
+            phase: 'CHECKPOINT' as StoryPhase,
+            checkpointFilesCount: timeoutFiles.length,
+          })
 
           // AC4: Emit checkpoint event
           const diffSizeBytes = Buffer.byteLength(gitDiff, 'utf-8')
@@ -2073,15 +2294,20 @@ export function createImplementationOrchestrator(
 
           // AC6: Record dispatch_log entry with result: 'timeout'
           if (stateStore !== undefined) {
-            stateStore.recordMetric({
-              storyKey,
-              taskType: 'dev-story',
-              result: 'timeout',
-              recordedAt: new Date().toISOString(),
-              sprint: config.sprint,
-            }).catch((storeErr: unknown) => {
-              logger.warn({ err: storeErr, storyKey }, 'Failed to record timeout metric to StateStore (best-effort)')
-            })
+            stateStore
+              .recordMetric({
+                storyKey,
+                taskType: 'dev-story',
+                result: 'timeout',
+                recordedAt: new Date().toISOString(),
+                sprint: config.sprint,
+              })
+              .catch((storeErr: unknown) => {
+                logger.warn(
+                  { err: storeErr, storyKey },
+                  'Failed to record timeout metric to StateStore (best-effort)'
+                )
+              })
           }
 
           await persistState()
@@ -2116,7 +2342,9 @@ export function createImplementationOrchestrator(
               const decisions = await getDecisionsByPhase(db, 'solutioning')
               const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
               archConstraints = constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
-            } catch { /* arch constraints are optional */ }
+            } catch {
+              /* arch constraints are optional */
+            }
 
             const checkpointContext = [
               'Your prior attempt timed out. Here is the work you completed:',
@@ -2133,7 +2361,11 @@ export function createImplementationOrchestrator(
 
             const sections = [
               { name: 'story_content', content: storyContent, priority: 'required' as const },
-              { name: 'checkpoint_context', content: checkpointContext, priority: 'required' as const },
+              {
+                name: 'checkpoint_context',
+                content: checkpointContext,
+                priority: 'required' as const,
+              },
               { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
             ]
             const assembled = assemblePrompt(devStoryTemplate, sections, 24000)
@@ -2146,7 +2378,7 @@ export function createImplementationOrchestrator(
           // AC3: Dispatch retry with same taskType: 'dev-story' (same timeout + turn budget)
           logger.info(
             { storyKey, filesCount: checkpointData.filesModified.length },
-            'Dispatching checkpoint retry for timed-out story',
+            'Dispatching checkpoint retry for timed-out story'
           )
           incrementDispatches(storyKey)
           updateStory(storyKey, { phase: 'IN_DEV' as StoryPhase })
@@ -2173,7 +2405,10 @@ export function createImplementationOrchestrator(
             phase: 'IN_DEV',
             result: {
               tokenUsage: checkpointRetryResult.tokenEstimate
-                ? { input: checkpointRetryResult.tokenEstimate.input, output: checkpointRetryResult.tokenEstimate.output }
+                ? {
+                    input: checkpointRetryResult.tokenEstimate.input,
+                    output: checkpointRetryResult.tokenEstimate.output,
+                  }
                 : undefined,
             },
           })
@@ -2202,13 +2437,14 @@ export function createImplementationOrchestrator(
 
           // AC5: Retry completed (success or failure) — proceed to code review
           const retryParsed = checkpointRetryResult.parsed
-          devFilesModified = retryParsed?.files_modified ?? checkGitDiffFiles(projectRoot ?? process.cwd())
+          devFilesModified =
+            retryParsed?.files_modified ?? checkGitDiffFiles(projectRoot ?? process.cwd())
           if (checkpointRetryResult.status === 'completed' && retryParsed?.result === 'success') {
             devStoryWasSuccess = true
           } else {
             logger.warn(
               { storyKey, status: checkpointRetryResult.status },
-              'Checkpoint retry completed with failure — proceeding to code review',
+              'Checkpoint retry completed with failure — proceeding to code review'
             )
           }
           checkpointHandled = true
@@ -2221,16 +2457,25 @@ export function createImplementationOrchestrator(
             // Dev agent failed but may have produced code (common when agent
             // exhausts turns or exits non-zero after partial work). Proceed to
             // code review — the reviewer will assess actual code state.
-            logger.warn({
-              storyKey,
-              error: devResult.error,
-              filesModified: devFilesModified.length,
-            }, 'Dev-story reported failure, proceeding to code review')
+            logger.warn(
+              {
+                storyKey,
+                error: devResult.error,
+                filesModified: devFilesModified.length,
+              },
+              'Dev-story reported failure, proceeding to code review'
+            )
 
             // Distinguish non-timeout agent crashes from timeouts (which are handled above)
             if (!devResult.error?.startsWith('dispatch_timeout')) {
-              logger.warn({ storyKey, error: devResult.error }, 'Agent process failure (non-timeout) — story will proceed to code review with partial work')
-              eventBus.emit('orchestrator:story-warn', { storyKey, msg: 'agent process failure (non-timeout)' })
+              logger.warn(
+                { storyKey, error: devResult.error },
+                'Agent process failure (non-timeout) — story will proceed to code review with partial work'
+              )
+              eventBus.emit('orchestrator:story-warn', {
+                storyKey,
+                msg: 'agent process failure (non-timeout)',
+              })
             }
           }
         }
@@ -2285,12 +2530,12 @@ export function createImplementationOrchestrator(
         if (hasNewCommits) {
           logger.info(
             { storyKey, baselineHeadSha },
-            'Working tree clean but new commits detected since dispatch — skipping zero-diff escalation',
+            'Working tree clean but new commits detected since dispatch — skipping zero-diff escalation'
           )
         } else {
           logger.warn(
             { storyKey },
-            'Zero-diff detected after COMPLETE dev-story — no file changes and no new commits',
+            'Zero-diff detected after COMPLETE dev-story — no file changes and no new commits'
           )
           eventBus.emit('orchestrator:zero-diff-escalation', {
             storyKey,
@@ -2307,7 +2552,9 @@ export function createImplementationOrchestrator(
             storyKey,
             lastVerdict: 'zero-diff-on-complete',
             reviewCycles: 0,
-            issues: ['dev-story completed with COMPLETE verdict but no file changes detected in git diff'],
+            issues: [
+              'dev-story completed with COMPLETE verdict but no file changes detected in git diff',
+            ],
           })
           await persistState()
           return
@@ -2325,14 +2572,15 @@ export function createImplementationOrchestrator(
     // skipPreflight so pre-flight and per-story gates can be toggled separately.
     let _buildPassed = false // hoisted for code-review prompt context
     {
-      let buildVerifyResult = config.skipBuildVerify === true
-        ? { status: 'skipped' as const }
-        : runBuildVerification({
-            verifyCommand: pack.manifest.verifyCommand,
-            verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
-            projectRoot: projectRoot ?? process.cwd(),
-            changedFiles: gitDiffFiles,
-          })
+      let buildVerifyResult =
+        config.skipBuildVerify === true
+          ? { status: 'skipped' as const }
+          : runBuildVerification({
+              verifyCommand: pack.manifest.verifyCommand,
+              verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
+              projectRoot: projectRoot ?? process.cwd(),
+              changedFiles: gitDiffFiles,
+            })
 
       if (buildVerifyResult.status === 'passed') {
         // Secondary typecheck: catch type errors the bundler may skip (e.g., empty modules).
@@ -2342,10 +2590,9 @@ export function createImplementationOrchestrator(
         const tscBin = join(resolvedRootForTsc, 'node_modules', '.bin', 'tsc')
         const typecheckConfig = join(resolvedRootForTsc, 'tsconfig.typecheck.json')
         const defaultConfig = join(resolvedRootForTsc, 'tsconfig.json')
-        const tscConfigFlag = existsSync(typecheckConfig)
-          ? ` -p ${typecheckConfig}`
-          : ''
-        const hasTsc = existsSync(tscBin) && (existsSync(typecheckConfig) || existsSync(defaultConfig))
+        const tscConfigFlag = existsSync(typecheckConfig) ? ` -p ${typecheckConfig}` : ''
+        const hasTsc =
+          existsSync(tscBin) && (existsSync(typecheckConfig) || existsSync(defaultConfig))
         if (hasTsc) {
           try {
             execSync(`"${tscBin}" --noEmit${tscConfigFlag}`, {
@@ -2356,10 +2603,14 @@ export function createImplementationOrchestrator(
             })
             logger.info({ storyKey }, 'Secondary typecheck (tsc --noEmit) passed')
           } catch (tscErr) {
-            const tscOutput = tscErr instanceof Error && 'stdout' in tscErr
-              ? String((tscErr as { stdout?: string }).stdout ?? '').slice(0, 2000)
-              : ''
-            logger.warn({ storyKey, tscOutput }, 'Secondary typecheck (tsc --noEmit) failed — treating as build failure')
+            const tscOutput =
+              tscErr instanceof Error && 'stdout' in tscErr
+                ? String((tscErr as { stdout?: string }).stdout ?? '').slice(0, 2000)
+                : ''
+            logger.warn(
+              { storyKey, tscOutput },
+              'Secondary typecheck (tsc --noEmit) failed — treating as build failure'
+            )
             buildVerifyResult = {
               status: 'failed',
               exitCode: 2,
@@ -2385,8 +2636,13 @@ export function createImplementationOrchestrator(
           const resolvedRoot = projectRoot ?? process.cwd()
           const hasChanges = detectPackageChanges(_packageSnapshot, resolvedRoot)
           if (hasChanges) {
-            logger.warn({ storyKey }, 'Package files changed since snapshot — restoring to prevent cascade')
-            const restoreResult = restorePackageSnapshot(_packageSnapshot, { projectRoot: resolvedRoot })
+            logger.warn(
+              { storyKey },
+              'Package files changed since snapshot — restoring to prevent cascade'
+            )
+            const restoreResult = restorePackageSnapshot(_packageSnapshot, {
+              projectRoot: resolvedRoot,
+            })
             if (restoreResult.restored) {
               const retryAfterRestore = runBuildVerification({
                 verifyCommand: pack.manifest.verifyCommand,
@@ -2400,12 +2656,12 @@ export function createImplementationOrchestrator(
                 eventBus.emit('story:build-verification-passed', { storyKey })
                 logger.warn(
                   { storyKey, filesRestored: restoreResult.filesRestored },
-                  'Build passed after package snapshot restore — cross-story pollution detected and cleaned',
+                  'Build passed after package snapshot restore — cross-story pollution detected and cleaned'
                 )
               } else {
                 logger.warn(
                   { storyKey, filesRestored: restoreResult.filesRestored },
-                  'Build still fails after snapshot restore — story has its own build errors',
+                  'Build still fails after snapshot restore — story has its own build errors'
                 )
               }
             }
@@ -2414,11 +2670,9 @@ export function createImplementationOrchestrator(
 
         // -- build-fix retry: attempt to auto-fix missing npm packages before escalating --
         const fullOutput = buildVerifyResult.output ?? ''
-        const missingPkgMatch = fullOutput.match(
-          /Cannot find (?:module|package) ['"]([^'"]+)['"]/
-        ) ?? fullOutput.match(
-          /ERR_MODULE_NOT_FOUND[^]*?['"]([^'"]+)['"]/
-        )
+        const missingPkgMatch =
+          fullOutput.match(/Cannot find (?:module|package) ['"]([^'"]+)['"]/) ??
+          fullOutput.match(/ERR_MODULE_NOT_FOUND[^]*?['"]([^'"]+)['"]/)
 
         if (missingPkgMatch && buildVerifyResult.status !== 'timeout') {
           const missingPkg = missingPkgMatch[1]
@@ -2429,7 +2683,7 @@ export function createImplementationOrchestrator(
           const resolvedRoot = projectRoot ?? process.cwd()
           logger.warn(
             { storyKey, missingPkg },
-            'Build-fix retry: detected missing npm package — attempting npm install',
+            'Build-fix retry: detected missing npm package — attempting npm install'
           )
 
           try {
@@ -2442,7 +2696,7 @@ export function createImplementationOrchestrator(
 
             logger.warn(
               { storyKey, missingPkg },
-              'Build-fix retry: npm install succeeded — retrying build verification',
+              'Build-fix retry: npm install succeeded — retrying build verification'
             )
 
             const retryResult = runBuildVerification({
@@ -2458,19 +2712,19 @@ export function createImplementationOrchestrator(
               eventBus.emit('story:build-verification-passed', { storyKey })
               logger.warn(
                 { storyKey, missingPkg },
-                'Build-fix retry: build verification passed after installing missing package',
+                'Build-fix retry: build verification passed after installing missing package'
               )
             } else {
               logger.warn(
                 { storyKey, missingPkg, retryStatus: retryResult.status },
-                'Build-fix retry: build still fails after installing missing package — escalating',
+                'Build-fix retry: build still fails after installing missing package — escalating'
               )
             }
           } catch (installErr: unknown) {
             const installMsg = installErr instanceof Error ? installErr.message : String(installErr)
             logger.warn(
               { storyKey, missingPkg, error: installMsg },
-              'Build-fix retry: npm install failed — escalating',
+              'Build-fix retry: npm install failed — escalating'
             )
           }
         }
@@ -2481,10 +2735,7 @@ export function createImplementationOrchestrator(
           // the build error output, then re-verify. Only for type/compile errors
           // (not timeouts or missing build scripts).
           let buildFixPassed = false
-          if (
-            buildVerifyResult.status === 'failed' &&
-            storyFilePath !== undefined
-          ) {
+          if (buildVerifyResult.status === 'failed' && storyFilePath !== undefined) {
             try {
               logger.info({ storyKey }, 'Dispatching build-fix agent')
               startPhase(storyKey, 'build-fix')
@@ -2554,7 +2805,7 @@ export function createImplementationOrchestrator(
 
             logger.warn(
               { storyKey, reason, exitCode: buildVerifyResult.exitCode },
-              'Build verification failed — escalating story',
+              'Build verification failed — escalating story'
             )
 
             updateStory(storyKey, {
@@ -2599,7 +2850,7 @@ export function createImplementationOrchestrator(
                 modifiedInterfaces: icResult.modifiedInterfaces,
                 potentiallyAffectedTests: icResult.potentiallyAffectedTests,
               },
-              'Interface change warning: modified exports may affect cross-module test mocks',
+              'Interface change warning: modified exports may affect cross-module test mocks'
             )
             eventBus.emit('story:interface-change-warning', {
               storyKey,
@@ -2629,7 +2880,12 @@ export function createImplementationOrchestrator(
     let reviewCycles = 0
     let keepReviewing = true
     let timeoutRetried = false
-    let previousIssueList: Array<{ severity?: string; description?: string; file?: string; line?: number }> = []
+    let previousIssueList: Array<{
+      severity?: string
+      description?: string
+      file?: string
+      line?: number
+    }> = []
 
     while (keepReviewing) {
       await waitIfPaused()
@@ -2687,23 +2943,50 @@ export function createImplementationOrchestrator(
 
         if (useBatchedReview) {
           // Per-batch reviews — aggregate worst verdict + union issues
-          const allIssues: Array<{ severity: 'blocker' | 'major' | 'minor'; description: string; file?: string; line?: number }> = []
-          let worstVerdict: 'SHIP_IT' | 'LGTM_WITH_NOTES' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK' = 'SHIP_IT'
+          const allIssues: Array<{
+            severity: 'blocker' | 'major' | 'minor'
+            description: string
+            file?: string
+            line?: number
+          }> = []
+          let worstVerdict:
+            | 'SHIP_IT'
+            | 'LGTM_WITH_NOTES'
+            | 'NEEDS_MINOR_FIXES'
+            | 'NEEDS_MAJOR_REWORK' = 'SHIP_IT'
           let aggregateTokens = { input: 0, output: 0 }
           let lastError: string | undefined
           let lastRawOutput: string | undefined
 
-          const verdictRank = { 'SHIP_IT': 0, 'LGTM_WITH_NOTES': 0.5, 'NEEDS_MINOR_FIXES': 1, 'NEEDS_MAJOR_REWORK': 2 } as const
+          const verdictRank = {
+            SHIP_IT: 0,
+            LGTM_WITH_NOTES: 0.5,
+            NEEDS_MINOR_FIXES: 1,
+            NEEDS_MAJOR_REWORK: 2,
+          } as const
 
           for (const group of batchFileGroups) {
             logger.info(
               { storyKey, batchIndex: group.batchIndex, fileCount: group.files.length },
-              'Running batched code review',
+              'Running batched code review'
             )
             incrementDispatches(storyKey)
             const batchReview = await runCodeReview(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
-                ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}) },
+              {
+                db,
+                pack,
+                contextCompiler,
+                dispatcher,
+                projectRoot,
+                tokenCeilings,
+                otlpEndpoint: _otlpEndpoint,
+                repoMapInjector,
+                maxRepoMapTokens,
+                agentId,
+                ...(config.perStoryContextCeilings?.[storyKey] !== undefined
+                  ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
+                  : {}),
+              },
               {
                 storyKey,
                 storyFilePath: storyFilePath ?? '',
@@ -2711,7 +2994,7 @@ export function createImplementationOrchestrator(
                 pipelineRunId: config.pipelineRunId,
                 filesModified: group.files,
                 buildPassed: _buildPassed,
-              },
+              }
             )
 
             // Accumulate
@@ -2741,15 +3024,33 @@ export function createImplementationOrchestrator(
           }
 
           logger.info(
-            { storyKey, batchCount: batchFileGroups.length, verdict: worstVerdict, issues: allIssues.length },
-            'Batched code review complete — aggregate result',
+            {
+              storyKey,
+              batchCount: batchFileGroups.length,
+              verdict: worstVerdict,
+              issues: allIssues.length,
+            },
+            'Batched code review complete — aggregate result'
           )
         } else {
           // Single review (small story or re-review after fix)
           incrementDispatches(storyKey)
           reviewResult = await runCodeReview(
-            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
-              ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}) },
+            {
+              db,
+              pack,
+              contextCompiler,
+              dispatcher,
+              projectRoot,
+              tokenCeilings,
+              otlpEndpoint: _otlpEndpoint,
+              repoMapInjector,
+              maxRepoMapTokens,
+              agentId,
+              ...(config.perStoryContextCeilings?.[storyKey] !== undefined
+                ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
+                : {}),
+            },
             {
               storyKey,
               storyFilePath: storyFilePath ?? '',
@@ -2759,7 +3060,7 @@ export function createImplementationOrchestrator(
               buildPassed: _buildPassed,
               // Scope re-reviews: pass previous issues so the reviewer verifies fixes first
               ...(previousIssueList.length > 0 ? { previousIssues: previousIssueList } : {}),
-            },
+            }
           )
         }
 
@@ -2771,7 +3072,10 @@ export function createImplementationOrchestrator(
               agent: useBatchedReview ? 'code-review-batched' : 'code-review',
               input_tokens: reviewResult.tokenUsage.input,
               output_tokens: reviewResult.tokenUsage.output,
-              cost_usd: estimateDispatchCost(reviewResult.tokenUsage.input, reviewResult.tokenUsage.output),
+              cost_usd: estimateDispatchCost(
+                reviewResult.tokenUsage.input,
+                reviewResult.tokenUsage.output
+              ),
               metadata: JSON.stringify({ storyKey, reviewCycle: reviewCycles }),
             })
           } catch (tokenErr) {
@@ -2783,16 +3087,17 @@ export function createImplementationOrchestrator(
         // are flagged with dispatchFailed=true. Also detect heuristically when verdict
         // is non-SHIP_IT but issue list is empty + error (schema validation failure,
         // truncated response). Either way, retry the review once before escalation.
-        const isPhantomReview = reviewResult.dispatchFailed === true
-          || (reviewResult.verdict !== 'SHIP_IT'
-            && reviewResult.verdict !== 'LGTM_WITH_NOTES'
-            && (reviewResult.issue_list === undefined || reviewResult.issue_list.length === 0)
-            && reviewResult.error !== undefined)
+        const isPhantomReview =
+          reviewResult.dispatchFailed === true ||
+          (reviewResult.verdict !== 'SHIP_IT' &&
+            reviewResult.verdict !== 'LGTM_WITH_NOTES' &&
+            (reviewResult.issue_list === undefined || reviewResult.issue_list.length === 0) &&
+            reviewResult.error !== undefined)
         if (isPhantomReview && !timeoutRetried) {
           timeoutRetried = true
           logger.warn(
             { storyKey, reviewCycles, error: reviewResult.error },
-            'Phantom review detected (0 issues + error) — retrying review once',
+            'Phantom review detected (0 issues + error) — retrying review once'
           )
           continue
         }
@@ -2805,7 +3110,7 @@ export function createImplementationOrchestrator(
         if (isPhantomReview && timeoutRetried) {
           logger.warn(
             { storyKey, reviewCycles, error: reviewResult.error },
-            'Consecutive review timeouts detected (original + retry both failed) — escalating immediately',
+            'Consecutive review timeouts detected (original + retry both failed) — escalating immediately'
           )
           endPhase(storyKey, 'code-review')
           updateStory(storyKey, {
@@ -2818,7 +3123,9 @@ export function createImplementationOrchestrator(
             storyKey,
             lastVerdict: 'consecutive-review-timeouts',
             reviewCycles: reviewCycles + 1,
-            issues: ['Review dispatch failed twice consecutively (original + phantom-retry). Likely resource-constrained or diff too large for reviewer.'],
+            issues: [
+              'Review dispatch failed twice consecutively (original + phantom-retry). Likely resource-constrained or diff too large for reviewer.',
+            ],
           })
           await persistState()
           return
@@ -2834,14 +3141,19 @@ export function createImplementationOrchestrator(
         // instead of an expensive opus rework. This avoids escalation when
         // only 1-2 residual issues remain from a previously larger set.
         if (
-          verdict === 'NEEDS_MAJOR_REWORK'
-          && reviewCycles > 0
-          && previousIssueList.length > 0
-          && issueList.length < previousIssueList.length
+          verdict === 'NEEDS_MAJOR_REWORK' &&
+          reviewCycles > 0 &&
+          previousIssueList.length > 0 &&
+          issueList.length < previousIssueList.length
         ) {
           logger.info(
-            { storyKey, originalVerdict: verdict, issuesBefore: previousIssueList.length, issuesAfter: issueList.length },
-            'Issues decreased between review cycles — demoting MAJOR_REWORK to MINOR_FIXES',
+            {
+              storyKey,
+              originalVerdict: verdict,
+              issuesBefore: previousIssueList.length,
+              issuesAfter: issueList.length,
+            },
+            'Issues decreased between review cycles — demoting MAJOR_REWORK to MINOR_FIXES'
           )
           verdict = 'NEEDS_MINOR_FIXES'
         }
@@ -2860,11 +3172,12 @@ export function createImplementationOrchestrator(
           // Serialize full issue_list into content_hash for diagnostic queries.
           // On successful reviews (parsed correctly), this captures the actual findings.
           // On failures, it captures whatever partial data is available.
-          const issueDetails = issueList.length > 0
-            ? JSON.stringify(issueList)
-            : reviewResult.rawOutput
-              ? `raw:${reviewResult.rawOutput.slice(0, 500)}`
-              : undefined
+          const issueDetails =
+            issueList.length > 0
+              ? JSON.stringify(issueList)
+              : reviewResult.rawOutput
+                ? `raw:${reviewResult.rawOutput.slice(0, 500)}`
+                : undefined
           await registerArtifact(db, {
             pipeline_run_id: config.pipelineRunId,
             phase: 'code-review',
@@ -2902,7 +3215,10 @@ export function createImplementationOrchestrator(
           parts.push(`${fileCount} files`)
           parts.push(`${totalTokensK} tokens`)
 
-          logger.info({ storyKey, verdict, agentVerdict: reviewResult.agentVerdict }, parts.join(' | '))
+          logger.info(
+            { storyKey, verdict, agentVerdict: reviewResult.agentVerdict },
+            parts.join(' | ')
+          )
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
@@ -2930,13 +3246,14 @@ export function createImplementationOrchestrator(
         if (config.skipVerification !== true) {
           // reviewResult is CodeReviewResult | undefined; CodeReviewResult already declares
           // dispatchFailed?, error?, and rawOutput? — no casts required.
-          const latestReviewSignals: ReviewSignals | undefined = reviewResult != null
-            ? {
-                dispatchFailed: reviewResult.dispatchFailed,
-                error: reviewResult.error,
-                rawOutput: reviewResult.rawOutput,
-              }
-            : undefined
+          const latestReviewSignals: ReviewSignals | undefined =
+            reviewResult != null
+              ? {
+                  dispatchFailed: reviewResult.dispatchFailed,
+                  error: reviewResult.error,
+                  rawOutput: reviewResult.rawOutput,
+                }
+              : undefined
           const verifContext = assembleVerificationContext({
             storyKey,
             workingDir: projectRoot ?? process.cwd(),
@@ -2949,9 +3266,12 @@ export function createImplementationOrchestrator(
           // Called before any terminal phase transition so result survives crashes.
           persistVerificationResult(storyKey, verifSummary, runManifest)
           if (verifSummary.status === 'fail') {
-            updateStory(storyKey, { phase: 'VERIFICATION_FAILED' as StoryPhase, completedAt: new Date().toISOString() })
+            updateStory(storyKey, {
+              phase: 'VERIFICATION_FAILED' as StoryPhase,
+              completedAt: new Date().toISOString(),
+            })
             persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
-              logger.warn({ err, storyKey }, 'StateStore write failed after verification-failed'),
+              logger.warn({ err, storyKey }, 'StateStore write failed after verification-failed')
             )
             await writeStoryMetricsBestEffort(storyKey, 'verification-failed', reviewCycles)
             await persistState()
@@ -2967,7 +3287,10 @@ export function createImplementationOrchestrator(
         const completedReviewCycles = reviewCycles + 1
         await writeStoryMetricsBestEffort(storyKey, verdict, completedReviewCycles)
         await writeStoryOutcomeBestEffort(storyKey, 'complete', completedReviewCycles)
-        eventBus.emit('orchestrator:story-complete', { storyKey, reviewCycles: completedReviewCycles })
+        eventBus.emit('orchestrator:story-complete', {
+          storyKey,
+          reviewCycles: completedReviewCycles,
+        })
         await persistState()
 
         // LGTM_WITH_NOTES: persist advisory notes to decision store for learning loop
@@ -2984,8 +3307,11 @@ export function createImplementationOrchestrator(
             logger.info({ storyKey }, 'Advisory notes persisted to decision store')
           } catch (advisoryErr) {
             logger.warn(
-              { storyKey, error: advisoryErr instanceof Error ? advisoryErr.message : String(advisoryErr) },
-              'Failed to persist advisory notes (best-effort)',
+              {
+                storyKey,
+                error: advisoryErr instanceof Error ? advisoryErr.message : String(advisoryErr),
+              },
+              'Failed to persist advisory notes (best-effort)'
             )
           }
         }
@@ -3005,15 +3331,18 @@ export function createImplementationOrchestrator(
                   compositeScore: effScore.compositeScore,
                   modelCount: effScore.perModelBreakdown.length,
                 },
-                'Efficiency score computed and persisted',
+                'Efficiency score computed and persisted'
               )
             } else {
-              logger.debug({ storyKey }, 'No turn analysis data available — skipping efficiency scoring')
+              logger.debug(
+                { storyKey },
+                'No turn analysis data available — skipping efficiency scoring'
+              )
             }
           } catch (effErr) {
             logger.warn(
               { storyKey, error: effErr instanceof Error ? effErr.message : String(effErr) },
-              'Efficiency scoring failed — story verdict unchanged',
+              'Efficiency scoring failed — story verdict unchanged'
             )
           }
         }
@@ -3025,7 +3354,10 @@ export function createImplementationOrchestrator(
           try {
             const turns = await telemetryPersistence.getTurnAnalysis(storyKey)
             if (turns.length === 0) {
-              logger.debug({ storyKey }, 'No turn analysis data for telemetry categorization — skipping')
+              logger.debug(
+                { storyKey },
+                'No turn analysis data for telemetry categorization — skipping'
+              )
             } else {
               const categorizer = new Categorizer(logger)
               const consumerAnalyzer = new ConsumerAnalyzer(categorizer, logger)
@@ -3038,13 +3370,13 @@ export function createImplementationOrchestrator(
               const topConsumer = consumerStats[0]?.consumerKey ?? 'none'
               logger.info(
                 { storyKey, topCategory, topConsumer, growingCount },
-                'Semantic categorization and consumer analysis complete',
+                'Semantic categorization and consumer analysis complete'
               )
             }
           } catch (catErr) {
             logger.warn(
               { storyKey, error: catErr instanceof Error ? catErr.message : String(catErr) },
-              'Semantic categorization failed — story verdict unchanged',
+              'Semantic categorization failed — story verdict unchanged'
             )
           }
         }
@@ -3052,14 +3384,23 @@ export function createImplementationOrchestrator(
         // Post-SHIP_IT/LGTM_WITH_NOTES: run test expansion analysis (non-blocking — never alters verdict/state)
         try {
           const expansionResult = await runTestExpansion(
-            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
+            {
+              db,
+              pack,
+              contextCompiler,
+              dispatcher,
+              projectRoot,
+              tokenCeilings,
+              otlpEndpoint: _otlpEndpoint,
+              agentId,
+            },
             {
               storyKey,
               storyFilePath: storyFilePath ?? '',
               pipelineRunId: config.pipelineRunId,
               filesModified: devFilesModified,
               workingDirectory: projectRoot,
-            },
+            }
           )
           logger.debug(
             {
@@ -3067,7 +3408,7 @@ export function createImplementationOrchestrator(
               expansion_priority: expansionResult.expansion_priority,
               coverage_gaps: expansionResult.coverage_gaps.length,
             },
-            'Test expansion analysis complete',
+            'Test expansion analysis complete'
           )
           await createDecision(db, {
             pipeline_run_id: config.pipelineRunId ?? 'unknown',
@@ -3078,8 +3419,11 @@ export function createImplementationOrchestrator(
           })
         } catch (expansionErr) {
           logger.warn(
-            { storyKey, error: expansionErr instanceof Error ? expansionErr.message : String(expansionErr) },
-            'Test expansion failed — story verdict unchanged',
+            {
+              storyKey,
+              error: expansionErr instanceof Error ? expansionErr.message : String(expansionErr),
+            },
+            'Test expansion failed — story verdict unchanged'
           )
         }
 
@@ -3113,7 +3457,7 @@ export function createImplementationOrchestrator(
         // NEEDS_MINOR_FIXES at the limit → fix then auto-approve (converged on nits)
         logger.info(
           { storyKey, reviewCycles: finalReviewCycles, issueCount: issueList.length },
-          'Review cycles exhausted with only minor issues — applying fixes then auto-approving',
+          'Review cycles exhausted with only minor issues — applying fixes then auto-approving'
         )
 
         await waitIfPaused()
@@ -3130,7 +3474,10 @@ export function createImplementationOrchestrator(
             // Compute maxTurns from story complexity — auto-approve fixes are minor,
             // so cap at half the full complexity budget (min 15) to prevent churn
             const complexity = computeStoryComplexity(storyContent)
-            autoApproveMaxTurns = Math.max(15, Math.floor(resolveFixStoryMaxTurns(complexity.complexityScore) / 2))
+            autoApproveMaxTurns = Math.max(
+              15,
+              Math.floor(resolveFixStoryMaxTurns(complexity.complexityScore) / 2)
+            )
             logComplexityResult(storyKey, complexity, autoApproveMaxTurns)
 
             let reviewFeedback: string
@@ -3141,7 +3488,12 @@ export function createImplementationOrchestrator(
                 `Verdict: ${verdict}`,
                 `Issues (${issueList.length}):`,
                 ...issueList.map((issue, i) => {
-                  const iss = issue as { severity?: string; description?: string; file?: string; line?: number }
+                  const iss = issue as {
+                    severity?: string
+                    description?: string
+                    file?: string
+                    line?: number
+                  }
                   return `  ${i + 1}. [${iss.severity ?? 'unknown'}] ${iss.description ?? 'no description'}${iss.file ? ` (${iss.file}${iss.line ? `:${iss.line}` : ''})` : ''}`
                 }),
               ].join('\n')
@@ -3151,13 +3503,23 @@ export function createImplementationOrchestrator(
               const decisions = await getDecisionsByPhase(db, 'solutioning')
               const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
               archConstraints = constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
-            } catch { /* arch constraints are optional */ }
+            } catch {
+              /* arch constraints are optional */
+            }
             const targetedFilesContent = buildTargetedFilesContent(issueList)
             const sections = [
               { name: 'story_content', content: storyContent, priority: 'required' as const },
               { name: 'review_feedback', content: reviewFeedback, priority: 'required' as const },
               { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
-              ...(targetedFilesContent ? [{ name: 'targeted_files', content: targetedFilesContent, priority: 'important' as const }] : []),
+              ...(targetedFilesContent
+                ? [
+                    {
+                      name: 'targeted_files',
+                      content: targetedFilesContent,
+                      priority: 'important' as const,
+                    },
+                  ]
+                : []),
             ]
             const assembled = assemblePrompt(fixTemplate, sections, 24000)
             fixPrompt = assembled.prompt
@@ -3191,10 +3553,16 @@ export function createImplementationOrchestrator(
           })
 
           if (fixResult.status === 'timeout') {
-            logger.warn({ storyKey }, 'Auto-approve fix timed out — approving anyway (issues were minor)')
+            logger.warn(
+              { storyKey },
+              'Auto-approve fix timed out — approving anyway (issues were minor)'
+            )
           }
         } catch (err) {
-          logger.warn({ storyKey, err }, 'Auto-approve fix dispatch failed — approving anyway (issues were minor)')
+          logger.warn(
+            { storyKey, err },
+            'Auto-approve fix dispatch failed — approving anyway (issues were minor)'
+          )
         }
 
         // Auto-approve: mark COMPLETE regardless of fix outcome (issues were minor)
@@ -3246,7 +3614,7 @@ export function createImplementationOrchestrator(
             timestamp: new Date().toISOString(),
           })
           .catch((err: unknown) =>
-            logger.warn({ err, storyKey }, 'appendRecoveryEntry failed — pipeline continues'),
+            logger.warn({ err, storyKey }, 'appendRecoveryEntry failed — pipeline continues')
           )
       }
 
@@ -3277,9 +3645,8 @@ export function createImplementationOrchestrator(
           {
             const complexity = computeStoryComplexity(storyContent)
             const fullBudget = resolveFixStoryMaxTurns(complexity.complexityScore)
-            fixMaxTurns = taskType === 'minor-fixes'
-              ? Math.max(15, Math.floor(fullBudget / 2))
-              : fullBudget
+            fixMaxTurns =
+              taskType === 'minor-fixes' ? Math.max(15, Math.floor(fullBudget / 2)) : fullBudget
             logComplexityResult(storyKey, complexity, fixMaxTurns)
           }
 
@@ -3307,7 +3674,12 @@ export function createImplementationOrchestrator(
               `Verdict: ${verdict}`,
               `${issueHeader} (${issueList.length}):`,
               ...issueList.map((issue, i) => {
-                const iss = issue as { severity?: string; description?: string; file?: string; line?: number }
+                const iss = issue as {
+                  severity?: string
+                  description?: string
+                  file?: string
+                  line?: number
+                }
                 return `  ${i + 1}. [${iss.severity ?? 'unknown'}] ${iss.description ?? 'no description'}${iss.file ? ` (${iss.file}${iss.line ? `:${iss.line}` : ''})` : ''}`
               }),
             ].join('\n')
@@ -3319,21 +3691,28 @@ export function createImplementationOrchestrator(
             const decisions = await getDecisionsByPhase(db, 'solutioning')
             const constraints = decisions.filter((d: Decision) => d.category === 'architecture')
             archConstraints = constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
-          } catch { /* arch constraints are optional */ }
+          } catch {
+            /* arch constraints are optional */
+          }
 
           // Compute git diff of modified files for rework context
           let gitDiffContent = ''
           try {
             const diffFiles = checkGitDiffFiles(projectRoot ?? process.cwd())
             if (diffFiles.length > 0) {
-              gitDiffContent = execSync(`git diff HEAD -- ${diffFiles.map((f) => `"${f}"`).join(' ')}`, {
-                cwd: projectRoot ?? process.cwd(),
-                encoding: 'utf-8',
-                timeout: 10000,
-                stdio: ['ignore', 'pipe', 'pipe'],
-              }).trim()
+              gitDiffContent = execSync(
+                `git diff HEAD -- ${diffFiles.map((f) => `"${f}"`).join(' ')}`,
+                {
+                  cwd: projectRoot ?? process.cwd(),
+                  encoding: 'utf-8',
+                  timeout: 10000,
+                  stdio: ['ignore', 'pipe', 'pipe'],
+                }
+              ).trim()
             }
-          } catch { /* graceful degradation — fall back to empty diff */ }
+          } catch {
+            /* graceful degradation — fall back to empty diff */
+          }
 
           // Query prior pipeline findings (escalation issues, recurring patterns)
           // for context injection into fix/rework prompts (Tier 3 item #7)
@@ -3341,27 +3720,58 @@ export function createImplementationOrchestrator(
           try {
             const findings = await getProjectFindings(db)
             if (findings !== '') {
-              priorFindingsContent = 'Prior pipeline findings — avoid repeating these patterns:\n\n' + findings
+              priorFindingsContent =
+                'Prior pipeline findings — avoid repeating these patterns:\n\n' + findings
             }
-          } catch { /* graceful fallback */ }
+          } catch {
+            /* graceful fallback */
+          }
 
           // Build sections based on template type
           const sections = isMajorRework
             ? [
                 { name: 'story_content', content: storyContent, priority: 'required' as const },
                 { name: 'review_findings', content: reviewFeedback, priority: 'required' as const },
-                { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
+                {
+                  name: 'arch_constraints',
+                  content: archConstraints,
+                  priority: 'optional' as const,
+                },
                 { name: 'git_diff', content: gitDiffContent, priority: 'optional' as const },
-                { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' as const },
+                {
+                  name: 'prior_findings',
+                  content: priorFindingsContent,
+                  priority: 'optional' as const,
+                },
               ]
             : (() => {
                 const targetedFilesContent = buildTargetedFilesContent(issueList)
                 return [
                   { name: 'story_content', content: storyContent, priority: 'required' as const },
-                  { name: 'review_feedback', content: reviewFeedback, priority: 'required' as const },
-                  { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
-                  ...(targetedFilesContent ? [{ name: 'targeted_files', content: targetedFilesContent, priority: 'important' as const }] : []),
-                  { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' as const },
+                  {
+                    name: 'review_feedback',
+                    content: reviewFeedback,
+                    priority: 'required' as const,
+                  },
+                  {
+                    name: 'arch_constraints',
+                    content: archConstraints,
+                    priority: 'optional' as const,
+                  },
+                  ...(targetedFilesContent
+                    ? [
+                        {
+                          name: 'targeted_files',
+                          content: targetedFilesContent,
+                          priority: 'important' as const,
+                        },
+                      ]
+                    : []),
+                  {
+                    name: 'prior_findings',
+                    content: priorFindingsContent,
+                    priority: 'optional' as const,
+                  },
                 ]
               })()
           const assembled = assemblePrompt(fixTemplate, sections, 24000)
@@ -3435,7 +3845,10 @@ export function createImplementationOrchestrator(
         if (fixResult.status === 'failed') {
           // Major rework failure is a strong escalation signal
           if (isMajorRework) {
-            logger.warn({ storyKey, exitCode: fixResult.exitCode }, 'Major rework dispatch failed — escalating story')
+            logger.warn(
+              { storyKey, exitCode: fixResult.exitCode },
+              'Major rework dispatch failed — escalating story'
+            )
             endPhase(storyKey, 'code-review')
             updateStory(storyKey, {
               phase: 'ESCALATED' as StoryPhase,
@@ -3460,8 +3873,18 @@ export function createImplementationOrchestrator(
 
       // Save current issues for scoped re-review in next cycle
       previousIssueList = issueList.map((issue) => {
-        const iss = issue as { severity?: string; description?: string; file?: string; line?: number }
-        return { severity: iss.severity, description: iss.description, file: iss.file, line: iss.line }
+        const iss = issue as {
+          severity?: string
+          description?: string
+          file?: string
+          line?: number
+        }
+        return {
+          severity: iss.severity,
+          description: iss.description,
+          file: iss.file,
+          line: iss.line,
+        }
       })
 
       reviewCycles++
@@ -3484,7 +3907,7 @@ export function createImplementationOrchestrator(
     triggeredStoryKey: string,
     remainingInGroup: string[],
     result: CeilingCheckResult,
-    manifest: RunManifestData,
+    manifest: RunManifestData
   ): Promise<void> {
     const haltOn = (manifest.cli_flags.halt_on as string | undefined) ?? 'none'
 
@@ -3505,9 +3928,9 @@ export function createImplementationOrchestrator(
       })
       // Best-effort manifest update
       if (runManifest !== null && runManifest !== undefined) {
-        runManifest
-          .patchStoryState(key, { status: 'escalated' })
-          .catch(() => { /* best-effort — ignore errors */ })
+        runManifest.patchStoryState(key, { status: 'escalated' }).catch(() => {
+          /* best-effort — ignore errors */
+        })
       }
     }
 
@@ -3526,7 +3949,7 @@ export function createImplementationOrchestrator(
 
     logger.warn(
       { skipped: allSkipped.length, cumulative: result.cumulative, ceiling: result.ceiling },
-      'Cost ceiling reached — stopping dispatch',
+      'Cost ceiling reached — stopping dispatch'
     )
   }
 
@@ -3578,11 +4001,14 @@ export function createImplementationOrchestrator(
             optimizationDirectives = directives
             logger.debug(
               { storyKey, directiveCount: recs.filter((r) => r.severity !== 'info').length },
-              'Optimization directives ready for dispatch',
+              'Optimization directives ready for dispatch'
             )
           }
         } catch (err) {
-          logger.debug({ err, storyKey }, 'Failed to fetch optimization directives — proceeding without')
+          logger.debug(
+            { err, storyKey },
+            'Failed to fetch optimization directives — proceeding without'
+          )
         }
       }
 
@@ -3607,7 +4033,7 @@ export function createImplementationOrchestrator(
     const running = new Set<Promise<void>>()
 
     function enqueue(): void {
-      if (_budgetExhausted) return  // budget ceiling reached — no new dispatches
+      if (_budgetExhausted) return // budget ceiling reached — no new dispatches
       const group = queue.shift()
       if (group === undefined) return
 
@@ -3644,7 +4070,10 @@ export function createImplementationOrchestrator(
 
   async function run(storyKeys: string[]): Promise<OrchestratorStatus> {
     if (_state === 'RUNNING' || _state === 'PAUSED') {
-      logger.warn({ state: _state }, 'run() called while orchestrator is already running or paused — ignoring')
+      logger.warn(
+        { state: _state },
+        'run() called while orchestrator is already running or paused — ignoring'
+      )
       return getStatus()
     }
     if (_state === 'COMPLETE') {
@@ -3685,8 +4114,12 @@ export function createImplementationOrchestrator(
       _startupTimings.seedMethodologyMs = Date.now() - seedStart
       if (seedResult.decisionsCreated > 0) {
         logger.info(
-          { decisionsCreated: seedResult.decisionsCreated, skippedCategories: seedResult.skippedCategories, durationMs: _startupTimings.seedMethodologyMs },
-          'Methodology context seeded from planning artifacts',
+          {
+            decisionsCreated: seedResult.decisionsCreated,
+            skippedCategories: seedResult.skippedCategories,
+            durationMs: _startupTimings.seedMethodologyMs,
+          },
+          'Methodology context seeded from planning artifacts'
         )
       }
     }
@@ -3701,11 +4134,14 @@ export function createImplementationOrchestrator(
         if (ingestResult.storiesIngested > 0 || ingestResult.dependenciesIngested > 0) {
           logger.info(
             { ...ingestResult, durationMs: Date.now() - ingestStart },
-            'Auto-ingested stories and dependencies from epics document',
+            'Auto-ingested stories and dependencies from epics document'
           )
         }
       } catch (err) {
-        logger.debug({ err }, 'Auto-ingest from epics document skipped — work graph may be unavailable')
+        logger.debug(
+          { err },
+          'Auto-ingest from epics document skipped — work graph may be unavailable'
+        )
       }
     }
 
@@ -3724,7 +4160,7 @@ export function createImplementationOrchestrator(
           const pendingState = _stories.get(key)
           if (pendingState !== undefined) {
             persistStoryState(key, pendingState).catch((err) =>
-              logger.warn({ err, storyKey: key }, 'StateStore write failed during PENDING init'),
+              logger.warn({ err, storyKey: key }, 'StateStore write failed during PENDING init')
             )
           }
         }
@@ -3737,7 +4173,10 @@ export function createImplementationOrchestrator(
             _stateStoreCache.set(record.storyKey, record)
           }
         } catch (err) {
-          logger.warn({ err }, 'StateStore.queryStories() failed during init — status merge will be empty (best-effort)')
+          logger.warn(
+            { err },
+            'StateStore.queryStories() failed during init — status merge will be empty (best-effort)'
+          )
         }
       }
 
@@ -3754,7 +4193,10 @@ export function createImplementationOrchestrator(
               turnAnalyzer: new TurnAnalyzer(pipelineLogger),
               logTurnAnalyzer: new LogTurnAnalyzer(pipelineLogger),
               categorizer: new Categorizer(pipelineLogger),
-              consumerAnalyzer: new ConsumerAnalyzer(new Categorizer(pipelineLogger), pipelineLogger),
+              consumerAnalyzer: new ConsumerAnalyzer(
+                new Categorizer(pipelineLogger),
+                pipelineLogger
+              ),
               efficiencyScorer: new EfficiencyScorer(pipelineLogger),
               recommender: new Recommender(pipelineLogger),
               persistence: telemetryPersistence,
@@ -3762,12 +4204,20 @@ export function createImplementationOrchestrator(
             ingestionServer.setPipeline(telemetryPipeline)
             logger.info('TelemetryPipeline wired to IngestionServer')
           } catch (pipelineErr) {
-            logger.warn({ err: pipelineErr }, 'Failed to create TelemetryPipeline — continuing without analysis pipeline')
+            logger.warn(
+              { err: pipelineErr },
+              'Failed to create TelemetryPipeline — continuing without analysis pipeline'
+            )
           }
         }
-        await ingestionServer.start().catch((err: unknown) =>
-          logger.warn({ err }, 'IngestionServer.start() failed — continuing without telemetry (best-effort)'),
-        )
+        await ingestionServer
+          .start()
+          .catch((err: unknown) =>
+            logger.warn(
+              { err },
+              'IngestionServer.start() failed — continuing without telemetry (best-effort)'
+            )
+          )
         try {
           _otlpEndpoint = ingestionServer.getOtlpEnvVars().OTEL_EXPORTER_OTLP_ENDPOINT
           logger.info({ otlpEndpoint: _otlpEndpoint }, 'OTLP telemetry ingestion active')
@@ -3831,7 +4281,7 @@ export function createImplementationOrchestrator(
       const { batches, edges: contractEdges } = detectConflictGroupsWithContracts(
         storyKeys,
         { moduleMap: pack.manifest.conflictGroups },
-        contractDeclarations,
+        contractDeclarations
       )
       _startupTimings.conflictDetectMs = Date.now() - conflictDetectStart
 
@@ -3839,29 +4289,38 @@ export function createImplementationOrchestrator(
       if (contractEdges.length > 0) {
         logger.info(
           { contractEdges, edgeCount: contractEdges.length },
-          'Contract dependency edges detected — applying contract-aware dispatch ordering',
+          'Contract dependency edges detected — applying contract-aware dispatch ordering'
         )
       }
 
       // Story 31-6: Persist contract dep edges to story_dependencies (fire-and-forget, non-fatal).
-      wgRepo.addContractDependencies(contractEdges).catch((err: unknown) =>
-        logger.warn({ err }, 'contract dep persistence failed (best-effort)')
-      )
-
-      logger.info({
-        storyCount: storyKeys.length,
-        groupCount: batches.reduce((sum, b) => sum + b.length, 0),
-        batchCount: batches.length,
-        maxConcurrency: config.maxConcurrency,
-        batchStructure: batches.map((batch, i) => ({
-          batch: i,
-          groups: batch.map((g) => g.join(',')),
-        })),
-      }, 'Orchestrator starting')
+      wgRepo
+        .addContractDependencies(contractEdges)
+        .catch((err: unknown) =>
+          logger.warn({ err }, 'contract dep persistence failed (best-effort)')
+        )
 
       logger.info(
-        { storyCount: storyKeys.length, conflictGroups: batches.length, maxConcurrency: config.maxConcurrency },
-        `Story dispatch plan: ${storyKeys.length} stories in ${batches.reduce((s, b) => s + b.length, 0)} groups across ${batches.length} batches (max concurrency: ${config.maxConcurrency})`,
+        {
+          storyCount: storyKeys.length,
+          groupCount: batches.reduce((sum, b) => sum + b.length, 0),
+          batchCount: batches.length,
+          maxConcurrency: config.maxConcurrency,
+          batchStructure: batches.map((batch, i) => ({
+            batch: i,
+            groups: batch.map((g) => g.join(',')),
+          })),
+        },
+        'Orchestrator starting'
+      )
+
+      logger.info(
+        {
+          storyCount: storyKeys.length,
+          conflictGroups: batches.length,
+          maxConcurrency: config.maxConcurrency,
+        },
+        `Story dispatch plan: ${storyKeys.length} stories in ${batches.reduce((s, b) => s + b.length, 0)} groups across ${batches.length} batches (max concurrency: ${config.maxConcurrency})`
       )
 
       if (config.skipPreflight !== true) {
@@ -3885,7 +4344,7 @@ export function createImplementationOrchestrator(
 
           logger.error(
             { exitCode, reason: preFlightResult.reason },
-            'Pre-flight build check failed — aborting pipeline before any story dispatch',
+            'Pre-flight build check failed — aborting pipeline before any story dispatch'
           )
 
           _state = 'FAILED'
@@ -3911,11 +4370,17 @@ export function createImplementationOrchestrator(
         try {
           _packageSnapshot = capturePackageSnapshot({ projectRoot })
           logger.info(
-            { fileCount: _packageSnapshot.files.size, installCommand: _packageSnapshot.installCommand },
-            'Package snapshot captured for concurrent story protection',
+            {
+              fileCount: _packageSnapshot.files.size,
+              installCommand: _packageSnapshot.installCommand,
+            },
+            'Package snapshot captured for concurrent story protection'
           )
         } catch (snapErr) {
-          logger.warn({ err: snapErr }, 'Failed to capture package snapshot — continuing without protection')
+          logger.warn(
+            { err: snapErr },
+            'Failed to capture package snapshot — continuing without protection'
+          )
         }
       }
 
@@ -3945,15 +4410,15 @@ export function createImplementationOrchestrator(
       if (projectRoot !== undefined && contractDeclarations.length > 0) {
         try {
           const totalDeclarations = contractDeclarations.length
-          const currentSprintDeclarations = contractDeclarations.filter(
-            (d) => storyKeys.includes(d.storyKey),
+          const currentSprintDeclarations = contractDeclarations.filter((d) =>
+            storyKeys.includes(d.storyKey)
           )
           const stalePruned = totalDeclarations - currentSprintDeclarations.length
 
           if (stalePruned > 0) {
             logger.info(
               { stalePruned, remaining: currentSprintDeclarations.length },
-              'Pruned stale contract declarations from previous epics',
+              'Pruned stale contract declarations from previous epics'
             )
           }
 
@@ -3974,10 +4439,12 @@ export function createImplementationOrchestrator(
             }
             logger.warn(
               { mismatchCount: mismatches.length, mismatches },
-              'Post-sprint contract verification found mismatches — manual review required',
+              'Post-sprint contract verification found mismatches — manual review required'
             )
           } else if (currentSprintDeclarations.length > 0) {
-            logger.info('Post-sprint contract verification passed — all declared contracts satisfied')
+            logger.info(
+              'Post-sprint contract verification passed — all declared contracts satisfied'
+            )
           }
 
           // Emit consolidated summary event
@@ -3991,8 +4458,8 @@ export function createImplementationOrchestrator(
           // Story 26-6: Persist verification results to StateStore (current sprint only).
           if (stateStore !== undefined) {
             try {
-              const currentSprintContracts = (await stateStore.queryContracts()).filter(
-                (cr) => storyKeys.includes(cr.storyKey),
+              const currentSprintContracts = (await stateStore.queryContracts()).filter((cr) =>
+                storyKeys.includes(cr.storyKey)
               )
               const verifiedAt = new Date().toISOString()
 
@@ -4008,7 +4475,8 @@ export function createImplementationOrchestrator(
               for (const [sk, contracts] of contractsByStory) {
                 const records: ContractVerificationRecord[] = contracts.map((cr) => {
                   const contractMismatches = (_contractMismatches ?? []).filter(
-                    (m) => (m.exporter === sk || m.importer === sk) && m.contractName === cr.contractName,
+                    (m) =>
+                      (m.exporter === sk || m.importer === sk) && m.contractName === cr.contractName
                   )
                   if (contractMismatches.length > 0) {
                     return {
@@ -4030,10 +4498,13 @@ export function createImplementationOrchestrator(
               }
               logger.info(
                 { storyCount: contractsByStory.size },
-                'Contract verification results persisted to StateStore',
+                'Contract verification results persisted to StateStore'
               )
             } catch (persistErr) {
-              logger.warn({ err: persistErr }, 'Failed to persist contract verification results to StateStore')
+              logger.warn(
+                { err: persistErr },
+                'Failed to persist contract verification results to StateStore'
+              )
             }
           }
         } catch (err) {
@@ -4048,7 +4519,8 @@ export function createImplementationOrchestrator(
         try {
           const indicators = checkProfileStaleness(projectRoot)
           if (indicators.length > 0) {
-            const message = 'Project profile may be outdated — consider running `substrate init --force` to re-detect'
+            const message =
+              'Project profile may be outdated — consider running `substrate init --force` to re-detect'
             eventBus.emit('pipeline:profile-stale', { message, indicators })
             logger.warn({ indicators }, message)
           }
@@ -4084,15 +4556,17 @@ export function createImplementationOrchestrator(
     } finally {
       // Story 26-4, AC7: Close StateStore connection in all exit paths (best-effort).
       if (stateStore !== undefined) {
-        await stateStore.close().catch((err) =>
-          logger.warn({ err }, 'StateStore.close() failed (best-effort)'),
-        )
+        await stateStore
+          .close()
+          .catch((err) => logger.warn({ err }, 'StateStore.close() failed (best-effort)'))
       }
       // Story 27-9: Stop OTLP ingestion server in all exit paths (best-effort).
       if (ingestionServer !== undefined) {
-        await ingestionServer.stop().catch((err: unknown) =>
-          logger.warn({ err }, 'IngestionServer.stop() failed (best-effort)'),
-        )
+        await ingestionServer
+          .stop()
+          .catch((err: unknown) =>
+            logger.warn({ err }, 'IngestionServer.stop() failed (best-effort)')
+          )
       }
     }
   }

@@ -104,7 +104,9 @@ vi.mock('../../../persistence/queries/decisions.js', () => ({
 }))
 
 vi.mock('../health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 // Event bus — capture all listeners so tests can fire events
@@ -136,7 +138,9 @@ vi.mock('fs', () => ({
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
   writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
   unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
-  readFileSync: vi.fn().mockImplementation(() => { throw new Error('ENOENT') }),
+  readFileSync: vi.fn().mockImplementation(() => {
+    throw new Error('ENOENT')
+  }),
 }))
 
 const mockReadFile = vi.fn()
@@ -175,7 +179,9 @@ vi.mock('../../../modules/routing/index.js', () => ({
   RoutingTelemetry: vi.fn(),
   RoutingTuner: vi.fn(),
   RoutingRecommender: vi.fn(),
-  loadModelRoutingConfig: vi.fn(() => { throw new Error('not found') }),
+  loadModelRoutingConfig: vi.fn(() => {
+    throw new Error('not found')
+  }),
 }))
 
 // Mock config system — returns empty config with no token ceilings

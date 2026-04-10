@@ -13,8 +13,20 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { runSupervisorAction, runMultiProjectSupervisor, registerSupervisorCommand, buildPollEvent, buildTerminalSummary, handleStallRecovery } from '../supervisor.js'
-import type { SupervisorOptions, SupervisorDeps, MultiProjectSupervisorOptions, ProjectCycleState } from '../supervisor.js'
+import {
+  runSupervisorAction,
+  runMultiProjectSupervisor,
+  registerSupervisorCommand,
+  buildPollEvent,
+  buildTerminalSummary,
+  handleStallRecovery,
+} from '../supervisor.js'
+import type {
+  SupervisorOptions,
+  SupervisorDeps,
+  MultiProjectSupervisorOptions,
+  ProjectCycleState,
+} from '../supervisor.js'
 import type { PipelineHealthOutput } from '../health.js'
 import { Command } from 'commander'
 
@@ -45,7 +57,10 @@ function makeHealthy(overrides: Partial<PipelineHealthOutput> = {}): PipelineHea
   }
 }
 
-function makeStalled(stalenessSeconds = 700, overrides: Partial<PipelineHealthOutput> = {}): PipelineHealthOutput {
+function makeStalled(
+  stalenessSeconds = 700,
+  overrides: Partial<PipelineHealthOutput> = {}
+): PipelineHealthOutput {
   return makeHealthy({
     verdict: 'STALLED',
     staleness_seconds: stalenessSeconds,
@@ -57,7 +72,7 @@ function makeStalled(stalenessSeconds = 700, overrides: Partial<PipelineHealthOu
 function makeTerminal(
   succeeded: string[] = [],
   failed: string[] = [],
-  escalated: string[] = [],
+  escalated: string[] = []
 ): PipelineHealthOutput {
   const details: Record<string, { phase: string; review_cycles: number }> = {}
   for (const k of succeeded) details[k] = { phase: 'COMPLETE', review_cycles: 0 }
@@ -100,7 +115,7 @@ function makeNoRun(): PipelineHealthOutput {
 
 function makeOptions(overrides: Partial<SupervisorOptions> = {}): SupervisorOptions {
   return {
-    pollInterval: 1,       // 1 second (overridden by mock sleep anyway)
+    pollInterval: 1, // 1 second (overridden by mock sleep anyway)
     stallThreshold: 600,
     maxRestarts: 3,
     outputFormat: 'human',
@@ -294,7 +309,10 @@ describe('runSupervisorAction — AC5: terminal state summary and exit codes', (
     await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
-    const summaryLine = output.trim().split('\n').find((l) => l.includes('supervisor:summary'))
+    const summaryLine = output
+      .trim()
+      .split('\n')
+      .find((l) => l.includes('supervisor:summary'))
     expect(summaryLine).toBeDefined()
     const evt = JSON.parse(summaryLine!)
     expect(evt.succeeded).toEqual(['17-1'])
@@ -317,10 +335,7 @@ describe('runSupervisorAction — AC5: terminal state summary and exit codes', (
 
   it('includes elapsed time and restarts in summary event', async () => {
     let restartCount = 0
-    const healthSequence: PipelineHealthOutput[] = [
-      makeStalled(700),
-      makeTerminal(['17-1']),
-    ]
+    const healthSequence: PipelineHealthOutput[] = [makeStalled(700), makeTerminal(['17-1'])]
     let callIdx = 0
 
     const deps: Partial<SupervisorDeps> = {
@@ -546,7 +561,10 @@ describe('runSupervisorAction — AC4: automatic restart after kill', () => {
       killPid: vi.fn(),
     }
 
-    await runSupervisorAction(makeOptions({ stallThreshold: 600, maxRestarts: 5, outputFormat: 'json' }), deps)
+    await runSupervisorAction(
+      makeOptions({ stallThreshold: 600, maxRestarts: 5, outputFormat: 'json' }),
+      deps
+    )
 
     const output = stdoutCapture.getOutput()
     const lines = output.trim().split('\n')
@@ -572,7 +590,10 @@ describe('runSupervisorAction — AC4: automatic restart after kill', () => {
       killPid: vi.fn(),
     }
 
-    const exitCode = await runSupervisorAction(makeOptions({ stallThreshold: 600, pollInterval: 60 }), deps)
+    const exitCode = await runSupervisorAction(
+      makeOptions({ stallThreshold: 600, pollInterval: 60 }),
+      deps
+    )
 
     expect(exitCode).toBe(0)
     // Should have polled at least twice (after stall+restart, then after healthy)
@@ -599,10 +620,10 @@ describe('runSupervisorAction — AC6: max restarts safety valve', () => {
     // maxRestarts=2, but we stall 3 times → abort on the 3rd stall (restartCount already equals maxRestarts)
     // Poll 4 is the grace poll — pipeline still not terminal, so exit code 2
     const healthSequence = [
-      makeStalled(700),  // kill + restart #1
-      makeStalled(700),  // kill + restart #2
-      makeStalled(700),  // restartCount === 2 === maxRestarts → abort, sets maxRestartsExhausted
-      makeStalled(700),  // grace poll: still not terminal → exit 2
+      makeStalled(700), // kill + restart #1
+      makeStalled(700), // kill + restart #2
+      makeStalled(700), // restartCount === 2 === maxRestarts → abort, sets maxRestartsExhausted
+      makeStalled(700), // grace poll: still not terminal → exit 2
     ]
     let callIdx = 0
 
@@ -613,7 +634,10 @@ describe('runSupervisorAction — AC6: max restarts safety valve', () => {
       killPid: vi.fn(),
     }
 
-    const exitCode = await runSupervisorAction(makeOptions({ maxRestarts: 2, stallThreshold: 600 }), deps)
+    const exitCode = await runSupervisorAction(
+      makeOptions({ maxRestarts: 2, stallThreshold: 600 }),
+      deps
+    )
     expect(exitCode).toBe(2)
   })
 
@@ -628,7 +652,10 @@ describe('runSupervisorAction — AC6: max restarts safety valve', () => {
       killPid: vi.fn(),
     }
 
-    await runSupervisorAction(makeOptions({ maxRestarts: 1, stallThreshold: 600, outputFormat: 'json' }), deps)
+    await runSupervisorAction(
+      makeOptions({ maxRestarts: 1, stallThreshold: 600, outputFormat: 'json' }),
+      deps
+    )
 
     const output = stdoutCapture.getOutput()
     const lines = output.trim().split('\n')
@@ -894,7 +921,10 @@ describe('runSupervisorAction — Story 19-2 AC1-AC4: supervisor:poll emitted in
     await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
-    const lines = output.trim().split('\n').filter((l) => l.includes('supervisor:poll'))
+    const lines = output
+      .trim()
+      .split('\n')
+      .filter((l) => l.includes('supervisor:poll'))
     // Three poll cycles (two healthy + one terminal), each should emit supervisor:poll
     expect(lines).toHaveLength(3)
   })
@@ -911,7 +941,10 @@ describe('runSupervisorAction — Story 19-2 AC1-AC4: supervisor:poll emitted in
     await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
-    const pollLine = output.trim().split('\n').find((l) => l.includes('supervisor:poll'))
+    const pollLine = output
+      .trim()
+      .split('\n')
+      .find((l) => l.includes('supervisor:poll'))
     expect(pollLine).toBeDefined()
     const evt = JSON.parse(pollLine!)
     // AC1: required fields
@@ -942,7 +975,10 @@ describe('runSupervisorAction — Story 19-2 AC1-AC4: supervisor:poll emitted in
     await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
-    const pollLines = output.trim().split('\n').filter((l) => l.includes('supervisor:poll'))
+    const pollLines = output
+      .trim()
+      .split('\n')
+      .filter((l) => l.includes('supervisor:poll'))
     expect(pollLines.length).toBeGreaterThan(0)
     const evt = JSON.parse(pollLines[0])
     // AC2: story_details
@@ -968,7 +1004,10 @@ describe('runSupervisorAction — Story 19-2 AC1-AC4: supervisor:poll emitted in
     await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
-    const pollLine = output.trim().split('\n').find((l) => l.includes('supervisor:poll'))
+    const pollLine = output
+      .trim()
+      .split('\n')
+      .find((l) => l.includes('supervisor:poll'))
     expect(pollLine).toBeDefined()
     const evt = JSON.parse(pollLine!)
     // AC3: tokens
@@ -992,7 +1031,10 @@ describe('runSupervisorAction — Story 19-2 AC1-AC4: supervisor:poll emitted in
     await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
-    const pollLines = output.trim().split('\n').filter((l) => l.includes('supervisor:poll'))
+    const pollLines = output
+      .trim()
+      .split('\n')
+      .filter((l) => l.includes('supervisor:poll'))
     const evt = JSON.parse(pollLines[0])
     // AC4: process health
     expect('orchestrator_pid' in evt.process).toBe(true)
@@ -1038,7 +1080,10 @@ describe('runSupervisorAction — Story 19-2 AC1-AC4: supervisor:poll emitted in
     await runSupervisorAction(makeOptions({ outputFormat: 'json' }), deps)
 
     const output = stdoutCapture.getOutput()
-    const pollLine = output.trim().split('\n').find((l) => l.includes('supervisor:poll'))
+    const pollLine = output
+      .trim()
+      .split('\n')
+      .find((l) => l.includes('supervisor:poll'))
     expect(pollLine).toBeDefined()
     const evt = JSON.parse(pollLine!)
     // run_id is null so getTokenSnapshot should NOT be called; tokens default to 0
@@ -1152,11 +1197,11 @@ describe('runSupervisorAction — AC8: recursive process tree kill / orphan clea
 
     // All 5 PIDs (orchestrator + 2 children + 2 grandchildren) should receive SIGTERM
     const sigterms = killCalls.filter(([, s]) => s === 'SIGTERM').map(([p]) => p)
-    expect(sigterms).toContain(1000)  // orchestrator
-    expect(sigterms).toContain(1001)  // direct child
-    expect(sigterms).toContain(1002)  // direct child
-    expect(sigterms).toContain(1003)  // grandchild
-    expect(sigterms).toContain(1004)  // grandchild
+    expect(sigterms).toContain(1000) // orchestrator
+    expect(sigterms).toContain(1001) // direct child
+    expect(sigterms).toContain(1002) // direct child
+    expect(sigterms).toContain(1003) // grandchild
+    expect(sigterms).toContain(1004) // grandchild
 
     // All 5 PIDs should also receive SIGKILL
     const sigkills = killCalls.filter(([, s]) => s === 'SIGKILL').map(([p]) => p)
@@ -1195,14 +1240,14 @@ describe('runSupervisorAction — AC8: recursive process tree kill / orphan clea
     // getAllDescendants should be called with all direct PIDs
     expect(getAllDescendants).toHaveBeenCalledOnce()
     const callArg = getAllDescendants.mock.calls[0][0] as number[]
-    expect(callArg).toContain(5000)  // orchestrator
-    expect(callArg).toContain(5001)  // child
-    expect(callArg).toContain(5002)  // child
-    expect(callArg).toContain(5003)  // child
+    expect(callArg).toContain(5000) // orchestrator
+    expect(callArg).toContain(5001) // child
+    expect(callArg).toContain(5002) // child
+    expect(callArg).toContain(5003) // child
   })
 
   it('handles case where getAllDescendants returns empty (no grandchildren)', async () => {
-    const stalledSimple = makeStalled(700)  // orchestrator + 1 child
+    const stalledSimple = makeStalled(700) // orchestrator + 1 child
     const healthSequence = [stalledSimple, makeTerminal(['17-1'])]
     let callIdx = 0
     const killCalls: Array<[number, string]> = []
@@ -1214,15 +1259,15 @@ describe('runSupervisorAction — AC8: recursive process tree kill / orphan clea
       killPid: vi.fn().mockImplementation((pid: number, signal: string) => {
         killCalls.push([pid, signal])
       }),
-      getAllDescendants: vi.fn().mockReturnValue([]),  // no grandchildren
+      getAllDescendants: vi.fn().mockReturnValue([]), // no grandchildren
     }
 
     await runSupervisorAction(makeOptions({ stallThreshold: 600 }), deps)
 
     // Should still kill the direct PIDs (orchestrator + child)
     const sigterms = killCalls.filter(([, s]) => s === 'SIGTERM').map(([p]) => p)
-    expect(sigterms).toContain(12345)  // orchestrator
-    expect(sigterms).toContain(12346)  // direct child
+    expect(sigterms).toContain(12345) // orchestrator
+    expect(sigterms).toContain(12346) // direct child
     // No grandchildren to kill
     expect(sigterms).toHaveLength(2)
   })
@@ -1250,7 +1295,7 @@ describe('runSupervisorAction — AC8: recursive process tree kill / orphan clea
         killCalls.push([pid, signal])
       }),
       // Return a descendant that is already in the direct PIDs (edge case)
-      getAllDescendants: vi.fn().mockReturnValue([7001, 7002]),  // 7001 already in direct, 7002 is new
+      getAllDescendants: vi.fn().mockReturnValue([7001, 7002]), // 7001 already in direct, 7002 is new
     }
 
     await runSupervisorAction(makeOptions({ stallThreshold: 600 }), deps)
@@ -1282,7 +1327,7 @@ describe('runSupervisorAction — AC8: recursive process tree kill / orphan clea
       sleep: vi.fn().mockResolvedValue(undefined),
       resumePipeline: vi.fn().mockResolvedValue(0),
       killPid: vi.fn(),
-      getAllDescendants: vi.fn().mockReturnValue([9002, 9003]),  // grandchildren
+      getAllDescendants: vi.fn().mockReturnValue([9002, 9003]), // grandchildren
     }
 
     await runSupervisorAction(makeOptions({ stallThreshold: 600, outputFormat: 'json' }), deps)
@@ -1368,7 +1413,7 @@ describe('handleStallRecovery — helper unit tests', () => {
         incrementRestarts: vi.fn(),
         getAllDescendants: vi.fn().mockReturnValue([]),
       },
-      { emitEvent: vi.fn(), log: vi.fn() },
+      { emitEvent: vi.fn(), log: vi.fn() }
     )
     expect(result).toBeNull()
   })
@@ -1388,7 +1433,7 @@ describe('handleStallRecovery — helper unit tests', () => {
         incrementRestarts: vi.fn(),
         getAllDescendants: vi.fn().mockReturnValue([]),
       },
-      { emitEvent: vi.fn(), log: vi.fn() },
+      { emitEvent: vi.fn(), log: vi.fn() }
     )
 
     expect(result).not.toBeNull()
@@ -1412,7 +1457,7 @@ describe('handleStallRecovery — helper unit tests', () => {
         incrementRestarts: vi.fn(),
         getAllDescendants: vi.fn().mockReturnValue([]),
       },
-      { emitEvent: vi.fn(), log: vi.fn() },
+      { emitEvent: vi.fn(), log: vi.fn() }
     )
     expect(result).toBeNull()
     expect(killPid).not.toHaveBeenCalled()
@@ -1433,7 +1478,7 @@ describe('handleStallRecovery — helper unit tests', () => {
         incrementRestarts: vi.fn(),
         getAllDescendants: vi.fn().mockReturnValue([]),
       },
-      { emitEvent: vi.fn(), log: vi.fn() },
+      { emitEvent: vi.fn(), log: vi.fn() }
     )
     expect(result).not.toBeNull()
     expect(killPid).toHaveBeenCalled()
@@ -1453,7 +1498,7 @@ describe('handleStallRecovery — helper unit tests', () => {
         incrementRestarts: vi.fn(),
         getAllDescendants: vi.fn().mockReturnValue([]),
       },
-      { emitEvent: vi.fn(), log: vi.fn() },
+      { emitEvent: vi.fn(), log: vi.fn() }
     )
 
     expect(result).not.toBeNull()
@@ -1476,7 +1521,9 @@ describe('runMultiProjectSupervisor — multi-project mode', () => {
     stdoutCapture.restore()
   })
 
-  function makeMultiOptions(overrides: Partial<MultiProjectSupervisorOptions> = {}): MultiProjectSupervisorOptions {
+  function makeMultiOptions(
+    overrides: Partial<MultiProjectSupervisorOptions> = {}
+  ): MultiProjectSupervisorOptions {
     return {
       projects: ['/tmp/project-a', '/tmp/project-b'],
       pollInterval: 1,
@@ -1512,7 +1559,9 @@ describe('runMultiProjectSupervisor — multi-project mode', () => {
     // Verify events have project field
     const output = stdoutCapture.getOutput()
     const lines = output.trim().split('\n').filter(Boolean)
-    const pollEvents = lines.filter((l) => l.includes('"supervisor:poll"')).map((l) => JSON.parse(l))
+    const pollEvents = lines
+      .filter((l) => l.includes('"supervisor:poll"'))
+      .map((l) => JSON.parse(l))
     expect(pollEvents.length).toBeGreaterThanOrEqual(2)
     expect(pollEvents.some((e: any) => e.project === '/tmp/project-a')).toBe(true)
     expect(pollEvents.some((e: any) => e.project === '/tmp/project-b')).toBe(true)
@@ -1520,8 +1569,8 @@ describe('runMultiProjectSupervisor — multi-project mode', () => {
 
   it('exits 1 when one project has failures', async () => {
     const healthMap: Record<string, PipelineHealthOutput[]> = {
-      '/tmp/project-a': [makeTerminal(['1-1'])],          // success
-      '/tmp/project-b': [makeTerminal([], ['2-1'])],      // failure
+      '/tmp/project-a': [makeTerminal(['1-1'])], // success
+      '/tmp/project-b': [makeTerminal([], ['2-1'])], // failure
     }
 
     const deps: Partial<SupervisorDeps> = {
@@ -1556,10 +1605,7 @@ describe('runMultiProjectSupervisor — multi-project mode', () => {
       getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
     }
 
-    const exitCode = await runMultiProjectSupervisor(
-      makeMultiOptions({ maxRestarts: 1 }),
-      deps,
-    )
+    const exitCode = await runMultiProjectSupervisor(makeMultiOptions({ maxRestarts: 1 }), deps)
     expect(exitCode).toBe(2)
   })
 
@@ -1601,7 +1647,11 @@ describe('runMultiProjectSupervisor — multi-project mode', () => {
     await runMultiProjectSupervisor(makeMultiOptions(), deps)
 
     const output = stdoutCapture.getOutput()
-    const lines = output.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    const lines = output
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l))
     // First two events should be polls for A then B (interleaved)
     const polls = lines.filter((e: any) => e.type === 'supervisor:poll')
     expect(polls[0].project).toBe('/tmp/project-a')
@@ -1622,7 +1672,7 @@ describe('runMultiProjectSupervisor — multi-project mode', () => {
 
     const exitCode = await runMultiProjectSupervisor(
       makeMultiOptions({ projects: ['/tmp/project-a'] }),
-      deps,
+      deps
     )
     expect(exitCode).toBe(0)
   })
@@ -1648,9 +1698,7 @@ describe('runMultiProjectSupervisor — multi-project mode', () => {
     const deps: Partial<SupervisorDeps> = {
       getHealth: vi.fn().mockImplementation(({ projectRoot }: { projectRoot: string }) => {
         return Promise.resolve(
-          projectRoot === '/tmp/project-a'
-            ? makeTerminal(['1-1'])
-            : makeTerminal([], ['2-1']),
+          projectRoot === '/tmp/project-a' ? makeTerminal(['1-1']) : makeTerminal([], ['2-1'])
         )
       }),
       sleep: vi.fn().mockResolvedValue(undefined),
@@ -1660,7 +1708,11 @@ describe('runMultiProjectSupervisor — multi-project mode', () => {
     await runMultiProjectSupervisor(makeMultiOptions(), deps)
 
     const output = stdoutCapture.getOutput()
-    const lines = output.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    const lines = output
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l))
     const doneEvent = lines.find((e: any) => e.type === 'supervisor:done')
     expect(doneEvent).toBeDefined()
     expect(doneEvent.project_results['/tmp/project-a']).toBe(0)

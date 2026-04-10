@@ -60,7 +60,7 @@ const SAMPLE_OUTPUT = {
 }
 
 function makeDispatchResult(
-  overrides: Partial<DispatchResult<typeof SAMPLE_OUTPUT>> = {},
+  overrides: Partial<DispatchResult<typeof SAMPLE_OUTPUT>> = {}
 ): DispatchResult<typeof SAMPLE_OUTPUT> {
   return {
     id: 'dispatch-001',
@@ -90,7 +90,9 @@ function makeDispatcher(result: DispatchResult<unknown>): Dispatcher {
   }
 }
 
-function makePack(templateWithPlaceholder = 'Analyze the concept: {{concept}}\nProvide product brief.'): MethodologyPack {
+function makePack(
+  templateWithPlaceholder = 'Analyze the concept: {{concept}}\nProvide product brief.'
+): MethodologyPack {
   return {
     manifest: {
       name: 'test-pack',
@@ -110,14 +112,16 @@ function makePack(templateWithPlaceholder = 'Analyze the concept: {{concept}}\nP
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack?: MethodologyPack,
+  pack?: MethodologyPack
 ): PhaseDeps {
   return {
     db: adapter,
@@ -173,7 +177,7 @@ describe('runAnalysisPhase()', () => {
         expect.objectContaining({
           agent: 'claude-code',
           taskType: 'analysis',
-        }),
+        })
       )
     })
   })
@@ -260,7 +264,7 @@ describe('runAnalysisPhase()', () => {
       // Query the database to verify decisions were created
       const decisions = await adapter.query<{ key: string; value: string }>(
         "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'analysis' AND category = 'product-brief' ORDER BY key ASC",
-        [runId],
+        [runId]
       )
 
       expect(decisions).toHaveLength(6)
@@ -271,7 +275,9 @@ describe('runAnalysisPhase()', () => {
       expect(JSON.parse(keyMap['core_features'])).toEqual(SAMPLE_BRIEF.core_features)
       expect(JSON.parse(keyMap['success_metrics'])).toEqual(SAMPLE_BRIEF.success_metrics)
       expect(JSON.parse(keyMap['constraints'])).toEqual(SAMPLE_BRIEF.constraints)
-      expect(JSON.parse(keyMap['technology_constraints'])).toEqual(SAMPLE_BRIEF.technology_constraints)
+      expect(JSON.parse(keyMap['technology_constraints'])).toEqual(
+        SAMPLE_BRIEF.technology_constraints
+      )
     })
 
     it('stores array values as JSON-serialized strings', async () => {
@@ -283,7 +289,7 @@ describe('runAnalysisPhase()', () => {
 
       const targetUsersRows = await adapter.query<{ value: string }>(
         "SELECT value FROM decisions WHERE pipeline_run_id = ? AND key = 'target_users'",
-        [runId],
+        [runId]
       )
       const targetUsersDecision = targetUsersRows[0]
 
@@ -302,7 +308,7 @@ describe('runAnalysisPhase()', () => {
 
       const decisions = await adapter.query(
         "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase != 'analysis'",
-        [runId],
+        [runId]
       )
 
       // No decisions outside analysis phase
@@ -317,10 +323,9 @@ describe('runAnalysisPhase()', () => {
 
       await runAnalysisPhase(deps, params)
 
-      const decisions = await adapter.query(
-        'SELECT * FROM decisions WHERE pipeline_run_id = ?',
-        [runId],
-      )
+      const decisions = await adapter.query('SELECT * FROM decisions WHERE pipeline_run_id = ?', [
+        runId,
+      ])
 
       expect(decisions).toHaveLength(0)
     })
@@ -338,9 +343,15 @@ describe('runAnalysisPhase()', () => {
 
       const result = await runAnalysisPhase(deps, params)
 
-      const artifactRows = await adapter.query<{ id: string; phase: string; type: string; path: string; summary: string }>(
+      const artifactRows = await adapter.query<{
+        id: string
+        phase: string
+        type: string
+        path: string
+        summary: string
+      }>(
         "SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'analysis' AND type = 'product-brief'",
-        [runId],
+        [runId]
       )
       const artifact = artifactRows[0]
 
@@ -360,7 +371,7 @@ describe('runAnalysisPhase()', () => {
 
       const artifactRows = await adapter.query<{ summary: string }>(
         "SELECT summary FROM artifacts WHERE pipeline_run_id = ? AND type = 'product-brief'",
-        [runId],
+        [runId]
       )
       const artifact = artifactRows[0]
 
@@ -369,7 +380,8 @@ describe('runAnalysisPhase()', () => {
     })
 
     it('artifact can be retrieved by getArtifactByType after success', async () => {
-      const { getArtifactByTypeForRun } = await import('../../../../persistence/queries/decisions.js')
+      const { getArtifactByTypeForRun } =
+        await import('../../../../persistence/queries/decisions.js')
       const dispatcher = makeDispatcher(makeDispatchResult())
       const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
@@ -381,17 +393,20 @@ describe('runAnalysisPhase()', () => {
     })
 
     it('does NOT register artifact when dispatch fails', async () => {
-      const failResult = makeDispatchResult({ status: 'failed', parsed: null, parseError: 'bad yaml' })
+      const failResult = makeDispatchResult({
+        status: 'failed',
+        parsed: null,
+        parseError: 'bad yaml',
+      })
       const dispatcher = makeDispatcher(failResult)
       const deps = makeDeps(adapter, dispatcher)
       const params: AnalysisPhaseParams = { runId, concept: 'Build a task manager app' }
 
       await runAnalysisPhase(deps, params)
 
-      const artifacts = await adapter.query(
-        'SELECT * FROM artifacts WHERE pipeline_run_id = ?',
-        [runId],
-      )
+      const artifacts = await adapter.query('SELECT * FROM artifacts WHERE pipeline_run_id = ?', [
+        runId,
+      ])
 
       expect(artifacts).toHaveLength(0)
     })
@@ -645,7 +660,9 @@ describe('runAnalysisPhase() — single-dispatch: prior findings injection', () 
   })
 
   it('AC3: prompt includes findings framing block when findings are available', async () => {
-    vi.mocked(getProjectFindings).mockResolvedValue('**Recurring patterns:** missing error handling')
+    vi.mocked(getProjectFindings).mockResolvedValue(
+      '**Recurring patterns:** missing error handling'
+    )
 
     const pack = makePack('Analyze: {{concept}}')
     const dispatcher = makeDispatcher(makeDispatchResult())

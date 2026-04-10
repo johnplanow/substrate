@@ -12,7 +12,11 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { TaskTypeClassifier, DEFAULT_TAXONOMY, createTaskTypeClassifier } from '../task-type-classifier.js'
+import {
+  TaskTypeClassifier,
+  DEFAULT_TAXONOMY,
+  createTaskTypeClassifier,
+} from '../task-type-classifier.js'
 
 describe('TaskTypeClassifier — Advanced (Story 8.5)', () => {
   // -------------------------------------------------------------------------
@@ -23,12 +27,16 @@ describe('TaskTypeClassifier — Advanced (Story 8.5)', () => {
     it('returns explicit taskType when present, ignoring heuristics', () => {
       const classifier = new TaskTypeClassifier()
       // "Deploy" normally matches devops, but explicit label says "testing"
-      expect(classifier.classify({ taskType: 'testing', title: 'Deploy kubernetes cluster' })).toBe('testing')
+      expect(classifier.classify({ taskType: 'testing', title: 'Deploy kubernetes cluster' })).toBe(
+        'testing'
+      )
     })
 
     it('returns explicit taskType unchanged', () => {
       const classifier = new TaskTypeClassifier()
-      expect(classifier.classify({ taskType: 'my-custom-type', title: 'Fix a bug' })).toBe('my-custom-type')
+      expect(classifier.classify({ taskType: 'my-custom-type', title: 'Fix a bug' })).toBe(
+        'my-custom-type'
+      )
     })
 
     it('returns explicit taskType trimmed', () => {
@@ -206,7 +214,9 @@ describe('TaskTypeClassifier — Advanced (Story 8.5)', () => {
 
     it('debugging > refactoring: "fix" beats "refactor"', () => {
       const classifier = new TaskTypeClassifier()
-      expect(classifier.classify({ title: 'Fix and refactor the payment module' })).toBe('debugging')
+      expect(classifier.classify({ title: 'Fix and refactor the payment module' })).toBe(
+        'debugging'
+      )
     })
 
     it('refactoring > docs: "cleanup" beats "document"', () => {
@@ -226,7 +236,9 @@ describe('TaskTypeClassifier — Advanced (Story 8.5)', () => {
 
     it('database > ui: "migration" beats "component"', () => {
       const classifier = new TaskTypeClassifier()
-      expect(classifier.classify({ title: 'Create migration and component for users' })).toBe('database')
+      expect(classifier.classify({ title: 'Create migration and component for users' })).toBe(
+        'database'
+      )
     })
 
     it('ui > devops: "component" beats "deploy"', () => {
@@ -328,7 +340,9 @@ describe('TaskTypeClassifier — Advanced (Story 8.5)', () => {
         review: ['review', 'audit', 'inspect'],
       }
       const classifier = new TaskTypeClassifier(customTaxonomy)
-      expect(classifier.classify({ title: 'Analyze the system performance' })).toBe('custom-analysis')
+      expect(classifier.classify({ title: 'Analyze the system performance' })).toBe(
+        'custom-analysis'
+      )
       expect(classifier.classify({ title: 'Review the pull request changes' })).toBe('review')
     })
 
@@ -353,7 +367,9 @@ describe('TaskTypeClassifier — Advanced (Story 8.5)', () => {
     })
 
     it('createTaskTypeClassifier with custom taxonomy works', () => {
-      const classifier = createTaskTypeClassifier({ security: ['encrypt', 'authenticate', 'authorize'] })
+      const classifier = createTaskTypeClassifier({
+        security: ['encrypt', 'authenticate', 'authorize'],
+      })
       expect(classifier.classify({ title: 'Encrypt the user data' })).toBe('security')
     })
 
@@ -395,8 +411,15 @@ describe('TaskTypeClassifier — Advanced (Story 8.5)', () => {
   describe('DEFAULT_TAXONOMY', () => {
     it('contains all expected types from AC3', () => {
       const expectedTypes = [
-        'coding', 'testing', 'debugging', 'refactoring',
-        'docs', 'api', 'database', 'ui', 'devops',
+        'coding',
+        'testing',
+        'debugging',
+        'refactoring',
+        'docs',
+        'api',
+        'database',
+        'ui',
+        'devops',
       ]
       for (const type of expectedTypes) {
         expect(DEFAULT_TAXONOMY).toHaveProperty(type)

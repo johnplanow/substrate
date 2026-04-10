@@ -139,7 +139,7 @@ describe('renderLogPanel', () => {
   it('auto-scrolls to show only last maxLines entries', () => {
     // Use messages that won't be substrings of each other
     const entries = Array.from({ length: 10 }, (_, i) =>
-      makeEntry({ msg: `msg-${String(i + 1).padStart(3, '0')}` }),
+      makeEntry({ msg: `msg-${String(i + 1).padStart(3, '0')}` })
     )
     const lines = renderLogPanel({ entries, maxLines: 3, useColor: false, width: 80 })
     const output = lines.join('\n')

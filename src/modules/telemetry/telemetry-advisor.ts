@@ -120,7 +120,7 @@ export class TelemetryAdvisor {
 
     try {
       const results = await Promise.all(
-        completedStoryKeys.map((key) => this._persistence.getRecommendations(key)),
+        completedStoryKeys.map((key) => this._persistence.getRecommendations(key))
       )
 
       const seen = new Set<string>()
@@ -163,22 +163,31 @@ export class TelemetryAdvisor {
     // - per_model_comparison: model routing is orchestrator-level
     // - cache_efficiency: overall cache stats without specific remediation
     const AGENT_ACTIONABLE_RULES = new Set([
-      'large_file_reads', 'expensive_bash', 'repeated_tool_calls',
-      'context_growth_spike', 'growing_categories', 'cache_delta_regression',
+      'large_file_reads',
+      'expensive_bash',
+      'repeated_tool_calls',
+      'context_growth_spike',
+      'growing_categories',
+      'cache_delta_regression',
     ])
 
     const actionable = recommendations.filter(
-      (r) => (r.severity === 'critical' || r.severity === 'warning') && AGENT_ACTIONABLE_RULES.has(r.ruleId),
+      (r) =>
+        (r.severity === 'critical' || r.severity === 'warning') &&
+        AGENT_ACTIONABLE_RULES.has(r.ruleId)
     )
     if (actionable.length === 0) return ''
 
     const lines = actionable.map(
-      (r) => `OPTIMIZATION (${r.severity}): ${r.title}. ${r.description}`,
+      (r) => `OPTIMIZATION (${r.severity}): ${r.title}. ${r.description}`
     )
     const full = lines.join('\n')
 
     if (full.length <= MAX_CHARS) {
-      logger.debug({ count: actionable.length, chars: full.length }, 'Formatting optimization directives')
+      logger.debug(
+        { count: actionable.length, chars: full.length },
+        'Formatting optimization directives'
+      )
       return full
     }
 
@@ -187,7 +196,7 @@ export class TelemetryAdvisor {
     const truncated = (cutAt > 0 ? full.slice(0, cutAt) : full.slice(0, MAX_CHARS)) + '…'
     logger.debug(
       { count: actionable.length, chars: truncated.length },
-      'Optimization directives truncated to budget',
+      'Optimization directives truncated to budget'
     )
     return truncated
   }

@@ -160,7 +160,9 @@ describe('BatchBuffer', () => {
   it('stop() without any pushes does not emit flush', () => {
     const buffer = new BatchBuffer<number>()
     let flushed = false
-    buffer.on('flush', () => { flushed = true })
+    buffer.on('flush', () => {
+      flushed = true
+    })
     buffer.start()
     buffer.stop()
     expect(flushed).toBe(false)
@@ -207,7 +209,9 @@ describe('BatchBuffer', () => {
   it('flush() on an empty buffer is a no-op (no event emitted)', () => {
     const buffer = new BatchBuffer<number>({ batchSize: 100, flushIntervalMs: 5000 })
     let flushCount = 0
-    buffer.on('flush', () => { flushCount++ })
+    buffer.on('flush', () => {
+      flushCount++
+    })
     buffer.start()
 
     buffer.flush()

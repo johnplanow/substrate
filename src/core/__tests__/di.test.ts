@@ -146,15 +146,11 @@ describe('ServiceRegistry', () => {
 
   it('shutdownAll collects errors and throws AggregateError after all services shut down', async () => {
     const svcA = makeService('a')
-    ;(svcA.shutdown as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('shutdown error A')
-    )
+    ;(svcA.shutdown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('shutdown error A'))
     const svcB = makeService('b')
     ;(svcB.shutdown as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
     const svcC = makeService('c')
-    ;(svcC.shutdown as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('shutdown error C')
-    )
+    ;(svcC.shutdown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('shutdown error C'))
 
     registry.register('a', svcA)
     registry.register('b', svcB)

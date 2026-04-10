@@ -91,11 +91,13 @@ vi.mock('../../modules/implementation-orchestrator/contract-verifier.js', () => 
 }))
 
 vi.mock('../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 vi.mock('../../modules/agent-dispatch/dispatcher-impl.js', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
@@ -143,7 +145,10 @@ vi.mock('../../modules/implementation-orchestrator/seed-methodology-context.js',
 // ---------------------------------------------------------------------------
 
 import { createImplementationOrchestrator } from '../../modules/implementation-orchestrator/orchestrator-impl.js'
-import { runBuildVerification, checkGitDiffFiles } from '../../modules/agent-dispatch/dispatcher-impl.js'
+import {
+  runBuildVerification,
+  checkGitDiffFiles,
+} from '../../modules/agent-dispatch/dispatcher-impl.js'
 
 const mockRunBuildVerification = vi.mocked(runBuildVerification)
 const mockCheckGitDiffFiles = vi.mocked(checkGitDiffFiles)
@@ -176,7 +181,9 @@ function makePack(): MethodologyPack {
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockReturnValue({ prompt: 'fallback', tokenCount: 10, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockReturnValue({ prompt: 'fallback', tokenCount: 10, sections: [], truncated: false }),
     registerTemplate: vi.fn(),
     getTemplate: vi.fn().mockReturnValue(undefined),
   } as unknown as ContextCompiler
@@ -218,7 +225,9 @@ function makeDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(handle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -285,7 +294,11 @@ describe('Gap 1: Pre-flight build gate cross-module wiring', () => {
   })
 
   it('pre-flight failure emits event and aborts before any story dispatch', async () => {
-    mockRunBuildVerification.mockReturnValue({ status: 'failed', exitCode: 1, output: 'Build error: tsc failed' })
+    mockRunBuildVerification.mockReturnValue({
+      status: 'failed',
+      exitCode: 1,
+      output: 'Build error: tsc failed',
+    })
 
     const eventBus = makeEventBus()
     const orchestrator = createImplementationOrchestrator({
@@ -335,10 +348,7 @@ describe('Gap 1: Pre-flight build gate cross-module wiring', () => {
     const status = await orchestrator.run(['25-88'])
 
     // Pre-flight event NOT emitted
-    expect(eventBus.emit).not.toHaveBeenCalledWith(
-      'pipeline:pre-flight-failure',
-      expect.anything(),
-    )
+    expect(eventBus.emit).not.toHaveBeenCalledWith('pipeline:pre-flight-failure', expect.anything())
 
     // Story was dispatched and completed
     expect(mockRunDevStory).toHaveBeenCalled()
@@ -346,7 +356,11 @@ describe('Gap 1: Pre-flight build gate cross-module wiring', () => {
   })
 
   it('pre-flight failure event is receivable by listeners', async () => {
-    mockRunBuildVerification.mockReturnValue({ status: 'failed', exitCode: 2, output: 'Syntax error' })
+    mockRunBuildVerification.mockReturnValue({
+      status: 'failed',
+      exitCode: 2,
+      output: 'Syntax error',
+    })
 
     const eventBus = makeEventBus()
     const receivedEvents: unknown[] = []
@@ -387,7 +401,9 @@ describe('Gap 2: LGTM_WITH_NOTES verdict → advisory notes persistence', () => 
   it('LGTM_WITH_NOTES completes story and persists advisory notes to decision store', async () => {
     mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('25-71', '/stories/25-71.md'))
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
-    mockRunCodeReview.mockResolvedValue(makeCodeReviewLgtmWithNotes('Consider adding JSDoc to exported functions'))
+    mockRunCodeReview.mockResolvedValue(
+      makeCodeReviewLgtmWithNotes('Consider adding JSDoc to exported functions')
+    )
     mockRunTestPlan.mockResolvedValue({ result: 'failed' })
 
     const eventBus = makeEventBus()
@@ -418,13 +434,13 @@ describe('Gap 2: LGTM_WITH_NOTES verdict → advisory notes persistence', () => 
         category: 'advisory-notes',
         key: expect.stringContaining('25-71'),
         value: expect.stringContaining('Consider adding JSDoc'),
-      }),
+      })
     )
 
     // story:done event emitted (same as SHIP_IT)
     expect(eventBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-complete',
-      expect.objectContaining({ storyKey: '25-71' }),
+      expect.objectContaining({ storyKey: '25-71' })
     )
   })
 
@@ -455,7 +471,7 @@ describe('Gap 2: LGTM_WITH_NOTES verdict → advisory notes persistence', () => 
 
     // No advisory-notes decision created (notes was undefined)
     const advisoryNoteCalls = mockCreateDecision.mock.calls.filter(
-      (call) => (call[1] as Record<string, unknown>)?.category === 'advisory-notes',
+      (call) => (call[1] as Record<string, unknown>)?.category === 'advisory-notes'
     )
     expect(advisoryNoteCalls).toHaveLength(0)
   })
@@ -480,8 +496,18 @@ describe('Gap 3: Contract declaration parsing → decision store → dispatch or
 
     // parseInterfaceContracts returns contracts for this story
     mockParseInterfaceContracts.mockReturnValue([
-      { storyKey: '25-61', contractName: 'FooSchema', direction: 'export', filePath: 'src/schemas/foo.ts' },
-      { storyKey: '25-61', contractName: 'BarSchema', direction: 'import', filePath: 'src/schemas/bar.ts' },
+      {
+        storyKey: '25-61',
+        contractName: 'FooSchema',
+        direction: 'export',
+        filePath: 'src/schemas/foo.ts',
+      },
+      {
+        storyKey: '25-61',
+        contractName: 'BarSchema',
+        direction: 'import',
+        filePath: 'src/schemas/bar.ts',
+      },
     ])
 
     const orchestrator = createImplementationOrchestrator({
@@ -497,13 +523,13 @@ describe('Gap 3: Contract declaration parsing → decision store → dispatch or
 
     // Two interface-contract decisions created
     const contractCalls = mockCreateDecision.mock.calls.filter(
-      (call) => (call[1] as Record<string, unknown>)?.category === 'interface-contract',
+      (call) => (call[1] as Record<string, unknown>)?.category === 'interface-contract'
     )
     expect(contractCalls).toHaveLength(2)
 
     // Verify export declaration
     const exportCall = contractCalls.find((call) =>
-      ((call[1] as Record<string, unknown>)?.key as string)?.includes('FooSchema'),
+      ((call[1] as Record<string, unknown>)?.key as string)?.includes('FooSchema')
     )
     expect(exportCall).toBeDefined()
     const exportValue = JSON.parse((exportCall![1] as Record<string, unknown>).value as string)
@@ -671,7 +697,7 @@ describe('Gap 4: Contract verification gate → mismatch events', () => {
       expect.arrayContaining([
         expect.objectContaining({ storyKey: '25-C', contractName: 'BazSchema' }),
       ]),
-      '/test-project',
+      '/test-project'
     )
   })
 
@@ -842,10 +868,7 @@ describe('Gap 6: Contract verification error resilience', () => {
     expect(status.stories['25-F']?.phase).toBe('COMPLETE')
 
     // No mismatch events emitted (error caught before emission)
-    expect(eventBus.emit).not.toHaveBeenCalledWith(
-      'pipeline:contract-mismatch',
-      expect.anything(),
-    )
+    expect(eventBus.emit).not.toHaveBeenCalledWith('pipeline:contract-mismatch', expect.anything())
   })
 })
 

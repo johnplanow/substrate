@@ -39,7 +39,13 @@ import type {
 import type { TypedEventBus } from '../../core/event-bus.js'
 import type { OrchestratorConfig } from '../../modules/implementation-orchestrator/types.js'
 import type { DoltClient } from '../../modules/state/dolt-client.js'
-import { DoltStateStore, DoltMergeConflictError, DoltMergeConflict, FileStateStore, createStateStore } from '../../modules/state/index.js'
+import {
+  DoltStateStore,
+  DoltMergeConflictError,
+  DoltMergeConflict,
+  FileStateStore,
+  createStateStore,
+} from '../../modules/state/index.js'
 
 // ---------------------------------------------------------------------------
 // Module mocks — must be hoisted
@@ -143,7 +149,9 @@ vi.mock('../../modules/implementation-orchestrator/escalation-diagnosis.js', () 
 }))
 
 vi.mock('../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 vi.mock('../../modules/agent-dispatch/dispatcher-impl.js', () => ({
@@ -152,7 +160,9 @@ vi.mock('../../modules/agent-dispatch/dispatcher-impl.js', () => ({
 }))
 
 vi.mock('../../modules/agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 
 vi.mock('node:child_process', () => ({
@@ -209,7 +219,9 @@ function makePack(): MethodologyPack {
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockReturnValue({ prompt: 'fallback', tokenCount: 10, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockReturnValue({ prompt: 'fallback', tokenCount: 10, sections: [], truncated: false }),
     registerTemplate: vi.fn(),
     getTemplate: vi.fn().mockReturnValue(undefined),
   } as unknown as ContextCompiler
@@ -251,7 +263,9 @@ function makeDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(handle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -285,61 +299,63 @@ function makeTrackingDoltClient() {
     socketPath: '/tmp/e2e-test/.dolt/dolt.sock',
     connect: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
-    query: vi.fn().mockImplementation(async (sql: string, _params: unknown[] = [], branch?: string) => {
-      const s = sql.trim()
+    query: vi
+      .fn()
+      .mockImplementation(async (sql: string, _params: unknown[] = [], branch?: string) => {
+        const s = sql.trim()
 
-      // CREATE TABLE — no-op
-      if (/^CREATE TABLE/i.test(s)) return []
+        // CREATE TABLE — no-op
+        if (/^CREATE TABLE/i.test(s)) return []
 
-      // CALL DOLT_BRANCH — create a story branch
-      if (/CALL DOLT_BRANCH\('(story\/[^']+)'\)/i.test(s)) {
-        const match = s.match(/CALL DOLT_BRANCH\('(story\/[^']+)'\)/i)
-        if (match) branches.add(match[1]!)
-        return []
-      }
-
-      // CALL DOLT_BRANCH('-D', ...) — drop a branch (rollback)
-      if (/CALL DOLT_BRANCH\('-D'/i.test(s)) {
-        const match = s.match(/DOLT_BRANCH\('-D',\s*'(story\/[^']+)'\)/)
-        if (match) {
-          branches.delete(match[1]!)
-          droppedBranches.push(match[1]!)
+        // CALL DOLT_BRANCH — create a story branch
+        if (/CALL DOLT_BRANCH\('(story\/[^']+)'\)/i.test(s)) {
+          const match = s.match(/CALL DOLT_BRANCH\('(story\/[^']+)'\)/i)
+          if (match) branches.add(match[1]!)
+          return []
         }
-        return []
-      }
 
-      // CALL DOLT_MERGE — merge a story branch
-      if (/CALL DOLT_MERGE\('(story\/[^']+)'\)/i.test(s)) {
-        const match = s.match(/DOLT_MERGE\('(story\/[^']+)'\)/i)
-        if (match) {
-          if (simulateMergeConflict) {
-            return [{ conflicts: 1 }]
+        // CALL DOLT_BRANCH('-D', ...) — drop a branch (rollback)
+        if (/CALL DOLT_BRANCH\('-D'/i.test(s)) {
+          const match = s.match(/DOLT_BRANCH\('-D',\s*'(story\/[^']+)'\)/)
+          if (match) {
+            branches.delete(match[1]!)
+            droppedBranches.push(match[1]!)
           }
-          branches.delete(match[1]!)
-          mergedBranches.push(match[1]!)
+          return []
         }
-        return [{ conflicts: 0 }]
-      }
 
-      // CALL DOLT_COMMIT — commit after merge
-      if (/CALL DOLT_COMMIT/i.test(s)) return []
+        // CALL DOLT_MERGE — merge a story branch
+        if (/CALL DOLT_MERGE\('(story\/[^']+)'\)/i.test(s)) {
+          const match = s.match(/DOLT_MERGE\('(story\/[^']+)'\)/i)
+          if (match) {
+            if (simulateMergeConflict) {
+              return [{ conflicts: 1 }]
+            }
+            branches.delete(match[1]!)
+            mergedBranches.push(match[1]!)
+          }
+          return [{ conflicts: 0 }]
+        }
 
-      // dolt_conflicts_stories — for merge conflict detail extraction
-      if (/dolt_conflicts_stories/i.test(s)) {
-        return [{ base_story_key: '26-1', our_status: 'COMPLETE', their_status: 'IN_DEV' }]
-      }
+        // CALL DOLT_COMMIT — commit after merge
+        if (/CALL DOLT_COMMIT/i.test(s)) return []
 
-      // Track all writes (REPLACE INTO, INSERT INTO) by branch
-      if (/^(REPLACE|INSERT) INTO/i.test(s)) {
-        const branchKey = branch ?? 'main'
-        if (!writesPerBranch.has(branchKey)) writesPerBranch.set(branchKey, [])
-        writesPerBranch.get(branchKey)!.push(s)
+        // dolt_conflicts_stories — for merge conflict detail extraction
+        if (/dolt_conflicts_stories/i.test(s)) {
+          return [{ base_story_key: '26-1', our_status: 'COMPLETE', their_status: 'IN_DEV' }]
+        }
+
+        // Track all writes (REPLACE INTO, INSERT INTO) by branch
+        if (/^(REPLACE|INSERT) INTO/i.test(s)) {
+          const branchKey = branch ?? 'main'
+          if (!writesPerBranch.has(branchKey)) writesPerBranch.set(branchKey, [])
+          writesPerBranch.get(branchKey)!.push(s)
+          return []
+        }
+
+        // SELECT queries — return empty by default
         return []
-      }
-
-      // SELECT queries — return empty by default
-      return []
-    }),
+      }),
     exec: vi.fn().mockResolvedValue(''),
     execArgs: vi.fn().mockResolvedValue(''),
   } as unknown as DoltClient
@@ -350,7 +366,9 @@ function makeTrackingDoltClient() {
     writesPerBranch,
     mergedBranches,
     droppedBranches,
-    setSimulateMergeConflict: (v: boolean) => { simulateMergeConflict = v },
+    setSimulateMergeConflict: (v: boolean) => {
+      simulateMergeConflict = v
+    },
   }
 }
 
@@ -439,7 +457,7 @@ describe('Gap 1: DoltStateStore branch lifecycle through orchestrator', () => {
     expect(tracking.client.query).toHaveBeenCalledWith(
       expect.stringContaining("DOLT_BRANCH('story/26-1')"),
       [],
-      'main',
+      'main'
     )
 
     // Story state writes were routed to the story branch (not main)
@@ -526,21 +544,23 @@ describe('Gap 1: DoltStateStore branch lifecycle through orchestrator', () => {
     const storyKey = '26-1'
     const tracking = makeTrackingDoltClient()
     // Make branch creation fail
-    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string, _params: unknown[] = [], branch?: string) => {
-      const s = sql.trim()
-      if (/CREATE TABLE/i.test(s)) return []
-      if (/CALL DOLT_BRANCH\('story\//i.test(s)) {
-        throw new Error('branch creation failed: permission denied')
-      }
-      // Track writes
-      if (/^(REPLACE|INSERT) INTO/i.test(s)) {
-        const branchKey = branch ?? 'main'
-        if (!tracking.writesPerBranch.has(branchKey)) tracking.writesPerBranch.set(branchKey, [])
-        tracking.writesPerBranch.get(branchKey)!.push(s)
+    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(
+      async (sql: string, _params: unknown[] = [], branch?: string) => {
+        const s = sql.trim()
+        if (/CREATE TABLE/i.test(s)) return []
+        if (/CALL DOLT_BRANCH\('story\//i.test(s)) {
+          throw new Error('branch creation failed: permission denied')
+        }
+        // Track writes
+        if (/^(REPLACE|INSERT) INTO/i.test(s)) {
+          const branchKey = branch ?? 'main'
+          if (!tracking.writesPerBranch.has(branchKey)) tracking.writesPerBranch.set(branchKey, [])
+          tracking.writesPerBranch.get(branchKey)!.push(s)
+          return []
+        }
         return []
       }
-      return []
-    })
+    )
 
     const store = new DoltStateStore({ repoPath: '/tmp/e2e-test', client: tracking.client })
 
@@ -605,8 +625,18 @@ describe('Gap 2: diff and history CLI → StateStore lifecycle', () => {
     ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string) => {
       if (/dolt_log/i.test(sql)) {
         return [
-          { commit_hash: 'abc1234', date: '2026-03-08T14:00:00+00:00', message: 'Merge story/26-1: COMPLETE', committer: 'substrate' },
-          { commit_hash: 'def5678', date: '2026-03-08T13:00:00+00:00', message: 'Initialize schema', committer: 'substrate' },
+          {
+            commit_hash: 'abc1234',
+            date: '2026-03-08T14:00:00+00:00',
+            message: 'Merge story/26-1: COMPLETE',
+            committer: 'substrate',
+          },
+          {
+            commit_hash: 'def5678',
+            date: '2026-03-08T13:00:00+00:00',
+            message: 'Initialize schema',
+            committer: 'substrate',
+          },
         ]
       }
       if (/CREATE TABLE/i.test(sql)) return []
@@ -629,18 +659,25 @@ describe('Gap 2: diff and history CLI → StateStore lifecycle', () => {
   it('diffStory uses merged-story fallback when branch is not in memory', async () => {
     const tracking = makeTrackingDoltClient()
     // Return diff rows for the commit range and dolt_log query
-    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string, params?: unknown[]) => {
-      if (/CREATE TABLE/i.test(sql)) return []
-      if (/dolt_log/i.test(sql)) {
-        return [{ commit_hash: 'abc1234' }]
+    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(
+      async (sql: string, params?: unknown[]) => {
+        if (/CREATE TABLE/i.test(sql)) return []
+        if (/dolt_log/i.test(sql)) {
+          return [{ commit_hash: 'abc1234' }]
+        }
+        if (/DOLT_DIFF\('abc1234~1', 'abc1234'/i.test(sql) && sql.includes("'stories'")) {
+          return [
+            {
+              diff_type: 'added',
+              after_story_key: '26-1',
+              after_phase: 'COMPLETE',
+              before_story_key: null,
+            },
+          ]
+        }
+        return []
       }
-      if (/DOLT_DIFF\('abc1234~1', 'abc1234'/i.test(sql) && sql.includes("'stories'")) {
-        return [
-          { diff_type: 'added', after_story_key: '26-1', after_phase: 'COMPLETE', before_story_key: null },
-        ]
-      }
-      return []
-    })
+    )
 
     const store = new DoltStateStore({ repoPath: '/tmp/e2e-test', client: tracking.client })
     await store.initialize()
@@ -657,13 +694,13 @@ describe('Gap 2: diff and history CLI → StateStore lifecycle', () => {
     // Verify the fallback path used dolt_log query
     expect(tracking.client.query).toHaveBeenCalledWith(
       expect.stringContaining('dolt_log'),
-      expect.arrayContaining(['%26-1%']),
+      expect.arrayContaining(['%26-1%'])
     )
     // And DOLT_DIFF was called with commit hashes, not branch names
     expect(tracking.client.query).toHaveBeenCalledWith(
       expect.stringContaining("DOLT_DIFF('abc1234~1', 'abc1234'"),
       [],
-      'main',
+      'main'
     )
 
     await store.close()
@@ -704,7 +741,7 @@ describe('Gap 3: DoltMergeConflict triggers pipeline:state-conflict event', () =
       expect.objectContaining({
         storyKey,
         conflict: expect.any(DoltMergeConflictError),
-      }),
+      })
     )
   })
 
@@ -727,18 +764,22 @@ describe('Gap 3: DoltMergeConflict triggers pipeline:state-conflict event', () =
 
     // Capture the conflict error from the event
     let capturedConflict: DoltMergeConflictError | undefined
-    ;(eventBus.on as ReturnType<typeof vi.fn>).mockImplementation((event: string, fn: (...args: unknown[]) => void) => {
-      if (event === 'pipeline:state-conflict') {
-        const originalOn = eventBus.on as ReturnType<typeof vi.fn>
-        // Re-wire to capture the conflict
-        ;(eventBus.emit as ReturnType<typeof vi.fn>).mockImplementation((emitEvent: string, ...args: unknown[]) => {
-          if (emitEvent === 'pipeline:state-conflict') {
-            const payload = args[0] as { conflict: DoltMergeConflictError }
-            capturedConflict = payload.conflict
-          }
-        })
+    ;(eventBus.on as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, fn: (...args: unknown[]) => void) => {
+        if (event === 'pipeline:state-conflict') {
+          const originalOn = eventBus.on as ReturnType<typeof vi.fn>
+          // Re-wire to capture the conflict
+          ;(eventBus.emit as ReturnType<typeof vi.fn>).mockImplementation(
+            (emitEvent: string, ...args: unknown[]) => {
+              if (emitEvent === 'pipeline:state-conflict') {
+                const payload = args[0] as { conflict: DoltMergeConflictError }
+                capturedConflict = payload.conflict
+              }
+            }
+          )
+        }
       }
-    })
+    )
 
     mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess(storyKey) as any)
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess() as any)
@@ -918,23 +959,35 @@ describe('Gap 5: Post-pipeline diff and history against merged-story state', () 
 
     // Now simulate post-pipeline diff: branch is already merged, so the
     // merged-story fallback path (dolt_log query) must be used
-    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string, params?: unknown[]) => {
-      if (/CREATE TABLE/i.test(sql)) return []
-      if (/dolt_log/i.test(sql)) {
-        return [{ commit_hash: 'aaa1111' }]
+    ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(
+      async (sql: string, params?: unknown[]) => {
+        if (/CREATE TABLE/i.test(sql)) return []
+        if (/dolt_log/i.test(sql)) {
+          return [{ commit_hash: 'aaa1111' }]
+        }
+        if (/DOLT_DIFF\('aaa1111~1', 'aaa1111'/i.test(sql) && sql.includes("'stories'")) {
+          return [
+            {
+              diff_type: 'added',
+              after_story_key: '26-10',
+              after_phase: 'COMPLETE',
+              before_story_key: null,
+            },
+          ]
+        }
+        if (/DOLT_DIFF\('aaa1111~1', 'aaa1111'/i.test(sql) && sql.includes("'metrics'")) {
+          return [
+            {
+              diff_type: 'added',
+              after_story_key: '26-10',
+              after_task_type: 'dev-story',
+              before_story_key: null,
+            },
+          ]
+        }
+        return []
       }
-      if (/DOLT_DIFF\('aaa1111~1', 'aaa1111'/i.test(sql) && sql.includes("'stories'")) {
-        return [
-          { diff_type: 'added', after_story_key: '26-10', after_phase: 'COMPLETE', before_story_key: null },
-        ]
-      }
-      if (/DOLT_DIFF\('aaa1111~1', 'aaa1111'/i.test(sql) && sql.includes("'metrics'")) {
-        return [
-          { diff_type: 'added', after_story_key: '26-10', after_task_type: 'dev-story', before_story_key: null },
-        ]
-      }
-      return []
-    })
+    )
 
     const diff = await store.diffStory('26-10')
 
@@ -949,7 +1002,7 @@ describe('Gap 5: Post-pipeline diff and history against merged-story state', () 
     // Verify fallback path used dolt_log query
     expect(tracking.client.query).toHaveBeenCalledWith(
       expect.stringContaining('dolt_log'),
-      expect.arrayContaining(['%26-10%']),
+      expect.arrayContaining(['%26-10%'])
     )
   })
 
@@ -982,9 +1035,24 @@ describe('Gap 5: Post-pipeline diff and history against merged-story state', () 
     ;(tracking.client.query as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string) => {
       if (/dolt_log/i.test(sql)) {
         return [
-          { commit_hash: 'aaa1111', date: '2026-03-09T10:00:00+00:00', message: 'Merge story/26-10: COMPLETE', committer: 'substrate' },
-          { commit_hash: 'bbb2222', date: '2026-03-09T10:05:00+00:00', message: 'Merge story/26-12: COMPLETE', committer: 'substrate' },
-          { commit_hash: 'ccc3333', date: '2026-03-09T09:00:00+00:00', message: 'Initialize substrate state schema v1', committer: 'substrate' },
+          {
+            commit_hash: 'aaa1111',
+            date: '2026-03-09T10:00:00+00:00',
+            message: 'Merge story/26-10: COMPLETE',
+            committer: 'substrate',
+          },
+          {
+            commit_hash: 'bbb2222',
+            date: '2026-03-09T10:05:00+00:00',
+            message: 'Merge story/26-12: COMPLETE',
+            committer: 'substrate',
+          },
+          {
+            commit_hash: 'ccc3333',
+            date: '2026-03-09T09:00:00+00:00',
+            message: 'Initialize substrate state schema v1',
+            committer: 'substrate',
+          },
         ]
       }
       if (/CREATE TABLE/i.test(sql)) return []
@@ -1058,7 +1126,7 @@ describe('Gap 6: CLI diff/history degraded-mode detection with auto-detection wi
 
     // Case 1: Binary not installed → hint mentions installation URL
     vi.spyOn(stateModule, 'checkDoltInstalled').mockRejectedValueOnce(
-      new stateModule.DoltNotInstalled(),
+      new stateModule.DoltNotInstalled()
     )
 
     const notInstalledHint = await getDegradedModeHint('/tmp/state')

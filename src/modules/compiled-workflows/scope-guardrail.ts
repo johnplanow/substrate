@@ -21,10 +21,23 @@
  * Any token containing `/` and one of these extensions is treated as a file path.
  */
 const RECOGNIZED_EXTENSIONS = [
-  '.ts', '.js', '.tsx', '.jsx',
-  '.md', '.json', '.yaml', '.yml',
-  '.py', '.go', '.java', '.rb', '.rs',
-  '.sh', '.css', '.scss', '.html',
+  '.ts',
+  '.js',
+  '.tsx',
+  '.jsx',
+  '.md',
+  '.json',
+  '.yaml',
+  '.yml',
+  '.py',
+  '.go',
+  '.java',
+  '.rb',
+  '.rs',
+  '.sh',
+  '.css',
+  '.scss',
+  '.html',
 ]
 
 /**
@@ -168,9 +181,7 @@ export class ScopeGuardrail {
     // Display only non-test files in the "Actual files" list — test files are
     // unconditionally exempt and don't need to appear in scope analysis output
     const actualList =
-      nonTestFiles.length > 0
-        ? nonTestFiles.map((f) => `  - ${f}`).join('\n')
-        : '  (none)'
+      nonTestFiles.length > 0 ? nonTestFiles.map((f) => `  - ${f}`).join('\n') : '  (none)'
 
     const deltaList = outOfScope.map((f) => `  - ${f}`).join('\n')
 

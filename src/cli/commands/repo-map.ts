@@ -50,14 +50,14 @@ export function registerRepoMapCommand(program: Command): void {
     .option('--query <symbol>', 'Query the repo-map for a specific symbol name')
     .option(
       '--dry-run <storyFile>',
-      'Preview repo-map context that would be injected for a story file',
+      'Preview repo-map context that would be injected for a story file'
     )
     .option('--output-format <format>', 'Output format: text or json', 'text')
     .action(async (options: RepoMapOptions) => {
       // Validate --query symbol name
       if (options.query !== undefined && !isValidSymbolName(options.query)) {
         process.stderr.write(
-          `Error: --query value must match /^[a-zA-Z0-9_]+$/ (got: ${options.query})\n`,
+          `Error: --query value must match /^[a-zA-Z0-9_]+$/ (got: ${options.query})\n`
         )
         process.exitCode = 1
         return
@@ -75,11 +75,11 @@ export function registerRepoMapCommand(program: Command): void {
               backend: 'file',
               status: 'unavailable',
               hint: 'Repo-map requires the Dolt backend. Run `substrate init --dolt` to enable.',
-            }),
+            })
           )
         } else {
           process.stderr.write(
-            `Error: ${flag} requires the Dolt backend. Run \`substrate init --dolt\` to enable.\n`,
+            `Error: ${flag} requires the Dolt backend. Run \`substrate init --dolt\` to enable.\n`
           )
         }
         process.exitCode = 1
@@ -87,7 +87,13 @@ export function registerRepoMapCommand(program: Command): void {
 
       // All sub-commands require Dolt
       if (!isDolt) {
-        const flag = options.update ? '--update' : options.query ? '--query' : options.dryRun ? '--dry-run' : '--show'
+        const flag = options.update
+          ? '--update'
+          : options.query
+            ? '--query'
+            : options.dryRun
+              ? '--dry-run'
+              : '--show'
         notDoltError(flag)
         return
       }
@@ -100,7 +106,7 @@ export function registerRepoMapCommand(program: Command): void {
       // CLI constructs DoltSymbolRepository directly, so we must check here too.
       try {
         const colRows = await doltClient.query<Record<string, unknown>>(
-          `SHOW COLUMNS FROM repo_map_symbols LIKE 'dependencies'`,
+          `SHOW COLUMNS FROM repo_map_symbols LIKE 'dependencies'`
         )
         if (colRows.length === 0) {
           await doltClient.query(`ALTER TABLE repo_map_symbols ADD COLUMN dependencies JSON`)
@@ -130,9 +136,7 @@ export function registerRepoMapCommand(program: Command): void {
           staleness = 'current'
         }
 
-        const symbolCount = meta !== null
-          ? (await symbolRepo.getSymbols()).length
-          : 0
+        const symbolCount = meta !== null ? (await symbolRepo.getSymbols()).length : 0
 
         if (options.outputFormat === 'json') {
           console.log(
@@ -142,7 +146,7 @@ export function registerRepoMapCommand(program: Command): void {
               fileCount: meta?.fileCount ?? 0,
               updatedAt: meta?.updatedAt?.toISOString() ?? null,
               staleness,
-            }),
+            })
           )
         } else {
           if (meta !== null) {
@@ -169,7 +173,8 @@ export function registerRepoMapCommand(program: Command): void {
 
         // P2: Check tree-sitter availability upfront and warn clearly
         if (grammarLoader.getGrammar('.ts') === null) {
-          const msg = 'tree-sitter grammars not installed. Run `npm install tree-sitter tree-sitter-typescript tree-sitter-javascript tree-sitter-python` in the substrate installation directory.'
+          const msg =
+            'tree-sitter grammars not installed. Run `npm install tree-sitter tree-sitter-typescript tree-sitter-javascript tree-sitter-python` in the substrate installation directory.'
           if (options.outputFormat === 'json') {
             console.log(JSON.stringify({ result: 'error', error: msg }))
           } else {
@@ -199,20 +204,26 @@ export function registerRepoMapCommand(program: Command): void {
         const symbolCount = (await symbolRepo.getSymbols()).length
 
         if (options.outputFormat === 'json') {
-          console.log(JSON.stringify({
-            result: updateWarning ? 'partial' : 'updated',
-            symbolCount,
-            fileCount: meta?.fileCount ?? 0,
-            commitSha: meta?.commitSha ?? null,
-            updatedAt: meta?.updatedAt?.toISOString() ?? null,
-            ...(updateWarning ? { warning: updateWarning } : {}),
-          }))
+          console.log(
+            JSON.stringify({
+              result: updateWarning ? 'partial' : 'updated',
+              symbolCount,
+              fileCount: meta?.fileCount ?? 0,
+              commitSha: meta?.commitSha ?? null,
+              updatedAt: meta?.updatedAt?.toISOString() ?? null,
+              ...(updateWarning ? { warning: updateWarning } : {}),
+            })
+          )
         } else {
           if (updateWarning) {
-            console.log(`Repo-map partially updated: ${symbolCount} symbols across ${meta?.fileCount ?? 0} files`)
+            console.log(
+              `Repo-map partially updated: ${symbolCount} symbols across ${meta?.fileCount ?? 0} files`
+            )
             console.log(`Warning: ${updateWarning}`)
           } else {
-            console.log(`Repo-map updated: ${symbolCount} symbols across ${meta?.fileCount ?? 0} files`)
+            console.log(
+              `Repo-map updated: ${symbolCount} symbols across ${meta?.fileCount ?? 0} files`
+            )
           }
         }
         return
@@ -231,7 +242,9 @@ export function registerRepoMapCommand(program: Command): void {
           } else {
             console.log(`Found ${result.symbolCount} symbol(s) for '${options.query}':`)
             for (const sym of result.symbols) {
-              console.log(`  ${sym.filePath}:${sym.lineNumber}  ${sym.symbolType} ${sym.symbolName}`)
+              console.log(
+                `  ${sym.filePath}:${sym.lineNumber}  ${sym.symbolType} ${sym.symbolName}`
+              )
             }
           }
         }
@@ -257,7 +270,7 @@ export function registerRepoMapCommand(program: Command): void {
             text: injectionResult.text,
             symbolCount: injectionResult.symbolCount,
             truncated: injectionResult.truncated,
-          }),
+          })
         )
         return
       }

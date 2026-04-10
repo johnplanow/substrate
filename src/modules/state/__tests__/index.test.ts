@@ -194,9 +194,7 @@ describe('createStateStore — auto backend', () => {
 
     createStateStore({ backend: 'auto', basePath: '/tmp/proj' })
 
-    expect(mockDebug).toHaveBeenCalledWith(
-      expect.stringContaining('Dolt detected'),
-    )
+    expect(mockDebug).toHaveBeenCalledWith(expect.stringContaining('Dolt detected'))
   })
 
   it('emits a debug log message when Dolt is not found', () => {
@@ -205,8 +203,6 @@ describe('createStateStore — auto backend', () => {
 
     createStateStore({ backend: 'auto', basePath: '/tmp/proj' })
 
-    expect(mockDebug).toHaveBeenCalledWith(
-      expect.stringContaining('Dolt not found'),
-    )
+    expect(mockDebug).toHaveBeenCalledWith(expect.stringContaining('Dolt not found'))
   })
 })

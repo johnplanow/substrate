@@ -86,9 +86,7 @@ describe('assemblePrompt — placeholder replacement', () => {
   it('returns accurate token count for assembled prompt', () => {
     const content = 'A'.repeat(400)
     const template = '{{section}}'
-    const sections: PromptSection[] = [
-      { name: 'section', content, priority: 'required' },
-    ]
+    const sections: PromptSection[] = [{ name: 'section', content, priority: 'required' }]
 
     const result = assemblePrompt(template, sections, 10_000)
 
@@ -148,7 +146,7 @@ describe('assemblePrompt — truncation priority', () => {
   it('truncates optional sections before important ones', () => {
     // Create a template where both sections are large
     const importantContent = 'I'.repeat(4_000) // ~1,000 tokens
-    const optionalContent = 'O'.repeat(4_000)  // ~1,000 tokens
+    const optionalContent = 'O'.repeat(4_000) // ~1,000 tokens
     const template = '{{important_section}}\n{{optional_section}}'
 
     // Ceiling that requires truncation but could keep important
@@ -259,9 +257,7 @@ describe('assemblePrompt — no truncation', () => {
 describe('assemblePrompt — edge cases', () => {
   it('handles multiple occurrences of the same placeholder', () => {
     const template = '{{section}} and again {{section}}'
-    const sections: PromptSection[] = [
-      { name: 'section', content: 'value', priority: 'required' },
-    ]
+    const sections: PromptSection[] = [{ name: 'section', content: 'value', priority: 'required' }]
 
     const result = assemblePrompt(template, sections, 10_000)
 
@@ -284,9 +280,7 @@ describe('assemblePrompt — edge cases', () => {
   it('uses default token ceiling of 2200 when not specified', () => {
     const template = '{{content}}'
     const content = 'A'.repeat(4_000) // ~1,000 tokens — fits in default 2200
-    const sections: PromptSection[] = [
-      { name: 'content', content, priority: 'required' },
-    ]
+    const sections: PromptSection[] = [{ name: 'content', content, priority: 'required' }]
 
     // Call without explicit ceiling — should use default of 2200
     const result = assemblePrompt(template, sections)
@@ -301,9 +295,7 @@ describe('assemblePrompt — token count accuracy', () => {
     const template = '{{content}}'
     // Use 100 chars → should be ceil(100/4) = 25 tokens
     const content = 'A'.repeat(100)
-    const sections: PromptSection[] = [
-      { name: 'content', content, priority: 'required' },
-    ]
+    const sections: PromptSection[] = [{ name: 'content', content, priority: 'required' }]
 
     const result = assemblePrompt(template, sections, 10_000)
 
@@ -314,9 +306,7 @@ describe('assemblePrompt — token count accuracy', () => {
     const template = '{{content}}'
     // 400 chars with code block → should be ceil(100 * 1.1) = 110 tokens
     const content = '```\n' + 'A'.repeat(392) + '\n```'
-    const sections: PromptSection[] = [
-      { name: 'content', content, priority: 'required' },
-    ]
+    const sections: PromptSection[] = [{ name: 'content', content, priority: 'required' }]
 
     const result = assemblePrompt(template, sections, 10_000)
 

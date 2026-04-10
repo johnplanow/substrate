@@ -16,7 +16,7 @@ import type { RunManifestData } from '@substrate-ai/sdlc/run-model/types.js'
 
 function makeManifest(
   perStoryState: Record<string, { cost_usd?: number }>,
-  runTotal = 0,
+  runTotal = 0
 ): RunManifestData {
   const now = new Date().toISOString()
   const per_story_state: RunManifestData['per_story_state'] = {}
@@ -61,19 +61,16 @@ describe('CostGovernanceChecker.computeCumulativeCost', () => {
 
   it('sums cost_usd values plus run_total', () => {
     const manifest = makeManifest(
-      { '1-1': { cost_usd: 0.10 }, '1-2': { cost_usd: 0.20 }, '1-3': { cost_usd: 0.30 } },
-      0.05,
+      { '1-1': { cost_usd: 0.1 }, '1-2': { cost_usd: 0.2 }, '1-3': { cost_usd: 0.3 } },
+      0.05
     )
     // 0.10 + 0.20 + 0.30 + 0.05 = 0.65
     expect(checker.computeCumulativeCost(manifest)).toBeCloseTo(0.65, 10)
   })
 
   it('treats undefined cost_usd as 0', () => {
-    const manifest = makeManifest(
-      { '1-1': { cost_usd: 0.50 }, '1-2': {} },
-      0,
-    )
-    expect(checker.computeCumulativeCost(manifest)).toBeCloseTo(0.50, 10)
+    const manifest = makeManifest({ '1-1': { cost_usd: 0.5 }, '1-2': {} }, 0)
+    expect(checker.computeCumulativeCost(manifest)).toBeCloseTo(0.5, 10)
   })
 })
 
@@ -90,13 +87,13 @@ describe('CostGovernanceChecker.estimateNextStoryCost', () => {
   })
 
   it('returns average of stories with cost_usd', () => {
-    const manifest = makeManifest({ '1-1': { cost_usd: 1.00 }, '1-2': { cost_usd: 3.00 } })
-    expect(checker.estimateNextStoryCost(manifest)).toBeCloseTo(2.00, 10)
+    const manifest = makeManifest({ '1-1': { cost_usd: 1.0 }, '1-2': { cost_usd: 3.0 } })
+    expect(checker.estimateNextStoryCost(manifest)).toBeCloseTo(2.0, 10)
   })
 
   it('ignores undefined cost_usd when computing average', () => {
-    const manifest = makeManifest({ '1-1': { cost_usd: 2.00 }, '1-2': {} })
-    expect(checker.estimateNextStoryCost(manifest)).toBeCloseTo(2.00, 10)
+    const manifest = makeManifest({ '1-1': { cost_usd: 2.0 }, '1-2': {} })
+    expect(checker.estimateNextStoryCost(manifest)).toBeCloseTo(2.0, 10)
   })
 
   it('returns 0 when all stories have cost_usd of 0', () => {
@@ -111,7 +108,7 @@ describe('CostGovernanceChecker.estimateNextStoryCost', () => {
 
 describe('CostGovernanceChecker.checkCeiling', () => {
   const checker = new CostGovernanceChecker()
-  const CEILING = 5.00
+  const CEILING = 5.0
 
   it('returns ok when cumulative is 0 (0%)', () => {
     const manifest = makeManifest({}, 0)
@@ -123,50 +120,50 @@ describe('CostGovernanceChecker.checkCeiling', () => {
   })
 
   it('returns ok when cumulative is 3.90 (78%)', () => {
-    const manifest = makeManifest({ '1-1': { cost_usd: 3.90 } }, 0)
+    const manifest = makeManifest({ '1-1': { cost_usd: 3.9 } }, 0)
     const result = checker.checkCeiling(manifest, CEILING)
     expect(result.status).toBe('ok')
     expect(result.percentUsed).toBe(78)
   })
 
   it('returns warning when cumulative is exactly 4.00 (80%)', () => {
-    const manifest = makeManifest({ '1-1': { cost_usd: 4.00 } }, 0)
+    const manifest = makeManifest({ '1-1': { cost_usd: 4.0 } }, 0)
     const result = checker.checkCeiling(manifest, CEILING)
     expect(result.status).toBe('warning')
     expect(result.percentUsed).toBe(80)
   })
 
   it('returns warning when cumulative is 4.20 (84%)', () => {
-    const manifest = makeManifest({ '1-1': { cost_usd: 4.20 } }, 0)
+    const manifest = makeManifest({ '1-1': { cost_usd: 4.2 } }, 0)
     const result = checker.checkCeiling(manifest, CEILING)
     expect(result.status).toBe('warning')
     expect(result.percentUsed).toBe(84)
   })
 
   it('returns exceeded when cumulative is exactly 5.00 (100%)', () => {
-    const manifest = makeManifest({ '1-1': { cost_usd: 5.00 } }, 0)
+    const manifest = makeManifest({ '1-1': { cost_usd: 5.0 } }, 0)
     const result = checker.checkCeiling(manifest, CEILING)
     expect(result.status).toBe('exceeded')
     expect(result.percentUsed).toBe(100)
   })
 
   it('returns exceeded when cumulative is 5.10 (102%)', () => {
-    const manifest = makeManifest({ '1-1': { cost_usd: 5.10 } }, 0)
+    const manifest = makeManifest({ '1-1': { cost_usd: 5.1 } }, 0)
     const result = checker.checkCeiling(manifest, CEILING)
     expect(result.status).toBe('exceeded')
     expect(result.percentUsed).toBe(102)
   })
 
   it('includes estimatedNext in result', () => {
-    const manifest = makeManifest({ '1-1': { cost_usd: 1.00 }, '1-2': { cost_usd: 2.00 } }, 0)
+    const manifest = makeManifest({ '1-1': { cost_usd: 1.0 }, '1-2': { cost_usd: 2.0 } }, 0)
     const result = checker.checkCeiling(manifest, CEILING)
-    expect(result.estimatedNext).toBeCloseTo(1.50, 10)
+    expect(result.estimatedNext).toBeCloseTo(1.5, 10)
   })
 
   it('percentUsed is rounded to two decimal places', () => {
     // 1.00 / 3.00 = 33.3333...% -> should round to 33.33
-    const manifest = makeManifest({ '1-1': { cost_usd: 1.00 } }, 0)
-    const result = checker.checkCeiling(manifest, 3.00)
+    const manifest = makeManifest({ '1-1': { cost_usd: 1.0 } }, 0)
+    const result = checker.checkCeiling(manifest, 3.0)
     expect(result.percentUsed).toBe(33.33)
   })
 })

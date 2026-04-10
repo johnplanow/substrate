@@ -22,7 +22,9 @@ import { getAutoHealthData, DEFAULT_STALL_THRESHOLD_SECONDS } from '../health.js
 
 async function createTestDb(): Promise<DatabaseAdapter> {
   const adapter = new InMemoryDatabaseAdapter()
-  const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
+  const { initSchema: realInitSchema } = await vi.importActual<
+    typeof import('../../../persistence/schema.js')
+  >('../../../persistence/schema.js')
   await realInitSchema(adapter)
   return adapter
 }
@@ -34,7 +36,7 @@ async function createTestRun(
     current_phase?: string
     token_usage_json?: string
     updated_at?: string
-  } = {},
+  } = {}
 ): Promise<PipelineRun> {
   const run = await createPipelineRun(adapter, {
     methodology: 'bmad',
@@ -42,18 +44,32 @@ async function createTestRun(
     config_json: null,
   })
   if (overrides.status !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [overrides.status, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [
+      overrides.status,
+      run.id,
+    ])
   }
   if (overrides.current_phase !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [overrides.current_phase, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [
+      overrides.current_phase,
+      run.id,
+    ])
   }
   if (overrides.token_usage_json !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [overrides.token_usage_json, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [
+      overrides.token_usage_json,
+      run.id,
+    ])
   }
   if (overrides.updated_at !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET updated_at = ? WHERE id = ?`, [overrides.updated_at, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET updated_at = ? WHERE id = ?`, [
+      overrides.updated_at,
+      run.id,
+    ])
   }
-  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])
+  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [
+    run.id,
+  ])
   return rows[0]!
 }
 
@@ -65,7 +81,9 @@ vi.mock('../../../persistence/adapter.js', () => {
   let mockAdapter: DatabaseAdapter | null = null
   return {
     createDatabaseAdapter: () => mockAdapter!,
-    __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
+    __setMockAdapter: (a: DatabaseAdapter) => {
+      mockAdapter = a
+    },
   }
 })
 
@@ -78,7 +96,7 @@ vi.mock('../../../utils/git-root.js', () => ({
 }))
 
 vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     existsSync: vi.fn().mockReturnValue(true),
@@ -94,7 +112,9 @@ describe('getAutoHealthData — AC1: PID alive + empty child_pids → HEALTHY', 
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = (await import('../../../persistence/adapter.js')) as {
+      __setMockAdapter: (a: DatabaseAdapter) => void
+    }
     dbModule.__setMockAdapter(adapter)
   })
 
@@ -149,7 +169,9 @@ describe('getAutoHealthData — AC5: DB staleness is informational, does not ove
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = (await import('../../../persistence/adapter.js')) as {
+      __setMockAdapter: (a: DatabaseAdapter) => void
+    }
     dbModule.__setMockAdapter(adapter)
   })
 
@@ -206,7 +228,9 @@ describe('getAutoHealthData — AC2: PID dead → STALLED', () => {
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = (await import('../../../persistence/adapter.js')) as {
+      __setMockAdapter: (a: DatabaseAdapter) => void
+    }
     dbModule.__setMockAdapter(adapter)
   })
 
@@ -245,7 +269,12 @@ describe('getAutoHealthData — AC2: PID dead → STALLED', () => {
 
     const result = await getAutoHealthData({
       projectRoot: '/tmp/test-project',
-      _processInfoOverride: { orchestrator_pid: null, child_pids: [], zombies: [], pid_file_dead: true },
+      _processInfoOverride: {
+        orchestrator_pid: null,
+        child_pids: [],
+        zombies: [],
+        pid_file_dead: true,
+      },
     })
 
     expect(result.verdict).toBe('STALLED')
@@ -264,7 +293,12 @@ describe('getAutoHealthData — AC2: PID dead → STALLED', () => {
     // pid_file_dead=true: PID file existed, PID was not alive in ps
     const result = await getAutoHealthData({
       projectRoot: '/tmp/test-project',
-      _processInfoOverride: { orchestrator_pid: null, child_pids: [], zombies: [], pid_file_dead: true },
+      _processInfoOverride: {
+        orchestrator_pid: null,
+        child_pids: [],
+        zombies: [],
+        pid_file_dead: true,
+      },
     })
 
     // AC2: PID file exists + PID NOT alive → STALLED with no carve-outs
@@ -281,7 +315,9 @@ describe('getAutoHealthData — AC3: No PID file falls back to existing heuristi
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = (await import('../../../persistence/adapter.js')) as {
+      __setMockAdapter: (a: DatabaseAdapter) => void
+    }
     dbModule.__setMockAdapter(adapter)
   })
 
@@ -326,7 +362,9 @@ describe('getAutoHealthData — AC4: Child process count is informational', () =
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = (await import('../../../persistence/adapter.js')) as {
+      __setMockAdapter: (a: DatabaseAdapter) => void
+    }
     dbModule.__setMockAdapter(adapter)
   })
 

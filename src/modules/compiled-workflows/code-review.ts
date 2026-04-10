@@ -23,7 +23,14 @@ import { countTokens } from '../context-compiler/token-counter.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import { CodeReviewResultSchema } from './schemas.js'
 import type { WorkflowDeps, CodeReviewParams, CodeReviewResult } from './types.js'
-import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitDiffStatForFiles, stageIntentToAdd, getGitChangedFiles } from './git-helpers.js'
+import {
+  getGitDiffSummary,
+  getGitDiffStatSummary,
+  getGitDiffForFiles,
+  getGitDiffStatForFiles,
+  stageIntentToAdd,
+  getGitChangedFiles,
+} from './git-helpers.js'
 import { getTokenCeiling } from './token-ceiling.js'
 import { ScopeGuardrail } from './scope-guardrail.js'
 
@@ -41,7 +48,10 @@ const logger = createLogger('compiled-workflows:code-review')
  * doesn't trigger a full rework cycle. The orchestrator's phantom-review
  * detection handles retries, and escalation kicks in at max review cycles.
  */
-function defaultFailResult(error: string, tokenUsage: { input: number; output: number }): CodeReviewResult {
+function defaultFailResult(
+  error: string,
+  tokenUsage: { input: number; output: number }
+): CodeReviewResult {
   return {
     verdict: 'NEEDS_MINOR_FIXES',
     issues: 0,
@@ -61,14 +71,11 @@ function defaultFailResult(error: string, tokenUsage: { input: number; output: n
  * test files. Returns a structured summary the reviewer can use as ground
  * truth instead of manually estimating test counts from code inspection.
  */
-async function countTestMetrics(
-  filesModified: string[] | undefined,
-  cwd: string,
-): Promise<string> {
+async function countTestMetrics(filesModified: string[] | undefined, cwd: string): Promise<string> {
   if (!filesModified || filesModified.length === 0) return ''
 
   const testFiles = filesModified.filter(
-    (f) => f.includes('.test.') || f.includes('.spec.') || f.includes('__tests__'),
+    (f) => f.includes('.test.') || f.includes('.spec.') || f.includes('__tests__')
   )
   if (testFiles.length === 0) return ''
 
@@ -80,7 +87,7 @@ async function countTestMetrics(
       // Use grep to count test case declarations in the file
       const out = execSync(
         `grep -cE "^\\s*(it|test|it\\.each|test\\.each)\\s*\\(" "${file}" 2>/dev/null || echo 0`,
-        { cwd, encoding: 'utf-8', timeout: 5000 },
+        { cwd, encoding: 'utf-8', timeout: 5000 }
       ).trim()
       const count = parseInt(out, 10) || 0
       if (count > 0) {
@@ -135,9 +142,17 @@ async function countTestMetrics(
 // focuses on adversarial review dimensions rather than test framework specifics.
 export async function runCodeReview(
   deps: WorkflowDeps,
-  params: CodeReviewParams,
+  params: CodeReviewParams
 ): Promise<CodeReviewResult> {
-  const { storyKey, storyFilePath, workingDirectory, pipelineRunId, filesModified, previousIssues, buildPassed } = params
+  const {
+    storyKey,
+    storyFilePath,
+    workingDirectory,
+    pipelineRunId,
+    filesModified,
+    previousIssues,
+    buildPassed,
+  } = params
   const cwd = workingDirectory ?? process.cwd()
 
   logger.debug({ storyKey, storyFilePath, cwd, pipelineRunId }, 'Starting code-review workflow')
@@ -145,9 +160,12 @@ export async function runCodeReview(
   // Resolve token ceiling: config override takes priority over hardcoded default
   const { ceiling: TOKEN_CEILING, source: tokenCeilingSource } = getTokenCeiling(
     'code-review',
-    deps.tokenCeilings,
+    deps.tokenCeilings
   )
-  logger.info({ workflow: 'code-review', ceiling: TOKEN_CEILING, source: tokenCeilingSource }, 'Token ceiling resolved')
+  logger.info(
+    { workflow: 'code-review', ceiling: TOKEN_CEILING, source: tokenCeilingSource },
+    'Token ceiling resolved'
+  )
 
   // Step 1: Get compiled prompt template
   let template: string
@@ -156,7 +174,10 @@ export async function runCodeReview(
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     logger.error({ error }, 'Failed to retrieve code-review prompt template')
-    return defaultFailResult(`Failed to retrieve prompt template: ${error}`, { input: 0, output: 0 })
+    return defaultFailResult(`Failed to retrieve prompt template: ${error}`, {
+      input: 0,
+      output: 0,
+    })
   }
 
   // Step 2: Read story file
@@ -189,11 +210,14 @@ export async function runCodeReview(
     const scopedTotal = nonDiffTokens + countTokens(scopedDiff)
     if (scopedTotal <= TOKEN_CEILING) {
       gitDiffContent = scopedDiff
-      logger.debug({ fileCount: filesModified.length, tokenCount: scopedTotal }, 'Using scoped file diff')
+      logger.debug(
+        { fileCount: filesModified.length, tokenCount: scopedTotal },
+        'Using scoped file diff'
+      )
     } else {
       logger.warn(
         { estimatedTotal: scopedTotal, ceiling: TOKEN_CEILING, fileCount: filesModified.length },
-        'Scoped diff exceeds token ceiling — falling back to scoped stat-only summary',
+        'Scoped diff exceeds token ceiling — falling back to scoped stat-only summary'
       )
       gitDiffContent = await getGitDiffStatForFiles(filesModified, cwd)
     }
@@ -209,7 +233,7 @@ export async function runCodeReview(
       // Tier 3: Stat-only
       logger.warn(
         { estimatedTotal: fullTotal, ceiling: TOKEN_CEILING },
-        'Full git diff would exceed token ceiling — using stat-only summary',
+        'Full git diff would exceed token ceiling — using stat-only summary'
       )
       gitDiffContent = await getGitDiffStatSummary(cwd)
     }
@@ -230,7 +254,10 @@ export async function runCodeReview(
   // Build repo-map context (Story 28-7)
   let repoContextContent = ''
   if (deps.repoMapInjector !== undefined) {
-    const injection = await deps.repoMapInjector.buildContext(storyContent, deps.maxRepoMapTokens ?? 2000)
+    const injection = await deps.repoMapInjector.buildContext(
+      storyContent,
+      deps.maxRepoMapTokens ?? 2000
+    )
     repoContextContent = injection.text
     logger.info(
       {
@@ -239,7 +266,7 @@ export async function runCodeReview(
         symbolCount: injection.symbolCount,
         truncated: injection.truncated,
       },
-      'Repo-map context assembled',
+      'Repo-map context assembled'
     )
   }
 
@@ -251,8 +278,9 @@ export async function runCodeReview(
       'PRIORITY: Verify each issue below was actually fixed. Then check for any NEW issues introduced by the fixes.',
       'Only flag issues that are still present or newly introduced — do not re-report issues that were successfully resolved.',
       '',
-      ...previousIssues.map((iss, i) =>
-        `  ${i + 1}. [${iss.severity ?? 'unknown'}] ${iss.description ?? 'no description'}${iss.file ? ` (${iss.file}${iss.line ? `:${iss.line}` : ''})` : ''}`
+      ...previousIssues.map(
+        (iss, i) =>
+          `  ${i + 1}. [${iss.severity ?? 'unknown'}] ${iss.description ?? 'no description'}${iss.file ? ` (${iss.file}${iss.line ? `:${iss.line}` : ''})` : ''}`
       ),
     ].join('\n')
   }
@@ -262,8 +290,12 @@ export async function runCodeReview(
   try {
     const findings = await getProjectFindings(deps.db)
     if (findings.length > 0) {
-      priorFindingsContent = 'Previous reviews found these recurring patterns — pay special attention:\n\n' + findings
-      logger.debug({ storyKey, findingsLen: findings.length }, 'Injecting prior findings into code-review prompt')
+      priorFindingsContent =
+        'Previous reviews found these recurring patterns — pay special attention:\n\n' + findings
+      logger.debug(
+        { storyKey, findingsLen: findings.length },
+        'Injecting prior findings into code-review prompt'
+      )
     }
   } catch {
     // AC5: graceful fallback — empty string on error
@@ -276,19 +308,23 @@ export async function runCodeReview(
   }
 
   // Compute pre-parsed scope analysis (AC7: inject expected vs actual file delta)
-  const scopeAnalysisContent = storyContent && filesModified
-    ? ScopeGuardrail.buildAnalysis(storyContent, filesModified)
-    : ''
+  const scopeAnalysisContent =
+    storyContent && filesModified ? ScopeGuardrail.buildAnalysis(storyContent, filesModified) : ''
   if (scopeAnalysisContent) {
     logger.debug({ storyKey }, 'Scope analysis detected out-of-scope files')
   }
 
-  const buildStatusPrefix = buildPassed === true
-    ? 'BUILD STATUS: PASSED — code compiles and passes build verification. Focus on logic correctness, style, and acceptance criteria rather than compilation errors.\n\n'
-    : ''
+  const buildStatusPrefix =
+    buildPassed === true
+      ? 'BUILD STATUS: PASSED — code compiles and passes build verification. Focus on logic correctness, style, and acceptance criteria rather than compilation errors.\n\n'
+      : ''
 
   const sections = [
-    { name: 'story_content', content: buildStatusPrefix + storyContent, priority: 'required' as const },
+    {
+      name: 'story_content',
+      content: buildStatusPrefix + storyContent,
+      priority: 'required' as const,
+    },
     { name: 'git_diff', content: gitDiffContent, priority: 'important' as const },
     { name: 'test_metrics', content: testMetricsContent, priority: 'important' as const },
     { name: 'scope_analysis', content: scopeAnalysisContent, priority: 'optional' as const },
@@ -304,13 +340,13 @@ export async function runCodeReview(
     // Truncation occurred (arch_constraints trimmed) — log for observability
     logger.warn(
       { storyKey, tokenCount: assembleResult.tokenCount },
-      'Code-review prompt truncated to fit token ceiling',
+      'Code-review prompt truncated to fit token ceiling'
     )
   }
 
   logger.debug(
     { storyKey, tokenCount: assembleResult.tokenCount, truncated: assembleResult.truncated },
-    'Prompt assembled for code-review',
+    'Prompt assembled for code-review'
   )
 
   const { prompt } = assembleResult
@@ -349,7 +385,8 @@ export async function runCodeReview(
 
   // Handle dispatch failures
   if (dispatchResult.status === 'failed') {
-    const errorMsg = `Dispatch status: failed. Exit code: ${dispatchResult.exitCode}. ${dispatchResult.parseError ?? ''} ${dispatchResult.output ? `Stderr: ${dispatchResult.output}` : ''}`.trim()
+    const errorMsg =
+      `Dispatch status: failed. Exit code: ${dispatchResult.exitCode}. ${dispatchResult.parseError ?? ''} ${dispatchResult.output ? `Stderr: ${dispatchResult.output}` : ''}`.trim()
     logger.warn({ storyKey, exitCode: dispatchResult.exitCode }, 'Code-review dispatch failed')
     return { ...defaultFailResult(errorMsg, tokenUsage), rawOutput }
   }
@@ -359,7 +396,7 @@ export async function runCodeReview(
     return {
       ...defaultFailResult(
         'Dispatch status: timeout. The agent did not complete within the allowed time.',
-        tokenUsage,
+        tokenUsage
       ),
       rawOutput,
     }
@@ -406,14 +443,19 @@ export async function runCodeReview(
 
   if (parsed.agentVerdict !== parsed.verdict) {
     logger.info(
-      { storyKey, agentVerdict: parsed.agentVerdict, pipelineVerdict: parsed.verdict, issues: parsed.issues },
-      'Pipeline overrode agent verdict based on issue severities',
+      {
+        storyKey,
+        agentVerdict: parsed.agentVerdict,
+        pipelineVerdict: parsed.verdict,
+        issues: parsed.issues,
+      },
+      'Pipeline overrode agent verdict based on issue severities'
     )
   }
 
   logger.info(
     { storyKey, verdict: parsed.verdict, issues: parsed.issues },
-    'Code-review workflow completed successfully',
+    'Code-review workflow completed successfully'
   )
 
   return {
@@ -443,7 +485,7 @@ async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
   } catch (err) {
     logger.warn(
       { error: err instanceof Error ? err.message : String(err) },
-      'Failed to retrieve architecture constraints',
+      'Failed to retrieve architecture constraints'
     )
     return ''
   }

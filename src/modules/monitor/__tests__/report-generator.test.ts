@@ -19,9 +19,7 @@ import type { MonitorDatabase, AggregateStats } from '../../../persistence/monit
 // Mock helpers
 // ---------------------------------------------------------------------------
 
-function createMockMonitorDb(
-  aggregates: AggregateStats[] = [],
-): MonitorDatabase & {
+function createMockMonitorDb(aggregates: AggregateStats[] = []): MonitorDatabase & {
   getAggregates: ReturnType<typeof vi.fn>
   getTaskMetricsDateRange: ReturnType<typeof vi.fn>
   insertTaskMetrics: ReturnType<typeof vi.fn>
@@ -48,7 +46,7 @@ function createMockMonitorDb(
 }
 
 function makeAggregate(
-  overrides: Partial<AggregateStats> & { agent: string; taskType: string },
+  overrides: Partial<AggregateStats> & { agent: string; taskType: string }
 ): AggregateStats {
   return {
     agent: overrides.agent,
@@ -111,8 +109,26 @@ describe('generateMonitorReport()', () => {
   describe('per-agent summary (AC1)', () => {
     it('aggregates stats for a single agent across task types', () => {
       const aggregates = [
-        makeAggregate({ agent: 'claude-sonnet', taskType: 'coding', totalTasks: 20, successfulTasks: 18, failedTasks: 2, totalInputTokens: 2000, totalOutputTokens: 1000, totalDurationMs: 10000 }),
-        makeAggregate({ agent: 'claude-sonnet', taskType: 'testing', totalTasks: 10, successfulTasks: 9, failedTasks: 1, totalInputTokens: 1000, totalOutputTokens: 500, totalDurationMs: 5000 }),
+        makeAggregate({
+          agent: 'claude-sonnet',
+          taskType: 'coding',
+          totalTasks: 20,
+          successfulTasks: 18,
+          failedTasks: 2,
+          totalInputTokens: 2000,
+          totalOutputTokens: 1000,
+          totalDurationMs: 10000,
+        }),
+        makeAggregate({
+          agent: 'claude-sonnet',
+          taskType: 'testing',
+          totalTasks: 10,
+          successfulTasks: 9,
+          failedTasks: 1,
+          totalInputTokens: 1000,
+          totalOutputTokens: 500,
+          totalDurationMs: 5000,
+        }),
       ]
 
       const db = createMockMonitorDb(aggregates)
@@ -131,8 +147,20 @@ describe('generateMonitorReport()', () => {
 
     it('handles multiple agents', () => {
       const aggregates = [
-        makeAggregate({ agent: 'claude-sonnet', taskType: 'coding', totalTasks: 20, successfulTasks: 16, failedTasks: 4 }),
-        makeAggregate({ agent: 'claude-haiku', taskType: 'coding', totalTasks: 15, successfulTasks: 10, failedTasks: 5 }),
+        makeAggregate({
+          agent: 'claude-sonnet',
+          taskType: 'coding',
+          totalTasks: 20,
+          successfulTasks: 16,
+          failedTasks: 4,
+        }),
+        makeAggregate({
+          agent: 'claude-haiku',
+          taskType: 'coding',
+          totalTasks: 15,
+          successfulTasks: 10,
+          failedTasks: 5,
+        }),
       ]
 
       const db = createMockMonitorDb(aggregates)
@@ -146,7 +174,13 @@ describe('generateMonitorReport()', () => {
 
     it('computes success_rate as percentage (0-100)', () => {
       const aggregates = [
-        makeAggregate({ agent: 'agent-a', taskType: 'coding', totalTasks: 10, successfulTasks: 7, failedTasks: 3 }),
+        makeAggregate({
+          agent: 'agent-a',
+          taskType: 'coding',
+          totalTasks: 10,
+          successfulTasks: 7,
+          failedTasks: 3,
+        }),
       ]
 
       const db = createMockMonitorDb(aggregates)
@@ -159,7 +193,13 @@ describe('generateMonitorReport()', () => {
 
     it('computes failure_rate correctly from AggregateStats', () => {
       const aggregates = [
-        makeAggregate({ agent: 'agent-b', taskType: 'testing', totalTasks: 4, successfulTasks: 1, failedTasks: 3 }),
+        makeAggregate({
+          agent: 'agent-b',
+          taskType: 'testing',
+          totalTasks: 4,
+          successfulTasks: 1,
+          failedTasks: 3,
+        }),
       ]
 
       const db = createMockMonitorDb(aggregates)
@@ -172,7 +212,15 @@ describe('generateMonitorReport()', () => {
 
     it('computes token_efficiency correctly', () => {
       const aggregates = [
-        makeAggregate({ agent: 'agent-c', taskType: 'coding', totalTasks: 1, successfulTasks: 1, failedTasks: 0, totalInputTokens: 1000, totalOutputTokens: 500 }),
+        makeAggregate({
+          agent: 'agent-c',
+          taskType: 'coding',
+          totalTasks: 1,
+          successfulTasks: 1,
+          failedTasks: 0,
+          totalInputTokens: 1000,
+          totalOutputTokens: 500,
+        }),
       ]
 
       const db = createMockMonitorDb(aggregates)
@@ -190,9 +238,27 @@ describe('generateMonitorReport()', () => {
   describe('per-task-type breakdown (AC1)', () => {
     it('groups agents under their task type', () => {
       const aggregates = [
-        makeAggregate({ agent: 'claude-sonnet', taskType: 'coding', totalTasks: 20, successfulTasks: 18, failedTasks: 2 }),
-        makeAggregate({ agent: 'claude-haiku', taskType: 'coding', totalTasks: 15, successfulTasks: 10, failedTasks: 5 }),
-        makeAggregate({ agent: 'claude-sonnet', taskType: 'testing', totalTasks: 10, successfulTasks: 9, failedTasks: 1 }),
+        makeAggregate({
+          agent: 'claude-sonnet',
+          taskType: 'coding',
+          totalTasks: 20,
+          successfulTasks: 18,
+          failedTasks: 2,
+        }),
+        makeAggregate({
+          agent: 'claude-haiku',
+          taskType: 'coding',
+          totalTasks: 15,
+          successfulTasks: 10,
+          failedTasks: 5,
+        }),
+        makeAggregate({
+          agent: 'claude-sonnet',
+          taskType: 'testing',
+          totalTasks: 10,
+          successfulTasks: 9,
+          failedTasks: 1,
+        }),
       ]
 
       const db = createMockMonitorDb(aggregates)
@@ -213,8 +279,20 @@ describe('generateMonitorReport()', () => {
 
     it('sorts agents within task type by success_rate descending', () => {
       const aggregates = [
-        makeAggregate({ agent: 'agent-low', taskType: 'coding', totalTasks: 10, successfulTasks: 6, failedTasks: 4 }),
-        makeAggregate({ agent: 'agent-high', taskType: 'coding', totalTasks: 10, successfulTasks: 9, failedTasks: 1 }),
+        makeAggregate({
+          agent: 'agent-low',
+          taskType: 'coding',
+          totalTasks: 10,
+          successfulTasks: 6,
+          failedTasks: 4,
+        }),
+        makeAggregate({
+          agent: 'agent-high',
+          taskType: 'coding',
+          totalTasks: 10,
+          successfulTasks: 9,
+          failedTasks: 1,
+        }),
       ]
 
       const db = createMockMonitorDb(aggregates)
@@ -227,7 +305,13 @@ describe('generateMonitorReport()', () => {
 
     it('includes sample_size matching total_tasks for each agent-type pair', () => {
       const aggregates = [
-        makeAggregate({ agent: 'agent-x', taskType: 'coding', totalTasks: 42, successfulTasks: 40, failedTasks: 2 }),
+        makeAggregate({
+          agent: 'agent-x',
+          taskType: 'coding',
+          totalTasks: 42,
+          successfulTasks: 40,
+          failedTasks: 2,
+        }),
       ]
 
       const db = createMockMonitorDb(aggregates)
@@ -245,9 +329,27 @@ describe('generateMonitorReport()', () => {
   describe('summary counts (AC1)', () => {
     it('counts total_tasks as sum across all agents and task types', () => {
       const aggregates = [
-        makeAggregate({ agent: 'a1', taskType: 'coding', totalTasks: 20, successfulTasks: 18, failedTasks: 2 }),
-        makeAggregate({ agent: 'a2', taskType: 'coding', totalTasks: 15, successfulTasks: 10, failedTasks: 5 }),
-        makeAggregate({ agent: 'a1', taskType: 'testing', totalTasks: 5, successfulTasks: 5, failedTasks: 0 }),
+        makeAggregate({
+          agent: 'a1',
+          taskType: 'coding',
+          totalTasks: 20,
+          successfulTasks: 18,
+          failedTasks: 2,
+        }),
+        makeAggregate({
+          agent: 'a2',
+          taskType: 'coding',
+          totalTasks: 15,
+          successfulTasks: 10,
+          failedTasks: 5,
+        }),
+        makeAggregate({
+          agent: 'a1',
+          taskType: 'testing',
+          totalTasks: 5,
+          successfulTasks: 5,
+          failedTasks: 0,
+        }),
       ]
 
       const db = createMockMonitorDb(aggregates)
@@ -258,9 +360,27 @@ describe('generateMonitorReport()', () => {
 
     it('counts total_agents as number of distinct agents', () => {
       const aggregates = [
-        makeAggregate({ agent: 'agent-1', taskType: 'coding', totalTasks: 10, successfulTasks: 8, failedTasks: 2 }),
-        makeAggregate({ agent: 'agent-2', taskType: 'coding', totalTasks: 10, successfulTasks: 8, failedTasks: 2 }),
-        makeAggregate({ agent: 'agent-1', taskType: 'testing', totalTasks: 5, successfulTasks: 4, failedTasks: 1 }),
+        makeAggregate({
+          agent: 'agent-1',
+          taskType: 'coding',
+          totalTasks: 10,
+          successfulTasks: 8,
+          failedTasks: 2,
+        }),
+        makeAggregate({
+          agent: 'agent-2',
+          taskType: 'coding',
+          totalTasks: 10,
+          successfulTasks: 8,
+          failedTasks: 2,
+        }),
+        makeAggregate({
+          agent: 'agent-1',
+          taskType: 'testing',
+          totalTasks: 5,
+          successfulTasks: 4,
+          failedTasks: 1,
+        }),
       ]
 
       const db = createMockMonitorDb(aggregates)
@@ -271,9 +391,27 @@ describe('generateMonitorReport()', () => {
 
     it('counts total_task_types as number of distinct task types', () => {
       const aggregates = [
-        makeAggregate({ agent: 'agent-1', taskType: 'coding', totalTasks: 10, successfulTasks: 8, failedTasks: 2 }),
-        makeAggregate({ agent: 'agent-1', taskType: 'testing', totalTasks: 5, successfulTasks: 4, failedTasks: 1 }),
-        makeAggregate({ agent: 'agent-1', taskType: 'review', totalTasks: 3, successfulTasks: 3, failedTasks: 0 }),
+        makeAggregate({
+          agent: 'agent-1',
+          taskType: 'coding',
+          totalTasks: 10,
+          successfulTasks: 8,
+          failedTasks: 2,
+        }),
+        makeAggregate({
+          agent: 'agent-1',
+          taskType: 'testing',
+          totalTasks: 5,
+          successfulTasks: 4,
+          failedTasks: 1,
+        }),
+        makeAggregate({
+          agent: 'agent-1',
+          taskType: 'review',
+          totalTasks: 3,
+          successfulTasks: 3,
+          failedTasks: 0,
+        }),
       ]
 
       const db = createMockMonitorDb(aggregates)
@@ -341,8 +479,26 @@ describe('generateMonitorReport()', () => {
     it('includes recommendations field when includeRecommendations is true', () => {
       // Provide aggregates with >= 2 agents per task type and sufficient sample
       const aggregates = [
-        makeAggregate({ agent: 'best-agent', taskType: 'coding', totalTasks: 60, successfulTasks: 55, failedTasks: 5, totalInputTokens: 6000, totalOutputTokens: 3000, totalDurationMs: 30000 }),
-        makeAggregate({ agent: 'worse-agent', taskType: 'coding', totalTasks: 60, successfulTasks: 40, failedTasks: 20, totalInputTokens: 6000, totalOutputTokens: 3000, totalDurationMs: 30000 }),
+        makeAggregate({
+          agent: 'best-agent',
+          taskType: 'coding',
+          totalTasks: 60,
+          successfulTasks: 55,
+          failedTasks: 5,
+          totalInputTokens: 6000,
+          totalOutputTokens: 3000,
+          totalDurationMs: 30000,
+        }),
+        makeAggregate({
+          agent: 'worse-agent',
+          taskType: 'coding',
+          totalTasks: 60,
+          successfulTasks: 40,
+          failedTasks: 20,
+          totalInputTokens: 6000,
+          totalOutputTokens: 3000,
+          totalDurationMs: 30000,
+        }),
       ]
       const db = createMockMonitorDb(aggregates)
 
@@ -357,7 +513,13 @@ describe('generateMonitorReport()', () => {
     it('recommendations.count is 0 when insufficient data for recommendations', () => {
       // Only one agent per task type — no comparison possible
       const aggregates = [
-        makeAggregate({ agent: 'only-agent', taskType: 'coding', totalTasks: 100, successfulTasks: 90, failedTasks: 10 }),
+        makeAggregate({
+          agent: 'only-agent',
+          taskType: 'coding',
+          totalTasks: 100,
+          successfulTasks: 90,
+          failedTasks: 10,
+        }),
       ]
       const db = createMockMonitorDb(aggregates)
 

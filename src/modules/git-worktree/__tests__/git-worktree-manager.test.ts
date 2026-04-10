@@ -30,7 +30,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return {
     ...actual,
-    access: vi.fn(async () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }) }),
+    access: vi.fn(async () => {
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    }),
   }
 })
 
@@ -42,13 +44,16 @@ import * as fsp from 'node:fs/promises'
 // ---------------------------------------------------------------------------
 
 vi.mock('../../../../packages/core/src/git/git-utils.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../../packages/core/src/git/git-utils.js')>()
+  const actual =
+    await importOriginal<typeof import('../../../../packages/core/src/git/git-utils.js')>()
   return {
     ...actual,
     verifyGitVersion: vi.fn(async () => {}),
-    createWorktree: vi.fn(async (_projectRoot: string, taskId: string, _branchName: string, _baseBranch: string) => ({
-      worktreePath: path.join(_projectRoot, '.substrate-worktrees', taskId),
-    })),
+    createWorktree: vi.fn(
+      async (_projectRoot: string, taskId: string, _branchName: string, _baseBranch: string) => ({
+        worktreePath: path.join(_projectRoot, '.substrate-worktrees', taskId),
+      })
+    ),
     removeWorktree: vi.fn(async () => {}),
     removeBranch: vi.fn(async () => {}),
     getOrphanedWorktrees: vi.fn(async () => []),
@@ -66,12 +71,8 @@ function createMockEventBus(): TypedEventBus {
   const emitter = new EventEmitter()
   return {
     emit: vi.fn((event: string, payload: unknown) => emitter.emit(event, payload)),
-    on: vi.fn((event: string, handler: (payload: unknown) => void) =>
-      emitter.on(event, handler),
-    ),
-    off: vi.fn((event: string, handler: (payload: unknown) => void) =>
-      emitter.off(event, handler),
-    ),
+    on: vi.fn((event: string, handler: (payload: unknown) => void) => emitter.on(event, handler)),
+    off: vi.fn((event: string, handler: (payload: unknown) => void) => emitter.off(event, handler)),
   } as unknown as TypedEventBus
 }
 
@@ -120,14 +121,14 @@ describe('GitWorktreeManagerImpl', () => {
     })
 
     it('throws with context when git verification fails', async () => {
-      vi.mocked(gitUtils.verifyGitVersion).mockRejectedValueOnce(
-        new Error('git is not installed'),
-      )
+      vi.mocked(gitUtils.verifyGitVersion).mockRejectedValueOnce(new Error('git is not installed'))
 
       const eventBus = createMockEventBus()
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
 
-      await expect(manager.verifyGitVersion()).rejects.toThrow('GitWorktreeManager: git version check failed')
+      await expect(manager.verifyGitVersion()).rejects.toThrow(
+        'GitWorktreeManager: git version check failed'
+      )
     })
   })
 
@@ -185,9 +186,7 @@ describe('GitWorktreeManagerImpl', () => {
 
       expect(result.taskId).toBe('task-abc')
       expect(result.branchName).toBe('substrate/task-task-abc')
-      expect(result.worktreePath).toBe(
-        path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-abc'),
-      )
+      expect(result.worktreePath).toBe(path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-abc'))
       expect(result.createdAt).toBeInstanceOf(Date)
     })
 
@@ -201,7 +200,7 @@ describe('GitWorktreeManagerImpl', () => {
         PROJECT_ROOT,
         'task-abc',
         'substrate/task-task-abc',
-        'main',
+        'main'
       )
     })
 
@@ -215,7 +214,7 @@ describe('GitWorktreeManagerImpl', () => {
         PROJECT_ROOT,
         'task-xyz',
         'substrate/task-task-xyz',
-        'develop',
+        'develop'
       )
     })
 
@@ -242,7 +241,7 @@ describe('GitWorktreeManagerImpl', () => {
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
 
       await expect(manager.createWorktree('')).rejects.toThrow(
-        'createWorktree: taskId must be a non-empty string',
+        'createWorktree: taskId must be a non-empty string'
       )
     })
 
@@ -291,7 +290,7 @@ describe('GitWorktreeManagerImpl', () => {
       const result = await manager.createWorktree('my-task-id')
 
       expect(result.worktreePath).toBe(
-        path.join(PROJECT_ROOT, '.substrate-worktrees', 'my-task-id'),
+        path.join(PROJECT_ROOT, '.substrate-worktrees', 'my-task-id')
       )
     })
   })
@@ -312,7 +311,7 @@ describe('GitWorktreeManagerImpl', () => {
 
       expect(gitUtils.removeWorktree).toHaveBeenCalledWith(
         path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-cleanup'),
-        PROJECT_ROOT,
+        PROJECT_ROOT
       )
     })
 
@@ -324,7 +323,7 @@ describe('GitWorktreeManagerImpl', () => {
 
       expect(gitUtils.removeBranch).toHaveBeenCalledWith(
         'substrate/task-task-cleanup',
-        PROJECT_ROOT,
+        PROJECT_ROOT
       )
     })
 
@@ -429,9 +428,7 @@ describe('GitWorktreeManagerImpl', () => {
     })
 
     it('calls removeBranch for each orphaned worktree', async () => {
-      const orphanedPaths = [
-        path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-orphan-1'),
-      ]
+      const orphanedPaths = [path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-orphan-1')]
       vi.mocked(gitUtils.getOrphanedWorktrees).mockResolvedValueOnce(orphanedPaths)
 
       const eventBus = createMockEventBus()
@@ -441,14 +438,12 @@ describe('GitWorktreeManagerImpl', () => {
 
       expect(gitUtils.removeBranch).toHaveBeenCalledWith(
         'substrate/task-task-orphan-1',
-        PROJECT_ROOT,
+        PROJECT_ROOT
       )
     })
 
     it('cleans up all orphaned worktrees regardless of DB (task status check removed)', async () => {
-      const orphanedPaths = [
-        path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-running'),
-      ]
+      const orphanedPaths = [path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-running')]
       vi.mocked(gitUtils.getOrphanedWorktrees).mockResolvedValueOnce(orphanedPaths)
 
       const eventBus = createMockEventBus()
@@ -463,9 +458,7 @@ describe('GitWorktreeManagerImpl', () => {
     })
 
     it('removes worktrees for non-running tasks when DB is provided', async () => {
-      const orphanedPaths = [
-        path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-completed'),
-      ]
+      const orphanedPaths = [path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-completed')]
       vi.mocked(gitUtils.getOrphanedWorktrees).mockResolvedValueOnce(orphanedPaths)
 
       const eventBus = createMockEventBus()
@@ -557,9 +550,7 @@ describe('GitWorktreeManagerImpl', () => {
     })
 
     it('throws if git version check fails during initialize', async () => {
-      vi.mocked(gitUtils.verifyGitVersion).mockRejectedValueOnce(
-        new Error('git not found'),
-      )
+      vi.mocked(gitUtils.verifyGitVersion).mockRejectedValueOnce(new Error('git not found'))
 
       const eventBus = createMockEventBus()
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
@@ -574,10 +565,10 @@ describe('GitWorktreeManagerImpl', () => {
       const realEventBus: TypedEventBus = {
         emit: vi.fn((event: string, payload: unknown) => realEmitter.emit(event, payload)),
         on: vi.fn((event: string, handler: (payload: unknown) => void) =>
-          realEmitter.on(event, handler),
+          realEmitter.on(event, handler)
         ),
         off: vi.fn((event: string, handler: (payload: unknown) => void) =>
-          realEmitter.off(event, handler),
+          realEmitter.off(event, handler)
         ),
       } as unknown as TypedEventBus
 

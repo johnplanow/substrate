@@ -148,9 +148,7 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
     const activeRunId = run.id
 
     // Ensure output directory exists — support both absolute and relative --output-dir
-    const resolvedOutputDir = isAbsolute(outputDir)
-      ? outputDir
-      : join(projectRoot, outputDir)
+    const resolvedOutputDir = isAbsolute(outputDir) ? outputDir : join(projectRoot, outputDir)
     if (!existsSync(resolvedOutputDir)) {
       mkdirSync(resolvedOutputDir, { recursive: true })
     }
@@ -182,7 +180,7 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
     if (planningDecisions.length > 0) {
       // Also fetch requirements from the requirements table for this run
       const requirements = (await listRequirements(adapter)).filter(
-        (r) => r.pipeline_run_id === activeRunId,
+        (r) => r.pipeline_run_id === activeRunId
       )
       const content = renderPrd(planningDecisions, requirements)
       if (content !== '') {
@@ -201,7 +199,11 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
     // -------------------------------------------------------------------------
     // Export architecture.md (AC4)
     // -------------------------------------------------------------------------
-    const solutioningDecisions = await getDecisionsByPhaseForRun(adapter, activeRunId, 'solutioning')
+    const solutioningDecisions = await getDecisionsByPhaseForRun(
+      adapter,
+      activeRunId,
+      'solutioning'
+    )
     if (solutioningDecisions.length > 0) {
       const archContent = renderArchitecture(solutioningDecisions)
       if (archContent !== '') {
@@ -298,12 +300,10 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
     } else {
       if (filesWritten.length === 0) {
         process.stdout.write(
-          `No data found for run ${activeRunId}. The pipeline may not have completed any phases.\n`,
+          `No data found for run ${activeRunId}. The pipeline may not have completed any phases.\n`
         )
       } else {
-        process.stdout.write(
-          `\nExported ${filesWritten.length} file(s) from run ${activeRunId}.\n`,
-        )
+        process.stdout.write(`\nExported ${filesWritten.length} file(s) from run ${activeRunId}.\n`)
       }
 
       const skippedPhases: string[] = []
@@ -312,9 +312,7 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
       if (!phasesExported.includes('solutioning')) skippedPhases.push('solutioning')
 
       if (skippedPhases.length > 0) {
-        process.stdout.write(
-          `Phases with no data (skipped): ${skippedPhases.join(', ')}\n`,
-        )
+        process.stdout.write(`Phases with no data (skipped): ${skippedPhases.join(', ')}\n`)
       }
     }
 
@@ -348,7 +346,7 @@ export async function runExportAction(options: ExportOptions): Promise<number> {
 export function registerExportCommand(
   program: Command,
   _version = '0.0.0',
-  projectRoot = process.cwd(),
+  projectRoot = process.cwd()
 ): void {
   program
     .command('export')
@@ -357,14 +355,10 @@ export function registerExportCommand(
     .option(
       '--output-dir <path>',
       'Directory to write exported files to',
-      '_bmad-output/planning-artifacts/',
+      '_bmad-output/planning-artifacts/'
     )
     .option('--project-root <path>', 'Project root directory', projectRoot)
-    .option(
-      '--output-format <format>',
-      'Output format: human (default) or json',
-      'human',
-    )
+    .option('--output-format <format>', 'Output format: human (default) or json', 'human')
     .action(
       async (opts: {
         runId?: string
@@ -374,7 +368,7 @@ export function registerExportCommand(
       }) => {
         if (opts.outputFormat !== 'json' && opts.outputFormat !== 'human') {
           process.stderr.write(
-            `Warning: unknown --output-format '${opts.outputFormat}', defaulting to 'human'\n`,
+            `Warning: unknown --output-format '${opts.outputFormat}', defaulting to 'human'\n`
           )
         }
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
@@ -385,6 +379,6 @@ export function registerExportCommand(
           outputFormat,
         })
         process.exitCode = exitCode
-      },
+      }
     )
 }

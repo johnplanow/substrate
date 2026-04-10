@@ -26,11 +26,12 @@ import type { DoltClient } from '../../modules/state/dolt-client.js'
 function makeMockedDoltClient() {
   const client = {
     query: vi.fn<(sql: string, params?: unknown[]) => Promise<unknown[]>>(),
-    transact: vi.fn<
-      (
-        fn: (q: (sql: string, p?: unknown[]) => Promise<unknown[]>) => Promise<unknown>,
-      ) => Promise<unknown>
-    >(),
+    transact:
+      vi.fn<
+        (
+          fn: (q: (sql: string, p?: unknown[]) => Promise<unknown[]>) => Promise<unknown>
+        ) => Promise<unknown>
+      >(),
     close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
   }
   // Default transact() implementation: delegate to query() with BEGIN/COMMIT
@@ -49,7 +50,7 @@ function makeMockedDoltClient() {
         await client.query('ROLLBACK', undefined)
         throw err
       }
-    },
+    }
   )
   return client
 }
@@ -83,7 +84,7 @@ describe('DoltDatabaseAdapter contract (mocked DoltClient)', () => {
     mockClient.query.mockResolvedValue(mockRows)
 
     const rows = await adapter.query<{ id: number; name: string; score: number }>(
-      'SELECT * FROM contract_items',
+      'SELECT * FROM contract_items'
     )
     expect(mockClient.query).toHaveBeenCalledWith('SELECT * FROM contract_items', undefined)
     expect(rows).toEqual(mockRows)
@@ -129,7 +130,7 @@ describe('DoltDatabaseAdapter contract (mocked DoltClient)', () => {
     await expect(
       adapter.transaction(async () => {
         throw new Error('forced failure')
-      }),
+      })
     ).rejects.toThrow('forced failure')
 
     const calls = mockClient.query.mock.calls.map((c) => c[0])
@@ -162,7 +163,7 @@ describe('InMemoryDatabaseAdapter contract', () => {
   it('query — returns rows inserted via exec', async () => {
     await adapter.exec("INSERT INTO contract_items (id, name, score) VALUES (1, 'Alice', 9.5)")
     const rows = await adapter.query<{ id: number; name: string; score: number }>(
-      'SELECT * FROM contract_items',
+      'SELECT * FROM contract_items'
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ id: 1, name: 'Alice', score: 9.5 })
@@ -174,7 +175,7 @@ describe('InMemoryDatabaseAdapter contract', () => {
 
     const rows = await adapter.query<{ id: number; name: string }>(
       'SELECT * FROM contract_items WHERE id = ?',
-      [2],
+      [2]
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]!.name).toBe('Bob')
@@ -182,7 +183,7 @@ describe('InMemoryDatabaseAdapter contract', () => {
 
   it('query — evaluates literal SELECT without FROM', async () => {
     const rows = await adapter.query<{ one: number; greeting: string }>(
-      "SELECT 1 AS one, 'hello' AS greeting",
+      "SELECT 1 AS one, 'hello' AS greeting"
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]!.one).toBe(1)
@@ -195,7 +196,9 @@ describe('InMemoryDatabaseAdapter contract', () => {
   })
 
   it('exec — creates a table (DDL)', async () => {
-    await expect(adapter.exec('CREATE TABLE IF NOT EXISTS tmp (x INTEGER)')).resolves.toBeUndefined()
+    await expect(
+      adapter.exec('CREATE TABLE IF NOT EXISTS tmp (x INTEGER)')
+    ).resolves.toBeUndefined()
     // Insert into the newly created table to confirm it exists
     await expect(adapter.exec('INSERT INTO tmp (x) VALUES (42)')).resolves.toBeUndefined()
     const rows = await adapter.query<{ x: number }>('SELECT * FROM tmp')
@@ -204,7 +207,7 @@ describe('InMemoryDatabaseAdapter contract', () => {
 
   it('exec — inserts rows without error', async () => {
     await expect(
-      adapter.exec("INSERT INTO contract_items (id, name, score) VALUES (10, 'Dan', 6.0)"),
+      adapter.exec("INSERT INTO contract_items (id, name, score) VALUES (10, 'Dan', 6.0)")
     ).resolves.toBeUndefined()
     const rows = await adapter.query('SELECT * FROM contract_items')
     expect(rows).toHaveLength(1)
@@ -227,7 +230,7 @@ describe('InMemoryDatabaseAdapter contract', () => {
       adapter.transaction(async (a) => {
         await a.exec("INSERT INTO contract_items (id, name, score) VALUES (30, 'Frank', 4.0)")
         throw new Error('intentional rollback')
-      }),
+      })
     ).rejects.toThrow('intentional rollback')
 
     const rows = await adapter.query('SELECT * FROM contract_items WHERE id = ?', [30])
@@ -275,10 +278,12 @@ describe('InMemoryDatabaseAdapter SyncAdapter contract', () => {
     await adapter.exec("INSERT INTO contract_items (id, name, score) VALUES (2, 'Bob', 7.0)")
 
     const asyncRows = await adapter.query<{ id: number; name: string; score: number }>(
-      'SELECT * FROM contract_items WHERE id = ?', [1],
+      'SELECT * FROM contract_items WHERE id = ?',
+      [1]
     )
     const syncRows = adapter.querySync<{ id: number; name: string; score: number }>(
-      'SELECT * FROM contract_items WHERE id = ?', [1],
+      'SELECT * FROM contract_items WHERE id = ?',
+      [1]
     )
 
     expect(syncRows).toHaveLength(1)
@@ -296,7 +301,10 @@ describe('InMemoryDatabaseAdapter SyncAdapter contract', () => {
 
   it('execSync — inserts and queries data consistently with async path', async () => {
     adapter.execSync("INSERT INTO contract_items (id, name, score) VALUES (10, 'Dan', 6.0)")
-    const rows = await adapter.query<{ id: number }>('SELECT * FROM contract_items WHERE id = ?', [10])
+    const rows = await adapter.query<{ id: number }>(
+      'SELECT * FROM contract_items WHERE id = ?',
+      [10]
+    )
     expect(rows).toHaveLength(1)
   })
 
@@ -312,7 +320,7 @@ describe('InMemoryDatabaseAdapter SyncAdapter contract', () => {
     await adapter.exec("INSERT INTO contract_items (id, name, score) VALUES (3, 'Bob', 7.0)")
 
     const rows = adapter.querySync<{ name: string; cnt: number }>(
-      'SELECT name, COUNT(*) AS cnt FROM contract_items GROUP BY name',
+      'SELECT name, COUNT(*) AS cnt FROM contract_items GROUP BY name'
     )
 
     expect(rows).toHaveLength(2)
@@ -328,7 +336,7 @@ describe('InMemoryDatabaseAdapter SyncAdapter contract', () => {
     await adapter.exec("INSERT INTO contract_items (id, name, score) VALUES (3, 'Bob', 7.0)")
 
     const rows = adapter.querySync<{ name: string; total: number }>(
-      'SELECT name, SUM(score) AS total FROM contract_items GROUP BY name',
+      'SELECT name, SUM(score) AS total FROM contract_items GROUP BY name'
     )
 
     expect(rows).toHaveLength(2)
@@ -347,10 +355,18 @@ describe('InMemoryDatabaseAdapter SyncAdapter contract', () => {
         outcome TEXT NOT NULL
       )
     `)
-    adapter.execSync("INSERT INTO task_events (agent, task_type, outcome) VALUES ('devAgent', 'dev-story', 'success')")
-    adapter.execSync("INSERT INTO task_events (agent, task_type, outcome) VALUES ('devAgent', 'dev-story', 'success')")
-    adapter.execSync("INSERT INTO task_events (agent, task_type, outcome) VALUES ('devAgent', 'dev-story', 'failure')")
-    adapter.execSync("INSERT INTO task_events (agent, task_type, outcome) VALUES ('qaAgent', 'qa-story', 'success')")
+    adapter.execSync(
+      "INSERT INTO task_events (agent, task_type, outcome) VALUES ('devAgent', 'dev-story', 'success')"
+    )
+    adapter.execSync(
+      "INSERT INTO task_events (agent, task_type, outcome) VALUES ('devAgent', 'dev-story', 'success')"
+    )
+    adapter.execSync(
+      "INSERT INTO task_events (agent, task_type, outcome) VALUES ('devAgent', 'dev-story', 'failure')"
+    )
+    adapter.execSync(
+      "INSERT INTO task_events (agent, task_type, outcome) VALUES ('qaAgent', 'qa-story', 'success')"
+    )
 
     const rows = adapter.querySync<{
       agent: string
@@ -366,7 +382,7 @@ describe('InMemoryDatabaseAdapter SyncAdapter contract', () => {
          SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS successes,
          SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failures
        FROM task_events
-       GROUP BY agent, task_type`,
+       GROUP BY agent, task_type`
     )
 
     expect(rows).toHaveLength(2)
@@ -391,7 +407,7 @@ describe('InMemoryDatabaseAdapter SyncAdapter contract', () => {
     adapter.execSync("INSERT INTO null_test (grp, val) VALUES ('b', 5)")
 
     const rows = adapter.querySync<{ grp: string; total: number }>(
-      'SELECT grp, COALESCE(SUM(val), 0) AS total FROM null_test GROUP BY grp',
+      'SELECT grp, COALESCE(SUM(val), 0) AS total FROM null_test GROUP BY grp'
     )
 
     expect(rows).toHaveLength(2)

@@ -42,7 +42,7 @@ async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter }> {
 
 async function createTestRun(
   adapter: DatabaseAdapter,
-  overrides: { start_phase?: string; config_json?: string } = {},
+  overrides: { start_phase?: string; config_json?: string } = {}
 ): Promise<PipelineRun> {
   return createPipelineRun(adapter, {
     methodology: 'bmad',
@@ -76,9 +76,7 @@ const PLANNING_OUTPUT = {
   non_functional_requirements: [
     { description: 'Response time under 200ms', category: 'performance' },
   ],
-  user_stories: [
-    { title: 'Create Task', description: 'As a user, I want to create tasks' },
-  ],
+  user_stories: [{ title: 'Create Task', description: 'As a user, I want to create tasks' }],
   tech_stack: { language: 'TypeScript', database: 'PostgreSQL', framework: 'Express' },
   domain_model: { entities: ['Task', 'User', 'Assignment'] },
   out_of_scope: ['Mobile app', 'Offline mode'],
@@ -139,9 +137,7 @@ type DispatchOutput =
   | typeof STORY_GENERATION_OUTPUT
   | { result: 'success'; stories?: unknown[]; status?: unknown }
 
-function makeMockDispatcher(
-  taskTypeToOutput: Record<string, DispatchOutput>,
-) {
+function makeMockDispatcher(taskTypeToOutput: Record<string, DispatchOutput>) {
   return {
     dispatch: vi.fn((opts: { taskType: string }) => {
       const output = taskTypeToOutput[opts.taskType] ?? { result: 'success' }
@@ -287,9 +283,27 @@ describe('buildPipelineStatusOutput', () => {
     })
 
     const tokenSummary = [
-      { phase: 'analysis', agent: 'claude-code', total_input_tokens: 1200, total_output_tokens: 800, total_cost_usd: 0.006 },
-      { phase: 'planning', agent: 'claude-code', total_input_tokens: 1800, total_output_tokens: 1200, total_cost_usd: 0.023 },
-      { phase: 'solutioning', agent: 'claude-code', total_input_tokens: 0, total_output_tokens: 0, total_cost_usd: 0.0 },
+      {
+        phase: 'analysis',
+        agent: 'claude-code',
+        total_input_tokens: 1200,
+        total_output_tokens: 800,
+        total_cost_usd: 0.006,
+      },
+      {
+        phase: 'planning',
+        agent: 'claude-code',
+        total_input_tokens: 1800,
+        total_output_tokens: 1200,
+        total_cost_usd: 0.023,
+      },
+      {
+        phase: 'solutioning',
+        agent: 'claude-code',
+        total_input_tokens: 0,
+        total_output_tokens: 0,
+        total_cost_usd: 0.0,
+      },
     ]
 
     const result = buildPipelineStatusOutput(run, tokenSummary, 47, 12)
@@ -371,7 +385,12 @@ describe('formatPipelineStatusHuman', () => {
       config_json: JSON.stringify({
         concept: 'test',
         phaseHistory: [
-          { phase: 'analysis', startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:01:00Z', gateResults: [] },
+          {
+            phase: 'analysis',
+            startedAt: '2026-01-01T00:00:00Z',
+            completedAt: '2026-01-01T00:01:00Z',
+            gateResults: [],
+          },
         ],
       }),
     })
@@ -528,15 +547,17 @@ describe('Phase gate enforcement (AC2)', () => {
     const orchestrator = createPhaseOrchestrator({ db: adapter, pack: pack as never })
 
     // Set current phase to solutioning
-    adapter.querySync(`UPDATE pipeline_runs SET current_phase = 'solutioning' WHERE id = ?`, [run.id])
+    adapter.querySync(`UPDATE pipeline_runs SET current_phase = 'solutioning' WHERE id = ?`, [
+      run.id,
+    ])
 
     // Advance from solutioning to implementation should fail (no architecture/stories artifacts)
     const advanceResult = await orchestrator.advancePhase(run.id)
     expect(advanceResult.advanced).toBe(false)
     expect(
       advanceResult.gateFailures?.some(
-        (f) => f.error.includes('architecture') || f.error.includes('stories'),
-      ),
+        (f) => f.error.includes('architecture') || f.error.includes('stories')
+      )
     ).toBe(true)
 
     await adapter.close()
@@ -662,12 +683,18 @@ describe('Analysis phase integration (AC1, AC7)', () => {
     const pack = makeMockPack()
     const dispatcher = makeMockDispatcher({ analysis: ANALYSIS_OUTPUT })
 
-    const { runAnalysisPhase } = await import('../../../modules/phase-orchestrator/phases/analysis.js')
+    const { runAnalysisPhase } =
+      await import('../../../modules/phase-orchestrator/phases/analysis.js')
     const contextCompiler = { compile: vi.fn(), countTokens: vi.fn(), registerTemplate: vi.fn() }
 
     const result = await runAnalysisPhase(
-      { db: adapter, pack: pack as never, contextCompiler: contextCompiler as never, dispatcher: dispatcher as never },
-      { runId: run.id, concept: 'Build a task management app' },
+      {
+        db: adapter,
+        pack: pack as never,
+        contextCompiler: contextCompiler as never,
+        dispatcher: dispatcher as never,
+      },
+      { runId: run.id, concept: 'Build a task management app' }
     )
 
     expect(result.result).toBe('success')
@@ -677,7 +704,7 @@ describe('Analysis phase integration (AC1, AC7)', () => {
     // Verify artifact was stored using adapter.querySync
     const artifact = adapter.querySync<{ type: string }>(
       `SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'product-brief'`,
-      [run.id],
+      [run.id]
     )[0]
     expect(artifact).toBeDefined()
 
@@ -712,13 +739,19 @@ describe('Analysis phase integration (AC1, AC7)', () => {
       }),
     }
 
-    const { runAnalysisPhase } = await import('../../../modules/phase-orchestrator/phases/analysis.js')
+    const { runAnalysisPhase } =
+      await import('../../../modules/phase-orchestrator/phases/analysis.js')
     const contextCompiler = { compile: vi.fn(), countTokens: vi.fn(), registerTemplate: vi.fn() }
 
     const conceptText = 'This is a concept from a file'
     await runAnalysisPhase(
-      { db: adapter, pack: pack as never, contextCompiler: contextCompiler as never, dispatcher: dispatcher as never },
-      { runId: run.id, concept: conceptText },
+      {
+        db: adapter,
+        pack: pack as never,
+        contextCompiler: contextCompiler as never,
+        dispatcher: dispatcher as never,
+      },
+      { runId: run.id, concept: conceptText }
     )
 
     expect(capturedPrompt).toContain(conceptText)
@@ -745,7 +778,7 @@ describe('Analysis phase integration (AC1, AC7)', () => {
 
     // The condition that triggers the error
     const requiresConcept =
-      (startPhase === 'analysis') &&
+      startPhase === 'analysis' &&
       (conceptFile === undefined || conceptFile === '') &&
       (conceptArg === undefined || conceptArg === '')
 
@@ -765,25 +798,41 @@ describe('Planning phase integration (AC2)', () => {
     const dispatcher = makeMockDispatcher({ planning: PLANNING_OUTPUT })
 
     // First, seed analysis decisions
-    const briefFields = ['problem_statement', 'target_users', 'core_features', 'success_metrics', 'constraints']
+    const briefFields = [
+      'problem_statement',
+      'target_users',
+      'core_features',
+      'success_metrics',
+      'constraints',
+    ]
     for (const field of briefFields) {
       await createDecision(adapter, {
         pipeline_run_id: run.id,
         phase: 'analysis',
         category: 'product-brief',
         key: field,
-        value: field === 'target_users' || field === 'core_features' || field === 'success_metrics' || field === 'constraints'
-          ? JSON.stringify(['item1', 'item2'])
-          : 'Sample text',
+        value:
+          field === 'target_users' ||
+          field === 'core_features' ||
+          field === 'success_metrics' ||
+          field === 'constraints'
+            ? JSON.stringify(['item1', 'item2'])
+            : 'Sample text',
       })
     }
 
-    const { runPlanningPhase } = await import('../../../modules/phase-orchestrator/phases/planning.js')
+    const { runPlanningPhase } =
+      await import('../../../modules/phase-orchestrator/phases/planning.js')
     const contextCompiler = { compile: vi.fn(), countTokens: vi.fn(), registerTemplate: vi.fn() }
 
     const result = await runPlanningPhase(
-      { db: adapter, pack: pack as never, contextCompiler: contextCompiler as never, dispatcher: dispatcher as never },
-      { runId: run.id },
+      {
+        db: adapter,
+        pack: pack as never,
+        contextCompiler: contextCompiler as never,
+        dispatcher: dispatcher as never,
+      },
+      { runId: run.id }
     )
 
     expect(result.result).toBe('success')
@@ -793,7 +842,7 @@ describe('Planning phase integration (AC2)', () => {
     // Verify prd artifact was stored
     const artifact = adapter.querySync<{ type: string }>(
       `SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'prd'`,
-      [run.id],
+      [run.id]
     )[0]
     expect(artifact).toBeDefined()
 
@@ -831,12 +880,18 @@ describe('Solutioning phase integration', () => {
       value: JSON.stringify({ description: 'Response under 200ms', category: 'performance' }),
     })
 
-    const { runSolutioningPhase } = await import('../../../modules/phase-orchestrator/phases/solutioning.js')
+    const { runSolutioningPhase } =
+      await import('../../../modules/phase-orchestrator/phases/solutioning.js')
     const contextCompiler = { compile: vi.fn(), countTokens: vi.fn(), registerTemplate: vi.fn() }
 
     const result = await runSolutioningPhase(
-      { db: adapter, pack: pack as never, contextCompiler: contextCompiler as never, dispatcher: dispatcher as never },
-      { runId: run.id },
+      {
+        db: adapter,
+        pack: pack as never,
+        contextCompiler: contextCompiler as never,
+        dispatcher: dispatcher as never,
+      },
+      { runId: run.id }
     )
 
     expect(result.result).toBe('success')
@@ -846,11 +901,11 @@ describe('Solutioning phase integration', () => {
     // Verify both artifacts were stored
     const archArtifact = adapter.querySync<{ type: string }>(
       `SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'architecture'`,
-      [run.id],
+      [run.id]
     )[0]
     const storiesArtifact = adapter.querySync<{ type: string }>(
       `SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'stories'`,
-      [run.id],
+      [run.id]
     )[0]
 
     expect(archArtifact).toBeDefined()
@@ -915,7 +970,12 @@ describe('Status command (AC4, AC5)', () => {
       config_json: JSON.stringify({
         concept: 'test',
         phaseHistory: [
-          { phase: 'analysis', startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:01:00Z', gateResults: [] },
+          {
+            phase: 'analysis',
+            startedAt: '2026-01-01T00:00:00Z',
+            completedAt: '2026-01-01T00:01:00Z',
+            gateResults: [],
+          },
           { phase: 'planning', startedAt: '2026-01-01T00:01:00Z', gateResults: [] },
         ],
       }),
@@ -925,9 +985,9 @@ describe('Status command (AC4, AC5)', () => {
     const humanOutput = formatPipelineStatusHuman(statusOutput)
 
     expect(humanOutput).toContain('Pipeline Run:')
-    expect(humanOutput).toContain('[DONE]')  // analysis complete
-    expect(humanOutput).toContain('[RUN]')   // planning running
-    expect(humanOutput).toContain('[    ]')  // solutioning pending
+    expect(humanOutput).toContain('[DONE]') // analysis complete
+    expect(humanOutput).toContain('[RUN]') // planning running
+    expect(humanOutput).toContain('[    ]') // solutioning pending
     expect(humanOutput).toContain('Decisions: 10')
     expect(humanOutput).toContain('Stories: 5')
 
@@ -940,17 +1000,45 @@ describe('Status command (AC4, AC5)', () => {
       config_json: JSON.stringify({
         concept: 'test',
         phaseHistory: [
-          { phase: 'analysis', startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:01:00Z', gateResults: [] },
-          { phase: 'planning', startedAt: '2026-01-01T00:01:00Z', completedAt: '2026-01-01T00:02:00Z', gateResults: [] },
+          {
+            phase: 'analysis',
+            startedAt: '2026-01-01T00:00:00Z',
+            completedAt: '2026-01-01T00:01:00Z',
+            gateResults: [],
+          },
+          {
+            phase: 'planning',
+            startedAt: '2026-01-01T00:01:00Z',
+            completedAt: '2026-01-01T00:02:00Z',
+            gateResults: [],
+          },
           { phase: 'solutioning', startedAt: '2026-01-01T00:02:00Z', gateResults: [] },
         ],
       }),
     })
 
     const tokenSummary = [
-      { phase: 'analysis', agent: 'claude-code', total_input_tokens: 1200, total_output_tokens: 800, total_cost_usd: 0.0054 },
-      { phase: 'planning', agent: 'claude-code', total_input_tokens: 1800, total_output_tokens: 1200, total_cost_usd: 0.023 },
-      { phase: 'solutioning', agent: 'claude-code', total_input_tokens: 0, total_output_tokens: 0, total_cost_usd: 0 },
+      {
+        phase: 'analysis',
+        agent: 'claude-code',
+        total_input_tokens: 1200,
+        total_output_tokens: 800,
+        total_cost_usd: 0.0054,
+      },
+      {
+        phase: 'planning',
+        agent: 'claude-code',
+        total_input_tokens: 1800,
+        total_output_tokens: 1200,
+        total_cost_usd: 0.023,
+      },
+      {
+        phase: 'solutioning',
+        agent: 'claude-code',
+        total_input_tokens: 0,
+        total_output_tokens: 0,
+        total_cost_usd: 0,
+      },
     ]
 
     const result = buildPipelineStatusOutput(run, tokenSummary, 47, 12)
@@ -960,8 +1048,16 @@ describe('Status command (AC4, AC5)', () => {
       run_id: expect.any(String),
       current_phase: expect.any(String),
       phases: {
-        analysis: { status: 'complete', completed_at: expect.any(String), token_usage: { input: 1200, output: 800 } },
-        planning: { status: 'complete', completed_at: expect.any(String), token_usage: { input: 1800, output: 1200 } },
+        analysis: {
+          status: 'complete',
+          completed_at: expect.any(String),
+          token_usage: { input: 1200, output: 800 },
+        },
+        planning: {
+          status: 'complete',
+          completed_at: expect.any(String),
+          token_usage: { input: 1800, output: 1200 },
+        },
         solutioning: { status: 'running', token_usage: { input: 0, output: 0 } },
         implementation: { status: 'pending' },
       },
@@ -979,8 +1075,12 @@ describe('Status command (AC4, AC5)', () => {
       DatabaseWrapper: vi.fn().mockImplementation(() => ({
         open: vi.fn(),
         close: vi.fn(),
-        get db() { return null },
-        get isOpen() { return true },
+        get db() {
+          return null
+        },
+        get isOpen() {
+          return true
+        },
       })),
     }))
 
@@ -993,7 +1093,12 @@ describe('Status command (AC4, AC5)', () => {
       config_json: JSON.stringify({
         concept: 'test',
         phaseHistory: [
-          { phase: 'analysis', startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:01:00Z', gateResults: [] },
+          {
+            phase: 'analysis',
+            startedAt: '2026-01-01T00:00:00Z',
+            completedAt: '2026-01-01T00:01:00Z',
+            gateResults: [],
+          },
           { phase: 'solutioning', startedAt: '2026-01-01T00:02:00Z', gateResults: [] },
         ],
       }),
@@ -1044,12 +1149,18 @@ describe('Concept input methods (AC7)', () => {
       }),
     }
 
-    const { runAnalysisPhase } = await import('../../../modules/phase-orchestrator/phases/analysis.js')
+    const { runAnalysisPhase } =
+      await import('../../../modules/phase-orchestrator/phases/analysis.js')
     const contextCompiler = { compile: vi.fn(), countTokens: vi.fn(), registerTemplate: vi.fn() }
 
     await runAnalysisPhase(
-      { db: adapter, pack: pack as never, contextCompiler: contextCompiler as never, dispatcher: dispatcher as never },
-      { runId: run.id, concept: 'Build a task management app' },
+      {
+        db: adapter,
+        pack: pack as never,
+        contextCompiler: contextCompiler as never,
+        dispatcher: dispatcher as never,
+      },
+      { runId: run.id, concept: 'Build a task management app' }
     )
 
     expect(capturedPrompt).toContain('Build a task management app')
@@ -1106,12 +1217,18 @@ describe('Token usage tracking', () => {
     const pack = makeMockPack()
     const dispatcher = makeMockDispatcher({ analysis: ANALYSIS_OUTPUT })
 
-    const { runAnalysisPhase } = await import('../../../modules/phase-orchestrator/phases/analysis.js')
+    const { runAnalysisPhase } =
+      await import('../../../modules/phase-orchestrator/phases/analysis.js')
     const contextCompiler = { compile: vi.fn(), countTokens: vi.fn(), registerTemplate: vi.fn() }
 
     const result = await runAnalysisPhase(
-      { db: adapter, pack: pack as never, contextCompiler: contextCompiler as never, dispatcher: dispatcher as never },
-      { runId: run.id, concept: 'test concept' },
+      {
+        db: adapter,
+        pack: pack as never,
+        contextCompiler: contextCompiler as never,
+        dispatcher: dispatcher as never,
+      },
+      { runId: run.id, concept: 'test concept' }
     )
 
     expect(result.tokenUsage.input).toBe(500)

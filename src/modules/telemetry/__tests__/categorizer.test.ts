@@ -213,7 +213,9 @@ describe('Categorizer', () => {
 
     describe('Tier 0 — taskType classification', () => {
       it('should classify taskType "create-story" → "system_prompts"', () => {
-        expect(categorizer.classify('api_request', undefined, 'create-story')).toBe('system_prompts')
+        expect(categorizer.classify('api_request', undefined, 'create-story')).toBe(
+          'system_prompts'
+        )
       })
 
       it('should classify taskType "dev-story" → "tool_outputs"', () => {
@@ -221,7 +223,9 @@ describe('Categorizer', () => {
       })
 
       it('should classify taskType "code-review" → "conversation_history"', () => {
-        expect(categorizer.classify('api_request', undefined, 'code-review')).toBe('conversation_history')
+        expect(categorizer.classify('api_request', undefined, 'code-review')).toBe(
+          'conversation_history'
+        )
       })
 
       it('should classify taskType "test-plan" → "system_prompts"', () => {
@@ -234,12 +238,16 @@ describe('Categorizer', () => {
 
       it('should fall through to Tier 1 when taskType is unknown', () => {
         // 'api_request' is in exact map → 'conversation_history'
-        expect(categorizer.classify('api_request', undefined, 'unknown-task')).toBe('conversation_history')
+        expect(categorizer.classify('api_request', undefined, 'unknown-task')).toBe(
+          'conversation_history'
+        )
       })
 
       it('should fall through to Tier 1 when taskType is undefined', () => {
         // 'api_request' is in exact map → 'conversation_history'
-        expect(categorizer.classify('api_request', undefined, undefined)).toBe('conversation_history')
+        expect(categorizer.classify('api_request', undefined, undefined)).toBe(
+          'conversation_history'
+        )
       })
 
       it('should fall through to Tier 1 when taskType is empty string', () => {
@@ -347,9 +355,14 @@ describe('Categorizer', () => {
 
     it('should sort results by totalTokens descending', () => {
       const spans = [
-        makeSpan({ spanId: 's1', operationName: 'read_file', inputTokens: 100, outputTokens: 50 }),   // file_reads: 150
-        makeSpan({ spanId: 's2', operationName: 'bash', inputTokens: 1000, outputTokens: 500 }),       // tool_outputs: 1500
-        makeSpan({ spanId: 's3', operationName: 'system_prompt', inputTokens: 200, outputTokens: 0 }), // system_prompts: 200
+        makeSpan({ spanId: 's1', operationName: 'read_file', inputTokens: 100, outputTokens: 50 }), // file_reads: 150
+        makeSpan({ spanId: 's2', operationName: 'bash', inputTokens: 1000, outputTokens: 500 }), // tool_outputs: 1500
+        makeSpan({
+          spanId: 's3',
+          operationName: 'system_prompt',
+          inputTokens: 200,
+          outputTokens: 0,
+        }), // system_prompts: 200
       ]
       const result = categorizer.computeCategoryStats(spans, [])
 
@@ -394,7 +407,13 @@ describe('Categorizer', () => {
 
     it('should classify turns with toolName → tool_outputs', () => {
       const turns = [
-        makeTurn({ spanId: 't1', name: 'unknown_op', toolName: 'bash', inputTokens: 100, outputTokens: 50 }),
+        makeTurn({
+          spanId: 't1',
+          name: 'unknown_op',
+          toolName: 'bash',
+          inputTokens: 100,
+          outputTokens: 50,
+        }),
       ]
       const result = categorizer.computeCategoryStatsFromTurns(turns)
 
@@ -405,8 +424,23 @@ describe('Categorizer', () => {
 
     it('should classify turns without toolName using name classification', () => {
       const turns = [
-        makeTurn({ spanId: 't1', name: 'read_file', toolName: undefined, inputTokens: 200, outputTokens: 100, turnNumber: 1 }),
-        makeTurn({ spanId: 't2', name: 'system_prompt', toolName: undefined, inputTokens: 300, outputTokens: 0, turnNumber: 2, timestamp: 2000 }),
+        makeTurn({
+          spanId: 't1',
+          name: 'read_file',
+          toolName: undefined,
+          inputTokens: 200,
+          outputTokens: 100,
+          turnNumber: 1,
+        }),
+        makeTurn({
+          spanId: 't2',
+          name: 'system_prompt',
+          toolName: undefined,
+          inputTokens: 300,
+          outputTokens: 0,
+          turnNumber: 2,
+          timestamp: 2000,
+        }),
       ]
       const result = categorizer.computeCategoryStatsFromTurns(turns)
 
@@ -419,9 +453,7 @@ describe('Categorizer', () => {
     })
 
     it('should return all 6 categories even when some have zero turns', () => {
-      const turns = [
-        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 1000, outputTokens: 500 }),
-      ]
+      const turns = [makeTurn({ spanId: 't1', name: 'bash', inputTokens: 1000, outputTokens: 500 })]
       const result = categorizer.computeCategoryStatsFromTurns(turns)
 
       expect(result).toHaveLength(6)
@@ -433,9 +465,7 @@ describe('Categorizer', () => {
     })
 
     it('should compute percentage correctly', () => {
-      const turns = [
-        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 500, outputTokens: 500 }),
-      ]
+      const turns = [makeTurn({ spanId: 't1', name: 'bash', inputTokens: 500, outputTokens: 500 })]
       const result = categorizer.computeCategoryStatsFromTurns(turns)
 
       const toolOutputs = result.find((r) => r.category === 'tool_outputs')!
@@ -446,8 +476,21 @@ describe('Categorizer', () => {
 
     it('should compute avgTokensPerEvent correctly', () => {
       const turns = [
-        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 100, outputTokens: 100, turnNumber: 1 }),
-        makeTurn({ spanId: 't2', name: 'bash', inputTokens: 200, outputTokens: 200, turnNumber: 2, timestamp: 2000 }),
+        makeTurn({
+          spanId: 't1',
+          name: 'bash',
+          inputTokens: 100,
+          outputTokens: 100,
+          turnNumber: 1,
+        }),
+        makeTurn({
+          spanId: 't2',
+          name: 'bash',
+          inputTokens: 200,
+          outputTokens: 200,
+          turnNumber: 2,
+          timestamp: 2000,
+        }),
       ]
       const result = categorizer.computeCategoryStatsFromTurns(turns)
 
@@ -459,9 +502,29 @@ describe('Categorizer', () => {
 
     it('should sort results by totalTokens descending', () => {
       const turns = [
-        makeTurn({ spanId: 't1', name: 'read_file', inputTokens: 100, outputTokens: 50, turnNumber: 1 }),
-        makeTurn({ spanId: 't2', name: 'bash', inputTokens: 1000, outputTokens: 500, turnNumber: 2, timestamp: 2000 }),
-        makeTurn({ spanId: 't3', name: 'system_prompt', inputTokens: 200, outputTokens: 0, turnNumber: 3, timestamp: 3000 }),
+        makeTurn({
+          spanId: 't1',
+          name: 'read_file',
+          inputTokens: 100,
+          outputTokens: 50,
+          turnNumber: 1,
+        }),
+        makeTurn({
+          spanId: 't2',
+          name: 'bash',
+          inputTokens: 1000,
+          outputTokens: 500,
+          turnNumber: 2,
+          timestamp: 2000,
+        }),
+        makeTurn({
+          spanId: 't3',
+          name: 'system_prompt',
+          inputTokens: 200,
+          outputTokens: 0,
+          turnNumber: 3,
+          timestamp: 3000,
+        }),
       ]
       const result = categorizer.computeCategoryStatsFromTurns(turns)
 
@@ -472,10 +535,38 @@ describe('Categorizer', () => {
 
     it('should detect growing trend when second-half turns have > 1.2x first-half tokens', () => {
       const turns = [
-        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 100, outputTokens: 0, turnNumber: 1, timestamp: 1000 }),
-        makeTurn({ spanId: 't2', name: 'bash', inputTokens: 100, outputTokens: 0, turnNumber: 2, timestamp: 2000 }),
-        makeTurn({ spanId: 't3', name: 'bash', inputTokens: 200, outputTokens: 0, turnNumber: 3, timestamp: 3000 }),
-        makeTurn({ spanId: 't4', name: 'bash', inputTokens: 200, outputTokens: 0, turnNumber: 4, timestamp: 4000 }),
+        makeTurn({
+          spanId: 't1',
+          name: 'bash',
+          inputTokens: 100,
+          outputTokens: 0,
+          turnNumber: 1,
+          timestamp: 1000,
+        }),
+        makeTurn({
+          spanId: 't2',
+          name: 'bash',
+          inputTokens: 100,
+          outputTokens: 0,
+          turnNumber: 2,
+          timestamp: 2000,
+        }),
+        makeTurn({
+          spanId: 't3',
+          name: 'bash',
+          inputTokens: 200,
+          outputTokens: 0,
+          turnNumber: 3,
+          timestamp: 3000,
+        }),
+        makeTurn({
+          spanId: 't4',
+          name: 'bash',
+          inputTokens: 200,
+          outputTokens: 0,
+          turnNumber: 4,
+          timestamp: 4000,
+        }),
       ]
       // firstHalf (turns[0,1]) = 200, secondHalf (turns[2,3]) = 400; 400 > 1.2 * 200 = 240
       const result = categorizer.computeCategoryStatsFromTurns(turns)
@@ -485,10 +576,38 @@ describe('Categorizer', () => {
 
     it('should detect shrinking trend when second-half turns have < 0.8x first-half tokens', () => {
       const turns = [
-        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 400, outputTokens: 0, turnNumber: 1, timestamp: 1000 }),
-        makeTurn({ spanId: 't2', name: 'bash', inputTokens: 400, outputTokens: 0, turnNumber: 2, timestamp: 2000 }),
-        makeTurn({ spanId: 't3', name: 'bash', inputTokens: 100, outputTokens: 0, turnNumber: 3, timestamp: 3000 }),
-        makeTurn({ spanId: 't4', name: 'bash', inputTokens: 100, outputTokens: 0, turnNumber: 4, timestamp: 4000 }),
+        makeTurn({
+          spanId: 't1',
+          name: 'bash',
+          inputTokens: 400,
+          outputTokens: 0,
+          turnNumber: 1,
+          timestamp: 1000,
+        }),
+        makeTurn({
+          spanId: 't2',
+          name: 'bash',
+          inputTokens: 400,
+          outputTokens: 0,
+          turnNumber: 2,
+          timestamp: 2000,
+        }),
+        makeTurn({
+          spanId: 't3',
+          name: 'bash',
+          inputTokens: 100,
+          outputTokens: 0,
+          turnNumber: 3,
+          timestamp: 3000,
+        }),
+        makeTurn({
+          spanId: 't4',
+          name: 'bash',
+          inputTokens: 100,
+          outputTokens: 0,
+          turnNumber: 4,
+          timestamp: 4000,
+        }),
       ]
       // firstHalf = 800, secondHalf = 200; 200 < 0.8 * 800 = 640
       const result = categorizer.computeCategoryStatsFromTurns(turns)
@@ -497,9 +616,7 @@ describe('Categorizer', () => {
     })
 
     it('should return stable trend when < 2 turns', () => {
-      const turns = [
-        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 100, outputTokens: 50 }),
-      ]
+      const turns = [makeTurn({ spanId: 't1', name: 'bash', inputTokens: 100, outputTokens: 50 })]
       const result = categorizer.computeCategoryStatsFromTurns(turns)
       const toolOutputs = result.find((r) => r.category === 'tool_outputs')!
       expect(toolOutputs.trend).toBe('stable')
@@ -507,8 +624,21 @@ describe('Categorizer', () => {
 
     it('should return growing trend when first-half is zero and second-half has tokens', () => {
       const turns = [
-        makeTurn({ spanId: 't1', name: 'read_file', inputTokens: 0, outputTokens: 0, turnNumber: 1 }),
-        makeTurn({ spanId: 't2', name: 'read_file', inputTokens: 500, outputTokens: 0, turnNumber: 2, timestamp: 2000 }),
+        makeTurn({
+          spanId: 't1',
+          name: 'read_file',
+          inputTokens: 0,
+          outputTokens: 0,
+          turnNumber: 1,
+        }),
+        makeTurn({
+          spanId: 't2',
+          name: 'read_file',
+          inputTokens: 500,
+          outputTokens: 0,
+          turnNumber: 2,
+          timestamp: 2000,
+        }),
       ]
       const result = categorizer.computeCategoryStatsFromTurns(turns)
       const fileReads = result.find((r) => r.category === 'file_reads')!
@@ -518,7 +648,14 @@ describe('Categorizer', () => {
     it('should return stable trend for zero-token category (first=0, second=0)', () => {
       const turns = [
         makeTurn({ spanId: 't1', name: 'bash', inputTokens: 100, outputTokens: 0, turnNumber: 1 }),
-        makeTurn({ spanId: 't2', name: 'bash', inputTokens: 200, outputTokens: 0, turnNumber: 2, timestamp: 2000 }),
+        makeTurn({
+          spanId: 't2',
+          name: 'bash',
+          inputTokens: 200,
+          outputTokens: 0,
+          turnNumber: 2,
+          timestamp: 2000,
+        }),
       ]
       const result = categorizer.computeCategoryStatsFromTurns(turns)
       const fileReads = result.find((r) => r.category === 'file_reads')!
@@ -526,9 +663,7 @@ describe('Categorizer', () => {
     })
 
     it('should compute 0 percentage when grandTotal is 0', () => {
-      const turns = [
-        makeTurn({ spanId: 't1', name: 'bash', inputTokens: 0, outputTokens: 0 }),
-      ]
+      const turns = [makeTurn({ spanId: 't1', name: 'bash', inputTokens: 0, outputTokens: 0 })]
       const result = categorizer.computeCategoryStatsFromTurns(turns)
       for (const stat of result) {
         expect(stat.percentage).toBe(0)
@@ -546,7 +681,7 @@ describe('Categorizer', () => {
           outputTokens: 0,
           turnNumber: i + 1,
           timestamp: 1000 + i * 1000,
-        }),
+        })
       )
       // 4 turns with taskType 'code-review' → conversation_history
       const codeReviewTurns = Array.from({ length: 4 }, (_, i) =>
@@ -558,7 +693,7 @@ describe('Categorizer', () => {
           outputTokens: 0,
           turnNumber: 6 + i,
           timestamp: 6000 + i * 1000,
-        }),
+        })
       )
       // 3 turns with taskType 'create-story' → system_prompts
       const createStoryTurns = Array.from({ length: 3 }, (_, i) =>
@@ -570,7 +705,7 @@ describe('Categorizer', () => {
           outputTokens: 0,
           turnNumber: 10 + i,
           timestamp: 10000 + i * 1000,
-        }),
+        })
       )
 
       const allTurns = [...devStoryTurns, ...codeReviewTurns, ...createStoryTurns]
@@ -585,9 +720,9 @@ describe('Categorizer', () => {
       expect(systemPrompts.totalTokens).toBeGreaterThan(0)
 
       // Verify exact counts
-      expect(toolOutputs.totalTokens).toBe(500)    // 5 dev-story turns × 100
+      expect(toolOutputs.totalTokens).toBe(500) // 5 dev-story turns × 100
       expect(conversationHistory.totalTokens).toBe(400) // 4 code-review turns × 100
-      expect(systemPrompts.totalTokens).toBe(300)  // 3 create-story turns × 100
+      expect(systemPrompts.totalTokens).toBe(300) // 3 create-story turns × 100
 
       // At least 3 non-zero category entries
       const nonZero = result.filter((r) => r.totalTokens > 0)
@@ -667,7 +802,7 @@ describe('Categorizer', () => {
         makeSpan({ spanId: 's1', startTime: 1000, inputTokens: 100, outputTokens: 0 }), // first half
         makeSpan({ spanId: 's2', startTime: 2000, inputTokens: 100, outputTokens: 0 }), // first half
         makeSpan({ spanId: 's3', startTime: 3000, inputTokens: 110, outputTokens: 0 }), // second half
-        makeSpan({ spanId: 's4', startTime: 4000, inputTokens: 90, outputTokens: 0  }), // second half
+        makeSpan({ spanId: 's4', startTime: 4000, inputTokens: 90, outputTokens: 0 }), // second half
       ]
       // firstHalf = 200, secondHalf = 200; 200 is between 0.8*200=160 and 1.2*200=240 → stable
       expect(categorizer.computeTrend(spans, turns)).toBe('stable')
@@ -721,13 +856,29 @@ describe('Categorizer', () => {
         makeTurn({
           spanId: 'parent-turn-1',
           timestamp: 1000,
-          childSpans: [{ spanId: 'child-span-1', name: 'tool_call', inputTokens: 0, outputTokens: 0, durationMs: 0 }],
+          childSpans: [
+            {
+              spanId: 'child-span-1',
+              name: 'tool_call',
+              inputTokens: 0,
+              outputTokens: 0,
+              durationMs: 0,
+            },
+          ],
         }),
         makeTurn({
           spanId: 'parent-turn-2',
           timestamp: 2000,
           turnNumber: 2,
-          childSpans: [{ spanId: 'child-span-2', name: 'tool_call', inputTokens: 0, outputTokens: 0, durationMs: 0 }],
+          childSpans: [
+            {
+              spanId: 'child-span-2',
+              name: 'tool_call',
+              inputTokens: 0,
+              outputTokens: 0,
+              durationMs: 0,
+            },
+          ],
         }),
         makeTurn({ spanId: 'parent-turn-3', timestamp: 3000, turnNumber: 3 }),
         makeTurn({ spanId: 'parent-turn-4', timestamp: 4000, turnNumber: 4 }),

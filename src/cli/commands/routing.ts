@@ -45,9 +45,7 @@ export function registerRoutingCommand(program: Command): void {
 
           let entries: TuneLogEntry[] = []
           if (Array.isArray(raw)) {
-            entries = (raw as TuneLogEntry[]).sort((a, b) =>
-              b.appliedAt.localeCompare(a.appliedAt),
-            )
+            entries = (raw as TuneLogEntry[]).sort((a, b) => b.appliedAt.localeCompare(a.appliedAt))
           }
 
           if (options.outputFormat === 'json') {
@@ -63,7 +61,7 @@ export function registerRoutingCommand(program: Command): void {
           console.log('Routing auto-tune history:')
           for (const entry of entries) {
             console.log(
-              `  ${entry.appliedAt}  phase=${entry.phase}  ${entry.oldModel} → ${entry.newModel}  savings=${entry.estimatedSavingsPct.toFixed(1)}%  run=${entry.runId}`,
+              `  ${entry.appliedAt}  phase=${entry.phase}  ${entry.oldModel} → ${entry.newModel}  savings=${entry.estimatedSavingsPct.toFixed(1)}%  run=${entry.runId}`
             )
           }
           return

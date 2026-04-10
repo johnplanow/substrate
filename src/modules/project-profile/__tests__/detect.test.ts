@@ -8,7 +8,12 @@
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest'
 import * as fs from 'node:fs/promises'
 import * as childProcess from 'node:child_process'
-import { detectSingleProjectStack, detectMonorepoProfile, detectProjectProfile, detectTaskRunner } from '../detect.js'
+import {
+  detectSingleProjectStack,
+  detectMonorepoProfile,
+  detectProjectProfile,
+  detectTaskRunner,
+} from '../detect.js'
 
 // ---------------------------------------------------------------------------
 // Mock node:fs/promises and node:child_process
@@ -21,7 +26,12 @@ const mockAccess = fs.access as MockedFunction<typeof fs.access>
 const mockReaddir = fs.readdir as MockedFunction<typeof fs.readdir>
 const mockReadFile = fs.readFile as MockedFunction<typeof fs.readFile>
 const mockExecFile = childProcess.execFile as unknown as MockedFunction<
-  (cmd: string, args: string[], opts: unknown, cb: (err: Error | null, stdout: string) => void) => void
+  (
+    cmd: string,
+    args: string[],
+    opts: unknown,
+    cb: (err: Error | null, stdout: string) => void
+  ) => void
 >
 
 /** Helper: make access succeed for listed paths, fail for all others. */
@@ -300,7 +310,7 @@ describe('detectTaskRunner', () => {
   it('detects justfile and extracts build/test targets (with params)', async () => {
     setupAccess(['justfile'])
     mockReadFile.mockResolvedValue(
-      'build *ARGS:\n  mvn compile {{ARGS}}\n\nbuild-skip-tests *ARGS:\n  mvn install -DskipTests {{ARGS}}\n\ntest-unit log=\'quiet\' cache=\'cache\':\n  mvn test\n\ntest log=\'quiet\':\n  mvn verify\n',
+      "build *ARGS:\n  mvn compile {{ARGS}}\n\nbuild-skip-tests *ARGS:\n  mvn install -DskipTests {{ARGS}}\n\ntest-unit log='quiet' cache='cache':\n  mvn test\n\ntest log='quiet':\n  mvn verify\n"
     )
 
     const result = await detectTaskRunner('/project')
@@ -314,7 +324,8 @@ describe('detectTaskRunner', () => {
     setupAccess(['justfile'])
     mockExecFile.mockImplementation((cmd, args, _opts, cb) => {
       if (cmd === 'just' && (args as string[]).includes('--summary')) {
-        if (typeof cb === 'function') cb(null, 'build build-skip-tests test test-unit test-integration default')
+        if (typeof cb === 'function')
+          cb(null, 'build build-skip-tests test test-unit test-integration default')
       } else {
         if (typeof cb === 'function') cb(new Error('unknown'), '')
       }
@@ -329,7 +340,9 @@ describe('detectTaskRunner', () => {
 
   it('prefers build-skip-tests over build', async () => {
     setupAccess(['justfile'])
-    mockReadFile.mockResolvedValue('build *ARGS:\n  echo build\n\nbuild-skip-tests *ARGS:\n  echo skip\n')
+    mockReadFile.mockResolvedValue(
+      'build *ARGS:\n  echo build\n\nbuild-skip-tests *ARGS:\n  echo skip\n'
+    )
 
     const result = await detectTaskRunner('/project')
     expect(result!.buildCommand).toBe('just build-skip-tests')
@@ -337,7 +350,7 @@ describe('detectTaskRunner', () => {
 
   it('falls back to build when build-skip-tests is absent', async () => {
     setupAccess(['justfile'])
-    mockReadFile.mockResolvedValue('build *ARGS:\n  mvn compile\n\ntest log=\'quiet\':\n  mvn test\n')
+    mockReadFile.mockResolvedValue("build *ARGS:\n  mvn compile\n\ntest log='quiet':\n  mvn test\n")
 
     const result = await detectTaskRunner('/project')
     expect(result!.buildCommand).toBe('just build')
@@ -346,7 +359,7 @@ describe('detectTaskRunner', () => {
 
   it('prefers test-unit over test', async () => {
     setupAccess(['justfile'])
-    mockReadFile.mockResolvedValue('test:\n  all tests\n\ntest-unit log=\'quiet\':\n  unit only\n')
+    mockReadFile.mockResolvedValue("test:\n  all tests\n\ntest-unit log='quiet':\n  unit only\n")
 
     const result = await detectTaskRunner('/project')
     expect(result!.testCommand).toBe('just test-unit')
@@ -400,7 +413,7 @@ describe('detectSingleProjectStack — task runner overlay', () => {
   it('overrides Maven commands with just when justfile exists', async () => {
     setupAccess(['pom.xml', 'justfile'])
     mockReadFile.mockResolvedValue(
-      'build-skip-tests *ARGS:\n  mvn install -DskipTests\n\ntest-unit log=\'quiet\':\n  mvn test -Dunit\n',
+      "build-skip-tests *ARGS:\n  mvn install -DskipTests\n\ntest-unit log='quiet':\n  mvn test -Dunit\n"
     )
 
     const result = await detectSingleProjectStack('/project')

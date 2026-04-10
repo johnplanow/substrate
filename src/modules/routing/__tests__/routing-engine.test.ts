@@ -33,9 +33,15 @@ const FIXTURES_DIR = resolve(__dirname, 'fixtures')
 function createMockEventBus(): TypedEventBus {
   const emitter = new EventEmitter()
   return {
-    emit: vi.fn((event: string, payload: unknown) => { emitter.emit(event, payload) }),
-    on: vi.fn((event: string, handler: (payload: unknown) => void) => { emitter.on(event, handler) }),
-    off: vi.fn((event: string, handler: (payload: unknown) => void) => { emitter.off(event, handler) }),
+    emit: vi.fn((event: string, payload: unknown) => {
+      emitter.emit(event, payload)
+    }),
+    on: vi.fn((event: string, handler: (payload: unknown) => void) => {
+      emitter.on(event, handler)
+    }),
+    off: vi.fn((event: string, handler: (payload: unknown) => void) => {
+      emitter.off(event, handler)
+    }),
   } as unknown as TypedEventBus
 }
 
@@ -114,11 +120,15 @@ describe('AC1: RoutingPolicy YAML Loading', () => {
 
   it('validates policy schema using Zod (NFR13)', () => {
     // Valid minimal policy loads without error
-    expect(() => loadRoutingPolicy(resolve(FIXTURES_DIR, 'routing-policy-minimal.yaml'))).not.toThrow()
+    expect(() =>
+      loadRoutingPolicy(resolve(FIXTURES_DIR, 'routing-policy-minimal.yaml'))
+    ).not.toThrow()
   })
 
   it('throws RoutingPolicyValidationError for missing file', () => {
-    expect(() => loadRoutingPolicy('/nonexistent/path/routing-policy.yaml')).toThrow(RoutingPolicyValidationError)
+    expect(() => loadRoutingPolicy('/nonexistent/path/routing-policy.yaml')).toThrow(
+      RoutingPolicyValidationError
+    )
   })
 
   it('throws RoutingPolicyValidationError for invalid YAML', () => {
@@ -128,14 +138,20 @@ describe('AC1: RoutingPolicy YAML Loading', () => {
     try {
       expect(() => loadRoutingPolicy(tmpPath)).toThrow(RoutingPolicyValidationError)
     } finally {
-      try { unlinkSync(tmpPath) } catch { /* cleanup */ }
+      try {
+        unlinkSync(tmpPath)
+      } catch {
+        /* cleanup */
+      }
     }
   })
 
   it('validates that task_type agents exist in providers section', () => {
     const { writeFileSync, unlinkSync } = require('node:fs')
     const tmpPath = resolve(FIXTURES_DIR, '_bad_agent_test.yaml')
-    writeFileSync(tmpPath, `
+    writeFileSync(
+      tmpPath,
+      `
 default:
   preferred_agents:
     - claude
@@ -150,27 +166,39 @@ task_types:
   coding:
     preferred_agents:
       - nonexistent-agent
-`)
+`
+    )
     try {
       expect(() => loadRoutingPolicy(tmpPath)).toThrow(RoutingPolicyValidationError)
     } finally {
-      try { unlinkSync(tmpPath) } catch { /* cleanup */ }
+      try {
+        unlinkSync(tmpPath)
+      } catch {
+        /* cleanup */
+      }
     }
   })
 
   it('validates that at least one provider is configured', () => {
     const { writeFileSync, unlinkSync } = require('node:fs')
     const tmpPath = resolve(FIXTURES_DIR, '_no_providers.yaml')
-    writeFileSync(tmpPath, `
+    writeFileSync(
+      tmpPath,
+      `
 default:
   preferred_agents:
     - claude
 providers: {}
-`)
+`
+    )
     try {
       expect(() => loadRoutingPolicy(tmpPath)).toThrow(RoutingPolicyValidationError)
     } finally {
-      try { unlinkSync(tmpPath) } catch { /* cleanup */ }
+      try {
+        unlinkSync(tmpPath)
+      } catch {
+        /* cleanup */
+      }
     }
   })
 })
@@ -228,7 +256,9 @@ describe('AC2: Subscription-First Routing Algorithm', () => {
 
     // Create a policy with only claude, subscription only (no API key env)
     const tmpPath = resolve(FIXTURES_DIR, '_sub_only.yaml')
-    writeFileSync(tmpPath, `
+    writeFileSync(
+      tmpPath,
+      `
 default:
   preferred_agents:
     - claude
@@ -243,7 +273,8 @@ providers:
     api_billing:
       enabled: true
       api_key_env: "NONEXISTENT_KEY_ENV_12345"
-`)
+`
+    )
 
     try {
       const engine = new RoutingEngineImpl(eventBus, null, null)
@@ -259,7 +290,11 @@ providers:
       // API key not configured, subscription exhausted → unavailable
       expect(decision.billingMode).toBe('unavailable')
     } finally {
-      try { unlinkSync(tmpPath) } catch { /* cleanup */ }
+      try {
+        unlinkSync(tmpPath)
+      } catch {
+        /* cleanup */
+      }
     }
   })
 })
@@ -385,7 +420,7 @@ describe('AC4: Rate Limit Management', () => {
     tracker.recordTokenUsage('claude', 90)
 
     expect(tracker.checkRateLimit('claude', 20)).toBe(false) // 90+20=110 > 100
-    expect(tracker.checkRateLimit('claude', 10)).toBe(true)  // 90+10=100 = limit
+    expect(tracker.checkRateLimit('claude', 10)).toBe(true) // 90+10=100 = limit
   })
 
   it('resets window after window duration expires', () => {
@@ -429,7 +464,9 @@ describe('AC5: Fallback Chain Execution', () => {
 
     // Create a policy where claude has exhausted rate limit and subscription only
     const tmpPath = resolve(FIXTURES_DIR, '_fallback_test.yaml')
-    writeFileSync(tmpPath, `
+    writeFileSync(
+      tmpPath,
+      `
 default:
   preferred_agents:
     - claude
@@ -450,7 +487,8 @@ providers:
     max_concurrent: 1
     api_billing:
       enabled: false
-`)
+`
+    )
 
     try {
       const engine = new RoutingEngineImpl(eventBus, null, null)
@@ -467,7 +505,11 @@ providers:
       expect(decision.agent).toBe('codex')
       expect(decision.billingMode).toBe('subscription')
     } finally {
-      try { unlinkSync(tmpPath) } catch { /* cleanup */ }
+      try {
+        unlinkSync(tmpPath)
+      } catch {
+        /* cleanup */
+      }
     }
   })
 
@@ -495,7 +537,9 @@ providers:
     // claude: subscription exhausted (no API)
     // codex: subscription exhausted (no API)
     // gemini: subscription available
-    writeFileSync(tmpPath, `
+    writeFileSync(
+      tmpPath,
+      `
 default:
   preferred_agents:
     - claude
@@ -526,7 +570,8 @@ providers:
     max_concurrent: 1
     api_billing:
       enabled: false
-`)
+`
+    )
 
     try {
       const engine = new RoutingEngineImpl(eventBus, null, null)
@@ -543,7 +588,11 @@ providers:
       expect(decision.agent).toBe('gemini')
       expect(decision.billingMode).toBe('subscription')
     } finally {
-      try { unlinkSync(tmpPath) } catch { /* cleanup */ }
+      try {
+        unlinkSync(tmpPath)
+      } catch {
+        /* cleanup */
+      }
     }
   })
 })
@@ -583,7 +632,9 @@ describe('AC6: Policy Format Extensibility', () => {
     // This tests that all optional fields have proper .optional() or .default() in schema.
     const { writeFileSync, unlinkSync } = require('node:fs')
     const tmpPath = resolve(FIXTURES_DIR, '_optional_fields.yaml')
-    writeFileSync(tmpPath, `
+    writeFileSync(
+      tmpPath,
+      `
 default:
   preferred_agents:
     - claude
@@ -595,14 +646,19 @@ providers:
     max_concurrent: 2
     api_billing:
       enabled: true
-`)
+`
+    )
 
     try {
       const policy = loadRoutingPolicy(tmpPath)
       expect(policy.default.billing_preference).toBe('api_only')
       expect(policy.providers['claude']?.subscription_routing).toBe(false)
     } finally {
-      try { unlinkSync(tmpPath) } catch { /* cleanup */ }
+      try {
+        unlinkSync(tmpPath)
+      } catch {
+        /* cleanup */
+      }
     }
   })
 })
@@ -617,7 +673,9 @@ describe('Hot-reload: reloadPolicy()', () => {
     const eventBus = createMockEventBus()
 
     const tmpPath = resolve(FIXTURES_DIR, '_hot_reload.yaml')
-    writeFileSync(tmpPath, `
+    writeFileSync(
+      tmpPath,
+      `
 default:
   preferred_agents:
     - gemini
@@ -628,7 +686,8 @@ providers:
     max_concurrent: 1
     api_billing:
       enabled: false
-`)
+`
+    )
 
     try {
       const engine = new RoutingEngineImpl(eventBus, null, null)
@@ -641,7 +700,9 @@ providers:
       expect(decision.agent).toBe('gemini')
 
       // Update the file to use claude
-      writeFileSync(tmpPath, `
+      writeFileSync(
+        tmpPath,
+        `
 default:
   preferred_agents:
     - claude
@@ -652,7 +713,8 @@ providers:
     max_concurrent: 1
     api_billing:
       enabled: false
-`)
+`
+      )
 
       // Reload
       await engine.reloadPolicy()
@@ -662,7 +724,11 @@ providers:
       decision = engine.routeTask(task)
       expect(decision.agent).toBe('claude')
     } finally {
-      try { unlinkSync(tmpPath) } catch { /* cleanup */ }
+      try {
+        unlinkSync(tmpPath)
+      } catch {
+        /* cleanup */
+      }
     }
   })
 })
@@ -712,9 +778,7 @@ describe('makeRoutingDecision() factory', () => {
   })
 
   it('creates unavailable decision', () => {
-    const decision = makeRoutingDecision('task-1')
-      .unavailable('No agents available')
-      .build()
+    const decision = makeRoutingDecision('task-1').unavailable('No agents available').build()
 
     expect(decision.billingMode).toBe('unavailable')
     expect(decision.rationale).toBe('No agents available')
@@ -758,9 +822,15 @@ describe('RoutingEngine event subscriptions', () => {
   it('emits task:routed when task:ready event received', async () => {
     const emitter = new EventEmitter()
     const eventBus: TypedEventBus = {
-      emit: vi.fn((event: string, payload: unknown) => { emitter.emit(event, payload) }),
-      on: vi.fn((event: string, handler: (payload: unknown) => void) => { emitter.on(event, handler) }),
-      off: vi.fn((event: string, handler: (payload: unknown) => void) => { emitter.off(event, handler) }),
+      emit: vi.fn((event: string, payload: unknown) => {
+        emitter.emit(event, payload)
+      }),
+      on: vi.fn((event: string, handler: (payload: unknown) => void) => {
+        emitter.on(event, handler)
+      }),
+      off: vi.fn((event: string, handler: (payload: unknown) => void) => {
+        emitter.off(event, handler)
+      }),
     }
 
     const policyPath = resolve(FIXTURES_DIR, 'routing-policy.yaml')

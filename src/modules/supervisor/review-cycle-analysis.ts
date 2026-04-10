@@ -44,7 +44,7 @@ export interface ReviewCycleAnalysis {
  */
 export function analyzeReviewCycles(
   stories: StoryMetricsRow[],
-  baselineStories: StoryMetricsRow[],
+  baselineStories: StoryMetricsRow[]
 ): ReviewCycleAnalysis {
   const highCycleStories: ReviewCycleFinding[] = []
 
@@ -62,10 +62,10 @@ export function analyzeReviewCycles(
 
   highCycleStories.sort((a, b) => b.review_cycles - a.review_cycles)
 
-  const avg_cycles = _computeAvg(stories.map(s => s.review_cycles ?? 0))
+  const avg_cycles = _computeAvg(stories.map((s) => s.review_cycles ?? 0))
   const avg_cycles_baseline =
     baselineStories.length > 0
-      ? _computeAvg(baselineStories.map(s => s.review_cycles ?? 0))
+      ? _computeAvg(baselineStories.map((s) => s.review_cycles ?? 0))
       : null
 
   const delta_pct =

@@ -33,16 +33,10 @@ import { countTokens } from '../../modules/context-compiler/token-counter.js'
 import type { ContextTemplate } from '../../modules/context-compiler/types.js'
 
 // YAML parser (9-3)
-import {
-  extractYamlBlock,
-  parseYamlResult,
-} from '../../modules/agent-dispatch/yaml-parser.js'
+import { extractYamlBlock, parseYamlResult } from '../../modules/agent-dispatch/yaml-parser.js'
 
 // Quality Gates (9-4)
-import {
-  createGate,
-  createGatePipeline,
-} from '../../modules/quality-gates/index.js'
+import { createGate, createGatePipeline } from '../../modules/quality-gates/index.js'
 
 // Debate Panel (9-4)
 import { createDebatePanel } from '../../modules/debate-panel/debate-panel-impl.js'
@@ -65,17 +59,24 @@ async function openDb(): Promise<{ adapter: DatabaseAdapter }> {
 
 function mockDispatcher(): Dispatcher {
   return {
-    dispatch: () => { throw new Error('should not dispatch in unit tests') },
+    dispatch: () => {
+      throw new Error('should not dispatch in unit tests')
+    },
     getPending: () => 0,
     getRunning: () => 0,
-    getMemoryState: () => ({ freeMB: 1024, thresholdMB: 256, pressureLevel: 0, isPressured: false }),
+    getMemoryState: () => ({
+      freeMB: 1024,
+      thresholdMB: 256,
+      pressureLevel: 0,
+      isPressured: false,
+    }),
     shutdown: async () => undefined,
   }
 }
 
 function fixedPerspectiveGenerator(
   recommendation: string,
-  confidence: number,
+  confidence: number
 ): PerspectiveGeneratorFn {
   return async (viewpoint: string): Promise<Perspective> => ({
     viewpoint,
@@ -203,8 +204,7 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
           name: 'Decisions',
           priority: 'required',
           query: { table: 'decisions', filters: { phase: 'solutioning' } },
-          format: (rows) =>
-            (rows as Array<{ value: string }>).map((r) => r.value).join('\n'),
+          format: (rows) => (rows as Array<{ value: string }>).map((r) => r.value).join('\n'),
         },
         {
           name: 'Requirements',
@@ -265,8 +265,7 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
             table: 'decisions',
             filters: { phase: ['planning', 'solutioning'] },
           },
-          format: (rows) =>
-            (rows as Array<{ value: string }>).map((r) => r.value).join('\n'),
+          format: (rows) => (rows as Array<{ value: string }>).map((r) => r.value).join('\n'),
         },
       ],
     }
@@ -300,8 +299,7 @@ describe('Integration: Decision Store → Context Compiler (9-1 + 9-2)', () => {
           name: 'Test Section',
           priority: 'required',
           query: { table: 'decisions', filters: { phase: 'solutioning' } },
-          format: (rows) =>
-            (rows as Array<{ value: string }>).map((r) => r.value).join('\n'),
+          format: (rows) => (rows as Array<{ value: string }>).map((r) => r.value).join('\n'),
         },
       ],
     }
@@ -411,7 +409,10 @@ describe('Integration: Debate Panel → Decision Store → Context Compiler (9-1
         {
           name: 'All Debate Decisions',
           priority: 'required',
-          query: { table: 'decisions', filters: { phase: 'solutioning', category: 'debate-panel' } },
+          query: {
+            table: 'decisions',
+            filters: { phase: 'solutioning', category: 'debate-panel' },
+          },
           format: (rows) => {
             const d = rows as Array<{ key: string; value: string }>
             return d.map((r) => `${r.key}: ${r.value}`).join('\n')
@@ -467,7 +468,7 @@ describe('Integration: Debate Panel → Decision Store → Context Compiler (9-1
 
     // Even escalated decisions must be persisted
     const rows = await adapter.query<{ key: string; value: string }>(
-      "SELECT * FROM decisions WHERE key = 'microservices-pattern'",
+      "SELECT * FROM decisions WHERE key = 'microservices-pattern'"
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]?.key).toBe('microservices-pattern')
@@ -540,9 +541,7 @@ describe('Integration: YAML Parser → Quality Gates (9-3 + 9-4)', () => {
     const yamlBlock = extractYamlBlock(reviewOutput)
     const { parsed } = parseYamlResult(yamlBlock!)
 
-    const pipeline = createGatePipeline([
-      createGate('code-review-verdict'),
-    ])
+    const pipeline = createGatePipeline([createGate('code-review-verdict')])
 
     const result = pipeline.run(parsed)
     expect(result.action).toBe('proceed') // warn does not halt pipeline
@@ -565,10 +564,7 @@ describe('Integration: YAML Parser → Quality Gates (9-3 + 9-4)', () => {
     const yamlBlock = extractYamlBlock(devStoryOutput)
     const { parsed } = parseYamlResult(yamlBlock!)
 
-    const pipeline = createGatePipeline([
-      createGate('ac-validation'),
-      createGate('test-coverage'),
-    ])
+    const pipeline = createGatePipeline([createGate('ac-validation'), createGate('test-coverage')])
 
     const result = pipeline.run(parsed)
     expect(result.action).toBe('proceed')
@@ -722,7 +718,10 @@ describe('Integration: Methodology Pack → Context Compiler (9-2 + 9-5)', () =>
     expect(phaseNames).toContain('implementation')
 
     // Decisions can be stored using any of these phase names
-    const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: phaseNames[0] })
+    const run = await createPipelineRun(adapter, {
+      methodology: 'bmad',
+      start_phase: phaseNames[0],
+    })
     expect(run.id).toBeDefined()
 
     for (const phaseName of phaseNames) {
@@ -837,10 +836,7 @@ describe('Integration: Full Epic 9 pipeline (9-1 + 9-2 + 9-4)', () => {
     const { parsed } = parseYamlResult(yamlBlock!)
     expect(parsed).not.toBeNull()
 
-    const pipeline = createGatePipeline([
-      createGate('ac-validation'),
-      createGate('test-coverage'),
-    ])
+    const pipeline = createGatePipeline([createGate('ac-validation'), createGate('test-coverage')])
 
     const gateResult = pipeline.run(parsed)
     expect(gateResult.action).toBe('proceed')
@@ -885,7 +881,9 @@ describe('Integration: Full Epic 9 pipeline (9-1 + 9-2 + 9-4)', () => {
           priority: 'required',
           query: { table: 'decisions', filters: { phase: 'solutioning' } },
           format: (rows) =>
-            (rows as Array<{ key: string; value: string }>).map((r) => `${r.key}: ${r.value}`).join('\n'),
+            (rows as Array<{ key: string; value: string }>)
+              .map((r) => `${r.key}: ${r.value}`)
+              .join('\n'),
         },
         {
           name: 'Requirements',
@@ -940,7 +938,7 @@ describe('Integration: Full Epic 9 pipeline (9-1 + 9-2 + 9-4)', () => {
     for (const phase of phases) {
       const rows = await adapter.query<{ key: string }>(
         `SELECT * FROM decisions WHERE phase = ? AND category = 'debate-panel'`,
-        [phase],
+        [phase]
       )
       expect(rows).toHaveLength(1)
       expect(rows[0]?.key).toBe(`key-${phase}`)

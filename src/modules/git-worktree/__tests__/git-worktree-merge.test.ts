@@ -45,7 +45,8 @@ import * as fsp from 'node:fs/promises'
 // ---------------------------------------------------------------------------
 
 vi.mock('../../../../packages/core/src/git/git-utils.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../../packages/core/src/git/git-utils.js')>()
+  const actual =
+    await importOriginal<typeof import('../../../../packages/core/src/git/git-utils.js')>()
   return {
     ...actual,
     verifyGitVersion: vi.fn(async () => {}),
@@ -56,7 +57,7 @@ vi.mock('../../../../packages/core/src/git/git-utils.js', async (importOriginal)
     removeBranch: vi.fn(async () => true),
     getOrphanedWorktrees: vi.fn(async () => []),
     // Merge-specific mocks — default to "no conflicts, clean merge"
-    simulateMerge: vi.fn(async () => true),        // true = no conflicts
+    simulateMerge: vi.fn(async () => true), // true = no conflicts
     abortMerge: vi.fn(async () => {}),
     getConflictingFiles: vi.fn(async () => []),
     performMerge: vi.fn(async () => true),
@@ -74,12 +75,8 @@ function createMockEventBus(): TypedEventBus {
   const emitter = new EventEmitter()
   return {
     emit: vi.fn((event: string, payload: unknown) => emitter.emit(event, payload)),
-    on: vi.fn((event: string, handler: (payload: unknown) => void) =>
-      emitter.on(event, handler),
-    ),
-    off: vi.fn((event: string, handler: (payload: unknown) => void) =>
-      emitter.off(event, handler),
-    ),
+    on: vi.fn((event: string, handler: (payload: unknown) => void) => emitter.on(event, handler)),
+    off: vi.fn((event: string, handler: (payload: unknown) => void) => emitter.off(event, handler)),
   } as unknown as TypedEventBus
 }
 
@@ -175,10 +172,7 @@ describe('GitWorktreeManagerImpl — merge operations', () => {
   describe('AC1: detectConflicts() — with conflicts', () => {
     it('returns hasConflicts: true with file list when conflicts exist', async () => {
       vi.mocked(gitUtils.simulateMerge).mockResolvedValue(false)
-      vi.mocked(gitUtils.getConflictingFiles).mockResolvedValue([
-        'src/index.ts',
-        'src/utils.ts',
-      ])
+      vi.mocked(gitUtils.getConflictingFiles).mockResolvedValue(['src/index.ts', 'src/utils.ts'])
 
       const eventBus = createMockEventBus()
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
@@ -289,14 +283,14 @@ describe('GitWorktreeManagerImpl — merge operations', () => {
   describe('AC1: detectConflicts() — error handling', () => {
     it('throws error when worktree does not exist', async () => {
       vi.mocked(fsp.access).mockRejectedValue(
-        Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+        Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
       )
 
       const eventBus = createMockEventBus()
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
 
       await expect(manager.detectConflicts('missing-task', 'main')).rejects.toThrow(
-        'Worktree for task "missing-task" not found',
+        'Worktree for task "missing-task" not found'
       )
     })
 
@@ -305,7 +299,7 @@ describe('GitWorktreeManagerImpl — merge operations', () => {
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
 
       await expect(manager.detectConflicts('', 'main')).rejects.toThrow(
-        'detectConflicts: taskId must be a non-empty string',
+        'detectConflicts: taskId must be a non-empty string'
       )
     })
   })
@@ -360,10 +354,7 @@ describe('GitWorktreeManagerImpl — merge operations', () => {
 
       await manager.mergeWorktree('task-xyz', 'main')
 
-      expect(gitUtils.performMerge).toHaveBeenCalledWith(
-        'substrate/task-task-xyz',
-        PROJECT_ROOT,
-      )
+      expect(gitUtils.performMerge).toHaveBeenCalledWith('substrate/task-task-xyz', PROJECT_ROOT)
     })
 
     it('returns empty mergedFiles list when no files changed', async () => {
@@ -472,14 +463,14 @@ describe('GitWorktreeManagerImpl — merge operations', () => {
   describe('Edge cases', () => {
     it('throws error when worktree does not exist for mergeWorktree', async () => {
       vi.mocked(fsp.access).mockRejectedValue(
-        Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+        Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
       )
 
       const eventBus = createMockEventBus()
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
 
       await expect(manager.mergeWorktree('missing-task', 'main')).rejects.toThrow(
-        'Worktree for task "missing-task" not found',
+        'Worktree for task "missing-task" not found'
       )
     })
 
@@ -488,7 +479,7 @@ describe('GitWorktreeManagerImpl — merge operations', () => {
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
 
       await expect(manager.mergeWorktree('', 'main')).rejects.toThrow(
-        'mergeWorktree: taskId must be a non-empty string',
+        'mergeWorktree: taskId must be a non-empty string'
       )
     })
 
@@ -500,7 +491,7 @@ describe('GitWorktreeManagerImpl — merge operations', () => {
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
 
       await expect(manager.mergeWorktree('task-fail', 'main')).rejects.toThrow(
-        'git merge --no-ff failed',
+        'git merge --no-ff failed'
       )
     })
 

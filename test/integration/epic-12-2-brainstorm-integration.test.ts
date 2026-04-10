@@ -60,7 +60,9 @@ vi.mock('../../src/utils/logger.js', () => ({
 // Mock AdapterRegistry to prevent real CLI health checks during createProgram()
 vi.mock('../../src/adapters/adapter-registry.js', () => ({
   AdapterRegistry: vi.fn().mockImplementation(() => ({
-    discoverAndRegister: vi.fn().mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] }),
+    discoverAndRegister: vi
+      .fn()
+      .mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] }),
     register: vi.fn(),
     get: vi.fn().mockReturnValue(undefined),
     getAll: vi.fn().mockReturnValue([]),
@@ -104,7 +106,10 @@ function makeSession(overrides: Partial<BrainstormSession> = {}): BrainstormSess
   }
 }
 
-function makeTurn(userInput = 'We need a new feature', personas: PersonaResponse[] = []): BrainstormTurn {
+function makeTurn(
+  userInput = 'We need a new feature',
+  personas: PersonaResponse[] = []
+): BrainstormTurn {
   return {
     timestamp: new Date('2026-02-22T14:01:00Z'),
     userInput,
@@ -312,7 +317,7 @@ describe('Gap 6: !wrap with zero turns does not write a file (12-3 AC4 edge case
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: false },
       undefined,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     // Immediately wrap without any turns
@@ -336,7 +341,7 @@ describe('Gap 6: !wrap with zero turns does not write a file (12-3 AC4 edge case
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: false },
       undefined,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     for (const handler of lineHandlers) {
@@ -384,7 +389,7 @@ describe('Gap 7: --existing flag with missing documents still starts REPL (12-3 
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: true },
       undefined,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     await new Promise((r) => setTimeout(r, 10))
@@ -408,7 +413,7 @@ describe('Gap 7: --existing flag with missing documents still starts REPL (12-3 
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: true },
       undefined,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     await new Promise((r) => setTimeout(r, 10))
@@ -432,11 +437,7 @@ describe('Gap 7: --existing flag with missing documents still starts REPL (12-3 
 describe('Gap 8: generateConceptFile rawSummary with multiple turns (12-3 AC5)', () => {
   it('rawSummary includes separator between turns for multi-turn sessions', () => {
     const session = makeSession({
-      turns: [
-        makeTurn('First idea'),
-        makeTurn('Second idea'),
-        makeTurn('Third idea'),
-      ],
+      turns: [makeTurn('First idea'), makeTurn('Second idea'), makeTurn('Third idea')],
     })
     const concept = generateConceptFile(session)
 

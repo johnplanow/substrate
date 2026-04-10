@@ -308,7 +308,8 @@ describe('ReadinessOutputSchema', () => {
         {
           category: 'ux_alignment',
           severity: 'minor',
-          description: 'Story 2-1 does not reference the accessibility requirement from UX decisions',
+          description:
+            'Story 2-1 does not reference the accessibility requirement from UX decisions',
           affected_items: ['2-1', 'ux-accessibility-001'],
         },
       ],

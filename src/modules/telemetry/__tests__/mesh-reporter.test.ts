@@ -3,7 +3,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { buildRunReport, pushRunReport, enqueueReport, drainOutbox, reportToMesh } from '../mesh-reporter.js'
+import {
+  buildRunReport,
+  pushRunReport,
+  enqueueReport,
+  drainOutbox,
+  reportToMesh,
+} from '../mesh-reporter.js'
 import type { DatabaseAdapter } from '@substrate-ai/core'
 import { mkdtempSync, rmSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -47,7 +53,7 @@ const sampleRunMetrics = {
   wall_clock_seconds: 5400,
   total_input_tokens: 100000,
   total_output_tokens: 5000,
-  total_cost_usd: 2.50,
+  total_cost_usd: 2.5,
   stories_attempted: 7,
   stories_succeeded: 6,
   stories_failed: 1,
@@ -97,7 +103,7 @@ describe('buildRunReport', () => {
     expect(report!.runId).toBe('run-123')
     expect(report!.projectId).toBe('test-project')
     expect(report!.status).toBe('completed')
-    expect(report!.totalCostUsd).toBe(2.50)
+    expect(report!.totalCostUsd).toBe(2.5)
     expect(report!.storiesAttempted).toBe(7)
     expect(report!.stories).toHaveLength(1)
     expect(report!.stories[0].storyKey).toBe('5-1')
@@ -163,7 +169,7 @@ describe('pushRunReport', () => {
     wallClockSeconds: 5400,
     totalInputTokens: 100000,
     totalOutputTokens: 5000,
-    totalCostUsd: 2.50,
+    totalCostUsd: 2.5,
     storiesAttempted: 7,
     storiesSucceeded: 6,
     storiesFailed: 1,
@@ -182,34 +188,43 @@ describe('pushRunReport', () => {
   })
 
   it('returns true on successful push', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ result: { status: { state: 'completed' } } }),
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ result: { status: { state: 'completed' } } }),
+      })
+    )
 
     const ok = await pushRunReport('http://localhost:4100', sampleReport)
     expect(ok).toBe(true)
     expect(fetch).toHaveBeenCalledWith(
       'http://localhost:4100/rpc',
-      expect.objectContaining({ method: 'POST' }),
+      expect.objectContaining({ method: 'POST' })
     )
   })
 
   it('returns false on non-OK HTTP response', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 503,
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+      })
+    )
 
     const ok = await pushRunReport('http://localhost:4100', sampleReport)
     expect(ok).toBe(false)
   })
 
   it('returns false on RPC error response', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ error: { code: -32600, message: 'Invalid request' } }),
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ error: { code: -32600, message: 'Invalid request' } }),
+      })
+    )
 
     const ok = await pushRunReport('http://localhost:4100', sampleReport)
     expect(ok).toBe(false)
@@ -223,10 +238,13 @@ describe('pushRunReport', () => {
   })
 
   it('strips trailing slash from meshUrl', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ result: {} }),
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ result: {} }),
+      })
+    )
 
     await pushRunReport('http://localhost:4100/', sampleReport)
     expect(fetch).toHaveBeenCalledWith('http://localhost:4100/rpc', expect.anything())
@@ -254,7 +272,7 @@ describe('outbox', () => {
     wallClockSeconds: 100,
     totalInputTokens: 1000,
     totalOutputTokens: 100,
-    totalCostUsd: 0.50,
+    totalCostUsd: 0.5,
     storiesAttempted: 1,
     storiesSucceeded: 1,
     storiesFailed: 0,
@@ -286,16 +304,19 @@ describe('outbox', () => {
     enqueueReport({ ...sampleReport, runId: 'run-a' }, 'http://localhost:4100', tmpDir)
     enqueueReport({ ...sampleReport, runId: 'run-b' }, 'http://localhost:4100', tmpDir)
 
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ result: {} }),
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ result: {} }),
+      })
+    )
 
     const delivered = await drainOutbox('http://localhost:4100', tmpDir)
     expect(delivered).toBe(2)
 
     const outboxDir = join(tmpDir, '.substrate', 'outbox')
-    const remaining = readdirSync(outboxDir).filter(f => f.endsWith('.json'))
+    const remaining = readdirSync(outboxDir).filter((f) => f.endsWith('.json'))
     expect(remaining).toHaveLength(0)
   })
 
@@ -303,16 +324,19 @@ describe('outbox', () => {
     enqueueReport({ ...sampleReport, runId: 'run-a' }, 'http://localhost:4100', tmpDir)
     enqueueReport({ ...sampleReport, runId: 'run-b' }, 'http://localhost:4100', tmpDir)
 
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 503,
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+      })
+    )
 
     const delivered = await drainOutbox('http://localhost:4100', tmpDir)
     expect(delivered).toBe(0)
 
     const outboxDir = join(tmpDir, '.substrate', 'outbox')
-    const remaining = readdirSync(outboxDir).filter(f => f.endsWith('.json'))
+    const remaining = readdirSync(outboxDir).filter((f) => f.endsWith('.json'))
     expect(remaining).toHaveLength(2)
   })
 

@@ -210,7 +210,7 @@ describe('AC1 + AC2: JSON output includes factory graph runs', () => {
 
     const { runMetricsAction } = await import('../metrics.js')
     const output = await captureStdout(() =>
-      runMetricsAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' }),
+      runMetricsAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
     )
 
     const parsed = JSON.parse(output.trim())
@@ -227,7 +227,7 @@ describe('AC1 + AC2: JSON output includes factory graph runs', () => {
 
     const { runMetricsAction } = await import('../metrics.js')
     const output = await captureStdout(() =>
-      runMetricsAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' }),
+      runMetricsAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
     )
 
     const parsed = JSON.parse(output.trim())
@@ -270,7 +270,7 @@ describe('AC1 + AC2: JSON output includes factory graph runs', () => {
 
     const { runMetricsAction } = await import('../metrics.js')
     const output = await captureStdout(() =>
-      runMetricsAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' }),
+      runMetricsAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
     )
 
     const parsed = JSON.parse(output.trim())
@@ -300,7 +300,7 @@ describe('AC3: --run per-iteration detail mode', () => {
         outputFormat: 'json',
         projectRoot: '/tmp/test-project',
         run: 'abc12345',
-      }),
+      })
     )
 
     const parsed = JSON.parse(output.trim())
@@ -340,7 +340,7 @@ describe('AC3: --run per-iteration detail mode', () => {
         outputFormat: 'json',
         projectRoot: '/tmp/test-project',
         run: 'missing',
-      }),
+      })
     )
 
     const parsed = JSON.parse(output.trim())
@@ -367,7 +367,7 @@ describe('AC4 + AC5: printFactoryRunTable human-readable format', () => {
 
     const { runMetricsAction } = await import('../metrics.js')
     const output = await captureStdout(() =>
-      runMetricsAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' }),
+      runMetricsAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
     )
 
     expect(output).toContain('Factory Runs')
@@ -380,7 +380,7 @@ describe('AC4 + AC5: printFactoryRunTable human-readable format', () => {
 
     const { runMetricsAction } = await import('../metrics.js')
     const output = await captureStdout(() =>
-      runMetricsAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' }),
+      runMetricsAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
     )
 
     expect(output).toContain('75.0%')
@@ -392,7 +392,7 @@ describe('AC4 + AC5: printFactoryRunTable human-readable format', () => {
 
     const { runMetricsAction } = await import('../metrics.js')
     const output = await captureStdout(() =>
-      runMetricsAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' }),
+      runMetricsAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
     )
 
     expect(output).toContain('✓')
@@ -408,7 +408,7 @@ describe('AC4 + AC5: printFactoryRunTable human-readable format', () => {
 
     const { runMetricsAction } = await import('../metrics.js')
     const output = await captureStdout(() =>
-      runMetricsAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' }),
+      runMetricsAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
     )
 
     expect(output).toContain('✗')
@@ -432,7 +432,7 @@ describe('AC6: empty factory runs handled gracefully', () => {
 
     const { runMetricsAction } = await import('../metrics.js')
     await expect(
-      runMetricsAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' }),
+      runMetricsAction({ outputFormat: 'json', projectRoot: '/tmp/test-project' })
     ).resolves.not.toThrow()
   })
 
@@ -455,7 +455,7 @@ describe('AC6: empty factory runs handled gracefully', () => {
 
     const { runMetricsAction } = await import('../metrics.js')
     const output = await captureStdout(() =>
-      runMetricsAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' }),
+      runMetricsAction({ outputFormat: 'human', projectRoot: '/tmp/test-project' })
     )
 
     expect(output).not.toContain('Factory Runs')
@@ -499,7 +499,7 @@ describe('AC7: --factory flag filters output to factory runs only', () => {
         outputFormat: 'json',
         projectRoot: '/tmp/test-project',
         factory: true,
-      }),
+      })
     )
 
     const parsed = JSON.parse(output.trim())

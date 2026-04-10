@@ -49,7 +49,7 @@ export class CostGovernanceChecker {
   computeCumulativeCost(manifest: RunManifestData): number {
     const dispatchCost = Object.values(manifest.per_story_state).reduce(
       (sum, s) => sum + (s.cost_usd ?? 0),
-      0,
+      0
     )
     return dispatchCost + manifest.cost_accumulation.run_total
   }

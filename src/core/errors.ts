@@ -60,11 +60,7 @@ export class TaskGraphCycleError extends TaskGraphError {
 
 /** Error thrown when a budget limit is exceeded */
 export class BudgetExceededError extends AdtError {
-  constructor(
-    limit: number,
-    current: number,
-    context: Record<string, unknown> = {}
-  ) {
+  constructor(limit: number, current: number, context: Record<string, unknown> = {}) {
     super(
       `Budget cap exceeded: current=${String(current)}, limit=${String(limit)}`,
       'BUDGET_EXCEEDED',

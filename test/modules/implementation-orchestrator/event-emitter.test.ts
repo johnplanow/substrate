@@ -11,9 +11,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { PassThrough, Writable } from 'node:stream'
-import {
-  createEventEmitter,
-} from '../../../src/modules/implementation-orchestrator/event-emitter.js'
+import { createEventEmitter } from '../../../src/modules/implementation-orchestrator/event-emitter.js'
 import type {
   PipelineEvent,
   PipelineStartEvent,
@@ -279,9 +277,7 @@ describe('event type correctness', () => {
       key: '10-2',
       reason: 'Max review cycles exceeded',
       cycles: 3,
-      issues: [
-        { severity: 'blocker', file: 'src/main.ts', desc: 'Null pointer' },
-      ],
+      issues: [{ severity: 'blocker', file: 'src/main.ts', desc: 'Null pointer' }],
     }
     emitter.emit(escalationEvent)
 
@@ -456,4 +452,3 @@ describe('event sequence', () => {
     expect(types[4]).toBe('pipeline:complete')
   })
 })
-

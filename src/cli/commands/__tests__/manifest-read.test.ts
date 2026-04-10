@@ -37,7 +37,7 @@ async function createTestManifest(runsDir: string, runId: string): Promise<void>
       cost_accumulation: { per_story: {}, run_total: 0 },
       pending_proposals: [],
     },
-    runsDir,
+    runsDir
   )
 }
 

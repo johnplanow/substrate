@@ -119,7 +119,9 @@ vi.mock('../../../persistence/queries/decisions.js', () => ({
 }))
 
 vi.mock('../health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 // Event bus — capture all listeners so tests can fire events
@@ -147,7 +149,9 @@ const mockMkdirSync = vi.fn()
 const mockCpSync = vi.fn()
 const mockWriteFileSync = vi.fn()
 const mockUnlinkSync = vi.fn()
-const mockReadFileSync = vi.fn().mockImplementation(() => { throw new Error('ENOENT') })
+const mockReadFileSync = vi.fn().mockImplementation(() => {
+  throw new Error('ENOENT')
+})
 vi.mock('fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
@@ -196,7 +200,9 @@ vi.mock('../../../modules/routing/index.js', () => ({
   RoutingTelemetry: vi.fn(),
   RoutingTuner: vi.fn(),
   RoutingRecommender: vi.fn(),
-  loadModelRoutingConfig: vi.fn(() => { throw new Error('not found') }),
+  loadModelRoutingConfig: vi.fn(() => {
+    throw new Error('not found')
+  }),
 }))
 
 // Mock config system — returns empty config with no token ceilings
@@ -235,7 +241,9 @@ import { runRunAction, registerRunCommand } from '../run.js'
 // Shared mock registry instance — required by runRunAction (throws if missing)
 // ---------------------------------------------------------------------------
 
-const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+const mockRegistry = {
+  discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }),
+} as any
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -940,9 +948,20 @@ describe('GAP-6: pipeline:complete NDJSON carries correct story outcome arrays',
       registry: mockRegistry,
     })
 
-    const lines = stdoutChunks.join('').split('\n').filter((l) => l.trim().startsWith('{'))
+    const lines = stdoutChunks
+      .join('')
+      .split('\n')
+      .filter((l) => l.trim().startsWith('{'))
     const complete = lines
-      .map((l) => JSON.parse(l) as { type: string; succeeded?: string[]; failed?: string[]; escalated?: string[] })
+      .map(
+        (l) =>
+          JSON.parse(l) as {
+            type: string
+            succeeded?: string[]
+            failed?: string[]
+            escalated?: string[]
+          }
+      )
       .find((e) => e.type === 'pipeline:complete')
 
     expect(complete).toBeDefined()
@@ -971,9 +990,20 @@ describe('GAP-6: pipeline:complete NDJSON carries correct story outcome arrays',
       registry: mockRegistry,
     })
 
-    const lines = stdoutChunks.join('').split('\n').filter((l) => l.trim().startsWith('{'))
+    const lines = stdoutChunks
+      .join('')
+      .split('\n')
+      .filter((l) => l.trim().startsWith('{'))
     const complete = lines
-      .map((l) => JSON.parse(l) as { type: string; succeeded?: string[]; failed?: string[]; escalated?: string[] })
+      .map(
+        (l) =>
+          JSON.parse(l) as {
+            type: string
+            succeeded?: string[]
+            failed?: string[]
+            escalated?: string[]
+          }
+      )
       .find((e) => e.type === 'pipeline:complete')
 
     expect(complete).toBeDefined()
@@ -1000,9 +1030,20 @@ describe('GAP-6: pipeline:complete NDJSON carries correct story outcome arrays',
       registry: mockRegistry,
     })
 
-    const lines = stdoutChunks.join('').split('\n').filter((l) => l.trim().startsWith('{'))
+    const lines = stdoutChunks
+      .join('')
+      .split('\n')
+      .filter((l) => l.trim().startsWith('{'))
     const complete = lines
-      .map((l) => JSON.parse(l) as { type: string; succeeded?: string[]; failed?: string[]; escalated?: string[] })
+      .map(
+        (l) =>
+          JSON.parse(l) as {
+            type: string
+            succeeded?: string[]
+            failed?: string[]
+            escalated?: string[]
+          }
+      )
       .find((e) => e.type === 'pipeline:complete')
 
     expect(complete).toBeDefined()
@@ -1206,7 +1247,7 @@ describe('CLAUDE.md scaffold is called from runAutoInit (not runRunAction)', () 
 
     // writeFile should NOT be called for CLAUDE.md in a run scenario
     const claudeMdWriteCalls = mockWriteFile.mock.calls.filter(([path]) =>
-      String(path).includes('CLAUDE.md'),
+      String(path).includes('CLAUDE.md')
     )
     expect(claudeMdWriteCalls).toHaveLength(0)
   })
@@ -1271,13 +1312,16 @@ describe('Story 16-7: Heartbeat and stall NDJSON event wiring (--events mode)', 
     const allOutput = stdoutChunks.join('')
     const lines = allOutput.split('\n').filter((l) => l.trim().startsWith('{'))
     const heartbeatEvents = lines
-      .map((l) => JSON.parse(l) as {
-        type: string
-        run_id?: string
-        active_dispatches?: number
-        completed_dispatches?: number
-        queued_dispatches?: number
-      })
+      .map(
+        (l) =>
+          JSON.parse(l) as {
+            type: string
+            run_id?: string
+            active_dispatches?: number
+            completed_dispatches?: number
+            queued_dispatches?: number
+          }
+      )
       .filter((e) => e.type === 'pipeline:heartbeat')
 
     expect(heartbeatEvents.length).toBeGreaterThanOrEqual(1)
@@ -1317,13 +1361,16 @@ describe('Story 16-7: Heartbeat and stall NDJSON event wiring (--events mode)', 
     const allOutput = stdoutChunks.join('')
     const lines = allOutput.split('\n').filter((l) => l.trim().startsWith('{'))
     const stallEvents = lines
-      .map((l) => JSON.parse(l) as {
-        type: string
-        run_id?: string
-        story_key?: string
-        phase?: string
-        elapsed_ms?: number
-      })
+      .map(
+        (l) =>
+          JSON.parse(l) as {
+            type: string
+            run_id?: string
+            story_key?: string
+            phase?: string
+            elapsed_ms?: number
+          }
+      )
       .filter((e) => e.type === 'story:stall')
 
     expect(stallEvents.length).toBeGreaterThanOrEqual(1)
@@ -1339,11 +1386,23 @@ describe('Story 16-7: Heartbeat and stall NDJSON event wiring (--events mode)', 
       // Fire both events
       const heartbeatListeners = eventBusListeners['orchestrator:heartbeat'] ?? []
       for (const listener of heartbeatListeners) {
-        listener({ runId: 'run-uuid-123', activeDispatches: 1, completedDispatches: 0, queuedDispatches: 0 })
+        listener({
+          runId: 'run-uuid-123',
+          activeDispatches: 1,
+          completedDispatches: 0,
+          queuedDispatches: 0,
+        })
       }
       const stallListeners = eventBusListeners['orchestrator:stall'] ?? []
       for (const listener of stallListeners) {
-        listener({ runId: 'run-uuid-123', storyKey: '10-1', phase: 'IN_DEV', elapsedMs: 660_000, childPids: [], childActive: false })
+        listener({
+          runId: 'run-uuid-123',
+          storyKey: '10-1',
+          phase: 'IN_DEV',
+          elapsedMs: 660_000,
+          childPids: [],
+          childActive: false,
+        })
       }
       return defaultStatus
     })
@@ -1360,9 +1419,15 @@ describe('Story 16-7: Heartbeat and stall NDJSON event wiring (--events mode)', 
 
     const allOutput = stdoutChunks.join('')
     const lines = allOutput.split('\n').filter((l) => l.trim().startsWith('{'))
-    const jsonEvents = lines.map((l) => {
-      try { return JSON.parse(l) as { type: string } } catch { return null }
-    }).filter(Boolean)
+    const jsonEvents = lines
+      .map((l) => {
+        try {
+          return JSON.parse(l) as { type: string }
+        } catch {
+          return null
+        }
+      })
+      .filter(Boolean)
 
     const heartbeatEvents = jsonEvents.filter((e) => e!.type === 'pipeline:heartbeat')
     const stallEvents = jsonEvents.filter((e) => e!.type === 'story:stall')
@@ -1432,13 +1497,16 @@ describe('Story 24-3: interface-change-warning NDJSON event', () => {
     const allOutput = stdoutChunks.join('')
     const lines = allOutput.split('\n').filter((l) => l.trim().startsWith('{'))
     const warningEvents = lines
-      .map((l) => JSON.parse(l) as {
-        type: string
-        ts?: string
-        storyKey?: string
-        modifiedInterfaces?: string[]
-        potentiallyAffectedTests?: string[]
-      })
+      .map(
+        (l) =>
+          JSON.parse(l) as {
+            type: string
+            ts?: string
+            storyKey?: string
+            modifiedInterfaces?: string[]
+            potentiallyAffectedTests?: string[]
+          }
+      )
       .filter((e) => e.type === 'story:interface-change-warning')
 
     expect(warningEvents).toHaveLength(1)
@@ -1478,9 +1546,15 @@ describe('Story 24-3: interface-change-warning NDJSON event', () => {
 
     const allOutput = stdoutChunks.join('')
     const lines = allOutput.split('\n').filter((l) => l.trim().startsWith('{'))
-    const jsonEvents = lines.map((l) => {
-      try { return JSON.parse(l) as { type: string } } catch { return null }
-    }).filter(Boolean)
+    const jsonEvents = lines
+      .map((l) => {
+        try {
+          return JSON.parse(l) as { type: string }
+        } catch {
+          return null
+        }
+      })
+      .filter(Boolean)
 
     const warningEvents = jsonEvents.filter((e) => e!.type === 'story:interface-change-warning')
     expect(warningEvents).toHaveLength(0)

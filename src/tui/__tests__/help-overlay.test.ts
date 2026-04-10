@@ -109,7 +109,7 @@ describe('renderHelpOverlay', () => {
     const lines = renderHelpOverlay(defaultOpts)
     // Each binding is one line; count lines containing │ (box content lines, excluding border lines)
     const contentLines = lines.filter(
-      (l) => l.includes('│') && !l.includes('┌') && !l.includes('└') && !l.includes('├'),
+      (l) => l.includes('│') && !l.includes('┌') && !l.includes('└') && !l.includes('├')
     )
     // 1 header row + 5 binding rows = 6
     expect(contentLines.length).toBe(6)

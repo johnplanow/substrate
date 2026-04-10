@@ -13,9 +13,7 @@ import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import {
-  buildPipelineStatusOutput,
-} from '../pipeline-shared.js'
+import { buildPipelineStatusOutput } from '../pipeline-shared.js'
 import { getAutoHealthData } from '../health.js'
 
 // ---------------------------------------------------------------------------
@@ -35,7 +33,7 @@ async function createTestRun(
     current_phase?: string
     token_usage_json?: string | null
     updated_at?: string
-  } = {},
+  } = {}
 ): Promise<PipelineRun> {
   const run = await createPipelineRun(adapter, {
     methodology: 'bmad',
@@ -43,23 +41,37 @@ async function createTestRun(
     config_json: null,
   })
   if (overrides.status !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [overrides.status, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [
+      overrides.status,
+      run.id,
+    ])
   }
   if (overrides.current_phase !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [overrides.current_phase, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [
+      overrides.current_phase,
+      run.id,
+    ])
   }
   if (overrides.token_usage_json !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [overrides.token_usage_json, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [
+      overrides.token_usage_json,
+      run.id,
+    ])
   }
   if (overrides.updated_at !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET updated_at = ? WHERE id = ?`, [overrides.updated_at, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET updated_at = ? WHERE id = ?`, [
+      overrides.updated_at,
+      run.id,
+    ])
   }
-  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])
+  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [
+    run.id,
+  ])
   return rows[0]!
 }
 
 function makeOrchestratorState(
-  stories: Record<string, { phase: string; reviewCycles: number }>,
+  stories: Record<string, { phase: string; reviewCycles: number }>
 ): string {
   return JSON.stringify({ state: 'RUNNING', stories })
 }
@@ -197,7 +209,9 @@ vi.mock('../../../persistence/adapter.js', () => {
   let mockAdapter: DatabaseAdapter | null = null
   return {
     createDatabaseAdapter: () => mockAdapter!,
-    __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
+    __setMockAdapter: (a: DatabaseAdapter) => {
+      mockAdapter = a
+    },
   }
 })
 
@@ -206,7 +220,7 @@ vi.mock('../../../utils/git-root.js', () => ({
 }))
 
 vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     existsSync: vi.fn().mockReturnValue(true),
@@ -218,7 +232,7 @@ describe('AC2: Status and Health story completion counts agree', () => {
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/adapter.js') as {
+    const dbModule = (await import('../../../persistence/adapter.js')) as {
       __setMockAdapter: (a: DatabaseAdapter) => void
     }
     dbModule.__setMockAdapter(adapter)
@@ -337,10 +351,15 @@ describe('AC3: Status count updates after story completion', () => {
       '23-1': { phase: 'COMPLETE', reviewCycles: 1 },
       '23-2': { phase: 'PENDING', reviewCycles: 0 },
     })
-    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [updatedState, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [
+      updatedState,
+      run.id,
+    ])
 
     // Re-query the run (as status command does each invocation)
-    const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])
+    const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [
+      run.id,
+    ])
     const updatedRun = rows[0]!
     const after = buildPipelineStatusOutput(updatedRun, [], 0, 0)
 

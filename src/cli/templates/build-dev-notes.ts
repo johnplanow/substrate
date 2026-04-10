@@ -248,9 +248,5 @@ export function buildStackAwareDevNotes(profile: ProjectProfile | null): string 
     }
   }
 
-  return [
-    DEV_WORKFLOW_START_MARKER,
-    body,
-    DEV_WORKFLOW_END_MARKER,
-  ].join('\n')
+  return [DEV_WORKFLOW_START_MARKER, body, DEV_WORKFLOW_END_MARKER].join('\n')
 }

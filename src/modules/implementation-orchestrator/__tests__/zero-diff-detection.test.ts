@@ -64,10 +64,12 @@ vi.mock('node:fs', () => ({
   readdirSync: vi.fn().mockReturnValue([]),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
@@ -91,7 +93,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
         checks: [],
         status: 'pass',
         duration_ms: 0,
-      }),
+      })
     ),
     register: vi.fn(),
   })),
@@ -165,7 +167,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -281,10 +285,7 @@ describe('checkGitDiffFiles()', () => {
 
   it('returns empty array when neither diff has changes (zero-diff)', () => {
     // hasCommits(), then both diffs return empty
-    mockExecSync
-      .mockReturnValueOnce('abc123\n')
-      .mockReturnValueOnce('')
-      .mockReturnValueOnce('')
+    mockExecSync.mockReturnValueOnce('abc123\n').mockReturnValueOnce('').mockReturnValueOnce('')
 
     const result = checkGitDiffFiles('/some/dir')
 
@@ -294,9 +295,15 @@ describe('checkGitDiffFiles()', () => {
   it('handles git command failure gracefully and returns empty array', () => {
     // hasCommits() throws (not a git repo), then both diff calls also throw
     mockExecSync
-      .mockImplementationOnce(() => { throw new Error('not a git repository') })
-      .mockImplementationOnce(() => { throw new Error('not a git repository') })
-      .mockImplementationOnce(() => { throw new Error('not a git repository') })
+      .mockImplementationOnce(() => {
+        throw new Error('not a git repository')
+      })
+      .mockImplementationOnce(() => {
+        throw new Error('not a git repository')
+      })
+      .mockImplementationOnce(() => {
+        throw new Error('not a git repository')
+      })
 
     // Should not throw
     const result = checkGitDiffFiles('/some/dir')
@@ -338,15 +345,20 @@ describe('orchestrator: zero-diff detection gate', () => {
     //   5. checkGitDiffFiles: git ls-files --others → '' (empty)
     //   6. zero-diff gate: git rev-parse HEAD → aaa111 (same as baseline)
     mockExecSync
-      .mockReturnValueOnce('aaa111\n')   // baseline capture
-      .mockReturnValueOnce('aaa111\n')   // checkGitDiffFiles: hasCommits
-      .mockReturnValueOnce('')            // checkGitDiffFiles: unstaged
-      .mockReturnValueOnce('')            // checkGitDiffFiles: staged
-      .mockReturnValueOnce('')            // checkGitDiffFiles: untracked
-      .mockReturnValueOnce('aaa111\n')   // zero-diff gate: HEAD re-check
+      .mockReturnValueOnce('aaa111\n') // baseline capture
+      .mockReturnValueOnce('aaa111\n') // checkGitDiffFiles: hasCommits
+      .mockReturnValueOnce('') // checkGitDiffFiles: unstaged
+      .mockReturnValueOnce('') // checkGitDiffFiles: staged
+      .mockReturnValueOnce('') // checkGitDiffFiles: untracked
+      .mockReturnValueOnce('aaa111\n') // zero-diff gate: HEAD re-check
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     const status = await orchestrator.run(['24-1'])
@@ -362,22 +374,27 @@ describe('orchestrator: zero-diff detection gate', () => {
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
     // Same sequence as AC2 — HEAD unchanged, empty diff → genuine zero-diff
     mockExecSync
-      .mockReturnValueOnce('aaa111\n')   // baseline capture
-      .mockReturnValueOnce('aaa111\n')   // checkGitDiffFiles: hasCommits
-      .mockReturnValueOnce('')            // checkGitDiffFiles: unstaged
-      .mockReturnValueOnce('')            // checkGitDiffFiles: staged
-      .mockReturnValueOnce('')            // checkGitDiffFiles: untracked
-      .mockReturnValueOnce('aaa111\n')   // zero-diff gate: HEAD re-check
+      .mockReturnValueOnce('aaa111\n') // baseline capture
+      .mockReturnValueOnce('aaa111\n') // checkGitDiffFiles: hasCommits
+      .mockReturnValueOnce('') // checkGitDiffFiles: unstaged
+      .mockReturnValueOnce('') // checkGitDiffFiles: staged
+      .mockReturnValueOnce('') // checkGitDiffFiles: untracked
+      .mockReturnValueOnce('aaa111\n') // zero-diff gate: HEAD re-check
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['24-1'])
 
     const mockEmit = vi.mocked(eventBus.emit)
     const zeroEvent = mockEmit.mock.calls.find(
-      ([eventName]) => eventName === 'orchestrator:zero-diff-escalation',
+      ([eventName]) => eventName === 'orchestrator:zero-diff-escalation'
     )
     expect(zeroEvent).toBeDefined()
     const payload = zeroEvent![1] as { storyKey: string; reason: string }
@@ -403,16 +420,21 @@ describe('orchestrator: zero-diff detection gate', () => {
     //   6. zero-diff gate: git rev-parse HEAD → bbb222
     //   7+ build verification + code-review related calls
     mockExecSync
-      .mockReturnValueOnce('aaa111\n')   // baseline capture
-      .mockReturnValueOnce('bbb222\n')   // checkGitDiffFiles: rev-parse --verify HEAD
-      .mockReturnValueOnce('')            // checkGitDiffFiles: git diff --name-only HEAD
-      .mockReturnValueOnce('')            // checkGitDiffFiles: git diff --cached
-      .mockReturnValueOnce('')            // checkGitDiffFiles: git ls-files --others
-      .mockReturnValueOnce('bbb222\n')   // zero-diff gate: rev-parse HEAD
-      .mockReturnValue('')                // remaining calls (build verification etc.)
+      .mockReturnValueOnce('aaa111\n') // baseline capture
+      .mockReturnValueOnce('bbb222\n') // checkGitDiffFiles: rev-parse --verify HEAD
+      .mockReturnValueOnce('') // checkGitDiffFiles: git diff --name-only HEAD
+      .mockReturnValueOnce('') // checkGitDiffFiles: git diff --cached
+      .mockReturnValueOnce('') // checkGitDiffFiles: git ls-files --others
+      .mockReturnValueOnce('bbb222\n') // zero-diff gate: rev-parse HEAD
+      .mockReturnValue('') // remaining calls (build verification etc.)
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     const status = await orchestrator.run(['24-1'])
@@ -423,7 +445,7 @@ describe('orchestrator: zero-diff detection gate', () => {
     // Zero-diff-escalation event should NOT have been emitted
     const mockEmit = vi.mocked(eventBus.emit)
     const zeroEvent = mockEmit.mock.calls.find(
-      ([eventName]) => eventName === 'orchestrator:zero-diff-escalation',
+      ([eventName]) => eventName === 'orchestrator:zero-diff-escalation'
     )
     expect(zeroEvent).toBeUndefined()
   })
@@ -436,7 +458,12 @@ describe('orchestrator: zero-diff detection gate', () => {
     mockExecSync.mockReturnValue('src/implementation.ts\n')
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     const status = await orchestrator.run(['24-1'])
@@ -451,14 +478,19 @@ describe('orchestrator: zero-diff detection gate', () => {
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
     // baseline capture, then hasCommits() succeeds, HEAD diff returns empty, staged returns files
     mockExecSync
-      .mockReturnValueOnce('abc123\n')   // baseline capture
-      .mockReturnValueOnce('abc123\n')   // checkGitDiffFiles: rev-parse --verify HEAD
-      .mockReturnValueOnce('')            // checkGitDiffFiles: git diff --name-only HEAD
-      .mockReturnValueOnce('src/staged-change.ts\n')  // checkGitDiffFiles: git diff --cached
-      .mockReturnValue('')                // remaining calls
+      .mockReturnValueOnce('abc123\n') // baseline capture
+      .mockReturnValueOnce('abc123\n') // checkGitDiffFiles: rev-parse --verify HEAD
+      .mockReturnValueOnce('') // checkGitDiffFiles: git diff --name-only HEAD
+      .mockReturnValueOnce('src/staged-change.ts\n') // checkGitDiffFiles: git diff --cached
+      .mockReturnValue('') // remaining calls
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     const status = await orchestrator.run(['24-1'])
@@ -476,7 +508,12 @@ describe('orchestrator: zero-diff detection gate', () => {
     mockExecSync.mockReturnValue('')
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['24-1'])
@@ -484,7 +521,7 @@ describe('orchestrator: zero-diff detection gate', () => {
     // Zero-diff-escalation event should NOT have been emitted
     const mockEmit = vi.mocked(eventBus.emit)
     const zeroEvent = mockEmit.mock.calls.find(
-      ([eventName]) => eventName === 'orchestrator:zero-diff-escalation',
+      ([eventName]) => eventName === 'orchestrator:zero-diff-escalation'
     )
     expect(zeroEvent).toBeUndefined()
   })

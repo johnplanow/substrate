@@ -190,7 +190,13 @@ describe('RoutingTuner.maybeAutoTune — no-op when auto_tune disabled (AC5)', (
     const recommender = new RoutingRecommender(createMockLogger())
     const eventBus = createMockEventBus()
 
-    const tuner = new RoutingTuner(stateStore, recommender, eventBus, '/path/routing.yml', createMockLogger())
+    const tuner = new RoutingTuner(
+      stateStore,
+      recommender,
+      eventBus,
+      '/path/routing.yml',
+      createMockLogger()
+    )
 
     await tuner.maybeAutoTune('run-001', DISABLED_CONFIG)
 
@@ -206,7 +212,13 @@ describe('RoutingTuner.maybeAutoTune — no-op when auto_tune disabled (AC5)', (
     const eventBus = createMockEventBus()
 
     const configNoTune: ModelRoutingConfig = { ...BASE_CONFIG, auto_tune: undefined }
-    const tuner = new RoutingTuner(stateStore, recommender, eventBus, '/path/routing.yml', createMockLogger())
+    const tuner = new RoutingTuner(
+      stateStore,
+      recommender,
+      eventBus,
+      '/path/routing.yml',
+      createMockLogger()
+    )
 
     await tuner.maybeAutoTune('run-001', configNoTune)
 
@@ -227,7 +239,13 @@ describe('RoutingTuner.maybeAutoTune — no-op with insufficient data (AC5)', ()
     // Only 3 breakdowns seeded (below the 5-breakdown threshold in RoutingTuner)
     await seedBreakdowns(stateStore, 3)
 
-    const tuner = new RoutingTuner(stateStore, recommender, eventBus, '/path/routing.yml', createMockLogger())
+    const tuner = new RoutingTuner(
+      stateStore,
+      recommender,
+      eventBus,
+      '/path/routing.yml',
+      createMockLogger()
+    )
     await tuner.maybeAutoTune('run-new', BASE_CONFIG)
 
     // No file writes, no event emitted
@@ -242,7 +260,13 @@ describe('RoutingTuner.maybeAutoTune — no-op with insufficient data (AC5)', ()
 
     await seedBreakdowns(stateStore, 4)
 
-    const tuner = new RoutingTuner(stateStore, recommender, eventBus, '/path/routing.yml', createMockLogger())
+    const tuner = new RoutingTuner(
+      stateStore,
+      recommender,
+      eventBus,
+      '/path/routing.yml',
+      createMockLogger()
+    )
     await tuner.maybeAutoTune('run-new', BASE_CONFIG)
 
     expect(mockWriteFileSync).not.toHaveBeenCalled()
@@ -263,7 +287,13 @@ describe('RoutingTuner.maybeAutoTune — happy path (AC4)', () => {
     // Seed 6 breakdowns with low output ratio → downgrade recommendation
     await seedBreakdowns(stateStore, 6)
 
-    const tuner = new RoutingTuner(stateStore, recommender, eventBus, '/path/routing.yml', createMockLogger())
+    const tuner = new RoutingTuner(
+      stateStore,
+      recommender,
+      eventBus,
+      '/path/routing.yml',
+      createMockLogger()
+    )
     await tuner.maybeAutoTune('run-new', BASE_CONFIG)
 
     // Config file should be written
@@ -290,7 +320,13 @@ describe('RoutingTuner.maybeAutoTune — happy path (AC4)', () => {
 
     await seedBreakdowns(stateStore, 6)
 
-    const tuner = new RoutingTuner(stateStore, recommender, eventBus, '/path/routing.yml', createMockLogger())
+    const tuner = new RoutingTuner(
+      stateStore,
+      recommender,
+      eventBus,
+      '/path/routing.yml',
+      createMockLogger()
+    )
     await tuner.maybeAutoTune('run-new', BASE_CONFIG)
 
     // The run index should have been updated to include run-new
@@ -312,7 +348,13 @@ describe('RoutingTuner.maybeAutoTune — tune log growth (AC6)', () => {
 
     // First run
     await seedBreakdowns(stateStore, 6)
-    const tuner = new RoutingTuner(stateStore, recommender, eventBus, '/path/routing.yml', createMockLogger())
+    const tuner = new RoutingTuner(
+      stateStore,
+      recommender,
+      eventBus,
+      '/path/routing.yml',
+      createMockLogger()
+    )
     await tuner.maybeAutoTune('run-A', BASE_CONFIG)
 
     const logAfterFirst = await stateStore.getMetric('__global__', 'routing_tune_log')
@@ -320,9 +362,19 @@ describe('RoutingTuner.maybeAutoTune — tune log growth (AC6)', () => {
     expect((logAfterFirst as TuneLogEntry[]).length).toBe(1)
 
     // Second run (new breakdowns needed — add them to the run index)
-    await stateStore.setMetric('run-B-extra', 'phase_token_breakdown', makeLowRatioBreakdown('run-B-extra'))
-    const existingIds = await stateStore.getMetric('__global__', 'phase_token_breakdown_runs') as string[]
-    await stateStore.setMetric('__global__', 'phase_token_breakdown_runs', [...existingIds, 'run-B-extra'])
+    await stateStore.setMetric(
+      'run-B-extra',
+      'phase_token_breakdown',
+      makeLowRatioBreakdown('run-B-extra')
+    )
+    const existingIds = (await stateStore.getMetric(
+      '__global__',
+      'phase_token_breakdown_runs'
+    )) as string[]
+    await stateStore.setMetric('__global__', 'phase_token_breakdown_runs', [
+      ...existingIds,
+      'run-B-extra',
+    ])
 
     // Reset mocks so writeFileSync/emit are callable again
     vi.mocked(eventBus.emit).mockClear()
@@ -341,10 +393,16 @@ describe('RoutingTuner.maybeAutoTune — tune log growth (AC6)', () => {
     const eventBus = createMockEventBus()
 
     await seedBreakdowns(stateStore, 6)
-    const tuner = new RoutingTuner(stateStore, recommender, eventBus, '/path/routing.yml', createMockLogger())
+    const tuner = new RoutingTuner(
+      stateStore,
+      recommender,
+      eventBus,
+      '/path/routing.yml',
+      createMockLogger()
+    )
     await tuner.maybeAutoTune('run-check', BASE_CONFIG)
 
-    const log = await stateStore.getMetric('__global__', 'routing_tune_log') as TuneLogEntry[]
+    const log = (await stateStore.getMetric('__global__', 'routing_tune_log')) as TuneLogEntry[]
     const entry = log[0]!
 
     expect(entry).toBeDefined()
@@ -376,9 +434,27 @@ describe('RoutingTuner.maybeAutoTune — one-step-only guard (AC4)', () => {
       runId,
       baselineModel: 'claude-sonnet-4-5',
       entries: [
-        { phase: 'explore', model: 'claude-sonnet-4-5', inputTokens: 9000, outputTokens: 500, dispatchCount: 3 },
-        { phase: 'generate', model: 'claude-sonnet-4-5', inputTokens: 9000, outputTokens: 500, dispatchCount: 3 },
-        { phase: 'review', model: 'claude-sonnet-4-5', inputTokens: 9000, outputTokens: 500, dispatchCount: 3 },
+        {
+          phase: 'explore',
+          model: 'claude-sonnet-4-5',
+          inputTokens: 9000,
+          outputTokens: 500,
+          dispatchCount: 3,
+        },
+        {
+          phase: 'generate',
+          model: 'claude-sonnet-4-5',
+          inputTokens: 9000,
+          outputTokens: 500,
+          dispatchCount: 3,
+        },
+        {
+          phase: 'review',
+          model: 'claude-sonnet-4-5',
+          inputTokens: 9000,
+          outputTokens: 500,
+          dispatchCount: 3,
+        },
       ],
     })
 
@@ -390,7 +466,13 @@ describe('RoutingTuner.maybeAutoTune — one-step-only guard (AC4)', () => {
     }
     await stateStore.setMetric('__global__', 'phase_token_breakdown_runs', runIds)
 
-    const tuner = new RoutingTuner(stateStore, recommender, eventBus, '/path/routing.yml', createMockLogger())
+    const tuner = new RoutingTuner(
+      stateStore,
+      recommender,
+      eventBus,
+      '/path/routing.yml',
+      createMockLogger()
+    )
     await tuner.maybeAutoTune('run-new', BASE_CONFIG)
 
     // Only one event should be emitted (one phase changed)
@@ -422,10 +504,16 @@ describe('RoutingTuner.maybeAutoTune — one-step-only guard (AC4)', () => {
       ],
       analysisRuns: 6,
       insufficientData: false,
-      phaseOutputRatios: { explore: 0.10 },
+      phaseOutputRatios: { explore: 0.1 },
     })
 
-    const tuner = new RoutingTuner(stateStore, recommender, eventBus, '/path/routing.yml', createMockLogger())
+    const tuner = new RoutingTuner(
+      stateStore,
+      recommender,
+      eventBus,
+      '/path/routing.yml',
+      createMockLogger()
+    )
     await tuner.maybeAutoTune('run-two-step', BASE_CONFIG)
 
     // Two-step jump (opus tier=3, haiku tier=1, diff=2) must be rejected — no write, no event
@@ -467,7 +555,13 @@ describe('RoutingTuner.maybeAutoTune — no_safe_recommendation when all phases 
     }
     await stateStore.setMetric('__global__', 'phase_token_breakdown_runs', runIds)
 
-    const tuner = new RoutingTuner(stateStore, recommender, eventBus, '/path/routing.yml', createMockLogger())
+    const tuner = new RoutingTuner(
+      stateStore,
+      recommender,
+      eventBus,
+      '/path/routing.yml',
+      createMockLogger()
+    )
     await tuner.maybeAutoTune('run-neutral', BASE_CONFIG)
 
     // Neutral zone produces no downgrade candidates → no_safe_recommendation path

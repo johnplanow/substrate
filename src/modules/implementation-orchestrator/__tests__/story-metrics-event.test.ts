@@ -41,7 +41,9 @@ vi.mock('../../compiled-workflows/index.js', () => ({
   planTaskBatches: vi.fn().mockReturnValue([]),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
@@ -55,7 +57,9 @@ vi.mock('node:child_process', async (importOriginal) => {
   }
 })
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockResolvedValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockResolvedValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 // Mock @substrate-ai/sdlc so the Tier A verification pipeline always passes in unit tests (Story 51-5)
 vi.mock('@substrate-ai/sdlc', () => ({
@@ -66,7 +70,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
         checks: [],
         status: 'pass',
         duration_ms: 0,
-      }),
+      })
     ),
     register: vi.fn(),
   })),
@@ -108,7 +112,11 @@ function createMockPack(): MethodologyPack {
 }
 
 function createMockContextCompiler(): ContextCompiler {
-  return { compile: vi.fn(), registerTemplate: vi.fn(), getTemplate: vi.fn() } as unknown as ContextCompiler
+  return {
+    compile: vi.fn(),
+    registerTemplate: vi.fn(),
+    getTemplate: vi.fn(),
+  } as unknown as ContextCompiler
 }
 
 function createMockDispatcher(): Dispatcher {
@@ -125,7 +133,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockResult),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   } as unknown as Dispatcher
 }

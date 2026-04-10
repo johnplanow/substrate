@@ -48,12 +48,12 @@ function insertRun(
   adapter: InMemoryDatabaseAdapter,
   id: string,
   status: string = 'running',
-  parentRunId: string | null = null,
+  parentRunId: string | null = null
 ): void {
   adapter.querySync(
     `INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
     VALUES (?, 'bmad', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-    [id, status, parentRunId],
+    [id, status, parentRunId]
   )
 }
 
@@ -70,7 +70,7 @@ function insertDecision(
     key?: string
     value?: string
     supersededBy?: string | null
-  } = {},
+  } = {}
 ): void {
   const {
     phase = 'analysis',
@@ -83,7 +83,7 @@ function insertDecision(
   adapter.querySync(
     `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, superseded_by, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-    [id, runId, phase, category, key, value, supersededBy],
+    [id, runId, phase, category, key, value, supersededBy]
   )
 }
 
@@ -108,7 +108,9 @@ describe('createAmendmentRun()', () => {
       parentRunId: 'nonexistent-run-id',
       methodology: 'bmad',
     }
-    await expect(createAmendmentRun(adapter, input)).rejects.toThrow('Parent run not found: nonexistent-run-id')
+    await expect(createAmendmentRun(adapter, input)).rejects.toThrow(
+      'Parent run not found: nonexistent-run-id'
+    )
   })
 
   it('AC1: throws when parent run status is "running" (not completed)', async () => {
@@ -119,7 +121,7 @@ describe('createAmendmentRun()', () => {
       methodology: 'bmad',
     }
     await expect(createAmendmentRun(adapter, input)).rejects.toThrow(
-      'Parent run is not completed (status: running). Only completed runs can be amended.',
+      'Parent run is not completed (status: running). Only completed runs can be amended.'
     )
   })
 
@@ -131,7 +133,7 @@ describe('createAmendmentRun()', () => {
       methodology: 'bmad',
     }
     await expect(createAmendmentRun(adapter, input)).rejects.toThrow(
-      'Parent run is not completed (status: failed). Only completed runs can be amended.',
+      'Parent run is not completed (status: failed). Only completed runs can be amended.'
     )
   })
 
@@ -143,7 +145,7 @@ describe('createAmendmentRun()', () => {
       methodology: 'bmad',
     }
     await expect(createAmendmentRun(adapter, input)).rejects.toThrow(
-      'Parent run is not completed (status: paused). Only completed runs can be amended.',
+      'Parent run is not completed (status: paused). Only completed runs can be amended.'
     )
   })
 
@@ -155,7 +157,7 @@ describe('createAmendmentRun()', () => {
       methodology: 'bmad',
     }
     await expect(createAmendmentRun(adapter, input)).rejects.toThrow(
-      'Parent run is not completed (status: stopped). Only completed runs can be amended.',
+      'Parent run is not completed (status: stopped). Only completed runs can be amended.'
     )
   })
 
@@ -208,7 +210,7 @@ describe('createAmendmentRun()', () => {
 
     const row = adapter.querySync<{ config_json: string }>(
       'SELECT config_json FROM pipeline_runs WHERE id = ?',
-      [newId],
+      [newId]
     )[0]
     expect(row?.config_json).toBe('{"key":"value"}')
   })
@@ -282,15 +284,15 @@ describe('loadParentRunDecisions()', () => {
     // Insert with explicit timestamps to ensure ordering
     adapter.querySync(
       `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, superseded_by, created_at, updated_at)
-      VALUES ('dec-z', 'parent-run', 'analysis', 'cat', 'z', 'v', NULL, '2024-01-03T00:00:00', '2024-01-03T00:00:00')`,
+      VALUES ('dec-z', 'parent-run', 'analysis', 'cat', 'z', 'v', NULL, '2024-01-03T00:00:00', '2024-01-03T00:00:00')`
     )
     adapter.querySync(
       `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, superseded_by, created_at, updated_at)
-      VALUES ('dec-a', 'parent-run', 'analysis', 'cat', 'a', 'v', NULL, '2024-01-01T00:00:00', '2024-01-01T00:00:00')`,
+      VALUES ('dec-a', 'parent-run', 'analysis', 'cat', 'a', 'v', NULL, '2024-01-01T00:00:00', '2024-01-01T00:00:00')`
     )
     adapter.querySync(
       `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, superseded_by, created_at, updated_at)
-      VALUES ('dec-m', 'parent-run', 'analysis', 'cat', 'm', 'v', NULL, '2024-01-02T00:00:00', '2024-01-02T00:00:00')`,
+      VALUES ('dec-m', 'parent-run', 'analysis', 'cat', 'm', 'v', NULL, '2024-01-02T00:00:00', '2024-01-02T00:00:00')`
     )
 
     const result = await loadParentRunDecisions(adapter, 'parent-run')
@@ -317,15 +319,15 @@ describe('supersedeDecision()', () => {
   })
 
   it('AC3: throws "Decision not found" when originalDecisionId does not exist', async () => {
-    await expect(
-      supersedeDecision(adapter, 'does-not-exist', 'superseding-dec'),
-    ).rejects.toThrow('Decision not found: does-not-exist')
+    await expect(supersedeDecision(adapter, 'does-not-exist', 'superseding-dec')).rejects.toThrow(
+      'Decision not found: does-not-exist'
+    )
   })
 
   it('AC3: throws "Superseding decision not found" when supersedingDecisionId does not exist', async () => {
-    await expect(
-      supersedeDecision(adapter, 'original-dec', 'does-not-exist'),
-    ).rejects.toThrow('Superseding decision not found: does-not-exist')
+    await expect(supersedeDecision(adapter, 'original-dec', 'does-not-exist')).rejects.toThrow(
+      'Superseding decision not found: does-not-exist'
+    )
   })
 
   it('AC3: throws "Decision is already superseded" when originalDecisionId already has superseded_by set', async () => {
@@ -334,9 +336,9 @@ describe('supersedeDecision()', () => {
 
     // Create another superseder to attempt a second supersession
     insertDecision(adapter, 'another-superseder', 'run-for-supersede', { key: 'another' })
-    await expect(
-      supersedeDecision(adapter, 'original-dec', 'another-superseder'),
-    ).rejects.toThrow('Decision original-dec is already superseded')
+    await expect(supersedeDecision(adapter, 'original-dec', 'another-superseder')).rejects.toThrow(
+      'Decision original-dec is already superseded'
+    )
   })
 
   it('AC3: successfully updates superseded_by on the original decision', async () => {
@@ -344,7 +346,7 @@ describe('supersedeDecision()', () => {
 
     const row = adapter.querySync<{ superseded_by: string }>(
       'SELECT superseded_by FROM decisions WHERE id = ?',
-      ['original-dec'],
+      ['original-dec']
     )[0]
     expect(row?.superseded_by).toBe('superseding-dec')
   })
@@ -359,7 +361,7 @@ describe('supersedeDecision()', () => {
 
     const row = adapter.querySync<{ superseded_by: string | null }>(
       'SELECT superseded_by FROM decisions WHERE id = ?',
-      ['superseding-dec'],
+      ['superseding-dec']
     )[0]
     expect(row?.superseded_by).toBeNull()
   })
@@ -378,14 +380,42 @@ describe('getActiveDecisions()', () => {
     insertRun(adapter, 'run-b', 'running')
 
     // Insert decisions across two runs with various attributes
-    insertDecision(adapter, 'dec-a1', 'run-a', { phase: 'analysis', category: 'arch', key: 'key1', value: 'v1' })
-    insertDecision(adapter, 'dec-a2', 'run-a', { phase: 'planning', category: 'tech', key: 'key2', value: 'v2' })
-    insertDecision(adapter, 'dec-a3', 'run-a', { phase: 'analysis', category: 'arch', key: 'key3', value: 'v3' })
-    insertDecision(adapter, 'dec-b1', 'run-b', { phase: 'analysis', category: 'arch', key: 'key1', value: 'v4' })
+    insertDecision(adapter, 'dec-a1', 'run-a', {
+      phase: 'analysis',
+      category: 'arch',
+      key: 'key1',
+      value: 'v1',
+    })
+    insertDecision(adapter, 'dec-a2', 'run-a', {
+      phase: 'planning',
+      category: 'tech',
+      key: 'key2',
+      value: 'v2',
+    })
+    insertDecision(adapter, 'dec-a3', 'run-a', {
+      phase: 'analysis',
+      category: 'arch',
+      key: 'key3',
+      value: 'v3',
+    })
+    insertDecision(adapter, 'dec-b1', 'run-b', {
+      phase: 'analysis',
+      category: 'arch',
+      key: 'key1',
+      value: 'v4',
+    })
 
     // Supersede dec-a1
-    insertDecision(adapter, 'dec-a1-new', 'run-a', { phase: 'analysis', category: 'arch', key: 'key1-new', value: 'v5' })
-    adapter.querySync('UPDATE decisions SET superseded_by = ? WHERE id = ?', ['dec-a1-new', 'dec-a1'])
+    insertDecision(adapter, 'dec-a1-new', 'run-a', {
+      phase: 'analysis',
+      category: 'arch',
+      key: 'key1-new',
+      value: 'v5',
+    })
+    adapter.querySync('UPDATE decisions SET superseded_by = ? WHERE id = ?', [
+      'dec-a1-new',
+      'dec-a1',
+    ])
   })
 
   afterEach(async () => {
@@ -442,7 +472,10 @@ describe('getActiveDecisions()', () => {
   })
 
   it('AC4: supports combined filters (pipeline_run_id + phase)', async () => {
-    const result = await getActiveDecisions(adapter, { pipeline_run_id: 'run-a', phase: 'analysis' })
+    const result = await getActiveDecisions(adapter, {
+      pipeline_run_id: 'run-a',
+      phase: 'analysis',
+    })
     const ids = result.map((d) => d.id)
     expect(ids).not.toContain('dec-a1') // superseded
     expect(ids).toContain('dec-a3')
@@ -462,15 +495,15 @@ describe('getActiveDecisions()', () => {
     insertRun(adapter, 'run-ordered', 'running')
     adapter.querySync(
       `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, superseded_by, created_at, updated_at)
-      VALUES ('ord-z', 'run-ordered', 'analysis', 'cat', 'z', 'v', NULL, '2024-03-01T00:00:00', '2024-03-01T00:00:00')`,
+      VALUES ('ord-z', 'run-ordered', 'analysis', 'cat', 'z', 'v', NULL, '2024-03-01T00:00:00', '2024-03-01T00:00:00')`
     )
     adapter.querySync(
       `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, superseded_by, created_at, updated_at)
-      VALUES ('ord-a', 'run-ordered', 'analysis', 'cat', 'a', 'v', NULL, '2024-01-01T00:00:00', '2024-01-01T00:00:00')`,
+      VALUES ('ord-a', 'run-ordered', 'analysis', 'cat', 'a', 'v', NULL, '2024-01-01T00:00:00', '2024-01-01T00:00:00')`
     )
     adapter.querySync(
       `INSERT INTO decisions (id, pipeline_run_id, phase, category, key, value, superseded_by, created_at, updated_at)
-      VALUES ('ord-m', 'run-ordered', 'analysis', 'cat', 'm', 'v', NULL, '2024-02-01T00:00:00', '2024-02-01T00:00:00')`,
+      VALUES ('ord-m', 'run-ordered', 'analysis', 'cat', 'm', 'v', NULL, '2024-02-01T00:00:00', '2024-02-01T00:00:00')`
     )
 
     const result = await getActiveDecisions(adapter, { pipeline_run_id: 'run-ordered' })
@@ -538,7 +571,7 @@ describe('getAmendmentRunChain()', () => {
     insertRun(adapter, 'depth-r2', 'running', 'depth-r1')
 
     await expect(getAmendmentRunChain(adapter, 'depth-r2', 1)).rejects.toThrow(
-      'Amendment chain depth exceeded maxDepth (1). Possible circular reference.',
+      'Amendment chain depth exceeded maxDepth (1). Possible circular reference.'
     )
   })
 
@@ -582,7 +615,7 @@ describe('getAmendmentRunChain()', () => {
     insertRun(adapter, 'md-3', 'running', 'md-2')
 
     await expect(getAmendmentRunChain(adapter, 'md-3', 2)).rejects.toThrow(
-      'Amendment chain depth exceeded maxDepth (2). Possible circular reference.',
+      'Amendment chain depth exceeded maxDepth (2). Possible circular reference.'
     )
   })
 })
@@ -626,15 +659,15 @@ describe('getLatestCompletedRun()', () => {
   it('AC6: returns the most recently created completed run when multiple exist', async () => {
     adapter.querySync(
       `INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
-      VALUES ('old-completed', 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')`,
+      VALUES ('old-completed', 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')`
     )
     adapter.querySync(
       `INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
-      VALUES ('new-completed', 'bmad', 'completed', '2024-06-01T00:00:00', '2024-06-01T00:00:00')`,
+      VALUES ('new-completed', 'bmad', 'completed', '2024-06-01T00:00:00', '2024-06-01T00:00:00')`
     )
     adapter.querySync(
       `INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
-      VALUES ('mid-completed', 'bmad', 'completed', '2024-03-01T00:00:00', '2024-03-01T00:00:00')`,
+      VALUES ('mid-completed', 'bmad', 'completed', '2024-03-01T00:00:00', '2024-03-01T00:00:00')`
     )
 
     const result = await getLatestCompletedRun(adapter)
@@ -644,11 +677,11 @@ describe('getLatestCompletedRun()', () => {
   it('AC6: ignores non-completed runs when selecting most recent', async () => {
     adapter.querySync(
       `INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
-      VALUES ('completed-1', 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')`,
+      VALUES ('completed-1', 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')`
     )
     adapter.querySync(
       `INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
-      VALUES ('running-newer', 'bmad', 'running', '2024-12-01T00:00:00', '2024-12-01T00:00:00')`,
+      VALUES ('running-newer', 'bmad', 'running', '2024-12-01T00:00:00', '2024-12-01T00:00:00')`
     )
 
     const result = await getLatestCompletedRun(adapter)
@@ -692,10 +725,12 @@ describe('AC7: Parameterized query safety', () => {
         id: newId,
         parentRunId: 'safe-parent-run',
         methodology: 'bmad',
-      }),
+      })
     ).resolves.not.toThrow() // SQLite TEXT can store this string; no injection risk
     // Verify the table still exists
-    const count = adapter.querySync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM pipeline_runs')[0]!
+    const count = adapter.querySync<{ cnt: number }>(
+      'SELECT COUNT(*) as cnt FROM pipeline_runs'
+    )[0]!
     expect(count.cnt).toBeGreaterThanOrEqual(1)
   })
 

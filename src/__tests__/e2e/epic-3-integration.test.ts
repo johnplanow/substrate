@@ -34,11 +34,7 @@ import * as path from 'node:path'
 import type { TypedEventBus } from '../../core/event-bus.js'
 import { GitWorktreeManagerImpl } from '../../modules/git-worktree/git-worktree-manager-impl.js'
 import type { LegacyDbLike } from '../../modules/git-worktree/git-worktree-manager-impl.js'
-import {
-  mergeAll,
-  MERGE_EXIT_SUCCESS,
-  MERGE_EXIT_CONFLICT,
-} from '../../cli/commands/merge.js'
+import { mergeAll, MERGE_EXIT_SUCCESS, MERGE_EXIT_CONFLICT } from '../../cli/commands/merge.js'
 import { registerMergeCommand } from '../../cli/commands/merge.js'
 
 // ---------------------------------------------------------------------------
@@ -50,7 +46,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return {
     ...actual,
     access: vi.fn(async () => undefined), // Default: worktree exists
-    readdir: vi.fn(async () => []),        // Default: empty directory
+    readdir: vi.fn(async () => []), // Default: empty directory
     stat: vi.fn(async () => ({
       birthtime: new Date('2024-03-01T10:00:00Z'),
       ctime: new Date('2024-03-01T10:00:00Z'),
@@ -111,10 +107,10 @@ function createRealEventBus(): TypedEventBus & {
       emitter.emit(event, payload)
     }) as TypedEventBus['emit'],
     on: vi.fn((event: string, handler: (payload: unknown) => void) =>
-      emitter.on(event, handler),
+      emitter.on(event, handler)
     ) as TypedEventBus['on'],
     off: vi.fn((event: string, handler: (payload: unknown) => void) =>
-      emitter.off(event, handler),
+      emitter.off(event, handler)
     ) as TypedEventBus['off'],
     getEmittedEvents: () => events,
   }
@@ -145,22 +141,18 @@ function createMockDb(): LegacyDbLike {
  */
 async function runMergeCommand(
   args: string[],
-  projectRoot = PROJECT_ROOT,
+  projectRoot = PROJECT_ROOT
 ): Promise<{ output: string; error: string; exitCode: number }> {
   let capturedOutput = ''
   let capturedError = ''
 
   // merge.ts uses console.log (not process.stdout.write) for its output
-  const consoleSpy = vi
-    .spyOn(console, 'log')
-    .mockImplementation((...parts: unknown[]) => {
-      capturedOutput += parts.join(' ') + '\n'
-    })
-  const consoleErrorSpy = vi
-    .spyOn(console, 'error')
-    .mockImplementation((...parts: unknown[]) => {
-      capturedError += parts.join(' ') + '\n'
-    })
+  const consoleSpy = vi.spyOn(console, 'log').mockImplementation((...parts: unknown[]) => {
+    capturedOutput += parts.join(' ') + '\n'
+  })
+  const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...parts: unknown[]) => {
+    capturedError += parts.join(' ') + '\n'
+  })
   // Also capture process.stderr.write for other error output paths
   const stderrSpy = vi
     .spyOn(process.stderr, 'write')
@@ -309,7 +301,9 @@ describe('GAP-E3-1: Full worktree lifecycle — task:ready → merge → cleanup
     expect(report.hasConflicts).toBe(true)
     expect(report.conflictingFiles).toEqual(['src/conflict.ts'])
 
-    const conflictEvents = eventBus.getEmittedEvents().filter((e) => e.event === 'worktree:conflict')
+    const conflictEvents = eventBus
+      .getEmittedEvents()
+      .filter((e) => e.event === 'worktree:conflict')
     expect(conflictEvents).toHaveLength(1)
     expect((conflictEvents[0]!.payload as { taskId: string }).taskId).toBe('task-conflict-flow')
 
@@ -382,8 +376,8 @@ describe('GAP-E3-2: mergeAll() powered by listWorktrees() discovery', () => {
 
     // task-ok merges cleanly; task-bad has conflicts
     vi.mocked(gitUtils.simulateMerge)
-      .mockResolvedValueOnce(true)   // task-ok: detectConflicts inside mergeWorktree
-      .mockResolvedValueOnce(false)  // task-bad: detectConflicts inside mergeWorktree
+      .mockResolvedValueOnce(true) // task-ok: detectConflicts inside mergeWorktree
+      .mockResolvedValueOnce(false) // task-bad: detectConflicts inside mergeWorktree
 
     vi.mocked(gitUtils.getConflictingFiles).mockResolvedValueOnce(['bad.ts'])
     vi.mocked(gitUtils.getMergedFiles).mockResolvedValueOnce(['ok.ts'])
@@ -425,7 +419,7 @@ describe('GAP-E3-3: Merge followed by cleanup — worktree:merged then worktree:
 
     expect(gitUtils.removeBranch).toHaveBeenCalledWith(
       'substrate/task-task-post-merge',
-      PROJECT_ROOT,
+      PROJECT_ROOT
     )
 
     const allEvents = eventBus.getEmittedEvents().map((e) => e.event)
@@ -472,7 +466,7 @@ describe('GAP-E3-3: Merge followed by cleanup — worktree:merged then worktree:
 
     expect(removedEvent).toBeDefined()
     expect((removedEvent!.payload as { branchName: string }).branchName).toBe(
-      'substrate/task-task-chain',
+      'substrate/task-task-chain'
     )
   })
 })
@@ -627,9 +621,7 @@ describe('GAP-E3-6: Cross-story event sequencing — worktrees discovered via li
     // This tests the naming contract between story 3-3 (listWorktrees) and
     // story 3-2 (mergeWorktree): listWorktrees returns branchName = "substrate/task-{taskId}"
     // and mergeWorktree also computes branchName as "substrate/task-{taskId}".
-    const worktreePaths = [
-      path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-naming-check'),
-    ]
+    const worktreePaths = [path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-naming-check')]
     vi.mocked(gitUtils.getOrphanedWorktrees).mockResolvedValue(worktreePaths)
     vi.mocked(fsp.stat).mockResolvedValue({
       birthtime: new Date('2024-03-01T10:00:00Z'),
@@ -653,7 +645,7 @@ describe('GAP-E3-6: Cross-story event sequencing — worktrees discovered via li
     // The simulateMerge call should have used the branch name format matching worktrees listing
     expect(gitUtils.simulateMerge).toHaveBeenCalledWith(
       'substrate/task-task-naming-check',
-      PROJECT_ROOT,
+      PROJECT_ROOT
     )
   })
 

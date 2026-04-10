@@ -119,7 +119,7 @@ function makeSequentialDispatcher(outputs: unknown[]): Dispatcher {
 }
 
 function makePack(
-  promptTemplate = 'UX design prompt: {{product_brief}} {{requirements}}',
+  promptTemplate = 'UX design prompt: {{product_brief}} {{requirements}}'
 ): MethodologyPack {
   return {
     manifest: {
@@ -157,7 +157,7 @@ function makeContextCompiler(): ContextCompiler {
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack?: MethodologyPack,
+  pack?: MethodologyPack
 ): PhaseDeps {
   return {
     db: adapter,

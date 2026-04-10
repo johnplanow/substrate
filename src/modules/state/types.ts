@@ -245,7 +245,13 @@ export interface HistoryEntry {
 /**
  * Status values for work-graph story nodes.
  */
-export type WgStoryStatus = 'planned' | 'ready' | 'in_progress' | 'complete' | 'escalated' | 'blocked'
+export type WgStoryStatus =
+  | 'planned'
+  | 'ready'
+  | 'in_progress'
+  | 'complete'
+  | 'escalated'
+  | 'blocked'
 
 /**
  * A work-graph story node representing a planning-level story.

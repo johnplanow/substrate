@@ -31,10 +31,7 @@ export class SymbolParser implements ISymbolParser {
     const parsePromise = this._doParse(filePath, grammar)
     const timeoutPromise: Promise<never> = new Promise((_, reject) =>
       setTimeout(
-        () =>
-          reject(
-            new AppError(ERR_REPO_MAP_PARSE_TIMEOUT, 2, `Parse timeout: ${filePath}`)
-          ),
+        () => reject(new AppError(ERR_REPO_MAP_PARSE_TIMEOUT, 2, `Parse timeout: ${filePath}`)),
         5000
       )
     )
@@ -92,11 +89,7 @@ export class SymbolParser implements ISymbolParser {
     return symbols
   }
 
-  private _nodeToSymbol(
-    node: TreeNode,
-    filePath: string,
-    exported: boolean
-  ): ParsedSymbol | null {
+  private _nodeToSymbol(node: TreeNode, filePath: string, exported: boolean): ParsedSymbol | null {
     let kind: SymbolKind | null = null
     let name = ''
     let signature = ''
@@ -109,7 +102,10 @@ export class SymbolParser implements ISymbolParser {
         break
       case 'class_declaration':
         kind = 'class'
-        name = this._getChildText(node, 'type_identifier') ?? this._getChildText(node, 'identifier') ?? ''
+        name =
+          this._getChildText(node, 'type_identifier') ??
+          this._getChildText(node, 'identifier') ??
+          ''
         break
       case 'interface_declaration':
         kind = 'interface'
@@ -168,9 +164,7 @@ export class SymbolParser implements ISymbolParser {
       }
 
       // Named imports: named_imports node
-      const namedImports = importClause.children.find(
-        (c: TreeNode) => c.type === 'named_imports'
-      )
+      const namedImports = importClause.children.find((c: TreeNode) => c.type === 'named_imports')
       if (namedImports) {
         for (const child of namedImports.children) {
           if (child.type === 'import_specifier') {

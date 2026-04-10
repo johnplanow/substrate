@@ -113,11 +113,16 @@ export function renderTaskGraph(snapshot: StatusSnapshot, tasks: TaskNode[]): st
 
   function getStatusSymbol(status: string): string {
     switch (status) {
-      case 'pending': return '[ ]'
-      case 'running': return '[>]'
-      case 'completed': return '[x]'
-      case 'failed': return '[!]'
-      default: return '[ ]'
+      case 'pending':
+        return '[ ]'
+      case 'running':
+        return '[>]'
+      case 'completed':
+        return '[x]'
+      case 'failed':
+        return '[!]'
+      default:
+        return '[ ]'
     }
   }
 

@@ -17,7 +17,11 @@ import { join } from 'node:path'
 
 import type { Command } from 'commander'
 
-import { checkDoltInstalled, createDoltClient, DoltNotInstalled } from '../../modules/state/index.js'
+import {
+  checkDoltInstalled,
+  createDoltClient,
+  DoltNotInstalled,
+} from '../../modules/state/index.js'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 
 // ---------------------------------------------------------------------------
@@ -72,8 +76,8 @@ export async function readSqliteSnapshot(dbPath: string): Promise<SqliteSnapshot
   if (fileExists(dbPath)) {
     process.stderr.write(
       `Warning: Legacy SQLite database found at ${dbPath} but SQLite support has been\n` +
-      `removed in Epic 29. To migrate historical data, downgrade to Substrate v0.4.x,\n` +
-      `run 'substrate migrate', then upgrade back to this version.\n`,
+        `removed in Epic 29. To migrate historical data, downgrade to Substrate v0.4.x,\n` +
+        `run 'substrate migrate', then upgrade back to this version.\n`
     )
   }
   return { storyMetrics: [] }
@@ -92,7 +96,7 @@ const BATCH_SIZE = 100
 export async function migrateDataToDolt(
   client: ReturnType<typeof createDoltClient>,
   rows: StoryMetricRow[],
-  dryRun: boolean,
+  dryRun: boolean
 ): Promise<MigrationResult> {
   let metricsWritten = 0
   let skipped = 0
@@ -148,7 +152,7 @@ export async function migrateDataToDolt(
         Math.round((row.wall_clock_seconds ?? 0) * 1000),
         row.review_cycles ?? 0,
         0,
-        row.result,
+        row.result
       )
     }
 
@@ -183,14 +187,18 @@ export function registerMigrateCommand(program: Command): void {
       } catch (err: unknown) {
         if (err instanceof DoltNotInstalled) {
           if (options.outputFormat === 'json') {
-            console.log(JSON.stringify({ error: 'ERR_DOLT_NOT_INITIALIZED', message: doltNotInitializedMsg }))
+            console.log(
+              JSON.stringify({ error: 'ERR_DOLT_NOT_INITIALIZED', message: doltNotInitializedMsg })
+            )
           } else {
             process.stderr.write(doltNotInitializedMsg + '\n')
           }
           process.exitCode = 1
           return
         }
-        process.stderr.write(`Unexpected error checking Dolt: ${err instanceof Error ? err.message : String(err)}\n`)
+        process.stderr.write(
+          `Unexpected error checking Dolt: ${err instanceof Error ? err.message : String(err)}\n`
+        )
         process.exitCode = 2
         return
       }
@@ -198,7 +206,9 @@ export function registerMigrateCommand(program: Command): void {
       // AC5: Dolt not initialized (binary present but repo absent)
       if (!existsSync(doltStatePath)) {
         if (options.outputFormat === 'json') {
-          console.log(JSON.stringify({ error: 'ERR_DOLT_NOT_INITIALIZED', message: doltNotInitializedMsg }))
+          console.log(
+            JSON.stringify({ error: 'ERR_DOLT_NOT_INITIALIZED', message: doltNotInitializedMsg })
+          )
         } else {
           process.stderr.write(doltNotInitializedMsg + '\n')
         }
@@ -232,10 +242,16 @@ export function registerMigrateCommand(program: Command): void {
           const result = await migrateDataToDolt(client, snapshot.storyMetrics, true)
           if (options.outputFormat === 'json') {
             console.log(
-              JSON.stringify({ migrated: false, dryRun: true, counts: { metrics: result.metricsWritten } }),
+              JSON.stringify({
+                migrated: false,
+                dryRun: true,
+                counts: { metrics: result.metricsWritten },
+              })
             )
           } else {
-            console.log(`Would migrate ${result.metricsWritten} story metrics (dry run — no changes written)`)
+            console.log(
+              `Would migrate ${result.metricsWritten} story metrics (dry run — no changes written)`
+            )
           }
           return
         }
@@ -257,14 +273,18 @@ export function registerMigrateCommand(program: Command): void {
         // AC1: warn about skipped rows
         if (result.skipped > 0) {
           process.stderr.write(
-            `Warning: Skipped ${result.skipped} row(s) — missing story_key or recorded_at.\n`,
+            `Warning: Skipped ${result.skipped} row(s) — missing story_key or recorded_at.\n`
           )
         }
 
         // AC6: progress output
         if (options.outputFormat === 'json') {
           console.log(
-            JSON.stringify({ migrated: true, counts: { metrics: result.metricsWritten }, skipped: result.skipped }),
+            JSON.stringify({
+              migrated: true,
+              counts: { metrics: result.metricsWritten },
+              skipped: result.skipped,
+            })
           )
         } else {
           console.log(`Migrated ${result.metricsWritten} story metrics.`)

@@ -223,9 +223,7 @@ describe('runStatusAction — AC1/AC2 happy path (DB exists, StateStore has stor
 
   it('human output includes StateStore story states section', async () => {
     const { runStatusAction } = await import('../status.js')
-    const store = makeStoreWithStories([
-      { storyKey: '26-1', phase: 'COMPLETE', reviewCycles: 3 },
-    ])
+    const store = makeStoreWithStories([{ storyKey: '26-1', phase: 'COMPLETE', reviewCycles: 3 }])
 
     const exitCode = await runStatusAction({
       outputFormat: 'human',
@@ -283,9 +281,24 @@ describe('runStatusAction — AC4 --history with StateStore', () => {
   it('renders history table with 3 entries in human format', async () => {
     const { runStatusAction } = await import('../status.js')
     const entries: HistoryEntry[] = [
-      { hash: 'abc1234', timestamp: '2026-03-08T12:00:00Z', storyKey: '26-1', message: 'Merge story/26-1' },
-      { hash: 'def5678', timestamp: '2026-03-08T11:00:00Z', storyKey: '26-2', message: 'Merge story/26-2' },
-      { hash: 'ghi9012', timestamp: '2026-03-08T10:00:00Z', storyKey: null, message: 'initial commit' },
+      {
+        hash: 'abc1234',
+        timestamp: '2026-03-08T12:00:00Z',
+        storyKey: '26-1',
+        message: 'Merge story/26-1',
+      },
+      {
+        hash: 'def5678',
+        timestamp: '2026-03-08T11:00:00Z',
+        storyKey: '26-2',
+        message: 'Merge story/26-2',
+      },
+      {
+        hash: 'ghi9012',
+        timestamp: '2026-03-08T10:00:00Z',
+        storyKey: null,
+        message: 'initial commit',
+      },
     ]
     const store = makeHistoryStore(entries)
 
@@ -311,7 +324,12 @@ describe('runStatusAction — AC4 --history with StateStore', () => {
   it('returns JSON array of HistoryEntry objects', async () => {
     const { runStatusAction } = await import('../status.js')
     const entries: HistoryEntry[] = [
-      { hash: 'abc1234', timestamp: '2026-03-08T12:00:00Z', storyKey: '26-1', message: 'Merge story/26-1' },
+      {
+        hash: 'abc1234',
+        timestamp: '2026-03-08T12:00:00Z',
+        storyKey: '26-1',
+        message: 'Merge story/26-1',
+      },
     ]
     const store = makeHistoryStore(entries)
 
@@ -407,7 +425,9 @@ describe('getAutoHealthData — dolt_state integration (AC3)', () => {
       mergeStory: vi.fn().mockResolvedValue(undefined),
       rollbackStory: vi.fn().mockResolvedValue(undefined),
       diffStory: vi.fn().mockResolvedValue({ storyKey: '', tables: [] }),
-      getHistory: vi.fn().mockResolvedValue([{ hash: 'abc', timestamp: '', storyKey: null, message: 'init' }]),
+      getHistory: vi
+        .fn()
+        .mockResolvedValue([{ hash: 'abc', timestamp: '', storyKey: null, message: 'init' }]),
     } as unknown as StateStore
 
     const health = await getAutoHealthData({

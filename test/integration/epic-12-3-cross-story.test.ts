@@ -95,7 +95,7 @@ describe('Gap 1: stopped status — decisions.ts API + DB + Zod schema round-tri
       expect(() => {
         adapter.querySync(
           `INSERT INTO pipeline_runs (id, methodology, status) VALUES (?, 'bmad', ?)`,
-          [runId, status],
+          [runId, status]
         )
       }).not.toThrow()
 
@@ -116,7 +116,9 @@ describe('Gap 1: stopped status — decisions.ts API + DB + Zod schema round-tri
     expect(parsed.success).toBe(true)
     if (parsed.success) {
       // parent_run_id should be null (not absent) since it's a DB column returning NULL
-      expect(parsed.data.parent_run_id === null || parsed.data.parent_run_id === undefined).toBe(true)
+      expect(parsed.data.parent_run_id === null || parsed.data.parent_run_id === undefined).toBe(
+        true
+      )
     }
   })
 })
@@ -190,7 +192,9 @@ describe('Gap 2: createDecision (decisions.ts) interoperates with loadParentRunD
       expect(result.success).toBe(true)
       if (result.success) {
         // New column from 12-5, optional in 12-6 schema — must be null (not absent)
-        expect(result.data.superseded_by === null || result.data.superseded_by === undefined).toBe(true)
+        expect(result.data.superseded_by === null || result.data.superseded_by === undefined).toBe(
+          true
+        )
       }
     }
   })
@@ -283,7 +287,9 @@ describe('Gap 3: getDecisionsByPhase (inclusive) vs loadParentRunDecisions (filt
   })
 
   it('superseded decision has superseded_by set — DecisionSchema accepts it', () => {
-    const row = adapter.querySync<Record<string, unknown>>('SELECT * FROM decisions WHERE id = ?', [originalDecId])[0]
+    const row = adapter.querySync<Record<string, unknown>>('SELECT * FROM decisions WHERE id = ?', [
+      originalDecId,
+    ])[0]
 
     const result = DecisionSchema.safeParse(row)
     expect(result.success).toBe(true)
@@ -373,13 +379,13 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
     // Step 8: Verify active decisions across all runs
     const activeFromParent = await getActiveDecisions(adapter, { pipeline_run_id: parentRun.id })
     const parentIds = activeFromParent.map((d) => d.id)
-    expect(parentIds).not.toContain(dec1.id)  // superseded
-    expect(parentIds).toContain(dec2.id)       // still active
-    expect(parentIds).toContain(dec3.id)       // still active
+    expect(parentIds).not.toContain(dec1.id) // superseded
+    expect(parentIds).toContain(dec2.id) // still active
+    expect(parentIds).toContain(dec3.id) // still active
 
     const activeFromAmend = await getActiveDecisions(adapter, { pipeline_run_id: amendRunId })
     const amendIds = activeFromAmend.map((d) => d.id)
-    expect(amendIds).toContain(newDec.id)      // the new superseding decision
+    expect(amendIds).toContain(newDec.id) // the new superseding decision
 
     // Step 9: Verify amendment chain
     const chain = await getAmendmentRunChain(adapter, amendRunId)
@@ -393,7 +399,10 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
 
     // Step 10: All returned runs pass PipelineRunSchema validation
     for (const entry of chain) {
-      const row = adapter.querySync<Record<string, unknown>>('SELECT * FROM pipeline_runs WHERE id = ?', [entry.runId])[0]
+      const row = adapter.querySync<Record<string, unknown>>(
+        'SELECT * FROM pipeline_runs WHERE id = ?',
+        [entry.runId]
+      )[0]
       const result = PipelineRunSchema.safeParse(row)
       expect(result.success).toBe(true)
     }
@@ -403,7 +412,10 @@ describe('Gap 4: Full amendment lifecycle using high-level API (decisions.ts + a
     const parentRun = await createPipelineRun(adapter, { methodology: 'bmad' })
     await updatePipelineRun(adapter, parentRun.id, { status: 'completed' })
     // Set an explicit earlier timestamp so the amendment run is strictly later
-    await adapter.query('UPDATE pipeline_runs SET created_at = ? WHERE id = ?', ['2024-01-01T00:00:00.000Z', parentRun.id])
+    await adapter.query('UPDATE pipeline_runs SET created_at = ? WHERE id = ?', [
+      '2024-01-01T00:00:00.000Z',
+      parentRun.id,
+    ])
 
     const amendRunId = randomUUID()
     await createAmendmentRun(adapter, {
@@ -455,12 +467,12 @@ describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_
     adapter.querySync(
       `INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
        VALUES (?, 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')`,
-      [parentId],
+      [parentId]
     )
     adapter.querySync(
       `INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
        VALUES (?, 'bmad', 'completed', ?, '2024-06-01T00:00:00', '2024-06-01T00:00:00')`,
-      [amendId, parentId],
+      [amendId, parentId]
     )
 
     const latest = await getLatestCompletedRun(adapter)
@@ -481,7 +493,7 @@ describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_
     adapter.querySync(
       `INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
        VALUES (?, 'bmad', 'completed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')`,
-      [runId],
+      [runId]
     )
 
     const latest = await getLatestCompletedRun(adapter)
@@ -490,7 +502,9 @@ describe('Gap 5: getLatestCompletedRun result schema validation with parent_run_
     const result = PipelineRunSchema.safeParse(latest)
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.parent_run_id === null || result.data.parent_run_id === undefined).toBe(true)
+      expect(result.data.parent_run_id === null || result.data.parent_run_id === undefined).toBe(
+        true
+      )
     }
   })
 })
@@ -542,7 +556,9 @@ describe('Gap 6: decisions.ts query functions return migration 008 columns corre
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.data.id).toBe(decision.id)
-      expect(result.data.superseded_by === null || result.data.superseded_by === undefined).toBe(true)
+      expect(result.data.superseded_by === null || result.data.superseded_by === undefined).toBe(
+        true
+      )
     }
   })
 

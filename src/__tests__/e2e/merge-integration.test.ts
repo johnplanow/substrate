@@ -15,7 +15,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
 import type { TypedEventBus } from '../../core/event-bus.js'
 import { GitWorktreeManagerImpl } from '../../modules/git-worktree/git-worktree-manager-impl.js'
-import { mergeTask, mergeAll, MERGE_EXIT_SUCCESS, MERGE_EXIT_CONFLICT, MERGE_EXIT_ERROR } from '../../cli/commands/merge.js'
+import {
+  mergeTask,
+  mergeAll,
+  MERGE_EXIT_SUCCESS,
+  MERGE_EXIT_CONFLICT,
+  MERGE_EXIT_ERROR,
+} from '../../cli/commands/merge.js'
 
 // ---------------------------------------------------------------------------
 // Mock node:fs/promises
@@ -109,7 +115,10 @@ describe('Merge Integration — GitWorktreeManagerImpl', () => {
 
     it('mergeWorktree succeeds and returns file list', async () => {
       vi.mocked(gitUtils.simulateMerge).mockResolvedValue(true)
-      vi.mocked(gitUtils.getMergedFiles).mockResolvedValue(['src/feature.ts', 'tests/feature.test.ts'])
+      vi.mocked(gitUtils.getMergedFiles).mockResolvedValue([
+        'src/feature.ts',
+        'tests/feature.test.ts',
+      ])
 
       const eventBus = createMockEventBus()
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
@@ -279,9 +288,7 @@ describe('CLI Integration — mergeTask()', () => {
   })
 
   it('returns MERGE_EXIT_ERROR when worktree is missing', async () => {
-    vi.mocked(fsp.access).mockRejectedValue(
-      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
-    )
+    vi.mocked(fsp.access).mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
 
     const exitCode = await mergeTask('missing-task', 'main', PROJECT_ROOT)
 
@@ -320,7 +327,7 @@ describe('CLI Integration — mergeAll()', () => {
   it('returns MERGE_EXIT_CONFLICT when any task has conflicts', async () => {
     // task-1 is clean, task-2 has conflicts
     vi.mocked(gitUtils.simulateMerge)
-      .mockResolvedValueOnce(true)  // task-1 detect
+      .mockResolvedValueOnce(true) // task-1 detect
       .mockResolvedValueOnce(false) // task-2 detect
 
     vi.mocked(gitUtils.getConflictingFiles).mockResolvedValue(['conflict.ts'])
@@ -333,9 +340,9 @@ describe('CLI Integration — mergeAll()', () => {
   it('processes all tasks and aggregates results', async () => {
     // 3 tasks: clean, conflict, clean
     vi.mocked(gitUtils.simulateMerge)
-      .mockResolvedValueOnce(true)   // task-1
-      .mockResolvedValueOnce(false)  // task-2 has conflict
-      .mockResolvedValueOnce(true)   // task-3
+      .mockResolvedValueOnce(true) // task-1
+      .mockResolvedValueOnce(false) // task-2 has conflict
+      .mockResolvedValueOnce(true) // task-3
 
     vi.mocked(gitUtils.getConflictingFiles).mockResolvedValue(['conflict.ts'])
     vi.mocked(gitUtils.getMergedFiles).mockResolvedValue(['merged.ts'])

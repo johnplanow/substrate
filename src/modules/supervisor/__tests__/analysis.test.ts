@@ -63,7 +63,7 @@ function makeRunRow(overrides: Partial<RunMetricsRow> = {}): RunMetricsRow {
 
 function makeStoryRow(
   story_key: string,
-  overrides: Partial<StoryMetricsRow> = {},
+  overrides: Partial<StoryMetricsRow> = {}
 ): StoryMetricsRow {
   return {
     id: 1,
@@ -143,14 +143,18 @@ describe('analyzeTokenEfficiency', () => {
 
   it('skips stories with no matching baseline', () => {
     const stories = [makeStoryRow('17-1', { input_tokens: 9000, output_tokens: 1000 })]
-    const baseline = [makeStoryRow('17-2', { run_id: 'baseline', input_tokens: 1000, output_tokens: 500 })]
+    const baseline = [
+      makeStoryRow('17-2', { run_id: 'baseline', input_tokens: 1000, output_tokens: 500 }),
+    ]
     const result = analyzeTokenEfficiency(stories, baseline)
     expect(result).toHaveLength(0)
   })
 
   it('skips stories where baseline has zero tokens', () => {
     const stories = [makeStoryRow('17-1', { input_tokens: 5000, output_tokens: 1000 })]
-    const baseline = [makeStoryRow('17-1', { run_id: 'baseline', input_tokens: 0, output_tokens: 0 })]
+    const baseline = [
+      makeStoryRow('17-1', { run_id: 'baseline', input_tokens: 0, output_tokens: 0 }),
+    ]
     const result = analyzeTokenEfficiency(stories, baseline)
     expect(result).toHaveLength(0)
   })
@@ -158,7 +162,7 @@ describe('analyzeTokenEfficiency', () => {
   it('sorts findings by delta_pct descending', () => {
     const stories = [
       makeStoryRow('17-1', { input_tokens: 10000, output_tokens: 0 }), // +100% vs 5000
-      makeStoryRow('17-2', { input_tokens: 7500, output_tokens: 0 }),  // +50% vs 5000
+      makeStoryRow('17-2', { input_tokens: 7500, output_tokens: 0 }), // +50% vs 5000
     ]
     const baseline = [
       makeStoryRow('17-1', { run_id: 'baseline', input_tokens: 5000, output_tokens: 0 }),
@@ -173,7 +177,11 @@ describe('analyzeTokenEfficiency', () => {
   it('reports phase as "total" since per-phase token data is unavailable', () => {
     const phases = JSON.stringify({ 'create-story': 100, 'dev-story': 500, 'code-review': 50 })
     const stories = [
-      makeStoryRow('17-1', { input_tokens: 8000, output_tokens: 2000, phase_durations_json: phases }),
+      makeStoryRow('17-1', {
+        input_tokens: 8000,
+        output_tokens: 2000,
+        phase_durations_json: phases,
+      }),
     ]
     const baseline = [
       makeStoryRow('17-1', { run_id: 'baseline', input_tokens: 4000, output_tokens: 1000 }),
@@ -198,8 +206,8 @@ describe('analyzeTokenEfficiency', () => {
   it('handles multiple stories with mixed results', () => {
     const stories = [
       makeStoryRow('17-1', { input_tokens: 10000, output_tokens: 0 }), // 10000 vs 5000 → +100%
-      makeStoryRow('17-2', { input_tokens: 5000, output_tokens: 0 }),  // 5000 vs 5000 → 0%, no finding
-      makeStoryRow('17-3', { input_tokens: 2000, output_tokens: 0 }),  // 2000 vs 5000 → negative, no finding
+      makeStoryRow('17-2', { input_tokens: 5000, output_tokens: 0 }), // 5000 vs 5000 → 0%, no finding
+      makeStoryRow('17-3', { input_tokens: 2000, output_tokens: 0 }), // 2000 vs 5000 → negative, no finding
     ]
     const baseline = [
       makeStoryRow('17-1', { run_id: 'baseline', input_tokens: 5000, output_tokens: 0 }),
@@ -296,9 +304,7 @@ describe('analyzeReviewCycles', () => {
 
 describe('analyzeTimings', () => {
   it('returns null bottleneck_phase when no phase_durations_json data', () => {
-    const stories = [
-      makeStoryRow('17-1', { phase_durations_json: null }),
-    ]
+    const stories = [makeStoryRow('17-1', { phase_durations_json: null })]
     const result = analyzeTimings(stories)
     expect(result.bottleneck_phase).toBeNull()
     expect(result.bottleneck_phase_seconds).toBe(0)
@@ -319,9 +325,7 @@ describe('analyzeTimings', () => {
   it('identifies stories where dominant phase > 50% of story time', () => {
     // dev-story: 800s out of 1000s = 80%
     const phases = JSON.stringify({ 'create-story': 100, 'dev-story': 800, 'code-review': 100 })
-    const stories = [
-      makeStoryRow('17-1', { phase_durations_json: phases }),
-    ]
+    const stories = [makeStoryRow('17-1', { phase_durations_json: phases })]
     const result = analyzeTimings(stories)
     expect(result.high_phase_concentration_stories).toHaveLength(1)
     expect(result.high_phase_concentration_stories[0].dominant_phase).toBe('dev-story')
@@ -366,9 +370,7 @@ describe('analyzeTimings', () => {
   })
 
   it('returns null configured_concurrency and concurrency_ratio when concurrencySetting is omitted', () => {
-    const stories = [
-      makeStoryRow('17-1', { wall_clock_seconds: 3600, phase_durations_json: null }),
-    ]
+    const stories = [makeStoryRow('17-1', { wall_clock_seconds: 3600, phase_durations_json: null })]
     const result = analyzeTimings(stories)
     expect(result.configured_concurrency).toBeNull()
     expect(result.concurrency_ratio).toBeNull()
@@ -385,9 +387,7 @@ describe('analyzeTimings', () => {
   })
 
   it('handles malformed phase_durations_json gracefully', () => {
-    const stories = [
-      makeStoryRow('17-1', { phase_durations_json: '{not valid json}' }),
-    ]
+    const stories = [makeStoryRow('17-1', { phase_durations_json: '{not valid json}' })]
     const result = analyzeTimings(stories)
     expect(result.bottleneck_phase).toBeNull()
     expect(result.high_phase_concentration_stories).toHaveLength(0)
@@ -435,7 +435,13 @@ describe('generateRecommendations', () => {
 
   it('generates token_regression recommendations for each token finding', () => {
     const tokenFindings: TokenEfficiencyFinding[] = [
-      { story_key: '17-1', phase: 'dev-story', tokens_actual: 10000, tokens_baseline: 5000, delta_pct: 100 },
+      {
+        story_key: '17-1',
+        phase: 'dev-story',
+        tokens_actual: 10000,
+        tokens_baseline: 5000,
+        delta_pct: 100,
+      },
     ]
     const result = generateRecommendations(tokenFindings, emptyReviewCycles, emptyTiming)
     expect(result).toHaveLength(1)
@@ -498,7 +504,13 @@ describe('generateRecommendations', () => {
 
   it('combines all recommendation types', () => {
     const tokenFindings: TokenEfficiencyFinding[] = [
-      { story_key: '17-1', phase: 'dev-story', tokens_actual: 10000, tokens_baseline: 5000, delta_pct: 100 },
+      {
+        story_key: '17-1',
+        phase: 'dev-story',
+        tokens_actual: 10000,
+        tokens_baseline: 5000,
+        delta_pct: 100,
+      },
     ]
     const reviewCycles: ReviewCycleAnalysis = {
       high_cycle_stories: [
@@ -519,7 +531,7 @@ describe('generateRecommendations', () => {
     }
     const result = generateRecommendations(tokenFindings, reviewCycles, timing)
     expect(result).toHaveLength(3)
-    const types = result.map(r => r.type)
+    const types = result.map((r) => r.type)
     expect(types).toContain('token_regression')
     expect(types).toContain('review_cycles')
     expect(types).toContain('timing_bottleneck')
@@ -527,7 +539,13 @@ describe('generateRecommendations', () => {
 
   it('recommendation objects have machine-readable fields', () => {
     const tokenFindings: TokenEfficiencyFinding[] = [
-      { story_key: '17-1', phase: 'dev-story', tokens_actual: 10000, tokens_baseline: 5000, delta_pct: 100 },
+      {
+        story_key: '17-1',
+        phase: 'dev-story',
+        tokens_actual: 10000,
+        tokens_baseline: 5000,
+        delta_pct: 100,
+      },
     ]
     const result = generateRecommendations(tokenFindings, emptyReviewCycles, emptyTiming)
     const rec = result[0] as AnalysisRecommendation
@@ -569,8 +587,18 @@ describe('generateAnalysisReport', () => {
   })
 
   const baselineStories = [
-    makeStoryRow('17-1', { run_id: 'baseline-001', review_cycles: 1, input_tokens: 4000, output_tokens: 2000 }),
-    makeStoryRow('17-2', { run_id: 'baseline-001', review_cycles: 1, input_tokens: 4000, output_tokens: 2000 }),
+    makeStoryRow('17-1', {
+      run_id: 'baseline-001',
+      review_cycles: 1,
+      input_tokens: 4000,
+      output_tokens: 2000,
+    }),
+    makeStoryRow('17-2', {
+      run_id: 'baseline-001',
+      review_cycles: 1,
+      input_tokens: 4000,
+      output_tokens: 2000,
+    }),
   ]
 
   it('returns a report with correct run_id', () => {
@@ -654,7 +682,12 @@ describe('generateAnalysisReport', () => {
       makeStoryRow('17-1', { input_tokens: 10000, output_tokens: 5000, review_cycles: 1 }),
     ]
     const lowBaselineStories = [
-      makeStoryRow('17-1', { run_id: 'baseline-001', input_tokens: 3000, output_tokens: 1000, review_cycles: 1 }),
+      makeStoryRow('17-1', {
+        run_id: 'baseline-001',
+        input_tokens: 3000,
+        output_tokens: 1000,
+        review_cycles: 1,
+      }),
     ]
     const report = generateAnalysisReport(run, highTokenStories, baseline, lowBaselineStories)
     expect(report.markdown).toContain('## Regressions')
@@ -662,9 +695,7 @@ describe('generateAnalysisReport', () => {
   })
 
   it('markdown contains Recommendations section when recs exist', () => {
-    const highCycleStories = [
-      makeStoryRow('17-1', { review_cycles: 5, wall_clock_seconds: 1800 }),
-    ]
+    const highCycleStories = [makeStoryRow('17-1', { review_cycles: 5, wall_clock_seconds: 1800 })]
     const report = generateAnalysisReport(run, highCycleStories, undefined, [])
     expect(report.markdown).toContain('## Recommendations')
   })

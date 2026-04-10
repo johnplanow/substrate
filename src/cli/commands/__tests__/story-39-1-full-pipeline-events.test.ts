@@ -110,7 +110,9 @@ vi.mock('../../../persistence/queries/decisions.js', () => ({
 }))
 
 vi.mock('../health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 // Event bus — capture all listeners so tests can fire events
@@ -143,7 +145,9 @@ vi.mock('fs', () => ({
   cpSync: vi.fn(),
   writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
   unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
-  readFileSync: vi.fn().mockImplementation(() => { throw new Error('ENOENT') }),
+  readFileSync: vi.fn().mockImplementation(() => {
+    throw new Error('ENOENT')
+  }),
 }))
 
 vi.mock('fs/promises', () => ({
@@ -178,7 +182,9 @@ vi.mock('../../../modules/routing/index.js', () => ({
   RoutingTelemetry: vi.fn(),
   RoutingTuner: vi.fn(),
   RoutingRecommender: vi.fn(),
-  loadModelRoutingConfig: vi.fn(() => { throw new Error('not found') }),
+  loadModelRoutingConfig: vi.fn(() => {
+    throw new Error('not found')
+  }),
 }))
 
 vi.mock('../../../modules/config/config-system-impl.js', () => ({
@@ -258,7 +264,9 @@ import { runRunAction } from '../run.js'
 // Shared mock registry instance
 // ---------------------------------------------------------------------------
 
-const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+const mockRegistry = {
+  discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }),
+} as any
 
 // ---------------------------------------------------------------------------
 // Helpers

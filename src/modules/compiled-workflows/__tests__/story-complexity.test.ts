@@ -110,7 +110,7 @@ describe('computeStoryComplexity', () => {
     for (let t = 1; t <= 8; t++) {
       lines.push(`- [ ] Task ${t}: Do thing ${t}`)
       // ~2-3 subtasks each to get 20 total
-      const subs = t <= 4 ? 3 : 2  // 4*3 + 4*2 = 12+8 = 20
+      const subs = t <= 4 ? 3 : 2 // 4*3 + 4*2 = 12+8 = 20
       for (let s = 1; s <= subs; s++) {
         lines.push(`  - [ ] Subtask ${s}`)
       }
@@ -159,7 +159,7 @@ describe('computeStoryComplexity', () => {
       'migrations/001.sql',
       'infra/deploy.yaml',
       'docs/readme.md',
-      'src/foo.test.ts',  // test file counts too
+      'src/foo.test.ts', // test file counts too
       '```',
     ].join('\n')
 
@@ -168,23 +168,14 @@ describe('computeStoryComplexity', () => {
   })
 
   it('returns 0 fileCount when no File Layout section exists', () => {
-    const content = [
-      '## Dev Notes',
-      '- New: `src/foo.ts`',
-      '- Modify: `src/bar.ts`',
-    ].join('\n')
+    const content = ['## Dev Notes', '- New: `src/foo.ts`', '- Modify: `src/bar.ts`'].join('\n')
 
     const result = computeStoryComplexity(content)
     expect(result.fileCount).toBe(0)
   })
 
   it('returns 0 fileCount when File Layout section has no fenced code block', () => {
-    const content = [
-      '## File Layout',
-      '',
-      '- src/foo.ts',
-      '- src/bar.ts',
-    ].join('\n')
+    const content = ['## File Layout', '', '- src/foo.ts', '- src/bar.ts'].join('\n')
 
     const result = computeStoryComplexity(content)
     expect(result.fileCount).toBe(0)
@@ -273,8 +264,8 @@ describe('resolveFixStoryMaxTurns', () => {
     const devTurns = resolveDevStoryMaxTurns(15)
     const fixTurns = resolveFixStoryMaxTurns(15)
     expect(fixTurns).toBeLessThan(devTurns)
-    expect(fixTurns).toBe(100)  // 50 + (15-10)*10 = 100
-    expect(devTurns).toBe(125)  // 75 + (15-10)*10 = 125
+    expect(fixTurns).toBe(100) // 50 + (15-10)*10 = 100
+    expect(devTurns).toBe(125) // 75 + (15-10)*10 = 125
   })
 })
 
@@ -308,7 +299,7 @@ describe('logComplexityResult', () => {
         complexityScore: 8,
         resolvedMaxTurns: 75,
       },
-      expect.any(String),
+      expect.any(String)
     )
   })
 

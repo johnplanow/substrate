@@ -26,14 +26,16 @@ import { InMemoryDatabaseAdapter } from '../memory-adapter.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeDelta(overrides: {
-  outcome?: 'success' | 'failure'
-  inputTokens?: number
-  outputTokens?: number
-  durationMs?: number
-  cost?: number
-  retries?: number
-} = {}): {
+function makeDelta(
+  overrides: {
+    outcome?: 'success' | 'failure'
+    inputTokens?: number
+    outputTokens?: number
+    durationMs?: number
+    cost?: number
+    retries?: number
+  } = {}
+): {
   outcome: 'success' | 'failure'
   inputTokens: number
   outputTokens: number
@@ -46,7 +48,7 @@ function makeDelta(overrides: {
     inputTokens: 1000,
     outputTokens: 500,
     durationMs: 2000,
-    cost: 0.10,
+    cost: 0.1,
     ...overrides,
   }
 }
@@ -81,7 +83,7 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
     it('table has all required columns', async () => {
       // Query PRAGMA table_info to verify columns
       const info = await adapter.query<{ name: string; type: string; notnull: number }>(
-        "PRAGMA table_info('performance_aggregates')",
+        "PRAGMA table_info('performance_aggregates')"
       )
 
       const columns = info.map((c) => c.name)
@@ -100,7 +102,7 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
 
     it('(agent, task_type) is the primary key', async () => {
       const info = await adapter.query<{ name: string; pk: number }>(
-        "PRAGMA table_info('performance_aggregates')",
+        "PRAGMA table_info('performance_aggregates')"
       )
 
       const pkCols = info.filter((c) => c.pk > 0).map((c) => c.name)
@@ -125,12 +127,32 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
       expect(rows[0].totalInputTokens).toBe(1000)
       expect(rows[0].totalOutputTokens).toBe(500)
       expect(rows[0].totalDurationMs).toBe(2000)
-      expect(rows[0].totalCost).toBeCloseTo(0.10)
+      expect(rows[0].totalCost).toBeCloseTo(0.1)
     })
 
     it('increments an existing row on subsequent calls', () => {
-      db.updateAggregates('agent-a', 'coding', makeDelta({ outcome: 'success', inputTokens: 1000, outputTokens: 500, durationMs: 2000, cost: 0.10 }))
-      db.updateAggregates('agent-a', 'coding', makeDelta({ outcome: 'failure', inputTokens: 200, outputTokens: 0, durationMs: 500, cost: 0.01 }))
+      db.updateAggregates(
+        'agent-a',
+        'coding',
+        makeDelta({
+          outcome: 'success',
+          inputTokens: 1000,
+          outputTokens: 500,
+          durationMs: 2000,
+          cost: 0.1,
+        })
+      )
+      db.updateAggregates(
+        'agent-a',
+        'coding',
+        makeDelta({
+          outcome: 'failure',
+          inputTokens: 200,
+          outputTokens: 0,
+          durationMs: 500,
+          cost: 0.01,
+        })
+      )
 
       const rows = db.getAggregates({ agent: 'agent-a', taskType: 'coding' })
       expect(rows[0].totalTasks).toBe(2)
@@ -158,7 +180,7 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
       db.updateAggregates('agent-a', 'coding', makeDelta({ retries: 1 }))
 
       const rows = await adapter.query<{ total_retries: number }>(
-        "SELECT total_retries FROM performance_aggregates WHERE agent = 'agent-a' AND task_type = 'coding'",
+        "SELECT total_retries FROM performance_aggregates WHERE agent = 'agent-a' AND task_type = 'coding'"
       )
       expect(rows[0]!.total_retries).toBe(4)
     })
@@ -235,7 +257,11 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
     it('calculates average_tokens as (input + output) / total_tasks', () => {
       // 10 tasks each with 3000 input + 2000 output = 5000 avg per task
       for (let i = 0; i < 10; i++) {
-        db.updateAggregates('claude', 'coding', makeDelta({ inputTokens: 3000, outputTokens: 2000 }))
+        db.updateAggregates(
+          'claude',
+          'coding',
+          makeDelta({ inputTokens: 3000, outputTokens: 2000 })
+        )
       }
 
       const metrics = db.getAgentPerformance('claude')
@@ -254,7 +280,11 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
 
     it('calculates token_efficiency as total_output / total_input ratio', () => {
       // 30K input, 20K output → efficiency = 20000/30000 ≈ 0.667
-      db.updateAggregates('claude', 'coding', makeDelta({ inputTokens: 30000, outputTokens: 20000 }))
+      db.updateAggregates(
+        'claude',
+        'coding',
+        makeDelta({ inputTokens: 30000, outputTokens: 20000 })
+      )
 
       const metrics = db.getAgentPerformance('claude')
       expect(metrics!.token_efficiency).toBeCloseTo(20000 / 30000, 3)
@@ -288,9 +318,21 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
     })
 
     it('aggregates across multiple task types for the same agent', () => {
-      db.updateAggregates('claude', 'coding', makeDelta({ outcome: 'success', inputTokens: 500, outputTokens: 250 }))
-      db.updateAggregates('claude', 'testing', makeDelta({ outcome: 'success', inputTokens: 300, outputTokens: 100 }))
-      db.updateAggregates('claude', 'debugging', makeDelta({ outcome: 'failure', inputTokens: 100, outputTokens: 0 }))
+      db.updateAggregates(
+        'claude',
+        'coding',
+        makeDelta({ outcome: 'success', inputTokens: 500, outputTokens: 250 })
+      )
+      db.updateAggregates(
+        'claude',
+        'testing',
+        makeDelta({ outcome: 'success', inputTokens: 300, outputTokens: 100 })
+      )
+      db.updateAggregates(
+        'claude',
+        'debugging',
+        makeDelta({ outcome: 'failure', inputTokens: 100, outputTokens: 0 })
+      )
 
       const metrics = db.getAgentPerformance('claude')
       expect(metrics!.total_tasks).toBe(3)
@@ -337,8 +379,16 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
     })
 
     it('returns per-agent comparison with required fields', () => {
-      db.updateAggregates('agent-a', 'coding', makeDelta({ outcome: 'success', inputTokens: 1000, outputTokens: 500, durationMs: 3000 }))
-      db.updateAggregates('agent-b', 'coding', makeDelta({ outcome: 'failure', inputTokens: 500, outputTokens: 0, durationMs: 1000 }))
+      db.updateAggregates(
+        'agent-a',
+        'coding',
+        makeDelta({ outcome: 'success', inputTokens: 1000, outputTokens: 500, durationMs: 3000 })
+      )
+      db.updateAggregates(
+        'agent-b',
+        'coding',
+        makeDelta({ outcome: 'failure', inputTokens: 500, outputTokens: 0, durationMs: 1000 })
+      )
 
       const result = db.getTaskTypeBreakdown('coding')
       expect(result!.agents).toHaveLength(2)
@@ -457,20 +507,40 @@ describe('Performance Aggregates — persistence layer (Story 8.5)', () => {
     it('correctly tracks multiple agents with multiple task types', () => {
       // claude: 8 coding successes, 2 failures; 5 testing successes
       for (let i = 0; i < 8; i++) {
-        db.updateAggregates('claude', 'coding', makeDelta({ outcome: 'success', inputTokens: 3000, outputTokens: 2000, durationMs: 5000 }))
+        db.updateAggregates(
+          'claude',
+          'coding',
+          makeDelta({ outcome: 'success', inputTokens: 3000, outputTokens: 2000, durationMs: 5000 })
+        )
       }
       for (let i = 0; i < 2; i++) {
-        db.updateAggregates('claude', 'coding', makeDelta({ outcome: 'failure', inputTokens: 1000, outputTokens: 0, durationMs: 500 }))
+        db.updateAggregates(
+          'claude',
+          'coding',
+          makeDelta({ outcome: 'failure', inputTokens: 1000, outputTokens: 0, durationMs: 500 })
+        )
       }
       for (let i = 0; i < 5; i++) {
-        db.updateAggregates('claude', 'testing', makeDelta({ outcome: 'success', inputTokens: 2000, outputTokens: 1000, durationMs: 3000 }))
+        db.updateAggregates(
+          'claude',
+          'testing',
+          makeDelta({ outcome: 'success', inputTokens: 2000, outputTokens: 1000, durationMs: 3000 })
+        )
       }
 
       // codex: 3 coding successes, 1 failure
       for (let i = 0; i < 3; i++) {
-        db.updateAggregates('codex', 'coding', makeDelta({ outcome: 'success', inputTokens: 5000, outputTokens: 4000, durationMs: 8000 }))
+        db.updateAggregates(
+          'codex',
+          'coding',
+          makeDelta({ outcome: 'success', inputTokens: 5000, outputTokens: 4000, durationMs: 8000 })
+        )
       }
-      db.updateAggregates('codex', 'coding', makeDelta({ outcome: 'failure', inputTokens: 500, outputTokens: 0, durationMs: 200 }))
+      db.updateAggregates(
+        'codex',
+        'coding',
+        makeDelta({ outcome: 'failure', inputTokens: 500, outputTokens: 0, durationMs: 200 })
+      )
 
       // Verify claude overall
       const claudeMetrics = db.getAgentPerformance('claude')

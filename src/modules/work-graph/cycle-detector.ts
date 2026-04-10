@@ -22,7 +22,7 @@
  *   story key (e.g. `['A', 'B', 'A']`).
  */
 export function detectCycles(
-  edges: ReadonlyArray<{ story_key: string; depends_on: string }>,
+  edges: ReadonlyArray<{ story_key: string; depends_on: string }>
 ): string[] | null {
   // Build adjacency map: node → nodes it depends on (outbound edges)
   const adj = new Map<string, string[]>()

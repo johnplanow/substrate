@@ -161,7 +161,12 @@ describe('WorkGraphRepository.getReadyStories()', () => {
   it('(b) returns a story whose blocking dep has status=complete', async () => {
     await repo.upsertStory(makeStory({ story_key: 'B1', epic: '31', status: 'complete' }))
     await repo.upsertStory(makeStory({ story_key: 'B2', epic: '31', status: 'planned' }))
-    await repo.addDependency({ story_key: 'B2', depends_on: 'B1', dependency_type: 'blocks', source: 'explicit' })
+    await repo.addDependency({
+      story_key: 'B2',
+      depends_on: 'B1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
 
     const ready = await repo.getReadyStories()
     const keys = ready.map((s) => s.story_key)
@@ -172,7 +177,12 @@ describe('WorkGraphRepository.getReadyStories()', () => {
   it('(c) excludes a story whose blocking dep is not complete', async () => {
     await repo.upsertStory(makeStory({ story_key: 'C1', epic: '31', status: 'in_progress' }))
     await repo.upsertStory(makeStory({ story_key: 'C2', epic: '31', status: 'planned' }))
-    await repo.addDependency({ story_key: 'C2', depends_on: 'C1', dependency_type: 'blocks', source: 'explicit' })
+    await repo.addDependency({
+      story_key: 'C2',
+      depends_on: 'C1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
 
     const ready = await repo.getReadyStories()
     expect(ready.map((s) => s.story_key)).not.toContain('C2')
@@ -181,7 +191,12 @@ describe('WorkGraphRepository.getReadyStories()', () => {
   it('(d) does NOT block a story with only an informs dep whose dep is not complete', async () => {
     await repo.upsertStory(makeStory({ story_key: 'D1', epic: '31', status: 'in_progress' }))
     await repo.upsertStory(makeStory({ story_key: 'D2', epic: '31', status: 'planned' }))
-    await repo.addDependency({ story_key: 'D2', depends_on: 'D1', dependency_type: 'informs', source: 'inferred' })
+    await repo.addDependency({
+      story_key: 'D2',
+      depends_on: 'D1',
+      dependency_type: 'informs',
+      source: 'inferred',
+    })
 
     const ready = await repo.getReadyStories()
     expect(ready.map((s) => s.story_key)).toContain('D2')
@@ -227,7 +242,11 @@ describe('WorkGraphRepository.updateStoryStatus()', () => {
   })
 
   it('transitions an existing story to in_progress', async () => {
-    const before = makeStory({ story_key: '31-4', status: 'planned', updated_at: '2026-01-01T00:00:00.000Z' })
+    const before = makeStory({
+      story_key: '31-4',
+      status: 'planned',
+      updated_at: '2026-01-01T00:00:00.000Z',
+    })
     await repo.upsertStory(before)
 
     await repo.updateStoryStatus('31-4', 'in_progress')
@@ -289,7 +308,9 @@ describe('WorkGraphRepository.updateStoryStatus()', () => {
   })
 
   it('does not set completed_at when transitioning to in_progress', async () => {
-    await repo.upsertStory(makeStory({ story_key: '31-4', status: 'planned', completed_at: undefined }))
+    await repo.upsertStory(
+      makeStory({ story_key: '31-4', status: 'planned', completed_at: undefined })
+    )
 
     await repo.updateStoryStatus('31-4', 'in_progress')
 
@@ -367,9 +388,12 @@ describe('WorkGraphRepository.addContractDependencies()', () => {
     await repo.addContractDependencies([
       { from: '31-A', to: '31-B', reason: '31-A exports FooSchema, 31-B imports it' },
     ])
-    const rows = await db.query<{ story_key: string; depends_on: string; dependency_type: string; source: string }>(
-      'SELECT * FROM story_dependencies',
-    )
+    const rows = await db.query<{
+      story_key: string
+      depends_on: string
+      dependency_type: string
+      source: string
+    }>('SELECT * FROM story_dependencies')
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({
       story_key: '31-B',
@@ -381,11 +405,19 @@ describe('WorkGraphRepository.addContractDependencies()', () => {
 
   it('AC2: dual-export edge persisted as informs dep', async () => {
     await repo.addContractDependencies([
-      { from: '31-A', to: '31-B', reason: 'dual export: 31-A and 31-B both export BarSchema — serialized to prevent conflicting definitions' },
+      {
+        from: '31-A',
+        to: '31-B',
+        reason:
+          'dual export: 31-A and 31-B both export BarSchema — serialized to prevent conflicting definitions',
+      },
     ])
-    const rows = await db.query<{ story_key: string; depends_on: string; dependency_type: string; source: string }>(
-      'SELECT * FROM story_dependencies',
-    )
+    const rows = await db.query<{
+      story_key: string
+      depends_on: string
+      dependency_type: string
+      source: string
+    }>('SELECT * FROM story_dependencies')
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({
       story_key: '31-B',
@@ -396,13 +428,11 @@ describe('WorkGraphRepository.addContractDependencies()', () => {
   })
 
   it('AC3: calling twice with the same edges yields exactly one row per (story_key, depends_on) pair', async () => {
-    const edges = [
-      { from: '31-A', to: '31-B', reason: '31-A exports FooSchema, 31-B imports it' },
-    ]
+    const edges = [{ from: '31-A', to: '31-B', reason: '31-A exports FooSchema, 31-B imports it' }]
     await repo.addContractDependencies(edges)
     await repo.addContractDependencies(edges)
     const rows = await db.query<{ story_key: string; depends_on: string }>(
-      'SELECT * FROM story_dependencies',
+      'SELECT * FROM story_dependencies'
     )
     expect(rows).toHaveLength(1)
   })
@@ -419,7 +449,7 @@ describe('WorkGraphRepository.addContractDependencies()', () => {
       { from: '31-A', to: '31-C', reason: 'export→import' },
     ])
     const rows = await db.query<{ story_key: string; depends_on: string; dependency_type: string }>(
-      'SELECT * FROM story_dependencies',
+      'SELECT * FROM story_dependencies'
     )
     expect(rows).toHaveLength(2)
     const targets = rows.map((r) => r.story_key).sort()
@@ -429,7 +459,9 @@ describe('WorkGraphRepository.addContractDependencies()', () => {
 
   it('edge with no reason defaults to blocks dependency_type', async () => {
     await repo.addContractDependencies([{ from: '31-A', to: '31-B' }])
-    const rows = await db.query<{ dependency_type: string }>('SELECT dependency_type FROM story_dependencies')
+    const rows = await db.query<{ dependency_type: string }>(
+      'SELECT dependency_type FROM story_dependencies'
+    )
     expect(rows[0]!.dependency_type).toBe('blocks')
   })
 })
@@ -463,11 +495,11 @@ describe('WorkGraphRepository.detectCycles()', () => {
   it('returns [] for acyclic blocks deps (linear chain A→B→C)', async () => {
     await db.query(
       `INSERT INTO story_dependencies (story_key, depends_on, dependency_type, source) VALUES (?, ?, ?, ?)`,
-      ['31-2', '31-1', 'blocks', 'explicit'],
+      ['31-2', '31-1', 'blocks', 'explicit']
     )
     await db.query(
       `INSERT INTO story_dependencies (story_key, depends_on, dependency_type, source) VALUES (?, ?, ?, ?)`,
-      ['31-3', '31-2', 'blocks', 'explicit'],
+      ['31-3', '31-2', 'blocks', 'explicit']
     )
     const result = await repo.detectCycles()
     expect(result).toEqual([])
@@ -476,11 +508,11 @@ describe('WorkGraphRepository.detectCycles()', () => {
   it('returns non-empty array for a cyclic blocks dep (2-node cycle)', async () => {
     await db.query(
       `INSERT INTO story_dependencies (story_key, depends_on, dependency_type, source) VALUES (?, ?, ?, ?)`,
-      ['31-A', '31-B', 'blocks', 'explicit'],
+      ['31-A', '31-B', 'blocks', 'explicit']
     )
     await db.query(
       `INSERT INTO story_dependencies (story_key, depends_on, dependency_type, source) VALUES (?, ?, ?, ?)`,
-      ['31-B', '31-A', 'blocks', 'explicit'],
+      ['31-B', '31-A', 'blocks', 'explicit']
     )
     const result = await repo.detectCycles()
     expect(result.length).toBeGreaterThan(0)
@@ -492,11 +524,11 @@ describe('WorkGraphRepository.detectCycles()', () => {
     // A informs B, B informs A — should NOT be treated as a blocking cycle
     await db.query(
       `INSERT INTO story_dependencies (story_key, depends_on, dependency_type, source) VALUES (?, ?, ?, ?)`,
-      ['31-A', '31-B', 'informs', 'inferred'],
+      ['31-A', '31-B', 'informs', 'inferred']
     )
     await db.query(
       `INSERT INTO story_dependencies (story_key, depends_on, dependency_type, source) VALUES (?, ?, ?, ?)`,
-      ['31-B', '31-A', 'informs', 'inferred'],
+      ['31-B', '31-A', 'informs', 'inferred']
     )
     const result = await repo.detectCycles()
     expect(result).toEqual([])
@@ -506,16 +538,16 @@ describe('WorkGraphRepository.detectCycles()', () => {
     // Cyclic informs deps (should be ignored)
     await db.query(
       `INSERT INTO story_dependencies (story_key, depends_on, dependency_type, source) VALUES (?, ?, ?, ?)`,
-      ['31-A', '31-B', 'informs', 'inferred'],
+      ['31-A', '31-B', 'informs', 'inferred']
     )
     await db.query(
       `INSERT INTO story_dependencies (story_key, depends_on, dependency_type, source) VALUES (?, ?, ?, ?)`,
-      ['31-B', '31-A', 'informs', 'inferred'],
+      ['31-B', '31-A', 'informs', 'inferred']
     )
     // Acyclic blocks dep (should be fine)
     await db.query(
       `INSERT INTO story_dependencies (story_key, depends_on, dependency_type, source) VALUES (?, ?, ?, ?)`,
-      ['31-C', '31-A', 'blocks', 'explicit'],
+      ['31-C', '31-A', 'blocks', 'explicit']
     )
     const result = await repo.detectCycles()
     expect(result).toEqual([])
@@ -551,15 +583,29 @@ describe('WorkGraphRepository.getBlockedStories()', () => {
   it('returns empty array when all blocks deps for a planned story are complete', async () => {
     await repo.upsertStory(makeStory({ story_key: 'BS-1', epic: 'BS', status: 'complete' }))
     await repo.upsertStory(makeStory({ story_key: 'BS-2', epic: 'BS', status: 'planned' }))
-    await repo.addDependency({ story_key: 'BS-2', depends_on: 'BS-1', dependency_type: 'blocks', source: 'explicit' })
+    await repo.addDependency({
+      story_key: 'BS-2',
+      depends_on: 'BS-1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
     const result = await repo.getBlockedStories()
     expect(result).toHaveLength(0)
   })
 
   it('returns blocked story when it has one incomplete blocks dep', async () => {
-    await repo.upsertStory(makeStory({ story_key: 'BS-1', epic: 'BS', status: 'in_progress', title: 'Prereq Story' }))
-    await repo.upsertStory(makeStory({ story_key: 'BS-2', epic: 'BS', status: 'planned', title: 'Blocked Story' }))
-    await repo.addDependency({ story_key: 'BS-2', depends_on: 'BS-1', dependency_type: 'blocks', source: 'explicit' })
+    await repo.upsertStory(
+      makeStory({ story_key: 'BS-1', epic: 'BS', status: 'in_progress', title: 'Prereq Story' })
+    )
+    await repo.upsertStory(
+      makeStory({ story_key: 'BS-2', epic: 'BS', status: 'planned', title: 'Blocked Story' })
+    )
+    await repo.addDependency({
+      story_key: 'BS-2',
+      depends_on: 'BS-1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
 
     const result: BlockedStoryInfo[] = await repo.getBlockedStories()
     expect(result).toHaveLength(1)
@@ -571,11 +617,27 @@ describe('WorkGraphRepository.getBlockedStories()', () => {
   })
 
   it('includes only incomplete blockers when story has two deps — one complete, one planned', async () => {
-    await repo.upsertStory(makeStory({ story_key: 'BS-1', epic: 'BS', status: 'complete', title: 'Done Dep' }))
-    await repo.upsertStory(makeStory({ story_key: 'BS-2', epic: 'BS', status: 'planned', title: 'Pending Dep' }))
-    await repo.upsertStory(makeStory({ story_key: 'BS-3', epic: 'BS', status: 'planned', title: 'Blocked Story' }))
-    await repo.addDependency({ story_key: 'BS-3', depends_on: 'BS-1', dependency_type: 'blocks', source: 'explicit' })
-    await repo.addDependency({ story_key: 'BS-3', depends_on: 'BS-2', dependency_type: 'blocks', source: 'explicit' })
+    await repo.upsertStory(
+      makeStory({ story_key: 'BS-1', epic: 'BS', status: 'complete', title: 'Done Dep' })
+    )
+    await repo.upsertStory(
+      makeStory({ story_key: 'BS-2', epic: 'BS', status: 'planned', title: 'Pending Dep' })
+    )
+    await repo.upsertStory(
+      makeStory({ story_key: 'BS-3', epic: 'BS', status: 'planned', title: 'Blocked Story' })
+    )
+    await repo.addDependency({
+      story_key: 'BS-3',
+      depends_on: 'BS-1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
+    await repo.addDependency({
+      story_key: 'BS-3',
+      depends_on: 'BS-2',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
 
     const result: BlockedStoryInfo[] = await repo.getBlockedStories()
     expect(result).toHaveLength(1)
@@ -590,8 +652,18 @@ describe('WorkGraphRepository.getBlockedStories()', () => {
     await repo.upsertStory(makeStory({ story_key: 'BS-2', epic: 'BS', status: 'in_progress' }))
     await repo.upsertStory(makeStory({ story_key: 'BS-3', epic: 'BS', status: 'complete' }))
     // BS-2 and BS-3 depend on BS-1 (not complete) but are not candidates
-    await repo.addDependency({ story_key: 'BS-2', depends_on: 'BS-1', dependency_type: 'blocks', source: 'explicit' })
-    await repo.addDependency({ story_key: 'BS-3', depends_on: 'BS-1', dependency_type: 'blocks', source: 'explicit' })
+    await repo.addDependency({
+      story_key: 'BS-2',
+      depends_on: 'BS-1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
+    await repo.addDependency({
+      story_key: 'BS-3',
+      depends_on: 'BS-1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
 
     const result: BlockedStoryInfo[] = await repo.getBlockedStories()
     // Only planned/ready stories are candidates — none here qualify (BS-1 has no incomplete blocking deps)
@@ -602,7 +674,12 @@ describe('WorkGraphRepository.getBlockedStories()', () => {
     await repo.upsertStory(makeStory({ story_key: 'BS-1', epic: 'BS', status: 'planned' }))
     await repo.upsertStory(makeStory({ story_key: 'BS-2', epic: 'BS', status: 'planned' }))
     // informs dep only — should NOT block
-    await repo.addDependency({ story_key: 'BS-2', depends_on: 'BS-1', dependency_type: 'informs', source: 'inferred' })
+    await repo.addDependency({
+      story_key: 'BS-2',
+      depends_on: 'BS-1',
+      dependency_type: 'informs',
+      source: 'inferred',
+    })
 
     const result: BlockedStoryInfo[] = await repo.getBlockedStories()
     expect(result).toHaveLength(0)

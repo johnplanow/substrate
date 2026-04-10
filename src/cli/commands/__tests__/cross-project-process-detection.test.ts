@@ -14,10 +14,7 @@ import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import {
-  inspectProcessTree,
-  getAutoHealthData,
-} from '../health.js'
+import { inspectProcessTree, getAutoHealthData } from '../health.js'
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -27,7 +24,9 @@ vi.mock('../../../persistence/adapter.js', () => {
   let mockAdapter: DatabaseAdapter | null = null
   return {
     createDatabaseAdapter: () => mockAdapter!,
-    __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
+    __setMockAdapter: (a: DatabaseAdapter) => {
+      mockAdapter = a
+    },
   }
 })
 
@@ -40,7 +39,7 @@ vi.mock('../../../utils/git-root.js', () => ({
 }))
 
 vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     existsSync: vi.fn().mockReturnValue(true),
@@ -53,7 +52,9 @@ vi.mock('node:fs', async (importOriginal) => {
 
 async function createTestDb(): Promise<DatabaseAdapter> {
   const adapter = new InMemoryDatabaseAdapter()
-  const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
+  const { initSchema: realInitSchema } = await vi.importActual<
+    typeof import('../../../persistence/schema.js')
+  >('../../../persistence/schema.js')
   await realInitSchema(adapter)
   return adapter
 }
@@ -65,7 +66,7 @@ async function createTestRun(
     current_phase?: string
     token_usage_json?: string
     updated_at?: string
-  } = {},
+  } = {}
 ): Promise<PipelineRun> {
   const run = await createPipelineRun(adapter, {
     methodology: 'bmad',
@@ -73,18 +74,32 @@ async function createTestRun(
     config_json: null,
   })
   if (overrides.status !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [overrides.status, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [
+      overrides.status,
+      run.id,
+    ])
   }
   if (overrides.current_phase !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [overrides.current_phase, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [
+      overrides.current_phase,
+      run.id,
+    ])
   }
   if (overrides.token_usage_json !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [overrides.token_usage_json, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [
+      overrides.token_usage_json,
+      run.id,
+    ])
   }
   if (overrides.updated_at !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET updated_at = ? WHERE id = ?`, [overrides.updated_at, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET updated_at = ? WHERE id = ?`, [
+      overrides.updated_at,
+      run.id,
+    ])
   }
-  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])
+  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [
+    run.id,
+  ])
   return rows[0]!
 }
 
@@ -121,7 +136,7 @@ describe('inspectProcessTree — PID-file based cross-project detection (AC1, AC
     const mockExecFileSync = vi.fn().mockReturnValue(psOutput)
 
     const result = inspectProcessTree({
-      projectRoot: '/other/project',   // not in the command line
+      projectRoot: '/other/project', // not in the command line
       substrateDirPath: SUBSTRATE_DIR,
       execFileSync: mockExecFileSync,
       readFileSync: mockReadFileSync,
@@ -129,10 +144,7 @@ describe('inspectProcessTree — PID-file based cross-project detection (AC1, AC
 
     // AC1: orchestrator PID must be non-null and correct
     expect(result.orchestrator_pid).toBe(PID)
-    expect(mockReadFileSync).toHaveBeenCalledWith(
-      join(SUBSTRATE_DIR, 'orchestrator.pid'),
-      'utf-8',
-    )
+    expect(mockReadFileSync).toHaveBeenCalledWith(join(SUBSTRATE_DIR, 'orchestrator.pid'), 'utf-8')
   })
 
   it('detects child PIDs after PID-file orchestrator detection (AC2)', () => {
@@ -191,10 +203,7 @@ describe('inspectProcessTree — PID-file based cross-project detection (AC1, AC
   })
 
   it('rejects PID from file if process is not found in ps output (crashed without cleanup)', () => {
-    const emptyPsOutput = [
-      'PID  PPID STAT COMMAND',
-      '1     0 Ss   /sbin/init',
-    ].join('\n')
+    const emptyPsOutput = ['PID  PPID STAT COMMAND', '1     0 Ss   /sbin/init'].join('\n')
 
     const mockReadFileSync = vi.fn().mockReturnValue(`${PID}\n`)
     const mockExecFileSync = vi.fn().mockReturnValue(emptyPsOutput)
@@ -217,11 +226,15 @@ describe('inspectProcessTree — PID-file based cross-project detection (AC1, AC
       err.code = 'ENOENT'
       throw err
     })
-    const mockExecFileSync = vi.fn().mockReturnValue([
-      'PID  PPID STAT COMMAND',
-      `${PID} 12344 S    substrate run --events --stories 4-1`,
-      `${CHILD_PID} ${PID} S    claude -p worker`,
-    ].join('\n'))
+    const mockExecFileSync = vi
+      .fn()
+      .mockReturnValue(
+        [
+          'PID  PPID STAT COMMAND',
+          `${PID} 12344 S    substrate run --events --stories 4-1`,
+          `${CHILD_PID} ${PID} S    claude -p worker`,
+        ].join('\n')
+      )
 
     const result = inspectProcessTree({
       substrateDirPath: SUBSTRATE_DIR,
@@ -237,11 +250,15 @@ describe('inspectProcessTree — PID-file based cross-project detection (AC1, AC
 
   it('falls back to command-line matching when substrateDirPath is not provided', () => {
     // No substrateDirPath → skip PID file check entirely → use cmdline matching
-    const mockExecFileSync = vi.fn().mockReturnValue([
-      'PID  PPID STAT COMMAND',
-      `${PID} 12344 S    substrate run --events`,
-      `${CHILD_PID} ${PID} S    node worker.js`,
-    ].join('\n'))
+    const mockExecFileSync = vi
+      .fn()
+      .mockReturnValue(
+        [
+          'PID  PPID STAT COMMAND',
+          `${PID} 12344 S    substrate run --events`,
+          `${CHILD_PID} ${PID} S    node worker.js`,
+        ].join('\n')
+      )
 
     const result = inspectProcessTree({
       execFileSync: mockExecFileSync,
@@ -311,7 +328,9 @@ describe('getAutoHealthData — AC4: verdict correctness for running pipeline', 
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = (await import('../../../persistence/adapter.js')) as {
+      __setMockAdapter: (a: DatabaseAdapter) => void
+    }
     dbModule.__setMockAdapter(adapter)
   })
 
@@ -333,7 +352,7 @@ describe('getAutoHealthData — AC4: verdict correctness for running pipeline', 
       status: 'running',
       current_phase: 'implementation',
       token_usage_json: storyState,
-      updated_at: new Date().toISOString(),  // fresh
+      updated_at: new Date().toISOString(), // fresh
     })
 
     const result = await getAutoHealthData({ projectRoot: '/tmp/cross-project-test' })
@@ -386,7 +405,7 @@ describe('getAutoHealthData — AC4: verdict correctness for running pipeline', 
   })
 
   it('returns STALLED when run is stale and no active processes found (AC4 compatible)', async () => {
-    const staleTime = new Date(Date.now() - 700_000).toISOString()  // 11+ minutes ago
+    const staleTime = new Date(Date.now() - 700_000).toISOString() // 11+ minutes ago
     await createTestRun(adapter, {
       status: 'running',
       current_phase: 'implementation',
@@ -446,7 +465,9 @@ describe('inspectProcessTree — substrateDirPath option is backward-compatible'
 
     const mockExec = vi.fn().mockReturnValue(psOutput)
     // PID file missing (throws ENOENT)
-    const mockReadFile = vi.fn().mockImplementation(() => { throw new Error('ENOENT') })
+    const mockReadFile = vi.fn().mockImplementation(() => {
+      throw new Error('ENOENT')
+    })
 
     const resultA = inspectProcessTree({
       projectRoot: projectA,

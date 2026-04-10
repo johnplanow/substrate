@@ -58,9 +58,20 @@ export interface StatusOptions {
 // Work graph types (for status output)
 // ---------------------------------------------------------------------------
 
-interface WgBlockerInfo { key: string; title: string; status: string }
-interface WgBlockedStory { key: string; title: string; blockers: WgBlockerInfo[] }
-interface WgReadyStory { key: string; title: string }
+interface WgBlockerInfo {
+  key: string
+  title: string
+  status: string
+}
+interface WgBlockedStory {
+  key: string
+  title: string
+  blockers: WgBlockerInfo[]
+}
+interface WgReadyStory {
+  key: string
+  title: string
+}
 
 /** Extended count shape used when building workGraph from manifest data (includes `failed`). */
 type WorkGraphCounts = {
@@ -73,7 +84,14 @@ type WorkGraphCounts = {
 }
 
 interface WorkGraphSummary {
-  summary: { ready: number; blocked: number; inProgress: number; complete: number; escalated: number; failed?: number }
+  summary: {
+    ready: number
+    blocked: number
+    inProgress: number
+    complete: number
+    escalated: number
+    failed?: number
+  }
   readyStories: WgReadyStory[]
   blockedStories: WgBlockedStory[]
 }
@@ -88,16 +106,22 @@ interface WorkGraphSummary {
  */
 function manifestStatusToWorkGraphBucket(status: string): keyof WorkGraphCounts {
   switch (status) {
-    case 'complete':            return 'complete'
-    case 'escalated':           return 'escalated'
+    case 'complete':
+      return 'complete'
+    case 'escalated':
+      return 'escalated'
     case 'failed':
-    case 'verification-failed': return 'failed'
+    case 'verification-failed':
+      return 'failed'
     case 'dispatched':
     case 'in-review':
-    case 'recovered':           return 'inProgress'
+    case 'recovered':
+      return 'inProgress'
     case 'gated':
-    case 'pending':             return 'ready'
-    default:                    return 'inProgress'
+    case 'pending':
+      return 'ready'
+    default:
+      return 'inProgress'
   }
 }
 
@@ -107,9 +131,16 @@ function manifestStatusToWorkGraphBucket(status: string): keyof WorkGraphCounts 
  * dependency-graph detail (only status counts).
  */
 function buildWorkGraphFromManifest(
-  perStoryState: Record<string, PerStoryState>,
+  perStoryState: Record<string, PerStoryState>
 ): WorkGraphSummary {
-  const counts: WorkGraphCounts = { ready: 0, blocked: 0, inProgress: 0, complete: 0, escalated: 0, failed: 0 }
+  const counts: WorkGraphCounts = {
+    ready: 0,
+    blocked: 0,
+    inProgress: 0,
+    complete: 0,
+    escalated: 0,
+    failed: 0,
+  }
   for (const entry of Object.values(perStoryState)) {
     const bucket = manifestStatusToWorkGraphBucket(entry.status)
     counts[bucket]++
@@ -138,7 +169,9 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
   // Task 3: --history flag — short-circuit before DB queries
   if (history === true) {
     if (!stateStore) {
-      process.stdout.write('History not available with file backend. Use Dolt backend for state history.\n')
+      process.stdout.write(
+        'History not available with file backend. Use Dolt backend for state history.\n'
+      )
       return 0
     }
     try {
@@ -228,7 +261,10 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
         workGraph = buildWorkGraphFromManifest(manifestData.per_story_state)
         logger.debug({ runId: run?.id }, 'status: workGraph built from manifest per_story_state')
       } catch {
-        logger.debug({ runId: run?.id }, 'status: manifest read failed — falling back to wg_stories')
+        logger.debug(
+          { runId: run?.id },
+          'status: manifest read failed — falling back to wg_stories'
+        )
         // fall through to wg_stories query below
       }
     }
@@ -237,7 +273,11 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
     if (workGraph === undefined) {
       try {
         const wgRepo = new WorkGraphRepository(adapter)
-        const allStories = await adapter.query<{ story_key: string; title: string | null; status: string }>(`SELECT story_key, title, status FROM wg_stories`)
+        const allStories = await adapter.query<{
+          story_key: string
+          title: string | null
+          status: string
+        }>(`SELECT story_key, title, status FROM wg_stories`)
         if (allStories.length > 0) {
           const readyStoriesRaw = await wgRepo.getReadyStories()
           const blockedStoriesRaw = await wgRepo.getBlockedStories()
@@ -254,11 +294,18 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
               complete: completeCount,
               escalated: escalatedCount,
             },
-            readyStories: readyStoriesRaw.map((s) => ({ key: s.story_key, title: s.title ?? s.story_key })),
+            readyStories: readyStoriesRaw.map((s) => ({
+              key: s.story_key,
+              title: s.title ?? s.story_key,
+            })),
             blockedStories: blockedStoriesRaw.map((b) => ({
               key: b.story.story_key,
               title: b.story.title ?? b.story.story_key,
-              blockers: b.blockers.map((bl) => ({ key: bl.key, title: bl.title, status: bl.status })),
+              blockers: b.blockers.map((bl) => ({
+                key: bl.key,
+                title: bl.title,
+                status: bl.status,
+              })),
             })),
           }
         }
@@ -281,7 +328,9 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
         if (outputFormat === 'json') {
           process.stdout.write(formatOutput(syntheticStatus, 'json', true) + '\n')
         } else {
-          process.stdout.write(`Pipeline is running (PID ${processInfo.orchestrator_pid}) but no DB state available.\n`)
+          process.stdout.write(
+            `Pipeline is running (PID ${processInfo.orchestrator_pid}) but no DB state available.\n`
+          )
         }
         return 0
       }
@@ -304,13 +353,13 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
     // Count decisions and stories
     const decisionsCountRows = await adapter.query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`,
-      [run.id],
+      [run.id]
     )
     const decisionsCount = decisionsCountRows[0]?.cnt ?? 0
 
     const storiesCountRows = await adapter.query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
-      [run.id],
+      [run.id]
     )
     const storiesCount = storiesCountRows[0]?.cnt ?? 0
 
@@ -326,7 +375,12 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
 
     if (outputFormat === 'json') {
       // AC5: output the exact schema defined in the story
-      const statusOutput = buildPipelineStatusOutput(run, tokenSummary, decisionsCount, storiesCount)
+      const statusOutput = buildPipelineStatusOutput(
+        run,
+        tokenSummary,
+        decisionsCount,
+        storiesCount
+      )
 
       // Story 24-4 (AC5, AC6): augment with per-story metrics and pipeline summary
       const storyMetricsRows = await getStoryMetricsForRun(adapter, run.id)
@@ -395,9 +449,7 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
         workGraph: workGraph ?? null,
       }
 
-      process.stdout.write(
-        formatOutput(enhancedOutput, 'json', true) + '\n',
-      )
+      process.stdout.write(formatOutput(enhancedOutput, 'json', true) + '\n')
     } else {
       // Check if this is a phase-level run (has phaseHistory) or legacy implementation-only run
       let hasPhaseHistory = false
@@ -410,7 +462,12 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
 
       if (hasPhaseHistory) {
         // Phase-level status display
-        const statusOutput = buildPipelineStatusOutput(run, tokenSummary, decisionsCount, storiesCount)
+        const statusOutput = buildPipelineStatusOutput(
+          run,
+          tokenSummary,
+          decisionsCount,
+          storiesCount
+        )
         process.stdout.write(formatPipelineStatusHuman(statusOutput) + '\n')
       } else {
         // Legacy human-readable status (implementation-only)
@@ -454,7 +511,7 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
               else pending++
             }
             process.stdout.write(
-              `\nSummary: ${completed} completed, ${pending} pending, ${escalated} escalated\n`,
+              `\nSummary: ${completed} completed, ${pending} pending, ${escalated} escalated\n`
             )
           }
         }
@@ -527,46 +584,56 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
 export function registerStatusCommand(
   program: Command,
   _version = '0.0.0',
-  projectRoot = process.cwd(),
+  projectRoot = process.cwd()
 ): void {
   program
     .command('status')
     .description('Show status of the most recent (or specified) pipeline run')
     .option('--run-id <id>', 'Pipeline run ID to query (defaults to latest)')
     .option('--project-root <path>', 'Project root directory', projectRoot)
-    .option(
-      '--output-format <format>',
-      'Output format: human (default) or json',
-      'human',
-    )
+    .option('--output-format <format>', 'Output format: human (default) or json', 'human')
     .option('--history', 'Show Dolt commit history for the state store')
-    .action(async (opts: { runId?: string; projectRoot: string; outputFormat: string; history?: boolean }) => {
-      const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
-      const root = opts.projectRoot
+    .action(
+      async (opts: {
+        runId?: string
+        projectRoot: string
+        outputFormat: string
+        history?: boolean
+      }) => {
+        const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
+        const root = opts.projectRoot
 
-      // Task 5: Wire StateStore factory using Dolt path detection (same pattern as metrics.ts)
-      let stateStore: StateStore | undefined
-      const doltStatePath = join(root, '.substrate', 'state', '.dolt')
-      if (existsSync(doltStatePath)) {
+        // Task 5: Wire StateStore factory using Dolt path detection (same pattern as metrics.ts)
+        let stateStore: StateStore | undefined
+        const doltStatePath = join(root, '.substrate', 'state', '.dolt')
+        if (existsSync(doltStatePath)) {
+          try {
+            stateStore = createStateStore({
+              backend: 'dolt',
+              basePath: join(root, '.substrate', 'state'),
+            })
+            await stateStore.initialize()
+          } catch {
+            stateStore = undefined
+          }
+        }
+
         try {
-          stateStore = createStateStore({ backend: 'dolt', basePath: join(root, '.substrate', 'state') })
-          await stateStore.initialize()
-        } catch {
-          stateStore = undefined
+          const exitCode = await runStatusAction({
+            outputFormat,
+            runId: opts.runId,
+            projectRoot: root,
+            stateStore,
+            history: opts.history,
+          })
+          process.exitCode = exitCode
+        } finally {
+          try {
+            await stateStore?.close()
+          } catch {
+            /* ignore */
+          }
         }
       }
-
-      try {
-        const exitCode = await runStatusAction({
-          outputFormat,
-          runId: opts.runId,
-          projectRoot: root,
-          stateStore,
-          history: opts.history,
-        })
-        process.exitCode = exitCode
-      } finally {
-        try { await stateStore?.close() } catch { /* ignore */ }
-      }
-    })
+    )
 }

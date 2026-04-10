@@ -40,13 +40,11 @@ const UPPERCASE_ACRONYMS = new Set(['fr', 'nfr', 'ux', 'api', 'db', 'id', 'url']
  * Known acronyms (fr, nfr, ux, api, db, id, url) are rendered fully uppercased.
  */
 export function fieldLabel(key: string): string {
-  return key
-    .replace(/_/g, ' ')
-    .replace(/\b\w+/g, (word) => {
-      const lower = word.toLowerCase()
-      if (UPPERCASE_ACRONYMS.has(lower)) return lower.toUpperCase()
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-    })
+  return key.replace(/_/g, ' ').replace(/\b\w+/g, (word) => {
+    const lower = word.toLowerCase()
+    if (UPPERCASE_ACRONYMS.has(lower)) return lower.toUpperCase()
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+  })
 }
 
 /**
@@ -103,15 +101,14 @@ export function renderProductBrief(decisions: Decision[]): string {
   // if not already present in the product-brief map.
   if (techConstraintDecisions.length > 0 && briefMap['technology_constraints'] === undefined) {
     // Combine all tech constraint values into a single bulleted list value
-    const tcBullets = techConstraintDecisions
-      .flatMap((d) => {
-        // Each constraint decision value may itself be a string or JSON array
-        const parsed = safeParseJson(d.value)
-        if (Array.isArray(parsed)) {
-          return parsed.map((item: unknown) => String(item))
-        }
-        return [String(parsed)]
-      })
+    const tcBullets = techConstraintDecisions.flatMap((d) => {
+      // Each constraint decision value may itself be a string or JSON array
+      const parsed = safeParseJson(d.value)
+      if (Array.isArray(parsed)) {
+        return parsed.map((item: unknown) => String(item))
+      }
+      return [String(parsed)]
+    })
     // Store as JSON array so renderValue() formats it as a bulleted list
     briefMap['technology_constraints'] = JSON.stringify(tcBullets)
   }
@@ -193,7 +190,12 @@ export function renderPrd(decisions: Decision[], requirements: Requirement[] = [
     for (const d of frDecisions) {
       const parsed = safeParseJson(d.value)
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-        const fr = parsed as { id?: string; description?: string; priority?: string; acceptance_criteria?: string[] }
+        const fr = parsed as {
+          id?: string
+          description?: string
+          priority?: string
+          acceptance_criteria?: string[]
+        }
         const id = fr.id ?? d.key
         const priority = fr.priority ? ` [${fr.priority.toUpperCase()}]` : ''
         parts.push(`- **${id}**${priority}: ${fr.description ?? d.value}`)
@@ -219,7 +221,12 @@ export function renderPrd(decisions: Decision[], requirements: Requirement[] = [
     for (const d of nfrDecisions) {
       const parsed = safeParseJson(d.value)
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-        const nfr = parsed as { id?: string; description?: string; category?: string; priority?: string }
+        const nfr = parsed as {
+          id?: string
+          description?: string
+          category?: string
+          priority?: string
+        }
         const id = nfr.id ?? d.key
         const cat = nfr.category ? ` [${nfr.category.toUpperCase()}]` : ''
         parts.push(`- **${id}**${cat}: ${nfr.description ?? d.value}`)
@@ -540,10 +547,7 @@ export function renderEpics(decisions: Decision[]): string {
   }
 
   // Determine the full set of epic numbers (from both epics and stories)
-  const allEpicNums = new Set<number>([
-    ...epicMap.keys(),
-    ...storyMap.keys(),
-  ])
+  const allEpicNums = new Set<number>([...epicMap.keys(), ...storyMap.keys()])
   const sortedEpicNums = [...allEpicNums].sort((a, b) => a - b)
 
   const parts: string[] = ['# Epics and Stories', '']
@@ -604,7 +608,7 @@ export function renderOperationalFindings(decisions: Decision[]): string {
   const runSummaries = findings.filter((d) => d.key.startsWith('run-summary:'))
   const stallFindings = findings.filter((d) => d.key.startsWith('stall:'))
   const otherFindings = findings.filter(
-    (d) => !d.key.startsWith('run-summary:') && !d.key.startsWith('stall:'),
+    (d) => !d.key.startsWith('run-summary:') && !d.key.startsWith('stall:')
   )
 
   if (runSummaries.length > 0) {
@@ -650,7 +654,9 @@ export function renderOperationalFindings(decisions: Decision[]): string {
           outcome?: string
         }
         const outcome = s.outcome ?? 'unknown'
-        parts.push(`- **${d.key}**: phase=${s.phase ?? '?'} staleness=${s.staleness_secs ?? 0}s attempt=${s.attempt ?? 0} outcome=${outcome}`)
+        parts.push(
+          `- **${d.key}**: phase=${s.phase ?? '?'} staleness=${s.staleness_secs ?? 0}s attempt=${s.attempt ?? 0} outcome=${outcome}`
+        )
       } else {
         parts.push(`- **${d.key}**: ${String(parsed)}`)
       }
@@ -689,18 +695,30 @@ export function renderExperiments(decisions: Decision[]): string {
 
   const improved = experiments.filter((d) => {
     const p = safeParseJson(d.value)
-    return typeof p === 'object' && p !== null && (p as Record<string, unknown>)['verdict'] === 'IMPROVED'
+    return (
+      typeof p === 'object' &&
+      p !== null &&
+      (p as Record<string, unknown>)['verdict'] === 'IMPROVED'
+    )
   })
   const mixed = experiments.filter((d) => {
     const p = safeParseJson(d.value)
-    return typeof p === 'object' && p !== null && (p as Record<string, unknown>)['verdict'] === 'MIXED'
+    return (
+      typeof p === 'object' && p !== null && (p as Record<string, unknown>)['verdict'] === 'MIXED'
+    )
   })
   const regressed = experiments.filter((d) => {
     const p = safeParseJson(d.value)
-    return typeof p === 'object' && p !== null && (p as Record<string, unknown>)['verdict'] === 'REGRESSED'
+    return (
+      typeof p === 'object' &&
+      p !== null &&
+      (p as Record<string, unknown>)['verdict'] === 'REGRESSED'
+    )
   })
 
-  parts.push(`**Total**: ${experiments.length} | **Improved**: ${improved.length} | **Mixed**: ${mixed.length} | **Regressed**: ${regressed.length}`)
+  parts.push(
+    `**Total**: ${experiments.length} | **Improved**: ${improved.length} | **Mixed**: ${mixed.length} | **Regressed**: ${regressed.length}`
+  )
   parts.push('')
 
   for (const d of experiments) {
@@ -716,7 +734,9 @@ export function renderExperiments(decisions: Decision[]): string {
       const verdict = e.verdict ?? 'UNKNOWN'
       const metric = e.target_metric ?? 'unknown'
       const branch = e.branch_name ? ` → \`${e.branch_name}\`` : ''
-      parts.push(`- **[${verdict}]** ${metric}: before=${e.before ?? '?'} after=${e.after ?? '?'}${branch}`)
+      parts.push(
+        `- **[${verdict}]** ${metric}: before=${e.before ?? '?'} after=${e.after ?? '?'}${branch}`
+      )
     } else {
       parts.push(`- ${String(parsed)}`)
     }

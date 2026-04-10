@@ -7,10 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import {
-  stripDeprecatedStatusField,
-  detectDeprecatedStatusField,
-} from '../spec-migrator.js'
+import { stripDeprecatedStatusField, detectDeprecatedStatusField } from '../spec-migrator.js'
 
 // ---------------------------------------------------------------------------
 // stripDeprecatedStatusField

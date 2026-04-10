@@ -65,7 +65,7 @@ function doneEvent(key: string, review_cycles = 1): StoryDoneEvent {
 function checkCompleteEvent(
   storyKey: string,
   checkName: string,
-  status: 'pass' | 'warn' | 'fail' = 'pass',
+  status: 'pass' | 'warn' | 'fail' = 'pass'
 ): VerificationCheckCompleteEvent {
   return {
     type: 'verification:check-complete',
@@ -81,7 +81,7 @@ function checkCompleteEvent(
 function storyCompleteEvent(
   storyKey: string,
   status: 'pass' | 'warn' | 'fail',
-  checkCount = 3,
+  checkCount = 3
 ): VerificationStoryCompleteEvent {
   const checks = Array.from({ length: checkCount }, (_, i) => ({
     checkName: `check-${i}`,
@@ -222,7 +222,7 @@ describe('wireNdjsonEmitter — verification event forwarding', () => {
 
     wireNdjsonEmitter(
       mockEventBus as unknown as Parameters<typeof wireNdjsonEmitter>[0],
-      mockNdjsonEmitter as unknown as Parameters<typeof wireNdjsonEmitter>[1],
+      mockNdjsonEmitter as unknown as Parameters<typeof wireNdjsonEmitter>[1]
     )
 
     // Confirm the handler was registered for verification:check-complete
@@ -269,7 +269,7 @@ describe('wireNdjsonEmitter — verification event forwarding', () => {
 
     wireNdjsonEmitter(
       mockEventBus as unknown as Parameters<typeof wireNdjsonEmitter>[0],
-      mockNdjsonEmitter as unknown as Parameters<typeof wireNdjsonEmitter>[1],
+      mockNdjsonEmitter as unknown as Parameters<typeof wireNdjsonEmitter>[1]
     )
 
     // Confirm the handler was registered for verification:story-complete
@@ -279,7 +279,12 @@ describe('wireNdjsonEmitter — verification event forwarding', () => {
     // Invoke the handler with a sample payload
     const checks = [
       { checkName: 'phantom-review', status: 'pass' as const, details: 'ok', duration_ms: 10 },
-      { checkName: 'trivial-output', status: 'warn' as const, details: 'low tokens', duration_ms: 5 },
+      {
+        checkName: 'trivial-output',
+        status: 'warn' as const,
+        details: 'low tokens',
+        duration_ms: 5,
+      },
       { checkName: 'build', status: 'pass' as const, details: 'build passed', duration_ms: 300 },
     ]
     const payload = {

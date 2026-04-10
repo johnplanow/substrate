@@ -308,7 +308,11 @@ describe('AC3: Multi-persona LLM dispatch', () => {
   it('dispatchToPersonas: each persona gets called with a distinct prompt', async () => {
     const mockLlm = vi.fn().mockResolvedValue('Response')
 
-    await dispatchToPersonas('build a feature', { brief: 'product brief', prd: 'prd content' }, mockLlm)
+    await dispatchToPersonas(
+      'build a feature',
+      { brief: 'product brief', prd: 'prd content' },
+      mockLlm
+    )
 
     expect(mockLlm).toHaveBeenCalledTimes(3)
     // Each prompt should contain the persona name
@@ -405,7 +409,12 @@ describe('AC5: Concept file generation with FR-2.5 fields', () => {
     const session = makeSession({ turns: [makeTurn()] })
     const concept = generateConceptFile(session)
 
-    const validHints = ['pure_new_scope', 'change_existing_scope', 'architecture_correction', 'mixed']
+    const validHints = [
+      'pure_new_scope',
+      'change_existing_scope',
+      'architecture_correction',
+      'mixed',
+    ]
     expect(validHints).toContain(concept.amendmentTypeHint)
   })
 
@@ -439,7 +448,10 @@ describe('AC5: Concept file generation with FR-2.5 fields', () => {
     const session = makeSession({
       turns: [
         makeTurn('breaking change needed', [
-          { name: 'Pragmatic Engineer', response: 'This is a breaking change to the architecture.' },
+          {
+            name: 'Pragmatic Engineer',
+            response: 'This is a breaking change to the architecture.',
+          },
           { name: 'Product Thinker', response: 'We need architecture redesign.' },
           { name: "Devil's Advocate", response: 'Migration will be costly.' },
         ]),
@@ -453,7 +465,10 @@ describe('AC5: Concept file generation with FR-2.5 fields', () => {
     const session = makeSession({
       turns: [
         makeTurn('add new feature for payments', [
-          { name: 'Pragmatic Engineer', response: 'We should create a new payment module and implement new API.' },
+          {
+            name: 'Pragmatic Engineer',
+            response: 'We should create a new payment module and implement new API.',
+          },
           { name: 'Product Thinker', response: 'Build a new capability for users.' },
           { name: "Devil's Advocate", response: 'Why do we need a new feature at all?' },
         ]),
@@ -592,7 +607,9 @@ describe('AC6: Persistent session output', () => {
 
     const session = makeSession({ turns: [makeTurn()] })
 
-    await expect(saveSessionToDisk(session, '/project')).rejects.toThrow('Failed to save brainstorm session')
+    await expect(saveSessionToDisk(session, '/project')).rejects.toThrow(
+      'Failed to save brainstorm session'
+    )
   })
 })
 
@@ -631,7 +648,7 @@ describe('AC4: REPL session command handling', () => {
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: false },
       undefined,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     // Fire !help
@@ -664,7 +681,7 @@ describe('AC4: REPL session command handling', () => {
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: false },
       undefined,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     for (const handler of lineHandlers) {
@@ -690,7 +707,7 @@ describe('AC4: REPL session command handling', () => {
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: false },
       mockLlm,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     // Send a user input first to create a turn
@@ -726,7 +743,7 @@ describe('AC4: REPL session command handling', () => {
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: false },
       undefined,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     for (const handler of closeHandlers) {
@@ -751,7 +768,7 @@ describe('AC4: REPL session command handling', () => {
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: false },
       mockLlm,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     for (const handler of lineHandlers) {
@@ -803,9 +820,7 @@ describe('AC8: Error handling and edge cases', () => {
   })
 
   it('loadAmendmentContextDocuments: missing prd logs warning, continues with brief', async () => {
-    mockReadFile
-      .mockResolvedValueOnce('Brief content')
-      .mockRejectedValueOnce(new Error('ENOENT'))
+    mockReadFile.mockResolvedValueOnce('Brief content').mockRejectedValueOnce(new Error('ENOENT'))
 
     const result = await loadAmendmentContextDocuments('/test')
 
@@ -827,7 +842,7 @@ describe('AC8: Error handling and edge cases', () => {
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: false },
       mockLlm,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     for (const handler of lineHandlers) {
@@ -855,7 +870,9 @@ describe('AC8: Error handling and edge cases', () => {
     mockWriteFile.mockRejectedValue(new Error('EACCES: permission denied'))
 
     const session = makeSession({ turns: [makeTurn()] })
-    await expect(saveSessionToDisk(session, '/test')).rejects.toThrow('Failed to save brainstorm session')
+    await expect(saveSessionToDisk(session, '/test')).rejects.toThrow(
+      'Failed to save brainstorm session'
+    )
   })
 
   it('runBrainstormSession: returns exit code 0 on successful completion', async () => {
@@ -869,7 +886,7 @@ describe('AC8: Error handling and edge cases', () => {
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: false },
       undefined,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     for (const handler of lineHandlers) {
@@ -891,7 +908,7 @@ describe('AC8: Error handling and edge cases', () => {
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: false },
       undefined,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     for (const handler of lineHandlers) {
@@ -920,7 +937,7 @@ describe('AC8: Error handling and edge cases', () => {
     const sessionPromise = runBrainstormSession(
       { projectRoot: '/test', existing: true },
       undefined,
-      mockRlInterface as ReturnType<typeof import('readline').createInterface>,
+      mockRlInterface as ReturnType<typeof import('readline').createInterface>
     )
 
     // Wait a tick for async init (detectBrainstormContext + loadAmendmentContextDocuments)

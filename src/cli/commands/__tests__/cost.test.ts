@@ -19,7 +19,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // ---------------------------------------------------------------------------
 
 // Mock adapter
-const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+const mockAdapter = {
+  query: vi.fn().mockResolvedValue([]),
+  exec: vi.fn().mockResolvedValue(undefined),
+  transaction: vi.fn(),
+  close: vi.fn().mockResolvedValue(undefined),
+}
 
 vi.mock('../../../persistence/adapter.js', () => ({
   createDatabaseAdapter: vi.fn(() => mockAdapter),
@@ -78,7 +83,11 @@ import {
   COST_EXIT_ERROR,
 } from '../cost.js'
 import type { CostActionOptions } from '../cost.js'
-import type { SessionCostSummary, CostEntry, AgentCostBreakdown } from '../../../modules/cost-tracker/types.js'
+import type {
+  SessionCostSummary,
+  CostEntry,
+  AgentCostBreakdown,
+} from '../../../modules/cost-tracker/types.js'
 
 // ---------------------------------------------------------------------------
 // Test data factories
@@ -91,7 +100,8 @@ function createMockSummary(overrides: Partial<SessionCostSummary> = {}): Session
     subscription_cost_usd: 0.0,
     api_cost_usd: 0.42,
     savings_usd: 1.23,
-    savingsSummary: 'Saved ~$1.23 by routing 3 tasks through subscriptions vs. equivalent API pricing',
+    savingsSummary:
+      'Saved ~$1.23 by routing 3 tasks through subscriptions vs. equivalent API pricing',
     per_agent_breakdown: [
       {
         agent: 'claude-code',
@@ -306,7 +316,7 @@ describe('AC2: substrate cost --session <id>', () => {
     expect(mockGetSessionCostSummaryFiltered).toHaveBeenCalledWith(
       expect.anything(),
       'my-session-id',
-      false,
+      false
     )
   })
 
@@ -349,7 +359,7 @@ describe('AC3: substrate cost --by-task', () => {
     expect(mockGetAllCostEntriesFiltered).toHaveBeenCalledWith(
       expect.anything(),
       'session-abc123',
-      false, // includePlanning=false by default
+      false // includePlanning=false by default
     )
   })
 
@@ -359,7 +369,7 @@ describe('AC3: substrate cost --by-task', () => {
     expect(mockGetAllCostEntriesFiltered).toHaveBeenCalledWith(
       expect.anything(),
       'session-abc123',
-      false,
+      false
     )
   })
 
@@ -369,7 +379,7 @@ describe('AC3: substrate cost --by-task', () => {
     expect(mockGetAllCostEntriesFiltered).toHaveBeenCalledWith(
       expect.anything(),
       'session-abc123',
-      true,
+      true
     )
   })
 })
@@ -432,7 +442,7 @@ describe('AC4: substrate cost --output-format json', () => {
 
 describe('AC5: planning costs shown separately', () => {
   it('default view (includePlanning=false) shows planning costs as excluded line', async () => {
-    const filteredSummary = createMockSummary({ total_cost_usd: 0.30 })
+    const filteredSummary = createMockSummary({ total_cost_usd: 0.3 })
     mockGetSessionCostSummaryFiltered.mockResolvedValue(filteredSummary)
     mockGetPlanningCostTotal.mockResolvedValue(0.12)
 
@@ -462,17 +472,14 @@ describe('AC5: planning costs shown separately', () => {
     expect(mockGetSessionCostSummaryFiltered).toHaveBeenCalledWith(
       expect.anything(),
       'session-abc123',
-      false,
+      false
     )
   })
 
   it('uses getSessionCostSummary when includePlanning=true', async () => {
     await runCostAction(defaultOptions({ includePlanning: true }))
 
-    expect(mockGetSessionCostSummary).toHaveBeenCalledWith(
-      expect.anything(),
-      'session-abc123',
-    )
+    expect(mockGetSessionCostSummary).toHaveBeenCalledWith(expect.anything(), 'session-abc123')
     expect(mockGetSessionCostSummaryFiltered).not.toHaveBeenCalled()
   })
 
@@ -499,7 +506,9 @@ describe('AC6: substrate cost --output-format csv', () => {
 
     expect(exitCode).toBe(COST_EXIT_SUCCESS)
     const output = getStdout()
-    expect(output).toContain('session_id,total_cost_usd,subscription_cost_usd,api_cost_usd,savings_usd')
+    expect(output).toContain(
+      'session_id,total_cost_usd,subscription_cost_usd,api_cost_usd,savings_usd'
+    )
     expect(output).toContain('session-abc123')
   })
 
@@ -626,7 +635,9 @@ describe('AC8: error handling', () => {
   })
 
   it('returns success with "No cost data found" in JSON when no session ID provided', async () => {
-    const exitCode = await runCostAction(defaultOptions({ sessionId: undefined, outputFormat: 'json' }))
+    const exitCode = await runCostAction(
+      defaultOptions({ sessionId: undefined, outputFormat: 'json' })
+    )
 
     expect(exitCode).toBe(COST_EXIT_SUCCESS)
     const parsed = JSON.parse(getStdout()) as { data: { message: string } }
@@ -646,7 +657,7 @@ describe('AC8: error handling', () => {
 
   it('returns error for invalid output format (FIX 4)', async () => {
     const exitCode = await runCostAction(
-      defaultOptions({ outputFormat: 'xml' as 'table' | 'json' | 'csv' }),
+      defaultOptions({ outputFormat: 'xml' as 'table' | 'json' | 'csv' })
     )
 
     expect(exitCode).toBe(COST_EXIT_ERROR)
@@ -658,7 +669,7 @@ describe('AC8: error handling', () => {
 
   it('returns error for another invalid output format', async () => {
     const exitCode = await runCostAction(
-      defaultOptions({ outputFormat: 'yaml' as 'table' | 'json' | 'csv' }),
+      defaultOptions({ outputFormat: 'yaml' as 'table' | 'json' | 'csv' })
     )
 
     expect(exitCode).toBe(COST_EXIT_ERROR)
@@ -885,7 +896,9 @@ describe('formatCostCsv', () => {
     const summary = createMockSummary()
     const result = formatCostCsv(summary)
 
-    expect(result).toContain('session_id,total_cost_usd,subscription_cost_usd,api_cost_usd,savings_usd')
+    expect(result).toContain(
+      'session_id,total_cost_usd,subscription_cost_usd,api_cost_usd,savings_usd'
+    )
     expect(result).toContain('session-abc123,0.4200,0.0000,0.4200,1.2300')
   })
 

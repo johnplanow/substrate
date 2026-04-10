@@ -28,7 +28,7 @@ export class RoutingConfigError extends SubstrateError {
   constructor(
     message: string,
     code: 'CONFIG_NOT_FOUND' | 'INVALID_YAML' | 'SCHEMA_INVALID',
-    context?: Record<string, unknown>,
+    context?: Record<string, unknown>
   ) {
     super(message, code, context)
     this.name = 'RoutingConfigError'
@@ -50,7 +50,7 @@ export function loadModelRoutingConfig(filePath: string): ModelRoutingConfig {
       throw new RoutingConfigError(
         err.message,
         err.code as 'CONFIG_NOT_FOUND' | 'INVALID_YAML' | 'SCHEMA_INVALID',
-        err.context,
+        err.context
       )
     }
     throw err

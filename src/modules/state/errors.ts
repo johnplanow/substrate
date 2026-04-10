@@ -16,7 +16,10 @@ export class DoltNotInitializedError extends StateStoreError {
   repoPath: string
 
   constructor(repoPath: string) {
-    super('DOLT_NOT_INITIALIZED', `Dolt repository not initialized at: ${repoPath}. Run 'dolt init' first.`)
+    super(
+      'DOLT_NOT_INITIALIZED',
+      `Dolt repository not initialized at: ${repoPath}. Run 'dolt init' first.`
+    )
     this.name = 'DoltNotInitializedError'
     this.repoPath = repoPath
   }
@@ -32,8 +35,15 @@ export class DoltMergeConflictError extends StateStoreError {
   ourValue?: string
   theirValue?: string
 
-  constructor(table: string, conflictingKeys: string[], options?: { rowKey?: string; ourValue?: string; theirValue?: string }) {
-    super('DOLT_MERGE_CONFLICT', `Merge conflict in table '${table}' on keys: ${conflictingKeys.join(', ')}`)
+  constructor(
+    table: string,
+    conflictingKeys: string[],
+    options?: { rowKey?: string; ourValue?: string; theirValue?: string }
+  ) {
+    super(
+      'DOLT_MERGE_CONFLICT',
+      `Merge conflict in table '${table}' on keys: ${conflictingKeys.join(', ')}`
+    )
     this.name = 'DoltMergeConflictError'
     this.table = table
     this.conflictingKeys = conflictingKeys

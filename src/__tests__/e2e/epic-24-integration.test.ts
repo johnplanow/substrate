@@ -57,11 +57,13 @@ vi.mock('../../modules/compiled-workflows/code-review.js', () => ({
 }))
 
 vi.mock('../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 vi.mock('../../modules/agent-dispatch/dispatcher-impl.js', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
@@ -89,9 +91,18 @@ import { runCreateStory } from '../../modules/compiled-workflows/create-story.js
 import { runDevStory } from '../../modules/compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../modules/compiled-workflows/code-review.js'
 import { createImplementationOrchestrator } from '../../modules/implementation-orchestrator/orchestrator-impl.js'
-import { getTokenCeiling, TOKEN_CEILING_DEFAULTS } from '../../modules/compiled-workflows/token-ceiling.js'
-import { computeStoryComplexity, resolveDevStoryMaxTurns } from '../../modules/compiled-workflows/story-complexity.js'
-import { detectPackageManager, runBuildVerification } from '../../modules/agent-dispatch/dispatcher-impl.js'
+import {
+  getTokenCeiling,
+  TOKEN_CEILING_DEFAULTS,
+} from '../../modules/compiled-workflows/token-ceiling.js'
+import {
+  computeStoryComplexity,
+  resolveDevStoryMaxTurns,
+} from '../../modules/compiled-workflows/story-complexity.js'
+import {
+  detectPackageManager,
+  runBuildVerification,
+} from '../../modules/agent-dispatch/dispatcher-impl.js'
 import type { TokenCeilings } from '../../modules/config/config-schema.js'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
@@ -127,7 +138,9 @@ function makePack(): MethodologyPack {
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockReturnValue({ prompt: 'fallback', tokenCount: 10, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockReturnValue({ prompt: 'fallback', tokenCount: 10, sections: [], truncated: false }),
     registerTemplate: vi.fn(),
     getTemplate: vi.fn().mockReturnValue(undefined),
   } as unknown as ContextCompiler
@@ -162,7 +175,9 @@ function makeDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(handle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -412,7 +427,11 @@ describe('Gap 3: Package manager detection through build verification', () => {
   it('orchestrator escalates when build verification fails', async () => {
     mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('24-55', '/stories/24-55.md'))
     mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
-    mockRunBuildVerification.mockReturnValue({ status: 'failed', exitCode: 1, output: 'Build error' })
+    mockRunBuildVerification.mockReturnValue({
+      status: 'failed',
+      exitCode: 1,
+      output: 'Build error',
+    })
 
     const eventBus = makeEventBus()
     const orchestrator = createImplementationOrchestrator({

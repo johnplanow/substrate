@@ -51,7 +51,7 @@ export interface ResolveStoryKeysOptions {
 export async function resolveStoryKeys(
   db: DatabaseAdapter,
   projectRoot: string,
-  opts?: ResolveStoryKeysOptions,
+  opts?: ResolveStoryKeysOptions
 ): Promise<string[]> {
   // Level 1: Explicit --stories flag
   // Topologically sort by inter-story dependencies from the epics document
@@ -89,8 +89,10 @@ export async function resolveStoryKeys(
       for (const key of alreadyDone) {
         db.query(
           `UPDATE wg_stories SET status = 'complete', completed_at = ? WHERE story_key = ? AND status <> 'complete'`,
-          [new Date().toISOString(), key],
-        ).catch(() => { /* best-effort */ })
+          [new Date().toISOString(), key]
+        ).catch(() => {
+          /* best-effort */
+        })
       }
     }
     return sortStoryKeys([...new Set(filteredKeys)])
@@ -99,9 +101,10 @@ export async function resolveStoryKeys(
   // Level 2: Decisions table — category='stories', phase='solutioning'
   // This is where solutioning.ts stores each story with its key directly.
   try {
-    const sql = opts?.pipelineRunId !== undefined
-      ? "SELECT `key` FROM decisions WHERE phase = 'solutioning' AND category = 'stories' AND pipeline_run_id = ? ORDER BY created_at ASC"
-      : "SELECT `key` FROM decisions WHERE phase = 'solutioning' AND category = 'stories' ORDER BY created_at ASC"
+    const sql =
+      opts?.pipelineRunId !== undefined
+        ? "SELECT `key` FROM decisions WHERE phase = 'solutioning' AND category = 'stories' AND pipeline_run_id = ? ORDER BY created_at ASC"
+        : "SELECT `key` FROM decisions WHERE phase = 'solutioning' AND category = 'stories' ORDER BY created_at ASC"
 
     const params = opts?.pipelineRunId !== undefined ? [opts.pipelineRunId] : []
     const rows = await db.query<{ key: string }>(sql, params)
@@ -120,9 +123,10 @@ export async function resolveStoryKeys(
   // Level 3: Epic shard decisions — parse story keys from the shard markdown content
   if (keys.length === 0) {
     try {
-      const sql = opts?.pipelineRunId !== undefined
-        ? `SELECT value FROM decisions WHERE category = 'epic-shard' AND pipeline_run_id = ? ORDER BY created_at ASC`
-        : `SELECT value FROM decisions WHERE category = 'epic-shard' ORDER BY created_at ASC`
+      const sql =
+        opts?.pipelineRunId !== undefined
+          ? `SELECT value FROM decisions WHERE category = 'epic-shard' AND pipeline_run_id = ? ORDER BY created_at ASC`
+          : `SELECT value FROM decisions WHERE category = 'epic-shard' ORDER BY created_at ASC`
 
       const params = opts?.pipelineRunId !== undefined ? [opts.pipelineRunId] : []
       const shardRows = await db.query<{ value: string }>(sql, params)
@@ -312,10 +316,7 @@ export function discoverPendingStoryKeys(projectRoot: string, epicNumber?: numbe
  */
 export function findEpicsFile(projectRoot: string): string | undefined {
   // Check exact candidates first
-  const candidates = [
-    '_bmad-output/planning-artifacts/epics.md',
-    '_bmad-output/epics.md',
-  ]
+  const candidates = ['_bmad-output/planning-artifacts/epics.md', '_bmad-output/epics.md']
   for (const candidate of candidates) {
     const fullPath = join(projectRoot, candidate)
     if (existsSync(fullPath)) return fullPath
@@ -327,7 +328,7 @@ export function findEpicsFile(projectRoot: string): string | undefined {
     try {
       const entries = readdirSync(planningDir, { encoding: 'utf-8' })
       const match = entries
-        .filter((e) => /^epics[-.].*\.md$/i.test(e) && !(/^epic-\d+/.test(e)))
+        .filter((e) => /^epics[-.].*\.md$/i.test(e) && !/^epic-\d+/.test(e))
         .sort()
       if (match.length > 0) return join(planningDir, match[0])
     } catch {
@@ -435,7 +436,7 @@ async function getCompletedStoryKeys(db: DatabaseAdapter): Promise<Set<string>> 
   const completed = new Set<string>()
   try {
     const rows = await db.query<{ token_usage_json: string }>(
-      `SELECT token_usage_json FROM pipeline_runs WHERE status = 'completed' AND token_usage_json IS NOT NULL`,
+      `SELECT token_usage_json FROM pipeline_runs WHERE status = 'completed' AND token_usage_json IS NOT NULL`
     )
 
     for (const row of rows) {
@@ -501,7 +502,7 @@ function sortStoryKeys(keys: string[]): string[] {
  */
 export function parseEpicsDependencies(
   projectRoot: string,
-  storyKeys: Set<string>,
+  storyKeys: Set<string>
 ): Map<string, Set<string>> {
   const deps = new Map<string, Set<string>>()
 
@@ -532,9 +533,7 @@ export function parseEpicsDependencies(
   // For each story, find the next **Dependencies:** line before the next story heading
   for (let i = 0; i < storyPositions.length; i++) {
     const story = storyPositions[i]
-    const nextStoryPos = i + 1 < storyPositions.length
-      ? storyPositions[i + 1].pos
-      : content.length
+    const nextStoryPos = i + 1 < storyPositions.length ? storyPositions[i + 1].pos : content.length
     const section = content.slice(story.pos, nextStoryPos)
 
     depPattern.lastIndex = 0
@@ -583,10 +582,7 @@ export function parseEpicsDependencies(
  * Falls back to numeric sort if no epics document exists or no
  * dependencies are found among the provided keys.
  */
-export function topologicalSortByDependencies(
-  keys: string[],
-  projectRoot: string,
-): string[] {
+export function topologicalSortByDependencies(keys: string[], projectRoot: string): string[] {
   if (keys.length <= 1) return keys
 
   const keySet = new Set(keys)

@@ -111,9 +111,7 @@ export class MethodologyPackImpl implements MethodologyPack {
       const issues = result.error.issues
         .map((i) => `  • ${i.path.join('.')}: ${i.message}`)
         .join('\n')
-      throw new Error(
-        `Invalid constraint file for phase "${phase}" at "${filePath}":\n${issues}`
-      )
+      throw new Error(`Invalid constraint file for phase "${phase}" at "${filePath}":\n${issues}`)
     }
 
     this._constraintCache.set(phase, result.data)
@@ -139,9 +137,7 @@ export class MethodologyPackImpl implements MethodologyPack {
       content = await readFile(filePath, 'utf-8')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      throw new Error(
-        `Failed to read template "${name}" at "${filePath}": ${msg}`
-      )
+      throw new Error(`Failed to read template "${name}" at "${filePath}": ${msg}`)
     }
 
     this._templateCache.set(name, content)

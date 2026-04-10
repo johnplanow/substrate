@@ -18,11 +18,7 @@ import {
   formatDeltaDocument,
   buildImpactAnalysisPrompt,
 } from '../index.js'
-import type {
-  ImpactFinding,
-  DeltaDocumentOptions,
-  DeltaDocument,
-} from '../index.js'
+import type { ImpactFinding, DeltaDocumentOptions, DeltaDocument } from '../index.js'
 
 // ---------------------------------------------------------------------------
 // Test Fixtures
@@ -45,8 +41,18 @@ function makeDecision(overrides: Partial<Decision> = {}): Decision {
 }
 
 const parentDecision1 = makeDecision({ id: 'pd-1', key: 'database', value: 'PostgreSQL' })
-const parentDecision2 = makeDecision({ id: 'pd-2', key: 'cache', value: 'Redis', category: 'Caching' })
-const parentDecision3 = makeDecision({ id: 'pd-3', key: 'auth', value: 'OAuth2', category: 'Security' })
+const parentDecision2 = makeDecision({
+  id: 'pd-2',
+  key: 'cache',
+  value: 'Redis',
+  category: 'Caching',
+})
+const parentDecision3 = makeDecision({
+  id: 'pd-3',
+  key: 'auth',
+  value: 'OAuth2',
+  category: 'Security',
+})
 
 // Amendment adds new decision (pd-4) + carries over pd-3
 const amendmentDecision1 = makeDecision({
@@ -281,7 +287,7 @@ describe('generateDeltaDocument() — idempotency', () => {
     expect(doc1.executiveSummary.text).toBe(doc2.executiveSummary.text)
     expect(doc1.newDecisions.map((d) => d.id)).toEqual(doc2.newDecisions.map((d) => d.id))
     expect(doc1.supersededDecisions.map((d) => d.id)).toEqual(
-      doc2.supersededDecisions.map((d) => d.id),
+      doc2.supersededDecisions.map((d) => d.id)
     )
     expect(doc1.newStories).toEqual(doc2.newStories)
     expect(doc1.impactAnalysis).toEqual(doc2.impactAnalysis)
@@ -308,12 +314,14 @@ describe('validateDeltaDocument()', () => {
   })
 
   it('returns valid: false when executiveSummary is missing', async () => {
-    const doc = await makeSampleDoc({ executiveSummary: undefined as unknown as typeof doc['executiveSummary'] })
+    const doc = await makeSampleDoc({
+      executiveSummary: undefined as unknown as (typeof doc)['executiveSummary'],
+    })
     const result = validateDeltaDocument(doc)
 
     expect(result.valid).toBe(false)
     expect(result.errors).toContain(
-      'Executive summary is required and must be at least 20 words (NFR-3)',
+      'Executive summary is required and must be at least 20 words (NFR-3)'
     )
   })
 
@@ -323,7 +331,7 @@ describe('validateDeltaDocument()', () => {
 
     expect(result.valid).toBe(false)
     expect(result.errors).toContain(
-      'Executive summary is required and must be at least 20 words (NFR-3)',
+      'Executive summary is required and must be at least 20 words (NFR-3)'
     )
   })
 
@@ -335,7 +343,7 @@ describe('validateDeltaDocument()', () => {
 
     expect(result.valid).toBe(false)
     expect(result.errors).toContain(
-      'Executive summary is required and must be at least 20 words (NFR-3)',
+      'Executive summary is required and must be at least 20 words (NFR-3)'
     )
   })
 
@@ -375,7 +383,10 @@ describe('formatDeltaDocument()', () => {
 
   beforeEach(async () => {
     const mockDispatch = vi.fn().mockResolvedValue(JSON.stringify(mockImpactFindings))
-    sampleDoc = await generateDeltaDocument(makeBaseOptions({ runImpactAnalysis: true }), mockDispatch)
+    sampleDoc = await generateDeltaDocument(
+      makeBaseOptions({ runImpactAnalysis: true }),
+      mockDispatch
+    )
   })
 
   it('starts with "# Amendment Delta Report"', () => {
@@ -552,7 +563,7 @@ describe('buildImpactAnalysisPrompt()', () => {
   it('includes all new decisions when multiple are provided', () => {
     const prompt = buildImpactAnalysisPrompt(
       [supersededDecision],
-      [amendmentDecision1, amendmentDecision2],
+      [amendmentDecision1, amendmentDecision2]
     )
     expect(prompt).toContain(amendmentDecision1.id)
     expect(prompt).toContain(amendmentDecision2.id)

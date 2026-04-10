@@ -175,7 +175,12 @@ describe('extractTokensFromBody', () => {
 
 describe('mergeTokenCounts', () => {
   it('returns all zeros when both are empty', () => {
-    expect(mergeTokenCounts({}, {})).toEqual({ input: 0, output: 0, cacheRead: 0, cacheCreation: 0 })
+    expect(mergeTokenCounts({}, {})).toEqual({
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheCreation: 0,
+    })
   })
 
   it('attributes take priority over body', () => {

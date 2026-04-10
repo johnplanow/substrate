@@ -160,7 +160,9 @@ vi.mock('../../../modules/agent-dispatch/index.js', () => ({
 }))
 vi.mock('../../../adapters/adapter-registry.js', () => ({
   AdapterRegistry: vi.fn().mockImplementation(() => ({
-    discoverAndRegister: vi.fn().mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] }),
+    discoverAndRegister: vi
+      .fn()
+      .mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] }),
   })),
 }))
 vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
@@ -186,7 +188,9 @@ vi.mock('../../../core/event-bus.js', () => ({
 // Shared mock registry instance (runInitAction requires registry in options)
 // ---------------------------------------------------------------------------
 
-const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+const mockRegistry = {
+  discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }),
+} as any
 
 // ---------------------------------------------------------------------------
 // Import module under test AFTER mocks
@@ -207,11 +211,13 @@ import {
 
 /** Returns true for paths pointing to bmad-method generator module files. */
 function isBmadGeneratorModule(s: string): boolean {
-  return s.includes('agent-command-generator.js') ||
+  return (
+    s.includes('agent-command-generator.js') ||
     s.includes('workflow-command-generator.js') ||
     s.includes('task-tool-command-generator.js') ||
     s.includes('manifest-generator.js') ||
     s.includes('path-utils.js')
+  )
 }
 
 function mockPack() {
@@ -337,11 +343,18 @@ describe('scaffoldClaudeCommands', () => {
     vi.clearAllMocks()
     mockRequireResolve.mockReturnValue('/fake/node_modules/bmad-method/package.json')
     mockRequireCall.mockReturnValue({ version: '6.0.3' })
-    mockCollectAgentArtifacts.mockResolvedValue({ artifacts: [{ type: 'agent-launcher', name: 'pm' }] })
+    mockCollectAgentArtifacts.mockResolvedValue({
+      artifacts: [{ type: 'agent-launcher', name: 'pm' }],
+    })
     mockAgentWriteDash.mockResolvedValue(5)
-    mockCollectWorkflowArtifacts.mockResolvedValue({ artifacts: [{ type: 'workflow-command', name: 'dev-story' }] })
+    mockCollectWorkflowArtifacts.mockResolvedValue({
+      artifacts: [{ type: 'workflow-command', name: 'dev-story' }],
+    })
     mockWorkflowWriteDash.mockResolvedValue(10)
-    mockCollectTaskToolArtifacts.mockResolvedValue({ artifacts: [], counts: { tasks: 0, tools: 0 } })
+    mockCollectTaskToolArtifacts.mockResolvedValue({
+      artifacts: [],
+      counts: { tasks: 0, tools: 0 },
+    })
     mockTaskToolWriteDash.mockResolvedValue(3)
     mockGenerateManifests.mockResolvedValue({ workflows: 5, agents: 10, tasks: 3, tools: 0 })
     // _bmad/ exists, module scan returns bmm
@@ -383,9 +396,7 @@ describe('scaffoldClaudeCommands', () => {
 
     await scaffoldClaudeCommands('/test/project', 'human')
 
-    expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('bmad-method not found'),
-    )
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('bmad-method not found'))
     expect(mockCollectAgentArtifacts).not.toHaveBeenCalled()
     stderrSpy.mockRestore()
   })
@@ -426,12 +437,9 @@ describe('scaffoldClaudeCommands', () => {
       join('/test/project', '_bmad'),
       ['core', 'bmm'],
       [],
-      { ides: ['claude-code'] },
+      { ides: ['claude-code'] }
     )
-    expect(mockCollectAgentArtifacts).toHaveBeenCalledWith(
-      join('/test/project', '_bmad'),
-      ['bmm'],
-    )
+    expect(mockCollectAgentArtifacts).toHaveBeenCalledWith(join('/test/project', '_bmad'), ['bmm'])
     expect(mockAgentWriteDash).toHaveBeenCalled()
     expect(mockCollectWorkflowArtifacts).toHaveBeenCalled()
     expect(mockWorkflowWriteDash).toHaveBeenCalled()
@@ -440,7 +448,7 @@ describe('scaffoldClaudeCommands', () => {
 
     // Should report total count
     expect(stdoutSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Generated 18 Claude Code commands'),
+      expect.stringContaining('Generated 18 Claude Code commands')
     )
     stdoutSpy.mockRestore()
   })
@@ -458,10 +466,9 @@ describe('scaffoldClaudeCommands', () => {
 
     await scaffoldClaudeCommands('/test/project', 'human')
 
-    expect(mockMkdirSync).toHaveBeenCalledWith(
-      join('/test/project', '.claude', 'commands'),
-      { recursive: true },
-    )
+    expect(mockMkdirSync).toHaveBeenCalledWith(join('/test/project', '.claude', 'commands'), {
+      recursive: true,
+    })
     stdoutSpy.mockRestore()
   })
 
@@ -496,16 +503,14 @@ describe('scaffoldClaudeCommands', () => {
 
     // Should delete bmad-* files but not my-custom-command.md
     expect(mockUnlinkSync).toHaveBeenCalledWith(
-      join('/test/project', '.claude', 'commands', 'bmad-agent-bmm-pm.md'),
+      join('/test/project', '.claude', 'commands', 'bmad-agent-bmm-pm.md')
     )
     expect(mockUnlinkSync).toHaveBeenCalledWith(
-      join('/test/project', '.claude', 'commands', 'bmad-bmm-dev-story.md'),
+      join('/test/project', '.claude', 'commands', 'bmad-bmm-dev-story.md')
     )
     // my-custom-command.md should NOT be deleted
     const unlinkPaths = mockUnlinkSync.mock.calls.map(([p]) => String(p))
-    expect(unlinkPaths).not.toContain(
-      expect.stringContaining('my-custom-command.md'),
-    )
+    expect(unlinkPaths).not.toContain(expect.stringContaining('my-custom-command.md'))
     stdoutSpy.mockRestore()
   })
 
@@ -546,7 +551,7 @@ describe('scaffoldClaudeCommands', () => {
     await scaffoldClaudeCommands('/test/project', 'human')
 
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('.claude/commands/ generation failed'),
+      expect.stringContaining('.claude/commands/ generation failed')
     )
     stderrSpy.mockRestore()
   })
@@ -589,20 +594,19 @@ describe('installSkillsFromManifest', () => {
 
     expect(result).toBe(2)
     // Should create .claude/skills/ directory
-    expect(mockMkdirSync).toHaveBeenCalledWith(
-      join('/test/project', '.claude', 'skills'),
-      { recursive: true },
-    )
+    expect(mockMkdirSync).toHaveBeenCalledWith(join('/test/project', '.claude', 'skills'), {
+      recursive: true,
+    })
     // Should copy each skill directory
     expect(mockCpSync).toHaveBeenCalledWith(
       join('/test/project', '_bmad', 'core', 'skills', 'bmad-party-mode'),
       join('/test/project', '.claude', 'skills', 'bmad-party-mode'),
-      { recursive: true },
+      { recursive: true }
     )
     expect(mockCpSync).toHaveBeenCalledWith(
       join('/test/project', '_bmad', 'core', 'skills', 'bmad-brainstorming'),
       join('/test/project', '.claude', 'skills', 'bmad-brainstorming'),
-      { recursive: true },
+      { recursive: true }
     )
   })
 
@@ -625,17 +629,15 @@ describe('installSkillsFromManifest', () => {
     // Should remove bmad-prefixed dirs
     expect(mockRmSync).toHaveBeenCalledWith(
       join('/test/project', '.claude', 'skills', 'bmad-party-mode'),
-      { recursive: true, force: true },
+      { recursive: true, force: true }
     )
     expect(mockRmSync).toHaveBeenCalledWith(
       join('/test/project', '.claude', 'skills', 'bmad-old-skill'),
-      { recursive: true, force: true },
+      { recursive: true, force: true }
     )
     // Should NOT remove non-bmad dirs
     const rmPaths = mockRmSync.mock.calls.map(([p]: [string]) => String(p))
-    expect(rmPaths).not.toContain(
-      join('/test/project', '.claude', 'skills', 'my-custom-skill'),
-    )
+    expect(rmPaths).not.toContain(join('/test/project', '.claude', 'skills', 'my-custom-skill'))
   })
 
   it('skips entries with missing source directories', () => {
@@ -678,7 +680,7 @@ describe('installSkillsFromManifest', () => {
     expect(mockCpSync).toHaveBeenCalledWith(
       join('/test/project', '_bmad', 'core', 'skills', 'bmad-review'),
       join('/test/project', '.claude', 'skills', 'bmad-review'),
-      { recursive: true },
+      { recursive: true }
     )
   })
 })
@@ -730,12 +732,12 @@ describe('installSkillsFromSource', () => {
     expect(mockCpSync).toHaveBeenCalledWith(
       join(coreSkillsDir, 'bmad-party-mode'),
       join('/test/project', '.claude', 'skills', 'bmad-party-mode'),
-      { recursive: true },
+      { recursive: true }
     )
     expect(mockCpSync).toHaveBeenCalledWith(
       join(coreSkillsDir, 'bmad-brainstorming'),
       join('/test/project', '.claude', 'skills', 'bmad-brainstorming'),
-      { recursive: true },
+      { recursive: true }
     )
   })
 
@@ -777,7 +779,7 @@ describe('installSkillsFromSource', () => {
     expect(mockCpSync).toHaveBeenCalledWith(
       join(implDir, 'bmad-dev-story'),
       join('/test/project', '.claude', 'skills', 'bmad-dev-story'),
-      { recursive: true },
+      { recursive: true }
     )
   })
 
@@ -800,7 +802,9 @@ describe('scaffoldClaudeCommands — skill-based installation', () => {
     vi.clearAllMocks()
     mockRequireResolve.mockReturnValue('/fake/node_modules/bmad-method/package.json')
     mockRequireCall.mockReturnValue({ version: '6.2.2' })
-    mockCollectAgentArtifacts.mockResolvedValue({ artifacts: [{ type: 'agent-launcher', name: 'pm' }] })
+    mockCollectAgentArtifacts.mockResolvedValue({
+      artifacts: [{ type: 'agent-launcher', name: 'pm' }],
+    })
     mockAgentWriteDash.mockResolvedValue(5)
     mockGenerateManifests.mockResolvedValue({ workflows: 0, agents: 10, tasks: 0, tools: 0 })
     mockReaddirSync.mockImplementation((p: string) => {
@@ -849,22 +853,19 @@ describe('scaffoldClaudeCommands — skill-based installation', () => {
     expect(mockCollectTaskToolArtifacts).not.toHaveBeenCalled()
 
     // Skills should have been installed
-    expect(mockMkdirSync).toHaveBeenCalledWith(
-      join('/test/project', '.claude', 'skills'),
-      { recursive: true },
-    )
+    expect(mockMkdirSync).toHaveBeenCalledWith(join('/test/project', '.claude', 'skills'), {
+      recursive: true,
+    })
     expect(mockCpSync).toHaveBeenCalledWith(
       join('/test/project', '_bmad', 'core', 'skills', 'bmad-party-mode'),
       join('/test/project', '.claude', 'skills', 'bmad-party-mode'),
-      { recursive: true },
+      { recursive: true }
     )
 
     // Output should mention skills
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('skills'))
     expect(stdoutSpy).toHaveBeenCalledWith(
-      expect.stringContaining('skills'),
-    )
-    expect(stdoutSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Generated 7'),  // 5 agents + 2 skills
+      expect.stringContaining('Generated 7') // 5 agents + 2 skills
     )
 
     stdoutSpy.mockRestore()
@@ -887,7 +888,10 @@ describe('runInitAction commands scaffold integration', () => {
     mockAgentWriteDash.mockResolvedValue(0)
     mockCollectWorkflowArtifacts.mockResolvedValue({ artifacts: [] })
     mockWorkflowWriteDash.mockResolvedValue(0)
-    mockCollectTaskToolArtifacts.mockResolvedValue({ artifacts: [], counts: { tasks: 0, tools: 0 } })
+    mockCollectTaskToolArtifacts.mockResolvedValue({
+      artifacts: [],
+      counts: { tasks: 0, tools: 0 },
+    })
     mockTaskToolWriteDash.mockResolvedValue(0)
     mockGenerateManifests.mockResolvedValue({})
     mockReaddirSync.mockReturnValue([])
@@ -895,7 +899,9 @@ describe('runInitAction commands scaffold integration', () => {
     mockReadFile.mockImplementation((path: string) => {
       const p = String(path)
       if (p.includes('claude-md-substrate-section.md')) {
-        return Promise.resolve('<!-- substrate:start -->\n## Substrate Pipeline\n<!-- substrate:end -->\n')
+        return Promise.resolve(
+          '<!-- substrate:start -->\n## Substrate Pipeline\n<!-- substrate:end -->\n'
+        )
       }
       if (p.includes('statusline.sh')) {
         return Promise.resolve(STATUSLINE_TEMPLATE)

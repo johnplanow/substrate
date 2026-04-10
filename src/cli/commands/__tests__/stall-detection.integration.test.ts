@@ -38,26 +38,40 @@ const { mockAdapterHolder } = vi.hoisted(() => {
 vi.mock('../../../persistence/database.js', () => {
   return {
     DatabaseWrapper: class {
-      open() { /* noop */ }
-      close() { /* noop */ }
-      get adapter() { return mockAdapterHolder.current! }
-      get isOpen() { return true }
+      open() {
+        /* noop */
+      }
+      close() {
+        /* noop */
+      }
+      get adapter() {
+        return mockAdapterHolder.current!
+      }
+      get isOpen() {
+        return true
+      }
     },
-    __setMockAdapter: (a: unknown) => { mockAdapterHolder.current = a as DatabaseAdapter },
+    __setMockAdapter: (a: unknown) => {
+      mockAdapterHolder.current = a as DatabaseAdapter
+    },
   }
 })
 
 vi.mock('../../../persistence/adapter.js', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     createDatabaseAdapter: () => {
-      if (!mockAdapterHolder.current) throw new Error('Mock adapter not set — call __setMockAdapter first')
+      if (!mockAdapterHolder.current)
+        throw new Error('Mock adapter not set — call __setMockAdapter first')
       // Return a proxy that ignores close() so getAutoHealthData's finally block
       // doesn't destroy the shared test adapter between assertions.
       return new Proxy(mockAdapterHolder.current, {
         get(target, prop) {
-          if (prop === 'close') return async () => { /* no-op */ }
+          if (prop === 'close')
+            return async () => {
+              /* no-op */
+            }
           return (target as unknown as Record<string | symbol, unknown>)[prop]
         },
       })
@@ -70,7 +84,7 @@ vi.mock('../../../utils/git-root.js', () => ({
 }))
 
 vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     existsSync: vi.fn().mockReturnValue(true),
@@ -94,7 +108,7 @@ async function createTestRun(
     current_phase?: string
     token_usage_json?: string
     updated_at?: string
-  } = {},
+  } = {}
 ): Promise<PipelineRun> {
   const run = await createPipelineRun(adapter, {
     methodology: 'bmad',
@@ -102,18 +116,32 @@ async function createTestRun(
     config_json: null,
   })
   if (overrides.status !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [overrides.status, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [
+      overrides.status,
+      run.id,
+    ])
   }
   if (overrides.current_phase !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [overrides.current_phase, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [
+      overrides.current_phase,
+      run.id,
+    ])
   }
   if (overrides.token_usage_json !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [overrides.token_usage_json, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [
+      overrides.token_usage_json,
+      run.id,
+    ])
   }
   if (overrides.updated_at !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET updated_at = ? WHERE id = ?`, [overrides.updated_at, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET updated_at = ? WHERE id = ?`, [
+      overrides.updated_at,
+      run.id,
+    ])
   }
-  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])
+  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [
+    run.id,
+  ])
   return rows[0]!
 }
 
@@ -155,7 +183,9 @@ function captureStdout(): { chunks: string[]; restore: () => void } {
   }) as typeof process.stdout.write
   return {
     chunks,
-    restore: () => { process.stdout.write = orig },
+    restore: () => {
+      process.stdout.write = orig
+    },
   }
 }
 
@@ -168,7 +198,9 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/database.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = (await import('../../../persistence/database.js')) as {
+      __setMockAdapter: (a: DatabaseAdapter) => void
+    }
     dbModule.__setMockAdapter(adapter)
   })
 
@@ -210,23 +242,25 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
     const deps: Partial<SupervisorDeps> = {
       // Use real getAutoHealthData for the first poll (shows STALLED),
       // then return NO_PIPELINE_RUNNING on subsequent polls so supervisor exits.
-      getHealth: vi.fn().mockImplementation(async (opts: { runId?: string; projectRoot: string }) => {
-        callCount++
-        if (callCount === 1) {
-          return getAutoHealthData(opts)
-        }
-        // After the kill + restart, simulate the pipeline completing
-        return {
-          verdict: 'NO_PIPELINE_RUNNING' as const,
-          run_id: null,
-          status: 'completed',
-          current_phase: null,
-          staleness_seconds: 0,
-          last_activity: new Date().toISOString(),
-          process: { orchestrator_pid: null, child_pids: [], zombies: [] },
-          stories: { active: 0, completed: 0, escalated: 0, details: {} },
-        }
-      }),
+      getHealth: vi
+        .fn()
+        .mockImplementation(async (opts: { runId?: string; projectRoot: string }) => {
+          callCount++
+          if (callCount === 1) {
+            return getAutoHealthData(opts)
+          }
+          // After the kill + restart, simulate the pipeline completing
+          return {
+            verdict: 'NO_PIPELINE_RUNNING' as const,
+            run_id: null,
+            status: 'completed',
+            current_phase: null,
+            staleness_seconds: 0,
+            last_activity: new Date().toISOString(),
+            process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+            stories: { active: 0, completed: 0, escalated: 0, details: {} },
+          }
+        }),
       killPid: vi.fn().mockImplementation((pid: number, signal: string) => {
         killCalls.push([pid, signal])
       }),
@@ -269,7 +303,8 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
     // the argument is an Array — the exact contents depend on what ps(1) finds in the test
     // environment, so we check type rather than specific values to avoid brittleness.
     expect(deps.getAllDescendants).toHaveBeenCalledOnce()
-    const callArg = (deps.getAllDescendants as ReturnType<typeof vi.fn>).mock.calls[0]![0] as unknown
+    const callArg = (deps.getAllDescendants as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0] as unknown
     expect(Array.isArray(callArg)).toBe(true)
   })
 
@@ -307,23 +342,25 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
 
     let callCount = 0
     const deps: Partial<SupervisorDeps> = {
-      getHealth: vi.fn().mockImplementation(async (opts: { runId?: string; projectRoot: string }) => {
-        callCount++
-        if (callCount === 1) {
-          return getAutoHealthData(opts)
-        }
-        // Simulate pipeline completing on second poll
-        return {
-          verdict: 'NO_PIPELINE_RUNNING' as const,
-          run_id: null,
-          status: 'completed',
-          current_phase: null,
-          staleness_seconds: 0,
-          last_activity: new Date().toISOString(),
-          process: { orchestrator_pid: null, child_pids: [], zombies: [] },
-          stories: { active: 0, completed: 0, escalated: 0, details: {} },
-        }
-      }),
+      getHealth: vi
+        .fn()
+        .mockImplementation(async (opts: { runId?: string; projectRoot: string }) => {
+          callCount++
+          if (callCount === 1) {
+            return getAutoHealthData(opts)
+          }
+          // Simulate pipeline completing on second poll
+          return {
+            verdict: 'NO_PIPELINE_RUNNING' as const,
+            run_id: null,
+            status: 'completed',
+            current_phase: null,
+            staleness_seconds: 0,
+            last_activity: new Date().toISOString(),
+            process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+            stories: { active: 0, completed: 0, escalated: 0, details: {} },
+          }
+        }),
       killPid,
       resumePipeline: vi.fn().mockResolvedValue(0),
       sleep: vi.fn().mockResolvedValue(undefined),
@@ -449,22 +486,24 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
 
     let callCount = 0
     const deps: Partial<SupervisorDeps> = {
-      getHealth: vi.fn().mockImplementation(async (opts: { runId?: string; projectRoot: string }) => {
-        callCount++
-        if (callCount === 1) {
-          return getAutoHealthData(opts)
-        }
-        return {
-          verdict: 'NO_PIPELINE_RUNNING' as const,
-          run_id: null,
-          status: 'completed',
-          current_phase: null,
-          staleness_seconds: 0,
-          last_activity: new Date().toISOString(),
-          process: { orchestrator_pid: null, child_pids: [], zombies: [] },
-          stories: { active: 0, completed: 0, escalated: 0, details: {} },
-        }
-      }),
+      getHealth: vi
+        .fn()
+        .mockImplementation(async (opts: { runId?: string; projectRoot: string }) => {
+          callCount++
+          if (callCount === 1) {
+            return getAutoHealthData(opts)
+          }
+          return {
+            verdict: 'NO_PIPELINE_RUNNING' as const,
+            run_id: null,
+            status: 'completed',
+            current_phase: null,
+            staleness_seconds: 0,
+            last_activity: new Date().toISOString(),
+            process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+            stories: { active: 0, completed: 0, escalated: 0, details: {} },
+          }
+        }),
       killPid: vi.fn().mockImplementation((pid: number, signal: string) => {
         killCalls.push([pid, signal])
       }),
@@ -516,20 +555,22 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
     let callCount = 0
     const captured = captureStdout()
     const deps: Partial<SupervisorDeps> = {
-      getHealth: vi.fn().mockImplementation(async (opts: { runId?: string; projectRoot: string }) => {
-        callCount++
-        if (callCount === 1) return getAutoHealthData(opts)
-        return {
-          verdict: 'NO_PIPELINE_RUNNING' as const,
-          run_id: null,
-          status: 'completed',
-          current_phase: null,
-          staleness_seconds: 0,
-          last_activity: new Date().toISOString(),
-          process: { orchestrator_pid: null, child_pids: [], zombies: [] },
-          stories: { active: 0, completed: 0, escalated: 0, details: {} },
-        }
-      }),
+      getHealth: vi
+        .fn()
+        .mockImplementation(async (opts: { runId?: string; projectRoot: string }) => {
+          callCount++
+          if (callCount === 1) return getAutoHealthData(opts)
+          return {
+            verdict: 'NO_PIPELINE_RUNNING' as const,
+            run_id: null,
+            status: 'completed',
+            current_phase: null,
+            staleness_seconds: 0,
+            last_activity: new Date().toISOString(),
+            process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+            stories: { active: 0, completed: 0, escalated: 0, details: {} },
+          }
+        }),
       killPid,
       resumePipeline: vi.fn().mockResolvedValue(0),
       sleep: vi.fn().mockResolvedValue(undefined),
@@ -538,7 +579,10 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
       getAllDescendants: vi.fn().mockReturnValue([]),
     }
 
-    await runSupervisorAction(defaultSupervisorOptions({ stallThreshold: DEFAULT_STALL_THRESHOLD_SECONDS }), deps)
+    await runSupervisorAction(
+      defaultSupervisorOptions({ stallThreshold: DEFAULT_STALL_THRESHOLD_SECONDS }),
+      deps
+    )
     captured.restore()
 
     expect(killPid).not.toHaveBeenCalled()
@@ -558,20 +602,22 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
     const captured = captureStdout()
 
     const deps: Partial<SupervisorDeps> = {
-      getHealth: vi.fn().mockImplementation(async (opts: { runId?: string; projectRoot: string }) => {
-        callCount++
-        if (callCount === 1) return getAutoHealthData(opts)
-        return {
-          verdict: 'NO_PIPELINE_RUNNING' as const,
-          run_id: null,
-          status: 'completed',
-          current_phase: null,
-          staleness_seconds: 0,
-          last_activity: new Date().toISOString(),
-          process: { orchestrator_pid: null, child_pids: [], zombies: [] },
-          stories: { active: 0, completed: 0, escalated: 0, details: {} },
-        }
-      }),
+      getHealth: vi
+        .fn()
+        .mockImplementation(async (opts: { runId?: string; projectRoot: string }) => {
+          callCount++
+          if (callCount === 1) return getAutoHealthData(opts)
+          return {
+            verdict: 'NO_PIPELINE_RUNNING' as const,
+            run_id: null,
+            status: 'completed',
+            current_phase: null,
+            staleness_seconds: 0,
+            last_activity: new Date().toISOString(),
+            process: { orchestrator_pid: null, child_pids: [], zombies: [] },
+            stories: { active: 0, completed: 0, escalated: 0, details: {} },
+          }
+        }),
       killPid,
       resumePipeline: vi.fn().mockResolvedValue(0),
       sleep: vi.fn().mockResolvedValue(undefined),
@@ -663,7 +709,8 @@ describe('Stall detection integration — getAutoHealthData + runSupervisorActio
   it('staleness_seconds from getAutoHealthData is positive and correct for SQLite-format timestamp', async () => {
     // SQLite stores timestamps as "YYYY-MM-DD HH:MM:SS" without Z suffix
     const fiveMinAgo = new Date(Date.now() - 300_000)
-    const sqliteFormat = fiveMinAgo.toISOString()
+    const sqliteFormat = fiveMinAgo
+      .toISOString()
       .replace('T', ' ')
       .replace(/\.\d{3}Z$/, '') // "2026-03-05 15:30:00"
 

@@ -16,7 +16,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { InMemoryDatabaseAdapter } from '../../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
-import { createPipelineRun, createDecision, getArtifactByTypeForRun } from '../../../../persistence/queries/decisions.js'
+import {
+  createPipelineRun,
+  createDecision,
+  getArtifactByTypeForRun,
+} from '../../../../persistence/queries/decisions.js'
 import { runPlanningPhase } from '../planning.js'
 import type { PhaseDeps, PlanningPhaseParams, PlanningOutput } from '../types.js'
 import type { MethodologyPack } from '../../../methodology-pack/types.js'
@@ -45,8 +49,14 @@ async function seedProductBrief(adapter: DatabaseAdapter, runId: string): Promis
   const fields = [
     { key: 'problem_statement', value: 'Users need a way to manage their tasks efficiently.' },
     { key: 'target_users', value: JSON.stringify(['developers', 'teams']) },
-    { key: 'core_features', value: JSON.stringify(['task creation', 'task assignment', 'progress tracking']) },
-    { key: 'success_metrics', value: JSON.stringify(['50% reduction in missed deadlines', '90% user satisfaction']) },
+    {
+      key: 'core_features',
+      value: JSON.stringify(['task creation', 'task assignment', 'progress tracking']),
+    },
+    {
+      key: 'success_metrics',
+      value: JSON.stringify(['50% reduction in missed deadlines', '90% user satisfaction']),
+    },
     { key: 'constraints', value: JSON.stringify(['must run on web browsers', 'GDPR compliant']) },
   ]
   for (const { key, value } of fields) {
@@ -72,7 +82,10 @@ const SAMPLE_PLANNING_OUTPUT: { result: 'success' } & PlanningOutput = {
     { description: 'System must encrypt all user data at rest', category: 'security' },
   ],
   user_stories: [
-    { title: 'Create a task', description: 'As a developer, I want to create tasks so that I can track my work.' },
+    {
+      title: 'Create a task',
+      description: 'As a developer, I want to create tasks so that I can track my work.',
+    },
   ],
   tech_stack: {
     language: 'TypeScript',
@@ -87,7 +100,7 @@ const SAMPLE_PLANNING_OUTPUT: { result: 'success' } & PlanningOutput = {
 }
 
 function makeDispatchResult(
-  overrides: Partial<DispatchResult<typeof SAMPLE_PLANNING_OUTPUT>> = {},
+  overrides: Partial<DispatchResult<typeof SAMPLE_PLANNING_OUTPUT>> = {}
 ): DispatchResult<typeof SAMPLE_PLANNING_OUTPUT> {
   return {
     id: 'dispatch-001',
@@ -118,7 +131,7 @@ function makeDispatcher(result: DispatchResult<unknown>): Dispatcher {
 }
 
 function makePack(
-  template = 'Generate a PRD for the following product brief:\n\n{{product_brief}}\n\nOutput YAML with all required fields.',
+  template = 'Generate a PRD for the following product brief:\n\n{{product_brief}}\n\nOutput YAML with all required fields.'
 ): MethodologyPack {
   return {
     manifest: {
@@ -139,14 +152,16 @@ function makePack(
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack?: MethodologyPack,
+  pack?: MethodologyPack
 ): PhaseDeps {
   return {
     db: adapter,
@@ -204,7 +219,7 @@ describe('runPlanningPhase()', () => {
         expect.objectContaining({
           agent: 'claude-code',
           taskType: 'planning',
-        }),
+        })
       )
     })
   })
@@ -298,7 +313,7 @@ describe('runPlanningPhase()', () => {
       // 3 functional + 2 non-functional = 5 total
       expect(result.requirements_count).toBe(
         SAMPLE_PLANNING_OUTPUT.functional_requirements.length +
-          SAMPLE_PLANNING_OUTPUT.non_functional_requirements.length,
+          SAMPLE_PLANNING_OUTPUT.non_functional_requirements.length
       )
     })
   })
@@ -318,7 +333,7 @@ describe('runPlanningPhase()', () => {
 
       const decisions = await adapter.query<{ key: string; value: string }>(
         "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'functional-requirements' ORDER BY key ASC",
-        [runId],
+        [runId]
       )
 
       expect(decisions).toHaveLength(3)
@@ -341,7 +356,7 @@ describe('runPlanningPhase()', () => {
 
       const decisions = await adapter.query<{ key: string; value: string }>(
         "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'non-functional-requirements' ORDER BY key ASC",
-        [runId],
+        [runId]
       )
 
       expect(decisions).toHaveLength(2)
@@ -349,7 +364,9 @@ describe('runPlanningPhase()', () => {
       expect(decisions[1].key).toBe('NFR-1')
 
       const nfr0 = JSON.parse(decisions[0].value)
-      expect(nfr0.description).toBe(SAMPLE_PLANNING_OUTPUT.non_functional_requirements[0].description)
+      expect(nfr0.description).toBe(
+        SAMPLE_PLANNING_OUTPUT.non_functional_requirements[0].description
+      )
       expect(nfr0.category).toBe('performance')
     })
 
@@ -363,7 +380,7 @@ describe('runPlanningPhase()', () => {
 
       const decisions = await adapter.query<{ key: string; value: string }>(
         "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'tech-stack' ORDER BY key ASC",
-        [runId],
+        [runId]
       )
 
       expect(decisions.length).toBeGreaterThanOrEqual(1)
@@ -382,7 +399,7 @@ describe('runPlanningPhase()', () => {
 
       const decisions = await adapter.query<{ key: string; value: string }>(
         "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'user-stories' ORDER BY key ASC",
-        [runId],
+        [runId]
       )
 
       expect(decisions).toHaveLength(1)
@@ -401,7 +418,7 @@ describe('runPlanningPhase()', () => {
 
       const decisionRows = await adapter.query<{ key: string; value: string }>(
         "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning' AND category = 'domain-model' AND key = 'entities' LIMIT 1",
-        [runId],
+        [runId]
       )
       const decision = decisionRows[0]
 
@@ -421,7 +438,7 @@ describe('runPlanningPhase()', () => {
 
       const decisions = await adapter.query(
         "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning'",
-        [runId],
+        [runId]
       )
 
       expect(decisions).toHaveLength(0)
@@ -441,13 +458,19 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const requirements = await adapter.query<{ description: string; priority: string; type: string }>(
+      const requirements = await adapter.query<{
+        description: string
+        priority: string
+        type: string
+      }>(
         "SELECT * FROM requirements WHERE pipeline_run_id = ? AND source = 'planning-phase' AND type = 'functional' ORDER BY created_at ASC",
-        [runId],
+        [runId]
       )
 
       expect(requirements).toHaveLength(3)
-      expect(requirements[0].description).toBe(SAMPLE_PLANNING_OUTPUT.functional_requirements[0].description)
+      expect(requirements[0].description).toBe(
+        SAMPLE_PLANNING_OUTPUT.functional_requirements[0].description
+      )
       expect(requirements[0].priority).toBe('must')
       expect(requirements[0].type).toBe('functional')
     })
@@ -460,9 +483,13 @@ describe('runPlanningPhase()', () => {
 
       await runPlanningPhase(deps, params)
 
-      const requirements = await adapter.query<{ description: string; priority: string; type: string }>(
+      const requirements = await adapter.query<{
+        description: string
+        priority: string
+        type: string
+      }>(
         "SELECT * FROM requirements WHERE pipeline_run_id = ? AND source = 'planning-phase' AND type = 'non_functional' ORDER BY created_at ASC",
-        [runId],
+        [runId]
       )
 
       expect(requirements).toHaveLength(2)
@@ -480,7 +507,7 @@ describe('runPlanningPhase()', () => {
 
       const allRequirements = await adapter.query(
         "SELECT * FROM requirements WHERE pipeline_run_id = ? AND source = 'planning-phase'",
-        [runId],
+        [runId]
       )
 
       expect(allRequirements).toHaveLength(result.requirements_count!)
@@ -501,9 +528,15 @@ describe('runPlanningPhase()', () => {
 
       const result = await runPlanningPhase(deps, params)
 
-      const artifactRows = await adapter.query<{ id: string; phase: string; type: string; path: string; summary: string }>(
+      const artifactRows = await adapter.query<{
+        id: string
+        phase: string
+        type: string
+        path: string
+        summary: string
+      }>(
         "SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'planning' AND type = 'prd'",
-        [runId],
+        [runId]
       )
       const artifact = artifactRows[0]
 
@@ -524,7 +557,7 @@ describe('runPlanningPhase()', () => {
 
       const artifactRows = await adapter.query<{ summary: string }>(
         "SELECT summary FROM artifacts WHERE pipeline_run_id = ? AND type = 'prd'",
-        [runId],
+        [runId]
       )
       const artifact = artifactRows[0]
 
@@ -548,7 +581,11 @@ describe('runPlanningPhase()', () => {
 
     it('does NOT register artifact when dispatch fails', async () => {
       await seedProductBrief(adapter, runId)
-      const failResult = makeDispatchResult({ status: 'failed', parsed: null, parseError: 'bad yaml' })
+      const failResult = makeDispatchResult({
+        status: 'failed',
+        parsed: null,
+        parseError: 'bad yaml',
+      })
       const dispatcher = makeDispatcher(failResult)
       const deps = makeDeps(adapter, dispatcher)
       const params: PlanningPhaseParams = { runId }
@@ -557,7 +594,7 @@ describe('runPlanningPhase()', () => {
 
       const artifacts = await adapter.query(
         "SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = 'planning'",
-        [runId],
+        [runId]
       )
 
       expect(artifacts).toHaveLength(0)
@@ -607,7 +644,7 @@ describe('runPlanningPhase()', () => {
       expect(dispatcher.dispatch).toHaveBeenCalledWith(
         expect.objectContaining({
           outputSchema: expect.anything(),
-        }),
+        })
       )
     })
   })
@@ -726,7 +763,7 @@ describe('runPlanningPhase()', () => {
 
       const decisions = await adapter.query(
         "SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = 'planning'",
-        [runId],
+        [runId]
       )
 
       expect(decisions).toHaveLength(0)

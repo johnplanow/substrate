@@ -68,18 +68,28 @@ export async function startDoltServer(projectRoot: string): Promise<DoltServerHa
   logger.debug('Starting dolt sql-server at %s', socketPath)
   let proc: ChildProcess
   try {
-    proc = spawn('dolt', [
-      'sql-server',
-      '--socket', socketPath,
-      '--port', '0',           // disable TCP — unix socket only
-      '--max-connections', '10',
-    ], {
-      cwd: stateDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false,
-    })
+    proc = spawn(
+      'dolt',
+      [
+        'sql-server',
+        '--socket',
+        socketPath,
+        '--port',
+        '0', // disable TCP — unix socket only
+        '--max-connections',
+        '10',
+      ],
+      {
+        cwd: stateDir,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: false,
+      }
+    )
   } catch (err) {
-    logger.debug('Failed to spawn dolt sql-server: %s', err instanceof Error ? err.message : String(err))
+    logger.debug(
+      'Failed to spawn dolt sql-server: %s',
+      err instanceof Error ? err.message : String(err)
+    )
     return null
   }
 
@@ -121,7 +131,7 @@ export async function startDoltServer(projectRoot: string): Promise<DoltServerHa
         },
       }
     } catch {
-      await new Promise(resolve => setTimeout(resolve, 100))
+      await new Promise((resolve) => setTimeout(resolve, 100))
     }
   }
 

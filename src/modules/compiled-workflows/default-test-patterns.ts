@@ -128,7 +128,8 @@ export function resolveDefaultTestPatterns(projectRoot?: string): string {
   if (testCommand) {
     if (testCommand.includes('cargo test')) return CARGO_DEFAULT_PATTERNS
     if (testCommand.includes('go test')) return GO_DEFAULT_PATTERNS
-    if (testCommand.includes('gradlew') || testCommand.includes('gradle')) return GRADLE_DEFAULT_PATTERNS
+    if (testCommand.includes('gradlew') || testCommand.includes('gradle'))
+      return GRADLE_DEFAULT_PATTERNS
     if (testCommand.includes('mvn')) return MAVEN_DEFAULT_PATTERNS
     if (testCommand.includes('pytest')) return PYTEST_DEFAULT_PATTERNS
     if (

@@ -17,7 +17,11 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import { createDecision, createRequirement, createConstraint } from '../../../persistence/queries/decisions.js'
+import {
+  createDecision,
+  createRequirement,
+  createConstraint,
+} from '../../../persistence/queries/decisions.js'
 import { createContextCompiler } from '../context-compiler-impl.js'
 import { countTokens, truncateToTokens } from '../token-counter.js'
 import type { ContextTemplate, ContextCompiler, TaskDescriptor } from '../types.js'
@@ -93,8 +97,8 @@ describe('AC6: Token counting', () => {
     const codeText = '```\n' + 'x'.repeat(392) + '\n```'
     expect(codeText.length).toBe(400)
     const count = countTokens(codeText)
-    const expectedBase = 400 / 4  // 100 without adjustment
-    const expectedAdjusted = expectedBase * 1.1  // 110 with adjustment
+    const expectedBase = 400 / 4 // 100 without adjustment
+    const expectedAdjusted = expectedBase * 1.1 // 110 with adjustment
     // Should be within 15% of actual GPT-like count (roughly 100-110 range)
     expect(count).toBeGreaterThanOrEqual(expectedAdjusted * 0.85)
     expect(count).toBeLessThanOrEqual(expectedAdjusted * 1.15)
@@ -152,7 +156,7 @@ describe('AC1: Core compile interface', () => {
       tokenBudget: 1000,
     }
     await expect(compiler.compile(descriptor)).rejects.toThrow(
-      /no template registered for task type "unknown-task"/,
+      /no template registered for task type "unknown-task"/
     )
   })
 
@@ -501,20 +505,14 @@ describe('AC3: Section priority system', () => {
           priority: 'optional',
           query: { table: 'decisions', filters: { phase: 'solutioning' } },
           format: (rows) =>
-            'OPTIONAL: ' +
-            (rows as Array<{ value: string }>)
-              .map((r) => r.value)
-              .join('\n'),
+            'OPTIONAL: ' + (rows as Array<{ value: string }>).map((r) => r.value).join('\n'),
         },
         {
           name: 'Required Last',
           priority: 'required',
           query: { table: 'decisions', filters: { phase: 'solutioning' } },
           format: (rows) =>
-            'REQUIRED: ' +
-            (rows as Array<{ value: string }>)
-              .map((r) => r.value)
-              .join('\n'),
+            'REQUIRED: ' + (rows as Array<{ value: string }>).map((r) => r.value).join('\n'),
         },
       ],
     }
@@ -686,7 +684,10 @@ describe('AC5: Selective decision store queries', () => {
         {
           name: 'Architecture Only',
           priority: 'required',
-          query: { table: 'decisions', filters: { phase: 'solutioning', category: 'architecture' } },
+          query: {
+            table: 'decisions',
+            filters: { phase: 'solutioning', category: 'architecture' },
+          },
           format: (rows) => {
             const decisions = rows as Array<{ key: string; value: string }>
             return decisions.map((d) => `${d.key}=${d.value}`).join('\n')

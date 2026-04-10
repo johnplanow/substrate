@@ -64,17 +64,23 @@ vi.mock('node:fs', () => ({
   readdirSync: vi.fn().mockReturnValue([]),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 // runBuildVerification is the focus — start with a default 'passed' mock and override per test
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
-  detectPackageManager: vi.fn().mockReturnValue({ packageManager: 'npm', lockfile: null, command: 'npm run build' }),
+  detectPackageManager: vi
+    .fn()
+    .mockReturnValue({ packageManager: 'npm', lockfile: null, command: 'npm run build' }),
 }))
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 
 // Mock @substrate-ai/sdlc so the Tier A verification pipeline always passes in unit tests (Story 51-5)
@@ -86,7 +92,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
         checks: [],
         status: 'pass',
         duration_ms: 0,
-      }),
+      })
     ),
     register: vi.fn(),
   })),
@@ -113,7 +119,9 @@ function createMockDb(): DatabaseAdapter {
   return {} as DatabaseAdapter
 }
 
-function createMockPack(overrides?: Partial<{ verifyCommand: string | false; verifyTimeoutMs: number }>): MethodologyPack {
+function createMockPack(
+  overrides?: Partial<{ verifyCommand: string | false; verifyTimeoutMs: number }>
+): MethodologyPack {
   return {
     manifest: {
       name: 'test-pack',
@@ -161,7 +169,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -248,7 +258,12 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
 
   it('AC1: calls runBuildVerification before dispatching any story', async () => {
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['25-2'])
@@ -261,7 +276,12 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
 
   it('AC1: pre-flight runs before story dispatch — story is COMPLETE when pre-flight passes', async () => {
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     const status = await orchestrator.run(['25-2'])
@@ -282,7 +302,12 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
     })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     const status = await orchestrator.run(['25-2'])
@@ -305,14 +330,19 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
     })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['25-2'])
 
     const mockEmit = vi.mocked(eventBus.emit)
     const preFlightEvent = mockEmit.mock.calls.find(
-      ([eventName]) => eventName === 'pipeline:pre-flight-failure',
+      ([eventName]) => eventName === 'pipeline:pre-flight-failure'
     )
     expect(preFlightEvent).toBeDefined()
     const payload = preFlightEvent![1] as { exitCode: number; output: string }
@@ -329,14 +359,19 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
     })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['25-2'])
 
     const mockEmit = vi.mocked(eventBus.emit)
     const preFlightEvent = mockEmit.mock.calls.find(
-      ([eventName]) => eventName === 'pipeline:pre-flight-failure',
+      ([eventName]) => eventName === 'pipeline:pre-flight-failure'
     )
     expect(preFlightEvent).toBeDefined()
     const payload = preFlightEvent![1] as { exitCode: number; output: string }
@@ -354,14 +389,19 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
     })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['25-2'])
 
     const mockEmit = vi.mocked(eventBus.emit)
     const preFlightEvent = mockEmit.mock.calls.find(
-      ([eventName]) => eventName === 'pipeline:pre-flight-failure',
+      ([eventName]) => eventName === 'pipeline:pre-flight-failure'
     )
     const payload = preFlightEvent![1] as { exitCode: number; output: string }
     expect(payload.output).toHaveLength(2000)
@@ -376,13 +416,18 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
     mockRunBuildVerification.mockReturnValue({ status: 'passed', exitCode: 0 })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack: customPack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack: customPack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['25-2'])
 
     expect(mockRunBuildVerification).toHaveBeenCalledWith(
-      expect.objectContaining({ verifyCommand: 'make build' }),
+      expect.objectContaining({ verifyCommand: 'make build' })
     )
   })
 
@@ -392,14 +437,19 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
     mockRunBuildVerification.mockReturnValue({ status: 'skipped' })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack: noBuildPack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack: noBuildPack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     const status = await orchestrator.run(['25-2'])
 
     // runBuildVerification was called with verifyCommand: false
     expect(mockRunBuildVerification).toHaveBeenCalledWith(
-      expect.objectContaining({ verifyCommand: false }),
+      expect.objectContaining({ verifyCommand: false })
     )
     // Stories still proceed normally
     expect(status.stories['25-2']?.phase).toBe('COMPLETE')
@@ -410,13 +460,18 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
     const timeoutPack = createMockPack({ verifyTimeoutMs: 120_000 })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack: timeoutPack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack: timeoutPack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['25-2'])
 
     expect(mockRunBuildVerification).toHaveBeenCalledWith(
-      expect.objectContaining({ verifyTimeoutMs: 120_000 }),
+      expect.objectContaining({ verifyTimeoutMs: 120_000 })
     )
   })
 
@@ -430,14 +485,19 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
     // Pack manifest has no verifyCommand key — it will be undefined
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack: defaultPack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack: defaultPack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['25-2'])
 
     // verifyCommand should be undefined (triggering auto-detection inside runBuildVerification)
     expect(mockRunBuildVerification).toHaveBeenCalledWith(
-      expect.objectContaining({ verifyCommand: undefined }),
+      expect.objectContaining({ verifyCommand: undefined })
     )
   })
 
@@ -449,7 +509,12 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
     const skipConfig = defaultConfig({ skipPreflight: true })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config: skipConfig,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config: skipConfig,
     })
 
     await orchestrator.run(['25-2'])
@@ -469,7 +534,12 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
 
     const skipConfig = defaultConfig({ skipPreflight: true })
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config: skipConfig,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config: skipConfig,
     })
 
     const status = await orchestrator.run(['25-2'])
@@ -478,7 +548,7 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
     // No pipeline:pre-flight-failure event should be emitted
     const mockEmit = vi.mocked(eventBus.emit)
     const preFlightEvent = mockEmit.mock.calls.find(
-      ([eventName]) => eventName === 'pipeline:pre-flight-failure',
+      ([eventName]) => eventName === 'pipeline:pre-flight-failure'
     )
     expect(preFlightEvent).toBeUndefined()
     // runBuildVerification called only for per-story gate (not pre-flight)
@@ -494,7 +564,12 @@ describe('orchestrator: pre-flight build gate (Story 25-2)', () => {
 
   it('pre-flight runs even for empty story list (no stories to dispatch)', async () => {
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     const status = await orchestrator.run([])

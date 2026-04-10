@@ -118,10 +118,7 @@ function phaseToLabel(phase: string): string {
  * @param isTTY  - Override for TTY detection (useful in tests). Defaults to
  *                 `(stream as NodeJS.WriteStream).isTTY`.
  */
-export function createProgressRenderer(
-  stream: Writable,
-  isTTY?: boolean,
-): ProgressRenderer {
+export function createProgressRenderer(stream: Writable, isTTY?: boolean): ProgressRenderer {
   const tty = isTTY !== undefined ? isTTY : (stream as NodeJS.WriteStream).isTTY === true
   const color = tty && process.env.NO_COLOR === undefined
 
@@ -171,14 +168,11 @@ export function createProgressRenderer(
       if (state.terminal) {
         if (state.phase === 'done') {
           const cycleWord = state.reviewCycles === 1 ? 'cycle' : 'cycles'
-          statusText = colorize(
-            `SHIP_IT (${state.reviewCycles} ${cycleWord})`,
-            ANSI_GREEN,
-          )
+          statusText = colorize(`SHIP_IT (${state.reviewCycles} ${cycleWord})`, ANSI_GREEN)
         } else if (state.phase === 'escalated') {
           statusText = colorize(
             `ESCALATED${state.escalationReason ? ' — ' + state.escalationReason : ''}`,
-            ANSI_RED,
+            ANSI_RED
           )
         } else if (state.phase === 'verification-failed') {
           statusText = colorize('VERIFICATION FAILED', ANSI_RED)

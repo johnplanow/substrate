@@ -89,18 +89,20 @@ export class CpuSampler {
 
   constructor(deps: CpuSamplerDeps = {}, platform?: string) {
     this.readFile = deps.readFile ?? ((path) => fsPromises.readFile(path, 'utf-8'))
-    this.execLine = deps.execLine ?? (async (cmd) => {
-      // Lazy import to avoid static child_process dependency (per dev notes)
-      const { execFile: execFileRaw } = await import('child_process')
-      const { promisify } = await import('util')
-      const execFileAsync = promisify(execFileRaw)
-      // Parse the command into binary + args for execFile
-      const parts = cmd.trim().split(/\s+/)
-      const bin = parts[0]!
-      const args = parts.slice(1)
-      const { stdout } = await execFileAsync(bin, args, { timeout: 5000 })
-      return stdout
-    })
+    this.execLine =
+      deps.execLine ??
+      (async (cmd) => {
+        // Lazy import to avoid static child_process dependency (per dev notes)
+        const { execFile: execFileRaw } = await import('child_process')
+        const { promisify } = await import('util')
+        const execFileAsync = promisify(execFileRaw)
+        // Parse the command into binary + args for execFile
+        const parts = cmd.trim().split(/\s+/)
+        const bin = parts[0]!
+        const args = parts.slice(1)
+        const { stdout } = await execFileAsync(bin, args, { timeout: 5000 })
+        return stdout
+      })
     this.platform = platform ?? process.platform
   }
 
@@ -186,18 +188,18 @@ export class CpuSampler {
 // ---------------------------------------------------------------------------
 
 export interface MultiSignalInput {
-  stallTimerExceeded: boolean     // from StallDetector.evaluate().isStalled
-  outputStagnant2: boolean        // OutputGrowthTracker.isStagnant(key, 2)
-  outputStagnant3: boolean        // OutputGrowthTracker.isStagnant(key, 3)
+  stallTimerExceeded: boolean // from StallDetector.evaluate().isStalled
+  outputStagnant2: boolean // OutputGrowthTracker.isStagnant(key, 2)
+  outputStagnant3: boolean // OutputGrowthTracker.isStagnant(key, 3)
   cpuResult: CpuSamplerResult
-  processAlive: boolean           // true when orchestrator PID responds to kill(pid, 0)
+  processAlive: boolean // true when orchestrator PID responds to kill(pid, 0)
 }
 
 export interface MultiSignalResult {
   isStall: boolean
   isZombie: boolean
-  suppressedBySingleSignal: boolean   // true when timer exceeded but second signal absent
-  reason: string                      // human-readable explanation
+  suppressedBySingleSignal: boolean // true when timer exceeded but second signal absent
+  reason: string // human-readable explanation
 }
 
 export class MultiSignalStallDetector {
@@ -214,10 +216,7 @@ export class MultiSignalStallDetector {
     // Zombie: independent of timer — a process alive but consuming no CPU and producing
     // no output for 3 consecutive polls is hung beyond recovery.
     const isZombie =
-      processAlive &&
-      cpuResult.available &&
-      cpuResult.cpuPercent === 0 &&
-      outputStagnant3
+      processAlive && cpuResult.available && cpuResult.cpuPercent === 0 && outputStagnant3
 
     let isStall = false
     if (stallTimerExceeded) {

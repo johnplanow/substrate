@@ -12,7 +12,14 @@
 /**
  * Task statuses that can be associated with a worktree.
  */
-export type TaskStatus = 'pending' | 'ready' | 'running' | 'completed' | 'failed' | 'paused' | 'queued'
+export type TaskStatus =
+  | 'pending'
+  | 'ready'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'paused'
+  | 'queued'
 
 /**
  * Represents a worktree entry for display in CLI output.

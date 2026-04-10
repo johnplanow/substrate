@@ -118,7 +118,9 @@ vi.mock('../../../modules/state/dolt-init.js', () => ({
   },
   DoltInitError: class DoltInitError extends Error {
     constructor(args: string[], exitCode: number, stderr: string) {
-      super(`Dolt command "dolt ${args.join(' ')}" failed with exit code ${exitCode}${stderr ? `: ${stderr}` : ''}`)
+      super(
+        `Dolt command "dolt ${args.join(' ')}" failed with exit code ${exitCode}${stderr ? `: ${stderr}` : ''}`
+      )
       this.name = 'DoltInitError'
     }
   },

@@ -40,7 +40,7 @@ async function createTestDb(): Promise<DatabaseAdapter> {
 
 async function createTestRun(
   adapter: DatabaseAdapter,
-  overrides: Partial<PipelineRun> = {},
+  overrides: Partial<PipelineRun> = {}
 ): Promise<PipelineRun> {
   const run = await createPipelineRun(adapter, {
     methodology: 'bmad',
@@ -49,18 +49,26 @@ async function createTestRun(
   })
   // Apply any status overrides
   if (overrides.status !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [overrides.status, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [
+      overrides.status,
+      run.id,
+    ])
   }
   if (overrides.current_phase !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [overrides.current_phase, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [
+      overrides.current_phase,
+      run.id,
+    ])
   }
-  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])
+  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [
+    run.id,
+  ])
   return rows[0]!
 }
 
 function makePhaseHistory(
   completed: string[],
-  running?: string,
+  running?: string
 ): { phase: string; startedAt: string; completedAt?: string; gateResults: unknown[] }[] {
   const history = []
   for (const phase of completed) {
@@ -172,7 +180,7 @@ describe('buildPipelineStatusOutput', () => {
 
   it('no phase history: planning/solutioning/implementation show "pending"', async () => {
     const adapter = await createTestDb()
-    const run = await createTestRun(adapter)  // no config_json, current_phase=analysis
+    const run = await createTestRun(adapter) // no config_json, current_phase=analysis
 
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
@@ -190,8 +198,20 @@ describe('buildPipelineStatusOutput', () => {
     const run = await createTestRun(adapter)
 
     const tokenSummary: TokenUsageSummary[] = [
-      { phase: 'analysis', agent: 'claude-code', total_input_tokens: 1200, total_output_tokens: 800, total_cost_usd: 0.006 },
-      { phase: 'planning', agent: 'claude-code', total_input_tokens: 1800, total_output_tokens: 1200, total_cost_usd: 0.023 },
+      {
+        phase: 'analysis',
+        agent: 'claude-code',
+        total_input_tokens: 1200,
+        total_output_tokens: 800,
+        total_cost_usd: 0.006,
+      },
+      {
+        phase: 'planning',
+        agent: 'claude-code',
+        total_input_tokens: 1800,
+        total_output_tokens: 1200,
+        total_cost_usd: 0.023,
+      },
     ]
 
     const result = buildPipelineStatusOutput(run, tokenSummary, 0, 0)
@@ -213,7 +233,13 @@ describe('buildPipelineStatusOutput', () => {
     })
 
     const tokenSummary: TokenUsageSummary[] = [
-      { phase: 'analysis', agent: 'claude-code', total_input_tokens: 1200, total_output_tokens: 800, total_cost_usd: 0.006 },
+      {
+        phase: 'analysis',
+        agent: 'claude-code',
+        total_input_tokens: 1200,
+        total_output_tokens: 800,
+        total_cost_usd: 0.006,
+      },
     ]
 
     const result = buildPipelineStatusOutput(run, tokenSummary, 0, 0)
@@ -230,17 +256,45 @@ describe('buildPipelineStatusOutput', () => {
       config_json: JSON.stringify({
         concept: 'test',
         phaseHistory: [
-          { phase: 'analysis', startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:01:00Z', gateResults: [] },
-          { phase: 'planning', startedAt: '2026-01-01T00:01:00Z', completedAt: '2026-01-01T00:02:00Z', gateResults: [] },
+          {
+            phase: 'analysis',
+            startedAt: '2026-01-01T00:00:00Z',
+            completedAt: '2026-01-01T00:01:00Z',
+            gateResults: [],
+          },
+          {
+            phase: 'planning',
+            startedAt: '2026-01-01T00:01:00Z',
+            completedAt: '2026-01-01T00:02:00Z',
+            gateResults: [],
+          },
           { phase: 'solutioning', startedAt: '2026-01-01T00:02:00Z', gateResults: [] },
         ],
       }),
     })
 
     const tokenSummary: TokenUsageSummary[] = [
-      { phase: 'analysis', agent: 'claude-code', total_input_tokens: 1200, total_output_tokens: 800, total_cost_usd: 0.0054 },
-      { phase: 'planning', agent: 'claude-code', total_input_tokens: 1800, total_output_tokens: 1200, total_cost_usd: 0.023 },
-      { phase: 'solutioning', agent: 'claude-code', total_input_tokens: 0, total_output_tokens: 0, total_cost_usd: 0 },
+      {
+        phase: 'analysis',
+        agent: 'claude-code',
+        total_input_tokens: 1200,
+        total_output_tokens: 800,
+        total_cost_usd: 0.0054,
+      },
+      {
+        phase: 'planning',
+        agent: 'claude-code',
+        total_input_tokens: 1800,
+        total_output_tokens: 1200,
+        total_cost_usd: 0.023,
+      },
+      {
+        phase: 'solutioning',
+        agent: 'claude-code',
+        total_input_tokens: 0,
+        total_output_tokens: 0,
+        total_cost_usd: 0,
+      },
     ]
 
     const result = buildPipelineStatusOutput(run, tokenSummary, 47, 12)
@@ -329,7 +383,9 @@ describe('buildPipelineStatusOutput — AC4: last_event_ts and active_dispatches
       JSON.stringify(storyState),
       run.id,
     ])
-    const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])
+    const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [
+      run.id,
+    ])
     const updatedRun = rows[0]!
 
     const result = buildPipelineStatusOutput(updatedRun, [], 0, 0)
@@ -354,7 +410,9 @@ describe('buildPipelineStatusOutput — AC4: last_event_ts and active_dispatches
       JSON.stringify(storyState),
       run.id,
     ])
-    const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])
+    const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [
+      run.id,
+    ])
     const updatedRun = rows[0]!
 
     const result = buildPipelineStatusOutput(updatedRun, [], 0, 0)
@@ -371,7 +429,9 @@ describe('buildPipelineStatusOutput — AC4: last_event_ts and active_dispatches
       JSON.stringify({ state: 'RUNNING', maxConcurrentActual: 2 }), // no stories key
       run.id,
     ])
-    const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])
+    const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [
+      run.id,
+    ])
     const updatedRun = rows[0]!
 
     const result = buildPipelineStatusOutput(updatedRun, [], 0, 0)
@@ -394,11 +454,15 @@ describe('buildPipelineStatusOutput — AC4: last_event_ts and active_dispatches
       JSON.stringify(storyState),
       run.id,
     ])
-    const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])
+    const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [
+      run.id,
+    ])
     const updatedRun = rows[0]!
 
     const statusOutput = buildPipelineStatusOutput(updatedRun, [], 0, 0)
-    const { formatOutput: fmt } = { formatOutput: (d: unknown) => JSON.stringify({ success: true, data: d }) }
+    const { formatOutput: fmt } = {
+      formatOutput: (d: unknown) => JSON.stringify({ success: true, data: d }),
+    }
     const jsonStr = fmt(statusOutput)
     const parsed = JSON.parse(jsonStr) as { success: boolean; data: typeof statusOutput }
 
@@ -439,9 +503,9 @@ describe('formatPipelineStatusHuman', () => {
     expect(output).toContain('implementation')
 
     // Verify status indicators
-    expect(output).toContain('[DONE]')   // analysis complete
-    expect(output).toContain('[RUN]')    // planning running
-    expect(output).toContain('[    ]')   // solutioning + implementation pending
+    expect(output).toContain('[DONE]') // analysis complete
+    expect(output).toContain('[RUN]') // planning running
+    expect(output).toContain('[    ]') // solutioning + implementation pending
 
     await adapter.close()
   })
@@ -456,14 +520,20 @@ describe('formatPipelineStatusHuman', () => {
     })
 
     const tokenSummary: TokenUsageSummary[] = [
-      { phase: 'analysis', agent: 'claude-code', total_input_tokens: 1200, total_output_tokens: 800, total_cost_usd: 0.006 },
+      {
+        phase: 'analysis',
+        agent: 'claude-code',
+        total_input_tokens: 1200,
+        total_output_tokens: 800,
+        total_cost_usd: 0.006,
+      },
     ]
 
     const statusOutput = buildPipelineStatusOutput(run, tokenSummary, 0, 0)
     const output = formatPipelineStatusHuman(statusOutput)
 
-    expect(output).toContain('1,200')   // input tokens
-    expect(output).toContain('800')     // output tokens
+    expect(output).toContain('1,200') // input tokens
+    expect(output).toContain('800') // output tokens
 
     await adapter.close()
   })
@@ -486,7 +556,13 @@ describe('formatPipelineStatusHuman', () => {
     const run = await createTestRun(adapter)
 
     const tokenSummary: TokenUsageSummary[] = [
-      { phase: 'analysis', agent: 'claude-code', total_input_tokens: 1000, total_output_tokens: 500, total_cost_usd: 0.015 },
+      {
+        phase: 'analysis',
+        agent: 'claude-code',
+        total_input_tokens: 1000,
+        total_output_tokens: 500,
+        total_cost_usd: 0.015,
+      },
     ]
 
     const statusOutput = buildPipelineStatusOutput(run, tokenSummary, 0, 0)
@@ -509,8 +585,20 @@ describe('formatPipelineSummary', () => {
     const run = await createTestRun(adapter, { status: 'completed' })
 
     const tokenSummary: TokenUsageSummary[] = [
-      { phase: 'analysis', agent: 'claude-code', total_input_tokens: 2000, total_output_tokens: 1000, total_cost_usd: 0.021 },
-      { phase: 'planning', agent: 'claude-code', total_input_tokens: 3000, total_output_tokens: 1200, total_cost_usd: 0.027 },
+      {
+        phase: 'analysis',
+        agent: 'claude-code',
+        total_input_tokens: 2000,
+        total_output_tokens: 1000,
+        total_cost_usd: 0.021,
+      },
+      {
+        phase: 'planning',
+        agent: 'claude-code',
+        total_input_tokens: 3000,
+        total_output_tokens: 1200,
+        total_cost_usd: 0.027,
+      },
     ]
 
     const output = formatPipelineSummary(run, tokenSummary, 30, 10, 180000, 'human')
@@ -532,7 +620,13 @@ describe('formatPipelineSummary', () => {
     const run = await createTestRun(adapter, { status: 'completed' })
 
     const tokenSummary: TokenUsageSummary[] = [
-      { phase: 'analysis', agent: 'claude-code', total_input_tokens: 2000, total_output_tokens: 1000, total_cost_usd: 0.021 },
+      {
+        phase: 'analysis',
+        agent: 'claude-code',
+        total_input_tokens: 2000,
+        total_output_tokens: 1000,
+        total_cost_usd: 0.021,
+      },
     ]
 
     const output = formatPipelineSummary(run, tokenSummary, 30, 10, 180000, 'json')
@@ -560,7 +654,13 @@ describe('formatPipelineSummary', () => {
 
     // 17,100 tokens = ~70% savings vs 56,800 baseline
     const tokenSummary: TokenUsageSummary[] = [
-      { phase: 'analysis', agent: 'claude-code', total_input_tokens: 10000, total_output_tokens: 7100, total_cost_usd: 0.1 },
+      {
+        phase: 'analysis',
+        agent: 'claude-code',
+        total_input_tokens: 10000,
+        total_output_tokens: 7100,
+        total_cost_usd: 0.1,
+      },
     ]
 
     const output = formatPipelineSummary(run, tokenSummary, 0, 0, 60000, 'json')
@@ -579,7 +679,13 @@ describe('formatPipelineSummary', () => {
 
     // More tokens than baseline
     const tokenSummary: TokenUsageSummary[] = [
-      { phase: 'analysis', agent: 'claude-code', total_input_tokens: 40000, total_output_tokens: 20000, total_cost_usd: 0.5 },
+      {
+        phase: 'analysis',
+        agent: 'claude-code',
+        total_input_tokens: 40000,
+        total_output_tokens: 20000,
+        total_cost_usd: 0.5,
+      },
     ]
 
     const output = formatPipelineSummary(run, tokenSummary, 0, 0, 60000, 'json')

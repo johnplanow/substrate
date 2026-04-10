@@ -46,27 +46,19 @@ describe('validateSpawnCommand', () => {
   })
 
   it('throws AdtError for missing binary', () => {
-    expect(() =>
-      validateSpawnCommand({ args: [], cwd: '/tmp' })
-    ).toThrow(AdtError)
+    expect(() => validateSpawnCommand({ args: [], cwd: '/tmp' })).toThrow(AdtError)
   })
 
   it('throws AdtError for empty binary', () => {
-    expect(() =>
-      validateSpawnCommand({ binary: '', args: [], cwd: '/tmp' })
-    ).toThrow(AdtError)
+    expect(() => validateSpawnCommand({ binary: '', args: [], cwd: '/tmp' })).toThrow(AdtError)
   })
 
   it('throws AdtError for missing cwd', () => {
-    expect(() =>
-      validateSpawnCommand({ binary: 'claude', args: [] })
-    ).toThrow(AdtError)
+    expect(() => validateSpawnCommand({ binary: 'claude', args: [] })).toThrow(AdtError)
   })
 
   it('throws AdtError for empty cwd', () => {
-    expect(() =>
-      validateSpawnCommand({ binary: 'claude', args: [], cwd: '' })
-    ).toThrow(AdtError)
+    expect(() => validateSpawnCommand({ binary: 'claude', args: [], cwd: '' })).toThrow(AdtError)
   })
 
   it('throws AdtError for negative timeoutMs', () => {
@@ -170,15 +162,11 @@ describe('validateAdapterHealthResult', () => {
   })
 
   it('throws AdtError for missing healthy field', () => {
-    expect(() =>
-      validateAdapterHealthResult({ supportsHeadless: true })
-    ).toThrow(AdtError)
+    expect(() => validateAdapterHealthResult({ supportsHeadless: true })).toThrow(AdtError)
   })
 
   it('throws AdtError for missing supportsHeadless field', () => {
-    expect(() =>
-      validateAdapterHealthResult({ healthy: true })
-    ).toThrow(AdtError)
+    expect(() => validateAdapterHealthResult({ healthy: true })).toThrow(AdtError)
   })
 
   it('throws AdtError for invalid billing mode in array', () => {
@@ -252,9 +240,7 @@ describe('Schema shape validation', () => {
   })
 
   it('PlannedTaskSchema rejects complexity out of range', () => {
-    expect(() =>
-      PlannedTaskSchema.parse({ title: 'T', description: '', complexity: 11 })
-    ).toThrow()
+    expect(() => PlannedTaskSchema.parse({ title: 'T', description: '', complexity: 11 })).toThrow()
   })
 
   it('PlanParseResultSchema accepts valid plan result', () => {

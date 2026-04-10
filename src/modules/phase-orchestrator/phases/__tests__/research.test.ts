@@ -95,9 +95,7 @@ function makeSequentialDispatcher(outputs: unknown[]): Dispatcher {
   }
 }
 
-function makePack(
-  promptTemplate = 'Research prompt: {{concept}}',
-): MethodologyPack {
+function makePack(promptTemplate = 'Research prompt: {{concept}}'): MethodologyPack {
   return {
     manifest: {
       name: 'test-pack',
@@ -133,7 +131,7 @@ function makeContextCompiler(): ContextCompiler {
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack?: MethodologyPack,
+  pack?: MethodologyPack
 ): PhaseDeps {
   return {
     db: adapter,
@@ -277,7 +275,10 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       RESEARCH_SYNTHESIS_OUTPUT,
     ])
     const deps = makeDeps(adapter, dispatcher)
-    const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
+    const params: ResearchPhaseParams = {
+      runId,
+      concept: 'A collaborative project management tool',
+    }
 
     const result = await runResearchPhase(deps, params)
 
@@ -292,7 +293,10 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       RESEARCH_SYNTHESIS_OUTPUT,
     ])
     const deps = makeDeps(adapter, dispatcher)
-    const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
+    const params: ResearchPhaseParams = {
+      runId,
+      concept: 'A collaborative project management tool',
+    }
 
     await runResearchPhase(deps, params)
 
@@ -308,7 +312,10 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       RESEARCH_SYNTHESIS_OUTPUT,
     ])
     const deps = makeDeps(adapter, dispatcher)
-    const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
+    const params: ResearchPhaseParams = {
+      runId,
+      concept: 'A collaborative project management tool',
+    }
 
     const result = await runResearchPhase(deps, params)
 
@@ -323,7 +330,10 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       RESEARCH_SYNTHESIS_OUTPUT,
     ])
     const deps = makeDeps(adapter, dispatcher)
-    const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
+    const params: ResearchPhaseParams = {
+      runId,
+      concept: 'A collaborative project management tool',
+    }
 
     const result = await runResearchPhase(deps, params)
 
@@ -337,7 +347,10 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       RESEARCH_SYNTHESIS_OUTPUT,
     ])
     const deps = makeDeps(adapter, dispatcher)
-    const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
+    const params: ResearchPhaseParams = {
+      runId,
+      concept: 'A collaborative project management tool',
+    }
 
     await runResearchPhase(deps, params)
 
@@ -377,7 +390,10 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
     const deps = makeDeps(adapter, dispatcher)
-    const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
+    const params: ResearchPhaseParams = {
+      runId,
+      concept: 'A collaborative project management tool',
+    }
 
     const result = await runResearchPhase(deps, params)
 
@@ -410,7 +426,10 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
     const deps = makeDeps(adapter, dispatcher)
-    const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
+    const params: ResearchPhaseParams = {
+      runId,
+      concept: 'A collaborative project management tool',
+    }
 
     await runResearchPhase(deps, params)
 
@@ -428,7 +447,10 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       contextCompiler: makeContextCompiler(),
       dispatcher: makeSequentialDispatcher([]),
     }
-    const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
+    const params: ResearchPhaseParams = {
+      runId,
+      concept: 'A collaborative project management tool',
+    }
 
     const result = await runResearchPhase(deps, params)
 
@@ -444,7 +466,10 @@ describe('runResearchPhase - execution (AC6, AC7)', () => {
       RESEARCH_SYNTHESIS_OUTPUT,
     ])
     const deps = makeDeps(adapter, dispatcher)
-    const params: ResearchPhaseParams = { runId, concept: 'A collaborative project management tool' }
+    const params: ResearchPhaseParams = {
+      runId,
+      concept: 'A collaborative project management tool',
+    }
 
     const result = await runResearchPhase(deps, params)
 

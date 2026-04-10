@@ -29,7 +29,10 @@ import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createContextCompiler } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
-import { createImplementationOrchestrator, resolveStoryKeys } from '../../modules/implementation-orchestrator/index.js'
+import {
+  createImplementationOrchestrator,
+  resolveStoryKeys,
+} from '../../modules/implementation-orchestrator/index.js'
 import { createPhaseOrchestrator } from '../../modules/phase-orchestrator/index.js'
 import { runAnalysisPhase } from '../../modules/phase-orchestrator/phases/analysis.js'
 import { runPlanningPhase } from '../../modules/phase-orchestrator/phases/planning.js'
@@ -100,7 +103,18 @@ export interface ResumeOptions {
 }
 
 export async function runResumeAction(options: ResumeOptions): Promise<number> {
-  const { runId: specifiedRunId, stopAfter, outputFormat, projectRoot, concurrency, pack: packName, events: eventsFlag, registry, maxReviewCycles = 2, agent: agentId } = options
+  const {
+    runId: specifiedRunId,
+    stopAfter,
+    outputFormat,
+    projectRoot,
+    concurrency,
+    pack: packName,
+    events: eventsFlag,
+    registry,
+    maxReviewCycles = 2,
+    agent: agentId,
+  } = options
 
   // Validate --stop-after phase (before any DB writes) (AC7)
   if (stopAfter !== undefined && !VALID_PHASES.includes(stopAfter)) {
@@ -152,7 +166,9 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
     // Load pipeline run
     let run: PipelineRun | undefined
     if (specifiedRunId !== undefined && specifiedRunId !== '') {
-      const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [specifiedRunId])
+      const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [
+        specifiedRunId,
+      ])
       run = rows[0]
     } else {
       run = await getLatestRun(adapter)
@@ -202,7 +218,10 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
     let concept = ''
     let scopedStories: string[] | undefined
     try {
-      const config = JSON.parse(run.config_json ?? '{}') as { concept?: string; explicitStories?: string[] }
+      const config = JSON.parse(run.config_json ?? '{}') as {
+        concept?: string
+        explicitStories?: string[]
+      }
       concept = config.concept ?? ''
       if (Array.isArray(config.explicitStories) && config.explicitStories.length > 0) {
         scopedStories = config.explicitStories
@@ -224,8 +243,7 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
         try {
           const manifestData = await resolvedManifest.read()
           // Prefer cli_flags.stories, then fall back to story_scope (AC3)
-          const manifestStories =
-            manifestData.cli_flags['stories'] ?? manifestData.story_scope
+          const manifestStories = manifestData.cli_flags['stories'] ?? manifestData.story_scope
           if (Array.isArray(manifestStories) && manifestStories.length > 0) {
             scopedStories = manifestStories as string[]
             logger.debug({ runId, stories: scopedStories }, 'resume scope loaded from manifest')
@@ -236,7 +254,10 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
         }
       } else {
         // Manifest absent (pre-Phase-D run) — fall back to config_json scope (AC4)
-        logger.debug({ runId }, 'Run manifest not found for scope preservation — using legacy config_json scope')
+        logger.debug(
+          { runId },
+          'Run manifest not found for scope preservation — using legacy config_json scope'
+        )
       }
     }
 
@@ -302,7 +323,9 @@ export interface FullPipelineFromPhaseOptions {
   agentId?: string
 }
 
-export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOptions): Promise<number> {
+export async function runFullPipelineFromPhase(
+  options: FullPipelineFromPhaseOptions
+): Promise<number> {
   const {
     packName,
     packPath,
@@ -356,8 +379,13 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
 
     // Resolve per-agent review cycles
     const agentAdapter = agentId != null ? injectedRegistry.get(agentId) : undefined
-    const adapterDefaultCycles = (agentAdapter as { getCapabilities?: () => { defaultMaxReviewCycles?: number } })?.getCapabilities?.()?.defaultMaxReviewCycles
-    const effectiveMaxReviewCycles = adapterDefaultCycles != null ? Math.max(maxReviewCycles, adapterDefaultCycles) : maxReviewCycles
+    const adapterDefaultCycles = (
+      agentAdapter as { getCapabilities?: () => { defaultMaxReviewCycles?: number } }
+    )?.getCapabilities?.()?.defaultMaxReviewCycles
+    const effectiveMaxReviewCycles =
+      adapterDefaultCycles != null
+        ? Math.max(maxReviewCycles, adapterDefaultCycles)
+        : maxReviewCycles
 
     const phaseOrchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
@@ -564,7 +592,12 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           eventBus.on('orchestrator:story-escalated', (payload) => {
             const rawIssues = Array.isArray(payload.issues) ? payload.issues : []
             const issues = rawIssues.map((issue) => {
-              const iss = issue as { severity?: string; file?: string; description?: string; desc?: string }
+              const iss = issue as {
+                severity?: string
+                file?: string
+                description?: string
+                desc?: string
+              }
               return {
                 severity: (iss.severity ?? 'unknown') as 'blocker' | 'major' | 'minor' | 'unknown',
                 file: iss.file ?? '',
@@ -623,7 +656,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
 
         if (storyKeys.length === 0 && outputFormat === 'human') {
           process.stdout.write(
-            '[IMPLEMENTATION] No stories found for this run. Check solutioning phase output.\n',
+            '[IMPLEMENTATION] No stories found for this run. Check solutioning phase output.\n'
           )
         }
 
@@ -650,7 +683,10 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
         const gate = createStopAfterGate(stopAfter)
         if (gate.shouldHalt()) {
           // Count decisions for summary
-          const countRows = await adapter.query<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`, [runId])
+          const countRows = await adapter.query<{ cnt: number }>(
+            `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`,
+            [runId]
+          )
           const decisionsCount = countRows[0]?.cnt ?? 0
 
           // Update run status to 'stopped' atomically before emitting summary (AC4)
@@ -694,16 +730,22 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
     const tokenSummary = await getTokenUsageSummary(adapter, runId)
     const durationMs = Date.now() - startedAt
 
-    const decRows = await adapter.query<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`, [runId])
+    const decRows = await adapter.query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`,
+      [runId]
+    )
     const decisionsCount = decRows[0]?.cnt ?? 0
 
     const storyRows = await adapter.query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM requirements WHERE pipeline_run_id = ? AND source = 'solutioning-phase'`,
-      [runId],
+      [runId]
     )
     const storiesCount = storyRows[0]?.cnt ?? 0
 
-    const finalRunRows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [runId])
+    const finalRunRows = await adapter.query<PipelineRun>(
+      'SELECT * FROM pipeline_runs WHERE id = ?',
+      [runId]
+    )
     const finalRun = finalRunRows[0]
 
     if (outputFormat === 'json') {
@@ -711,7 +753,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
         finalRun ?? ({ id: runId } as PipelineRun),
         tokenSummary,
         decisionsCount,
-        storiesCount,
+        storiesCount
       )
       process.stdout.write(formatOutput(statusOutput, 'json', true) + '\n')
     } else {
@@ -723,8 +765,8 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           decisionsCount,
           storiesCount,
           durationMs,
-          'human',
-        ) + '\n',
+          'human'
+        ) + '\n'
       )
     }
 
@@ -755,23 +797,32 @@ export function registerResumeCommand(
   program: Command,
   _version = '0.0.0',
   projectRoot = process.cwd(),
-  registry?: AdapterRegistry,
+  registry?: AdapterRegistry
 ): void {
   program
     .command('resume')
     .description('Resume a previously interrupted pipeline run')
     .option('--run-id <id>', 'Pipeline run ID to resume (defaults to latest)')
     .option('--pack <name>', 'Methodology pack name', 'bmad')
-    .option('--stop-after <phase>', 'Stop pipeline after this phase completes (overrides saved state)')
-    .option('--concurrency <n>', 'Maximum parallel conflict groups', (v: string) => parseInt(v, 10), 3)
-    .option('--project-root <path>', 'Project root directory', projectRoot)
     .option(
-      '--output-format <format>',
-      'Output format: human (default) or json',
-      'human',
+      '--stop-after <phase>',
+      'Stop pipeline after this phase completes (overrides saved state)'
     )
+    .option(
+      '--concurrency <n>',
+      'Maximum parallel conflict groups',
+      (v: string) => parseInt(v, 10),
+      3
+    )
+    .option('--project-root <path>', 'Project root directory', projectRoot)
+    .option('--output-format <format>', 'Output format: human (default) or json', 'human')
     .option('--events', 'Emit structured NDJSON events on stdout for programmatic consumption')
-    .option('--max-review-cycles <n>', 'Maximum review cycles per story (default: 2)', (v: string) => parseInt(v, 10), 2)
+    .option(
+      '--max-review-cycles <n>',
+      'Maximum review cycles per story (default: 2)',
+      (v: string) => parseInt(v, 10),
+      2
+    )
     .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
     .action(
       async (opts: {
@@ -799,6 +850,6 @@ export function registerResumeCommand(
           registry,
         })
         process.exitCode = exitCode
-      },
+      }
     )
 }

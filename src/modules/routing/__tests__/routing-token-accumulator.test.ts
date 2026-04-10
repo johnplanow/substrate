@@ -123,7 +123,11 @@ describe('RoutingTokenAccumulator.onRoutingSelected (AC1 — last-writer-wins)',
   })
 
   it('AC1: logs debug for each onRoutingSelected call', () => {
-    accumulator.onRoutingSelected({ dispatchId: 'dispatch-1', phase: 'generate', model: 'claude-sonnet-4-5' })
+    accumulator.onRoutingSelected({
+      dispatchId: 'dispatch-1',
+      phase: 'generate',
+      model: 'claude-sonnet-4-5',
+    })
     expect(logger.debug).toHaveBeenCalledTimes(1)
   })
 })
@@ -144,12 +148,22 @@ describe('RoutingTokenAccumulator.onAgentCompleted (AC2 — dispatch attribution
   })
 
   it('AC2: registered dispatchId attributes tokens to the correct phase bucket', async () => {
-    accumulator.onRoutingSelected({ dispatchId: 'dispatch-1', phase: 'explore', model: 'claude-haiku-4-5' })
+    accumulator.onRoutingSelected({
+      dispatchId: 'dispatch-1',
+      phase: 'explore',
+      model: 'claude-haiku-4-5',
+    })
     accumulator.onAgentCompleted({ dispatchId: 'dispatch-1', inputTokens: 300, outputTokens: 150 })
     await accumulator.flush('run-2')
 
     const breakdown = vi.mocked(stateStore.setMetric).mock.calls[0][2] as {
-      entries: Array<{ phase: string; model: string; inputTokens: number; outputTokens: number; dispatchCount: number }>
+      entries: Array<{
+        phase: string
+        model: string
+        inputTokens: number
+        outputTokens: number
+        dispatchCount: number
+      }>
     }
     expect(breakdown.entries).toHaveLength(1)
     expect(breakdown.entries[0].phase).toBe('explore')
@@ -160,7 +174,11 @@ describe('RoutingTokenAccumulator.onAgentCompleted (AC2 — dispatch attribution
   })
 
   it('AC2: unregistered dispatchId falls back to phase: default, model: unknown', async () => {
-    accumulator.onAgentCompleted({ dispatchId: 'unknown-dispatch', inputTokens: 50, outputTokens: 25 })
+    accumulator.onAgentCompleted({
+      dispatchId: 'unknown-dispatch',
+      inputTokens: 50,
+      outputTokens: 25,
+    })
     await accumulator.flush('run-2')
 
     const breakdown = vi.mocked(stateStore.setMetric).mock.calls[0][2] as {
@@ -172,14 +190,27 @@ describe('RoutingTokenAccumulator.onAgentCompleted (AC2 — dispatch attribution
   })
 
   it('AC2: multiple dispatches for the same phase+model accumulate into one bucket', async () => {
-    accumulator.onRoutingSelected({ dispatchId: 'dispatch-a', phase: 'generate', model: 'claude-sonnet-4-5' })
-    accumulator.onRoutingSelected({ dispatchId: 'dispatch-b', phase: 'generate', model: 'claude-sonnet-4-5' })
+    accumulator.onRoutingSelected({
+      dispatchId: 'dispatch-a',
+      phase: 'generate',
+      model: 'claude-sonnet-4-5',
+    })
+    accumulator.onRoutingSelected({
+      dispatchId: 'dispatch-b',
+      phase: 'generate',
+      model: 'claude-sonnet-4-5',
+    })
     accumulator.onAgentCompleted({ dispatchId: 'dispatch-a', inputTokens: 100, outputTokens: 50 })
     accumulator.onAgentCompleted({ dispatchId: 'dispatch-b', inputTokens: 200, outputTokens: 100 })
     await accumulator.flush('run-3')
 
     const breakdown = vi.mocked(stateStore.setMetric).mock.calls[0][2] as {
-      entries: Array<{ phase: string; inputTokens: number; outputTokens: number; dispatchCount: number }>
+      entries: Array<{
+        phase: string
+        inputTokens: number
+        outputTokens: number
+        dispatchCount: number
+      }>
     }
     expect(breakdown.entries).toHaveLength(1)
     expect(breakdown.entries[0].inputTokens).toBe(300)
@@ -188,8 +219,16 @@ describe('RoutingTokenAccumulator.onAgentCompleted (AC2 — dispatch attribution
   })
 
   it('AC2: distinct (phase, model) combinations produce separate entries', async () => {
-    accumulator.onRoutingSelected({ dispatchId: 'dispatch-a', phase: 'explore', model: 'claude-haiku-4-5' })
-    accumulator.onRoutingSelected({ dispatchId: 'dispatch-b', phase: 'generate', model: 'claude-sonnet-4-5' })
+    accumulator.onRoutingSelected({
+      dispatchId: 'dispatch-a',
+      phase: 'explore',
+      model: 'claude-haiku-4-5',
+    })
+    accumulator.onRoutingSelected({
+      dispatchId: 'dispatch-b',
+      phase: 'generate',
+      model: 'claude-sonnet-4-5',
+    })
     accumulator.onAgentCompleted({ dispatchId: 'dispatch-a', inputTokens: 100, outputTokens: 50 })
     accumulator.onAgentCompleted({ dispatchId: 'dispatch-b', inputTokens: 200, outputTokens: 100 })
     await accumulator.flush('run-4')
@@ -198,7 +237,7 @@ describe('RoutingTokenAccumulator.onAgentCompleted (AC2 — dispatch attribution
       entries: Array<{ phase: string; model: string }>
     }
     expect(breakdown.entries).toHaveLength(2)
-    const phases = breakdown.entries.map(e => e.phase).sort()
+    const phases = breakdown.entries.map((e) => e.phase).sort()
     expect(phases).toEqual(['explore', 'generate'])
   })
 })
@@ -219,15 +258,27 @@ describe('RoutingTokenAccumulator.flush (AC3 — StateStore persistence)', () =>
   })
 
   it('AC3: flush calls stateStore.setMetric with the correct runId and key', async () => {
-    accumulator.onRoutingSelected({ dispatchId: 'dispatch-1', phase: 'generate', model: 'claude-sonnet-4-5' })
+    accumulator.onRoutingSelected({
+      dispatchId: 'dispatch-1',
+      phase: 'generate',
+      model: 'claude-sonnet-4-5',
+    })
     accumulator.onAgentCompleted({ dispatchId: 'dispatch-1', inputTokens: 100, outputTokens: 50 })
     await accumulator.flush('run-abc-123')
 
-    expect(stateStore.setMetric).toHaveBeenCalledWith('run-abc-123', 'phase_token_breakdown', expect.any(Object))
+    expect(stateStore.setMetric).toHaveBeenCalledWith(
+      'run-abc-123',
+      'phase_token_breakdown',
+      expect.any(Object)
+    )
   })
 
   it('AC3: flush persists the correct breakdown structure', async () => {
-    accumulator.onRoutingSelected({ dispatchId: 'dispatch-1', phase: 'generate', model: 'claude-sonnet-4-5' })
+    accumulator.onRoutingSelected({
+      dispatchId: 'dispatch-1',
+      phase: 'generate',
+      model: 'claude-sonnet-4-5',
+    })
     accumulator.onAgentCompleted({ dispatchId: 'dispatch-1', inputTokens: 100, outputTokens: 50 })
     await accumulator.flush('run-abc-123')
 
@@ -250,25 +301,37 @@ describe('RoutingTokenAccumulator.flush (AC3 — StateStore persistence)', () =>
   })
 
   it('AC3: flush clears in-memory state — a second flush writes an empty breakdown', async () => {
-    accumulator.onRoutingSelected({ dispatchId: 'dispatch-1', phase: 'generate', model: 'claude-sonnet-4-5' })
+    accumulator.onRoutingSelected({
+      dispatchId: 'dispatch-1',
+      phase: 'generate',
+      model: 'claude-sonnet-4-5',
+    })
     accumulator.onAgentCompleted({ dispatchId: 'dispatch-1', inputTokens: 100, outputTokens: 50 })
     await accumulator.flush('run-first')
     await accumulator.flush('run-second')
 
-    const firstBreakdown = vi.mocked(stateStore.setMetric).mock.calls[0][2] as { entries: unknown[] }
-    const secondBreakdown = vi.mocked(stateStore.setMetric).mock.calls[1][2] as { entries: unknown[] }
+    const firstBreakdown = vi.mocked(stateStore.setMetric).mock.calls[0][2] as {
+      entries: unknown[]
+    }
+    const secondBreakdown = vi.mocked(stateStore.setMetric).mock.calls[1][2] as {
+      entries: unknown[]
+    }
     expect(firstBreakdown.entries).toHaveLength(1)
     expect(secondBreakdown.entries).toHaveLength(0)
   })
 
   it('AC3: flush logs a debug message with entryCount', async () => {
-    accumulator.onRoutingSelected({ dispatchId: 'dispatch-1', phase: 'generate', model: 'claude-sonnet-4-5' })
+    accumulator.onRoutingSelected({
+      dispatchId: 'dispatch-1',
+      phase: 'generate',
+      model: 'claude-sonnet-4-5',
+    })
     accumulator.onAgentCompleted({ dispatchId: 'dispatch-1', inputTokens: 100, outputTokens: 50 })
     await accumulator.flush('run-log-test')
 
     expect(logger.debug).toHaveBeenCalledWith(
       expect.objectContaining({ runId: 'run-log-test', entryCount: 1 }),
-      expect.any(String),
+      expect.any(String)
     )
   })
 })

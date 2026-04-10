@@ -204,7 +204,7 @@ describe('init gitignore isolation (AC1, AC2)', () => {
 
     // Find the appendFileSync call that targets .gitignore
     const gitignoreAppendCalls = mockAppendFileSync.mock.calls.filter((call) =>
-      String(call[0]).endsWith('.gitignore'),
+      String(call[0]).endsWith('.gitignore')
     )
     expect(gitignoreAppendCalls.length).toBeGreaterThanOrEqual(1)
 

@@ -21,16 +21,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { InMemoryDatabaseAdapter } from '../../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../../persistence/adapter.js'
-import {
-  createPipelineRun,
-  createDecision,
-} from '../../../../persistence/queries/decisions.js'
+import { createPipelineRun, createDecision } from '../../../../persistence/queries/decisions.js'
 import { runSolutioningPhase } from '../solutioning.js'
-import type {
-  PhaseDeps,
-  ArchitectureDecision,
-  EpicDefinition,
-} from '../types.js'
+import type { PhaseDeps, ArchitectureDecision, EpicDefinition } from '../types.js'
 import type { MethodologyPack } from '../../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../../context-compiler/context-compiler.js'
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../../agent-dispatch/types.js'
@@ -57,7 +50,10 @@ async function seedPlanningRequirements(adapter: DatabaseAdapter, runId: string)
     phase: 'planning',
     category: 'functional-requirements',
     key: 'FR-0',
-    value: JSON.stringify({ description: 'User can create tasks with title and description', priority: 'must' }),
+    value: JSON.stringify({
+      description: 'User can create tasks with title and description',
+      priority: 'must',
+    }),
   })
   await createDecision(adapter, {
     pipeline_run_id: runId,
@@ -124,7 +120,9 @@ const IMPROVED_EPICS: EpicDefinition[] = [
 // Factory helpers
 // ---------------------------------------------------------------------------
 
-function makeArchDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}): DispatchResult<unknown> {
+function makeArchDispatchResult(
+  overrides: Partial<DispatchResult<unknown>> = {}
+): DispatchResult<unknown> {
   return {
     id: 'dispatch-arch-001',
     status: 'completed',
@@ -140,7 +138,7 @@ function makeArchDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}
 
 function makeStoryDispatchResult(
   epics = BASE_EPICS,
-  overrides: Partial<DispatchResult<unknown>> = {},
+  overrides: Partial<DispatchResult<unknown>> = {}
 ): DispatchResult<unknown> {
   return {
     id: 'dispatch-story-001',
@@ -159,7 +157,7 @@ function makeReadinessDispatchResult(
   verdict: 'READY' | 'NEEDS_WORK' | 'NOT_READY' = 'READY',
   blockerCount = 0,
   blockerDescriptions?: string[],
-  overrides: Partial<DispatchResult<unknown>> = {},
+  overrides: Partial<DispatchResult<unknown>> = {}
 ): DispatchResult<unknown> {
   const findings: Array<{
     category: string
@@ -220,7 +218,7 @@ const DEFAULT_READINESS_TEMPLATE =
 function makePack(
   archTemplate = 'Generate architecture for:\n\n{{requirements}}\n\nOutput YAML.',
   storyTemplate = 'Generate stories for:\n\n{{requirements}}\n\n{{architecture_decisions}}\n\n{{gap_analysis}}\n\nOutput YAML.',
-  readinessTemplate = DEFAULT_READINESS_TEMPLATE,
+  readinessTemplate = DEFAULT_READINESS_TEMPLATE
 ): MethodologyPack {
   const getPrompt = vi.fn().mockImplementation((name: string) => {
     if (name === 'architecture') return Promise.resolve(archTemplate)
@@ -234,7 +232,10 @@ function makePack(
       version: '1.0.0',
       description: 'Test',
       phases: [],
-      prompts: { architecture: 'prompts/architecture.md', 'story-generation': 'prompts/story-generation.md' },
+      prompts: {
+        architecture: 'prompts/architecture.md',
+        'story-generation': 'prompts/story-generation.md',
+      },
       constraints: {},
       templates: {},
     },
@@ -247,7 +248,9 @@ function makePack(
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
@@ -263,7 +266,7 @@ function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
   pack?: MethodologyPack,
-  eventBus?: TypedEventBus,
+  eventBus?: TypedEventBus
 ): PhaseDeps {
   return {
     db: adapter,
@@ -532,7 +535,7 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
 
     const findings = await adapter.query<{ key: string; value: string }>(
       "SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' ORDER BY key ASC",
-      [runId],
+      [runId]
     )
 
     // Both blocker findings should be stored
@@ -556,7 +559,7 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
 
     const findings = await adapter.query<{ value: string }>(
       "SELECT value FROM decisions WHERE pipeline_run_id = ? AND category = 'readiness-findings' AND key = 'finding-1'",
-      [runId],
+      [runId]
     )
     const finding = findings[0]
 
@@ -584,7 +587,7 @@ describe('Retry flow: decision store state (AC6, AC7)', () => {
     const needsWorkEvents = emitCalls.filter(
       (call) =>
         call[0] === 'solutioning:readiness-check' &&
-        (call[1] as { verdict: string }).verdict === 'NEEDS_WORK',
+        (call[1] as { verdict: string }).verdict === 'NEEDS_WORK'
     )
     expect(needsWorkEvents.length).toBeGreaterThanOrEqual(1)
   })

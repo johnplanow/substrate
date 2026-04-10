@@ -264,26 +264,74 @@ describe('Gap 2: task events flow into performance aggregates and are queryable 
   it('accumulated aggregates across multiple task types feeds RecommendationEngine independently per type', () => {
     // coding: agent-a 60%, agent-b 90% → recommend agent-b for coding
     for (let i = 0; i < 6; i++) {
-      monitorDb.updateAggregates('agent-a', 'coding', { outcome: 'success', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+      monitorDb.updateAggregates('agent-a', 'coding', {
+        outcome: 'success',
+        inputTokens: 100,
+        outputTokens: 0,
+        durationMs: 0,
+        cost: 0,
+      })
     }
     for (let i = 0; i < 4; i++) {
-      monitorDb.updateAggregates('agent-a', 'coding', { outcome: 'failure', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+      monitorDb.updateAggregates('agent-a', 'coding', {
+        outcome: 'failure',
+        inputTokens: 100,
+        outputTokens: 0,
+        durationMs: 0,
+        cost: 0,
+      })
     }
     for (let i = 0; i < 9; i++) {
-      monitorDb.updateAggregates('agent-b', 'coding', { outcome: 'success', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+      monitorDb.updateAggregates('agent-b', 'coding', {
+        outcome: 'success',
+        inputTokens: 100,
+        outputTokens: 0,
+        durationMs: 0,
+        cost: 0,
+      })
     }
-    monitorDb.updateAggregates('agent-b', 'coding', { outcome: 'failure', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+    monitorDb.updateAggregates('agent-b', 'coding', {
+      outcome: 'failure',
+      inputTokens: 100,
+      outputTokens: 0,
+      durationMs: 0,
+      cost: 0,
+    })
 
     // testing: agent-a 90%, agent-b 60% → recommend agent-a for testing
     for (let i = 0; i < 9; i++) {
-      monitorDb.updateAggregates('agent-a', 'testing', { outcome: 'success', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+      monitorDb.updateAggregates('agent-a', 'testing', {
+        outcome: 'success',
+        inputTokens: 100,
+        outputTokens: 0,
+        durationMs: 0,
+        cost: 0,
+      })
     }
-    monitorDb.updateAggregates('agent-a', 'testing', { outcome: 'failure', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+    monitorDb.updateAggregates('agent-a', 'testing', {
+      outcome: 'failure',
+      inputTokens: 100,
+      outputTokens: 0,
+      durationMs: 0,
+      cost: 0,
+    })
     for (let i = 0; i < 6; i++) {
-      monitorDb.updateAggregates('agent-b', 'testing', { outcome: 'success', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+      monitorDb.updateAggregates('agent-b', 'testing', {
+        outcome: 'success',
+        inputTokens: 100,
+        outputTokens: 0,
+        durationMs: 0,
+        cost: 0,
+      })
     }
     for (let i = 0; i < 4; i++) {
-      monitorDb.updateAggregates('agent-b', 'testing', { outcome: 'failure', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+      monitorDb.updateAggregates('agent-b', 'testing', {
+        outcome: 'failure',
+        inputTokens: 100,
+        outputTokens: 0,
+        durationMs: 0,
+        cost: 0,
+      })
     }
 
     const engine = new RecommendationEngine(monitorDb, { min_sample_size: 10 })
@@ -325,7 +373,7 @@ describe('Gap 3: TaskTypeClassifier output lands in the database via MonitorAgen
     const syncAdapter = getSyncAdapter(monitorDb)
     const [row] = syncAdapter.querySync<{ task_type: string }>(
       'SELECT task_type FROM task_metrics WHERE task_id = ?',
-      ['task-classifier-1'],
+      ['task-classifier-1']
     )
     expect(row).toBeDefined()
     expect(row!.task_type).toBe('coding') // default fallback
@@ -342,7 +390,9 @@ describe('Gap 3: TaskTypeClassifier output lands in the database via MonitorAgen
     }
 
     const syncAdapter = getSyncAdapter(monitorDb)
-    const [countRow] = syncAdapter.querySync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM task_metrics')
+    const [countRow] = syncAdapter.querySync<{ cnt: number }>(
+      'SELECT COUNT(*) as cnt FROM task_metrics'
+    )
     expect(countRow!.cnt).toBe(3)
   })
 
@@ -355,10 +405,13 @@ describe('Gap 3: TaskTypeClassifier output lands in the database via MonitorAgen
     })
 
     const syncAdapter = getSyncAdapter(monitorDb)
-    const [row] = syncAdapter.querySync<{ task_type: string; outcome: string; failure_reason: string }>(
-      'SELECT task_type, outcome, failure_reason FROM task_metrics WHERE task_id = ?',
-      ['task-fail-classify'],
-    )
+    const [row] = syncAdapter.querySync<{
+      task_type: string
+      outcome: string
+      failure_reason: string
+    }>('SELECT task_type, outcome, failure_reason FROM task_metrics WHERE task_id = ?', [
+      'task-fail-classify',
+    ])
     expect(row).toBeDefined()
     expect(row!.outcome).toBe('failure')
     expect(row!.failure_reason).toBe('Task timeout')
@@ -407,15 +460,21 @@ describe('Gap 4: Monitor reset roundtrip — seed, reset, verify empty', () => {
 
     // Verify data exists before reset
     const syncAdapter = getSyncAdapter(monitorDb)
-    const [metricsBeforeRow] = syncAdapter.querySync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM task_metrics')
+    const [metricsBeforeRow] = syncAdapter.querySync<{ cnt: number }>(
+      'SELECT COUNT(*) as cnt FROM task_metrics'
+    )
     expect(metricsBeforeRow!.cnt).toBe(1)
 
     // Reset
     monitorDb.resetAllData()
 
     // Verify both tables are empty
-    const [metricsAfterRow] = syncAdapter.querySync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM task_metrics')
-    const [aggAfterRow] = syncAdapter.querySync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM performance_aggregates')
+    const [metricsAfterRow] = syncAdapter.querySync<{ cnt: number }>(
+      'SELECT COUNT(*) as cnt FROM task_metrics'
+    )
+    const [aggAfterRow] = syncAdapter.querySync<{ cnt: number }>(
+      'SELECT COUNT(*) as cnt FROM performance_aggregates'
+    )
 
     expect(metricsAfterRow!.cnt).toBe(0)
     expect(aggAfterRow!.cnt).toBe(0)
@@ -431,7 +490,7 @@ describe('Gap 4: Monitor reset roundtrip — seed, reset, verify empty', () => {
       inputTokens: 1000,
       outputTokens: 500,
       durationMs: 2000,
-      cost: 0.10,
+      cost: 0.1,
       estimatedCost: 0.09,
       billingMode: 'api',
       recordedAt: new Date().toISOString(),
@@ -441,7 +500,7 @@ describe('Gap 4: Monitor reset roundtrip — seed, reset, verify empty', () => {
       inputTokens: 1000,
       outputTokens: 500,
       durationMs: 2000,
-      cost: 0.10,
+      cost: 0.1,
     })
 
     // Verify report has data
@@ -720,21 +779,39 @@ describe('Gap 7: pruneOldData + rebuildAggregates followed by report generation'
     const recentDate = new Date().toISOString()
 
     // Insert one old and one recent task
-    syncAdapter.querySync(`
+    syncAdapter.querySync(
+      `
       INSERT INTO task_metrics (task_id, agent, task_type, outcome, input_tokens, output_tokens,
         duration_ms, cost, estimated_cost, billing_mode, recorded_at)
       VALUES ('old-task', 'claude', 'coding', 'success', 1000, 500, 2000, 0.05, 0.04, 'api', ?)
-    `, [oldDate])
+    `,
+      [oldDate]
+    )
 
-    syncAdapter.querySync(`
+    syncAdapter.querySync(
+      `
       INSERT INTO task_metrics (task_id, agent, task_type, outcome, input_tokens, output_tokens,
         duration_ms, cost, estimated_cost, billing_mode, recorded_at)
       VALUES ('recent-task', 'claude', 'coding', 'success', 500, 200, 1000, 0.02, 0.02, 'api', ?)
-    `, [recentDate])
+    `,
+      [recentDate]
+    )
 
     // Build aggregates from both tasks
-    monitorDb.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 1000, outputTokens: 500, durationMs: 2000, cost: 0.05 })
-    monitorDb.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 500, outputTokens: 200, durationMs: 1000, cost: 0.02 })
+    monitorDb.updateAggregates('claude', 'coding', {
+      outcome: 'success',
+      inputTokens: 1000,
+      outputTokens: 500,
+      durationMs: 2000,
+      cost: 0.05,
+    })
+    monitorDb.updateAggregates('claude', 'coding', {
+      outcome: 'success',
+      inputTokens: 500,
+      outputTokens: 200,
+      durationMs: 1000,
+      cost: 0.02,
+    })
 
     // Pre-prune report: 2 tasks
     const preReport = generateMonitorReport(monitorDb)

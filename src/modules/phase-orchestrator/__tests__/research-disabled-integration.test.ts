@@ -16,10 +16,7 @@ import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun, registerArtifact } from '../../../persistence/queries/decisions.js'
 import { createPhaseOrchestrator } from '../phase-orchestrator-impl.js'
-import {
-  createBuiltInPhases,
-  createAnalysisPhaseDefinition,
-} from '../built-in-phases.js'
+import { createBuiltInPhases, createAnalysisPhaseDefinition } from '../built-in-phases.js'
 import { runGates } from '../phase-orchestrator-impl.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
@@ -38,7 +35,7 @@ async function registerArtifactForRun(
   adapter: DatabaseAdapter,
   runId: string,
   phase: string,
-  type: string,
+  type: string
 ): Promise<void> {
   await registerArtifact(adapter, {
     pipeline_run_id: runId,

@@ -32,11 +32,7 @@ function makeMockClient(overrides: Partial<DoltClient> = {}): DoltClient {
 describe('DoltDatabaseAdapter.queryReadyStories() — happy path (AC5)', () => {
   it('returns string[] of keys from the ready_stories view', async () => {
     const client = makeMockClient({
-      query: vi.fn().mockResolvedValue([
-        { key: '31-1' },
-        { key: '31-2' },
-        { key: '31-3' },
-      ]),
+      query: vi.fn().mockResolvedValue([{ key: '31-1' }, { key: '31-2' }, { key: '31-3' }]),
     })
     const adapter = new DoltDatabaseAdapter(client)
 

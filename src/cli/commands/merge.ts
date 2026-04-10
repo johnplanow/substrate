@@ -16,7 +16,10 @@
 import type { Command } from 'commander'
 import { createLogger } from '../../utils/logger.js'
 import { createGitWorktreeManager } from '../../modules/git-worktree/git-worktree-manager-impl.js'
-import type { ConflictReport, MergeResult } from '../../modules/git-worktree/git-worktree-manager.js'
+import type {
+  ConflictReport,
+  MergeResult,
+} from '../../modules/git-worktree/git-worktree-manager.js'
 import { createEventBus } from '../../core/event-bus.js'
 
 const logger = createLogger('merge-cmd')
@@ -61,7 +64,6 @@ function formatMergeSuccess(taskId: string, result: MergeResult, targetBranch: s
   return `Merged task "${taskId}" into ${targetBranch} (${fileCount} ${fileLabel} changed)`
 }
 
-
 // ---------------------------------------------------------------------------
 // merge --task <id>
 // ---------------------------------------------------------------------------
@@ -77,7 +79,7 @@ function formatMergeSuccess(taskId: string, result: MergeResult, targetBranch: s
 export async function mergeTask(
   taskId: string,
   targetBranch: string,
-  projectRoot: string,
+  projectRoot: string
 ): Promise<number> {
   const eventBus = createEventBus()
   const manager = createGitWorktreeManager({ eventBus, projectRoot })
@@ -131,7 +133,7 @@ export async function mergeTask(
 export async function mergeAll(
   targetBranch: string,
   projectRoot: string,
-  taskIds: string[],
+  taskIds: string[]
 ): Promise<number> {
   if (taskIds.length === 0) {
     console.log('No tasks to merge.')

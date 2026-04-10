@@ -241,7 +241,7 @@ describe('detectInterfaceChanges()', () => {
   it('AC2: finds multiple test files referencing the same interface', () => {
     mockReadFileSync.mockReturnValue('export interface Dispatcher {}\n')
     mockExecSync.mockReturnValue(
-      './src/module-a/__tests__/a.test.ts\n./src/module-b/__tests__/b.test.ts\n',
+      './src/module-a/__tests__/a.test.ts\n./src/module-b/__tests__/b.test.ts\n'
     )
 
     const result = detectInterfaceChanges({
@@ -331,7 +331,7 @@ describe('detectInterfaceChanges()', () => {
     mockReadFileSync.mockReturnValue('export interface MyInterface {}\n')
     // Mix: one inside same module, one outside
     mockExecSync.mockReturnValue(
-      './src/mymodule/__tests__/foo.test.ts\n./src/othermodule/__tests__/bar.test.ts\n',
+      './src/mymodule/__tests__/foo.test.ts\n./src/othermodule/__tests__/bar.test.ts\n'
     )
 
     const result = detectInterfaceChanges({
@@ -371,9 +371,7 @@ describe('detectInterfaceChanges()', () => {
     })
 
     // "src/mymodule-extended" does NOT start with "src/mymodule/" → included
-    expect(result.potentiallyAffectedTests).toContain(
-      'src/mymodule-extended/__tests__/bar.test.ts',
-    )
+    expect(result.potentiallyAffectedTests).toContain('src/mymodule-extended/__tests__/bar.test.ts')
   })
 
   // -------------------------------------------------------------------------
@@ -477,7 +475,7 @@ describe('detectInterfaceChanges()', () => {
 
     // Should appear only once despite being found twice
     const count = result.potentiallyAffectedTests.filter(
-      (t) => t === 'src/other/__tests__/common.test.ts',
+      (t) => t === 'src/other/__tests__/common.test.ts'
     ).length
     expect(count).toBe(1)
   })

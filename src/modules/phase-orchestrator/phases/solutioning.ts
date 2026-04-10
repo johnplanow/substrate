@@ -115,10 +115,7 @@ export { calculateDynamicBudget, summarizeDecisions } from '../budget-utils.js'
  * @param runId - Pipeline run ID to scope the query
  * @returns Formatted requirements string for prompt injection
  */
-async function formatRequirements(
-  db: DatabaseAdapter,
-  runId: string,
-): Promise<string> {
+async function formatRequirements(db: DatabaseAdapter, runId: string): Promise<string> {
   const decisions = await getDecisionsByPhaseForRun(db, runId, 'planning')
   const frDecisions = decisions.filter((d) => d.category === 'functional-requirements')
   const nfrDecisions = decisions.filter((d) => d.category === 'non-functional-requirements')
@@ -167,10 +164,7 @@ async function formatRequirements(
  * @param runId - Pipeline run ID to scope the query
  * @returns Formatted architecture decisions string for prompt injection
  */
-async function formatArchitectureDecisions(
-  db: DatabaseAdapter,
-  runId: string,
-): Promise<string> {
+async function formatArchitectureDecisions(db: DatabaseAdapter, runId: string): Promise<string> {
   const decisions = await getDecisionsByPhaseForRun(db, runId, 'solutioning')
   const archDecisions = decisions.filter((d) => d.category === 'architecture')
 
@@ -212,7 +206,7 @@ type ArchitectureGenerationFailure = {
  */
 async function runArchitectureGeneration(
   deps: PhaseDeps,
-  params: SolutioningPhaseParams,
+  params: SolutioningPhaseParams
 ): Promise<ArchitectureGenerationSuccess | ArchitectureGenerationFailure> {
   const { db, pack, dispatcher } = deps
   const { runId, amendmentContext } = params
@@ -233,7 +227,8 @@ async function runArchitectureGeneration(
 
   if (amendmentContext !== undefined && amendmentContext !== '') {
     const framingLen = AMENDMENT_CONTEXT_HEADER.length + AMENDMENT_CONTEXT_FOOTER.length
-    const availableForContext = dynamicBudgetChars - prompt.length - framingLen - TRUNCATED_MARKER.length
+    const availableForContext =
+      dynamicBudgetChars - prompt.length - framingLen - TRUNCATED_MARKER.length
     let contextToInject = amendmentContext
     if (availableForContext <= 0) {
       contextToInject = ''
@@ -288,7 +283,10 @@ async function runArchitectureGeneration(
     }
   }
 
-  const parsed = dispatchResult.parsed as { result: string; architecture_decisions: ArchitectureDecision[] }
+  const parsed = dispatchResult.parsed as {
+    result: string
+    architecture_decisions: ArchitectureDecision[]
+  }
 
   if (parsed.result === 'failed' || !parsed.architecture_decisions) {
     return {
@@ -358,7 +356,7 @@ type StoryGenerationFailure = {
 async function runStoryGeneration(
   deps: PhaseDeps,
   params: SolutioningPhaseParams,
-  gapAnalysis?: string,
+  gapAnalysis?: string
 ): Promise<StoryGenerationSuccess | StoryGenerationFailure> {
   const { db, pack, dispatcher } = deps
   const { runId, amendmentContext } = params
@@ -370,7 +368,7 @@ async function runStoryGeneration(
   // Step 2: Format requirements AND architecture decisions
   const formattedRequirements = await formatRequirements(db, runId)
   const archDecisions = (await getDecisionsByPhaseForRun(db, runId, 'solutioning')).filter(
-    (d) => d.category === 'architecture',
+    (d) => d.category === 'architecture'
   )
 
   // Calculate dynamic budget based on decision count
@@ -392,7 +390,8 @@ async function runStoryGeneration(
   // Step 3b: Inject amendment context if provided
   if (amendmentContext !== undefined && amendmentContext !== '') {
     const framingLen = AMENDMENT_CONTEXT_HEADER.length + AMENDMENT_CONTEXT_FOOTER.length
-    const availableForContext = dynamicBudgetChars - prompt.length - framingLen - TRUNCATED_MARKER.length
+    const availableForContext =
+      dynamicBudgetChars - prompt.length - framingLen - TRUNCATED_MARKER.length
     let contextToInject = amendmentContext
     if (availableForContext <= 0) {
       contextToInject = ''
@@ -407,10 +406,11 @@ async function runStoryGeneration(
   // Step 3c: If prompt exceeds dynamic budget, fall back to summarized decisions
   let estimatedTokens = Math.ceil(prompt.length / 4)
   if (estimatedTokens > dynamicBudgetTokens) {
-    const availableForDecisions = dynamicBudgetChars - (prompt.length - formattedArchitecture.length)
+    const availableForDecisions =
+      dynamicBudgetChars - (prompt.length - formattedArchitecture.length)
     formattedArchitecture = summarizeDecisions(
       archDecisions.map((d) => ({ key: d.key, value: d.value, category: d.category })),
-      Math.max(availableForDecisions, 200),
+      Math.max(availableForDecisions, 200)
     )
     prompt = template
       .replace(STORY_REQUIREMENTS_PLACEHOLDER, formattedRequirements)
@@ -558,7 +558,9 @@ type ReadinessCheckResult = ReadinessCheckSuccess | ReadinessCheckError
  * Format functional requirements from pre-fetched planning phase decisions for prompt injection.
  * Accepts pre-fetched planning decisions to avoid duplicate DB queries (shared with formatNFRsForReadiness).
  */
-function formatFRsForReadiness(planningDecisions: Array<{ category: string; key: string; value: string }>): string {
+function formatFRsForReadiness(
+  planningDecisions: Array<{ category: string; key: string; value: string }>
+): string {
   const frDecisions = planningDecisions.filter((d) => d.category === 'functional-requirements')
 
   if (frDecisions.length === 0) {
@@ -569,7 +571,9 @@ function formatFRsForReadiness(planningDecisions: Array<{ category: string; key:
   for (const [i, d] of frDecisions.entries()) {
     try {
       const fr = JSON.parse(d.value) as { description: string; priority: string }
-      lines.push(`- [${d.key ?? `FR-${i}`}] [${fr.priority?.toUpperCase() ?? 'MUST'}] ${fr.description}`)
+      lines.push(
+        `- [${d.key ?? `FR-${i}`}] [${fr.priority?.toUpperCase() ?? 'MUST'}] ${fr.description}`
+      )
     } catch {
       lines.push(`- [${d.key ?? `FR-${i}`}] ${d.value}`)
     }
@@ -581,7 +585,9 @@ function formatFRsForReadiness(planningDecisions: Array<{ category: string; key:
  * Format non-functional requirements from pre-fetched planning phase decisions for prompt injection.
  * Accepts pre-fetched planning decisions to avoid duplicate DB queries (shared with formatFRsForReadiness).
  */
-function formatNFRsForReadiness(planningDecisions: Array<{ category: string; key: string; value: string }>): string {
+function formatNFRsForReadiness(
+  planningDecisions: Array<{ category: string; key: string; value: string }>
+): string {
   const nfrDecisions = planningDecisions.filter((d) => d.category === 'non-functional-requirements')
 
   if (nfrDecisions.length === 0) {
@@ -669,10 +675,7 @@ async function formatUxDecisionsForReadiness(db: DatabaseAdapter, runId: string)
  * @param runId - Pipeline run ID to scope the query
  * @returns Readiness check result with verdict, findings, and coverage score
  */
-async function runReadinessCheck(
-  deps: PhaseDeps,
-  runId: string,
-): Promise<ReadinessCheckResult> {
+async function runReadinessCheck(deps: PhaseDeps, runId: string): Promise<ReadinessCheckResult> {
   const { db, pack, dispatcher } = deps
 
   const zeroTokenUsage = { input: 0, output: 0 }
@@ -682,7 +685,11 @@ async function runReadinessCheck(
   try {
     template = await pack.getPrompt('readiness-check')
   } catch {
-    return { verdict: 'error', error: 'readiness-check prompt template not found in methodology pack', tokenUsage: zeroTokenUsage }
+    return {
+      verdict: 'error',
+      error: 'readiness-check prompt template not found in methodology pack',
+      tokenUsage: zeroTokenUsage,
+    }
   }
 
   // Step 2: Assemble context from decision store
@@ -722,11 +729,15 @@ async function runReadinessCheck(
 
   logger.info(
     { runId, durationMs: dispatchResult.durationMs, tokens: tokenEstimate },
-    'Readiness check dispatch completed',
+    'Readiness check dispatch completed'
   )
 
   if (dispatchResult.status === 'timeout') {
-    return { verdict: 'error', error: `Readiness check agent timed out after ${dispatchResult.durationMs}ms`, tokenUsage }
+    return {
+      verdict: 'error',
+      error: `Readiness check agent timed out after ${dispatchResult.durationMs}ms`,
+      tokenUsage,
+    }
   }
 
   if (dispatchResult.status === 'failed') {
@@ -772,9 +783,7 @@ function buildArchitectureSteps(): StepDefinition[] {
         { placeholder: 'requirements', source: 'decision:planning.functional-requirements' },
         { placeholder: 'nfr', source: 'decision:planning.non-functional-requirements' },
       ],
-      persist: [
-        { field: 'architecture_decisions', category: 'architecture', key: 'array' },
-      ],
+      persist: [{ field: 'architecture_decisions', category: 'architecture', key: 'array' }],
     },
     {
       name: 'architecture-step-2-decisions',
@@ -784,9 +793,7 @@ function buildArchitectureSteps(): StepDefinition[] {
         { placeholder: 'requirements', source: 'decision:planning.functional-requirements' },
         { placeholder: 'starter_decisions', source: 'step:architecture-step-1-context' },
       ],
-      persist: [
-        { field: 'architecture_decisions', category: 'architecture', key: 'array' },
-      ],
+      persist: [{ field: 'architecture_decisions', category: 'architecture', key: 'array' }],
     },
     {
       name: 'architecture-step-3-patterns',
@@ -795,9 +802,7 @@ function buildArchitectureSteps(): StepDefinition[] {
       context: [
         { placeholder: 'architecture_decisions', source: 'decision:solutioning.architecture' },
       ],
-      persist: [
-        { field: 'architecture_decisions', category: 'architecture', key: 'array' },
-      ],
+      persist: [{ field: 'architecture_decisions', category: 'architecture', key: 'array' }],
       registerArtifact: {
         type: 'architecture',
         path: 'decision-store://solutioning/architecture',
@@ -815,7 +820,7 @@ function buildArchitectureSteps(): StepDefinition[] {
  */
 async function runArchitectureGenerationMultiStep(
   deps: PhaseDeps,
-  params: SolutioningPhaseParams,
+  params: SolutioningPhaseParams
 ): Promise<ArchitectureGenerationSuccess | ArchitectureGenerationFailure> {
   const steps = buildArchitectureSteps()
   const result = await runSteps(steps, deps, params.runId, 'solutioning', {})
@@ -828,8 +833,9 @@ async function runArchitectureGenerationMultiStep(
   }
 
   // Collect all architecture decisions from the decision store (accumulated across steps)
-  const allDecisions = (await getDecisionsByPhaseForRun(deps.db, params.runId, 'solutioning'))
-    .filter((d) => d.category === 'architecture')
+  const allDecisions = (
+    await getDecisionsByPhaseForRun(deps.db, params.runId, 'solutioning')
+  ).filter((d) => d.category === 'architecture')
 
   const decisions: ArchitectureDecision[] = allDecisions.map((d) => {
     // Each decision was persisted as JSON; try to parse for structured fields
@@ -877,9 +883,7 @@ function buildStorySteps(): StepDefinition[] {
         { placeholder: 'requirements', source: 'decision:planning.functional-requirements' },
         { placeholder: 'architecture_decisions', source: 'decision:solutioning.architecture' },
       ],
-      persist: [
-        { field: 'epics', category: 'epic-design', key: 'array' },
-      ],
+      persist: [{ field: 'epics', category: 'epic-design', key: 'array' }],
     },
     {
       name: 'stories-step-2-stories',
@@ -909,7 +913,7 @@ function buildStorySteps(): StepDefinition[] {
  */
 async function runStoryGenerationMultiStep(
   deps: PhaseDeps,
-  params: SolutioningPhaseParams,
+  params: SolutioningPhaseParams
 ): Promise<StoryGenerationSuccess | StoryGenerationFailure> {
   const steps = buildStorySteps()
   const result = await runSteps(steps, deps, params.runId, 'solutioning', {})
@@ -1001,7 +1005,7 @@ async function runStoryGenerationMultiStep(
  */
 export async function runSolutioningPhase(
   deps: PhaseDeps,
-  params: SolutioningPhaseParams,
+  params: SolutioningPhaseParams
 ): Promise<SolutioningResult> {
   const zeroTokenUsage = { input: 0, output: 0 }
   let totalInput = 0
@@ -1010,19 +1014,30 @@ export async function runSolutioningPhase(
   try {
     // Determine if multi-step mode is available
     const solutioningPhase = deps.pack.manifest.phases?.find((p) => p.name === 'solutioning')
-    const hasSteps = solutioningPhase?.steps && solutioningPhase.steps.length > 0 && !params.amendmentContext
+    const hasSteps =
+      solutioningPhase?.steps && solutioningPhase.steps.length > 0 && !params.amendmentContext
 
     // Step 1: Check if architecture artifact already exists (skip on retry)
-    const existingArchArtifact = await getArtifactByTypeForRun(deps.db, params.runId, 'solutioning', 'architecture')
+    const existingArchArtifact = await getArtifactByTypeForRun(
+      deps.db,
+      params.runId,
+      'solutioning',
+      'architecture'
+    )
     let archResult: ArchitectureGenerationSuccess | ArchitectureGenerationFailure
 
     if (existingArchArtifact) {
       // Architecture already completed — reuse existing decisions
-      const existingDecisions = (await getDecisionsByPhaseForRun(deps.db, params.runId, 'solutioning'))
-        .filter((d) => d.category === 'architecture')
+      const existingDecisions = (
+        await getDecisionsByPhaseForRun(deps.db, params.runId, 'solutioning')
+      ).filter((d) => d.category === 'architecture')
       logger.info(
-        { runId: params.runId, artifactId: existingArchArtifact.id, decisionCount: existingDecisions.length },
-        'Architecture artifact already exists — skipping architecture sub-phase, transitioning to story generation',
+        {
+          runId: params.runId,
+          artifactId: existingArchArtifact.id,
+          decisionCount: existingDecisions.length,
+        },
+        'Architecture artifact already exists — skipping architecture sub-phase, transitioning to story generation'
       )
       archResult = {
         decisions: existingDecisions.map((d) => ({
@@ -1056,8 +1071,12 @@ export async function runSolutioningPhase(
 
     // Step 3: Architecture→Story Generation transition
     logger.info(
-      { runId: params.runId, decisionCount: archResult.decisions.length, mode: hasSteps ? 'multi-step' : 'single-dispatch' },
-      'Architecture sub-phase complete — transitioning to story generation',
+      {
+        runId: params.runId,
+        decisionCount: archResult.decisions.length,
+        mode: hasSteps ? 'multi-step' : 'single-dispatch',
+      },
+      'Architecture sub-phase complete — transitioning to story generation'
     )
 
     const storyResult = hasSteps
@@ -1088,7 +1107,10 @@ export async function runSolutioningPhase(
 
     // Step 5a: Handle readiness agent error
     if (readinessResult.verdict === 'error') {
-      logger.error({ runId: params.runId, error: readinessResult.error }, 'Readiness check agent failed')
+      logger.error(
+        { runId: params.runId, error: readinessResult.error },
+        'Readiness check agent failed'
+      )
       return {
         result: 'failed',
         error: 'readiness_check_error',
@@ -1100,8 +1122,13 @@ export async function runSolutioningPhase(
     }
 
     logger.info(
-      { runId: params.runId, verdict: readinessResult.verdict, coverageScore: readinessResult.coverageScore, findingCount: readinessResult.findings.length },
-      'Readiness check verdict received',
+      {
+        runId: params.runId,
+        verdict: readinessResult.verdict,
+        coverageScore: readinessResult.coverageScore,
+        findingCount: readinessResult.findings.length,
+      },
+      'Readiness check verdict received'
     )
 
     // Step 5b: NOT_READY — fail immediately (AC7)
@@ -1130,7 +1157,7 @@ export async function runSolutioningPhase(
           major: majorFindings.length,
           findings: readinessResult.findings,
         },
-        'Readiness check returned NOT_READY — solutioning phase failed',
+        'Readiness check returned NOT_READY — solutioning phase failed'
       )
 
       // Emit typed events via event bus (T9, AC7)
@@ -1160,7 +1187,9 @@ export async function runSolutioningPhase(
         error: 'readiness_not_ready',
         details: `Readiness check returned NOT_READY: ${blockers.length} blockers, coverage score ${readinessResult.coverageScore}%`,
         readiness_passed: false,
-        gaps: readinessResult.findings.filter((f) => f.category === 'fr_coverage').map((f) => f.description),
+        gaps: readinessResult.findings
+          .filter((f) => f.category === 'fr_coverage')
+          .map((f) => f.description),
         artifact_ids: [archResult.artifactId, storyResult.artifactId],
         tokenUsage: { input: totalInput, output: totalOutput },
       }
@@ -1198,17 +1227,21 @@ export async function runSolutioningPhase(
           '## Gap Analysis: Readiness Check Blocker Findings',
           'The readiness check identified the following blocker issues that must be addressed:',
           '',
-          ...blockers.map((f) => [
-            `### [${f.category.toUpperCase()}] ${f.description}`,
-            f.affected_items.length > 0 ? `Affected: ${f.affected_items.join(', ')}` : '',
-          ].filter(Boolean).join('\n')),
+          ...blockers.map((f) =>
+            [
+              `### [${f.category.toUpperCase()}] ${f.description}`,
+              f.affected_items.length > 0 ? `Affected: ${f.affected_items.join(', ')}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n')
+          ),
           '',
           'Please generate additional or revised stories to specifically address each blocker above.',
         ].join('\n')
 
         logger.info(
           { runId: params.runId, blockerCount: blockers.length },
-          'Readiness NEEDS_WORK with blockers — retrying story generation with gap analysis',
+          'Readiness NEEDS_WORK with blockers — retrying story generation with gap analysis'
         )
 
         // Re-dispatch story generation with gap analysis (AC6)
@@ -1253,8 +1286,12 @@ export async function runSolutioningPhase(
           const retryBlockers = retryReadiness.findings.filter((f) => f.severity === 'blocker')
 
           logger.error(
-            { runId: params.runId, verdict: retryReadiness.verdict, retryBlockers: retryBlockers.length },
-            'Readiness check failed after maximum retries',
+            {
+              runId: params.runId,
+              verdict: retryReadiness.verdict,
+              retryBlockers: retryBlockers.length,
+            },
+            'Readiness check failed after maximum retries'
           )
 
           return {
@@ -1271,15 +1308,15 @@ export async function runSolutioningPhase(
         }
 
         // Retry succeeded — READY after gap analysis retry
-        const retryStories = retryResult.epics.reduce(
-          (sum, epic) => sum + epic.stories.length,
-          0,
-        )
+        const retryStories = retryResult.epics.reduce((sum, epic) => sum + epic.stories.length, 0)
 
         // Log any remaining minor findings as warnings (AC8)
         const minorFindings = retryReadiness.findings.filter((f) => f.severity === 'minor')
         if (minorFindings.length > 0) {
-          logger.warn({ runId: params.runId, minorFindings }, 'Readiness READY with minor findings after retry')
+          logger.warn(
+            { runId: params.runId, minorFindings },
+            'Readiness READY with minor findings after retry'
+          )
         }
 
         // Emit READY event after successful retry (AC8, T9 — observability for event bus consumers)
@@ -1307,8 +1344,12 @@ export async function runSolutioningPhase(
       // NEEDS_WORK but no blockers — only major/minor findings, proceed with warnings
       const majorFindings = readinessResult.findings.filter((f) => f.severity === 'major')
       logger.warn(
-        { runId: params.runId, majorCount: majorFindings.length, findings: readinessResult.findings },
-        'Readiness NEEDS_WORK (no blockers) — proceeding with warnings',
+        {
+          runId: params.runId,
+          majorCount: majorFindings.length,
+          findings: readinessResult.findings,
+        },
+        'Readiness NEEDS_WORK (no blockers) — proceeding with warnings'
       )
 
       // Emit event for NEEDS_WORK-no-blockers verdict (T9)
@@ -1327,8 +1368,12 @@ export async function runSolutioningPhase(
     // Log minor findings as warnings
     const minorFindings = readinessResult.findings.filter((f) => f.severity === 'minor')
     if (minorFindings.length > 0) {
-      const verdictLabel = readinessResult.verdict === 'READY' ? 'READY' : 'NEEDS_WORK (no blockers)'
-      logger.warn({ runId: params.runId, verdict: readinessResult.verdict, minorFindings }, `Readiness ${verdictLabel} with minor findings — proceeding`)
+      const verdictLabel =
+        readinessResult.verdict === 'READY' ? 'READY' : 'NEEDS_WORK (no blockers)'
+      logger.warn(
+        { runId: params.runId, verdict: readinessResult.verdict, minorFindings },
+        `Readiness ${verdictLabel} with minor findings — proceeding`
+      )
     }
 
     // Emit READY event via event bus (T9, AC8)
@@ -1343,10 +1388,7 @@ export async function runSolutioningPhase(
     }
 
     // Step 7: Return success result with counts
-    const totalStories = storyResult.epics.reduce(
-      (sum, epic) => sum + epic.stories.length,
-      0,
-    )
+    const totalStories = storyResult.epics.reduce((sum, epic) => sum + epic.stories.length, 0)
 
     return {
       result: 'success',

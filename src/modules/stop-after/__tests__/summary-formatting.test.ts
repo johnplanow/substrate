@@ -95,7 +95,7 @@ describe('formatPhaseCompletionSummary()', () => {
   describe('zero artifacts, zero decisions', () => {
     it('word count is still >= 50', () => {
       const result = formatPhaseCompletionSummary(
-        makeParams({ artifactPaths: [], decisionsCount: 0 }),
+        makeParams({ artifactPaths: [], decisionsCount: 0 })
       )
       const words = countWords(result)
       expect(words).toBeGreaterThanOrEqual(50)
@@ -103,7 +103,7 @@ describe('formatPhaseCompletionSummary()', () => {
 
     it('word count is <= 500', () => {
       const result = formatPhaseCompletionSummary(
-        makeParams({ artifactPaths: [], decisionsCount: 0 }),
+        makeParams({ artifactPaths: [], decisionsCount: 0 })
       )
       const words = countWords(result)
       expect(words).toBeLessThanOrEqual(500)
@@ -111,7 +111,7 @@ describe('formatPhaseCompletionSummary()', () => {
 
     it('still contains phase name and completed status', () => {
       const result = formatPhaseCompletionSummary(
-        makeParams({ artifactPaths: [], decisionsCount: 0 }),
+        makeParams({ artifactPaths: [], decisionsCount: 0 })
       )
       expect(result.toLowerCase()).toContain('analysis')
       expect(result.toLowerCase()).toContain('completed')
@@ -119,7 +119,7 @@ describe('formatPhaseCompletionSummary()', () => {
 
     it('resume command is still present', () => {
       const result = formatPhaseCompletionSummary(
-        makeParams({ artifactPaths: [], decisionsCount: 0 }),
+        makeParams({ artifactPaths: [], decisionsCount: 0 })
       )
       expect(result).toContain('substrate resume')
       expect(result).toContain('--run-id')
@@ -130,7 +130,7 @@ describe('formatPhaseCompletionSummary()', () => {
     it('word count is <= 500', () => {
       const manyArtifacts = Array.from({ length: 20 }, (_, i) => `_bmad-output/artifact-${i}.md`)
       const result = formatPhaseCompletionSummary(
-        makeParams({ artifactPaths: manyArtifacts, decisionsCount: 100 }),
+        makeParams({ artifactPaths: manyArtifacts, decisionsCount: 100 })
       )
       const words = countWords(result)
       expect(words).toBeLessThanOrEqual(500)
@@ -139,7 +139,7 @@ describe('formatPhaseCompletionSummary()', () => {
     it('resume command is never truncated when artifacts are truncated', () => {
       const manyArtifacts = Array.from({ length: 20 }, (_, i) => `_bmad-output/artifact-${i}.md`)
       const result = formatPhaseCompletionSummary(
-        makeParams({ artifactPaths: manyArtifacts, decisionsCount: 100, runId: 'run-xyz-999' }),
+        makeParams({ artifactPaths: manyArtifacts, decisionsCount: 100, runId: 'run-xyz-999' })
       )
       expect(result).toContain('substrate resume --run-id run-xyz-999')
     })
@@ -147,7 +147,7 @@ describe('formatPhaseCompletionSummary()', () => {
     it('contains truncation indicator when artifacts are truncated', () => {
       const manyArtifacts = Array.from({ length: 20 }, (_, i) => `_bmad-output/artifact-${i}.md`)
       const result = formatPhaseCompletionSummary(
-        makeParams({ artifactPaths: manyArtifacts, decisionsCount: 100 }),
+        makeParams({ artifactPaths: manyArtifacts, decisionsCount: 100 })
       )
       // If truncated, should mention "more artifacts"
       // (or all fit — either is acceptable as long as word count <= 500)
@@ -179,7 +179,7 @@ describe('formatPhaseCompletionSummary()', () => {
   describe('next-phase description', () => {
     it('includes the provided nextPhaseDescription', () => {
       const result = formatPhaseCompletionSummary(
-        makeParams({ nextPhaseDescription: 'Planning will use the brief for requirements.' }),
+        makeParams({ nextPhaseDescription: 'Planning will use the brief for requirements.' })
       )
       expect(result).toContain('Planning will use the brief for requirements.')
     })
@@ -199,26 +199,20 @@ describe('formatPhaseCompletionSummary()', () => {
 
     it('shows minutes and seconds for longer duration', () => {
       const longEnd = '2026-02-22T10:02:30.000Z' // 2 minutes 30 seconds
-      const result = formatPhaseCompletionSummary(
-        makeParams({ completedAt: longEnd }),
-      )
+      const result = formatPhaseCompletionSummary(makeParams({ completedAt: longEnd }))
       expect(result).toContain('2 minutes')
       expect(result).toContain('30 seconds')
     })
 
     it('shows only minutes when seconds is 0', () => {
       const exactMinutes = '2026-02-22T10:03:00.000Z' // exactly 3 minutes
-      const result = formatPhaseCompletionSummary(
-        makeParams({ completedAt: exactMinutes }),
-      )
+      const result = formatPhaseCompletionSummary(makeParams({ completedAt: exactMinutes }))
       expect(result).toContain('3 minutes')
     })
 
     it('shows 1 second (singular) not 1 seconds', () => {
       const oneSecEnd = '2026-02-22T10:00:01.000Z'
-      const result = formatPhaseCompletionSummary(
-        makeParams({ completedAt: oneSecEnd }),
-      )
+      const result = formatPhaseCompletionSummary(makeParams({ completedAt: oneSecEnd }))
       expect(result).toContain('1 second')
       expect(result).not.toContain('1 seconds')
     })

@@ -45,7 +45,10 @@ export class GrammarLoader implements IGrammarLoader {
       return grammar
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND') {
-        this._logger.warn({ component: 'repo-map', reason: 'tree-sitter unavailable' }, 'tree-sitter grammar unavailable')
+        this._logger.warn(
+          { component: 'repo-map', reason: 'tree-sitter unavailable' },
+          'tree-sitter grammar unavailable'
+        )
         this._unavailable = true
         return null
       }

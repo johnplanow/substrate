@@ -58,11 +58,10 @@ describe('resolveMainRepoRoot', () => {
 
     // .git relative to /my/project → /my/project/.git → dirname → /my/project
     expect(result).toBe('/my/project')
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'git',
-      ['rev-parse', '--git-common-dir'],
-      { cwd: '/my/project', stdio: ['ignore', 'pipe', 'pipe'] },
-    )
+    expect(mockSpawn).toHaveBeenCalledWith('git', ['rev-parse', '--git-common-dir'], {
+      cwd: '/my/project',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
   })
 
   it('resolves main repo root from absolute path (linked worktree)', async () => {
@@ -115,7 +114,7 @@ describe('resolveMainRepoRoot', () => {
     expect(mockSpawn).toHaveBeenCalledWith(
       'git',
       ['rev-parse', '--git-common-dir'],
-      expect.objectContaining({ cwd: process.cwd() }),
+      expect.objectContaining({ cwd: process.cwd() })
     )
   })
 })

@@ -10,7 +10,4 @@
  *   - AdapterOutputNormalizer: multi-strategy YAML extractor
  */
 
-export {
-  AdapterFormatError,
-  AdapterOutputNormalizer,
-} from '@substrate-ai/core'
+export { AdapterFormatError, AdapterOutputNormalizer } from '@substrate-ai/core'

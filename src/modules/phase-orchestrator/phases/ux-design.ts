@@ -103,7 +103,11 @@ export function buildUxDesignSteps(): StepDefinition[] {
         { field: 'user_journeys', category: 'ux-design', key: 'user_journeys' },
         { field: 'component_strategy', category: 'ux-design', key: 'component_strategy' },
         { field: 'ux_patterns', category: 'ux-design', key: 'ux_patterns' },
-        { field: 'accessibility_guidelines', category: 'ux-design', key: 'accessibility_guidelines' },
+        {
+          field: 'accessibility_guidelines',
+          category: 'ux-design',
+          key: 'accessibility_guidelines',
+        },
       ],
       registerArtifact: {
         type: 'ux-design',
@@ -141,7 +145,7 @@ export function buildUxDesignSteps(): StepDefinition[] {
  */
 export async function runUxDesignPhase(
   deps: PhaseDeps,
-  params: UxDesignPhaseParams,
+  params: UxDesignPhaseParams
 ): Promise<UxDesignResult> {
   const { runId } = params
   const zeroTokenUsage = { input: 0, output: 0 }

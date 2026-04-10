@@ -8,16 +8,16 @@
  * In a real implementation, this would import from 'react'.
  */
 
-export type Variant = 'easy' | 'michaels' | 'brunos';
-export type OpponentCount = 1 | 2 | 3;
+export type Variant = 'easy' | 'michaels' | 'brunos'
+export type OpponentCount = 1 | 2 | 3
 
 export interface GameSetupProps {
-  variant: Variant;
-  opponentCount: OpponentCount;
-  onVariantChange: (variant: Variant) => void;
-  onOpponentCountChange: (count: OpponentCount) => void;
-  onStartGame: () => void;
-  onBack: () => void;
+  variant: Variant
+  opponentCount: OpponentCount
+  onVariantChange: (variant: Variant) => void
+  onOpponentCountChange: (count: OpponentCount) => void
+  onStartGame: () => void
+  onBack: () => void
 }
 
 /**
@@ -28,7 +28,8 @@ export interface GameSetupProps {
  * @returns Mock JSX element (would be real React.Element in production)
  */
 export function GameSetup(props: GameSetupProps): any {
-  const { variant, opponentCount, onVariantChange, onOpponentCountChange, onStartGame, onBack } = props;
+  const { variant, opponentCount, onVariantChange, onOpponentCountChange, onStartGame, onBack } =
+    props
 
   return {
     type: 'div',
@@ -228,5 +229,5 @@ export function GameSetup(props: GameSetupProps): any {
         },
       ],
     },
-  };
+  }
 }

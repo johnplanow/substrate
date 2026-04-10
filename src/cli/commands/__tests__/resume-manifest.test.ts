@@ -37,7 +37,9 @@ const {
   const mockResolveStoryKeys = vi.fn().mockResolvedValue([])
   const mockOrchestratorRun = vi.fn().mockResolvedValue(undefined)
   const mockPackLoad = vi.fn().mockResolvedValue({ name: 'bmad', version: '1.0', agents: [] })
-  const mockResumeRun = vi.fn().mockResolvedValue({ currentPhase: 'implementation', status: 'running' })
+  const mockResumeRun = vi
+    .fn()
+    .mockResolvedValue({ currentPhase: 'implementation', status: 'running' })
   return {
     mockManifestRead,
     mockRunManifestConstructor,
@@ -140,15 +142,21 @@ vi.mock('../../../modules/stop-after/index.js', () => ({
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/analysis.js', () => ({
-  runAnalysisPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runAnalysisPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/planning.js', () => ({
-  runPlanningPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runPlanningPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/phase-orchestrator/phases/solutioning.js', () => ({
-  runSolutioningPhase: vi.fn().mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
+  runSolutioningPhase: vi
+    .fn()
+    .mockResolvedValue({ result: 'success', tokenUsage: { input: 0, output: 0 } }),
 }))
 
 vi.mock('../../../modules/telemetry/ingestion-server.js', () => ({
@@ -231,19 +239,21 @@ describe('resume command — manifest-read path (Story 52-6)', () => {
   describe('AC3: manifest available — scope from cli_flags.stories', () => {
     it('uses cli_flags.stories from manifest when --stories flag not provided (AC3)', async () => {
       // Arrange: manifest with cli_flags.stories = ['2-1', '2-2']
-      mockManifestRead.mockResolvedValue(makeManifestData({
-        cli_flags: { stories: ['2-1', '2-2'] },
-        story_scope: [],
-      }))
+      mockManifestRead.mockResolvedValue(
+        makeManifestData({
+          cli_flags: { stories: ['2-1', '2-2'] },
+          story_scope: [],
+        })
+      )
 
       // Act: call resume WITHOUT explicit stories
       const exitCode = await runResumeAction({
-        runId: undefined,  // use getLatestRun (mocked to return the run)
+        runId: undefined, // use getLatestRun (mocked to return the run)
         outputFormat: 'human',
         projectRoot: '/tmp/test-resume-project',
         concurrency: 3,
         pack: 'bmad',
-        stories: undefined,  // no explicit --stories
+        stories: undefined, // no explicit --stories
         registry: makeRegistry(),
       })
 
@@ -251,20 +261,22 @@ describe('resume command — manifest-read path (Story 52-6)', () => {
       expect(mockResolveStoryKeys).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
-        expect.objectContaining({ explicit: ['2-1', '2-2'] }),
+        expect.objectContaining({ explicit: ['2-1', '2-2'] })
       )
       expect(exitCode).toBe(0)
     })
 
     it('falls back to story_scope when cli_flags.stories is empty (AC3)', async () => {
       // Arrange: manifest with no cli_flags.stories but story_scope set
-      mockManifestRead.mockResolvedValue(makeManifestData({
-        cli_flags: {},  // no stories in cli_flags
-        story_scope: ['2-1', '2-2', '2-3'],
-      }))
+      mockManifestRead.mockResolvedValue(
+        makeManifestData({
+          cli_flags: {}, // no stories in cli_flags
+          story_scope: ['2-1', '2-2', '2-3'],
+        })
+      )
 
       await runResumeAction({
-        runId: undefined,  // use getLatestRun (mocked to return the run)
+        runId: undefined, // use getLatestRun (mocked to return the run)
         outputFormat: 'human',
         projectRoot: '/tmp/test-resume-project',
         concurrency: 3,
@@ -277,24 +289,26 @@ describe('resume command — manifest-read path (Story 52-6)', () => {
       expect(mockResolveStoryKeys).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
-        expect.objectContaining({ explicit: ['2-1', '2-2', '2-3'] }),
+        expect.objectContaining({ explicit: ['2-1', '2-2', '2-3'] })
       )
     })
 
     it('CLI --stories overrides manifest scope (AC3)', async () => {
       // Arrange: manifest has stories, but user provided explicit --stories
-      mockManifestRead.mockResolvedValue(makeManifestData({
-        cli_flags: { stories: ['2-1', '2-2'] },
-        story_scope: [],
-      }))
+      mockManifestRead.mockResolvedValue(
+        makeManifestData({
+          cli_flags: { stories: ['2-1', '2-2'] },
+          story_scope: [],
+        })
+      )
 
       await runResumeAction({
-        runId: undefined,  // use getLatestRun (mocked to return the run)
+        runId: undefined, // use getLatestRun (mocked to return the run)
         outputFormat: 'human',
         projectRoot: '/tmp/test-resume-project',
         concurrency: 3,
         pack: 'bmad',
-        stories: ['3-1', '3-2'],  // explicit user override
+        stories: ['3-1', '3-2'], // explicit user override
         registry: makeRegistry(),
       })
 
@@ -302,7 +316,7 @@ describe('resume command — manifest-read path (Story 52-6)', () => {
       expect(mockResolveStoryKeys).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
-        expect.objectContaining({ explicit: ['3-1', '3-2'] }),
+        expect.objectContaining({ explicit: ['3-1', '3-2'] })
       )
     })
   })
@@ -316,7 +330,7 @@ describe('resume command — manifest-read path (Story 52-6)', () => {
 
       // config_json has no explicitStories → fully unscoped discovery
       const exitCode = await runResumeAction({
-        runId: undefined,  // use getLatestRun (mocked to return the run)
+        runId: undefined, // use getLatestRun (mocked to return the run)
         outputFormat: 'human',
         projectRoot: '/tmp/test-resume-project',
         concurrency: 3,
@@ -340,14 +354,14 @@ describe('resume command — manifest-read path (Story 52-6)', () => {
       // Should still complete without errors
       await expect(
         runResumeAction({
-          runId: undefined,  // use getLatestRun (mocked to return the run)
+          runId: undefined, // use getLatestRun (mocked to return the run)
           outputFormat: 'human',
           projectRoot: '/tmp/test-resume-project',
           concurrency: 3,
           pack: 'bmad',
           stories: undefined,
           registry: makeRegistry(),
-        }),
+        })
       ).resolves.toBe(0)
     })
   })

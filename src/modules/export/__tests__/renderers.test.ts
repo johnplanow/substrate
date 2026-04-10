@@ -22,7 +22,7 @@ import type { Decision, Requirement } from '../../../persistence/queries/decisio
 // ---------------------------------------------------------------------------
 
 function makeDecision(
-  overrides: Partial<Decision> & { phase: string; category: string; key: string; value: string },
+  overrides: Partial<Decision> & { phase: string; category: string; key: string; value: string }
 ): Decision {
   return {
     id: crypto.randomUUID(),
@@ -36,7 +36,7 @@ function makeDecision(
 }
 
 function makeRequirement(
-  overrides: Partial<Requirement> & { type: string; description: string },
+  overrides: Partial<Requirement> & { type: string; description: string }
 ): Requirement {
   return {
     id: crypto.randomUUID(),
@@ -211,9 +211,24 @@ describe('renderProductBrief', () => {
 
   it('renders fields in the specified order', () => {
     const decisions: Decision[] = [
-      makeDecision({ phase: 'analysis', category: 'product-brief', key: 'success_metrics', value: '"Metric A"' }),
-      makeDecision({ phase: 'analysis', category: 'product-brief', key: 'problem_statement', value: '"Problem here"' }),
-      makeDecision({ phase: 'analysis', category: 'product-brief', key: 'target_users', value: '"Users"' }),
+      makeDecision({
+        phase: 'analysis',
+        category: 'product-brief',
+        key: 'success_metrics',
+        value: '"Metric A"',
+      }),
+      makeDecision({
+        phase: 'analysis',
+        category: 'product-brief',
+        key: 'problem_statement',
+        value: '"Problem here"',
+      }),
+      makeDecision({
+        phase: 'analysis',
+        category: 'product-brief',
+        key: 'target_users',
+        value: '"Users"',
+      }),
     ]
 
     const result = renderProductBrief(decisions)
@@ -292,13 +307,21 @@ describe('renderPrd', () => {
         phase: 'planning',
         category: 'functional-requirements',
         key: 'FR-0',
-        value: JSON.stringify({ id: 'FR-1', description: 'Export product brief', priority: 'must' }),
+        value: JSON.stringify({
+          id: 'FR-1',
+          description: 'Export product brief',
+          priority: 'must',
+        }),
       }),
       makeDecision({
         phase: 'planning',
         category: 'functional-requirements',
         key: 'FR-1',
-        value: JSON.stringify({ id: 'FR-2', description: 'Support JSON output format', priority: 'should' }),
+        value: JSON.stringify({
+          id: 'FR-2',
+          description: 'Support JSON output format',
+          priority: 'should',
+        }),
       }),
     ]
 
@@ -315,13 +338,21 @@ describe('renderPrd', () => {
         phase: 'planning',
         category: 'non-functional-requirements',
         key: 'NFR-0',
-        value: JSON.stringify({ id: 'NFR-1', description: 'Command must complete in < 5s', category: 'performance' }),
+        value: JSON.stringify({
+          id: 'NFR-1',
+          description: 'Command must complete in < 5s',
+          category: 'performance',
+        }),
       }),
       makeDecision({
         phase: 'planning',
         category: 'non-functional-requirements',
         key: 'NFR-1',
-        value: JSON.stringify({ id: 'NFR-2', description: 'All exported files must be idempotent', category: 'reliability' }),
+        value: JSON.stringify({
+          id: 'NFR-2',
+          description: 'All exported files must be idempotent',
+          category: 'reliability',
+        }),
       }),
     ]
 
@@ -484,13 +515,21 @@ describe('renderPrd', () => {
         phase: 'planning',
         category: 'functional-requirements',
         key: 'FR-0',
-        value: JSON.stringify({ id: 'FR-1', description: 'Export product brief to markdown', priority: 'must' }),
+        value: JSON.stringify({
+          id: 'FR-1',
+          description: 'Export product brief to markdown',
+          priority: 'must',
+        }),
       }),
       makeDecision({
         phase: 'planning',
         category: 'non-functional-requirements',
         key: 'NFR-0',
-        value: JSON.stringify({ id: 'NFR-1', description: 'Idempotent exports', category: 'reliability' }),
+        value: JSON.stringify({
+          id: 'NFR-1',
+          description: 'Idempotent exports',
+          category: 'reliability',
+        }),
       }),
       makeDecision({
         phase: 'planning',
@@ -502,7 +541,10 @@ describe('renderPrd', () => {
         phase: 'planning',
         category: 'user-stories',
         key: 'US-0',
-        value: JSON.stringify({ title: 'Export artifacts', description: 'As a user, I want to export' }),
+        value: JSON.stringify({
+          title: 'Export artifacts',
+          description: 'As a user, I want to export',
+        }),
       }),
       makeDecision({
         phase: 'planning',
@@ -542,15 +584,30 @@ describe('renderArchitecture', () => {
 
   it('returns empty string when no decisions have category=architecture', () => {
     const decisions: Decision[] = [
-      makeDecision({ phase: 'solutioning', category: 'epics', key: 'epic-1', value: '{"title":"E1","description":""}' }),
+      makeDecision({
+        phase: 'solutioning',
+        category: 'epics',
+        key: 'epic-1',
+        value: '{"title":"E1","description":""}',
+      }),
     ]
     expect(renderArchitecture(decisions)).toBe('')
   })
 
   it('renders architecture decisions as H1 + H2 heading with key:value pairs', () => {
     const decisions: Decision[] = [
-      makeDecision({ phase: 'solutioning', category: 'architecture', key: 'language', value: 'TypeScript' }),
-      makeDecision({ phase: 'solutioning', category: 'architecture', key: 'database', value: 'PostgreSQL' }),
+      makeDecision({
+        phase: 'solutioning',
+        category: 'architecture',
+        key: 'language',
+        value: 'TypeScript',
+      }),
+      makeDecision({
+        phase: 'solutioning',
+        category: 'architecture',
+        key: 'database',
+        value: 'PostgreSQL',
+      }),
     ]
     const result = renderArchitecture(decisions)
 
@@ -618,9 +675,19 @@ describe('renderArchitecture', () => {
 
   it('renders multiple decisions in insertion order', () => {
     const decisions: Decision[] = [
-      makeDecision({ phase: 'solutioning', category: 'architecture', key: 'language', value: 'Kotlin' }),
+      makeDecision({
+        phase: 'solutioning',
+        category: 'architecture',
+        key: 'language',
+        value: 'Kotlin',
+      }),
       makeDecision({ phase: 'solutioning', category: 'architecture', key: 'cloud', value: 'GCP' }),
-      makeDecision({ phase: 'solutioning', category: 'architecture', key: 'runtime', value: 'JVM' }),
+      makeDecision({
+        phase: 'solutioning',
+        category: 'architecture',
+        key: 'runtime',
+        value: 'JVM',
+      }),
     ]
     const result = renderArchitecture(decisions)
     const langIdx = result.indexOf('**language**')
@@ -642,7 +709,12 @@ describe('renderEpics', () => {
 
   it('returns empty string when no decisions have category=epics or stories', () => {
     const decisions: Decision[] = [
-      makeDecision({ phase: 'solutioning', category: 'architecture', key: 'lang', value: 'TypeScript' }),
+      makeDecision({
+        phase: 'solutioning',
+        category: 'architecture',
+        key: 'lang',
+        value: 'TypeScript',
+      }),
     ]
     expect(renderEpics(decisions)).toBe('')
   })
@@ -653,7 +725,10 @@ describe('renderEpics', () => {
         phase: 'solutioning',
         category: 'epics',
         key: 'epic-1',
-        value: JSON.stringify({ title: 'Core CLI Infrastructure', description: 'Foundational CLI setup' }),
+        value: JSON.stringify({
+          title: 'Core CLI Infrastructure',
+          description: 'Foundational CLI setup',
+        }),
       }),
     ]
     const result = renderEpics(decisions)
@@ -735,19 +810,37 @@ describe('renderEpics', () => {
         phase: 'solutioning',
         category: 'stories',
         key: '2-1',
-        value: JSON.stringify({ key: '2-1', title: 'Story Two-One', description: '', ac: [], priority: 'must' }),
+        value: JSON.stringify({
+          key: '2-1',
+          title: 'Story Two-One',
+          description: '',
+          ac: [],
+          priority: 'must',
+        }),
       }),
       makeDecision({
         phase: 'solutioning',
         category: 'stories',
         key: '1-2',
-        value: JSON.stringify({ key: '1-2', title: 'Story One-Two', description: '', ac: [], priority: 'must' }),
+        value: JSON.stringify({
+          key: '1-2',
+          title: 'Story One-Two',
+          description: '',
+          ac: [],
+          priority: 'must',
+        }),
       }),
       makeDecision({
         phase: 'solutioning',
         category: 'stories',
         key: '1-1',
-        value: JSON.stringify({ key: '1-1', title: 'Story One-One', description: '', ac: [], priority: 'must' }),
+        value: JSON.stringify({
+          key: '1-1',
+          title: 'Story One-One',
+          description: '',
+          ac: [],
+          priority: 'must',
+        }),
       }),
     ]
     const result = renderEpics(decisions)
@@ -769,7 +862,13 @@ describe('renderEpics', () => {
         phase: 'solutioning',
         category: 'stories',
         key: '3-1',
-        value: JSON.stringify({ key: '3-1', title: 'Orphan Story', description: 'No epic', ac: [], priority: 'could' }),
+        value: JSON.stringify({
+          key: '3-1',
+          title: 'Orphan Story',
+          description: 'No epic',
+          ac: [],
+          priority: 'could',
+        }),
       }),
     ]
     const result = renderEpics(decisions)
@@ -810,7 +909,12 @@ describe('renderReadinessReport', () => {
 
   it('returns empty string when no decisions have category=readiness-findings', () => {
     const decisions: Decision[] = [
-      makeDecision({ phase: 'solutioning', category: 'architecture', key: 'lang', value: 'TypeScript' }),
+      makeDecision({
+        phase: 'solutioning',
+        category: 'architecture',
+        key: 'lang',
+        value: 'TypeScript',
+      }),
     ]
     expect(renderReadinessReport(decisions)).toBe('')
   })
@@ -914,19 +1018,34 @@ describe('renderReadinessReport', () => {
         phase: 'solutioning',
         category: 'readiness-findings',
         key: 'finding-1',
-        value: JSON.stringify({ category: 'fr_coverage', severity: 'blocker', description: 'Blocker finding', affected_items: [] }),
+        value: JSON.stringify({
+          category: 'fr_coverage',
+          severity: 'blocker',
+          description: 'Blocker finding',
+          affected_items: [],
+        }),
       }),
       makeDecision({
         phase: 'solutioning',
         category: 'readiness-findings',
         key: 'finding-2',
-        value: JSON.stringify({ category: 'story_quality', severity: 'major', description: 'Major finding', affected_items: [] }),
+        value: JSON.stringify({
+          category: 'story_quality',
+          severity: 'major',
+          description: 'Major finding',
+          affected_items: [],
+        }),
       }),
       makeDecision({
         phase: 'solutioning',
         category: 'readiness-findings',
         key: 'finding-3',
-        value: JSON.stringify({ category: 'story_quality', severity: 'minor', description: 'Minor finding', affected_items: [] }),
+        value: JSON.stringify({
+          category: 'story_quality',
+          severity: 'minor',
+          description: 'Minor finding',
+          affected_items: [],
+        }),
       }),
     ]
     const result = renderReadinessReport(decisions)
@@ -949,7 +1068,12 @@ describe('renderOperationalFindings', () => {
 
   it('returns empty string when no decisions have category=operational-finding', () => {
     const decisions: Decision[] = [
-      makeDecision({ phase: 'solutioning', category: 'architecture', key: 'lang', value: 'TypeScript' }),
+      makeDecision({
+        phase: 'solutioning',
+        category: 'architecture',
+        key: 'lang',
+        value: 'TypeScript',
+      }),
     ]
     expect(renderOperationalFindings(decisions)).toBe('')
   })
@@ -1073,7 +1197,12 @@ describe('renderExperiments', () => {
 
   it('returns empty string when no decisions have category=experiment-result', () => {
     const decisions: Decision[] = [
-      makeDecision({ phase: 'supervisor', category: 'operational-finding', key: 'run-summary:x', value: '{}' }),
+      makeDecision({
+        phase: 'supervisor',
+        category: 'operational-finding',
+        key: 'run-summary:x',
+        value: '{}',
+      }),
     ]
     expect(renderExperiments(decisions)).toBe('')
   })

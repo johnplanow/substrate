@@ -81,19 +81,19 @@ export function buildSdlcHandlerRegistry(deps: SdlcRegistryDeps) {
   // SDLC pipeline handlers
   registry.register(
     'sdlc.phase',
-    createSdlcPhaseHandler(deps.phaseHandlerDeps) as unknown as NodeHandler,
+    createSdlcPhaseHandler(deps.phaseHandlerDeps) as unknown as NodeHandler
   )
   registry.register(
     'sdlc.create-story',
-    createSdlcCreateStoryHandler(deps.createStoryOptions) as unknown as NodeHandler,
+    createSdlcCreateStoryHandler(deps.createStoryOptions) as unknown as NodeHandler
   )
   registry.register(
     'sdlc.dev-story',
-    createSdlcDevStoryHandler(deps.devStoryOptions) as unknown as NodeHandler,
+    createSdlcDevStoryHandler(deps.devStoryOptions) as unknown as NodeHandler
   )
   registry.register(
     'sdlc.code-review',
-    createSdlcCodeReviewHandler(deps.codeReviewOptions) as unknown as NodeHandler,
+    createSdlcCodeReviewHandler(deps.codeReviewOptions) as unknown as NodeHandler
   )
 
   return registry

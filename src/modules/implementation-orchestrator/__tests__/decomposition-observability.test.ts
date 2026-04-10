@@ -58,7 +58,9 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
@@ -81,7 +83,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
         checks: [],
         status: 'pass',
         duration_ms: 0,
-      }),
+      })
     ),
     register: vi.fn(),
   })),
@@ -212,7 +214,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -249,7 +253,10 @@ function makeCreateStorySuccess(storyKey = 'test-story', storyFile?: string) {
   }
 }
 
-function makeDevStorySuccess(filesModified: string[] = ['src/foo.ts'], tokens = { input: 200, output: 100 }) {
+function makeDevStorySuccess(
+  filesModified: string[] = ['src/foo.ts'],
+  tokens = { input: 200, output: 100 }
+) {
   return {
     result: 'success' as const,
     ac_met: ['AC1'],
@@ -260,7 +267,9 @@ function makeDevStorySuccess(filesModified: string[] = ['src/foo.ts'], tokens = 
   }
 }
 
-function makeCodeReviewShipIt(agentVerdict?: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK') {
+function makeCodeReviewShipIt(
+  agentVerdict?: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK'
+) {
   return {
     verdict: 'SHIP_IT' as const,
     agentVerdict,
@@ -270,7 +279,9 @@ function makeCodeReviewShipIt(agentVerdict?: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | '
   }
 }
 
-function makeCodeReviewNeedsMinorFixes(agentVerdict?: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK') {
+function makeCodeReviewNeedsMinorFixes(
+  agentVerdict?: 'SHIP_IT' | 'NEEDS_MINOR_FIXES' | 'NEEDS_MAJOR_REWORK'
+) {
   return {
     verdict: 'NEEDS_MINOR_FIXES' as const,
     agentVerdict,
@@ -342,7 +353,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['13-5'])
@@ -363,7 +379,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['13-5'])
@@ -380,7 +401,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['13-5'])
@@ -406,7 +432,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-5'])
@@ -429,7 +460,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-5'])
@@ -466,7 +502,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-5'])
@@ -494,14 +535,19 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-5'])
 
       // Find summary log entry (starts with "Code review completed:")
-      const summaryLogs = logInfoCalls.filter(([, msg]) =>
-        typeof msg === 'string' && msg.startsWith('Code review completed:'),
+      const summaryLogs = logInfoCalls.filter(
+        ([, msg]) => typeof msg === 'string' && msg.startsWith('Code review completed:')
       )
 
       expect(summaryLogs.length).toBeGreaterThan(0)
@@ -520,13 +566,18 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-5'])
 
-      const summaryLogs = logInfoCalls.filter(([, msg]) =>
-        typeof msg === 'string' && msg.startsWith('Code review completed:'),
+      const summaryLogs = logInfoCalls.filter(
+        ([, msg]) => typeof msg === 'string' && msg.startsWith('Code review completed:')
       )
       const summaryMsg = summaryLogs[0]?.[1] ?? ''
 
@@ -544,13 +595,18 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
-      const summaryLogs = logInfoCalls.filter(([, msg]) =>
-        typeof msg === 'string' && msg.startsWith('Code review completed:'),
+      const summaryLogs = logInfoCalls.filter(
+        ([, msg]) => typeof msg === 'string' && msg.startsWith('Code review completed:')
       )
       const summaryMsg = summaryLogs[0]?.[1] ?? ''
 
@@ -574,13 +630,18 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt('NEEDS_MINOR_FIXES'))
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
-      const summaryLogs = logInfoCalls.filter(([, msg]) =>
-        typeof msg === 'string' && msg.startsWith('Code review completed:'),
+      const summaryLogs = logInfoCalls.filter(
+        ([, msg]) => typeof msg === 'string' && msg.startsWith('Code review completed:')
       )
       const summaryMsg = summaryLogs[0]?.[1] ?? ''
 
@@ -600,13 +661,18 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt('SHIP_IT'))
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
-      const summaryLogs = logInfoCalls.filter(([, msg]) =>
-        typeof msg === 'string' && msg.startsWith('Code review completed:'),
+      const summaryLogs = logInfoCalls.filter(
+        ([, msg]) => typeof msg === 'string' && msg.startsWith('Code review completed:')
       )
       const summaryMsg = summaryLogs[0]?.[1] ?? ''
 
@@ -624,13 +690,18 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt(undefined))
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
-      const summaryLogs = logInfoCalls.filter(([, msg]) =>
-        typeof msg === 'string' && msg.startsWith('Code review completed:'),
+      const summaryLogs = logInfoCalls.filter(
+        ([, msg]) => typeof msg === 'string' && msg.startsWith('Code review completed:')
       )
       const summaryMsg = summaryLogs[0]?.[1] ?? ''
 
@@ -646,13 +717,18 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt('NEEDS_MINOR_FIXES'))
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
 
-      const summaryLogs = logInfoCalls.filter(([, msg]) =>
-        typeof msg === 'string' && msg.startsWith('Code review completed:'),
+      const summaryLogs = logInfoCalls.filter(
+        ([, msg]) => typeof msg === 'string' && msg.startsWith('Code review completed:')
       )
 
       // AC4: structured metadata includes agentVerdict
@@ -676,7 +752,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-5'])
@@ -684,7 +765,7 @@ describe('Decomposition Observability (Story 13-5)', () => {
       // AC5: addTokenUsage called for each phase (create-story, test-plan, 2 batch dev-story, code-review)
       // Filter to batch-specific calls (phase === 'dev-story', agent starts with 'batch-')
       const batchCalls = mockAddTokenUsage.mock.calls.filter(
-        (call) => call[2].phase === 'dev-story' && call[2].agent?.startsWith('batch-'),
+        (call) => call[2].phase === 'dev-story' && call[2].agent?.startsWith('batch-')
       )
       expect(batchCalls).toHaveLength(2)
     })
@@ -698,14 +779,19 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-5'])
 
       // AC5: Find first batch-specific addTokenUsage call
       const batchCalls = mockAddTokenUsage.mock.calls.filter(
-        (call) => call[2].phase === 'dev-story' && call[2].agent?.startsWith('batch-'),
+        (call) => call[2].phase === 'dev-story' && call[2].agent?.startsWith('batch-')
       )
       expect(batchCalls.length).toBeGreaterThan(0)
       const usageInput = batchCalls[0]![2]
@@ -726,14 +812,19 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-5'])
 
       // Find first batch-specific call
       const batchCalls = mockAddTokenUsage.mock.calls.filter(
-        (call) => call[2].phase === 'dev-story' && call[2].agent?.startsWith('batch-'),
+        (call) => call[2].phase === 'dev-story' && call[2].agent?.startsWith('batch-')
       )
       const meta = JSON.parse(batchCalls[0]![2].metadata ?? '{}') as Record<string, unknown>
       expect(['success', 'failed']).toContain(meta.result)
@@ -746,7 +837,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -755,7 +851,7 @@ describe('Decomposition Observability (Story 13-5)', () => {
       // (addTokenUsage IS called for create-story, test-plan, dev-story, code-review
       //  but none with batch-specific agent names)
       const batchCalls = mockAddTokenUsage.mock.calls.filter(
-        (call) => call[2].phase === 'dev-story' && call[2].agent?.startsWith('batch-'),
+        (call) => call[2].phase === 'dev-story' && call[2].agent?.startsWith('batch-')
       )
       expect(batchCalls).toHaveLength(0)
     })
@@ -769,7 +865,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-5'])
@@ -792,7 +893,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -808,7 +914,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -826,7 +937,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const smallOrchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config: defaultConfig({ pipelineRunId: 'small-run' }),
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config: defaultConfig({ pipelineRunId: 'small-run' }),
       })
 
       const smallStatus = await smallOrchestrator.run(['5-1'])
@@ -842,7 +958,12 @@ describe('Decomposition Observability (Story 13-5)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const largeOrchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config: defaultConfig({ pipelineRunId: 'large-run' }),
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config: defaultConfig({ pipelineRunId: 'large-run' }),
       })
 
       const largeStatus = await largeOrchestrator.run(['13-5'])

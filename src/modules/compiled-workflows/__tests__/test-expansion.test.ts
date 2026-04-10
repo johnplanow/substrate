@@ -12,7 +12,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Hoist mock functions so they are available when vi.mock factories execute
 // ---------------------------------------------------------------------------
 
-const { mockReadFile, mockGetGitDiffForFiles, mockGetGitDiffStatSummary, mockGetGitDiffStatForFiles } = vi.hoisted(() => ({
+const {
+  mockReadFile,
+  mockGetGitDiffForFiles,
+  mockGetGitDiffStatSummary,
+  mockGetGitDiffStatForFiles,
+} = vi.hoisted(() => ({
   mockReadFile: vi.fn(),
   mockGetGitDiffForFiles: vi.fn(),
   mockGetGitDiffStatSummary: vi.fn(),
@@ -72,7 +77,9 @@ import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function makeMockDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}): DispatchResult<unknown> {
+function makeMockDispatchResult(
+  overrides: Partial<DispatchResult<unknown>> = {}
+): DispatchResult<unknown> {
   return {
     id: 'test-dispatch-id',
     status: 'completed',
@@ -86,13 +93,16 @@ function makeMockDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}
   }
 }
 
-const DEFAULT_TEMPLATE = '## Mission\n{{story_content}}\n\n## Git Changes\n{{git_diff}}\n\n## Arch\n{{arch_constraints}}'
+const DEFAULT_TEMPLATE =
+  '## Mission\n{{story_content}}\n\n## Git Changes\n{{git_diff}}\n\n## Arch\n{{arch_constraints}}'
 
-function makeMockDeps(overrides: {
-  getPrompt?: ReturnType<typeof vi.fn>
-  dispatch?: ReturnType<typeof vi.fn>
-  db?: Partial<DatabaseAdapter>
-} = {}): WorkflowDeps {
+function makeMockDeps(
+  overrides: {
+    getPrompt?: ReturnType<typeof vi.fn>
+    dispatch?: ReturnType<typeof vi.fn>
+    db?: Partial<DatabaseAdapter>
+  } = {}
+): WorkflowDeps {
   const mockPack: MethodologyPack = {
     manifest: {
       name: 'test-pack',
@@ -112,7 +122,11 @@ function makeMockDeps(overrides: {
   const mockDb = {
     query: vi.fn().mockResolvedValue([]),
     exec: vi.fn().mockResolvedValue(undefined),
-    transaction: vi.fn().mockImplementation((fn: (adapter: DatabaseAdapter) => Promise<unknown>) => fn(mockDb as unknown as DatabaseAdapter)),
+    transaction: vi
+      .fn()
+      .mockImplementation((fn: (adapter: DatabaseAdapter) => Promise<unknown>) =>
+        fn(mockDb as unknown as DatabaseAdapter)
+      ),
     close: vi.fn().mockResolvedValue(undefined),
     ...(overrides.db ?? {}),
   } as unknown as DatabaseAdapter
@@ -126,10 +140,19 @@ function makeMockDeps(overrides: {
         parsed: {
           expansion_priority: 'medium',
           coverage_gaps: [
-            { ac_ref: 'AC1', description: 'No integration test for happy path', gap_type: 'missing-integration' },
+            {
+              ac_ref: 'AC1',
+              description: 'No integration test for happy path',
+              gap_type: 'missing-integration',
+            },
           ],
           suggested_tests: [
-            { test_name: 'runFoo integration', test_type: 'integration', description: 'Test with real DB', target_ac: 'AC1' },
+            {
+              test_name: 'runFoo integration',
+              test_type: 'integration',
+              description: 'Test with real DB',
+              target_ac: 'AC1',
+            },
           ],
           notes: 'Unit coverage solid but integration layer untested.',
         },
@@ -172,7 +195,9 @@ const DEFAULT_PARAMS: TestExpansionParams = {
 describe('runTestExpansion', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockReadFile.mockResolvedValue('## Story\nAs a pipeline agent...\n\n## Acceptance Criteria\n### AC1: ...')
+    mockReadFile.mockResolvedValue(
+      '## Story\nAs a pipeline agent...\n\n## Acceptance Criteria\n### AC1: ...'
+    )
     mockGetGitDiffForFiles.mockResolvedValue('diff --git a/src/foo.ts b/src/foo.ts\n+line added\n')
     mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
   })
@@ -201,13 +226,15 @@ describe('runTestExpansion', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: {
-          expansion_priority: 'low',
-          coverage_gaps: [],
-          suggested_tests: [],
-        },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: {
+            expansion_priority: 'low',
+            coverage_gaps: [],
+            suggested_tests: [],
+          },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -234,9 +261,11 @@ describe('runTestExpansion', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -261,9 +290,11 @@ describe('runTestExpansion', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -284,9 +315,11 @@ describe('runTestExpansion', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -308,14 +341,16 @@ describe('runTestExpansion', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        status: 'failed',
-        exitCode: 1,
-        output: 'stderr: something went wrong',
-        parsed: null,
-        parseError: 'Agent exited with code 1',
-        tokenEstimate: { input: 100, output: 0 },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          status: 'failed',
+          exitCode: 1,
+          output: 'stderr: something went wrong',
+          parsed: null,
+          parseError: 'Agent exited with code 1',
+          tokenEstimate: { input: 100, output: 0 },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -334,13 +369,15 @@ describe('runTestExpansion', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        status: 'completed',
-        exitCode: 0,
-        parsed: null,
-        parseError: 'no_yaml_block',
-        tokenEstimate: { input: 150, output: 0 },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          status: 'completed',
+          exitCode: 0,
+          parsed: null,
+          parseError: 'no_yaml_block',
+          tokenEstimate: { input: 150, output: 0 },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -358,19 +395,19 @@ describe('runTestExpansion', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: {
-          // expansion_priority is missing — schema validation should fail since
-          // the preprocess converts unknown to 'low', but we can test with a
-          // coverage_gaps item that has an invalid gap_type
-          expansion_priority: 'high',
-          coverage_gaps: [
-            { ac_ref: 'AC1', description: 'test', gap_type: 'invalid-type' },
-          ],
-          suggested_tests: [],
-        },
-        tokenEstimate: { input: 120, output: 30 },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: {
+            // expansion_priority is missing — schema validation should fail since
+            // the preprocess converts unknown to 'low', but we can test with a
+            // coverage_gaps item that has an invalid gap_type
+            expansion_priority: 'high',
+            coverage_gaps: [{ ac_ref: 'AC1', description: 'test', gap_type: 'invalid-type' }],
+            suggested_tests: [],
+          },
+          tokenEstimate: { input: 120, output: 30 },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -431,13 +468,15 @@ describe('runTestExpansion', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: {
-          expansion_priority: 'UNKNOWN_VALUE',
-          coverage_gaps: [],
-          suggested_tests: [],
-        },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: {
+            expansion_priority: 'UNKNOWN_VALUE',
+            coverage_gaps: [],
+            suggested_tests: [],
+          },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -452,12 +491,14 @@ describe('runTestExpansion', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: {
-          expansion_priority: 'low',
-          // coverage_gaps and suggested_tests intentionally absent
-        },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: {
+            expansion_priority: 'low',
+            // coverage_gaps and suggested_tests intentionally absent
+          },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -495,9 +536,11 @@ describe('runTestExpansion', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn, db: dbOverride as Partial<DatabaseAdapter> })
@@ -516,9 +559,11 @@ describe('runTestExpansion', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -541,10 +586,12 @@ describe('runTestExpansion', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        tokenEstimate: { input: 450, output: 130 },
-        parsed: { expansion_priority: 'high', coverage_gaps: [], suggested_tests: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          tokenEstimate: { input: 450, output: 130 },
+          parsed: { expansion_priority: 'high', coverage_gaps: [], suggested_tests: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -561,7 +608,9 @@ describe('runTestExpansion', () => {
 describe('Story 37-6: test pattern injection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockReadFile.mockResolvedValue('## Story\nAs a pipeline agent...\n\n## Acceptance Criteria\n### AC1: ...')
+    mockReadFile.mockResolvedValue(
+      '## Story\nAs a pipeline agent...\n\n## Acceptance Criteria\n### AC1: ...'
+    )
     mockGetGitDiffForFiles.mockResolvedValue('diff --git a/src/foo.ts\n+line added\n')
     mockGetGitDiffStatSummary.mockResolvedValue('src/foo.ts | 5 ++---\n1 file changed\n')
     mockResolveDefaultTestPatterns.mockReturnValue('VITEST_DEFAULT_MOCK')
@@ -587,19 +636,26 @@ describe('Story 37-6: test pattern injection', () => {
     }
 
     // Use a template that includes the {{test_patterns}} placeholder
-    const templateWithPatterns = '## Mission\n{{story_content}}\n\n## Git Changes\n{{git_diff}}\n\n## Test Patterns\n{{test_patterns}}\n\n## Arch\n{{arch_constraints}}'
+    const templateWithPatterns =
+      '## Mission\n{{story_content}}\n\n## Git Changes\n{{git_diff}}\n\n## Test Patterns\n{{test_patterns}}\n\n## Arch\n{{arch_constraints}}'
     const getPromptFn = vi.fn().mockResolvedValue(templateWithPatterns)
 
     const dispatchFn = vi.fn().mockReturnValue({
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
+        })
+      ),
     })
 
-    const deps = makeMockDeps({ dispatch: dispatchFn, db: dbOverride as Partial<DatabaseAdapter>, getPrompt: getPromptFn })
+    const deps = makeMockDeps({
+      dispatch: dispatchFn,
+      db: dbOverride as Partial<DatabaseAdapter>,
+      getPrompt: getPromptFn,
+    })
     await runTestExpansion(deps, DEFAULT_PARAMS)
 
     const callArgs = dispatchFn.mock.calls[0][0] as { prompt: string }
@@ -613,19 +669,25 @@ describe('Story 37-6: test pattern injection', () => {
     mockResolveDefaultTestPatterns.mockReturnValue('RESOLVER_PATTERNS_MOCK')
 
     // Use a template that includes the {{test_patterns}} placeholder
-    const templateWithPatterns = '## Mission\n{{story_content}}\n\n## Git Changes\n{{git_diff}}\n\n## Test Patterns\n{{test_patterns}}\n\n## Arch\n{{arch_constraints}}'
+    const templateWithPatterns =
+      '## Mission\n{{story_content}}\n\n## Git Changes\n{{git_diff}}\n\n## Test Patterns\n{{test_patterns}}\n\n## Arch\n{{arch_constraints}}'
     const getPromptFn = vi.fn().mockResolvedValue(templateWithPatterns)
 
     const dispatchFn = vi.fn().mockReturnValue({
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { expansion_priority: 'low', coverage_gaps: [], suggested_tests: [] },
+        })
+      ),
     })
 
-    const deps: WorkflowDeps = { ...makeMockDeps({ dispatch: dispatchFn, getPrompt: getPromptFn }), projectRoot: '/some/project' }
+    const deps: WorkflowDeps = {
+      ...makeMockDeps({ dispatch: dispatchFn, getPrompt: getPromptFn }),
+      projectRoot: '/some/project',
+    }
     await runTestExpansion(deps, DEFAULT_PARAMS)
 
     const callArgs = dispatchFn.mock.calls[0][0] as { prompt: string }

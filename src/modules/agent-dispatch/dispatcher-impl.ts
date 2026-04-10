@@ -65,11 +65,7 @@ export function createDispatcher(options: CreateDispatcherOptions): Dispatcher {
     routingResolver: options.config?.routingResolver ?? undefined,
   }
 
-  return new DispatcherImpl(
-    options.eventBus as never,
-    options.adapterRegistry as never,
-    config,
-  )
+  return new DispatcherImpl(options.eventBus as never, options.adapterRegistry as never, config)
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +111,8 @@ export function detectPackageManager(projectRoot: string): PackageManagerDetecti
     try {
       const raw = readFileSync(profilePath, 'utf-8')
       const parsed = yaml.load(raw) as Record<string, unknown> | null
-      const buildCommand = (parsed as { project?: { buildCommand?: string } })?.project?.buildCommand
+      const buildCommand = (parsed as { project?: { buildCommand?: string } })?.project
+        ?.buildCommand
       if (typeof buildCommand === 'string' && buildCommand.length > 0) {
         return { packageManager: 'none', lockfile: 'project-profile.yaml', command: buildCommand }
       }
@@ -142,13 +139,7 @@ export function detectPackageManager(projectRoot: string): PackageManagerDetecti
   ]
 
   // Non-Node markers — skip build verification (no universal "build" step)
-  const nonNodeMarkers = [
-    'pyproject.toml',
-    'poetry.lock',
-    'setup.py',
-    'Cargo.toml',
-    'go.mod',
-  ]
+  const nonNodeMarkers = ['pyproject.toml', 'poetry.lock', 'setup.py', 'Cargo.toml', 'go.mod']
 
   // Check if a non-Node marker exists. If so, skip even if a package-lock.json
   // also exists (common in projects that use npm for ancillary tooling like bmad).
@@ -184,7 +175,11 @@ export interface BuildVerificationResult {
   /** Combined stdout+stderr output. Empty/undefined for skipped or no output. */
   output?: string
   /** Machine-readable reason for failure/timeout escalation. */
-  reason?: 'build-verification-failed' | 'build-verification-timeout' | 'build-script-not-found' | 'pep-668-externally-managed'
+  reason?:
+    | 'build-verification-failed'
+    | 'build-verification-timeout'
+    | 'build-script-not-found'
+    | 'pep-668-externally-managed'
 }
 
 /**
@@ -263,7 +258,7 @@ export function runBuildVerification(options: {
         lockfile: detection.lockfile,
         resolvedCommand: detection.command,
       },
-      'Build verification: resolved command via package manager detection',
+      'Build verification: resolved command via package manager detection'
     )
     cmd = detection.command
   } else {
@@ -283,7 +278,7 @@ export function runBuildVerification(options: {
       cmd = `${cmd} ${filters.join(' ')}`
       logger.info(
         { filters, originalCmd: options.verifyCommand ?? '(auto-detected)' },
-        'Build verification: scoped turbo build to affected packages',
+        'Build verification: scoped turbo build to affected packages'
       )
     }
   }
@@ -338,9 +333,7 @@ export function runBuildVerification(options: {
           : Buffer.isBuffer(rawStderr)
             ? rawStderr.toString('utf-8')
             : ''
-      const combinedOutput = [stdoutStr, stderrStr]
-        .filter((s) => s.length > 0)
-        .join('\n')
+      const combinedOutput = [stdoutStr, stderrStr].filter((s) => s.length > 0).join('\n')
 
       if (isTimeout) {
         return {
@@ -371,7 +364,9 @@ export function runBuildVerification(options: {
       // already be installed and functional. Users should create a venv.
       const pep668Pattern = /externally-managed-environment|This environment is externally managed/i
       if (pep668Pattern.test(combinedOutput)) {
-        logger.warn('PEP 668: pip blocked by externally-managed-environment — skipping pre-flight. Create a .venv to resolve.')
+        logger.warn(
+          'PEP 668: pip blocked by externally-managed-environment — skipping pre-flight. Create a .venv to resolve.'
+        )
         return {
           status: 'skipped',
           exitCode,
@@ -422,7 +417,11 @@ export function checkGitDiffFiles(workingDir: string = process.cwd()): string[] 
   // Guard: skip HEAD-based diff on repos with no commits (avoids fatal: bad revision 'HEAD')
   let repoHasCommits = true
   try {
-    execSync('git rev-parse --verify HEAD', { cwd: workingDir, stdio: ['ignore', 'pipe', 'pipe'], timeout: 3000 })
+    execSync('git rev-parse --verify HEAD', {
+      cwd: workingDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 3000,
+    })
   } catch {
     repoHasCommits = false
   }

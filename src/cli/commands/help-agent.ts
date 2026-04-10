@@ -130,7 +130,11 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'key', type: 'string', description: 'Story key.' },
       { name: 'reason', type: 'string', description: 'Escalation reason.' },
       { name: 'cycles', type: 'number', description: 'Cycles completed.' },
-      { name: 'issues', type: 'EscalationIssue[]', description: 'Final review issues; each has severity, file, desc.' },
+      {
+        name: 'issues',
+        type: 'EscalationIssue[]',
+        description: 'Final review issues; each has severity, file, desc.',
+      },
     ],
   },
   {
@@ -221,7 +225,11 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
       { name: 'run_id', type: 'string|null', description: 'Abandoned run ID.' },
-      { name: 'reason', type: 'max_restarts_exceeded', description: 'Always "max_restarts_exceeded".' },
+      {
+        name: 'reason',
+        type: 'max_restarts_exceeded',
+        description: 'Always "max_restarts_exceeded".',
+      },
       { name: 'attempts', type: 'number', description: 'Total attempts made.' },
     ],
   },
@@ -274,7 +282,11 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
       { name: 'run_id', type: 'string|null', description: 'Run ID.' },
-      { name: 'reason', type: 'string', description: '"no_recommendations" or "no_analysis_report".' },
+      {
+        name: 'reason',
+        type: 'string',
+        description: '"no_recommendations" or "no_analysis_report".',
+      },
     ],
   },
   {
@@ -318,8 +330,16 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'key', type: 'string', description: 'Story key.' },
       { name: 'verdict', type: 'string', description: 'Final review verdict (NEEDS_MINOR_FIXES).' },
       { name: 'review_cycles', type: 'number', description: 'Review cycles completed.' },
-      { name: 'max_review_cycles', type: 'number', description: 'Maximum review cycles configured.' },
-      { name: 'issue_count', type: 'number', description: 'Remaining issues at auto-approve time.' },
+      {
+        name: 'max_review_cycles',
+        type: 'number',
+        description: 'Maximum review cycles configured.',
+      },
+      {
+        name: 'issue_count',
+        type: 'number',
+        description: 'Remaining issues at auto-approve time.',
+      },
       { name: 'reason', type: 'string', description: 'Human-readable reason for auto-approval.' },
     ],
   },
@@ -330,10 +350,22 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
       { name: 'dispatch_id', type: 'string', description: 'Unique dispatch ID.' },
-      { name: 'task_type', type: 'string', description: 'Task type (dev-story, test-plan, code-review).' },
-      { name: 'phase', type: 'string', description: 'Routing phase that matched (generate, explore, review).' },
+      {
+        name: 'task_type',
+        type: 'string',
+        description: 'Task type (dev-story, test-plan, code-review).',
+      },
+      {
+        name: 'phase',
+        type: 'string',
+        description: 'Routing phase that matched (generate, explore, review).',
+      },
       { name: 'model', type: 'string', description: 'Selected model ID.' },
-      { name: 'source', type: 'string', description: 'How selected: phase, baseline, or override.' },
+      {
+        name: 'source',
+        type: 'string',
+        description: 'How selected: phase, baseline, or override.',
+      },
     ],
   },
   {
@@ -342,7 +374,11 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     when: 'When --from is used and a phase begins (analysis, planning, solutioning, implementation).',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
-      { name: 'phase', type: 'string', description: 'Phase name (e.g., analysis, implementation).' },
+      {
+        name: 'phase',
+        type: 'string',
+        description: 'Phase name (e.g., analysis, implementation).',
+      },
     ],
   },
   {
@@ -351,22 +387,36 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     when: 'When --from is used and a phase finishes successfully.',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
-      { name: 'phase', type: 'string', description: 'Phase name (e.g., analysis, implementation).' },
+      {
+        name: 'phase',
+        type: 'string',
+        description: 'Phase name (e.g., analysis, implementation).',
+      },
     ],
   },
   {
     type: 'pipeline:pre-flight-failure',
-    description: 'Pre-flight build check failed before any story was dispatched. Pipeline aborts immediately.',
+    description:
+      'Pre-flight build check failed before any story was dispatched. Pipeline aborts immediately.',
     when: 'When the build command exits with a non-zero code before the first story dispatch.',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
-      { name: 'exitCode', type: 'number', description: 'Exit code from the build command (-1 for timeout).' },
-      { name: 'output', type: 'string', description: 'Combined stdout+stderr from the build command (truncated to 2000 chars).' },
+      {
+        name: 'exitCode',
+        type: 'number',
+        description: 'Exit code from the build command (-1 for timeout).',
+      },
+      {
+        name: 'output',
+        type: 'string',
+        description: 'Combined stdout+stderr from the build command (truncated to 2000 chars).',
+      },
     ],
   },
   {
     type: 'story:zero-diff-escalation',
-    description: 'Dev-story reported COMPLETE but git diff shows no file changes (phantom completion).',
+    description:
+      'Dev-story reported COMPLETE but git diff shows no file changes (phantom completion).',
     when: 'After dev-story succeeds with zero file changes in working tree.',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
@@ -376,13 +426,22 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
   },
   {
     type: 'story:build-verification-failed',
-    description: 'Build verification command (default: npm run build) exited with non-zero code or timed out.',
+    description:
+      'Build verification command (default: npm run build) exited with non-zero code or timed out.',
     when: 'After dev-story and zero-diff check pass, but before code-review is dispatched.',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
       { name: 'storyKey', type: 'string', description: 'Story key.' },
-      { name: 'exitCode', type: 'number', description: 'Exit code from the build command (-1 for timeout).' },
-      { name: 'output', type: 'string', description: 'Combined stdout+stderr from the build command (truncated to 2000 chars).' },
+      {
+        name: 'exitCode',
+        type: 'number',
+        description: 'Exit code from the build command (-1 for timeout).',
+      },
+      {
+        name: 'output',
+        type: 'string',
+        description: 'Combined stdout+stderr from the build command (truncated to 2000 chars).',
+      },
     ],
   },
   {
@@ -396,13 +455,23 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
   },
   {
     type: 'story:interface-change-warning',
-    description: 'Non-blocking warning: modified files export shared TypeScript interfaces that may be referenced by test files outside the same module (potential stale mock risk). Story proceeds to code-review.',
+    description:
+      'Non-blocking warning: modified files export shared TypeScript interfaces that may be referenced by test files outside the same module (potential stale mock risk). Story proceeds to code-review.',
     when: 'After build verification passes, before code-review, when exported interfaces in modified .ts files are referenced by cross-module test files.',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
       { name: 'storyKey', type: 'string', description: 'Story key.' },
-      { name: 'modifiedInterfaces', type: 'string[]', description: 'Exported interface/type names found in modified files.' },
-      { name: 'potentiallyAffectedTests', type: 'string[]', description: 'Test file paths (relative to project root) that reference the modified interface names.' },
+      {
+        name: 'modifiedInterfaces',
+        type: 'string[]',
+        description: 'Exported interface/type names found in modified files.',
+      },
+      {
+        name: 'potentiallyAffectedTests',
+        type: 'string[]',
+        description:
+          'Test file paths (relative to project root) that reference the modified interface names.',
+      },
     ],
   },
   {
@@ -421,14 +490,19 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
   },
   {
     type: 'pipeline:contract-mismatch',
-    description: 'Post-sprint contract mismatch found. Non-blocking — stories done. Manual fix required.',
+    description:
+      'Post-sprint contract mismatch found. Non-blocking — stories done. Manual fix required.',
     when: 'After all stories complete, before pipeline:complete. When contract declarations exist and mismatch found.',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
       { name: 'exporter', type: 'string', description: 'Exporting story key.' },
       { name: 'importer', type: 'string|null', description: 'Importing story key (null if none).' },
       { name: 'contractName', type: 'string', description: 'Contract name (e.g., "JudgeResult").' },
-      { name: 'mismatchDescription', type: 'string', description: 'Mismatch details (missing file, type error).' },
+      {
+        name: 'mismatchDescription',
+        type: 'string',
+        description: 'Mismatch details (missing file, type error).',
+      },
     ],
   },
   {
@@ -438,29 +512,44 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
       { name: 'verified', type: 'number', description: 'Declarations verified (current sprint).' },
-      { name: 'stalePruned', type: 'number', description: 'Stale declarations pruned (previous epics).' },
+      {
+        name: 'stalePruned',
+        type: 'number',
+        description: 'Stale declarations pruned (previous epics).',
+      },
       { name: 'mismatches', type: 'number', description: 'Real mismatches found.' },
       { name: 'verdict', type: 'pass|fail', description: 'Overall verification result.' },
     ],
   },
   {
     type: 'pipeline:profile-stale',
-    description: 'Project profile may be outdated. Non-blocking warning — run `substrate init --force` to re-detect.',
+    description:
+      'Project profile may be outdated. Non-blocking warning — run `substrate init --force` to re-detect.',
     when: 'After all stories complete, before pipeline:complete. Emitted when staleness indicators are found.',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
       { name: 'message', type: 'string', description: 'Human-readable staleness warning message.' },
-      { name: 'indicators', type: 'string[]', description: 'List of staleness indicators (e.g., "turbo.json exists but profile says type: single").' },
+      {
+        name: 'indicators',
+        type: 'string[]',
+        description:
+          'List of staleness indicators (e.g., "turbo.json exists but profile says type: single").',
+      },
     ],
   },
   {
     type: 'verification:check-complete',
-    description: 'Emitted after each Tier A verification check completes. Payload includes check name, status (pass/warn/fail), human-readable details, and execution duration.',
+    description:
+      'Emitted after each Tier A verification check completes. Payload includes check name, status (pass/warn/fail), human-readable details, and execution duration.',
     when: 'After a story reaches SHIP_IT verdict, once per individual verification check (phantom-review, trivial-output, build).',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
       { name: 'storyKey', type: 'string', description: 'Story key (e.g., "51-5").' },
-      { name: 'checkName', type: 'string', description: 'Check name (e.g., "phantom-review", "trivial-output", "build").' },
+      {
+        name: 'checkName',
+        type: 'string',
+        description: 'Check name (e.g., "phantom-review", "trivial-output", "build").',
+      },
       { name: 'status', type: 'pass|warn|fail', description: 'Check result.' },
       { name: 'details', type: 'string', description: 'Human-readable check details.' },
       { name: 'duration_ms', type: 'number', description: 'Check execution time in milliseconds.' },
@@ -468,14 +557,27 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
   },
   {
     type: 'verification:story-complete',
-    description: 'Emitted once per story after all Tier A verification checks complete. Payload is the full VerificationSummary with aggregated worst-case status.',
+    description:
+      'Emitted once per story after all Tier A verification checks complete. Payload is the full VerificationSummary with aggregated worst-case status.',
     when: 'After all Tier A checks complete for a story (after SHIP_IT verdict). Precedes story:done on pass/warn, or replaces it on fail.',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
       { name: 'storyKey', type: 'string', description: 'Story key (e.g., "51-5").' },
-      { name: 'checks', type: 'array', description: 'Per-check results (checkName, status, details, duration_ms).' },
-      { name: 'status', type: 'pass|warn|fail', description: 'Aggregated worst-case status across all checks.' },
-      { name: 'duration_ms', type: 'number', description: 'Total duration of all checks in milliseconds.' },
+      {
+        name: 'checks',
+        type: 'array',
+        description: 'Per-check results (checkName, status, details, duration_ms).',
+      },
+      {
+        name: 'status',
+        type: 'pass|warn|fail',
+        description: 'Aggregated worst-case status across all checks.',
+      },
+      {
+        name: 'duration_ms',
+        type: 'number',
+        description: 'Total duration of all checks in milliseconds.',
+      },
     ],
   },
   {
@@ -484,9 +586,17 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     when: 'Emitted at most once per run, between story dispatches, when cumulative cost ≥ 80% of ceiling.',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
-      { name: 'cumulative_cost', type: 'number', description: 'Cumulative pipeline cost in USD at time of check.' },
+      {
+        name: 'cumulative_cost',
+        type: 'number',
+        description: 'Cumulative pipeline cost in USD at time of check.',
+      },
       { name: 'ceiling', type: 'number', description: 'Configured cost ceiling in USD.' },
-      { name: 'percent_used', type: 'number', description: '(cumulative / ceiling) * 100, rounded to two decimal places.' },
+      {
+        name: 'percent_used',
+        type: 'number',
+        description: '(cumulative / ceiling) * 100, rounded to two decimal places.',
+      },
     ],
   },
   {
@@ -495,12 +605,34 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     when: 'Emitted between story dispatches when cumulative cost ≥ 100% of ceiling.',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
-      { name: 'cumulative_cost', type: 'number', description: 'Cumulative pipeline cost in USD at time of check.' },
+      {
+        name: 'cumulative_cost',
+        type: 'number',
+        description: 'Cumulative pipeline cost in USD at time of check.',
+      },
       { name: 'ceiling', type: 'number', description: 'Configured cost ceiling in USD.' },
-      { name: 'halt_on', type: 'string', description: '--halt-on value in effect (none, all, critical).' },
-      { name: 'action', type: 'string', description: 'Action taken (always stopped in this story; interactive prompt is Epic 54 scope).' },
-      { name: 'skipped_stories', type: 'string[]', description: 'Story keys skipped because budget was exhausted.' },
-      { name: 'severity', type: 'string', description: 'critical when halt_on is all or critical; absent when none.', optional: true },
+      {
+        name: 'halt_on',
+        type: 'string',
+        description: '--halt-on value in effect (none, all, critical).',
+      },
+      {
+        name: 'action',
+        type: 'string',
+        description:
+          'Action taken (always stopped in this story; interactive prompt is Epic 54 scope).',
+      },
+      {
+        name: 'skipped_stories',
+        type: 'string[]',
+        description: 'Story keys skipped because budget was exhausted.',
+      },
+      {
+        name: 'severity',
+        type: 'string',
+        description: 'critical when halt_on is all or critical; absent when none.',
+        optional: true,
+      },
     ],
   },
 ]
@@ -861,7 +993,11 @@ export async function probeCapabilities(version: string): Promise<CapabilitiesMa
 /**
  * Generate the complete help-agent prompt fragment.
  */
-export function generateHelpAgentOutput(version: string, events: EventMetadata[] = PIPELINE_EVENT_METADATA, capabilities?: CapabilitiesManifest): string {
+export function generateHelpAgentOutput(
+  version: string,
+  events: EventMetadata[] = PIPELINE_EVENT_METADATA,
+  capabilities?: CapabilitiesManifest
+): string {
   const lines: string[] = []
 
   lines.push('# Substrate Pipeline — Agent Instructions')
@@ -869,7 +1005,7 @@ export function generateHelpAgentOutput(version: string, events: EventMetadata[]
   lines.push('')
   lines.push(
     'This document is a machine-optimized instruction fragment for AI agents operating the Substrate pipeline. ' +
-    'Ingest it as a system prompt fragment to understand commands, event protocol, and interaction patterns.',
+      'Ingest it as a system prompt fragment to understand commands, event protocol, and interaction patterns.'
   )
   lines.push('')
 

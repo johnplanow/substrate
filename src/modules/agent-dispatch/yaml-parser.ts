@@ -3,7 +3,4 @@
  *
  * @see packages/core/src/dispatch/yaml-parser.ts
  */
-export {
-  extractYamlBlock,
-  parseYamlResult,
-} from '@substrate-ai/core'
+export { extractYamlBlock, parseYamlResult } from '@substrate-ai/core'

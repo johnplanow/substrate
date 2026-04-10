@@ -11,7 +11,11 @@ import { extname } from 'node:path'
 import type pino from 'pino'
 
 import type { DoltClient } from '../state/dolt-client.js'
-import { AppError, ERR_REPO_MAP_STORAGE_WRITE, ERR_REPO_MAP_STORAGE_READ } from '../../errors/index.js'
+import {
+  AppError,
+  ERR_REPO_MAP_STORAGE_WRITE,
+  ERR_REPO_MAP_STORAGE_READ,
+} from '../../errors/index.js'
 import type {
   ParsedSymbol,
   SymbolFilter,
@@ -88,20 +92,25 @@ export class DoltSymbolRepository implements ISymbolRepository {
    * Atomically replace all symbols for filePath.
    * Deletes first (handles file deletions), then batch-inserts new symbols.
    */
-  async upsertFileSymbols(filePath: string, symbols: ParsedSymbol[], fileHash: string): Promise<void> {
+  async upsertFileSymbols(
+    filePath: string,
+    symbols: ParsedSymbol[],
+    fileHash: string
+  ): Promise<void> {
     try {
       // Always delete existing symbols for this file (handles both update and deletion)
       await this._client.query('DELETE FROM repo_map_symbols WHERE file_path = ?', [filePath])
 
       if (symbols.length === 0) {
-        this._logger.debug({ filePath }, 'upsertFileSymbols: cleared symbols for deleted/empty file')
+        this._logger.debug(
+          { filePath },
+          'upsertFileSymbols: cleared symbols for deleted/empty file'
+        )
         return
       }
 
       // Derive file-level dependencies from import entries
-      const deps = symbols
-        .filter(s => s.kind === 'import')
-        .map(s => s.name)
+      const deps = symbols.filter((s) => s.kind === 'import').map((s) => s.name)
       const depsJson = JSON.stringify(deps)
 
       // Build multi-row VALUES clause
@@ -116,19 +125,23 @@ export class DoltSymbolRepository implements ISymbolRepository {
           sym.lineNumber,
           sym.exported ? 1 : 0,
           fileHash,
-          depsJson,
+          depsJson
         )
       }
 
       await this._client.query(
         `INSERT INTO repo_map_symbols (file_path, symbol_name, symbol_kind, signature, line_number, exported, file_hash, dependencies) VALUES ${placeholders}`,
-        params,
+        params
       )
 
       this._logger.debug({ filePath, count: symbols.length }, 'upsertFileSymbols: inserted symbols')
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
-      throw new AppError(ERR_REPO_MAP_STORAGE_WRITE, 2, `Failed to upsert symbols for ${filePath}: ${detail}`)
+      throw new AppError(
+        ERR_REPO_MAP_STORAGE_WRITE,
+        2,
+        `Failed to upsert symbols for ${filePath}: ${detail}`
+      )
     }
   }
 
@@ -171,13 +184,17 @@ export class DoltSymbolRepository implements ISymbolRepository {
     try {
       const rows = await this._client.query<HashRow>(
         'SELECT file_hash FROM repo_map_symbols WHERE file_path = ? LIMIT 1',
-        [filePath],
+        [filePath]
       )
       if (rows.length === 0) return null
       return rows[0]!.file_hash
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
-      throw new AppError(ERR_REPO_MAP_STORAGE_READ, 2, `Failed to get file hash for ${filePath}: ${detail}`)
+      throw new AppError(
+        ERR_REPO_MAP_STORAGE_READ,
+        2,
+        `Failed to get file hash for ${filePath}: ${detail}`
+      )
     }
   }
 
@@ -202,9 +219,9 @@ export class DoltSymbolRepository implements ISymbolRepository {
       const placeholders = filePaths.map(() => '?').join(', ')
       const rows = await this._client.query<SymbolRow>(
         `SELECT file_path, symbol_name, symbol_kind, signature, line_number, exported, file_hash, dependencies FROM repo_map_symbols WHERE file_path IN (${placeholders})`,
-        filePaths,
+        filePaths
       )
-      return rows.map(r => this._rowToRepoMapSymbol(r))
+      return rows.map((r) => this._rowToRepoMapSymbol(r))
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
       throw new AppError(ERR_REPO_MAP_STORAGE_READ, 2, `findByFilePaths failed: ${detail}`)
@@ -217,9 +234,9 @@ export class DoltSymbolRepository implements ISymbolRepository {
       const placeholders = names.map(() => '?').join(', ')
       const rows = await this._client.query<SymbolRow>(
         `SELECT file_path, symbol_name, symbol_kind, signature, line_number, exported, file_hash, dependencies FROM repo_map_symbols WHERE symbol_name IN (${placeholders})`,
-        names,
+        names
       )
-      return rows.map(r => this._rowToRepoMapSymbol(r))
+      return rows.map((r) => this._rowToRepoMapSymbol(r))
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
       throw new AppError(ERR_REPO_MAP_STORAGE_READ, 2, `findBySymbolNames failed: ${detail}`)
@@ -232,9 +249,9 @@ export class DoltSymbolRepository implements ISymbolRepository {
       const placeholders = types.map(() => '?').join(', ')
       const rows = await this._client.query<SymbolRow>(
         `SELECT file_path, symbol_name, symbol_kind, signature, line_number, exported, file_hash, dependencies FROM repo_map_symbols WHERE symbol_kind IN (${placeholders})`,
-        types,
+        types
       )
-      return rows.map(r => this._rowToRepoMapSymbol(r))
+      return rows.map((r) => this._rowToRepoMapSymbol(r))
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
       throw new AppError(ERR_REPO_MAP_STORAGE_READ, 2, `findByTypes failed: ${detail}`)
@@ -248,9 +265,9 @@ export class DoltSymbolRepository implements ISymbolRepository {
     try {
       const rows = await this._client.query<SymbolRow>(
         `SELECT file_path, symbol_name, symbol_kind, signature, line_number, exported, file_hash, dependencies FROM repo_map_symbols WHERE JSON_CONTAINS(dependencies, JSON_QUOTE(?), '$')`,
-        [symbolName],
+        [symbolName]
       )
-      return rows.map(r => this._rowToRepoMapSymbol(r))
+      return rows.map((r) => this._rowToRepoMapSymbol(r))
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
       throw new AppError(ERR_REPO_MAP_STORAGE_READ, 2, `findByDependedBy failed: ${detail}`)
@@ -260,9 +277,9 @@ export class DoltSymbolRepository implements ISymbolRepository {
   async findAll(): Promise<RepoMapSymbol[]> {
     try {
       const rows = await this._client.query<SymbolRow>(
-        'SELECT file_path, symbol_name, symbol_kind, signature, line_number, exported, file_hash, dependencies FROM repo_map_symbols',
+        'SELECT file_path, symbol_name, symbol_kind, signature, line_number, exported, file_hash, dependencies FROM repo_map_symbols'
       )
-      return rows.map(r => this._rowToRepoMapSymbol(r))
+      return rows.map((r) => this._rowToRepoMapSymbol(r))
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
       throw new AppError(ERR_REPO_MAP_STORAGE_READ, 2, `findAll failed: ${detail}`)
@@ -273,11 +290,12 @@ export class DoltSymbolRepository implements ISymbolRepository {
     let deps: string[] = []
     if (row.dependencies) {
       try {
-        const parsed = typeof row.dependencies === 'string'
-          ? JSON.parse(row.dependencies)
-          : row.dependencies
+        const parsed =
+          typeof row.dependencies === 'string' ? JSON.parse(row.dependencies) : row.dependencies
         if (Array.isArray(parsed)) deps = parsed
-      } catch { /* ignore malformed JSON */ }
+      } catch {
+        /* ignore malformed JSON */
+      }
     }
     return {
       filePath: row.file_path,
@@ -318,7 +336,7 @@ export class DoltRepoMapMetaRepository implements IRepoMapMetaRepository {
            commit_sha = VALUES(commit_sha),
            updated_at = VALUES(updated_at),
            file_count = VALUES(file_count)`,
-        [meta.commitSha, meta.updatedAt.toISOString(), meta.fileCount],
+        [meta.commitSha, meta.updatedAt.toISOString(), meta.fileCount]
       )
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err)
@@ -332,7 +350,7 @@ export class DoltRepoMapMetaRepository implements IRepoMapMetaRepository {
   async getMeta(): Promise<RepoMapMeta | null> {
     try {
       const rows = await this._client.query<MetaRow>(
-        'SELECT id, commit_sha, updated_at, file_count FROM repo_map_meta WHERE id = 1',
+        'SELECT id, commit_sha, updated_at, file_count FROM repo_map_meta WHERE id = 1'
       )
       if (rows.length === 0) return null
       const row = rows[0]!
@@ -366,7 +384,7 @@ export class RepoMapStorage {
     symbolRepo: ISymbolRepository,
     metaRepo: IRepoMapMetaRepository,
     gitClient: IGitClient,
-    logger: pino.Logger,
+    logger: pino.Logger
   ) {
     this._symbolRepo = symbolRepo
     this._metaRepo = metaRepo
@@ -451,7 +469,10 @@ export class RepoMapStorage {
     const trackedFiles = await this._gitClient.listTrackedFiles(projectRoot)
     const supported = trackedFiles.filter((f) => SUPPORTED_EXTENSIONS.has(extname(f)))
 
-    this._logger.debug({ total: trackedFiles.length, supported: supported.length }, 'fullBootstrap: starting')
+    this._logger.debug(
+      { total: trackedFiles.length, supported: supported.length },
+      'fullBootstrap: starting'
+    )
 
     let parsedCount = 0
     for (const filePath of supported) {

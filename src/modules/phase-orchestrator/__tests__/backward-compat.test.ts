@@ -229,7 +229,7 @@ describe('AC7: Database schema backward compatibility', () => {
 
   it('decisions table has required indexes', () => {
     const indexes = adapter.querySync<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decisions'",
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decisions'"
     )
     const names = indexes.map((i) => i.name)
 
@@ -239,7 +239,7 @@ describe('AC7: Database schema backward compatibility', () => {
 
   it('artifacts table has required index', () => {
     const indexes = adapter.querySync<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='artifacts'",
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='artifacts'"
     )
     const names = indexes.map((i) => i.name)
 
@@ -377,7 +377,10 @@ describe('AC7: Single-dispatch decisions readable by multi-step query functions'
 
   it('pipeline run status transitions work correctly on single-dispatch runs', async () => {
     // Simulate completing a legacy run
-    await updatePipelineRun(adapter, runId, { status: 'completed', current_phase: 'implementation' })
+    await updatePipelineRun(adapter, runId, {
+      status: 'completed',
+      current_phase: 'implementation',
+    })
 
     const run = await getPipelineRunById(adapter, runId)
     expect(run).toBeDefined()
@@ -462,11 +465,11 @@ describe('AC7: auto status output schema unchanged', () => {
     // Query counts the same way auto status does
     const allDecisionsRows = adapter.querySync<{ cnt: number }>(
       'SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?',
-      [run.id],
+      [run.id]
     )
     const storyCountRows = adapter.querySync<{ cnt: number }>(
       "SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ? AND category = 'stories'",
-      [run.id],
+      [run.id]
     )
     const allDecisions = allDecisionsRows[0]!
     const storyCount = storyCountRows[0]!

@@ -3,7 +3,13 @@ import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { getProjectFindings } from '../project-findings.js'
 import { createDecision } from '../../../persistence/queries/decisions.js'
-import { STORY_OUTCOME, ESCALATION_DIAGNOSIS, STORY_METRICS, OPERATIONAL_FINDING, ADVISORY_NOTES } from '../../../persistence/schemas/operational.js'
+import {
+  STORY_OUTCOME,
+  ESCALATION_DIAGNOSIS,
+  STORY_METRICS,
+  OPERATIONAL_FINDING,
+  ADVISORY_NOTES,
+} from '../../../persistence/schemas/operational.js'
 
 describe('getProjectFindings', () => {
   let adapter: InMemoryDatabaseAdapter
@@ -39,14 +45,24 @@ describe('getProjectFindings', () => {
       phase: 'implementation',
       category: STORY_OUTCOME,
       key: '1-1:run-1',
-      value: JSON.stringify({ storyKey: '1-1', outcome: 'complete', reviewCycles: 2, recurringPatterns: ['missing error handling'] }),
+      value: JSON.stringify({
+        storyKey: '1-1',
+        outcome: 'complete',
+        reviewCycles: 2,
+        recurringPatterns: ['missing error handling'],
+      }),
     })
     await createDecision(adapter, {
       pipeline_run_id: 'run-1',
       phase: 'implementation',
       category: STORY_OUTCOME,
       key: '1-2:run-1',
-      value: JSON.stringify({ storyKey: '1-2', outcome: 'complete', reviewCycles: 3, recurringPatterns: ['missing error handling'] }),
+      value: JSON.stringify({
+        storyKey: '1-2',
+        outcome: 'complete',
+        reviewCycles: 3,
+        recurringPatterns: ['missing error handling'],
+      }),
     })
 
     const result = await getProjectFindings(adapter)
@@ -121,7 +137,10 @@ describe('getProjectFindings', () => {
       phase: 'implementation',
       category: ADVISORY_NOTES,
       key: '25-3:run-1',
-      value: JSON.stringify({ storyKey: '25-3', notes: 'Consider extracting helper to shared module.' }),
+      value: JSON.stringify({
+        storyKey: '25-3',
+        notes: 'Consider extracting helper to shared module.',
+      }),
     })
 
     const result = await getProjectFindings(adapter)

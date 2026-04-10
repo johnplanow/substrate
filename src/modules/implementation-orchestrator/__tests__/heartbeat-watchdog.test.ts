@@ -31,7 +31,13 @@ vi.mock('../../compiled-workflows/code-review.js', () => ({
   runCodeReview: vi.fn(),
 }))
 vi.mock('../../compiled-workflows/test-plan.js', () => ({
-  runTestPlan: vi.fn().mockResolvedValue({ result: 'failed', test_files: [], test_categories: [], coverage_notes: '', tokenUsage: { input: 0, output: 0 } }),
+  runTestPlan: vi.fn().mockResolvedValue({
+    result: 'failed',
+    test_files: [],
+    test_categories: [],
+    coverage_notes: '',
+    tokenUsage: { input: 0, output: 0 },
+  }),
 }))
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   updatePipelineRun: vi.fn().mockResolvedValue(undefined),
@@ -67,7 +73,9 @@ vi.mock('../../../modules/compiled-workflows/index.js', () => ({
   planTaskBatches: vi.fn().mockReturnValue([]),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../../utils/helpers.js', () => ({
   sleep: vi.fn().mockResolvedValue(undefined),
@@ -95,7 +103,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
         checks: [],
         status: 'pass',
         duration_ms: 0,
-      }),
+      })
     ),
     register: vi.fn(),
   })),
@@ -172,7 +180,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -324,7 +334,7 @@ describe('AC1: Heartbeat timer', () => {
     expect(mockUpdatePipelineRun).toHaveBeenCalledWith(
       expect.anything(), // db adapter
       'test-run-16-7', // pipelineRunId from defaultConfig
-      { current_phase: 'implementation' },
+      { current_phase: 'implementation' }
     )
 
     // Complete the run

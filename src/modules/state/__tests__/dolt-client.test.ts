@@ -120,13 +120,15 @@ describe('DoltClient', () => {
         execute: vi.fn().mockResolvedValue([[], []]),
         end: vi.fn().mockResolvedValue(undefined),
       }
-      vi.mocked(mysql.createPool).mockReturnValue(fakePool as unknown as ReturnType<typeof mysql.createPool>)
+      vi.mocked(mysql.createPool).mockReturnValue(
+        fakePool as unknown as ReturnType<typeof mysql.createPool>
+      )
 
       const client = new DoltClient({ repoPath: '/tmp/repo' })
       await client.connect()
 
       expect(mysql.createPool).toHaveBeenCalledWith(
-        expect.objectContaining({ socketPath: '/tmp/repo/.dolt/dolt.sock' }),
+        expect.objectContaining({ socketPath: '/tmp/repo/.dolt/dolt.sock' })
       )
     })
   })
@@ -139,11 +141,14 @@ describe('DoltClient', () => {
           if (typeof callback === 'function') {
             callback(null, JSON.stringify({ rows: [{ story_key: '26-1' }] }), '')
           }
-        },
+        }
       )
 
       const client = await makeCliClient()
-      const rows = await client.query<{ story_key: string }>('SELECT * FROM stories WHERE story_key = ?', ['26-1'])
+      const rows = await client.query<{ story_key: string }>(
+        'SELECT * FROM stories WHERE story_key = ?',
+        ['26-1']
+      )
       expect(rows).toEqual([{ story_key: '26-1' }])
     })
 
@@ -152,7 +157,7 @@ describe('DoltClient', () => {
       vi.mocked(mod.execFile).mockImplementation(
         (_cmd: unknown, _args: unknown, _opts: unknown, callback: unknown) => {
           if (typeof callback === 'function') callback(null, '', '')
-        },
+        }
       )
 
       const client = await makeCliClient()
@@ -167,7 +172,7 @@ describe('DoltClient', () => {
           if (typeof callback === 'function') {
             callback(new Error('command not found'), '', 'command not found')
           }
-        },
+        }
       )
 
       const client = await makeCliClient()
@@ -181,7 +186,7 @@ describe('DoltClient', () => {
         (_cmd: unknown, args: unknown, _opts: unknown, callback: unknown) => {
           capturedArgs = [...(args as string[])]
           if (typeof callback === 'function') callback(null, '{"rows":[]}', '')
-        },
+        }
       )
 
       const client = await makeCliClient()
@@ -198,7 +203,7 @@ describe('DoltClient', () => {
         (_cmd: unknown, args: unknown, _opts: unknown, callback: unknown) => {
           capturedArgs = [...(args as string[])]
           if (typeof callback === 'function') callback(null, '{"rows":[]}', '')
-        },
+        }
       )
 
       const client = await makeCliClient()
@@ -216,7 +221,7 @@ describe('DoltClient', () => {
         (_cmd: unknown, args: unknown, _opts: unknown, callback: unknown) => {
           capturedArgs = [...(args as string[])]
           if (typeof callback === 'function') callback(null, '{"rows":[]}', '')
-        },
+        }
       )
 
       const client = await makeCliClient()
@@ -238,7 +243,9 @@ describe('DoltClient', () => {
         execute: vi.fn().mockResolvedValue([[{ id: 1 }], []]),
         end: vi.fn().mockResolvedValue(undefined),
       }
-      vi.mocked(mysql.createPool).mockReturnValue(fakePool as unknown as ReturnType<typeof mysql.createPool>)
+      vi.mocked(mysql.createPool).mockReturnValue(
+        fakePool as unknown as ReturnType<typeof mysql.createPool>
+      )
 
       const client = new DoltClient({ repoPath: '/tmp/repo' })
       await client.connect()
@@ -255,7 +262,9 @@ describe('DoltClient', () => {
         execute: vi.fn().mockRejectedValue(new Error('ER_BAD_FIELD_ERROR')),
         end: vi.fn().mockResolvedValue(undefined),
       }
-      vi.mocked(mysql.createPool).mockReturnValue(fakePool as unknown as ReturnType<typeof mysql.createPool>)
+      vi.mocked(mysql.createPool).mockReturnValue(
+        fakePool as unknown as ReturnType<typeof mysql.createPool>
+      )
 
       const client = new DoltClient({ repoPath: '/tmp/repo' })
       await client.connect()
@@ -280,7 +289,7 @@ describe('DoltClient', () => {
               callback(null, '{"rows":[]}', '')
             }
           }, 10)
-        },
+        }
       )
 
       const client = await makeCliClient()
@@ -310,7 +319,7 @@ describe('DoltClient', () => {
               callback(null, 'ok\n', '')
             }
           }, 10)
-        },
+        }
       )
 
       const client = await makeCliClient()
@@ -341,7 +350,7 @@ describe('DoltClient', () => {
               callback(null, '{"rows":[{"id":1}]}', '')
             }
           }
-        },
+        }
       )
 
       const client = await makeCliClient()
@@ -362,7 +371,9 @@ describe('DoltClient', () => {
         execute: vi.fn().mockResolvedValue([[], []]),
         end: vi.fn().mockResolvedValue(undefined),
       }
-      vi.mocked(mysql.createPool).mockReturnValue(fakePool as unknown as ReturnType<typeof mysql.createPool>)
+      vi.mocked(mysql.createPool).mockReturnValue(
+        fakePool as unknown as ReturnType<typeof mysql.createPool>
+      )
 
       const client = new DoltClient({ repoPath: '/tmp/repo' })
       await client.connect()

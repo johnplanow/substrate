@@ -7,7 +7,11 @@
  * This file exists for backwards compatibility with existing monolith imports.
  */
 export type { ModelResolution } from '@substrate-ai/core'
-export { RoutingResolver, TASK_TYPE_PHASE_MAP, ROUTING_RESOLVER_LOGGER_NAME } from '@substrate-ai/core'
+export {
+  RoutingResolver,
+  TASK_TYPE_PHASE_MAP,
+  ROUTING_RESOLVER_LOGGER_NAME,
+} from '@substrate-ai/core'
 
 // Re-export createLogger for callers that use this module as a convenience import
 export { createLogger } from '../../utils/logger.js'

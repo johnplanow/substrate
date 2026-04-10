@@ -94,11 +94,31 @@ export type RoutingPolicy = z.infer<typeof RoutingPolicySchema>
  * Values must be positive integers.
  */
 export const TokenCeilingsSchema = z.object({
-  'create-story': z.number().int().positive('create-story token ceiling must be a positive integer').optional(),
-  'dev-story': z.number().int().positive('dev-story token ceiling must be a positive integer').optional(),
-  'code-review': z.number().int().positive('code-review token ceiling must be a positive integer').optional(),
-  'test-plan': z.number().int().positive('test-plan token ceiling must be a positive integer').optional(),
-  'test-expansion': z.number().int().positive('test-expansion token ceiling must be a positive integer').optional(),
+  'create-story': z
+    .number()
+    .int()
+    .positive('create-story token ceiling must be a positive integer')
+    .optional(),
+  'dev-story': z
+    .number()
+    .int()
+    .positive('dev-story token ceiling must be a positive integer')
+    .optional(),
+  'code-review': z
+    .number()
+    .int()
+    .positive('code-review token ceiling must be a positive integer')
+    .optional(),
+  'test-plan': z
+    .number()
+    .int()
+    .positive('test-plan token ceiling must be a positive integer')
+    .optional(),
+  'test-expansion': z
+    .number()
+    .int()
+    .positive('test-expansion token ceiling must be a positive integer')
+    .optional(),
 })
 
 export type TokenCeilings = z.infer<typeof TokenCeilingsSchema>

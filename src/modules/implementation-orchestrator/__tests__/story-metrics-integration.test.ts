@@ -12,7 +12,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
-import { createPipelineRun, getDecisionsByCategory } from '../../../persistence/queries/decisions.js'
+import {
+  createPipelineRun,
+  getDecisionsByCategory,
+} from '../../../persistence/queries/decisions.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { STORY_METRICS } from '../../../persistence/schemas/operational.js'
 
@@ -42,7 +45,9 @@ vi.mock('../../compiled-workflows/index.js', () => ({
   planTaskBatches: vi.fn().mockReturnValue([]),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
@@ -73,8 +78,13 @@ const mockRunCodeReview = vi.mocked(runCodeReview)
 function createMockPack(): MethodologyPack {
   return {
     manifest: {
-      name: 'test-pack', version: '1.0.0', description: 'Test', phases: [],
-      prompts: {}, constraints: {}, templates: {},
+      name: 'test-pack',
+      version: '1.0.0',
+      description: 'Test',
+      phases: [],
+      prompts: {},
+      constraints: {},
+      templates: {},
     },
     getPhases: vi.fn().mockReturnValue([]),
     getPrompt: vi.fn().mockResolvedValue(''),
@@ -84,7 +94,11 @@ function createMockPack(): MethodologyPack {
 }
 
 function createMockContextCompiler(): ContextCompiler {
-  return { compile: vi.fn(), registerTemplate: vi.fn(), getTemplate: vi.fn() } as unknown as ContextCompiler
+  return {
+    compile: vi.fn(),
+    registerTemplate: vi.fn(),
+    getTemplate: vi.fn(),
+  } as unknown as ContextCompiler
 }
 
 function createMockDispatcher(): Dispatcher {
@@ -101,7 +115,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockResult),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   } as unknown as Dispatcher
 }

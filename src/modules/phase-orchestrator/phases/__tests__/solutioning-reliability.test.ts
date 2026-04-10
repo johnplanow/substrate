@@ -65,7 +65,9 @@ async function seedPlanningDecisions(adapter: DatabaseAdapter, runId: string): P
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
@@ -88,14 +90,16 @@ function makeSingleDispatchPack(): MethodologyPack {
       name: 'test-pack',
       version: '1.0.0',
       description: 'Test',
-      phases: [{
-        name: 'solutioning',
-        description: 'Solutioning',
-        entryGates: [],
-        exitGates: [],
-        artifacts: ['architecture', 'stories'],
-        // No steps → single-dispatch
-      }],
+      phases: [
+        {
+          name: 'solutioning',
+          description: 'Solutioning',
+          entryGates: [],
+          exitGates: [],
+          artifacts: ['architecture', 'stories'],
+          // No steps → single-dispatch
+        },
+      ],
       prompts: {
         architecture: 'prompts/architecture.md',
         'story-generation': 'prompts/story-generation.md',
@@ -104,7 +108,9 @@ function makeSingleDispatchPack(): MethodologyPack {
       templates: {},
     },
     getPhases: vi.fn().mockReturnValue([]),
-    getPrompt: vi.fn().mockResolvedValue('Template: {{requirements}} {{architecture_decisions}} {{gap_analysis}}'),
+    getPrompt: vi
+      .fn()
+      .mockResolvedValue('Template: {{requirements}} {{architecture_decisions}} {{gap_analysis}}'),
     getConstraints: vi.fn().mockResolvedValue([]),
     getTemplate: vi.fn().mockResolvedValue(''),
   }
@@ -113,7 +119,7 @@ function makeSingleDispatchPack(): MethodologyPack {
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack: MethodologyPack,
+  pack: MethodologyPack
 ): PhaseDeps {
   return { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
@@ -305,23 +311,28 @@ describe('AC3: Architecture-to-stories phase transition', () => {
     // Only story generation dispatch should occur (not architecture)
     const storyOutput = {
       result: 'success',
-      epics: [{
-        title: 'Task Management',
-        description: 'Core task features',
-        stories: [{
-          key: '1-1',
-          title: 'Create tasks',
-          description: 'Users can create tasks on the board',
-          acceptance_criteria: ['Users can create a task'],
-          priority: 'must',
-        }, {
-          key: '1-2',
-          title: 'View task board',
-          description: 'Users can view all tasks on a board',
-          acceptance_criteria: ['Board shows all tasks'],
-          priority: 'must',
-        }],
-      }],
+      epics: [
+        {
+          title: 'Task Management',
+          description: 'Core task features',
+          stories: [
+            {
+              key: '1-1',
+              title: 'Create tasks',
+              description: 'Users can create tasks on the board',
+              acceptance_criteria: ['Users can create a task'],
+              priority: 'must',
+            },
+            {
+              key: '1-2',
+              title: 'View task board',
+              description: 'Users can view all tasks on a board',
+              acceptance_criteria: ['Board shows all tasks'],
+              priority: 'must',
+            },
+          ],
+        },
+      ],
     }
 
     let dispatchCallCount = 0
@@ -369,17 +380,21 @@ describe('AC3: Architecture-to-stories phase transition', () => {
     }
     const storyOutput = {
       result: 'success',
-      epics: [{
-        title: 'Core',
-        description: 'Core features',
-        stories: [{
-          key: '1-1',
-          title: 'Create tasks',
-          description: 'Task creation',
-          acceptance_criteria: ['Users can create tasks on the board'],
-          priority: 'must',
-        }],
-      }],
+      epics: [
+        {
+          title: 'Core',
+          description: 'Core features',
+          stories: [
+            {
+              key: '1-1',
+              title: 'Create tasks',
+              description: 'Task creation',
+              acceptance_criteria: ['Users can create tasks on the board'],
+              priority: 'must',
+            },
+          ],
+        },
+      ],
     }
 
     let callIndex = 0
@@ -423,17 +438,21 @@ describe('AC3: Architecture-to-stories phase transition', () => {
     }
     const storyOutput = {
       result: 'success',
-      epics: [{
-        title: 'Core',
-        description: 'Core features',
-        stories: [{
-          key: '1-1',
-          title: 'Create tasks',
-          description: 'Task creation',
-          acceptance_criteria: ['Users can create tasks on the board'],
-          priority: 'must',
-        }],
-      }],
+      epics: [
+        {
+          title: 'Core',
+          description: 'Core features',
+          stories: [
+            {
+              key: '1-1',
+              title: 'Create tasks',
+              description: 'Task creation',
+              acceptance_criteria: ['Users can create tasks on the board'],
+              priority: 'must',
+            },
+          ],
+        },
+      ],
     }
 
     let callIndex = 0
@@ -462,7 +481,12 @@ describe('AC3: Architecture-to-stories phase transition', () => {
     await runSolutioningPhase(deps, params)
 
     // Architecture artifact should be registered
-    const archArtifact = await getArtifactByTypeForRun(adapter, runId, 'solutioning', 'architecture')
+    const archArtifact = await getArtifactByTypeForRun(
+      adapter,
+      runId,
+      'solutioning',
+      'architecture'
+    )
     expect(archArtifact).toBeTruthy()
     expect(archArtifact!.summary).toContain('architecture decision')
   })
@@ -495,17 +519,21 @@ describe('AC3: Architecture-to-stories phase transition', () => {
 
     const storyOutput = {
       result: 'success',
-      epics: [{
-        title: 'Core',
-        description: 'Core features',
-        stories: [{
-          key: '1-1',
-          title: 'Create tasks',
-          description: 'Users can create tasks on the board',
-          acceptance_criteria: ['Task creation works'],
-          priority: 'must',
-        }],
-      }],
+      epics: [
+        {
+          title: 'Core',
+          description: 'Core features',
+          stories: [
+            {
+              key: '1-1',
+              title: 'Create tasks',
+              description: 'Users can create tasks on the board',
+              acceptance_criteria: ['Task creation works'],
+              priority: 'must',
+            },
+          ],
+        },
+      ],
     }
 
     const dispatcher: Dispatcher = {
@@ -578,17 +606,21 @@ describe('AC2: Dynamic prompt token budget in single-dispatch story generation',
 
     const storyOutput = {
       result: 'success',
-      epics: [{
-        title: 'Core',
-        description: 'Core features',
-        stories: [{
-          key: '1-1',
-          title: 'Create tasks',
-          description: 'Task creation and task board viewing',
-          acceptance_criteria: ['Users can create tasks on the board'],
-          priority: 'must',
-        }],
-      }],
+      epics: [
+        {
+          title: 'Core',
+          description: 'Core features',
+          stories: [
+            {
+              key: '1-1',
+              title: 'Create tasks',
+              description: 'Task creation and task board viewing',
+              acceptance_criteria: ['Users can create tasks on the board'],
+              priority: 'must',
+            },
+          ],
+        },
+      ],
     }
 
     const dispatcher: Dispatcher = {

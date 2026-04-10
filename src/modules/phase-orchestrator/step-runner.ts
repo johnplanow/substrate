@@ -23,11 +23,7 @@ import { calculateDynamicBudget, summarizeDecisions } from './budget-utils.js'
 import { createLogger } from '../../utils/logger.js'
 import type { PhaseDeps } from './phases/types.js'
 import { runCritiqueLoop } from './critique-loop.js'
-import {
-  selectMethods,
-  deriveContentType,
-  type ElicitationMethod,
-} from './elicitation-selector.js'
+import { selectMethods, deriveContentType, type ElicitationMethod } from './elicitation-selector.js'
 import { ElicitationOutputSchema } from './phases/schemas.js'
 
 const logger = createLogger('step-runner')
@@ -166,7 +162,7 @@ export interface MultiStepResult {
  */
 export function formatDecisionsForInjection(
   decisions: Array<{ key: string; value: string; rationale?: string | null }>,
-  sectionTitle?: string,
+  sectionTitle?: string
 ): string {
   if (decisions.length === 0) return ''
 
@@ -213,7 +209,7 @@ export async function resolveContext(
   deps: PhaseDeps,
   runId: string,
   params: Record<string, string>,
-  stepOutputs: Map<string, Record<string, unknown>>,
+  stepOutputs: Map<string, Record<string, unknown>>
 ): Promise<string> {
   const { source } = ref
 
@@ -234,7 +230,7 @@ export async function resolveContext(
 
     return formatDecisionsForInjection(
       filtered.map((d) => ({ key: d.key, value: d.value, rationale: d.rationale ?? null })),
-      category.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+      category.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
     )
   }
 
@@ -291,7 +287,7 @@ export async function runSteps(
   deps: PhaseDeps,
   runId: string,
   phase: string,
-  params: Record<string, string>,
+  params: Record<string, string>
 ): Promise<MultiStepResult> {
   const stepResults: StepResult[] = []
   const stepOutputs = new Map<string, Record<string, unknown>>()
@@ -325,7 +321,7 @@ export async function runSteps(
         if (decisionRefs.length > 0) {
           logger.warn(
             { step: step.name, estimatedTokens, budgetTokens },
-            'Prompt exceeds budget — attempting decision summarization',
+            'Prompt exceeds budget — attempting decision summarization'
           )
 
           // Re-resolve decision refs with summarized content
@@ -343,7 +339,7 @@ export async function runSteps(
                 const availableChars = Math.max(200, Math.floor(budgetChars / decisionRefs.length))
                 value = summarizeDecisions(
                   filtered.map((d) => ({ key: d.key, value: d.value, category: d.category })),
-                  availableChars,
+                  availableChars
                 )
               } else {
                 value = await resolveContext(ref, deps, runId, params, stepOutputs)
@@ -360,7 +356,7 @@ export async function runSteps(
           if (estimatedTokens <= budgetTokens) {
             logger.info(
               { step: step.name, estimatedTokens, budgetTokens },
-              'Decision summarization brought prompt within budget',
+              'Decision summarization brought prompt within budget'
             )
           }
         }
@@ -404,29 +400,77 @@ export async function runSteps(
       // 5. Check dispatch status
       if (dispatchResult.status === 'timeout') {
         const errorMsg = `Step '${step.name}' timed out after ${dispatchResult.durationMs}ms`
-        stepResults.push({ name: step.name, success: false, parsed: null, error: errorMsg, tokenUsage })
-        return { success: false, steps: stepResults, tokenUsage: { input: totalInput, output: totalOutput }, elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput }, error: errorMsg }
+        stepResults.push({
+          name: step.name,
+          success: false,
+          parsed: null,
+          error: errorMsg,
+          tokenUsage,
+        })
+        return {
+          success: false,
+          steps: stepResults,
+          tokenUsage: { input: totalInput, output: totalOutput },
+          elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput },
+          error: errorMsg,
+        }
       }
 
       if (dispatchResult.status === 'failed') {
         const errorMsg = `Step '${step.name}' dispatch failed: ${dispatchResult.parseError ?? dispatchResult.output}`
-        stepResults.push({ name: step.name, success: false, parsed: null, error: errorMsg, tokenUsage })
-        return { success: false, steps: stepResults, tokenUsage: { input: totalInput, output: totalOutput }, elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput }, error: errorMsg }
+        stepResults.push({
+          name: step.name,
+          success: false,
+          parsed: null,
+          error: errorMsg,
+          tokenUsage,
+        })
+        return {
+          success: false,
+          steps: stepResults,
+          tokenUsage: { input: totalInput, output: totalOutput },
+          elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput },
+          error: errorMsg,
+        }
       }
 
       // 6. Validate parsed output
       if (dispatchResult.parsed === null || dispatchResult.parseError !== null) {
         const errorMsg = `Step '${step.name}' schema validation failed: ${dispatchResult.parseError ?? 'No parsed output'}`
-        stepResults.push({ name: step.name, success: false, parsed: null, error: errorMsg, tokenUsage })
-        return { success: false, steps: stepResults, tokenUsage: { input: totalInput, output: totalOutput }, elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput }, error: errorMsg }
+        stepResults.push({
+          name: step.name,
+          success: false,
+          parsed: null,
+          error: errorMsg,
+          tokenUsage,
+        })
+        return {
+          success: false,
+          steps: stepResults,
+          tokenUsage: { input: totalInput, output: totalOutput },
+          elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput },
+          error: errorMsg,
+        }
       }
 
       const parsed = dispatchResult.parsed as Record<string, unknown>
 
       if (parsed.result === 'failed') {
         const errorMsg = `Step '${step.name}' agent reported failure`
-        stepResults.push({ name: step.name, success: false, parsed: null, error: errorMsg, tokenUsage })
-        return { success: false, steps: stepResults, tokenUsage: { input: totalInput, output: totalOutput }, elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput }, error: errorMsg }
+        stepResults.push({
+          name: step.name,
+          success: false,
+          parsed: null,
+          error: errorMsg,
+          tokenUsage,
+        })
+        return {
+          success: false,
+          steps: stepResults,
+          tokenUsage: { input: totalInput, output: totalOutput },
+          elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput },
+          error: errorMsg,
+        }
       }
 
       // 7. Store output in step outputs map for subsequent steps
@@ -486,16 +530,11 @@ export async function runSteps(
         try {
           // Serialize the step output as the artifact to critique
           const artifactContent = JSON.stringify(parsed, null, 2)
-          const critiqueResult = await runCritiqueLoop(
-            artifactContent,
-            phase,
-            runId,
-            phase,
-            deps,
-          )
+          const critiqueResult = await runCritiqueLoop(artifactContent, phase, runId, phase, deps)
           // Add critique and refinement token costs to running totals
           totalInput += critiqueResult.critiqueTokens.input + critiqueResult.refinementTokens.input
-          totalOutput += critiqueResult.critiqueTokens.output + critiqueResult.refinementTokens.output
+          totalOutput +=
+            critiqueResult.critiqueTokens.output + critiqueResult.refinementTokens.output
           logger.info(
             {
               step: step.name,
@@ -503,14 +542,15 @@ export async function runSteps(
               iterations: critiqueResult.iterations,
               totalMs: critiqueResult.totalMs,
             },
-            'Step critique loop complete',
+            'Step critique loop complete'
           )
         } catch (critiqueErr) {
           // Critique errors are non-blocking — log and continue
-          const critiqueMsg = critiqueErr instanceof Error ? critiqueErr.message : String(critiqueErr)
+          const critiqueMsg =
+            critiqueErr instanceof Error ? critiqueErr.message : String(critiqueErr)
           logger.warn(
             { step: step.name, err: critiqueMsg },
-            'Step critique loop threw an error — continuing without critique',
+            'Step critique loop threw an error — continuing without critique'
           )
         }
       }
@@ -522,7 +562,7 @@ export async function runSteps(
           const contentType = deriveContentType(phase, step.name)
           const selectedMethods = selectMethods(
             { content_type: contentType },
-            usedElicitationMethods,
+            usedElicitationMethods
           )
 
           if (selectedMethods.length > 0) {
@@ -532,7 +572,7 @@ export async function runSteps(
                 methods: selectedMethods.map((m) => m.name),
                 contentType,
               },
-              'Running automated elicitation',
+              'Running automated elicitation'
             )
 
             // Load elicitation prompt template
@@ -564,10 +604,7 @@ export async function runSteps(
               elicitOutput += elicitResult.tokenEstimate.output
 
               // Store results in decision store if dispatch succeeded
-              if (
-                elicitResult.status === 'completed' &&
-                elicitResult.parsed !== null
-              ) {
+              if (elicitResult.status === 'completed' && elicitResult.parsed !== null) {
                 const elicitParsed = elicitResult.parsed as { result: string; insights: string }
                 if (elicitParsed.result === 'success' && elicitParsed.insights) {
                   // Store method name
@@ -588,7 +625,7 @@ export async function runSteps(
                   })
                   logger.info(
                     { step: step.name, method: method.name, roundIndex },
-                    'Elicitation insights stored in decision store',
+                    'Elicitation insights stored in decision store'
                   )
                 }
               } else {
@@ -598,7 +635,7 @@ export async function runSteps(
                     method: method.name,
                     status: elicitResult.status,
                   },
-                  'Elicitation dispatch did not produce valid output — skipping',
+                  'Elicitation dispatch did not produce valid output — skipping'
                 )
               }
 
@@ -615,7 +652,7 @@ export async function runSteps(
           const elicitMsg = elicitErr instanceof Error ? elicitErr.message : String(elicitErr)
           logger.warn(
             { step: step.name, err: elicitMsg },
-            'Step elicitation threw an error — continuing without elicitation',
+            'Step elicitation threw an error — continuing without elicitation'
           )
         }
       }

@@ -33,9 +33,15 @@ const FIXTURES_DIR = resolve(__dirname, 'fixtures')
 function createMockEventBus(): TypedEventBus {
   const emitter = new EventEmitter()
   return {
-    emit: vi.fn((event: string, payload: unknown) => { emitter.emit(event, payload) }),
-    on: vi.fn((event: string, handler: (payload: unknown) => void) => { emitter.on(event, handler) }),
-    off: vi.fn((event: string, handler: (payload: unknown) => void) => { emitter.off(event, handler) }),
+    emit: vi.fn((event: string, payload: unknown) => {
+      emitter.emit(event, payload)
+    }),
+    on: vi.fn((event: string, handler: (payload: unknown) => void) => {
+      emitter.on(event, handler)
+    }),
+    off: vi.fn((event: string, handler: (payload: unknown) => void) => {
+      emitter.off(event, handler)
+    }),
   } as unknown as TypedEventBus
 }
 
@@ -55,8 +61,12 @@ function makeTask(overrides: Partial<TaskNode> = {}): TaskNode {
 
 function createMockMonitorAgent(recommendation: Recommendation | null = null): MonitorAgent {
   return {
-    initialize: vi.fn(async (): Promise<void> => { /* no-op */ }),
-    shutdown: vi.fn(async (): Promise<void> => { /* no-op */ }),
+    initialize: vi.fn(async (): Promise<void> => {
+      /* no-op */
+    }),
+    shutdown: vi.fn(async (): Promise<void> => {
+      /* no-op */
+    }),
     recordTaskMetrics: vi.fn(),
     getRecommendations: vi.fn(() => (recommendation != null ? [recommendation] : [])),
     getRecommendation: vi.fn((_taskType: string) => recommendation),
@@ -611,7 +621,11 @@ describe('_routeWithoutPolicy: Monitor Consulted Without Routing Policy', () => 
     await engine.initialize()
     engine.setMonitorAgent(monitorAgent, true)
 
-    const task = makeTask({ id: 'task-no-policy-explicit', agentId: 'claude', metadata: { taskType: 'coding' } })
+    const task = makeTask({
+      id: 'task-no-policy-explicit',
+      agentId: 'claude',
+      metadata: { taskType: 'coding' },
+    })
     const decision = engine.routeTask(task)
 
     expect(decision.agent).toBe('claude')

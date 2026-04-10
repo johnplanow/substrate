@@ -31,7 +31,11 @@ describe('VersionCache full', () => {
   })
 
   it('returns entry when cache is fresh', () => {
-    cache.write({ lastChecked: new Date().toISOString(), latestVersion: '1.1.0', currentVersion: '1.0.0' })
+    cache.write({
+      lastChecked: new Date().toISOString(),
+      latestVersion: '1.1.0',
+      currentVersion: '1.0.0',
+    })
     const result = cache.read()
     expect(result).not.toBeNull()
     expect(result?.latestVersion).toBe('1.1.0')
@@ -43,7 +47,11 @@ describe('VersionCache full', () => {
   })
 
   it('returns null when missing required fields', () => {
-    writeFileSync(join(tempDir, 'update-cache.json'), JSON.stringify({ lastChecked: new Date().toISOString() }), 'utf-8')
+    writeFileSync(
+      join(tempDir, 'update-cache.json'),
+      JSON.stringify({ lastChecked: new Date().toISOString() }),
+      'utf-8'
+    )
     expect(cache.read()).toBeNull()
   })
 })

@@ -44,7 +44,7 @@ async function insertDecision(
   adapter: InMemoryDatabaseAdapter,
   storyKey: string,
   runId: string,
-  recommendedAction: EscalationDiagnosis['recommendedAction'],
+  recommendedAction: EscalationDiagnosis['recommendedAction']
 ): Promise<void> {
   await createDecision(adapter, {
     phase: 'implementation',

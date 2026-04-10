@@ -28,9 +28,7 @@ describe('RepoMapGenerator.formatAsText', () => {
   })
 
   it('formats symbol with empty signature without parentheses', () => {
-    const symbols: ParsedSymbol[] = [
-      makeSymbol({ name: 'MyClass', kind: 'class', signature: '' }),
-    ]
+    const symbols: ParsedSymbol[] = [makeSymbol({ name: 'MyClass', kind: 'class', signature: '' })]
     const result = gen.formatAsText(symbols, projectRoot)
     expect(result).toContain('  class MyClass')
     expect(result).not.toContain('()')
@@ -38,7 +36,12 @@ describe('RepoMapGenerator.formatAsText', () => {
 
   it('omits files with zero exported symbols', () => {
     const symbols: ParsedSymbol[] = [
-      makeSymbol({ kind: 'import', exported: false, name: 'react', filePath: '/project/src/bar.ts' }),
+      makeSymbol({
+        kind: 'import',
+        exported: false,
+        name: 'react',
+        filePath: '/project/src/bar.ts',
+      }),
     ]
     const result = gen.formatAsText(symbols, projectRoot)
     expect(result).toBe('')

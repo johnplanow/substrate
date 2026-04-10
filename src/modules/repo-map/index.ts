@@ -9,14 +9,15 @@ export type { IGrammarLoader, ISymbolParser, ParsedSymbol, SymbolKind } from './
 export type { ISymbolRepository } from './interfaces.js'
 
 // Story 28-2: Dolt storage, git client, and related types
-export { DoltSymbolRepository, DoltRepoMapMetaRepository, RepoMapStorage, computeFileHash, SUPPORTED_EXTENSIONS } from './storage.js'
+export {
+  DoltSymbolRepository,
+  DoltRepoMapMetaRepository,
+  RepoMapStorage,
+  computeFileHash,
+  SUPPORTED_EXTENSIONS,
+} from './storage.js'
 export { GitClient } from './git-client.js'
-export type {
-  IRepoMapMetaRepository,
-  IGitClient,
-  SymbolFilter,
-  RepoMapMeta,
-} from './interfaces.js'
+export type { IRepoMapMetaRepository, IGitClient, SymbolFilter, RepoMapMeta } from './interfaces.js'
 
 // Story 28-3: query engine, formatter, and types
 export { RepoMapQueryEngine } from './query.js'

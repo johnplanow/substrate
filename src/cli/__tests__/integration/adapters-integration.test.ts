@@ -139,7 +139,10 @@ describe('adapters list - integration', () => {
 
   it('produces valid JSON output with --output-format json', async () => {
     const registry = createMockRegistry(HEALTHY_REPORT)
-    const { output } = await runIntegrated(['adapters', 'list', '--output-format', 'json'], registry)
+    const { output } = await runIntegrated(
+      ['adapters', 'list', '--output-format', 'json'],
+      registry
+    )
     const parsed = JSON.parse(output) as { data: unknown[]; command: string }
     expect(parsed.command).toBe('substrate adapters list')
     expect(Array.isArray(parsed.data)).toBe(true)
@@ -148,7 +151,10 @@ describe('adapters list - integration', () => {
 
   it('JSON output contains timestamp and version fields', async () => {
     const registry = createMockRegistry(HEALTHY_REPORT)
-    const { output } = await runIntegrated(['adapters', 'list', '--output-format', 'json'], registry)
+    const { output } = await runIntegrated(
+      ['adapters', 'list', '--output-format', 'json'],
+      registry
+    )
     const parsed = JSON.parse(output) as { timestamp: string; version: string }
     expect(typeof parsed.timestamp).toBe('string')
     expect(typeof parsed.version).toBe('string')
@@ -196,7 +202,12 @@ describe('adapters check - integration', () => {
       registry
     )
     const parsed = JSON.parse(output) as {
-      data: { adapterId: string; healthy: boolean; supportsHeadless: boolean; detectedBillingModes: string[] }[]
+      data: {
+        adapterId: string
+        healthy: boolean
+        supportsHeadless: boolean
+        detectedBillingModes: string[]
+      }[]
     }
     expect(parsed.data[0]).toHaveProperty('adapterId')
     expect(parsed.data[0]).toHaveProperty('healthy')
@@ -210,7 +221,9 @@ describe('adapters check - integration', () => {
       ['adapters', 'check', '--output-format', 'json'],
       registry
     )
-    expect((): void => { JSON.parse(output) }).not.toThrow()
+    expect((): void => {
+      JSON.parse(output)
+    }).not.toThrow()
     expect(output.endsWith('\n')).toBe(true)
   })
 })

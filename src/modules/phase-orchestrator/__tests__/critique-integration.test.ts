@@ -39,22 +39,29 @@ async function createTestRun(adapter: DatabaseAdapter): Promise<string> {
 
 const TestOutputSchema = z.object({
   result: z.enum(['success', 'failed']),
-  architecture_decisions: z.array(z.object({
-    category: z.string(),
-    key: z.string(),
-    value: z.string(),
-  })).optional(),
+  architecture_decisions: z
+    .array(
+      z.object({
+        category: z.string(),
+        key: z.string(),
+        value: z.string(),
+      })
+    )
+    .optional(),
 })
 
 function makeDispatchResult(
-  overrides: Partial<DispatchResult<unknown>> = {},
+  overrides: Partial<DispatchResult<unknown>> = {}
 ): DispatchResult<unknown> {
   return {
     id: `dispatch-${Math.random().toString(36).slice(2, 8)}`,
     status: 'completed',
     exitCode: 0,
     output: 'yaml output',
-    parsed: { result: 'success', architecture_decisions: [{ category: 'test', key: 'lang', value: 'TS' }] },
+    parsed: {
+      result: 'success',
+      architecture_decisions: [{ category: 'test', key: 'lang', value: 'TS' }],
+    },
     parseError: null,
     durationMs: 1000,
     tokenEstimate: { input: 100, output: 50 },
@@ -103,14 +110,16 @@ function makePack(prompts: Record<string, string> = {}): MethodologyPack {
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack?: MethodologyPack,
+  pack?: MethodologyPack
 ): PhaseDeps {
   return {
     db: adapter,
@@ -148,7 +157,10 @@ describe('critique loop integration with step-runner', () => {
     // Step dispatch result
     const stepResult = makeDispatchResult({
       id: 'step-1',
-      parsed: { result: 'success', architecture_decisions: [{ category: 'lang', key: 'runtime', value: 'Node.js' }] },
+      parsed: {
+        result: 'success',
+        architecture_decisions: [{ category: 'lang', key: 'runtime', value: 'Node.js' }],
+      },
       tokenEstimate: { input: 100, output: 50 },
     })
 
@@ -162,14 +174,16 @@ describe('critique loop integration with step-runner', () => {
     const dispatcher = makeDispatcher([stepResult, critiqueResult])
     const deps = makeDeps(adapter, dispatcher, pack)
 
-    const steps: StepDefinition[] = [{
-      name: 'arch-step',
-      taskType: 'arch-decisions',
-      outputSchema: TestOutputSchema,
-      context: [{ placeholder: 'concept', source: 'param:concept' }],
-      persist: [],
-      critique: true, // This triggers the critique loop
-    }]
+    const steps: StepDefinition[] = [
+      {
+        name: 'arch-step',
+        taskType: 'arch-decisions',
+        outputSchema: TestOutputSchema,
+        context: [{ placeholder: 'concept', source: 'param:concept' }],
+        persist: [],
+        critique: true, // This triggers the critique loop
+      },
+    ]
 
     const result = await runSteps(steps, deps, runId, 'solutioning', { concept: 'Build a CLI' })
 
@@ -189,21 +203,26 @@ describe('critique loop integration with step-runner', () => {
     })
 
     const stepResult = makeDispatchResult({
-      parsed: { result: 'success', architecture_decisions: [{ category: 'lang', key: 'runtime', value: 'Node.js' }] },
+      parsed: {
+        result: 'success',
+        architecture_decisions: [{ category: 'lang', key: 'runtime', value: 'Node.js' }],
+      },
       tokenEstimate: { input: 100, output: 50 },
     })
 
     const dispatcher = makeDispatcher([stepResult])
     const deps = makeDeps(adapter, dispatcher, pack)
 
-    const steps: StepDefinition[] = [{
-      name: 'arch-step',
-      taskType: 'arch-decisions',
-      outputSchema: TestOutputSchema,
-      context: [{ placeholder: 'concept', source: 'param:concept' }],
-      persist: [],
-      // No critique flag — should not trigger critique loop
-    }]
+    const steps: StepDefinition[] = [
+      {
+        name: 'arch-step',
+        taskType: 'arch-decisions',
+        outputSchema: TestOutputSchema,
+        context: [{ placeholder: 'concept', source: 'param:concept' }],
+        persist: [],
+        // No critique flag — should not trigger critique loop
+      },
+    ]
 
     const result = await runSteps(steps, deps, runId, 'solutioning', { concept: 'Build a CLI' })
 
@@ -219,28 +238,40 @@ describe('critique loop integration with step-runner', () => {
     })
 
     const stepResult = makeDispatchResult({
-      parsed: { result: 'success', architecture_decisions: [{ category: 'lang', key: 'runtime', value: 'Node.js' }] },
+      parsed: {
+        result: 'success',
+        architecture_decisions: [{ category: 'lang', key: 'runtime', value: 'Node.js' }],
+      },
     })
 
     const critiqueResult = makeDispatchResult({
       parsed: {
         verdict: 'needs_work',
         issue_count: 1,
-        issues: [{ severity: 'minor', category: 'security', description: 'No auth', suggestion: 'Add auth' }],
+        issues: [
+          {
+            severity: 'minor',
+            category: 'security',
+            description: 'No auth',
+            suggestion: 'Add auth',
+          },
+        ],
       },
     })
 
     const dispatcher = makeDispatcher([stepResult, critiqueResult])
     const deps = makeDeps(adapter, dispatcher, pack)
 
-    const steps: StepDefinition[] = [{
-      name: 'arch-step',
-      taskType: 'arch-decisions',
-      outputSchema: TestOutputSchema,
-      context: [{ placeholder: 'concept', source: 'param:concept' }],
-      persist: [],
-      critique: true,
-    }]
+    const steps: StepDefinition[] = [
+      {
+        name: 'arch-step',
+        taskType: 'arch-decisions',
+        outputSchema: TestOutputSchema,
+        context: [{ placeholder: 'concept', source: 'param:concept' }],
+        persist: [],
+        critique: true,
+      },
+    ]
 
     await runSteps(steps, deps, runId, 'solutioning', { concept: 'CLI' })
 
@@ -274,14 +305,16 @@ describe('critique loop integration with step-runner', () => {
     const dispatcher = makeDispatcher([stepResult])
     const deps = makeDeps(adapter, dispatcher, pack)
 
-    const steps: StepDefinition[] = [{
-      name: 'arch-step',
-      taskType: 'arch-decisions',
-      outputSchema: TestOutputSchema,
-      context: [{ placeholder: 'concept', source: 'param:concept' }],
-      persist: [],
-      critique: true,
-    }]
+    const steps: StepDefinition[] = [
+      {
+        name: 'arch-step',
+        taskType: 'arch-decisions',
+        outputSchema: TestOutputSchema,
+        context: [{ placeholder: 'concept', source: 'param:concept' }],
+        persist: [],
+        critique: true,
+      },
+    ]
 
     // Should not throw — critique failure is non-blocking
     const result = await runSteps(steps, deps, runId, 'solutioning', { concept: 'CLI' })

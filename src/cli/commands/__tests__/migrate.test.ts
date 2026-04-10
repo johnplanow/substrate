@@ -284,7 +284,14 @@ describe('migrate command', () => {
 
     it('prints valid JSON with migrated=false for --dry-run --output-format json with no data', async () => {
       const program = createProgram()
-      await program.parseAsync(['node', 'substrate', 'migrate', '--dry-run', '--output-format', 'json'])
+      await program.parseAsync([
+        'node',
+        'substrate',
+        'migrate',
+        '--dry-run',
+        '--output-format',
+        'json',
+      ])
 
       expect(consoleSpy).toHaveBeenCalledOnce()
       const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as Record<string, unknown>

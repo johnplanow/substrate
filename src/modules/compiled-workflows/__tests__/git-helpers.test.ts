@@ -68,7 +68,13 @@ vi.mock('node:fs', async () => {
 })
 
 // Import after mocking
-import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitChangedFiles, stageIntentToAdd } from '../git-helpers.js'
+import {
+  getGitDiffSummary,
+  getGitDiffStatSummary,
+  getGitDiffForFiles,
+  getGitChangedFiles,
+  stageIntentToAdd,
+} from '../git-helpers.js'
 import { spawn } from 'node:child_process'
 
 // ---------------------------------------------------------------------------
@@ -200,7 +206,9 @@ describe('getGitDiffStatSummary', () => {
     const statPromise = getGitDiffStatSummary('/repo')
 
     if (capturedFp) {
-      capturedFp.writeStdout('src/foo.ts | 10 +++++++---\n1 file changed, 7 insertions(+), 3 deletions(-)\n')
+      capturedFp.writeStdout(
+        'src/foo.ts | 10 +++++++---\n1 file changed, 7 insertions(+), 3 deletions(-)\n'
+      )
       capturedFp.emitClose(0)
     }
 
@@ -366,21 +374,16 @@ describe('getGitChangedFiles', () => {
     if (capturedFp) {
       capturedFp.writeStdout(
         ' M src/modified.ts\n' +
-        'A  src/added.ts\n' +
-        '?? src/new-file.ts\n' +
-        ' D src/deleted.ts\n',
+          'A  src/added.ts\n' +
+          '?? src/new-file.ts\n' +
+          ' D src/deleted.ts\n'
       )
       capturedFp.emitClose(0)
     }
 
     const result = await promise
     expect(capturedArgs).toEqual(['status', '--porcelain'])
-    expect(result).toEqual([
-      'src/modified.ts',
-      'src/added.ts',
-      'src/new-file.ts',
-      'src/deleted.ts',
-    ])
+    expect(result).toEqual(['src/modified.ts', 'src/added.ts', 'src/new-file.ts', 'src/deleted.ts'])
   })
 
   it('returns empty array for clean repo (empty output)', async () => {
@@ -456,8 +459,8 @@ describe('getGitChangedFiles', () => {
     if (capturedFp) {
       capturedFp.writeStdout(
         '?? src/state/play-vs-ai-machine.ts\n' +
-        '?? src/state/play-vs-ai-machine.test.ts\n' +
-        '?? src/ui/components/game/mode-selection.tsx\n',
+          '?? src/state/play-vs-ai-machine.test.ts\n' +
+          '?? src/ui/components/game/mode-selection.tsx\n'
       )
       capturedFp.emitClose(0)
     }

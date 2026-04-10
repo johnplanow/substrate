@@ -119,7 +119,8 @@ describe('CpuSampler', () => {
     it('second sample, increased ticks: returns cpuPercent:1, available:true', async () => {
       const statContent1 = '1234 (node) S 1 1 1 0 -1 0 0 0 0 0 10 5 0 0 20 0 1 0 0 0 0'
       const statContent2 = '1234 (node) S 1 1 1 0 -1 0 0 0 0 0 20 10 0 0 20 0 1 0 0 0 0'
-      const mockReadFile = vi.fn()
+      const mockReadFile = vi
+        .fn()
         .mockResolvedValueOnce(statContent1)
         .mockResolvedValueOnce(statContent2)
       const sampler = new CpuSampler({ readFile: mockReadFile }, 'linux')
@@ -130,7 +131,9 @@ describe('CpuSampler', () => {
     })
 
     it('returns available:false when readFile throws EACCES', async () => {
-      const mockReadFile = vi.fn().mockRejectedValue(Object.assign(new Error('EACCES'), { code: 'EACCES' }))
+      const mockReadFile = vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error('EACCES'), { code: 'EACCES' }))
       const mockExecLine = vi.fn().mockRejectedValue(new Error('failed'))
       const sampler = new CpuSampler({ readFile: mockReadFile, execLine: mockExecLine }, 'linux')
 
@@ -209,7 +212,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuAvailable,
         processAlive: true,
       },
-      logWarning,
+      logWarning
     )
     expect(result.isStall).toBe(false)
     expect(result.isZombie).toBe(false)
@@ -226,7 +229,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuAvailable,
         processAlive: true,
       },
-      logWarning,
+      logWarning
     )
     expect(result.isStall).toBe(true)
     expect(result.suppressedBySingleSignal).toBe(false)
@@ -241,11 +244,11 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuUnavailable,
         processAlive: true,
       },
-      logWarning,
+      logWarning
     )
     expect(result.isStall).toBe(true)
     expect(logWarning).toHaveBeenCalledWith(
-      'CPU sampling unavailable — using output growth as second stall signal',
+      'CPU sampling unavailable — using output growth as second stall signal'
     )
   })
 
@@ -258,7 +261,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuUnavailable,
         processAlive: true,
       },
-      logWarning,
+      logWarning
     )
     expect(result.isStall).toBe(false)
     expect(result.suppressedBySingleSignal).toBe(true)
@@ -274,7 +277,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuUnavailable,
         processAlive: false,
       },
-      logWarning,
+      logWarning
     )
     expect(result.isStall).toBe(false)
     expect(result.suppressedBySingleSignal).toBe(true)
@@ -290,7 +293,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuZero,
         processAlive: true,
       },
-      logWarning,
+      logWarning
     )
     expect(result.isZombie).toBe(true)
     expect(result.isStall).toBe(false)
@@ -306,7 +309,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuUnavailable,
         processAlive: true,
       },
-      logWarning,
+      logWarning
     )
     expect(result.isZombie).toBe(false)
     expect(result.isStall).toBe(false)
@@ -321,7 +324,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuZero,
         processAlive: false,
       },
-      logWarning,
+      logWarning
     )
     expect(result.isZombie).toBe(false)
   })
@@ -335,7 +338,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuZero,
         processAlive: true,
       },
-      logWarning,
+      logWarning
     )
     expect(result.isZombie).toBe(false)
   })
@@ -349,7 +352,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuAvailable,
         processAlive: true,
       },
-      logWarning,
+      logWarning
     )
     expect(result.isStall).toBe(false)
     expect(result.isZombie).toBe(false)
@@ -366,7 +369,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuAvailable,
         processAlive: false,
       },
-      logWarning,
+      logWarning
     )
     expect(result.isStall).toBe(true)
   })
@@ -380,7 +383,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuZero,
         processAlive: true,
       },
-      logWarning,
+      logWarning
     )
     expect(result.isStall).toBe(true)
   })
@@ -394,7 +397,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuAvailable,
         processAlive: true,
       },
-      logWarning,
+      logWarning
     )
     expect(result.reason).toContain('stall:')
     expect(result.reason).toContain('cpu=')
@@ -410,7 +413,7 @@ describe('MultiSignalStallDetector', () => {
         cpuResult: cpuZero,
         processAlive: true,
       },
-      logWarning,
+      logWarning
     )
     expect(result.reason).toContain('zombie:')
   })

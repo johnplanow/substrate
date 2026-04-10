@@ -35,7 +35,11 @@ vi.mock('node:child_process', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 import { execSync } from 'node:child_process'
-import { assembleVerificationContext, VerificationStore, persistVerificationResult } from '../verification-integration.js'
+import {
+  assembleVerificationContext,
+  VerificationStore,
+  persistVerificationResult,
+} from '../verification-integration.js'
 import type { VerificationSummary, ReviewSignals } from '@substrate-ai/sdlc'
 import { RunManifest } from '@substrate-ai/sdlc'
 import { PerStoryStateSchema } from '@substrate-ai/sdlc'
@@ -46,7 +50,10 @@ const mockExecSync = vi.mocked(execSync)
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeVerificationSummary(storyKey: string, status: 'pass' | 'warn' | 'fail' = 'pass'): VerificationSummary {
+function makeVerificationSummary(
+  storyKey: string,
+  status: 'pass' | 'warn' | 'fail' = 'pass'
+): VerificationSummary {
   return {
     storyKey,
     checks: [],
@@ -208,7 +215,7 @@ describe('persistVerificationResult (Story 52-7)', () => {
         cost_accumulation: { per_story: {}, run_total: 0 },
         pending_proposals: [],
       },
-      tempDir,
+      tempDir
     )
 
     const summary = makeVerificationSummary('52-7', 'pass')
@@ -241,7 +248,7 @@ describe('persistVerificationResult (Story 52-7)', () => {
         cost_accumulation: { per_story: {}, run_total: 0 },
         pending_proposals: [],
       },
-      tempDir,
+      tempDir
     )
 
     const summary = makeVerificationSummary('52-7', 'fail')
@@ -258,11 +265,15 @@ describe('persistVerificationResult (Story 52-7)', () => {
 
   it('AC3: no-op when runManifest is null', () => {
     // Should not throw — just a fire-and-forget no-op
-    expect(() => persistVerificationResult('52-7', makeVerificationSummary('52-7', 'pass'), null)).not.toThrow()
+    expect(() =>
+      persistVerificationResult('52-7', makeVerificationSummary('52-7', 'pass'), null)
+    ).not.toThrow()
   })
 
   it('AC3: no-op when runManifest is undefined', () => {
-    expect(() => persistVerificationResult('52-7', makeVerificationSummary('52-7', 'pass'), undefined)).not.toThrow()
+    expect(() =>
+      persistVerificationResult('52-7', makeVerificationSummary('52-7', 'pass'), undefined)
+    ).not.toThrow()
   })
 
   it('AC3: persists both pass and fail summaries (all outcomes recorded)', async () => {
@@ -279,7 +290,7 @@ describe('persistVerificationResult (Story 52-7)', () => {
         cost_accumulation: { per_story: {}, run_total: 0 },
         pending_proposals: [],
       },
-      tempDir,
+      tempDir
     )
 
     // Write fail summary for story A

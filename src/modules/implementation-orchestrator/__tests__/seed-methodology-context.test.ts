@@ -42,7 +42,11 @@ vi.mock('../../../utils/logger.js', () => ({
   })),
 }))
 
-import { seedMethodologyContext, parseStorySubsections, detectTestPatterns } from '../seed-methodology-context.js'
+import {
+  seedMethodologyContext,
+  parseStorySubsections,
+  detectTestPatterns,
+} from '../seed-methodology-context.js'
 import { getDecisionsByPhase } from '../../../persistence/queries/decisions.js'
 
 // ---------------------------------------------------------------------------
@@ -239,7 +243,8 @@ describe('AC7: MAX_EPIC_SHARD_CHARS = 12,000', () => {
   })
 
   it('does not truncate content shorter than 12,000 chars', async () => {
-    const longContent = '## Epic 1: Long Epic\n' + 'x'.repeat(11_000) + '\n\n## Epic 2: Short\nContent\n'
+    const longContent =
+      '## Epic 1: Long Epic\n' + 'x'.repeat(11_000) + '\n\n## Epic 2: Short\nContent\n'
     setupEpicsFile(longContent)
     await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
     const decisions = await getDecisionsByPhase(adapter, 'implementation')
@@ -275,7 +280,7 @@ describe('AC1/AC2/AC6: Content-hash comparison in seedEpicShards()', () => {
 
     // Should have stored the hash
     const hashDecision = decisions.find(
-      (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file',
+      (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file'
     )
     expect(hashDecision).toBeDefined()
     expect(hashDecision?.value).toBe(sha256(EPICS_H2))
@@ -291,7 +296,9 @@ describe('AC1/AC2/AC6: Content-hash comparison in seedEpicShards()', () => {
     await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
 
     const decisionsAfterFirst = await getDecisionsByPhase(adapter, 'implementation')
-    const shardCountAfterFirst = decisionsAfterFirst.filter((d) => d.category === 'epic-shard').length
+    const shardCountAfterFirst = decisionsAfterFirst.filter(
+      (d) => d.category === 'epic-shard'
+    ).length
 
     // Second run — same file content
     const result2 = await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
@@ -301,7 +308,9 @@ describe('AC1/AC2/AC6: Content-hash comparison in seedEpicShards()', () => {
 
     // No new shards should have been added
     const decisionsAfterSecond = await getDecisionsByPhase(adapter, 'implementation')
-    const shardCountAfterSecond = decisionsAfterSecond.filter((d) => d.category === 'epic-shard').length
+    const shardCountAfterSecond = decisionsAfterSecond.filter(
+      (d) => d.category === 'epic-shard'
+    ).length
     expect(shardCountAfterSecond).toBe(shardCountAfterFirst)
   })
 
@@ -334,7 +343,7 @@ Story 3-1: New
 
     // Hash should be updated
     const hashDecision = decisions.find(
-      (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file',
+      (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file'
     )
     expect(hashDecision?.value).toBe(sha256(THREE_EPIC_CONTENT))
   })
@@ -352,7 +361,7 @@ Story 3-1: New
 
     const decisions = await getDecisionsByPhase(adapter, 'implementation')
     const hashDecision = decisions.find(
-      (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file',
+      (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file'
     )
     expect(hashDecision?.value).toBe(sha256(MODIFIED_CONTENT))
   })
@@ -399,7 +408,7 @@ describe('Integration: h3 headings, full seed-modify-re-seed flow', () => {
 
     // Hash should match updated content
     const hashDecision = decisions.find(
-      (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file',
+      (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file'
     )
     expect(hashDecision?.value).toBe(sha256(MODIFIED_H3))
   })
@@ -595,7 +604,8 @@ describe('Integration: seed-and-retrieve round trip (Story 37-0)', () => {
     expect(initialKeys).toContain('23-2')
 
     // Modify file to change content → triggers re-seed
-    const MODIFIED_CONTENT = EPICS_WITH_STORY_SECTIONS + '\n## Epic 99: New Epic\nStory 99-1: Added\n'
+    const MODIFIED_CONTENT =
+      EPICS_WITH_STORY_SECTIONS + '\n## Epic 99: New Epic\nStory 99-1: Added\n'
     setupEpicsFile(MODIFIED_CONTENT)
     await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
 

@@ -105,9 +105,6 @@ describe('checkSchemaVersion', () => {
     await checkSchemaVersion(adapter, SCHEMA, EXPECTED)
 
     expect(adapter.query).toHaveBeenCalledOnce()
-    expect(adapter.query).toHaveBeenCalledWith(
-      expect.stringContaining('schema_version'),
-      [SCHEMA]
-    )
+    expect(adapter.query).toHaveBeenCalledWith(expect.stringContaining('schema_version'), [SCHEMA])
   })
 })

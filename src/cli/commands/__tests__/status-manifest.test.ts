@@ -14,11 +14,7 @@ import type { RunManifestData } from '@substrate-ai/sdlc'
 // Hoisted mocks
 // ---------------------------------------------------------------------------
 
-const {
-  mockManifestRead,
-  mockRunManifestConstructor,
-  mockFsReadFile,
-} = vi.hoisted(() => {
+const { mockManifestRead, mockRunManifestConstructor, mockFsReadFile } = vi.hoisted(() => {
   const mockManifestRead = vi.fn()
   const mockRunManifestConstructor = vi.fn().mockImplementation(() => ({
     read: mockManifestRead,
@@ -104,9 +100,7 @@ import { runStatusAction } from '../status.js'
 import { getPipelineRunById, getLatestRun } from '../../../persistence/queries/decisions.js'
 
 /** Build a stub RunManifestData with the given per_story_state */
-function makeManifestData(
-  perStoryState: RunManifestData['per_story_state'],
-): RunManifestData {
+function makeManifestData(perStoryState: RunManifestData['per_story_state']): RunManifestData {
   return {
     run_id: 'test-run-id',
     cli_flags: {},
@@ -172,9 +166,19 @@ describe('status command — manifest-read path (Story 52-6)', () => {
     it('derives per-story counts (1 complete, 1 dispatched, 1 escalated) from manifest', async () => {
       // Arrange: manifest with 3 stories
       const manifestData = makeManifestData({
-        '1-1': { status: 'complete', phase: 'COMPLETE', started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T00:10:00Z' },
+        '1-1': {
+          status: 'complete',
+          phase: 'COMPLETE',
+          started_at: '2026-01-01T00:00:00Z',
+          completed_at: '2026-01-01T00:10:00Z',
+        },
         '1-2': { status: 'dispatched', phase: 'IN_DEV', started_at: '2026-01-01T00:05:00Z' },
-        '1-3': { status: 'escalated', phase: 'ESCALATED', started_at: '2026-01-01T00:03:00Z', completed_at: '2026-01-01T00:08:00Z' },
+        '1-3': {
+          status: 'escalated',
+          phase: 'ESCALATED',
+          started_at: '2026-01-01T00:03:00Z',
+          completed_at: '2026-01-01T00:08:00Z',
+        },
       })
       mockManifestRead.mockResolvedValue(manifestData)
 
@@ -191,9 +195,9 @@ describe('status command — manifest-read path (Story 52-6)', () => {
         // Note: formatOutput wraps in { success: true, data: ... }
         const json = JSON.parse(output.join(''))
         expect(json.data.workGraph).not.toBeNull()
-        expect(json.data.workGraph.summary.complete).toBe(1)   // '1-1' complete
-        expect(json.data.workGraph.summary.inProgress).toBe(1)  // '1-2' dispatched → inProgress
-        expect(json.data.workGraph.summary.escalated).toBe(1)   // '1-3' escalated
+        expect(json.data.workGraph.summary.complete).toBe(1) // '1-1' complete
+        expect(json.data.workGraph.summary.inProgress).toBe(1) // '1-2' dispatched → inProgress
+        expect(json.data.workGraph.summary.escalated).toBe(1) // '1-3' escalated
       } finally {
         restore()
       }
@@ -202,14 +206,14 @@ describe('status command — manifest-read path (Story 52-6)', () => {
     it('maps all manifest status strings correctly', async () => {
       // Arrange: manifest covering all status types
       const manifestData = makeManifestData({
-        'a': { status: 'complete', phase: 'COMPLETE', started_at: '2026-01-01T00:00:00Z' },
-        'b': { status: 'failed', phase: 'FAILED', started_at: '2026-01-01T00:00:00Z' },
-        'c': { status: 'verification-failed', phase: 'FAILED', started_at: '2026-01-01T00:00:00Z' },
-        'd': { status: 'escalated', phase: 'ESCALATED', started_at: '2026-01-01T00:00:00Z' },
-        'e': { status: 'pending', phase: 'PENDING', started_at: '2026-01-01T00:00:00Z' },
-        'f': { status: 'gated', phase: 'GATED', started_at: '2026-01-01T00:00:00Z' },
-        'g': { status: 'in-review', phase: 'IN_REVIEW', started_at: '2026-01-01T00:00:00Z' },
-        'h': { status: 'recovered', phase: 'RECOVERED', started_at: '2026-01-01T00:00:00Z' },
+        a: { status: 'complete', phase: 'COMPLETE', started_at: '2026-01-01T00:00:00Z' },
+        b: { status: 'failed', phase: 'FAILED', started_at: '2026-01-01T00:00:00Z' },
+        c: { status: 'verification-failed', phase: 'FAILED', started_at: '2026-01-01T00:00:00Z' },
+        d: { status: 'escalated', phase: 'ESCALATED', started_at: '2026-01-01T00:00:00Z' },
+        e: { status: 'pending', phase: 'PENDING', started_at: '2026-01-01T00:00:00Z' },
+        f: { status: 'gated', phase: 'GATED', started_at: '2026-01-01T00:00:00Z' },
+        g: { status: 'in-review', phase: 'IN_REVIEW', started_at: '2026-01-01T00:00:00Z' },
+        h: { status: 'recovered', phase: 'RECOVERED', started_at: '2026-01-01T00:00:00Z' },
       })
       mockManifestRead.mockResolvedValue(manifestData)
 
@@ -223,11 +227,11 @@ describe('status command — manifest-read path (Story 52-6)', () => {
         const json = JSON.parse(output.join(''))
         // Note: formatOutput wraps in { success: true, data: ... }
         const summary = json.data.workGraph.summary
-        expect(summary.complete).toBe(1)    // 'a'
-        expect(summary.failed).toBe(2)      // 'b', 'c'
-        expect(summary.escalated).toBe(1)   // 'd'
-        expect(summary.ready).toBe(2)       // 'e' (pending), 'f' (gated)
-        expect(summary.inProgress).toBe(2)  // 'g' (in-review), 'h' (recovered)
+        expect(summary.complete).toBe(1) // 'a'
+        expect(summary.failed).toBe(2) // 'b', 'c'
+        expect(summary.escalated).toBe(1) // 'd'
+        expect(summary.ready).toBe(2) // 'e' (pending), 'f' (gated)
+        expect(summary.inProgress).toBe(2) // 'g' (in-review), 'h' (recovered)
       } finally {
         restore()
       }
@@ -316,10 +320,10 @@ describe('status command — manifest-read path (Story 52-6)', () => {
         // Note: formatOutput wraps in { success: true, data: ... }
         const summary = json.data.workGraph.summary
         // Verify exact match with manifest entries
-        expect(summary.complete).toBe(2)   // 52-1, 52-2
-        expect(summary.escalated).toBe(1)  // 52-3
+        expect(summary.complete).toBe(2) // 52-1, 52-2
+        expect(summary.escalated).toBe(1) // 52-3
         expect(summary.inProgress).toBe(1) // 52-4 (in-review → inProgress)
-        expect(summary.ready).toBe(1)      // 52-5 (pending → ready)
+        expect(summary.ready).toBe(1) // 52-5 (pending → ready)
         // No failed stories
         expect(summary.failed ?? 0).toBe(0)
       } finally {

@@ -16,7 +16,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdir, writeFile, rm } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { createConfigWatcher, computeChangedKeys, flattenObject, type ConfigWatcher } from '../config-watcher.js'
+import {
+  createConfigWatcher,
+  computeChangedKeys,
+  flattenObject,
+  type ConfigWatcher,
+} from '../config-watcher.js'
 import type { SubstrateConfig } from '../config-schema.js'
 
 // ---------------------------------------------------------------------------
@@ -77,7 +82,7 @@ const MALFORMED_YAML = `
 beforeEach(async () => {
   testDir = join(
     tmpdir(),
-    `substrate-watcher-test-${String(Date.now())}-${Math.random().toString(36).slice(2)}`,
+    `substrate-watcher-test-${String(Date.now())}-${Math.random().toString(36).slice(2)}`
   )
   await mkdir(testDir, { recursive: true })
   configPath = join(testDir, 'substrate.config.yaml')

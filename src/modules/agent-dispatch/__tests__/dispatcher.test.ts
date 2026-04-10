@@ -116,16 +116,20 @@ function createMockAdapter(id = 'claude-code'): WorkerAdapter {
     id,
     displayName: 'Claude Code',
     adapterVersion: '1.0.0',
-    buildCommand: vi.fn((_prompt: string, _options: AdapterOptions): SpawnCommand => ({
-      binary: 'claude',
-      args: ['--print'],
-      cwd: _options.worktreePath,
-    })),
-    parseOutput: vi.fn((_stdout: string, _stderr: string, _exitCode: number): TaskResult => ({
-      success: _exitCode === 0,
-      output: _stdout,
-      exitCode: _exitCode,
-    })),
+    buildCommand: vi.fn(
+      (_prompt: string, _options: AdapterOptions): SpawnCommand => ({
+        binary: 'claude',
+        args: ['--print'],
+        cwd: _options.worktreePath,
+      })
+    ),
+    parseOutput: vi.fn(
+      (_stdout: string, _stderr: string, _exitCode: number): TaskResult => ({
+        success: _exitCode === 0,
+        output: _stdout,
+        exitCode: _exitCode,
+      })
+    ),
     buildPlanningCommand: vi.fn(
       (_request: PlanRequest, _options: AdapterOptions): SpawnCommand => ({
         binary: 'claude',
@@ -488,10 +492,7 @@ describe('AC3: YAML Output Parsing', () => {
 
     await flushMicrotasks()
 
-    completeDispatch(
-      fp,
-      `Some narrative text.\n\nresult: success\nac_met: yes\nac_failures: []\n`
-    )
+    completeDispatch(fp, `Some narrative text.\n\nresult: success\nac_met: yes\nac_failures: []\n`)
 
     const result = await handle.result
     expect(result.status).toBe('completed')
@@ -1301,7 +1302,7 @@ describe('otlpEndpoint wiring in DispatchRequest (Story 27-9)', () => {
 
     expect(adapter.buildCommand).toHaveBeenCalledWith(
       'do work',
-      expect.objectContaining({ otlpEndpoint: 'http://localhost:9317' }),
+      expect.objectContaining({ otlpEndpoint: 'http://localhost:9317' })
     )
   })
 
@@ -1326,7 +1327,7 @@ describe('otlpEndpoint wiring in DispatchRequest (Story 27-9)', () => {
     // When otlpEndpoint is not in the request, it should not be in AdapterOptions
     expect(adapter.buildCommand).toHaveBeenCalledWith(
       'do work',
-      expect.not.objectContaining({ otlpEndpoint: expect.anything() }),
+      expect.not.objectContaining({ otlpEndpoint: expect.anything() })
     )
   })
 })

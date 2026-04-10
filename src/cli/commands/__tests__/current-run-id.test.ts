@@ -82,7 +82,9 @@ describe('Story 39-3: current-run-id file for status command', () => {
 
     // Default: DB files exist, no current-run-id file
     mockExistsSync.mockReturnValue(true)
-    mockReadFileSync.mockImplementation(() => { throw new Error('ENOENT: no such file') })
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error('ENOENT: no such file')
+    })
     mockResolveMainRepoRoot.mockResolvedValue('/fake/project')
   })
 
@@ -222,7 +224,9 @@ describe('Story 39-3: current-run-id file for health command', () => {
 
     // Default: DB files exist, no current-run-id file
     mockExistsSync.mockReturnValue(true)
-    mockReadFileSync.mockImplementation(() => { throw new Error('ENOENT: no such file') })
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error('ENOENT: no such file')
+    })
     mockResolveMainRepoRoot.mockResolvedValue('/fake/project')
   })
 

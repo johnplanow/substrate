@@ -8,14 +8,7 @@
  */
 
 /** Supported programming languages for project detection. */
-export type Language =
-  | 'typescript'
-  | 'javascript'
-  | 'go'
-  | 'java'
-  | 'kotlin'
-  | 'rust'
-  | 'python'
+export type Language = 'typescript' | 'javascript' | 'go' | 'java' | 'kotlin' | 'rust' | 'python'
 
 /** Supported build tools for project detection. */
 export type BuildTool =

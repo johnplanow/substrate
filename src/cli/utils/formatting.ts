@@ -96,10 +96,12 @@ export function formatTable(
   const headerRow = headers.map((h, i) => h.padEnd(widths[i] ?? h.length)).join(' | ')
 
   const dataRows = rows.map((row) =>
-    keys.map((key, i) => {
-      const val = row[key] ?? ''
-      return val.padEnd(widths[i] ?? val.length)
-    }).join(' | ')
+    keys
+      .map((key, i) => {
+        const val = row[key] ?? ''
+        return val.padEnd(widths[i] ?? val.length)
+      })
+      .join(' | ')
   )
 
   return [headerRow, separator, ...dataRows].join('\n')

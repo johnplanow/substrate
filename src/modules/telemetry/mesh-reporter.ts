@@ -11,15 +11,20 @@
  */
 
 import { basename } from 'node:path'
-import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readdirSync, realpathSync } from 'node:fs'
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+  unlinkSync,
+  readdirSync,
+  realpathSync,
+} from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLogger } from '../../utils/logger.js'
 import type { DatabaseAdapter } from '@substrate-ai/core'
-import {
-  getRunMetrics,
-  getStoryMetricsForRun,
-} from '../../persistence/queries/metrics.js'
+import { getRunMetrics, getStoryMetricsForRun } from '../../persistence/queries/metrics.js'
 import { RunManifest } from '@substrate-ai/sdlc'
 
 const logger = createLogger('mesh-reporter')
@@ -37,29 +42,40 @@ function getSubstrateVersion(): string {
   //    In bundle: dist/run-XXXX.js → ../package.json
   try {
     const __dirname = dirname(fileURLToPath(import.meta.url))
-    candidates.push(join(__dirname, '..', 'package.json'))              // bundled: dist/ → ../package.json
-    candidates.push(join(__dirname, '..', '..', '..', 'package.json'))  // source: src/modules/telemetry/ → ../../../package.json
-  } catch { /* import.meta.url unavailable */ }
+    candidates.push(join(__dirname, '..', 'package.json')) // bundled: dist/ → ../package.json
+    candidates.push(join(__dirname, '..', '..', '..', 'package.json')) // source: src/modules/telemetry/ → ../../../package.json
+  } catch {
+    /* import.meta.url unavailable */
+  }
 
   // 2. Relative to CLI entry point (works in published npm package)
   //    Resolve symlinks first — npm/Homebrew global installs use symlinks
   //    (e.g., /opt/homebrew/bin/substrate → ../lib/node_modules/substrate-ai/dist/cli/index.js)
   if (process.argv[1]) {
     let cliPath = process.argv[1]
-    try { cliPath = realpathSync(cliPath) } catch { /* use original if realpath fails */ }
+    try {
+      cliPath = realpathSync(cliPath)
+    } catch {
+      /* use original if realpath fails */
+    }
     const cliDir = dirname(cliPath)
-    candidates.push(join(cliDir, '..', 'package.json'))  // dist/cli/index.js → ../package.json
-    candidates.push(join(cliDir, '..', '..', 'package.json'))  // dist/cli/ → ../../package.json
+    candidates.push(join(cliDir, '..', 'package.json')) // dist/cli/index.js → ../package.json
+    candidates.push(join(cliDir, '..', '..', 'package.json')) // dist/cli/ → ../../package.json
   }
 
   for (const candidate of candidates) {
     try {
-      const pkg = JSON.parse(readFileSync(candidate, 'utf-8')) as { version?: string; name?: string }
+      const pkg = JSON.parse(readFileSync(candidate, 'utf-8')) as {
+        version?: string
+        name?: string
+      }
       if (pkg.version && (pkg.name === 'substrate-ai' || pkg.name === 'substrate')) {
         _cachedVersion = pkg.version
         return _cachedVersion
       }
-    } catch { /* not found — try next */ }
+    } catch {
+      /* not found — try next */
+    }
   }
 
   _cachedVersion = 'unknown'
@@ -160,7 +176,7 @@ interface RunReport {
 
 async function loadVerificationResults(
   runId: string,
-  runsDir: string,
+  runsDir: string
 ): Promise<Record<string, { status: string; checks: VerificationCheck[] }>> {
   const results: Record<string, { status: string; checks: VerificationCheck[] }> = {}
   try {
@@ -168,14 +184,21 @@ async function loadVerificationResults(
     const data = await manifest.read()
     if (data?.per_story_state) {
       for (const [storyKey, state] of Object.entries(data.per_story_state)) {
-        const vr = (state as Record<string, unknown>)['verification_result'] as {
-          status?: string
-          checks?: Array<{ checkName: string; status: string; details?: string; duration_ms?: number }>
-        } | undefined
+        const vr = (state as Record<string, unknown>)['verification_result'] as
+          | {
+              status?: string
+              checks?: Array<{
+                checkName: string
+                status: string
+                details?: string
+                duration_ms?: number
+              }>
+            }
+          | undefined
         if (vr) {
           results[storyKey] = {
             status: vr.status ?? 'pass',
-            checks: (vr.checks ?? []).map(c => ({
+            checks: (vr.checks ?? []).map((c) => ({
               checkName: c.checkName,
               status: c.status as 'pass' | 'warn' | 'fail',
               ...(c.details !== undefined && { details: c.details }),
@@ -197,7 +220,7 @@ async function loadVerificationResults(
 
 async function loadEfficiencyScores(
   adapter: DatabaseAdapter,
-  storyKeys: string[],
+  storyKeys: string[]
 ): Promise<Record<string, number>> {
   const scores: Record<string, number> = {}
   if (storyKeys.length === 0) return scores
@@ -207,7 +230,7 @@ async function loadEfficiencyScores(
     for (const key of storyKeys) {
       const rows = await adapter.query<{ composite_score: number }>(
         'SELECT composite_score FROM efficiency_scores WHERE story_key = ? ORDER BY timestamp DESC LIMIT 1',
-        [key],
+        [key]
       )
       if (rows.length > 0 && rows[0] !== undefined) {
         scores[key] = rows[0].composite_score
@@ -225,13 +248,13 @@ async function loadEfficiencyScores(
 
 async function loadContractVerification(
   adapter: DatabaseAdapter,
-  runId: string,
+  runId: string
 ): Promise<RunReport['contractVerification'] | undefined> {
   try {
     // Query interface-contract decisions for this run
     const rows = await adapter.query<{ key: string; value: string }>(
       `SELECT key, value FROM decisions WHERE pipeline_run_id = ? AND category = 'interface-contract'`,
-      [runId],
+      [runId]
     )
 
     if (rows.length === 0) return undefined
@@ -286,13 +309,14 @@ interface EscalationDiagnosisRow {
 
 async function loadEscalationDiagnoses(
   adapter: DatabaseAdapter,
-  runId: string,
+  runId: string
 ): Promise<Record<string, { finding: EscalationFinding; reason: string; issues: string[] }>> {
-  const results: Record<string, { finding: EscalationFinding; reason: string; issues: string[] }> = {}
+  const results: Record<string, { finding: EscalationFinding; reason: string; issues: string[] }> =
+    {}
   try {
     const rows = await adapter.query<EscalationDiagnosisRow>(
       `SELECT key, value FROM decisions WHERE pipeline_run_id = ? AND category = 'escalation-diagnosis'`,
-      [runId],
+      [runId]
     )
 
     for (const row of rows) {
@@ -312,7 +336,7 @@ async function loadEscalationDiagnoses(
         const storyKey = row.key.split(':')[0] ?? 'unknown'
 
         const issueDescriptions = (parsed.issues ?? [])
-          .map(i => i.description ? `[${i.severity ?? 'unknown'}] ${i.description}` : '')
+          .map((i) => (i.description ? `[${i.severity ?? 'unknown'}] ${i.description}` : ''))
           .filter(Boolean)
 
         results[storyKey] = {
@@ -324,7 +348,8 @@ async function loadEscalationDiagnoses(
             ...(parsed.minorCount !== undefined && { minorCount: parsed.minorCount }),
             ...(parsed.issueDistribution && { issueDistribution: parsed.issueDistribution }),
             ...(parsed.severityProfile && { severityProfile: parsed.severityProfile }),
-            ...(parsed.affectedFiles && parsed.affectedFiles.length > 0 && { affectedFiles: parsed.affectedFiles }),
+            ...(parsed.affectedFiles &&
+              parsed.affectedFiles.length > 0 && { affectedFiles: parsed.affectedFiles }),
             ...(parsed.recommendedAction && { recommendedAction: parsed.recommendedAction }),
             ...(parsed.rationale && { rationale: parsed.rationale }),
           },
@@ -356,7 +381,7 @@ async function buildRunReportFromManifest(
     agentBackend?: string
     engineType?: string
     concurrency?: number
-  },
+  }
 ): Promise<RunReport | null> {
   try {
     const manifest = RunManifest.open(runId, runsDir)
@@ -367,11 +392,11 @@ async function buildRunReportFromManifest(
     }
 
     const MANIFEST_RESULT_MAP: Record<string, string> = {
-      'complete': 'SHIP_IT',
-      'escalated': 'ESCALATED',
-      'failed': 'FAILED',
+      complete: 'SHIP_IT',
+      escalated: 'ESCALATED',
+      failed: 'FAILED',
       'verification-failed': 'FAILED',
-      'gated': 'FAILED',
+      gated: 'FAILED',
     }
 
     const stories: StoryReport[] = []
@@ -395,7 +420,7 @@ async function buildRunReportFromManifest(
       let wallClockSeconds = 0
       if (state.started_at && state.completed_at) {
         wallClockSeconds = Math.round(
-          (new Date(state.completed_at).getTime() - new Date(state.started_at).getTime()) / 1000,
+          (new Date(state.completed_at).getTime() - new Date(state.started_at).getTime()) / 1000
         )
       }
 
@@ -418,7 +443,18 @@ async function buildRunReportFromManifest(
       const vr = state.verification_result
         ? {
             status: (state.verification_result as { status?: string }).status ?? 'pass',
-            checks: ((state.verification_result as { checks?: Array<{ checkName: string; status: string; details?: string; duration_ms?: number }> }).checks ?? []).map(c => ({
+            checks: (
+              (
+                state.verification_result as {
+                  checks?: Array<{
+                    checkName: string
+                    status: string
+                    details?: string
+                    duration_ms?: number
+                  }>
+                }
+              ).checks ?? []
+            ).map((c) => ({
               checkName: c.checkName,
               status: c.status as 'pass' | 'warn' | 'fail',
               ...(c.details !== undefined && { details: c.details }),
@@ -452,25 +488,23 @@ async function buildRunReportFromManifest(
     }
 
     // Build escalation findings
-    const escalationFindings: EscalationFinding[] = Object.values(escalationDiagnoses).map(d => d.finding)
+    const escalationFindings: EscalationFinding[] = Object.values(escalationDiagnoses).map(
+      (d) => d.finding
+    )
 
     // Compute run-level wall clock
     let wallClockSeconds = 0
     if (data.created_at && data.updated_at) {
       wallClockSeconds = Math.round(
-        (new Date(data.updated_at).getTime() - new Date(data.created_at).getTime()) / 1000,
+        (new Date(data.updated_at).getTime() - new Date(data.created_at).getTime()) / 1000
       )
     }
 
     const rawStatus = data.run_status ?? 'completed'
     const status: 'completed' | 'partial' | 'failed' =
-      rawStatus === 'completed' ? 'completed'
-      : rawStatus === 'failed' ? 'failed'
-      : 'partial'
+      rawStatus === 'completed' ? 'completed' : rawStatus === 'failed' ? 'failed' : 'partial'
 
-    const projectId =
-      opts.projectId ??
-      (opts.projectRoot ? basename(opts.projectRoot) : 'unknown')
+    const projectId = opts.projectId ?? (opts.projectRoot ? basename(opts.projectRoot) : 'unknown')
 
     logger.info({ runId, storyCount: stories.length }, 'Built RunReport from manifest fallback')
 
@@ -519,7 +553,7 @@ export async function buildRunReport(
     agentBackend?: string
     engineType?: string
     concurrency?: number
-  },
+  }
 ): Promise<RunReport | null> {
   const runMetrics = await getRunMetrics(adapter, runId)
 
@@ -537,7 +571,7 @@ export async function buildRunReport(
     return buildRunReportFromManifest(runId, runsDir, adapter, opts)
   }
 
-  const storyKeys = storyMetrics.map(s => s.story_key)
+  const storyKeys = storyMetrics.map((s) => s.story_key)
   const verificationResults = await loadVerificationResults(runId, runsDir)
   const efficiencyScores = await loadEfficiencyScores(adapter, storyKeys)
   const contractVerification = await loadContractVerification(adapter, runId)
@@ -548,11 +582,14 @@ export async function buildRunReport(
   try {
     const warnRows = await adapter.query<{ key: string; value: string }>(
       `SELECT key, value FROM decisions WHERE pipeline_run_id = ? AND category = 'INTERFACE_WARNING'`,
-      [runId],
+      [runId]
     )
     for (const row of warnRows) {
       try {
-        const parsed = JSON.parse(row.value) as { modifiedInterfaces?: string[]; potentiallyAffectedTests?: string[] }
+        const parsed = JSON.parse(row.value) as {
+          modifiedInterfaces?: string[]
+          potentiallyAffectedTests?: string[]
+        }
         const storyKey = row.key.split(':')[0] ?? 'unknown'
         const ifaces = parsed.modifiedInterfaces?.join(', ') ?? ''
         warnings.push(`${storyKey}: modified interfaces [${ifaces}]`)
@@ -569,11 +606,14 @@ export async function buildRunReport(
   try {
     const expRows = await adapter.query<{ key: string; value: string }>(
       `SELECT key, value FROM decisions WHERE pipeline_run_id = ? AND category = 'TEST_EXPANSION_FINDING'`,
-      [runId],
+      [runId]
     )
     for (const row of expRows) {
       try {
-        const parsed = JSON.parse(row.value) as { expansion_priority?: string; coverage_gaps?: unknown[] }
+        const parsed = JSON.parse(row.value) as {
+          expansion_priority?: string
+          coverage_gaps?: unknown[]
+        }
         const storyKey = row.key.split(':')[0] ?? 'unknown'
         testExpansions[storyKey] = {
           priority: parsed.expansion_priority ?? 'unknown',
@@ -590,7 +630,9 @@ export async function buildRunReport(
   // Add test expansion warnings for stories with coverage gaps
   for (const [storyKey, exp] of Object.entries(testExpansions)) {
     if (exp.gapCount > 0) {
-      warnings.push(`${storyKey}: test expansion found ${exp.gapCount} coverage gap(s), priority=${exp.priority}`)
+      warnings.push(
+        `${storyKey}: test expansion found ${exp.gapCount} coverage gap(s), priority=${exp.priority}`
+      )
     }
   }
 
@@ -598,14 +640,14 @@ export async function buildRunReport(
   // The DB stores mixed-case values: SHIP_IT, LGTM_WITH_NOTES, escalated, failed,
   // verification-failed. The RunReport schema expects uppercase enum values.
   const RESULT_MAP: Record<string, string> = {
-    'SHIP_IT': 'SHIP_IT',
-    'LGTM_WITH_NOTES': 'LGTM_WITH_NOTES',
-    'NEEDS_MINOR_FIXES': 'NEEDS_MINOR_FIXES',
-    'NEEDS_MAJOR_FIXES': 'NEEDS_MAJOR_FIXES',
-    'ESCALATED': 'ESCALATED',
-    'escalated': 'ESCALATED',
-    'FAILED': 'FAILED',
-    'failed': 'FAILED',
+    SHIP_IT: 'SHIP_IT',
+    LGTM_WITH_NOTES: 'LGTM_WITH_NOTES',
+    NEEDS_MINOR_FIXES: 'NEEDS_MINOR_FIXES',
+    NEEDS_MAJOR_FIXES: 'NEEDS_MAJOR_FIXES',
+    ESCALATED: 'ESCALATED',
+    escalated: 'ESCALATED',
+    FAILED: 'FAILED',
+    failed: 'FAILED',
     'verification-failed': 'FAILED',
   }
   function normalizeResult(raw: string): string {
@@ -629,11 +671,12 @@ export async function buildRunReport(
     // Penalize efficiency score for failed/escalated stories — a story that
     // used tokens efficiently but didn't ship is not truly "efficient".
     const normalizedStoryResult = normalizeResult(s.result)
-    const qualityScore = rawQualityScore !== undefined
-      ? (normalizedStoryResult === 'ESCALATED' || normalizedStoryResult === 'FAILED')
-        ? Math.min(rawQualityScore, 40)  // cap at 40 for failed outcomes
-        : rawQualityScore
-      : undefined
+    const qualityScore =
+      rawQualityScore !== undefined
+        ? normalizedStoryResult === 'ESCALATED' || normalizedStoryResult === 'FAILED'
+          ? Math.min(rawQualityScore, 40) // cap at 40 for failed outcomes
+          : rawQualityScore
+        : undefined
 
     return {
       storyKey: s.story_key,
@@ -658,32 +701,41 @@ export async function buildRunReport(
       ...(qualityScore !== undefined && { qualityScore }),
       ...(s.primary_agent_id && { agentId: s.primary_agent_id }),
       ...(s.primary_model && { model: s.primary_model }),
-      ...(s.dispatch_agents_json && (() => {
-        try { return { dispatchAgents: JSON.parse(s.dispatch_agents_json) as Array<{ agent: string; model?: string; phase: string }> } }
-        catch { return {} }
-      })()),
+      ...(s.dispatch_agents_json &&
+        (() => {
+          try {
+            return {
+              dispatchAgents: JSON.parse(s.dispatch_agents_json) as Array<{
+                agent: string
+                model?: string
+                phase: string
+              }>,
+            }
+          } catch {
+            return {}
+          }
+        })()),
     }
   })
 
   // Compute aggregate efficiency score (average across stories that have scores)
-  const storyScores = stories.map(s => s.qualityScore).filter((s): s is number => s !== undefined)
-  const avgEfficiencyScore = storyScores.length > 0
-    ? Math.round(storyScores.reduce((a, b) => a + b, 0) / storyScores.length)
-    : undefined
+  const storyScores = stories.map((s) => s.qualityScore).filter((s): s is number => s !== undefined)
+  const avgEfficiencyScore =
+    storyScores.length > 0
+      ? Math.round(storyScores.reduce((a, b) => a + b, 0) / storyScores.length)
+      : undefined
 
   // Derive status
   const rawStatus = runMetrics.status.toLowerCase()
   const status: 'completed' | 'partial' | 'failed' =
-    rawStatus === 'completed' ? 'completed'
-    : rawStatus === 'failed' ? 'failed'
-    : 'partial'
+    rawStatus === 'completed' ? 'completed' : rawStatus === 'failed' ? 'failed' : 'partial'
 
-  const projectId =
-    opts.projectId ??
-    (opts.projectRoot ? basename(opts.projectRoot) : 'unknown')
+  const projectId = opts.projectId ?? (opts.projectRoot ? basename(opts.projectRoot) : 'unknown')
 
   // Build escalation findings from diagnosis data
-  const escalationFindings: EscalationFinding[] = Object.values(escalationDiagnoses).map(d => d.finding)
+  const escalationFindings: EscalationFinding[] = Object.values(escalationDiagnoses).map(
+    (d) => d.finding
+  )
 
   // Use completed_at from run_metrics when available (more accurate than now() for outbox reports)
   const timestamp = runMetrics.completed_at ?? new Date().toISOString()
@@ -716,7 +768,9 @@ export async function buildRunReport(
     engineType: opts.engineType ?? 'linear',
     concurrency: opts.concurrency ?? runMetrics.concurrency_setting,
     ...(runMetrics.max_concurrent_actual !== undefined &&
-      runMetrics.max_concurrent_actual !== null && { maxConcurrentActual: runMetrics.max_concurrent_actual }),
+      runMetrics.max_concurrent_actual !== null && {
+        maxConcurrentActual: runMetrics.max_concurrent_actual,
+      }),
   }
 }
 
@@ -732,10 +786,7 @@ export async function buildRunReport(
  *
  * Returns true if accepted, false on any failure (logged, never thrown).
  */
-export async function pushRunReport(
-  meshUrl: string,
-  report: RunReport,
-): Promise<boolean> {
+export async function pushRunReport(meshUrl: string, report: RunReport): Promise<boolean> {
   const rpcUrl = meshUrl.replace(/\/$/, '') + '/rpc'
 
   const rpcRequest = {
@@ -764,7 +815,7 @@ export async function pushRunReport(
     if (!response.ok) {
       logger.warn(
         { status: response.status, meshUrl },
-        'Mesh server returned non-OK status — report not delivered',
+        'Mesh server returned non-OK status — report not delivered'
       )
       return false
     }
@@ -777,21 +828,21 @@ export async function pushRunReport(
     if (rpcResponse.error) {
       logger.warn(
         { code: rpcResponse.error.code, message: rpcResponse.error.message },
-        'Mesh server returned RPC error',
+        'Mesh server returned RPC error'
       )
       return false
     }
 
     logger.info(
       { runId: report.runId, projectId: report.projectId, meshUrl },
-      'RunReport pushed to mesh telemetry server',
+      'RunReport pushed to mesh telemetry server'
     )
     return true
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.warn(
       { meshUrl, err: message },
-      'Failed to push RunReport to mesh — telemetry server may be offline',
+      'Failed to push RunReport to mesh — telemetry server may be offline'
     )
     return false
   }
@@ -838,7 +889,9 @@ export async function drainOutbox(meshUrl: string, projectRoot?: string): Promis
   const dir = resolveOutboxDir(projectRoot)
   let files: string[]
   try {
-    files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort()
+    files = readdirSync(dir)
+      .filter((f) => f.endsWith('.json'))
+      .sort()
   } catch {
     return 0
   }
@@ -851,7 +904,10 @@ export async function drainOutbox(meshUrl: string, projectRoot?: string): Promis
   for (const file of files) {
     const filepath = join(dir, file)
     try {
-      const envelope = JSON.parse(readFileSync(filepath, 'utf-8')) as { meshUrl: string; report: RunReport }
+      const envelope = JSON.parse(readFileSync(filepath, 'utf-8')) as {
+        meshUrl: string
+        report: RunReport
+      }
       const ok = await pushRunReport(envelope.meshUrl, envelope.report)
       if (ok) {
         unlinkSync(filepath)
@@ -893,7 +949,7 @@ export async function reportToMesh(
     agentBackend?: string
     engineType?: string
     concurrency?: number
-  },
+  }
 ): Promise<boolean> {
   try {
     const report = await buildRunReport(adapter, runId, opts)

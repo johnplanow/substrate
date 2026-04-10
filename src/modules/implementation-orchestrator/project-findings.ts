@@ -8,7 +8,13 @@
 
 import type { DatabaseAdapter } from '../../persistence/adapter.js'
 import { getDecisionsByCategory } from '../../persistence/queries/decisions.js'
-import { OPERATIONAL_FINDING, STORY_METRICS, ESCALATION_DIAGNOSIS, STORY_OUTCOME, ADVISORY_NOTES } from '../../persistence/schemas/operational.js'
+import {
+  OPERATIONAL_FINDING,
+  STORY_METRICS,
+  ESCALATION_DIAGNOSIS,
+  STORY_OUTCOME,
+  ADVISORY_NOTES,
+} from '../../persistence/schemas/operational.js'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('project-findings')
@@ -31,7 +37,13 @@ export async function getProjectFindings(db: DatabaseAdapter): Promise<string> {
     const advisoryNotes = await getDecisionsByCategory(db, ADVISORY_NOTES)
 
     // No findings at all — return empty (AC5)
-    if (outcomes.length === 0 && operational.length === 0 && metrics.length === 0 && diagnoses.length === 0 && advisoryNotes.length === 0) {
+    if (
+      outcomes.length === 0 &&
+      operational.length === 0 &&
+      metrics.length === 0 &&
+      diagnoses.length === 0 &&
+      advisoryNotes.length === 0
+    ) {
       return ''
     }
 
@@ -90,7 +102,9 @@ export async function getProjectFindings(db: DatabaseAdapter): Promise<string> {
         try {
           const val = JSON.parse(m.value)
           sections.push(`- ${(m.key ?? '').split(':')[0]}: ${val.review_cycles} cycles`)
-        } catch { /* skip */ }
+        } catch {
+          /* skip */
+        }
       }
     }
 
@@ -154,7 +168,9 @@ function extractRecurringPatterns(outcomes: Array<{ value: string }>): string[] 
           }
         }
       }
-    } catch { /* skip malformed entries */ }
+    } catch {
+      /* skip malformed entries */
+    }
   }
 
   // Only report patterns that appeared in 2+ stories

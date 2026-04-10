@@ -69,18 +69,24 @@ vi.mock('node:fs', () => ({
   readFileSync: vi.fn().mockReturnValue(''),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
 }))
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 vi.mock('@substrate-ai/sdlc', () => ({
   createDefaultVerificationPipeline: vi.fn(() => ({
-    run: vi.fn().mockResolvedValue({ storyKey: '53-3', checks: [], status: 'pass', duration_ms: 0 }),
+    run: vi
+      .fn()
+      .mockResolvedValue({ storyKey: '53-3', checks: [], status: 'pass', duration_ms: 0 }),
     register: vi.fn(),
   })),
 }))
@@ -155,7 +161,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -218,7 +226,7 @@ function makeTestPlanSuccess() {
 function makeManifestData(
   costCeiling: number | undefined,
   cumulativeCostUsd: number,
-  haltOn = 'none',
+  haltOn = 'none'
 ): RunManifestData {
   const now = new Date().toISOString()
   return {
@@ -232,15 +240,17 @@ function makeManifestData(
     supervisor_session_id: null,
     per_story_state: {
       // Put the cumulative cost in a "completed" story
-      ...(cumulativeCostUsd > 0 ? {
-        'prev-1': {
-          status: 'complete',
-          phase: 'COMPLETE',
-          started_at: now,
-          completed_at: now,
-          cost_usd: cumulativeCostUsd,
-        },
-      } : {}),
+      ...(cumulativeCostUsd > 0
+        ? {
+            'prev-1': {
+              status: 'complete',
+              phase: 'COMPLETE',
+              started_at: now,
+              completed_at: now,
+              cost_usd: cumulativeCostUsd,
+            },
+          }
+        : {}),
     },
     recovery_history: [],
     cost_accumulation: { per_story: {}, run_total: 0 },
@@ -295,7 +305,12 @@ describe('Cost ceiling enforcement in orchestrator (Story 53-3)', () => {
     const runManifest = createMockRunManifest(manifestData)
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
       runManifest: runManifest as unknown as import('@substrate-ai/sdlc').RunManifest,
     })
 
@@ -314,13 +329,18 @@ describe('Cost ceiling enforcement in orchestrator (Story 53-3)', () => {
   // -------------------------------------------------------------------------
 
   it('Scenario 2: 81% of ceiling — emits cost:warning exactly once, story IS dispatched', async () => {
-    const ceiling = 5.00
+    const ceiling = 5.0
     const cumulative = 4.05 // 81%
     const manifestData = makeManifestData(ceiling, cumulative)
     const runManifest = createMockRunManifest(manifestData)
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
       runManifest: runManifest as unknown as import('@substrate-ai/sdlc').RunManifest,
     })
 
@@ -330,7 +350,10 @@ describe('Cost ceiling enforcement in orchestrator (Story 53-3)', () => {
     const warningCalls = emitCalls.filter(([type]) => type === 'cost:warning')
     expect(warningCalls).toHaveLength(1)
 
-    const [, warningPayload] = warningCalls[0] as [string, { cumulative_cost: number; ceiling: number; percent_used: number }]
+    const [, warningPayload] = warningCalls[0] as [
+      string,
+      { cumulative_cost: number; ceiling: number; percent_used: number },
+    ]
     expect(warningPayload.cumulative_cost).toBeCloseTo(cumulative, 5)
     expect(warningPayload.ceiling).toBe(ceiling)
     expect(warningPayload.percent_used).toBe(81)
@@ -348,13 +371,18 @@ describe('Cost ceiling enforcement in orchestrator (Story 53-3)', () => {
   // -------------------------------------------------------------------------
 
   it('Scenario 3: ceiling exceeded, halt-on none — story NOT dispatched, cost:ceiling-reached emitted, story ESCALATED', async () => {
-    const ceiling = 5.00
-    const cumulative = 5.50 // 110% — exceeded
+    const ceiling = 5.0
+    const cumulative = 5.5 // 110% — exceeded
     const manifestData = makeManifestData(ceiling, cumulative, 'none')
     const runManifest = createMockRunManifest(manifestData)
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
       runManifest: runManifest as unknown as import('@substrate-ai/sdlc').RunManifest,
     })
 
@@ -367,14 +395,17 @@ describe('Cost ceiling enforcement in orchestrator (Story 53-3)', () => {
     const ceilingCalls = emitCalls.filter(([type]) => type === 'cost:ceiling-reached')
     expect(ceilingCalls).toHaveLength(1)
 
-    const [, ceilingPayload] = ceilingCalls[0] as [string, {
-      cumulative_cost: number
-      ceiling: number
-      halt_on: string
-      action: string
-      skipped_stories: string[]
-      severity?: string
-    }]
+    const [, ceilingPayload] = ceilingCalls[0] as [
+      string,
+      {
+        cumulative_cost: number
+        ceiling: number
+        halt_on: string
+        action: string
+        skipped_stories: string[]
+        severity?: string
+      },
+    ]
     expect(ceilingPayload.cumulative_cost).toBeCloseTo(cumulative, 5)
     expect(ceilingPayload.ceiling).toBe(ceiling)
     expect(ceilingPayload.halt_on).toBe('none')
@@ -384,7 +415,9 @@ describe('Cost ceiling enforcement in orchestrator (Story 53-3)', () => {
 
     // patchStoryState should have been called with status=escalated for the skipped story
     const patchCalls = runManifest.patchStoryState.mock.calls
-    const escalatedPatch = patchCalls.find(([key, updates]) => key === '53-3' && updates.status === 'escalated')
+    const escalatedPatch = patchCalls.find(
+      ([key, updates]) => key === '53-3' && updates.status === 'escalated'
+    )
     expect(escalatedPatch).toBeDefined()
   })
 
@@ -393,13 +426,18 @@ describe('Cost ceiling enforcement in orchestrator (Story 53-3)', () => {
   // -------------------------------------------------------------------------
 
   it('Scenario 4: ceiling exceeded, halt-on critical — cost:ceiling-reached has severity=critical', async () => {
-    const ceiling = 5.00
-    const cumulative = 5.50 // 110% — exceeded
+    const ceiling = 5.0
+    const cumulative = 5.5 // 110% — exceeded
     const manifestData = makeManifestData(ceiling, cumulative, 'critical')
     const runManifest = createMockRunManifest(manifestData)
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
       runManifest: runManifest as unknown as import('@substrate-ai/sdlc').RunManifest,
     })
 
@@ -412,10 +450,13 @@ describe('Cost ceiling enforcement in orchestrator (Story 53-3)', () => {
     const ceilingCalls = emitCalls.filter(([type]) => type === 'cost:ceiling-reached')
     expect(ceilingCalls).toHaveLength(1)
 
-    const [, ceilingPayload] = ceilingCalls[0] as [string, {
-      halt_on: string
-      severity?: string
-    }]
+    const [, ceilingPayload] = ceilingCalls[0] as [
+      string,
+      {
+        halt_on: string
+        severity?: string
+      },
+    ]
     expect(ceilingPayload.halt_on).toBe('critical')
     expect(ceilingPayload.severity).toBe('critical')
   })

@@ -143,12 +143,25 @@ describe('Story 31-5: work graph in status command (JSON output)', () => {
     const repo = new WorkGraphRepository(adapter)
 
     // 1 in_progress, 1 ready (no deps), 1 blocked (dep not complete), 1 complete
-    await repo.upsertStory(makeStory({ story_key: '31-1', status: 'in_progress', title: 'In Progress Story' }))
-    await repo.upsertStory(makeStory({ story_key: '31-2', status: 'planned', title: 'Ready Story' }))
-    await repo.upsertStory(makeStory({ story_key: '31-3', status: 'complete', title: 'Done Story' }))
-    await repo.upsertStory(makeStory({ story_key: '31-4', status: 'planned', title: 'Blocked Story' }))
+    await repo.upsertStory(
+      makeStory({ story_key: '31-1', status: 'in_progress', title: 'In Progress Story' })
+    )
+    await repo.upsertStory(
+      makeStory({ story_key: '31-2', status: 'planned', title: 'Ready Story' })
+    )
+    await repo.upsertStory(
+      makeStory({ story_key: '31-3', status: 'complete', title: 'Done Story' })
+    )
+    await repo.upsertStory(
+      makeStory({ story_key: '31-4', status: 'planned', title: 'Blocked Story' })
+    )
     // 31-4 depends on 31-1 which is in_progress → blocked
-    await repo.addDependency({ story_key: '31-4', depends_on: '31-1', dependency_type: 'blocks', source: 'explicit' })
+    await repo.addDependency({
+      story_key: '31-4',
+      depends_on: '31-1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
 
     await runStatusAction({
       outputFormat: 'json',
@@ -161,9 +174,19 @@ describe('Story 31-5: work graph in status command (JSON output)', () => {
       success: boolean
       data: {
         workGraph: {
-          summary: { ready: number; blocked: number; inProgress: number; complete: number; escalated: number }
+          summary: {
+            ready: number
+            blocked: number
+            inProgress: number
+            complete: number
+            escalated: number
+          }
           readyStories: Array<{ key: string; title: string }>
-          blockedStories: Array<{ key: string; title: string; blockers: Array<{ key: string; title: string; status: string }> }>
+          blockedStories: Array<{
+            key: string
+            title: string
+            blockers: Array<{ key: string; title: string; status: string }>
+          }>
         }
       }
     }
@@ -183,8 +206,15 @@ describe('Story 31-5: work graph in status command (JSON output)', () => {
     const repo = new WorkGraphRepository(adapter)
 
     await repo.upsertStory(makeStory({ story_key: '31-1', status: 'complete', title: 'Done' }))
-    await repo.upsertStory(makeStory({ story_key: '31-2', status: 'planned', title: 'Ready Story' }))
-    await repo.addDependency({ story_key: '31-2', depends_on: '31-1', dependency_type: 'blocks', source: 'explicit' })
+    await repo.upsertStory(
+      makeStory({ story_key: '31-2', status: 'planned', title: 'Ready Story' })
+    )
+    await repo.addDependency({
+      story_key: '31-2',
+      depends_on: '31-1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
 
     await runStatusAction({
       outputFormat: 'json',
@@ -193,7 +223,9 @@ describe('Story 31-5: work graph in status command (JSON output)', () => {
     })
 
     const output = stdoutChunks.join('')
-    const parsed = JSON.parse(output) as { data: { workGraph: { readyStories: Array<{ key: string; title: string }> } } }
+    const parsed = JSON.parse(output) as {
+      data: { workGraph: { readyStories: Array<{ key: string; title: string }> } }
+    }
     const ready = parsed.data.workGraph.readyStories
     expect(ready).toHaveLength(1)
     expect(ready[0]!.key).toBe('31-2')
@@ -204,9 +236,18 @@ describe('Story 31-5: work graph in status command (JSON output)', () => {
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     const repo = new WorkGraphRepository(adapter)
 
-    await repo.upsertStory(makeStory({ story_key: '31-1', status: 'in_progress', title: 'Blocker Story' }))
-    await repo.upsertStory(makeStory({ story_key: '31-2', status: 'planned', title: 'Blocked Story' }))
-    await repo.addDependency({ story_key: '31-2', depends_on: '31-1', dependency_type: 'blocks', source: 'explicit' })
+    await repo.upsertStory(
+      makeStory({ story_key: '31-1', status: 'in_progress', title: 'Blocker Story' })
+    )
+    await repo.upsertStory(
+      makeStory({ story_key: '31-2', status: 'planned', title: 'Blocked Story' })
+    )
+    await repo.addDependency({
+      story_key: '31-2',
+      depends_on: '31-1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
 
     await runStatusAction({
       outputFormat: 'json',
@@ -241,10 +282,24 @@ describe('Story 31-5: work graph in status command (JSON output)', () => {
     const repo = new WorkGraphRepository(adapter)
 
     await repo.upsertStory(makeStory({ story_key: '31-1', status: 'complete', title: 'Done Dep' }))
-    await repo.upsertStory(makeStory({ story_key: '31-2', status: 'planned', title: 'Pending Dep' }))
-    await repo.upsertStory(makeStory({ story_key: '31-3', status: 'planned', title: 'Blocked Story' }))
-    await repo.addDependency({ story_key: '31-3', depends_on: '31-1', dependency_type: 'blocks', source: 'explicit' })
-    await repo.addDependency({ story_key: '31-3', depends_on: '31-2', dependency_type: 'blocks', source: 'explicit' })
+    await repo.upsertStory(
+      makeStory({ story_key: '31-2', status: 'planned', title: 'Pending Dep' })
+    )
+    await repo.upsertStory(
+      makeStory({ story_key: '31-3', status: 'planned', title: 'Blocked Story' })
+    )
+    await repo.addDependency({
+      story_key: '31-3',
+      depends_on: '31-1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
+    await repo.addDependency({
+      story_key: '31-3',
+      depends_on: '31-2',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
 
     await runStatusAction({
       outputFormat: 'json',
@@ -335,8 +390,15 @@ describe('Story 31-5: work graph in status command (human output)', () => {
     const repo = new WorkGraphRepository(adapter)
 
     await repo.upsertStory(makeStory({ story_key: '31-1', status: 'complete', title: 'Done' }))
-    await repo.upsertStory(makeStory({ story_key: '31-2', status: 'planned', title: 'Ready Story' }))
-    await repo.addDependency({ story_key: '31-2', depends_on: '31-1', dependency_type: 'blocks', source: 'explicit' })
+    await repo.upsertStory(
+      makeStory({ story_key: '31-2', status: 'planned', title: 'Ready Story' })
+    )
+    await repo.addDependency({
+      story_key: '31-2',
+      depends_on: '31-1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
 
     await runStatusAction({
       outputFormat: 'human',
@@ -354,7 +416,9 @@ describe('Story 31-5: work graph in status command (human output)', () => {
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     const repo = new WorkGraphRepository(adapter)
 
-    await repo.upsertStory(makeStory({ story_key: '31-1', status: 'planned', title: 'My Ready Story' }))
+    await repo.upsertStory(
+      makeStory({ story_key: '31-1', status: 'planned', title: 'My Ready Story' })
+    )
 
     await runStatusAction({
       outputFormat: 'human',
@@ -372,9 +436,18 @@ describe('Story 31-5: work graph in status command (human output)', () => {
     const run = await createPipelineRun(adapter, { methodology: 'bmad' })
     const repo = new WorkGraphRepository(adapter)
 
-    await repo.upsertStory(makeStory({ story_key: '31-1', status: 'in_progress', title: 'Blocker Story' }))
-    await repo.upsertStory(makeStory({ story_key: '31-2', status: 'planned', title: 'Blocked Story' }))
-    await repo.addDependency({ story_key: '31-2', depends_on: '31-1', dependency_type: 'blocks', source: 'explicit' })
+    await repo.upsertStory(
+      makeStory({ story_key: '31-1', status: 'in_progress', title: 'Blocker Story' })
+    )
+    await repo.upsertStory(
+      makeStory({ story_key: '31-2', status: 'planned', title: 'Blocked Story' })
+    )
+    await repo.addDependency({
+      story_key: '31-2',
+      depends_on: '31-1',
+      dependency_type: 'blocks',
+      source: 'explicit',
+    })
 
     await runStatusAction({
       outputFormat: 'human',

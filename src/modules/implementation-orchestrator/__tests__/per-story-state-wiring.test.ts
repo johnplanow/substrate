@@ -70,14 +70,18 @@ vi.mock('node:fs', () => ({
   readFileSync: vi.fn().mockReturnValue(''),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
 }))
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 vi.mock('@substrate-ai/sdlc', () => ({
   createDefaultVerificationPipeline: vi.fn(() => ({
@@ -155,7 +159,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -256,14 +262,20 @@ describe('Orchestrator per-story-state manifest wiring (Story 52-4)', () => {
     const { mock: runManifest, patchSpy } = createMockRunManifest()
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, runManifest,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+      runManifest,
     })
 
     await orchestrator.run(['5-1'])
 
     // Should have been called at least once with dispatched status
     const dispatchedCall = patchSpy.mock.calls.find(
-      ([, updates]) => updates.status === 'dispatched',
+      ([, updates]) => updates.status === 'dispatched'
     )
     expect(dispatchedCall).toBeDefined()
     const [storyKey, updates] = dispatchedCall!
@@ -280,15 +292,19 @@ describe('Orchestrator per-story-state manifest wiring (Story 52-4)', () => {
     const { mock: runManifest, patchSpy } = createMockRunManifest()
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, runManifest,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+      runManifest,
     })
 
     await orchestrator.run(['5-1'])
 
     // Should have been called with complete status
-    const completeCall = patchSpy.mock.calls.find(
-      ([, updates]) => updates.status === 'complete',
-    )
+    const completeCall = patchSpy.mock.calls.find(([, updates]) => updates.status === 'complete')
     expect(completeCall).toBeDefined()
     const [storyKey, updates] = completeCall!
     expect(storyKey).toBe('5-1')
@@ -311,14 +327,18 @@ describe('Orchestrator per-story-state manifest wiring (Story 52-4)', () => {
     })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, runManifest,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+      runManifest,
     })
 
     await orchestrator.run(['5-1'])
 
-    const escalatedCall = patchSpy.mock.calls.find(
-      ([, updates]) => updates.status === 'escalated',
-    )
+    const escalatedCall = patchSpy.mock.calls.find(([, updates]) => updates.status === 'escalated')
     expect(escalatedCall).toBeDefined()
     const [storyKey, updates] = escalatedCall!
     expect(storyKey).toBe('5-1')
@@ -334,7 +354,13 @@ describe('Orchestrator per-story-state manifest wiring (Story 52-4)', () => {
     const runManifest = { patchStoryState: patchSpy } as unknown as RunManifest
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, runManifest,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+      runManifest,
     })
 
     // Should complete without throwing even though patchStoryState always rejects
@@ -349,7 +375,12 @@ describe('Orchestrator per-story-state manifest wiring (Story 52-4)', () => {
 
   it('AC4, AC6: orchestrator proceeds normally when runManifest is null', async () => {
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
       runManifest: null,
     })
 
@@ -360,7 +391,12 @@ describe('Orchestrator per-story-state manifest wiring (Story 52-4)', () => {
 
   it('AC4, AC6: orchestrator proceeds normally when runManifest is not provided (undefined)', async () => {
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
       // runManifest not provided — defaults to null via destructuring
     })
 
@@ -381,18 +417,26 @@ describe('Orchestrator per-story-state manifest wiring (Story 52-4)', () => {
     // so the mock must be set up before the orchestrator is created.
     const mockCreateVerif = vi.mocked(createDefaultVerificationPipeline)
     mockCreateVerif.mockReturnValueOnce({
-      run: vi.fn().mockResolvedValue({ storyKey: '5-1', checks: [], status: 'fail', duration_ms: 0 }),
+      run: vi
+        .fn()
+        .mockResolvedValue({ storyKey: '5-1', checks: [], status: 'fail', duration_ms: 0 }),
       register: vi.fn(),
     } as unknown as ReturnType<typeof createDefaultVerificationPipeline>)
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, runManifest,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
+      runManifest,
     })
 
     await orchestrator.run(['5-1'])
 
     const verificationFailedCall = patchSpy.mock.calls.find(
-      ([, updates]) => (updates as Record<string, unknown>).status === 'verification-failed',
+      ([, updates]) => (updates as Record<string, unknown>).status === 'verification-failed'
     )
     expect(verificationFailedCall).toBeDefined()
     const [storyKey, updates] = verificationFailedCall!

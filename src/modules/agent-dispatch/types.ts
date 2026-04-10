@@ -137,9 +137,9 @@ export interface DispatchConfig {
  * Default timeout values per task type (milliseconds).
  */
 export const DEFAULT_TIMEOUTS: Record<string, number> = {
-  'analysis': 300_000,
-  'planning': 300_000,
-  'architecture': 300_000,
+  analysis: 300_000,
+  planning: 300_000,
+  architecture: 300_000,
   'story-generation': 300_000,
   'create-story': 600_000,
   'dev-story': 1_800_000,
@@ -149,7 +149,7 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
   // Readiness check sub-agent (Story 16.6) — 10 minute timeout
   'readiness-check': 600_000,
   // Elicitation sub-agent (Story 16.3) — 15 minute timeout
-  'elicitation': 900_000,
+  elicitation: 900_000,
   // Multi-step phase decomposition step types (shorter per-step budgets)
   'analysis-vision': 180_000,
   'analysis-scope': 180_000,
@@ -169,13 +169,13 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
  * Only defined for task types that benefit from explicit turn budgets.
  */
 export const DEFAULT_MAX_TURNS: Record<string, number> = {
-  'analysis': 15,
-  'planning': 20,
-  'architecture': 25,
+  analysis: 15,
+  planning: 20,
+  architecture: 25,
   'story-generation': 30,
   'readiness-check': 20,
-  'elicitation': 15,
-  'critique': 15,
+  elicitation: 15,
+  critique: 15,
   'dev-story': 75,
   'major-rework': 50,
   'code-review': 25,

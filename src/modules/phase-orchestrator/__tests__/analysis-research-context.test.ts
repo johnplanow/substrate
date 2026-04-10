@@ -23,10 +23,7 @@ import { z } from 'zod'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import {
-  createPipelineRun,
-  createDecision,
-} from '../../../persistence/queries/decisions.js'
+import { createPipelineRun, createDecision } from '../../../persistence/queries/decisions.js'
 import { runSteps, resolveContext } from '../step-runner.js'
 import type { StepDefinition, ContextRef } from '../step-runner.js'
 import type { PhaseDeps } from '../phases/types.js'
@@ -57,7 +54,7 @@ const VisionOutputSchema = z.object({
 })
 
 function makeDispatchResult(
-  overrides: Partial<DispatchResult<unknown>> = {},
+  overrides: Partial<DispatchResult<unknown>> = {}
 ): DispatchResult<unknown> {
   return {
     id: 'dispatch-001',
@@ -124,14 +121,16 @@ function makePack(prompts: Record<string, string>): MethodologyPack {
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack: MethodologyPack,
+  pack: MethodologyPack
 ): PhaseDeps {
   return {
     db: adapter,
@@ -149,7 +148,10 @@ async function seedResearchFindings(adapter: DatabaseAdapter, runId: string): Pr
   const findings = [
     { key: 'market_context', value: 'Global developer tooling market is growing at 18% CAGR' },
     { key: 'competitive_landscape', value: 'Main competitors: GitHub Actions, CircleCI, Jenkins' },
-    { key: 'technical_feasibility', value: 'TypeScript + SQLite stack is well-proven for CLI tooling' },
+    {
+      key: 'technical_feasibility',
+      value: 'TypeScript + SQLite stack is well-proven for CLI tooling',
+    },
     { key: 'risk_flags', value: 'Market saturation in CI/CD space; differentiation required' },
     { key: 'opportunity_signals', value: 'AI-native pipelines represent a blue-ocean opportunity' },
   ]
@@ -202,7 +204,10 @@ describe('resolveContext() — decision: source with no matching entries (Task 3
   })
 
   it('returns empty string when decision store has no entries for the specified phase+category', async () => {
-    const ref: ContextRef = { placeholder: 'research_findings', source: 'decision:research.findings' }
+    const ref: ContextRef = {
+      placeholder: 'research_findings',
+      source: 'decision:research.findings',
+    }
     const pack = makePack({})
     const { dispatcher } = makeCaptureDispatcher(makeDispatchResult())
     const deps = makeDeps(adapter, dispatcher, pack)
@@ -223,7 +228,10 @@ describe('resolveContext() — decision: source with no matching entries (Task 3
       value: 'some value',
     })
 
-    const ref: ContextRef = { placeholder: 'research_findings', source: 'decision:research.findings' }
+    const ref: ContextRef = {
+      placeholder: 'research_findings',
+      source: 'decision:research.findings',
+    }
     const pack = makePack({})
     const { dispatcher } = makeCaptureDispatcher(makeDispatchResult())
     const deps = makeDeps(adapter, dispatcher, pack)
@@ -236,7 +244,10 @@ describe('resolveContext() — decision: source with no matching entries (Task 3
   it('returns non-empty string when matching research findings entries exist', async () => {
     await seedResearchFindings(adapter, runId)
 
-    const ref: ContextRef = { placeholder: 'research_findings', source: 'decision:research.findings' }
+    const ref: ContextRef = {
+      placeholder: 'research_findings',
+      source: 'decision:research.findings',
+    }
     const pack = makePack({})
     const { dispatcher } = makeCaptureDispatcher(makeDispatchResult())
     const deps = makeDeps(adapter, dispatcher, pack)
@@ -304,8 +315,7 @@ describe('analysis-step-1-vision — research-enabled path (Task 4)', () => {
   it('concept is also present in the assembled prompt alongside research findings', async () => {
     await seedResearchFindings(adapter, runId)
 
-    const promptTemplate =
-      '### Concept\n{{concept}}\n\n### Research\n{{research_findings}}'
+    const promptTemplate = '### Concept\n{{concept}}\n\n### Research\n{{research_findings}}'
 
     const { dispatcher, capturedPrompts } = makeCaptureDispatcher(makeDispatchResult())
     const pack = makePack({ 'analysis-step-1-vision': promptTemplate })

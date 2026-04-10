@@ -9,11 +9,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { z } from 'zod'
 import { QualityGateImpl, createQualityGate } from '../gate-impl.js'
 import { GatePipelineImpl, createGatePipeline } from '../gate-pipeline.js'
-import {
-  createGate,
-  registerGateType,
-  getRegisteredGateTypes,
-} from '../gate-registry.js'
+import { createGate, registerGateType, getRegisteredGateTypes } from '../gate-registry.js'
 import type { GateConfig, EvaluatorFn } from '../types.js'
 
 // ---------------------------------------------------------------------------

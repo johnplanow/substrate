@@ -33,7 +33,7 @@ async function sendPost(url: string, body: string): Promise<{ status: number; bo
         res.on('end', () => {
           resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf-8') })
         })
-      },
+      }
     )
     req.on('error', reject)
     req.write(body)

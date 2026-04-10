@@ -49,16 +49,16 @@ const {
   const mockAdapterQuery = vi.fn().mockResolvedValue([])
 
   // transaction calls the callback with the adapter immediately
-  const mockAdapterTransaction = vi.fn().mockImplementation(
-    async (fn: (adapter: unknown) => Promise<unknown>) => {
+  const mockAdapterTransaction = vi
+    .fn()
+    .mockImplementation(async (fn: (adapter: unknown) => Promise<unknown>) => {
       return fn({
         exec: mockAdapterExec,
         query: mockAdapterQuery,
         transaction: vi.fn(),
         close: mockAdapterClose,
       })
-    },
-  )
+    })
 
   const mockCreateDatabaseAdapter = vi.fn(() => ({
     exec: mockAdapterExec,
@@ -166,7 +166,7 @@ describe('ingest-epic command', () => {
     await program.parseAsync(['node', 'substrate', 'ingest-epic', 'epic-31.md'])
 
     expect(mockCreateDatabaseAdapter).toHaveBeenCalledWith(
-      expect.objectContaining({ backend: 'auto' }),
+      expect.objectContaining({ backend: 'auto' })
     )
   })
 
@@ -228,7 +228,7 @@ This section exists but has no valid story lines.
 
   it('exits 1 and prints "Cyclic dependency detected" to stderr when ingester throws CyclicDependencyError', async () => {
     vi.spyOn(EpicIngester.prototype, 'ingest').mockRejectedValueOnce(
-      new CyclicDependencyError(['31-A', '31-B', '31-A']),
+      new CyclicDependencyError(['31-A', '31-B', '31-A'])
     )
 
     const program = createProgram()

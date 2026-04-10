@@ -6,7 +6,11 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'events'
-import type { VersionManager, VersionCheckResult, UpgradePreview } from '../../../modules/version-manager/version-manager.js'
+import type {
+  VersionManager,
+  VersionCheckResult,
+  UpgradePreview,
+} from '../../../modules/version-manager/version-manager.js'
 import { runUpgradeCommand } from '../upgrade.js'
 import type { SpawnFn } from '../upgrade.js'
 
@@ -14,11 +18,13 @@ import type { SpawnFn } from '../upgrade.js'
 // Mock factories
 // ---------------------------------------------------------------------------
 
-function buildMockVersionManager(overrides: Partial<{
-  checkResult: VersionCheckResult
-  checkError: Error
-  preview: UpgradePreview
-}>): VersionManager {
+function buildMockVersionManager(
+  overrides: Partial<{
+    checkResult: VersionCheckResult
+    checkError: Error
+    preview: UpgradePreview
+  }>
+): VersionManager {
   const defaultResult: VersionCheckResult = {
     currentVersion: '1.0.0',
     latestVersion: '1.1.0',
@@ -160,7 +166,10 @@ describe('upgrade command', () => {
       await runUpgradeCommand({ yes: true, versionManager: vm, spawnFn: mockSpawn })
 
       expect(mockSpawn).toHaveBeenCalled()
-      const [cmd, args] = (mockSpawn as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string[]]
+      const [cmd, args] = (mockSpawn as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        string[],
+      ]
       expect(cmd).toBe('npm')
       expect(args).toContain('install')
       expect(args.join(' ')).toContain('substrate@1.1.0')

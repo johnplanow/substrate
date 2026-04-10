@@ -95,7 +95,12 @@ export interface SupervisorDeps {
    * Called on each poll cycle to populate the supervisor:poll event (Story 19-2 AC3).
    * Returns zeros when the run ID is unknown or DB is unavailable.
    */
-  getTokenSnapshot: (runId: string, projectRoot: string) => Promise<{ input: number; output: number; cost_usd: number }> | { input: number; output: number; cost_usd: number }
+  getTokenSnapshot: (
+    runId: string,
+    projectRoot: string
+  ) =>
+    | Promise<{ input: number; output: number; cost_usd: number }>
+    | { input: number; output: number; cost_usd: number }
   /**
    * Collect all descendant PIDs (grandchildren and deeper) of the given root PIDs.
    * Used during stall recovery to kill orphan `claude` and `node` processes that
@@ -126,7 +131,10 @@ export interface SupervisorDeps {
    * Used during restart to replay the exact scope the user originally requested.
    * Optional — falls back to health snapshot story keys when not provided.
    */
-  getRunConfig?: (runId: string, projectRoot: string) => Promise<{ explicitStories?: string[]; epic?: number } | null>
+  getRunConfig?: (
+    runId: string,
+    projectRoot: string
+  ) => Promise<{ explicitStories?: string[]; epic?: number } | null>
   /**
    * Write a run-level summary finding to the decision store (AC2 of Story 21-1).
    * Called when the pipeline reaches terminal state.
@@ -166,7 +174,11 @@ function defaultSupervisorDeps(): SupervisorDeps {
           await incrementRunRestarts(cachedAdapter, runId)
         } catch {
           // Best-effort — never block the supervisor
-          try { await cachedAdapter?.close() } catch { /* ignore close errors */ }
+          try {
+            await cachedAdapter?.close()
+          } catch {
+            /* ignore close errors */
+          }
           cachedAdapter = null // reset so next call retries the connection
         }
       }
@@ -183,7 +195,11 @@ function defaultSupervisorDeps(): SupervisorDeps {
           const agg = await aggregateTokenUsageForRun(tsAdapter, runId)
           return { input: agg.input, output: agg.output, cost_usd: agg.cost }
         } finally {
-          try { await tsAdapter.close() } catch { /* ignore */ }
+          try {
+            await tsAdapter.close()
+          } catch {
+            /* ignore */
+          }
         }
       } catch {
         return { input: 0, output: 0, cost_usd: 0 }
@@ -194,7 +210,9 @@ function defaultSupervisorDeps(): SupervisorDeps {
       let cached: AdapterRegistry | null = null
       return async () => {
         if (cached === null) {
-          const { AdapterRegistry: AR } = await import(/* @vite-ignore */ '../../adapters/adapter-registry.js')
+          const { AdapterRegistry: AR } = await import(
+            /* @vite-ignore */ '../../adapters/adapter-registry.js'
+          )
           cached = new AR()
           await cached.discoverAndRegister()
         }
@@ -211,7 +229,7 @@ function defaultSupervisorDeps(): SupervisorDeps {
         try {
           await initSchema(sfAdapter)
           const activeStories = Object.entries(opts.storyDetails).filter(
-            ([, s]) => s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED',
+            ([, s]) => s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED'
           )
           const now = Date.now()
           for (const [storyKey, storyState] of activeStories) {
@@ -230,7 +248,11 @@ function defaultSupervisorDeps(): SupervisorDeps {
             })
           }
         } finally {
-          try { await sfAdapter.close() } catch { /* ignore */ }
+          try {
+            await sfAdapter.close()
+          } catch {
+            /* ignore */
+          }
         }
       } catch {
         // Best-effort — never block the supervisor
@@ -268,7 +290,11 @@ function defaultSupervisorDeps(): SupervisorDeps {
             rationale: `Run summary: ${opts.succeeded.length} succeeded, ${opts.failed.length} failed, ${opts.escalated.length} escalated. ${opts.total_restarts} restarts. Elapsed: ${opts.elapsed_seconds}s.`,
           })
         } finally {
-          try { await rsAdapter.close() } catch { /* ignore */ }
+          try {
+            await rsAdapter.close()
+          } catch {
+            /* ignore */
+          }
         }
       } catch {
         // Best-effort — never block the supervisor
@@ -286,17 +312,24 @@ function defaultSupervisorDeps(): SupervisorDeps {
         if (!run) return
         const stories = await getStoryMetricsForRun(raAdapter, runId)
         const baseline = await getBaselineRunMetrics(raAdapter)
-        const baselineStories = baseline && baseline.run_id !== runId
-          ? await getStoryMetricsForRun(raAdapter, baseline.run_id)
-          : []
+        const baselineStories =
+          baseline && baseline.run_id !== runId
+            ? await getStoryMetricsForRun(raAdapter, baseline.run_id)
+            : []
         const analysisPath = '../../modules/supervisor/analysis.js'
-        const { generateAnalysisReport, writeAnalysisReport } = await import(/* @vite-ignore */ analysisPath)
+        const { generateAnalysisReport, writeAnalysisReport } = await import(
+          /* @vite-ignore */ analysisPath
+        )
         const report = generateAnalysisReport(run, stories, baseline, baselineStories)
         writeAnalysisReport(report, projectRoot)
       } catch {
         // Best-effort — never block the supervisor
       } finally {
-        try { await raAdapter.close() } catch { /* ignore */ }
+        try {
+          await raAdapter.close()
+        } catch {
+          /* ignore */
+        }
       }
     },
     getRunConfig: async (runId: string, projectRoot: string) => {
@@ -305,12 +338,22 @@ function defaultSupervisorDeps(): SupervisorDeps {
         const rcAdapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
         try {
           await initSchema(rcAdapter)
-          const rows = await rcAdapter.query<{ config_json: string | null }>('SELECT config_json FROM pipeline_runs WHERE id = ?', [runId])
+          const rows = await rcAdapter.query<{ config_json: string | null }>(
+            'SELECT config_json FROM pipeline_runs WHERE id = ?',
+            [runId]
+          )
           if (rows.length === 0 || rows[0]!.config_json === null) return null
-          const config = JSON.parse(rows[0]!.config_json) as { explicitStories?: string[]; epic?: number }
+          const config = JSON.parse(rows[0]!.config_json) as {
+            explicitStories?: string[]
+            epic?: number
+          }
           return { explicitStories: config.explicitStories, epic: config.epic }
         } finally {
-          try { await rcAdapter.close() } catch { /* ignore */ }
+          try {
+            await rcAdapter.close()
+          } catch {
+            /* ignore */
+          }
         }
       } catch {
         return null
@@ -328,7 +371,7 @@ export function buildPollEvent(
   health: PipelineHealthOutput,
   projectRoot: string,
   tokenSnapshot: { input: number; output: number; cost_usd: number },
-  extraFields?: Record<string, unknown>,
+  extraFields?: Record<string, unknown>
 ): Record<string, unknown> {
   const proc = health.process ?? { orchestrator_pid: null, child_pids: [], zombies: [] }
   return {
@@ -354,7 +397,7 @@ export function buildPollEvent(
 
 /** Extract succeeded / failed / escalated story keys from health details. */
 export function buildTerminalSummary(
-  storyDetails: Record<string, { phase: string; review_cycles: number }>,
+  storyDetails: Record<string, { phase: string; review_cycles: number }>
 ): { succeeded: string[]; failed: string[]; escalated: string[] } {
   const succeeded: string[] = []
   const failed: string[] = []
@@ -383,15 +426,39 @@ export interface ProjectCycleState {
 export async function handleStallRecovery(
   health: PipelineHealthOutput,
   state: ProjectCycleState,
-  config: { stallThreshold: number; maxRestarts: number; pack: string; outputFormat: OutputFormat; stallThresholds?: StallThresholdConfig },
-  deps: Pick<SupervisorDeps, 'killPid' | 'resumePipeline' | 'sleep' | 'incrementRestarts' | 'getAllDescendants' | 'writeStallFindings' | 'getRegistry' | 'getRunConfig'>,
+  config: {
+    stallThreshold: number
+    maxRestarts: number
+    pack: string
+    outputFormat: OutputFormat
+    stallThresholds?: StallThresholdConfig
+  },
+  deps: Pick<
+    SupervisorDeps,
+    | 'killPid'
+    | 'resumePipeline'
+    | 'sleep'
+    | 'incrementRestarts'
+    | 'getAllDescendants'
+    | 'writeStallFindings'
+    | 'getRegistry'
+    | 'getRunConfig'
+  >,
   io: {
     emitEvent: (event: Record<string, unknown>) => void
     log: (msg: string) => void
-  },
+  }
 ): Promise<{ state: ProjectCycleState; maxRestartsExceeded: boolean } | null> {
   const { stallThreshold, maxRestarts, pack, outputFormat } = config
-  const { killPid, resumePipeline, sleep, incrementRestarts, getAllDescendants, writeStallFindings, getRegistry } = deps
+  const {
+    killPid,
+    resumePipeline,
+    sleep,
+    incrementRestarts,
+    getAllDescendants,
+    writeStallFindings,
+    getRegistry,
+  } = deps
   const { emitEvent, log } = io
   const { projectRoot } = state
 
@@ -403,7 +470,9 @@ export async function handleStallRecovery(
   const orchestratorIdle = health.process.child_pids.length === 0 && health.stories.active > 0
   const activePhase = orchestratorIdle
     ? 'dev-story'
-    : activePhases.some((p: string) => REVIEW_PHASES.has(p)) ? 'code-review' : 'dev-story'
+    : activePhases.some((p: string) => REVIEW_PHASES.has(p))
+      ? 'code-review'
+      : 'dev-story'
 
   // Delegate threshold computation to StallDetector (AC5).
   // When `stallThresholds` is not explicitly provided (e.g. legacy callers that only set
@@ -459,18 +528,26 @@ export async function handleStallRecovery(
   })
 
   log(
-    `Supervisor: Stall confirmed (${health.staleness_seconds}s ≥ ${effectiveThreshold}s threshold). Killing PIDs: ${pids.join(', ') || 'none'}`,
+    `Supervisor: Stall confirmed (${health.staleness_seconds}s ≥ ${effectiveThreshold}s threshold). Killing PIDs: ${pids.join(', ') || 'none'}`
   )
 
   // SIGTERM first — graceful shutdown
   for (const pid of pids) {
-    try { killPid(pid, 'SIGTERM') } catch { /* Process may already be dead */ }
+    try {
+      killPid(pid, 'SIGTERM')
+    } catch {
+      /* Process may already be dead */
+    }
   }
 
   // 5-second grace period, then SIGKILL
   await sleep(5000)
   for (const pid of pids) {
-    try { killPid(pid, 'SIGKILL') } catch { /* Process may already be dead */ }
+    try {
+      killPid(pid, 'SIGKILL')
+    } catch {
+      /* Process may already be dead */
+    }
   }
 
   // AC4 liveness check: verify processes are dead before restarting
@@ -479,7 +556,12 @@ export async function handleStallRecovery(
     for (let attempt = 0; attempt < 5; attempt++) {
       await sleep(1000)
       allDead = pids.every((pid) => {
-        try { process.kill(pid, 0); return false } catch { return true }
+        try {
+          process.kill(pid, 0)
+          return false
+        } catch {
+          return true
+        }
       })
       if (allDead) break
     }
@@ -517,7 +599,8 @@ export async function handleStallRecovery(
     await incrementRestarts(health.run_id, projectRoot)
     // Source demotion: mirror restart_count to manifest (authoritative source)
     RunManifest.open(health.run_id, join(projectRoot, '.substrate', 'runs'))
-      .update({ restart_count: newRestartCount }).catch(() => {})
+      .update({ restart_count: newRestartCount })
+      .catch(() => {})
   }
 
   emitEvent({
@@ -620,9 +703,20 @@ export async function handleStallRecovery(
  */
 export async function runSupervisorAction(
   options: SupervisorOptions,
-  deps: Partial<SupervisorDeps> = {},
+  deps: Partial<SupervisorDeps> = {}
 ): Promise<number> {
-  const { pollInterval, stallThreshold, maxRestarts, outputFormat, projectRoot, runId, pack, experiment, maxExperiments, force } = options
+  const {
+    pollInterval,
+    stallThreshold,
+    maxRestarts,
+    outputFormat,
+    projectRoot,
+    runId,
+    pack,
+    experiment,
+    maxExperiments,
+    force,
+  } = options
   const resolvedDeps = { ...defaultSupervisorDeps(), ...deps }
   const { getHealth, sleep, runAnalysis, getTokenSnapshot, writeRunSummary } = resolvedDeps
 
@@ -670,7 +764,9 @@ export async function runSupervisorAction(
       } else {
         // Persist defaults idempotently (AC4) and activate them
         const existingFlags = (cliFlags ?? {}) as Record<string, unknown>
-        await manifest.update({ cli_flags: { ...existingFlags, stall_thresholds: DEFAULT_STALL_THRESHOLDS } }).catch(() => {})
+        await manifest
+          .update({ cli_flags: { ...existingFlags, stall_thresholds: DEFAULT_STALL_THRESHOLDS } })
+          .catch(() => {})
         stallThresholds = DEFAULT_STALL_THRESHOLDS
       }
     } catch {
@@ -697,7 +793,10 @@ export async function runSupervisorAction(
       'test-plan': stallThreshold,
     }
     const pollDetector = new StallDetector(adaptiveThresholds)
-    effectivePollInterval = pollDetector.getAdaptivePollInterval(resolvedPollInterval, initMultiplier)
+    effectivePollInterval = pollDetector.getAdaptivePollInterval(
+      resolvedPollInterval,
+      initMultiplier
+    )
   } catch {
     // Best-effort — use resolved poll interval
   }
@@ -726,12 +825,14 @@ export async function runSupervisorAction(
       })
     })
     process.once('SIGTERM', () => {
-      lock.release()
+      lock
+        .release()
         .then(() => process.exit(0))
         .catch(() => process.exit(1))
     })
     process.once('SIGINT', () => {
-      lock.release()
+      lock
+        .release()
         .then(() => process.exit(0))
         .catch(() => process.exit(1))
     })
@@ -755,11 +856,19 @@ export async function runSupervisorAction(
       registerExitHandlers(lock)
     } catch (lockErr: unknown) {
       const msg = lockErr instanceof Error ? lockErr.message : String(lockErr)
-      supervisorLogger.warn({ runId: targetRunId, error: msg }, 'Supervisor lock acquisition failed')
+      supervisorLogger.warn(
+        { runId: targetRunId, error: msg },
+        'Supervisor lock acquisition failed'
+      )
       // Emit event in JSON mode so callers can detect the rejection
       if (outputFormat === 'json') {
         process.stdout.write(
-          JSON.stringify({ type: 'supervisor:lock-failed', run_id: targetRunId, reason: msg, ts: new Date().toISOString() }) + '\n',
+          JSON.stringify({
+            type: 'supervisor:lock-failed',
+            run_id: targetRunId,
+            reason: msg,
+            ts: new Date().toISOString(),
+          }) + '\n'
         )
       } else {
         process.stderr.write(`Warning: Supervisor lock acquisition failed: ${msg}\n`)
@@ -811,15 +920,16 @@ export async function runSupervisorAction(
 
     // Emit supervisor:poll heartbeat event on each cycle in JSON mode
     if (outputFormat === 'json') {
-      const tokenSnapshot = health.run_id !== null
-        ? await getTokenSnapshot(health.run_id, projectRoot)
-        : { input: 0, output: 0, cost_usd: 0 }
+      const tokenSnapshot =
+        health.run_id !== null
+          ? await getTokenSnapshot(health.run_id, projectRoot)
+          : { input: 0, output: 0, cost_usd: 0 }
       emitEvent(buildPollEvent(health, projectRoot, tokenSnapshot))
     }
 
     log(
       `[${ts}] Health: ${health.verdict} | staleness=${health.staleness_seconds}s | ` +
-        `stories: active=${health.stories.active} completed=${health.stories.completed} escalated=${health.stories.escalated}`,
+        `stories: active=${health.stories.active} completed=${health.stories.completed} escalated=${health.stories.escalated}`
     )
 
     // --- Terminal state: pipeline has completed, failed, or stopped ---
@@ -837,7 +947,7 @@ export async function runSupervisorAction(
 
       log(
         `\nPipeline reached terminal state. Elapsed: ${elapsedSeconds}s | ` +
-          `succeeded: ${summary.succeeded.length} | failed: ${summary.failed.length} | restarts: ${state.restartCount}`,
+          `succeeded: ${summary.succeeded.length} | failed: ${summary.failed.length} | restarts: ${state.restartCount}`
       )
 
       // --- AC2 of Story 21-1: persist run-level summary to decision store ---
@@ -858,12 +968,19 @@ export async function runSupervisorAction(
         log(`[supervisor] Running post-run analysis for ${health.run_id}...`)
         try {
           await runAnalysis(health.run_id, projectRoot)
-          log(`[supervisor] Analysis report written to _bmad-output/supervisor-reports/${health.run_id}-analysis.md`)
+          log(
+            `[supervisor] Analysis report written to _bmad-output/supervisor-reports/${health.run_id}-analysis.md`
+          )
           emitEvent({ type: 'supervisor:analysis:complete', run_id: health.run_id })
         } catch (analysisErr) {
-          const analysisErrMsg = analysisErr instanceof Error ? analysisErr.message : String(analysisErr)
+          const analysisErrMsg =
+            analysisErr instanceof Error ? analysisErr.message : String(analysisErr)
           log(`[supervisor] Analysis failed (best-effort) — continuing.`)
-          emitEvent({ type: 'supervisor:analysis:error', run_id: health.run_id, error: analysisErrMsg })
+          emitEvent({
+            type: 'supervisor:analysis:error',
+            run_id: health.run_id,
+            error: analysisErrMsg,
+          })
         }
       }
 
@@ -875,7 +992,7 @@ export async function runSupervisorAction(
           projectRoot,
           '_bmad-output',
           'supervisor-reports',
-          `${health.run_id}-analysis.json`,
+          `${health.run_id}-analysis.json`
         )
         try {
           const { readFile: fsReadFile } = await import('fs/promises')
@@ -892,21 +1009,39 @@ export async function runSupervisorAction(
           const recommendations = analysisData.recommendations ?? []
           if (recommendations.length === 0) {
             log(`[supervisor] No recommendations found in analysis report — skipping experiments.`)
-            emitEvent({ type: 'supervisor:experiment:skip', run_id: health.run_id, reason: 'no_recommendations' })
+            emitEvent({
+              type: 'supervisor:experiment:skip',
+              run_id: health.run_id,
+              reason: 'no_recommendations',
+            })
           } else {
-            log(`[supervisor] Found ${recommendations.length} recommendation(s) to experiment with.`)
-            emitEvent({ type: 'supervisor:experiment:recommendations', run_id: health.run_id, count: recommendations.length })
+            log(
+              `[supervisor] Found ${recommendations.length} recommendation(s) to experiment with.`
+            )
+            emitEvent({
+              type: 'supervisor:experiment:recommendations',
+              run_id: health.run_id,
+              count: recommendations.length,
+            })
 
             try {
-              const { createExperimenter } = await import(/* @vite-ignore */ '../../modules/supervisor/experimenter.js')
-              const { getLatestRun: getLatest } = await import(/* @vite-ignore */ '../../persistence/queries/decisions.js')
+              const { createExperimenter } = await import(
+                /* @vite-ignore */ '../../modules/supervisor/experimenter.js'
+              )
+              const { getLatestRun: getLatest } = await import(
+                /* @vite-ignore */ '../../persistence/queries/decisions.js'
+              )
 
               const expAdapter = createDatabaseAdapter({ backend: 'auto', basePath: projectRoot })
               try {
                 await initSchema(expAdapter)
 
                 const { runRunAction: runPipeline } = await import(/* @vite-ignore */ './run.js')
-                const runStoryFn = async (opts: { stories: string; projectRoot: string; pack: string }) => {
+                const runStoryFn = async (opts: {
+                  stories: string
+                  projectRoot: string
+                  pack: string
+                }) => {
                   const exitCode = await runPipeline({
                     pack: opts.pack,
                     stories: opts.stories,
@@ -926,19 +1061,21 @@ export async function runSupervisorAction(
                     maxExperiments: maxExperiments ?? 2,
                     tokenBudgetMultiplier: 2,
                   },
-                  { runStory: runStoryFn, log: (msg: string) => log(msg) },
+                  { runStory: runStoryFn, log: (msg: string) => log(msg) }
                 )
 
                 const results = await experimenter.runExperiments(
                   expAdapter,
                   recommendations as any[],
-                  health.run_id!,
+                  health.run_id!
                 )
 
                 const improved = results.filter((r: any) => r.verdict === 'IMPROVED').length
                 const mixed = results.filter((r: any) => r.verdict === 'MIXED').length
                 const regressed = results.filter((r: any) => r.verdict === 'REGRESSED').length
-                log(`[supervisor] Experiment cycle complete: ${improved} improved, ${mixed} mixed, ${regressed} regressed`)
+                log(
+                  `[supervisor] Experiment cycle complete: ${improved} improved, ${mixed} mixed, ${regressed} regressed`
+                )
                 emitEvent({
                   type: 'supervisor:experiment:complete',
                   run_id: health.run_id,
@@ -947,7 +1084,11 @@ export async function runSupervisorAction(
                   regressed,
                 })
               } finally {
-                try { await expAdapter.close() } catch { /* ignore */ }
+                try {
+                  await expAdapter.close()
+                } catch {
+                  /* ignore */
+                }
               }
             } catch (expErr) {
               const msg = expErr instanceof Error ? expErr.message : String(expErr)
@@ -956,13 +1097,21 @@ export async function runSupervisorAction(
             }
           }
         } catch {
-          log(`[supervisor] Analysis report not found at ${analysisReportPath} — skipping experiments.`)
-          log(`[supervisor] Run 'substrate metrics --analysis <run-id>' first to generate recommendations.`)
-          emitEvent({ type: 'supervisor:experiment:skip', run_id: health.run_id, reason: 'no_analysis_report' })
+          log(
+            `[supervisor] Analysis report not found at ${analysisReportPath} — skipping experiments.`
+          )
+          log(
+            `[supervisor] Run 'substrate metrics --analysis <run-id>' first to generate recommendations.`
+          )
+          emitEvent({
+            type: 'supervisor:experiment:skip',
+            run_id: health.run_id,
+            reason: 'no_analysis_report',
+          })
         }
       }
 
-      return (summary.failed.length > 0 || summary.escalated.length > 0) ? 1 : 0
+      return summary.failed.length > 0 || summary.escalated.length > 0 ? 1 : 0
     }
 
     // --- Max restarts exhaustion check ---
@@ -988,7 +1137,7 @@ export async function runSupervisorAction(
         getRegistry: resolvedDeps.getRegistry,
         getRunConfig: resolvedDeps.getRunConfig,
       },
-      { emitEvent, log },
+      { emitEvent, log }
     )
     if (stallResult !== null) {
       if (stallResult.maxRestartsExceeded) {
@@ -1031,7 +1180,7 @@ export interface MultiProjectSupervisorOptions {
  */
 export async function runMultiProjectSupervisor(
   options: MultiProjectSupervisorOptions,
-  deps: Partial<SupervisorDeps> = {},
+  deps: Partial<SupervisorDeps> = {}
 ): Promise<number> {
   const { projects, pollInterval, stallThreshold, maxRestarts, outputFormat, pack } = options
   const resolvedDeps = { ...defaultSupervisorDeps(), ...deps }
@@ -1043,7 +1192,7 @@ export async function runMultiProjectSupervisor(
   }
 
   const states = new Map<string, ProjectCycleState>(
-    projects.map((p) => [p, { projectRoot: p, restartCount: 0 }]),
+    projects.map((p) => [p, { projectRoot: p, restartCount: 0 }])
   )
   const doneProjects = new Set<string>()
   const projectExitCodes = new Map<string, number>()
@@ -1074,7 +1223,11 @@ export async function runMultiProjectSupervisor(
       } catch {
         // Project may have disappeared (DB deleted, dir removed) — mark terminal
         log(`[supervisor] ${projectRoot}: health check failed — marking as done`)
-        emitEvent({ type: 'supervisor:error', project: projectRoot, reason: 'health_check_failed' } as any)
+        emitEvent({
+          type: 'supervisor:error',
+          project: projectRoot,
+          reason: 'health_check_failed',
+        } as any)
         doneProjects.add(projectRoot)
         projectExitCodes.set(projectRoot, 1)
         continue
@@ -1084,15 +1237,16 @@ export async function runMultiProjectSupervisor(
 
       // Emit poll event with project tag
       if (outputFormat === 'json') {
-        const tokenSnapshot = health.run_id !== null
-          ? await getTokenSnapshot(health.run_id, projectRoot)
-          : { input: 0, output: 0, cost_usd: 0 }
+        const tokenSnapshot =
+          health.run_id !== null
+            ? await getTokenSnapshot(health.run_id, projectRoot)
+            : { input: 0, output: 0, cost_usd: 0 }
         emitEvent(buildPollEvent(health, projectRoot, tokenSnapshot, { project: projectRoot }))
       }
 
       log(
         `[${projectRoot}] Health: ${health.verdict} | staleness=${health.staleness_seconds}s | ` +
-          `active=${health.stories.active} completed=${health.stories.completed} escalated=${health.stories.escalated}`,
+          `active=${health.stories.active} completed=${health.stories.completed} escalated=${health.stories.escalated}`
       )
 
       // Terminal state
@@ -1110,13 +1264,13 @@ export async function runMultiProjectSupervisor(
         })
 
         log(
-          `[${projectRoot}] Terminal. succeeded=${summary.succeeded.length} failed=${summary.failed.length} restarts=${state.restartCount}`,
+          `[${projectRoot}] Terminal. succeeded=${summary.succeeded.length} failed=${summary.failed.length} restarts=${state.restartCount}`
         )
 
         doneProjects.add(projectRoot)
         projectExitCodes.set(
           projectRoot,
-          (summary.failed.length > 0 || summary.escalated.length > 0) ? 1 : 0,
+          summary.failed.length > 0 || summary.escalated.length > 0 ? 1 : 0
         )
         continue
       }
@@ -1138,7 +1292,7 @@ export async function runMultiProjectSupervisor(
         {
           emitEvent: (evt) => emitEvent({ ...evt, project: projectRoot }),
           log: (msg) => log(`[${projectRoot}] ${msg}`),
-        },
+        }
       )
       if (stallResult !== null) {
         if (stallResult.maxRestartsExceeded) {
@@ -1178,43 +1332,52 @@ export async function runMultiProjectSupervisor(
 export function registerSupervisorCommand(
   program: Command,
   _version = '0.0.0',
-  projectRoot = process.cwd(),
+  projectRoot = process.cwd()
 ): void {
   program
     .command('supervisor')
     .description('Monitor a pipeline run and automatically recover from stalls')
-    .option('--poll-interval <seconds>', 'Health poll interval in seconds', (v) => parseInt(v, 10), 60)
+    .option(
+      '--poll-interval <seconds>',
+      'Health poll interval in seconds',
+      (v) => parseInt(v, 10),
+      60
+    )
     .option(
       '--stall-threshold <seconds>',
       'Staleness in seconds before killing a stalled pipeline',
       (v) => parseInt(v, 10),
-      600,
+      600
     )
-    .option('--max-restarts <n>', 'Maximum automatic restarts before aborting', (v) => parseInt(v, 10), 3)
+    .option(
+      '--max-restarts <n>',
+      'Maximum automatic restarts before aborting',
+      (v) => parseInt(v, 10),
+      3
+    )
     .option('--run-id <id>', 'Pipeline run ID to monitor (defaults to latest)')
     .option('--pack <name>', 'Methodology pack name', 'bmad')
     .option('--project-root <path>', 'Project root directory', projectRoot)
-    .option('--projects <paths>', 'Comma-separated project root directories to monitor (multi-project mode)')
     .option(
-      '--output-format <format>',
-      'Output format: human (default) or json',
-      'human',
+      '--projects <paths>',
+      'Comma-separated project root directories to monitor (multi-project mode)'
     )
+    .option('--output-format <format>', 'Output format: human (default) or json', 'human')
     .option(
       '--experiment',
       'After post-run analysis, enter experiment mode: create branches, apply modifications, run single-story experiments, and report verdicts (Story 17-4)',
-      false,
+      false
     )
     .option(
       '--max-experiments <n>',
       'Maximum number of experiments to run per analysis cycle (default: 2, Story 17-4 AC6)',
       (v: string) => parseInt(v, 10),
-      2,
+      2
     )
     .option(
       '--force',
       'Forcefully evict an existing supervisor process (SIGTERM + 500ms) before attaching (Story 52-2)',
-      false,
+      false
     )
     .action(
       async (opts: {
@@ -1234,7 +1397,7 @@ export function registerSupervisorCommand(
         if (opts.stallThreshold < 120) {
           console.warn(
             `Warning: --stall-threshold ${opts.stallThreshold}s is below 120s. ` +
-            `Agent steps typically take 45-90s. This may cause false stall detections and wasted restarts.`,
+              `Agent steps typically take 45-90s. This may cause false stall detections and wasted restarts.`
           )
         }
 
@@ -1275,6 +1438,6 @@ export function registerSupervisorCommand(
           force: opts.force,
         })
         process.exitCode = exitCode
-      },
+      }
     )
 }

@@ -162,7 +162,7 @@ describe('TelemetryPersistence efficiency_scores', () => {
       // Confirm exactly one row exists in the DB for this story+timestamp
       const rows = await adapter.query<{ cnt: number }>(
         `SELECT COUNT(*) as cnt FROM efficiency_scores WHERE story_key = ? AND timestamp = ?`,
-        ['27-6', SHARED_TIMESTAMP],
+        ['27-6', SHARED_TIMESTAMP]
       )
       expect(rows[0]!.cnt).toBe(1)
     })
@@ -315,7 +315,11 @@ describe('TelemetryPersistence dispatch efficiency scores (Story 30-3)', () => {
   })
 
   it('getEfficiencyScore (single story latest) only returns aggregate score', async () => {
-    const aggregate = makeEfficiencyScore({ storyKey: '30-3', timestamp: 1_000, compositeScore: 90 })
+    const aggregate = makeEfficiencyScore({
+      storyKey: '30-3',
+      timestamp: 1_000,
+      compositeScore: 90,
+    })
     const dispatch = makeEfficiencyScore({
       storyKey: '30-3',
       timestamp: 2_000,
@@ -406,9 +410,21 @@ describe('TelemetryPersistence recommendations', () => {
 
     it('should save multiple recommendations in a single transaction', async () => {
       const recs: Recommendation[] = [
-        makeRecommendation({ id: 'rec1rec1rec1rec1', severity: 'critical', ruleId: 'biggest_consumers' }),
-        makeRecommendation({ id: 'rec2rec2rec2rec2', severity: 'warning', ruleId: 'cache_efficiency' }),
-        makeRecommendation({ id: 'rec3rec3rec3rec3', severity: 'info', ruleId: 'growing_categories' }),
+        makeRecommendation({
+          id: 'rec1rec1rec1rec1',
+          severity: 'critical',
+          ruleId: 'biggest_consumers',
+        }),
+        makeRecommendation({
+          id: 'rec2rec2rec2rec2',
+          severity: 'warning',
+          ruleId: 'cache_efficiency',
+        }),
+        makeRecommendation({
+          id: 'rec3rec3rec3rec3',
+          severity: 'info',
+          ruleId: 'growing_categories',
+        }),
       ]
       await persistence.saveRecommendations('27-7', recs)
       const retrieved = await persistence.getRecommendations('27-7')
@@ -417,9 +433,24 @@ describe('TelemetryPersistence recommendations', () => {
 
     it('should order results: critical first, warning second, info third', async () => {
       const recs: Recommendation[] = [
-        makeRecommendation({ id: 'info0000info0000', severity: 'info', ruleId: 'growing_categories', potentialSavingsTokens: 100 }),
-        makeRecommendation({ id: 'warn0000warn0000', severity: 'warning', ruleId: 'cache_efficiency', potentialSavingsTokens: 500 }),
-        makeRecommendation({ id: 'crit0000crit0000', severity: 'critical', ruleId: 'biggest_consumers', potentialSavingsTokens: 1000 }),
+        makeRecommendation({
+          id: 'info0000info0000',
+          severity: 'info',
+          ruleId: 'growing_categories',
+          potentialSavingsTokens: 100,
+        }),
+        makeRecommendation({
+          id: 'warn0000warn0000',
+          severity: 'warning',
+          ruleId: 'cache_efficiency',
+          potentialSavingsTokens: 500,
+        }),
+        makeRecommendation({
+          id: 'crit0000crit0000',
+          severity: 'critical',
+          ruleId: 'biggest_consumers',
+          potentialSavingsTokens: 1000,
+        }),
       ]
       await persistence.saveRecommendations('27-7', recs)
       const retrieved = await persistence.getRecommendations('27-7')
@@ -432,9 +463,24 @@ describe('TelemetryPersistence recommendations', () => {
 
     it('should order within same severity by potentialSavingsTokens descending', async () => {
       const recs: Recommendation[] = [
-        makeRecommendation({ id: 'warn1111warn1111', severity: 'warning', ruleId: 'cache_efficiency', potentialSavingsTokens: 200 }),
-        makeRecommendation({ id: 'warn2222warn2222', severity: 'warning', ruleId: 'large_file_reads', potentialSavingsTokens: 800 }),
-        makeRecommendation({ id: 'warn3333warn3333', severity: 'warning', ruleId: 'expensive_bash', potentialSavingsTokens: 500 }),
+        makeRecommendation({
+          id: 'warn1111warn1111',
+          severity: 'warning',
+          ruleId: 'cache_efficiency',
+          potentialSavingsTokens: 200,
+        }),
+        makeRecommendation({
+          id: 'warn2222warn2222',
+          severity: 'warning',
+          ruleId: 'large_file_reads',
+          potentialSavingsTokens: 800,
+        }),
+        makeRecommendation({
+          id: 'warn3333warn3333',
+          severity: 'warning',
+          ruleId: 'expensive_bash',
+          potentialSavingsTokens: 500,
+        }),
       ]
       await persistence.saveRecommendations('27-7', recs)
       const retrieved = await persistence.getRecommendations('27-7')
@@ -688,8 +734,22 @@ describe('TelemetryPersistence consumer_stats', () => {
 
     it('should round-trip topInvocations JSON array correctly', async () => {
       const invocations: TopInvocation[] = [
-        makeTopInvocation({ spanId: 'inv-1', name: 'bash_op', toolName: 'bash', totalTokens: 500, inputTokens: 300, outputTokens: 200 }),
-        makeTopInvocation({ spanId: 'inv-2', name: 'read_op', toolName: undefined, totalTokens: 200, inputTokens: 200, outputTokens: 0 }),
+        makeTopInvocation({
+          spanId: 'inv-1',
+          name: 'bash_op',
+          toolName: 'bash',
+          totalTokens: 500,
+          inputTokens: 300,
+          outputTokens: 200,
+        }),
+        makeTopInvocation({
+          spanId: 'inv-2',
+          name: 'read_op',
+          toolName: undefined,
+          totalTokens: 200,
+          inputTokens: 200,
+          outputTokens: 0,
+        }),
       ]
       const consumer = makeConsumerStats({ topInvocations: invocations })
       await persistence.storeConsumerStats('27-5', [consumer])
@@ -708,7 +768,7 @@ describe('TelemetryPersistence consumer_stats', () => {
       await adapter.query(
         `INSERT INTO consumer_stats (story_key, consumer_key, category, total_tokens, percentage, event_count, top_invocations_json)
          VALUES (?, ?, ?, ?, ?, ?, NULL)`,
-        ['27-5', 'null_test|', 'other', 100, 1.0, 1],
+        ['27-5', 'null_test|', 'other', 100, 1.0, 1]
       )
 
       const retrieved = await persistence.getConsumerStats('27-5')

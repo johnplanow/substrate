@@ -290,7 +290,7 @@ coverage_notes: "AC1: vi.mock('\\$lib/types/review') covers the import. AC2: don
     expect(parsed).not.toBeNull()
     const p = parsed as Record<string, unknown>
     expect(p.result).toBe('success')
-    expect(p.coverage_notes).toContain("$lib/types/review")
+    expect(p.coverage_notes).toContain('$lib/types/review')
   })
 
   it('preserves valid YAML escape sequences while sanitizing invalid ones', () => {

@@ -61,10 +61,7 @@ const ElicitationOutputSchema = z.object({
   insights: z.string(),
 })
 
-function makeDispatchResult(
-  parsed: unknown,
-  index = 0,
-): DispatchResult<unknown> {
+function makeDispatchResult(parsed: unknown, index = 0): DispatchResult<unknown> {
   return {
     id: `dispatch-${index}`,
     status: 'completed',
@@ -144,7 +141,7 @@ function makeContextCompiler(): ContextCompiler {
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack: MethodologyPack,
+  pack: MethodologyPack
 ): PhaseDeps {
   return { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
@@ -156,7 +153,7 @@ function makeDeps(
 function fillElicitationPrompt(
   template: string,
   method: ElicitationMethod,
-  artifactContent: string,
+  artifactContent: string
 ): string {
   return template
     .replace(/\{\{method_name\}\}/g, method.name)
@@ -179,7 +176,7 @@ async function storeElicitationResult(
   phase: string,
   roundIndex: number,
   methodName: string,
-  insights: string,
+  insights: string
 ): Promise<void> {
   await upsertDecision(adapter, {
     pipeline_run_id: runId,
@@ -462,13 +459,7 @@ describe('Integration: Elicitation prompt template loading and filling (AC3)', (
 
   it('uses the real elicitation-apply.md template structure (has expected sections)', () => {
     // Load the REAL template from disk (not via mock)
-    const realTemplatePath = join(
-      process.cwd(),
-      'packs',
-      'bmad',
-      'prompts',
-      'elicitation-apply.md',
-    )
+    const realTemplatePath = join(process.cwd(), 'packs', 'bmad', 'prompts', 'elicitation-apply.md')
     const realTemplate = readFileSync(realTemplatePath, 'utf-8')
 
     // Verify the real template has all required placeholders
@@ -520,7 +511,14 @@ describe('Integration: Elicitation results stored in decision store (AC4)', () =
     const selected = selectMethods(ctx, [], methods)
     const method = selected[0]!
 
-    await storeElicitationResult(adapter, runId, 'analysis', 1, method.name, 'Insight 1: Users need X.')
+    await storeElicitationResult(
+      adapter,
+      runId,
+      'analysis',
+      1,
+      method.name,
+      'Insight 1: Users need X.'
+    )
 
     const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
     const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
@@ -552,7 +550,7 @@ describe('Integration: Elicitation results stored in decision store (AC4)', () =
         'analysis',
         round,
         method.name,
-        `Insights from round ${round}.`,
+        `Insights from round ${round}.`
       )
     }
 
@@ -565,7 +563,9 @@ describe('Integration: Elicitation results stored in decision store (AC4)', () =
     // Each round should have method + insights
     for (let round = 1; round <= 3; round++) {
       expect(elicitDecisions.find((d) => d.key === `analysis-round-${round}-method`)).toBeDefined()
-      expect(elicitDecisions.find((d) => d.key === `analysis-round-${round}-insights`)).toBeDefined()
+      expect(
+        elicitDecisions.find((d) => d.key === `analysis-round-${round}-insights`)
+      ).toBeDefined()
     }
   })
 
@@ -582,13 +582,13 @@ describe('Integration: Elicitation results stored in decision store (AC4)', () =
         'planning',
         i + 1,
         selected[i]!.name,
-        `Method ${i + 1} insights.`,
+        `Method ${i + 1} insights.`
       )
     }
 
     const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'planning')
     const methodDecisions = decisions.filter(
-      (d) => d.category === 'elicitation' && d.key.endsWith('-method'),
+      (d) => d.category === 'elicitation' && d.key.endsWith('-method')
     )
     const storedNames = methodDecisions.map((d) => d.value)
 
@@ -682,7 +682,9 @@ describe('Integration: elicitate: true steps in phase definitions (AC5)', () => 
       taskType: 'analysis-vision',
       outputSchema: z.object({ result: z.enum(['success', 'failed']) }),
       context: [{ placeholder: 'concept', source: 'param:concept' }],
-      persist: [{ field: 'problem_statement', category: 'product-brief', key: 'problem_statement' }],
+      persist: [
+        { field: 'problem_statement', category: 'product-brief', key: 'problem_statement' },
+      ],
       elicitate: true,
     }
 
@@ -742,7 +744,8 @@ describe('Integration: End-to-end elicitation round', () => {
     // 5. Dispatch elicitation agent (mocked)
     const elicitationOutput = {
       result: 'success' as const,
-      insights: 'Assumption: users want real-time sync → Truth: async is sufficient for 80% of cases.',
+      insights:
+        'Assumption: users want real-time sync → Truth: async is sufficient for 80% of cases.',
     }
     const dispatcher = makeDispatcher([makeDispatchResult(elicitationOutput)])
     const deps = makeDeps(adapter, dispatcher, pack)
@@ -768,7 +771,9 @@ describe('Integration: End-to-end elicitation round', () => {
     const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
     const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
     expect(elicitDecisions.length).toBe(2)
-    expect(elicitDecisions.find((d) => d.key === 'analysis-round-1-method')!.value).toBe(method.name)
+    expect(elicitDecisions.find((d) => d.key === 'analysis-round-1-method')!.value).toBe(
+      method.name
+    )
 
     // 8. Round 2 uses different method (AC6)
     const round2Selected = selectMethods(ctx, usedMethods, realMethods)
@@ -785,7 +790,7 @@ describe('Integration: End-to-end elicitation round', () => {
     const analysisSelected = selectMethods(
       { content_type: analysisContentType },
       usedMethods,
-      realMethods,
+      realMethods
     )
     expect(analysisSelected.length).toBe(2)
     usedMethods.push(...analysisSelected.map((m) => m.name))
@@ -797,7 +802,7 @@ describe('Integration: End-to-end elicitation round', () => {
       'analysis',
       1,
       analysisSelected[0]!.name,
-      'Analysis insights.',
+      'Analysis insights.'
     )
 
     // Planning phase elicitation (planning-step-2-frs has elicitate: true)
@@ -805,7 +810,7 @@ describe('Integration: End-to-end elicitation round', () => {
     const planningSelected = selectMethods(
       { content_type: planningContentType },
       usedMethods,
-      realMethods,
+      realMethods
     )
     expect(planningSelected.length).toBe(2)
     usedMethods.push(...planningSelected.map((m) => m.name))
@@ -817,7 +822,7 @@ describe('Integration: End-to-end elicitation round', () => {
       'planning',
       1,
       planningSelected[0]!.name,
-      'Planning insights.',
+      'Planning insights.'
     )
 
     // Verify: all selected methods are unique (rotation works)
@@ -827,10 +832,10 @@ describe('Integration: End-to-end elicitation round', () => {
 
     // Verify: decision store has elicitation records for both phases
     const analysisDecisions = (await getDecisionsByPhaseForRun(adapter, runId, 'analysis')).filter(
-      (d) => d.category === 'elicitation',
+      (d) => d.category === 'elicitation'
     )
     const planningDecisions = (await getDecisionsByPhaseForRun(adapter, runId, 'planning')).filter(
-      (d) => d.category === 'elicitation',
+      (d) => d.category === 'elicitation'
     )
     expect(analysisDecisions.length).toBeGreaterThan(0)
     expect(planningDecisions.length).toBeGreaterThan(0)
@@ -863,7 +868,7 @@ describe('Integration: End-to-end elicitation round', () => {
     const filledPrompt = fillElicitationPrompt(
       template,
       method,
-      'Sample artifact content for testing.',
+      'Sample artifact content for testing.'
     )
 
     const handle = deps.dispatcher.dispatch({

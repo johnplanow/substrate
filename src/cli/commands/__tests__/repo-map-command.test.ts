@@ -33,14 +33,18 @@ const {
 } = vi.hoisted(() => ({
   mockGetMeta: vi.fn().mockResolvedValue(null),
   mockCheckStaleness: vi.fn().mockResolvedValue(null),
-  mockQuery: vi.fn().mockResolvedValue({ symbols: [], symbolCount: 0, truncated: false, queryDurationMs: 1 }),
+  mockQuery: vi
+    .fn()
+    .mockResolvedValue({ symbols: [], symbolCount: 0, truncated: false, queryDurationMs: 1 }),
   mockGetSymbols: vi.fn().mockResolvedValue([]),
   mockBuildContext: vi.fn().mockResolvedValue({ text: '', symbolCount: 0, truncated: false }),
   mockIncrementalUpdate: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../../modules/state/index.js', () => ({
-  DoltClient: vi.fn().mockImplementation(() => ({ query: vi.fn().mockResolvedValue([{ Field: 'dependencies' }]) })),
+  DoltClient: vi
+    .fn()
+    .mockImplementation(() => ({ query: vi.fn().mockResolvedValue([{ Field: 'dependencies' }]) })),
 }))
 
 vi.mock('../../../modules/repo-map/index.js', () => ({
@@ -119,7 +123,14 @@ describe('repo-map command', () => {
 
     it('emits JSON with unavailable status when Dolt is not available', async () => {
       const program = createProgram()
-      await program.parseAsync(['node', 'substrate', 'repo-map', '--show', '--output-format', 'json'])
+      await program.parseAsync([
+        'node',
+        'substrate',
+        'repo-map',
+        '--show',
+        '--output-format',
+        'json',
+      ])
 
       expect(consoleSpy).toHaveBeenCalledOnce()
       const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as Record<string, unknown>
@@ -187,7 +198,14 @@ describe('repo-map command', () => {
       mockGetSymbols.mockResolvedValue(new Array(42))
 
       const program = createProgram()
-      await program.parseAsync(['node', 'substrate', 'repo-map', '--show', '--output-format', 'json'])
+      await program.parseAsync([
+        'node',
+        'substrate',
+        'repo-map',
+        '--show',
+        '--output-format',
+        'json',
+      ])
 
       expect(consoleSpy).toHaveBeenCalledOnce()
       const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as Record<string, unknown>
@@ -204,11 +222,22 @@ describe('repo-map command', () => {
         updatedAt: new Date('2026-03-09T12:00:00.000Z'),
         fileCount: 10,
       })
-      mockCheckStaleness.mockResolvedValue({ storedSha: 'abc123', headSha: 'def456', fileCount: 10 })
+      mockCheckStaleness.mockResolvedValue({
+        storedSha: 'abc123',
+        headSha: 'def456',
+        fileCount: 10,
+      })
       mockGetSymbols.mockResolvedValue(new Array(42))
 
       const program = createProgram()
-      await program.parseAsync(['node', 'substrate', 'repo-map', '--show', '--output-format', 'json'])
+      await program.parseAsync([
+        'node',
+        'substrate',
+        'repo-map',
+        '--show',
+        '--output-format',
+        'json',
+      ])
 
       const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as Record<string, unknown>
       expect(parsed.staleness).toBe('stale')
@@ -218,7 +247,14 @@ describe('repo-map command', () => {
       mockGetMeta.mockResolvedValue(null)
 
       const program = createProgram()
-      await program.parseAsync(['node', 'substrate', 'repo-map', '--show', '--output-format', 'json'])
+      await program.parseAsync([
+        'node',
+        'substrate',
+        'repo-map',
+        '--show',
+        '--output-format',
+        'json',
+      ])
 
       const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as Record<string, unknown>
       expect(parsed.staleness).toBe('unknown')
@@ -248,7 +284,11 @@ describe('repo-map command', () => {
         updatedAt: new Date('2026-03-09T12:00:00.000Z'),
         fileCount: 10,
       })
-      mockCheckStaleness.mockResolvedValue({ storedSha: 'abc123', headSha: 'def456', fileCount: 10 })
+      mockCheckStaleness.mockResolvedValue({
+        storedSha: 'abc123',
+        headSha: 'def456',
+        fileCount: 10,
+      })
       mockGetSymbols.mockResolvedValue([])
 
       const program = createProgram()
@@ -290,7 +330,14 @@ describe('repo-map command', () => {
       mockGetSymbols.mockResolvedValue(new Array(100))
 
       const program = createProgram()
-      await program.parseAsync(['node', 'substrate', 'repo-map', '--update', '--output-format', 'json'])
+      await program.parseAsync([
+        'node',
+        'substrate',
+        'repo-map',
+        '--update',
+        '--output-format',
+        'json',
+      ])
 
       const parsed = JSON.parse(String(consoleSpy.mock.calls[0][0])) as Record<string, unknown>
       expect(parsed.result).toBe('updated')
@@ -313,7 +360,17 @@ describe('repo-map command', () => {
 
     it('displays results in text mode', async () => {
       mockQuery.mockResolvedValue({
-        symbols: [{ filePath: 'src/foo.ts', lineNumber: 10, symbolType: 'function', symbolName: 'mySymbol', dependencies: [], fileHash: 'abc', relevanceScore: 50 }],
+        symbols: [
+          {
+            filePath: 'src/foo.ts',
+            lineNumber: 10,
+            symbolType: 'function',
+            symbolName: 'mySymbol',
+            dependencies: [],
+            fileHash: 'abc',
+            relevanceScore: 50,
+          },
+        ],
         symbolCount: 1,
         truncated: false,
         queryDurationMs: 5,

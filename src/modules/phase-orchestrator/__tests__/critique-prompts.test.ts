@@ -46,8 +46,12 @@ function readPrompt(filename: string): string {
  */
 function assertCritiqueStructure(content: string, promptName: string): void {
   // Required template placeholders
-  expect(content, `${promptName}: missing {{artifact_content}} placeholder`).toContain('{{artifact_content}}')
-  expect(content, `${promptName}: missing {{project_context}} placeholder`).toContain('{{project_context}}')
+  expect(content, `${promptName}: missing {{artifact_content}} placeholder`).toContain(
+    '{{artifact_content}}'
+  )
+  expect(content, `${promptName}: missing {{project_context}} placeholder`).toContain(
+    '{{project_context}}'
+  )
 
   // Adversarial persona — the reviewer must be instructed to find problems
   const hasAdversarialPersona =
@@ -58,12 +62,16 @@ function assertCritiqueStructure(content: string, promptName: string): void {
 
   // Output contract must specify YAML format with all required fields
   expect(content, `${promptName}: missing 'verdict' field in output contract`).toContain('verdict:')
-  expect(content, `${promptName}: missing 'issue_count' field in output contract`).toContain('issue_count:')
+  expect(content, `${promptName}: missing 'issue_count' field in output contract`).toContain(
+    'issue_count:'
+  )
   expect(content, `${promptName}: missing 'issues' field in output contract`).toContain('issues:')
 
   // Output contract must include both verdict values
   expect(content, `${promptName}: missing 'pass' verdict example`).toContain('verdict: pass')
-  expect(content, `${promptName}: missing 'needs_work' verdict example`).toContain('verdict: needs_work')
+  expect(content, `${promptName}: missing 'needs_work' verdict example`).toContain(
+    'verdict: needs_work'
+  )
 
   // Severity classification — all three levels must be documented
   expect(content, `${promptName}: missing 'blocker' severity`).toContain('blocker')
@@ -87,10 +95,7 @@ function assertCritiqueStructure(content: string, promptName: string): void {
 function assertActionableExamples(content: string, promptName: string): void {
   // Extract the issues example section (between the first "issues:" and end of code block)
   const issuesSectionMatch = content.match(/issues:\s*\n([\s\S]*?)```/)
-  expect(
-    issuesSectionMatch,
-    `${promptName}: could not find issues example block`,
-  ).not.toBeNull()
+  expect(issuesSectionMatch, `${promptName}: could not find issues example block`).not.toBeNull()
 
   if (!issuesSectionMatch) return
 
@@ -105,21 +110,21 @@ function assertActionableExamples(content: string, promptName: string): void {
     issuesSection.includes('Include')
   expect(
     hasConcreteSuggestion,
-    `${promptName}: example suggestions must include concrete actions (Add, Replace, Define, etc.)`,
+    `${promptName}: example suggestions must include concrete actions (Add, Replace, Define, etc.)`
   ).toBe(true)
 
   // Descriptions must be longer than a single word (at least 20 chars after the key)
   const descriptionMatches = [...issuesSection.matchAll(/description:\s*"([^"]+)"/g)]
   expect(
     descriptionMatches.length,
-    `${promptName}: no description examples found in issues block`,
+    `${promptName}: no description examples found in issues block`
   ).toBeGreaterThan(0)
 
   for (const match of descriptionMatches) {
     const desc = match[1] ?? ''
     expect(
       desc.length,
-      `${promptName}: description "${desc}" is too short to be actionable`,
+      `${promptName}: description "${desc}" is too short to be actionable`
     ).toBeGreaterThan(20)
   }
 
@@ -127,14 +132,14 @@ function assertActionableExamples(content: string, promptName: string): void {
   const suggestionMatches = [...issuesSection.matchAll(/suggestion:\s*"([^"]+)"/g)]
   expect(
     suggestionMatches.length,
-    `${promptName}: no suggestion examples found in issues block`,
+    `${promptName}: no suggestion examples found in issues block`
   ).toBeGreaterThan(0)
 
   for (const match of suggestionMatches) {
     const suggestion = match[1] ?? ''
     expect(
       suggestion.length,
-      `${promptName}: suggestion "${suggestion}" is too short to be actionable`,
+      `${promptName}: suggestion "${suggestion}" is too short to be actionable`
     ).toBeGreaterThan(20)
   }
 }
@@ -245,16 +250,15 @@ describe('critique-planning.md', () => {
 
   it('checks user story quality (AC6)', () => {
     const hasUserStory =
-      content.toLowerCase().includes('user story') ||
-      content.toLowerCase().includes('user stories')
+      content.toLowerCase().includes('user story') || content.toLowerCase().includes('user stories')
     expect(hasUserStory, 'must check user story quality').toBe(true)
   })
 
   it('checks tech stack justification (AC6)', () => {
     const hasTechStack =
       content.toLowerCase().includes('tech stack') ||
-      content.toLowerCase().includes('technology') &&
-      (content.toLowerCase().includes('justif') || content.toLowerCase().includes('rationale'))
+      (content.toLowerCase().includes('technology') &&
+        (content.toLowerCase().includes('justif') || content.toLowerCase().includes('rationale')))
     expect(hasTechStack, 'must check tech stack justification').toBeTruthy()
   })
 
@@ -376,15 +380,15 @@ describe('critique-stories.md', () => {
   it('checks FR coverage (AC6)', () => {
     const hasFRCoverage =
       content.toLowerCase().includes('fr coverage') ||
-      content.toLowerCase().includes('functional requirement') &&
-      content.toLowerCase().includes('covered')
+      (content.toLowerCase().includes('functional requirement') &&
+        content.toLowerCase().includes('covered'))
     expect(hasFRCoverage, 'must check FR coverage').toBeTruthy()
   })
 
   it('checks acceptance criteria testability (AC6)', () => {
     const hasAC =
       (content.toLowerCase().includes('acceptance criteria') ||
-       content.toLowerCase().includes('acceptance criterion')) &&
+        content.toLowerCase().includes('acceptance criterion')) &&
       content.toLowerCase().includes('testab')
     expect(hasAC, 'must check acceptance criteria testability').toBe(true)
   })
@@ -445,16 +449,15 @@ describe('refine-artifact.md', () => {
     const hasBlockerInstruction =
       content.toLowerCase().includes('blocker') &&
       (content.toLowerCase().includes('must be') ||
-       content.toLowerCase().includes('fully resolved') ||
-       content.toLowerCase().includes('resolved'))
+        content.toLowerCase().includes('fully resolved') ||
+        content.toLowerCase().includes('resolved'))
     expect(hasBlockerInstruction, 'must instruct agent to fully resolve blockers').toBe(true)
   })
 
   it('instructs agent to address major issues', () => {
     const hasMajorInstruction =
       content.toLowerCase().includes('major') &&
-      (content.toLowerCase().includes('addressed') ||
-       content.toLowerCase().includes('substantive'))
+      (content.toLowerCase().includes('addressed') || content.toLowerCase().includes('substantive'))
     expect(hasMajorInstruction, 'must instruct agent to address major issues').toBe(true)
   })
 
@@ -464,14 +467,19 @@ describe('refine-artifact.md', () => {
       content.includes('no preamble') ||
       content.includes('no explanation') ||
       content.includes('Start directly')
-    expect(hasOutputOnlyInstruction, 'must instruct agent to return only the refined artifact').toBe(true)
+    expect(
+      hasOutputOnlyInstruction,
+      'must instruct agent to return only the refined artifact'
+    ).toBe(true)
   })
 
   it('instructs agent to preserve correct content from original', () => {
     const hasPreserveInstruction =
       content.toLowerCase().includes('preserv') &&
       (content.toLowerCase().includes('correct') || content.toLowerCase().includes('valid'))
-    expect(hasPreserveInstruction, 'must instruct agent to preserve valid original content').toBe(true)
+    expect(hasPreserveInstruction, 'must instruct agent to preserve valid original content').toBe(
+      true
+    )
   })
 
   it('instructs agent to maintain original format/structure', () => {
@@ -566,13 +574,17 @@ describe('critique prompt consistency', () => {
       const content = readPrompt(promptFile)
 
       // All must have the pass example
-      expect(content, `${promptFile}: missing pass example`).toContain('verdict: pass\nissue_count: 0\nissues: []')
+      expect(content, `${promptFile}: missing pass example`).toContain(
+        'verdict: pass\nissue_count: 0\nissues: []'
+      )
 
       // All must have the needs_work example
       expect(content, `${promptFile}: missing needs_work example`).toContain('verdict: needs_work')
 
       // All must enforce issue_count integrity
-      expect(content, `${promptFile}: missing issue_count integrity enforcement`).toContain('issue_count')
+      expect(content, `${promptFile}: missing issue_count integrity enforcement`).toContain(
+        'issue_count'
+      )
     }
   })
 
@@ -585,7 +597,7 @@ describe('critique prompt consistency', () => {
         content.includes('no preamble, no explanation')
       expect(
         hasStructuredOutputInstruction,
-        `${promptFile}: must instruct agent to emit structured output only`,
+        `${promptFile}: must instruct agent to emit structured output only`
       ).toBe(true)
     }
   })
@@ -596,10 +608,9 @@ describe('critique prompt consistency', () => {
     // Each prompt must have a "Quality Standards" section
     for (let i = 0; i < critiquePrompts.length; i++) {
       const content = contents[i]!
-      expect(
-        content,
-        `${critiquePrompts[i]}: missing Quality Standards section`,
-      ).toContain('Quality Standards')
+      expect(content, `${critiquePrompts[i]}: missing Quality Standards section`).toContain(
+        'Quality Standards'
+      )
     }
 
     // The quality standard section headers should differ between prompts
@@ -613,7 +624,7 @@ describe('critique prompt consistency', () => {
     for (let i = 0; i < critiquePrompts.length; i++) {
       expect(
         qualityKeywords[i]?.length ?? 0,
-        `${critiquePrompts[i]}: Quality Standards section is empty`,
+        `${critiquePrompts[i]}: Quality Standards section is empty`
       ).toBeGreaterThan(50)
     }
 
@@ -621,7 +632,7 @@ describe('critique prompt consistency', () => {
     const uniqueSections = new Set(qualityKeywords)
     expect(
       uniqueSections.size,
-      'All critique prompts have identical quality standards — they must be phase-specific',
+      'All critique prompts have identical quality standards — they must be phase-specific'
     ).toBe(critiquePrompts.length)
   })
 })

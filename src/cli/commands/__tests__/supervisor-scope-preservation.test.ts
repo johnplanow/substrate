@@ -32,7 +32,9 @@ const {
   // Manifest mock for supervisor
   const mockManifestRead = vi.fn()
   const mockManifestUpdate = vi.fn().mockResolvedValue(undefined)
-  const mockRunManifestOpen = vi.fn().mockReturnValue({ read: mockManifestRead, update: mockManifestUpdate })
+  const mockRunManifestOpen = vi
+    .fn()
+    .mockReturnValue({ read: mockManifestRead, update: mockManifestUpdate })
 
   // Resume pipeline mock used inside supervisor deps
   const mockResumeAction = vi.fn().mockResolvedValue(0)
@@ -81,7 +83,10 @@ vi.mock('../../utils/logger.js', () => ({
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function makeHealthStalled(runId = 'run-scope-test', overrides: Partial<PipelineHealthOutput> = {}): PipelineHealthOutput {
+function makeHealthStalled(
+  runId = 'run-scope-test',
+  overrides: Partial<PipelineHealthOutput> = {}
+): PipelineHealthOutput {
   return {
     verdict: 'STALLED',
     run_id: runId,
@@ -112,7 +117,14 @@ function makeState(projectRoot = '/tmp/test-supervisor', runId?: string): Projec
   return { projectRoot, runId, restartCount: 0 }
 }
 
-function makeConfig(overrides: Partial<{ stallThreshold: number; maxRestarts: number; pack: string; outputFormat: 'human' | 'json' }> = {}) {
+function makeConfig(
+  overrides: Partial<{
+    stallThreshold: number
+    maxRestarts: number
+    pack: string
+    outputFormat: 'human' | 'json'
+  }> = {}
+) {
   return {
     stallThreshold: 600,
     maxRestarts: 3,
@@ -123,7 +135,19 @@ function makeConfig(overrides: Partial<{ stallThreshold: number; maxRestarts: nu
 }
 
 /** Build minimal SupervisorDeps with all required fields */
-function makeDeps(overrides: Partial<SupervisorDeps> = {}): Pick<SupervisorDeps, 'killPid' | 'resumePipeline' | 'sleep' | 'incrementRestarts' | 'getAllDescendants' | 'writeStallFindings' | 'getRegistry' | 'getRunConfig'> {
+function makeDeps(
+  overrides: Partial<SupervisorDeps> = {}
+): Pick<
+  SupervisorDeps,
+  | 'killPid'
+  | 'resumePipeline'
+  | 'sleep'
+  | 'incrementRestarts'
+  | 'getAllDescendants'
+  | 'writeStallFindings'
+  | 'getRegistry'
+  | 'getRunConfig'
+> {
   return {
     killPid: vi.fn(),
     resumePipeline: mockResumeAction,
@@ -176,7 +200,7 @@ describe('Story 52-3: Supervisor scope preservation (AC5 / TS-1)', () => {
     expect(mockResumeAction).toHaveBeenCalledWith(
       expect.objectContaining({
         stories: manifestStories,
-      }),
+      })
     )
 
     // Verify it's the exact manifest stories — NOT a superset
@@ -232,10 +256,12 @@ describe('Story 52-3: Supervisor scope preservation (AC5 / TS-1)', () => {
     const state = makeState('/tmp/test-supervisor', 'run-scope-test')
 
     // Should not throw
-    await expect(handleStallRecovery(health, state, makeConfig(), makeDeps(), {
-      emitEvent: vi.fn(),
-      log: vi.fn(),
-    })).resolves.not.toThrow()
+    await expect(
+      handleStallRecovery(health, state, makeConfig(), makeDeps(), {
+        emitEvent: vi.fn(),
+        log: vi.fn(),
+      })
+    ).resolves.not.toThrow()
 
     // Should use config_json stories
     const callArgs = mockResumeAction.mock.calls[0]?.[0] as { stories?: string[] }
@@ -275,10 +301,12 @@ describe('Story 52-3: Supervisor scope preservation (AC5 / TS-1)', () => {
     const health = makeHealthStalled(null as unknown as string, { run_id: null })
     const state = makeState('/tmp/test-supervisor')
 
-    await expect(handleStallRecovery(health, state, makeConfig(), makeDeps(), {
-      emitEvent: vi.fn(),
-      log: vi.fn(),
-    })).resolves.not.toThrow()
+    await expect(
+      handleStallRecovery(health, state, makeConfig(), makeDeps(), {
+        emitEvent: vi.fn(),
+        log: vi.fn(),
+      })
+    ).resolves.not.toThrow()
 
     // RunManifest.open should not have been called for a null run_id
     expect(mockRunManifestOpen).not.toHaveBeenCalled()

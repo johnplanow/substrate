@@ -21,11 +21,7 @@ import {
   getDecisionsByPhaseForRun,
   getArtifactByTypeForRun,
 } from '../../../persistence/queries/decisions.js'
-import {
-  runSteps,
-  resolveContext,
-  formatDecisionsForInjection,
-} from '../step-runner.js'
+import { runSteps, resolveContext, formatDecisionsForInjection } from '../step-runner.js'
 import {
   calculateDynamicBudget,
   ABSOLUTE_MAX_PROMPT_TOKENS,
@@ -59,7 +55,7 @@ const TestOutputSchema = z.object({
 })
 
 function makeDispatchResult(
-  overrides: Partial<DispatchResult<unknown>> = {},
+  overrides: Partial<DispatchResult<unknown>> = {}
 ): DispatchResult<unknown> {
   return {
     id: 'dispatch-001',
@@ -115,14 +111,16 @@ function makePack(prompts: Record<string, string> = {}): MethodologyPack {
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack?: MethodologyPack,
+  pack?: MethodologyPack
 ): PhaseDeps {
   return {
     db: adapter,
@@ -171,9 +169,7 @@ describe('step-runner', () => {
     })
 
     it('formats JSON array values as bullet lists', () => {
-      const decisions = [
-        { key: 'features', value: '["auth","dashboard"]', rationale: null },
-      ]
+      const decisions = [{ key: 'features', value: '["auth","dashboard"]', rationale: null }]
       const result = formatDecisionsForInjection(decisions)
       expect(result).toContain('### Features')
       expect(result).toContain('- auth')
@@ -189,7 +185,13 @@ describe('step-runner', () => {
     it('resolves param: references from params map', async () => {
       const ref: ContextRef = { placeholder: 'concept', source: 'param:concept' }
       const deps = makeDeps(adapter, makeDispatcher([]))
-      const result = await resolveContext(ref, deps, runId, { concept: 'Build a CLI tool' }, new Map())
+      const result = await resolveContext(
+        ref,
+        deps,
+        runId,
+        { concept: 'Build a CLI tool' },
+        new Map()
+      )
       expect(result).toBe('Build a CLI tool')
     })
 
@@ -350,13 +352,15 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([timeoutResult])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [{ placeholder: 'concept', source: 'param:concept' }],
-        persist: [],
-      }]
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [],
+        },
+      ]
 
       const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
 
@@ -375,13 +379,15 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([agentFailure])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [{ placeholder: 'concept', source: 'param:concept' }],
-        persist: [],
-      }]
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [],
+        },
+      ]
 
       const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
 
@@ -400,13 +406,15 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([schemaFail])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [{ placeholder: 'concept', source: 'param:concept' }],
-        persist: [],
-      }]
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [],
+        },
+      ]
 
       const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
 
@@ -424,13 +432,15 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([dispResult])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [{ placeholder: 'concept', source: 'param:concept' }],
-        persist: [{ field: 'items', category: 'features', key: 'array' }],
-      }]
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [{ field: 'items', category: 'features', key: 'array' }],
+        },
+      ]
 
       const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
       expect(result.success).toBe(true)
@@ -452,18 +462,20 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([dispResult])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [{ placeholder: 'concept', source: 'param:concept' }],
-        persist: [],
-        registerArtifact: {
-          type: 'product-brief',
-          path: 'decision-store://test/brief',
-          summarize: () => 'Test artifact',
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [],
+          registerArtifact: {
+            type: 'product-brief',
+            path: 'decision-store://test/brief',
+            summarize: () => 'Test artifact',
+          },
         },
-      }]
+      ]
 
       const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
       expect(result.success).toBe(true)
@@ -496,13 +508,15 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([dispResult])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [{ placeholder: 'brief', source: 'decision:analysis.product-brief' }],
-        persist: [],
-      }]
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'brief', source: 'decision:analysis.product-brief' }],
+          persist: [],
+        },
+      ]
 
       const result = await runSteps(steps, deps, runId, 'analysis', {})
 
@@ -524,13 +538,15 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [],
-        persist: [],
-      }]
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [],
+          persist: [],
+        },
+      ]
 
       const result = await runSteps(steps, deps, runId, 'analysis', {})
 
@@ -548,7 +564,8 @@ describe('step-runner', () => {
     it('runs elicitation after step when elicitate: true is set', async () => {
       const pack = makePack({
         'step-1': 'Analyze: {{concept}}',
-        'elicitation-apply': '# Elicitation: {{method_name}}\n\n**Description:** {{method_description}}\n\n**Output Pattern:** {{output_pattern}}\n\n## Artifact\n\n{{artifact_content}}\n\nReturn YAML.',
+        'elicitation-apply':
+          '# Elicitation: {{method_name}}\n\n**Description:** {{method_description}}\n\n**Output Pattern:** {{output_pattern}}\n\n## Artifact\n\n{{artifact_content}}\n\nReturn YAML.',
       })
 
       const stepDispatchResult = makeDispatchResult({
@@ -571,14 +588,16 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([stepDispatchResult, elicitResult1, elicitResult2])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [{ placeholder: 'concept', source: 'param:concept' }],
-        persist: [{ field: 'value', category: 'test-cat', key: 'vision' }],
-        elicitate: true,
-      }]
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [{ field: 'value', category: 'test-cat', key: 'vision' }],
+          elicitate: true,
+        },
+      ]
 
       const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'Build a CLI' })
 
@@ -618,14 +637,16 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([dispResult])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [{ placeholder: 'concept', source: 'param:concept' }],
-        persist: [],
-        // No elicitate flag
-      }]
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [],
+          // No elicitate flag
+        },
+      ]
 
       const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
 
@@ -639,7 +660,8 @@ describe('step-runner', () => {
     it('handles elicitation dispatch failure gracefully (non-blocking)', async () => {
       const pack = makePack({
         'step-1': 'Analyze: {{concept}}',
-        'elicitation-apply': '# {{method_name}} {{method_description}} {{output_pattern}} {{artifact_content}}',
+        'elicitation-apply':
+          '# {{method_name}} {{method_description}} {{output_pattern}} {{artifact_content}}',
       })
 
       const stepResult = makeDispatchResult({
@@ -661,14 +683,16 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([stepResult, failedElicit, failedElicit])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [{ placeholder: 'concept', source: 'param:concept' }],
-        persist: [],
-        elicitate: true,
-      }]
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [],
+          elicitate: true,
+        },
+      ]
 
       const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
 
@@ -696,14 +720,16 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([dispResult])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [{ placeholder: 'concept', source: 'param:concept' }],
-        persist: [],
-        elicitate: true,
-      }]
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [],
+          elicitate: true,
+        },
+      ]
 
       const result = await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
 
@@ -712,7 +738,8 @@ describe('step-runner', () => {
     })
 
     it('fills elicitation prompt placeholders with method data', async () => {
-      const elicitTemplate = '# {{method_name}}: {{method_description}} | {{output_pattern}}\n\n{{artifact_content}}'
+      const elicitTemplate =
+        '# {{method_name}}: {{method_description}} | {{output_pattern}}\n\n{{artifact_content}}'
       const pack = makePack({
         'step-1': 'Analyze: {{concept}}',
         'elicitation-apply': elicitTemplate,
@@ -732,14 +759,16 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([stepResult, elicitResult, elicitResult])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [{ placeholder: 'concept', source: 'param:concept' }],
-        persist: [],
-        elicitate: true,
-      }]
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [],
+          elicitate: true,
+        },
+      ]
 
       await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
 
@@ -760,7 +789,8 @@ describe('step-runner', () => {
     it('uses ElicitationOutputSchema for elicitation dispatch validation', async () => {
       const pack = makePack({
         'step-1': 'Analyze: {{concept}}',
-        'elicitation-apply': '{{method_name}} {{method_description}} {{output_pattern}} {{artifact_content}}',
+        'elicitation-apply':
+          '{{method_name}} {{method_description}} {{output_pattern}} {{artifact_content}}',
       })
 
       const stepResult = makeDispatchResult({
@@ -773,14 +803,16 @@ describe('step-runner', () => {
       const dispatcher = makeDispatcher([stepResult, elicitResult, elicitResult])
       const deps = makeDeps(adapter, dispatcher, pack)
 
-      const steps: StepDefinition[] = [{
-        name: 'step-1',
-        taskType: 'analysis-vision',
-        outputSchema: TestOutputSchema,
-        context: [{ placeholder: 'concept', source: 'param:concept' }],
-        persist: [],
-        elicitate: true,
-      }]
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [],
+          elicitate: true,
+        },
+      ]
 
       await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
 
@@ -795,7 +827,8 @@ describe('step-runner', () => {
       const pack = makePack({
         'step-1': 'Analyze: {{concept}}',
         'step-2': 'Plan: {{concept}}',
-        'elicitation-apply': '{{method_name}} {{method_description}} {{output_pattern}} {{artifact_content}}',
+        'elicitation-apply':
+          '{{method_name}} {{method_description}} {{output_pattern}} {{artifact_content}}',
       })
 
       // 1 step + 2 elicits for step-1, then 1 step + 2 elicits for step-2 = 6 total
@@ -816,8 +849,12 @@ describe('step-runner', () => {
       })
 
       const dispatcher = makeDispatcher([
-        stepResult1, elicitResult, elicitResult,
-        stepResult2, elicitResult, elicitResult,
+        stepResult1,
+        elicitResult,
+        elicitResult,
+        stepResult2,
+        elicitResult,
+        elicitResult,
       ])
       const deps = makeDeps(adapter, dispatcher, pack)
 

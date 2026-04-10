@@ -149,7 +149,10 @@ export class EpicParser {
     const dependencies: ParsedDependency[] = []
 
     // Semicolons delimit independent clauses (linear chains or gating clauses)
-    const clauses = chainStr.split(';').map((c) => c.trim()).filter(Boolean)
+    const clauses = chainStr
+      .split(';')
+      .map((c) => c.trim())
+      .filter(Boolean)
 
     for (const clause of clauses) {
       // Check for "also gates" pattern first: `31-3 also gates 31-6, 31-7`
@@ -174,7 +177,10 @@ export class EpicParser {
       }
 
       // Linear chain: `31-1 → 31-2 → 31-3`
-      const parts = clause.split('→').map((p) => p.trim()).filter(Boolean)
+      const parts = clause
+        .split('→')
+        .map((p) => p.trim())
+        .filter(Boolean)
       for (let i = 0; i < parts.length - 1; i++) {
         const upstream = parts[i]!
         const downstream = parts[i + 1]!

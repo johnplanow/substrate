@@ -74,7 +74,9 @@ import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeMockDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}): DispatchResult<unknown> {
+function makeMockDispatchResult(
+  overrides: Partial<DispatchResult<unknown>> = {}
+): DispatchResult<unknown> {
   return {
     id: 'test-dispatch-id',
     status: 'completed',
@@ -95,11 +97,13 @@ function makeMockDispatchResult(overrides: Partial<DispatchResult<unknown>> = {}
 const TEMPLATE_WITH_SCOPE =
   'Review: {{story_content}}\nDiff: {{git_diff}}\nScope: {{scope_analysis}}\nConstraints: {{arch_constraints}}'
 
-function makeMockDeps(overrides: {
-  getPrompt?: ReturnType<typeof vi.fn>
-  dispatch?: ReturnType<typeof vi.fn>
-  db?: Partial<DatabaseAdapter>
-} = {}): WorkflowDeps {
+function makeMockDeps(
+  overrides: {
+    getPrompt?: ReturnType<typeof vi.fn>
+    dispatch?: ReturnType<typeof vi.fn>
+    db?: Partial<DatabaseAdapter>
+  } = {}
+): WorkflowDeps {
   const mockPack: MethodologyPack = {
     manifest: {
       name: 'test-pack',
@@ -119,7 +123,11 @@ function makeMockDeps(overrides: {
   const mockDb = {
     query: vi.fn().mockResolvedValue([]),
     exec: vi.fn().mockResolvedValue(undefined),
-    transaction: vi.fn().mockImplementation((fn: (adapter: DatabaseAdapter) => Promise<unknown>) => fn(mockDb as unknown as DatabaseAdapter)),
+    transaction: vi
+      .fn()
+      .mockImplementation((fn: (adapter: DatabaseAdapter) => Promise<unknown>) =>
+        fn(mockDb as unknown as DatabaseAdapter)
+      ),
     close: vi.fn().mockResolvedValue(undefined),
     ...(overrides.db ?? {}),
   } as unknown as DatabaseAdapter
@@ -210,9 +218,11 @@ describe('runCodeReview — scope_analysis injection (Task 5)', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -241,9 +251,11 @@ describe('runCodeReview — scope_analysis injection (Task 5)', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -252,10 +264,7 @@ describe('runCodeReview — scope_analysis injection (Task 5)', () => {
       storyFilePath: '/path/to/story.md',
       workingDirectory: '/repo',
       // Only files declared in the story spec
-      filesModified: [
-        'src/modules/foo/new-module.ts',
-        'src/modules/bar/existing.ts',
-      ],
+      filesModified: ['src/modules/foo/new-module.ts', 'src/modules/bar/existing.ts'],
     })
 
     const callArgs = dispatchFn.mock.calls[0][0] as { prompt: string }
@@ -288,9 +297,11 @@ describe('runCodeReview — scope_analysis injection (Task 5)', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })
@@ -316,9 +327,11 @@ describe('runCodeReview — scope_analysis injection (Task 5)', () => {
       id: 'test-id',
       status: 'running',
       cancel: vi.fn(),
-      result: Promise.resolve(makeMockDispatchResult({
-        parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
-      })),
+      result: Promise.resolve(
+        makeMockDispatchResult({
+          parsed: { verdict: 'SHIP_IT', issues: 0, issue_list: [] },
+        })
+      ),
     })
 
     const deps = makeMockDeps({ dispatch: dispatchFn })

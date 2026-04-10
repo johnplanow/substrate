@@ -17,7 +17,15 @@ export const ABSOLUTE_MAX_PROMPT_TOKENS = 20_000
 export const TOKENS_PER_DECISION = 100
 
 /** Priority order for decision categories when summarizing (higher priority kept first) */
-export const DECISION_CATEGORY_PRIORITY = ['data', 'auth', 'api', 'frontend', 'infra', 'observability', 'ci']
+export const DECISION_CATEGORY_PRIORITY = [
+  'data',
+  'auth',
+  'api',
+  'frontend',
+  'infra',
+  'observability',
+  'ci',
+]
 
 // ---------------------------------------------------------------------------
 // Dynamic budget calculation
@@ -60,7 +68,7 @@ export function calculateDynamicBudget(baseBudget: number, decisionCount: number
  */
 export function summarizeDecisions(
   decisions: Array<{ key: string; value: string; category?: string }>,
-  maxChars: number,
+  maxChars: number
 ): string {
   // Sort by priority: known categories first, then alphabetical
   const sorted = [...decisions].sort((a, b) => {

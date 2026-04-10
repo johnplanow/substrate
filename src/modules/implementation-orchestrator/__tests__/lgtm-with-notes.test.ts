@@ -189,7 +189,10 @@ describe('AC5: LGTM_WITH_NOTES tracked distinctly in story_metrics', () => {
       review_cycles: 1,
     })
 
-    const row = adapter.querySync<{ result: string }>('SELECT result FROM story_metrics WHERE story_key = ?', ['25-3'])[0]
+    const row = adapter.querySync<{ result: string }>(
+      'SELECT result FROM story_metrics WHERE story_key = ?',
+      ['25-3']
+    )[0]
     expect(row).toBeDefined()
     expect(row!.result).toBe('LGTM_WITH_NOTES')
   })
@@ -202,18 +205,39 @@ describe('AC5: LGTM_WITH_NOTES tracked distinctly in story_metrics', () => {
       review_cycles: 1,
     })
 
-    const row = adapter.querySync<{ result: string }>('SELECT result FROM story_metrics WHERE story_key = ?', ['25-4'])[0]
+    const row = adapter.querySync<{ result: string }>(
+      'SELECT result FROM story_metrics WHERE story_key = ?',
+      ['25-4']
+    )[0]
     expect(row).toBeDefined()
     expect(row!.result).toBe('SHIP_IT')
     expect(row!.result).not.toBe('LGTM_WITH_NOTES')
   })
 
   it('can distinguish LGTM_WITH_NOTES stories from SHIP_IT stories in a run', async () => {
-    await writeStoryMetrics(adapter, { run_id: 'run-1', story_key: '25-3', result: 'LGTM_WITH_NOTES', review_cycles: 1 })
-    await writeStoryMetrics(adapter, { run_id: 'run-1', story_key: '25-4', result: 'SHIP_IT', review_cycles: 0 })
-    await writeStoryMetrics(adapter, { run_id: 'run-1', story_key: '25-5', result: 'escalated', review_cycles: 2 })
+    await writeStoryMetrics(adapter, {
+      run_id: 'run-1',
+      story_key: '25-3',
+      result: 'LGTM_WITH_NOTES',
+      review_cycles: 1,
+    })
+    await writeStoryMetrics(adapter, {
+      run_id: 'run-1',
+      story_key: '25-4',
+      result: 'SHIP_IT',
+      review_cycles: 0,
+    })
+    await writeStoryMetrics(adapter, {
+      run_id: 'run-1',
+      story_key: '25-5',
+      result: 'escalated',
+      review_cycles: 2,
+    })
 
-    const rows = adapter.querySync<{ story_key: string; result: string }>('SELECT story_key, result FROM story_metrics WHERE run_id = ?', ['run-1'])
+    const rows = adapter.querySync<{ story_key: string; result: string }>(
+      'SELECT story_key, result FROM story_metrics WHERE run_id = ?',
+      ['run-1']
+    )
     const lgtmRows = rows.filter((r) => r.result === 'LGTM_WITH_NOTES')
     const shipItRows = rows.filter((r) => r.result === 'SHIP_IT')
 

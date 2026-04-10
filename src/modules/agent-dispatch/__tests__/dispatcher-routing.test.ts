@@ -111,16 +111,20 @@ function createMockAdapter(id = 'claude-code'): WorkerAdapter {
     id,
     displayName: 'Claude Code',
     adapterVersion: '1.0.0',
-    buildCommand: vi.fn((_prompt: string, _options: AdapterOptions): SpawnCommand => ({
-      binary: 'claude',
-      args: ['--print'],
-      cwd: _options.worktreePath,
-    })),
-    parseOutput: vi.fn((_stdout: string, _stderr: string, _exitCode: number): TaskResult => ({
-      success: _exitCode === 0,
-      output: _stdout,
-      exitCode: _exitCode,
-    })),
+    buildCommand: vi.fn(
+      (_prompt: string, _options: AdapterOptions): SpawnCommand => ({
+        binary: 'claude',
+        args: ['--print'],
+        cwd: _options.worktreePath,
+      })
+    ),
+    parseOutput: vi.fn(
+      (_stdout: string, _stderr: string, _exitCode: number): TaskResult => ({
+        success: _exitCode === 0,
+        output: _stdout,
+        exitCode: _exitCode,
+      })
+    ),
     buildPlanningCommand: vi.fn(
       (_request: PlanRequest, _options: AdapterOptions): SpawnCommand => ({
         binary: 'claude',
@@ -326,7 +330,10 @@ describe('DispatcherImpl — RoutingResolver integration (Story 28-5)', () => {
     expect(stubResolver.resolveModel).toHaveBeenCalledWith('dev-story')
 
     // buildCommand should NOT receive a model key
-    const callArgs = (adapter.buildCommand as ReturnType<typeof vi.fn>).mock.calls[0] as [string, AdapterOptions]
+    const callArgs = (adapter.buildCommand as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      AdapterOptions,
+    ]
     expect(callArgs[1]).not.toHaveProperty('model')
   })
 

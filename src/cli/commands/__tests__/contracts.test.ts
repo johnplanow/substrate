@@ -43,7 +43,9 @@ function makeContract(overrides: Partial<ContractRecord> = {}): ContractRecord {
   }
 }
 
-function makeVerification(overrides: Partial<ContractVerificationRecord> = {}): ContractVerificationRecord {
+function makeVerification(
+  overrides: Partial<ContractVerificationRecord> = {}
+): ContractVerificationRecord {
   return {
     storyKey: '26-1',
     contractName: 'StateStore',
@@ -83,9 +85,7 @@ describe('contracts command', () => {
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'contracts'])
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('No contracts stored'),
-      )
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('No contracts stored'))
     })
   })
 
@@ -93,12 +93,19 @@ describe('contracts command', () => {
     it('prints table with headers and contract rows for two contracts', async () => {
       const contracts: ContractRecord[] = [
         makeContract({ storyKey: '26-1', contractName: 'StateStore', direction: 'export' }),
-        makeContract({ storyKey: '26-2', contractName: 'DoltClient', direction: 'import', schemaPath: 'src/modules/state/dolt-client.ts' }),
+        makeContract({
+          storyKey: '26-2',
+          contractName: 'DoltClient',
+          direction: 'import',
+          schemaPath: 'src/modules/state/dolt-client.ts',
+        }),
       ]
       mockQueryContracts.mockResolvedValue(contracts)
       mockGetContractVerification
         .mockResolvedValueOnce([makeVerification({ contractName: 'StateStore', verdict: 'pass' })])
-        .mockResolvedValueOnce([makeVerification({ storyKey: '26-2', contractName: 'DoltClient', verdict: 'fail' })])
+        .mockResolvedValueOnce([
+          makeVerification({ storyKey: '26-2', contractName: 'DoltClient', verdict: 'fail' }),
+        ])
 
       const program = createProgram()
       await program.parseAsync(['node', 'substrate', 'contracts'])
@@ -119,9 +126,7 @@ describe('contracts command', () => {
     })
 
     it('shows pending status for contracts without verification', async () => {
-      const contracts: ContractRecord[] = [
-        makeContract({ contractName: 'UnverifiedContract' }),
-      ]
+      const contracts: ContractRecord[] = [makeContract({ contractName: 'UnverifiedContract' })]
       mockQueryContracts.mockResolvedValue(contracts)
       mockGetContractVerification.mockResolvedValue([]) // No verifications
 
@@ -137,7 +142,11 @@ describe('contracts command', () => {
     it('outputs valid JSON array when --output-format json is specified', async () => {
       const contracts: ContractRecord[] = [
         makeContract({ contractName: 'StateStore', direction: 'export' }),
-        makeContract({ contractName: 'MetricRecord', direction: 'import', schemaPath: 'metrics.ts' }),
+        makeContract({
+          contractName: 'MetricRecord',
+          direction: 'import',
+          schemaPath: 'metrics.ts',
+        }),
       ]
       mockQueryContracts.mockResolvedValue(contracts)
       mockGetContractVerification.mockResolvedValue([
@@ -163,12 +172,14 @@ describe('contracts command', () => {
     })
 
     it('includes verdict field in JSON output', async () => {
-      const contracts: ContractRecord[] = [
-        makeContract({ contractName: 'BrokenContract' }),
-      ]
+      const contracts: ContractRecord[] = [makeContract({ contractName: 'BrokenContract' })]
       mockQueryContracts.mockResolvedValue(contracts)
       mockGetContractVerification.mockResolvedValue([
-        makeVerification({ contractName: 'BrokenContract', verdict: 'fail', mismatchDescription: 'Type mismatch' }),
+        makeVerification({
+          contractName: 'BrokenContract',
+          verdict: 'fail',
+          mismatchDescription: 'Type mismatch',
+        }),
       ])
 
       const program = createProgram()

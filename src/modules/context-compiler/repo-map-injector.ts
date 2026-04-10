@@ -45,7 +45,7 @@ export class RepoMapInjector {
     const matches = storyContent.match(/\bsrc\/[\w/.-]+\.tsx?\b/g) ?? []
     // Only src/ paths are queried — .substrate/, node_modules/, dist/ excluded by design
     const dedupedPaths = [...new Set(matches)].filter(
-      (p) => p.startsWith('src/') && !p.endsWith('.test.ts') && !p.endsWith('.test.tsx'),
+      (p) => p.startsWith('src/') && !p.endsWith('.test.ts') && !p.endsWith('.test.tsx')
     )
 
     // No file refs found — skip query
@@ -67,7 +67,7 @@ export class RepoMapInjector {
           error: err instanceof Error ? err.message : String(err),
           storyContent: storyContent.slice(0, 100),
         },
-        'repo-map context unavailable',
+        'repo-map context unavailable'
       )
       return { text: '', symbolCount: 0, truncated: false }
     }

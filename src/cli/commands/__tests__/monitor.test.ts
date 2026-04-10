@@ -182,7 +182,9 @@ describe('resolveMonitorDbPath()', () => {
   })
 
   it('returns project-local path when it exists', () => {
-    mockExistsSync.mockImplementation((p: string) => p.includes('.substrate/monitor.db') && p.startsWith('/project'))
+    mockExistsSync.mockImplementation(
+      (p: string) => p.includes('.substrate/monitor.db') && p.startsWith('/project')
+    )
     const result = resolveMonitorDbPath('/project/root')
     expect(result).toBe('/project/root/.substrate/monitor.db')
   })
@@ -314,7 +316,10 @@ describe('runMonitorReportAction()', () => {
     })
 
     expect(exitCode).toBe(MONITOR_EXIT_SUCCESS)
-    const call = mockGenerateMonitorReport.mock.calls[0] as [unknown, { includeRecommendations?: boolean }]
+    const call = mockGenerateMonitorReport.mock.calls[0] as [
+      unknown,
+      { includeRecommendations?: boolean },
+    ]
     expect(call[1].includeRecommendations).toBe(true)
   })
 
@@ -327,7 +332,9 @@ describe('runMonitorReportAction()', () => {
     })
 
     expect(exitCode).toBe(MONITOR_EXIT_ERROR)
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid date value for --since'))
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid date value for --since')
+    )
   })
 
   it('returns error when --days is NaN (AC3)', async () => {
@@ -476,7 +483,9 @@ describe('runMonitorResetAction()', () => {
 
     expect(exitCode).toBe(MONITOR_EXIT_SUCCESS)
     expect(mockResetAllData).toHaveBeenCalledOnce()
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Monitor data reset successfully'))
+    expect(stdoutSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Monitor data reset successfully')
+    )
   })
 
   it('prompts for confirmation and cancels when input is not "yes" (AC7)', async () => {

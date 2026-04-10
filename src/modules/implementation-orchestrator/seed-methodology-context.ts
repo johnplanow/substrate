@@ -14,7 +14,11 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import yaml from 'js-yaml'
 import type { DatabaseAdapter } from '../../persistence/adapter.js'
-import { createDecision, getDecisionsByPhase, upsertDecision } from '../../persistence/queries/decisions.js'
+import {
+  createDecision,
+  getDecisionsByPhase,
+  upsertDecision,
+} from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('implementation-orchestrator:seed')
@@ -57,7 +61,7 @@ export interface SeedResult {
  */
 export async function seedMethodologyContext(
   db: DatabaseAdapter,
-  projectRoot: string,
+  projectRoot: string
 ): Promise<SeedResult> {
   const result: SeedResult = { decisionsCreated: 0, skippedCategories: [] }
 
@@ -88,12 +92,12 @@ export async function seedMethodologyContext(
 
     logger.info(
       { decisionsCreated: result.decisionsCreated, skippedCategories: result.skippedCategories },
-      'Methodology context seeding complete',
+      'Methodology context seeding complete'
     )
   } catch (err) {
     logger.warn(
       { error: err instanceof Error ? err.message : String(err) },
-      'Methodology context seeding failed (non-fatal)',
+      'Methodology context seeding failed (non-fatal)'
     )
   }
 
@@ -186,20 +190,28 @@ async function seedEpicShards(db: DatabaseAdapter, projectRoot: string): Promise
   // Retrieve stored hash from the decision store
   const implementationDecisions = await getDecisionsByPhase(db, 'implementation')
   const storedHashDecision = implementationDecisions.find(
-    (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file',
+    (d) => d.category === 'epic-shard-hash' && d.key === 'epics-file'
   )
   const storedHash = storedHashDecision?.value
 
   // AC2: If hash matches, skip re-seeding
   if (storedHash === currentHash) {
-    logger.debug({ hash: currentHash }, 'Epic shards up-to-date (hash unchanged) — skipping re-seed')
+    logger.debug(
+      { hash: currentHash },
+      'Epic shards up-to-date (hash unchanged) — skipping re-seed'
+    )
     return -1
   }
 
   // AC1/AC6: Hash differs or missing — delete existing epic-shard decisions and re-seed
   if (implementationDecisions.some((d) => d.category === 'epic-shard')) {
-    logger.debug({ storedHash, currentHash }, 'Epics file changed — deleting stale epic-shard decisions')
-    await db.exec("DELETE FROM decisions WHERE phase = 'implementation' AND category = 'epic-shard'")
+    logger.debug(
+      { storedHash, currentHash },
+      'Epics file changed — deleting stale epic-shard decisions'
+    )
+    await db.exec(
+      "DELETE FROM decisions WHERE phase = 'implementation' AND category = 'epic-shard'"
+    )
   }
 
   const shards = parseEpicShards(content)
@@ -227,7 +239,7 @@ async function seedEpicShards(db: DatabaseAdapter, projectRoot: string): Promise
   // Use delete + create (not upsertDecision) because upsertDecision's SQL
   // `pipeline_run_id = ?` with null never matches existing NULL rows in SQLite.
   await db.exec(
-    "DELETE FROM decisions WHERE phase = 'implementation' AND category = 'epic-shard-hash' AND `key` = 'epics-file'",
+    "DELETE FROM decisions WHERE phase = 'implementation' AND category = 'epic-shard-hash' AND `key` = 'epics-file'"
   )
   await createDecision(db, {
     pipeline_run_id: null,
@@ -287,19 +299,28 @@ function extractArchSections(content: string): ArchSection[] {
   const sections: ArchSection[] = []
 
   // Extract tech stack section
-  const techStack = extractSection(content, /^##\s+(?:tech(?:nology)?\s*stack|stack\s*overview|starter\s+template)/im)
+  const techStack = extractSection(
+    content,
+    /^##\s+(?:tech(?:nology)?\s*stack|stack\s*overview|starter\s+template)/im
+  )
   if (techStack !== undefined) {
     sections.push({ key: 'tech-stack', value: techStack })
   }
 
   // Extract ADRs / architectural decisions section
-  const adrs = extractSection(content, /^##\s+(?:ADR|(?:core\s+)?architect(?:ure|ural)\s+decision)/im)
+  const adrs = extractSection(
+    content,
+    /^##\s+(?:ADR|(?:core\s+)?architect(?:ure|ural)\s+decision)/im
+  )
   if (adrs !== undefined) {
     sections.push({ key: 'adrs', value: adrs })
   }
 
   // Extract component/module overview or implementation patterns
-  const components = extractSection(content, /^##\s+(?:(?:component|module|system)\s+(?:overview|architecture|structure)|implementation\s+patterns)/im)
+  const components = extractSection(
+    content,
+    /^##\s+(?:(?:component|module|system)\s+(?:overview|architecture|structure)|implementation\s+patterns)/im
+  )
   if (components !== undefined) {
     sections.push({ key: 'components', value: components })
   }
@@ -324,9 +345,8 @@ function extractSection(content: string, headingPattern: RegExp): string | undef
   // Find next ## heading after this one
   const rest = content.slice(startIdx + match[0].length)
   const nextHeading = /\n## /m.exec(rest)
-  const endIdx = nextHeading !== null
-    ? startIdx + match[0].length + nextHeading.index
-    : content.length
+  const endIdx =
+    nextHeading !== null ? startIdx + match[0].length + nextHeading.index : content.length
 
   const section = content.slice(startIdx, endIdx).trim()
   return section.length > 0 ? section : undefined
@@ -395,8 +415,7 @@ export interface StorySubsection {
  */
 export function parseStorySubsections(epicId: string, epicContent: string): StorySubsection[] {
   // Combined pattern: capture group 1 = markdown heading match, 2 = bold match, 3 = bare key match
-  const storyPattern =
-    /(?:^#{2,6}\s+Story\s+(\d+-\d+)|^\*\*Story\s+(\d+-\d+)\*\*|^(\d+-\d+):\s)/gim
+  const storyPattern = /(?:^#{2,6}\s+Story\s+(\d+-\d+)|^\*\*Story\s+(\d+-\d+)\*\*|^(\d+-\d+):\s)/gim
 
   const matches: Array<{ storyKey: string; startIdx: number }> = []
   let match: RegExpExecArray | null
@@ -501,12 +520,14 @@ export function detectTestPatterns(projectRoot: string): string | undefined {
       }
 
       // Also check for test config files
-      const hasVitestConfig = existsSync(join(projectRoot, 'vitest.config.ts'))
-        || existsSync(join(projectRoot, 'vitest.config.js'))
-        || existsSync(join(projectRoot, 'vite.config.ts'))
+      const hasVitestConfig =
+        existsSync(join(projectRoot, 'vitest.config.ts')) ||
+        existsSync(join(projectRoot, 'vitest.config.js')) ||
+        existsSync(join(projectRoot, 'vite.config.ts'))
 
-      const hasJestConfig = existsSync(join(projectRoot, 'jest.config.ts'))
-        || existsSync(join(projectRoot, 'jest.config.js'))
+      const hasJestConfig =
+        existsSync(join(projectRoot, 'jest.config.ts')) ||
+        existsSync(join(projectRoot, 'jest.config.js'))
 
       // Check for test script in package.json
       const testScript = pkg.scripts?.test ?? ''
@@ -550,8 +571,8 @@ export function detectTestPatterns(projectRoot: string): string | undefined {
 
   // Step 3c: Gradle (JVM)
   if (
-    existsSync(join(projectRoot, 'build.gradle.kts'))
-    || existsSync(join(projectRoot, 'build.gradle'))
+    existsSync(join(projectRoot, 'build.gradle.kts')) ||
+    existsSync(join(projectRoot, 'build.gradle'))
   ) {
     return buildGradleTestPatterns(projectRoot)
   }
@@ -652,7 +673,9 @@ function buildGoTestPatterns(projectRoot: string): string {
     '- Run specific test: go test ./... -v -run TestFunctionName',
     '- Assertion style: t.Errorf(), t.Fatalf()',
     hasTestify ? '- testify available: use require.Equal(), assert.NoError(), etc.' : '',
-  ].filter(Boolean).join('\n')
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 /**
@@ -682,7 +705,9 @@ function buildGradleTestPatterns(projectRoot: string): string {
     '- Run all tests: ./gradlew test',
     '- Run specific test: ./gradlew test --tests "com.example.ClassName"',
     '- Test annotation: @Test',
-    hasJunit5 ? '- Assertion style: assertThat() (AssertJ), assertEquals()' : '- Assertion style: assertEquals(), assertThat()',
+    hasJunit5
+      ? '- Assertion style: assertThat() (AssertJ), assertEquals()'
+      : '- Assertion style: assertEquals(), assertThat()',
   ].join('\n')
 }
 
@@ -742,7 +767,9 @@ function buildPytestPatterns(projectRoot: string): string {
     '- Fixture pattern: @pytest.fixture (define in conftest.py for sharing)',
     '- Assertion style: assert statement (plain Python)',
     hasConftest ? '- conftest.py detected: shared fixtures available' : '',
-  ].filter(Boolean).join('\n')
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 /**
@@ -753,7 +780,8 @@ function buildPytestPatterns(projectRoot: string): string {
  */
 function mapTestCommandToPatterns(testCommand: string): string | undefined {
   if (testCommand.includes('go test')) return buildGoTestPatterns('')
-  if (testCommand.includes('gradlew') || testCommand.includes('gradle')) return buildGradleTestPatterns('')
+  if (testCommand.includes('gradlew') || testCommand.includes('gradle'))
+    return buildGradleTestPatterns('')
   if (testCommand.includes('mvn')) return buildMavenTestPatterns()
   if (testCommand.includes('cargo test')) return buildCargoTestPatterns()
   if (testCommand.includes('pytest')) return buildPytestPatterns('')
@@ -784,25 +812,41 @@ function buildMonorepoTestPatterns(packages: Array<{ language?: string; path?: s
   const blocks: string[] = []
 
   for (const entry of entries) {
-    const header = entry.path.length > 0
-      ? `# ${entry.path} (${entry.language})`
-      : `# ${entry.language}`
+    const header =
+      entry.path.length > 0 ? `# ${entry.path} (${entry.language})` : `# ${entry.language}`
     let block: string
 
     switch (entry.language) {
       case 'go':
-        block = [header, '- go test ./...', '- go test ./... -v -run TestName', '- File naming: _test.go'].join('\n')
+        block = [
+          header,
+          '- go test ./...',
+          '- go test ./... -v -run TestName',
+          '- File naming: _test.go',
+        ].join('\n')
         break
       case 'typescript':
       case 'javascript':
-        block = [header, '- npx vitest run (or npm test)', '- vi.mock() for mocking', '- describe/it structure'].join('\n')
+        block = [
+          header,
+          '- npx vitest run (or npm test)',
+          '- vi.mock() for mocking',
+          '- describe/it structure',
+        ].join('\n')
         break
       case 'java':
       case 'kotlin':
-        block = [header, '- ./gradlew test', '- @Test annotation', '- assertEquals() / assertThat()'].join('\n')
+        block = [
+          header,
+          '- ./gradlew test',
+          '- @Test annotation',
+          '- assertEquals() / assertThat()',
+        ].join('\n')
         break
       case 'rust':
-        block = [header, '- cargo test', '- #[test] attribute', '- assert_eq!() / assert!()'].join('\n')
+        block = [header, '- cargo test', '- #[test] attribute', '- assert_eq!() / assert!()'].join(
+          '\n'
+        )
         break
       case 'python':
         block = [header, '- pytest', '- @pytest.fixture', '- assert statement style'].join('\n')

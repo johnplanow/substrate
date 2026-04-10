@@ -26,8 +26,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return {
     ...actual,
-    access: vi.fn(async () => undefined),   // Default: path exists
-    readdir: vi.fn(async () => []),         // Default: empty directory
+    access: vi.fn(async () => undefined), // Default: path exists
+    readdir: vi.fn(async () => []), // Default: empty directory
     stat: vi.fn(async () => ({
       birthtime: new Date('2024-01-15T10:00:00Z'),
       ctime: new Date('2024-01-15T10:00:00Z'),
@@ -84,7 +84,7 @@ function setupCapture(): void {
 
 async function runWorktreesCommand(
   args: string[],
-  projectRoot = '/project',
+  projectRoot = '/project'
 ): Promise<{ output: string; error: string; exitCode: number }> {
   setupCapture()
   const program = new Command()
@@ -226,12 +226,16 @@ describe('E2E: AC2 - JSON output format', () => {
 
   it('outputs valid JSON with --output-format json', async () => {
     const { output } = await runWorktreesCommand(['--output-format', 'json'])
-    expect((): void => { JSON.parse(output) }).not.toThrow()
+    expect((): void => {
+      JSON.parse(output)
+    }).not.toThrow()
   })
 
   it('outputs valid JSON with --json shorthand', async () => {
     const { output } = await runWorktreesCommand(['--json'])
-    expect((): void => { JSON.parse(output) }).not.toThrow()
+    expect((): void => {
+      JSON.parse(output)
+    }).not.toThrow()
   })
 
   it('JSON contains worktree array in data field', async () => {
@@ -244,7 +248,14 @@ describe('E2E: AC2 - JSON output format', () => {
   it('JSON entry has all required AC2 fields', async () => {
     const { output } = await runWorktreesCommand(['--json'])
     const parsed = JSON.parse(output) as {
-      data: { taskId: string; branchName: string; worktreePath: string; taskStatus: string; createdAt: string; completedAt: string | null }[]
+      data: {
+        taskId: string
+        branchName: string
+        worktreePath: string
+        taskStatus: string
+        createdAt: string
+        completedAt: string | null
+      }[]
     }
     const entry = parsed.data[0]
     expect(entry).toHaveProperty('taskId', 'task-001')
@@ -304,7 +315,7 @@ describe('E2E: AC5 - Sorting and ordering', () => {
   it('default sort is newest first (created)', async () => {
     const { output } = await runWorktreesCommand(['--json'])
     const parsed = JSON.parse(output) as { data: { taskId: string }[] }
-    expect(parsed.data[0]!.taskId).toBe('task-b')  // 2024-01-16 newest
+    expect(parsed.data[0]!.taskId).toBe('task-b') // 2024-01-16 newest
   })
 
   it('--sort task-id sorts alphabetically', async () => {
@@ -318,8 +329,8 @@ describe('E2E: AC5 - Sorting and ordering', () => {
   it('--sort created sorts newest first', async () => {
     const { output } = await runWorktreesCommand(['--sort', 'created', '--json'])
     const parsed = JSON.parse(output) as { data: { taskId: string }[] }
-    expect(parsed.data[0]!.taskId).toBe('task-b')  // newest
-    expect(parsed.data[2]!.taskId).toBe('task-a')  // oldest
+    expect(parsed.data[0]!.taskId).toBe('task-b') // newest
+    expect(parsed.data[2]!.taskId).toBe('task-a') // oldest
   })
 })
 

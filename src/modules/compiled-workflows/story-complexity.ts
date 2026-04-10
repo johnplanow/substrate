@@ -94,7 +94,7 @@ export function resolveFixStoryMaxTurns(complexityScore: number): number {
 export function logComplexityResult(
   storyKey: string,
   complexity: StoryComplexity,
-  resolvedMaxTurns: number,
+  resolvedMaxTurns: number
 ): void {
   logger.info(
     {
@@ -105,7 +105,7 @@ export function logComplexityResult(
       complexityScore: complexity.complexityScore,
       resolvedMaxTurns,
     },
-    'Story complexity computed',
+    'Story complexity computed'
   )
 }
 
@@ -153,9 +153,10 @@ function countFilesInLayout(content: string): number {
 
   // Find the next heading at the same or higher level, or use entire remaining content
   const nextHeadingMatch = afterHeading.match(/^#{2,4}\s+/m)
-  const sectionContent = nextHeadingMatch?.index !== undefined
-    ? afterHeading.slice(0, nextHeadingMatch.index)
-    : afterHeading
+  const sectionContent =
+    nextHeadingMatch?.index !== undefined
+      ? afterHeading.slice(0, nextHeadingMatch.index)
+      : afterHeading
 
   // Find fenced code blocks within the section
   const codeBlocks = sectionContent.match(/```[\s\S]*?```/g)

@@ -86,7 +86,7 @@ export class WorkGraphRepository {
    * @param edges - Readonly list of contract dependency edges to persist.
    */
   async addContractDependencies(
-    edges: ReadonlyArray<{ from: string; to: string; reason?: string }>,
+    edges: ReadonlyArray<{ from: string; to: string; reason?: string }>
   ): Promise<void> {
     if (edges.length === 0) return
 
@@ -151,12 +151,11 @@ export class WorkGraphRepository {
   async updateStoryStatus(
     storyKey: string,
     status: WgStoryStatus,
-    opts?: { completedAt?: string },
+    opts?: { completedAt?: string }
   ): Promise<void> {
-    const rows = await this.db.query<WgStory>(
-      `SELECT * FROM wg_stories WHERE story_key = ?`,
-      [storyKey],
-    )
+    const rows = await this.db.query<WgStory>(`SELECT * FROM wg_stories WHERE story_key = ?`, [
+      storyKey,
+    ])
     if (rows.length === 0) return // no-op: story not in wg_stories
 
     const existing = rows[0]!
@@ -167,9 +166,7 @@ export class WorkGraphRepository {
       ...existing,
       status,
       updated_at: now,
-      completed_at: isTerminal
-        ? (opts?.completedAt ?? now)
-        : existing.completed_at,
+      completed_at: isTerminal ? (opts?.completedAt ?? now) : existing.completed_at,
     }
 
     await this.upsertStory(updated)
@@ -249,7 +246,7 @@ export class WorkGraphRepository {
    */
   async detectCycles(): Promise<string[]> {
     const rows = await this.db.query<{ story_key: string; depends_on: string }>(
-      `SELECT story_key, depends_on FROM story_dependencies WHERE dependency_type = 'blocks'`,
+      `SELECT story_key, depends_on FROM story_dependencies WHERE dependency_type = 'blocks'`
     )
     const cycle = detectCycles(rows)
     return cycle ?? []

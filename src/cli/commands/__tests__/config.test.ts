@@ -51,17 +51,25 @@ afterEach(async () => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function captureOutput(): { getStdout: () => string; getStderr: () => string; restore: () => void } {
+function captureOutput(): {
+  getStdout: () => string
+  getStderr: () => string
+  restore: () => void
+} {
   let stdout = ''
   let stderr = ''
-  const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((data: string | Uint8Array) => {
-    stdout += typeof data === 'string' ? data : data.toString()
-    return true
-  })
-  const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((data: string | Uint8Array) => {
-    stderr += typeof data === 'string' ? data : data.toString()
-    return true
-  })
+  const stdoutSpy = vi
+    .spyOn(process.stdout, 'write')
+    .mockImplementation((data: string | Uint8Array) => {
+      stdout += typeof data === 'string' ? data : data.toString()
+      return true
+    })
+  const stderrSpy = vi
+    .spyOn(process.stderr, 'write')
+    .mockImplementation((data: string | Uint8Array) => {
+      stderr += typeof data === 'string' ? data : data.toString()
+      return true
+    })
   return {
     getStdout: () => stdout,
     getStderr: () => stderr,

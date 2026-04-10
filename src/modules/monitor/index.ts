@@ -20,4 +20,8 @@ export type {
 export { createRecommendation } from '@substrate-ai/core'
 export { RecommendationEngine, createRecommendationEngine } from '@substrate-ai/core'
 export type { MonitorRecommendationConfig } from '@substrate-ai/core'
-export type { AgentPerformanceMetrics, TaskTypeBreakdownResult, PerformanceAggregates } from '@substrate-ai/core'
+export type {
+  AgentPerformanceMetrics,
+  TaskTypeBreakdownResult,
+  PerformanceAggregates,
+} from '@substrate-ai/core'

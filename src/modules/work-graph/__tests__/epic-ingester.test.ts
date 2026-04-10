@@ -42,7 +42,12 @@ function makeDep(overrides: Partial<ParsedDependency> = {}): ParsedDependency {
 }
 
 const STORY_31_1 = makeStory({ story_key: '31-1', story_num: 1, title: 'Schema and Dolt init' })
-const STORY_31_2 = makeStory({ story_key: '31-2', story_num: 2, title: 'Epic doc ingestion', sprint: 1 })
+const STORY_31_2 = makeStory({
+  story_key: '31-2',
+  story_num: 2,
+  title: 'Epic doc ingestion',
+  sprint: 1,
+})
 const DEP_31_2_NEEDS_31_1 = makeDep({ story_key: '31-2', depends_on: '31-1' })
 
 // ---------------------------------------------------------------------------
@@ -54,7 +59,9 @@ async function seedTables(adapter: InMemoryDatabaseAdapter): Promise<void> {
   await adapter.exec(CREATE_STORY_DEPENDENCIES_TABLE)
 }
 
-async function queryAllStories(adapter: InMemoryDatabaseAdapter): Promise<Record<string, unknown>[]> {
+async function queryAllStories(
+  adapter: InMemoryDatabaseAdapter
+): Promise<Record<string, unknown>[]> {
   return adapter.query('SELECT * FROM wg_stories')
 }
 
@@ -106,9 +113,7 @@ describe('EpicIngester', () => {
       await ingester.ingest([STORY_31_1], [])
 
       // Manually update the status to simulate runtime progress
-      await adapter.query(
-        "UPDATE wg_stories SET status = 'in-progress' WHERE story_key = '31-1'",
-      )
+      await adapter.query("UPDATE wg_stories SET status = 'in-progress' WHERE story_key = '31-1'")
 
       // Second ingest — same key, updated title
       const updatedStory = { ...STORY_31_1, title: 'Schema v2' }
@@ -255,7 +260,7 @@ describe('EpicIngester', () => {
         { story_key: '31-B', depends_on: '31-A', dependency_type: 'blocks', source: 'explicit' },
       ]
       await expect(ingester.ingest([STORY_31_1], cyclicDeps)).rejects.toThrow(
-        'Cyclic dependency detected',
+        'Cyclic dependency detected'
       )
     })
 
@@ -311,7 +316,7 @@ describe('EpicIngester', () => {
 
       const ingester = new EpicIngester(faultyAdapter)
       await expect(ingester.ingest([STORY_31_1], [DEP_31_2_NEEDS_31_1])).rejects.toThrow(
-        'Simulated DB failure',
+        'Simulated DB failure'
       )
 
       // The adapter's transaction() should have rolled back — stories table is empty

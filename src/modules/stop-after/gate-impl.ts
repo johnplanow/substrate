@@ -126,7 +126,7 @@ export function formatPhaseCompletionSummary(params: CompletionSummaryParams): s
       }
     } else if (truncated) {
       lines.push(
-        `Artifacts created (${truncatedCount} total): list omitted to stay within word budget.`,
+        `Artifacts created (${truncatedCount} total): list omitted to stay within word budget.`
       )
     } else {
       lines.push('Artifacts created: none for this phase.')
@@ -164,11 +164,7 @@ export function formatPhaseCompletionSummary(params: CompletionSummaryParams): s
   }
 
   const finalTruncatedCount = artifactPaths.length - lo
-  result = buildSummary(
-    artifactPaths.slice(0, lo),
-    finalTruncatedCount > 0,
-    finalTruncatedCount,
-  )
+  result = buildSummary(artifactPaths.slice(0, lo), finalTruncatedCount > 0, finalTruncatedCount)
 
   return result
 }
@@ -191,7 +187,7 @@ export function createStopAfterGate(phaseName: PhaseName): StopAfterGate {
   // Validate at construction time
   if (!STOP_AFTER_VALID_PHASES.includes(phaseName)) {
     throw new Error(
-      `Invalid phase name '${phaseName}'. Valid phases: ${STOP_AFTER_VALID_PHASES.join(', ')}`,
+      `Invalid phase name '${phaseName}'. Valid phases: ${STOP_AFTER_VALID_PHASES.join(', ')}`
     )
   }
 
@@ -232,7 +228,7 @@ export function createStopAfterGate(phaseName: PhaseName): StopAfterGate {
  */
 export function validateStopAfterFromConflict(
   stopAfter: PhaseName,
-  from?: PhaseName,
+  from?: PhaseName
 ): ValidationResult {
   if (from === undefined) {
     return { valid: true }

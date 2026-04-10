@@ -357,7 +357,9 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
     })
     await panel.decide({ ...BASE_REQUEST, tier: 'routine' })
 
-    const rows = await adapter.query<Record<string, unknown>>("SELECT * FROM decisions WHERE category = 'debate-panel'")
+    const rows = await adapter.query<Record<string, unknown>>(
+      "SELECT * FROM decisions WHERE category = 'debate-panel'"
+    )
     expect(rows).toHaveLength(1)
     expect(rows[0]?.value).toBe('Use TypeScript')
     expect(rows[0]?.category).toBe('debate-panel')
@@ -375,7 +377,9 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
     })
     await panel.decide({ ...BASE_REQUEST, tier: 'routine' })
 
-    const rows = await adapter.query<Record<string, unknown>>("SELECT * FROM decisions WHERE category = 'debate-panel'")
+    const rows = await adapter.query<Record<string, unknown>>(
+      "SELECT * FROM decisions WHERE category = 'debate-panel'"
+    )
     const rationale = JSON.parse(rows[0]?.rationale as string)
     expect(rationale.tier).toBe('routine')
     expect(Array.isArray(rationale.perspectives)).toBe(true)
@@ -393,7 +397,9 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
     })
     await panel.decide({ ...BASE_REQUEST, tier: 'routine', key: 'my-custom-key' })
 
-    const rows = await adapter.query<Record<string, unknown>>("SELECT * FROM decisions WHERE key = 'my-custom-key'")
+    const rows = await adapter.query<Record<string, unknown>>(
+      "SELECT * FROM decisions WHERE key = 'my-custom-key'"
+    )
     expect(rows).toHaveLength(1)
   })
 
@@ -409,7 +415,9 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
     })
     await panel.decide({ ...BASE_REQUEST, tier: 'routine', phase: 'planning' })
 
-    const rows = await adapter.query<Record<string, unknown>>("SELECT * FROM decisions WHERE phase = 'planning'")
+    const rows = await adapter.query<Record<string, unknown>>(
+      "SELECT * FROM decisions WHERE phase = 'planning'"
+    )
     expect(rows).toHaveLength(1)
   })
 
@@ -441,7 +449,9 @@ describe('DebatePanel — Decision Persistence (AC7)', () => {
     })
     await panel.decide({ ...BASE_REQUEST, tier: 'significant' })
 
-    const rows = await adapter.query<Record<string, unknown>>("SELECT * FROM decisions WHERE category = 'debate-panel'")
+    const rows = await adapter.query<Record<string, unknown>>(
+      "SELECT * FROM decisions WHERE category = 'debate-panel'"
+    )
     expect(rows).toHaveLength(1)
     const rationale = JSON.parse(rows[0]?.rationale as string)
     expect(rationale.tier).toBe('significant')

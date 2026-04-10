@@ -87,7 +87,9 @@ describe('IngestionServer.flushAndAwait()', () => {
 
   it('resolves after in-flight processBatch() completes (AC2)', async () => {
     let resolveBatch!: () => void
-    const batchPromise = new Promise<void>((resolve) => { resolveBatch = resolve })
+    const batchPromise = new Promise<void>((resolve) => {
+      resolveBatch = resolve
+    })
 
     const mockPipeline: TelemetryPipeline = {
       processBatch: vi.fn().mockReturnValue(batchPromise),
@@ -106,9 +108,20 @@ describe('IngestionServer.flushAndAwait()', () => {
       const body = JSON.stringify({ resourceLogs: [] })
       const url = new URL('/v1/logs', endpoint)
       const req = fetch.request(
-        { hostname: '127.0.0.1', port: url.port, method: 'POST', path: url.pathname,
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
-        (res) => { res.resume(); res.on('end', resolve) },
+        {
+          hostname: '127.0.0.1',
+          port: url.port,
+          method: 'POST',
+          path: url.pathname,
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+          },
+        },
+        (res) => {
+          res.resume()
+          res.on('end', resolve)
+        }
       )
       req.on('error', reject)
       req.write(body)
@@ -117,7 +130,9 @@ describe('IngestionServer.flushAndAwait()', () => {
 
     // The batch should now be in-flight (processBatch called but not resolved)
     let awaited = false
-    const flushPromise = server.flushAndAwait().then(() => { awaited = true })
+    const flushPromise = server.flushAndAwait().then(() => {
+      awaited = true
+    })
 
     // Before resolving the batch, flushAndAwait should not have resolved
     await new Promise<void>((r) => setImmediate(r))
@@ -137,7 +152,12 @@ describe('IngestionServer.flushAndAwait()', () => {
       processBatch: vi.fn().mockResolvedValue(undefined),
     } as unknown as TelemetryPipeline
 
-    const server = new IngestionServer({ port: 0, pipeline: mockPipeline, batchSize: 100, flushIntervalMs: 60000 })
+    const server = new IngestionServer({
+      port: 0,
+      pipeline: mockPipeline,
+      batchSize: 100,
+      flushIntervalMs: 60000,
+    })
     await server.start()
 
     // flushAndAwait with no buffered items and no pending batches should resolve

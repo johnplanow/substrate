@@ -14,11 +14,7 @@ import type { RunManifestData } from '@substrate-ai/sdlc'
 // Hoisted mocks
 // ---------------------------------------------------------------------------
 
-const {
-  mockManifestRead,
-  mockRunManifestConstructor,
-  mockFsReadFile,
-} = vi.hoisted(() => {
+const { mockManifestRead, mockRunManifestConstructor, mockFsReadFile } = vi.hoisted(() => {
   const mockManifestRead = vi.fn()
   const mockRunManifestConstructor = vi.fn().mockImplementation(() => ({
     read: mockManifestRead,
@@ -198,11 +194,11 @@ describe('health command — manifest-read path (Story 52-6)', () => {
         _processInfoOverride: { orchestrator_pid: 12345, child_pids: [], zombies: [] },
       })
 
-      expect(health.stories.completed).toBe(2)  // '1-1', '1-2'
-      expect(health.stories.escalated).toBe(1)  // '1-3'
-      expect(health.stories.active).toBe(1)      // '1-4' (dispatched → active)
-      expect(health.stories.pending).toBe(1)     // '1-5' (pending → pending)
-      expect(health.stories.failed).toBe(1)      // '1-6' (failed → failed)
+      expect(health.stories.completed).toBe(2) // '1-1', '1-2'
+      expect(health.stories.escalated).toBe(1) // '1-3'
+      expect(health.stories.active).toBe(1) // '1-4' (dispatched → active)
+      expect(health.stories.pending).toBe(1) // '1-5' (pending → pending)
+      expect(health.stories.failed).toBe(1) // '1-6' (failed → failed)
     })
 
     it('null supervisor_pid in manifest results in manifest_supervisor.pid === null', async () => {

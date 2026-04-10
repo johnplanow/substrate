@@ -25,7 +25,11 @@ import { createLogger } from '../../utils/logger.js'
 import type { ContextTemplate } from '../context-compiler/types.js'
 import { FindingsInjector, extractTargetFilesFromStoryContent } from '@substrate-ai/sdlc'
 import { getTokenCeiling } from './token-ceiling.js'
-import { computeStoryComplexity, resolveDevStoryMaxTurns, logComplexityResult } from './story-complexity.js'
+import {
+  computeStoryComplexity,
+  resolveDevStoryMaxTurns,
+  logComplexityResult,
+} from './story-complexity.js'
 import { stripDeprecatedStatusField, detectDeprecatedStatusField } from '../work-graph/index.js'
 import { resolveDefaultTestPatterns } from './default-test-patterns.js'
 import { resolveInstallCommand } from './install-command.js'
@@ -57,18 +61,27 @@ const DEFAULT_TIMEOUT_MS = 1_800_000
  */
 export async function runDevStory(
   deps: WorkflowDeps,
-  params: DevStoryParams,
+  params: DevStoryParams
 ): Promise<DevStoryResult> {
-  const { storyKey, storyFilePath, taskScope, priorFiles, findingsPrompt: handlerFindingsPrompt } = params
+  const {
+    storyKey,
+    storyFilePath,
+    taskScope,
+    priorFiles,
+    findingsPrompt: handlerFindingsPrompt,
+  } = params
 
   logger.info({ storyKey, storyFilePath }, 'Starting compiled dev-story workflow')
 
   // Resolve token ceiling: config override takes priority over hardcoded default
   const { ceiling: TOKEN_CEILING, source: tokenCeilingSource } = getTokenCeiling(
     'dev-story',
-    deps.tokenCeilings,
+    deps.tokenCeilings
   )
-  logger.info({ workflow: 'dev-story', ceiling: TOKEN_CEILING, source: tokenCeilingSource }, 'Token ceiling resolved')
+  logger.info(
+    { workflow: 'dev-story', ceiling: TOKEN_CEILING, source: tokenCeilingSource },
+    'Token ceiling resolved'
+  )
 
   // ---------------------------------------------------------------------------
   // Task 5: Register context template for dev-story with context compiler
@@ -83,7 +96,10 @@ export async function runDevStory(
       {
         name: 'story-content',
         priority: 'required',
-        query: { table: 'decisions', filters: { phase: 'implementation', category: 'story-content' } },
+        query: {
+          table: 'decisions',
+          filters: { phase: 'implementation', category: 'story-content' },
+        },
         format: (items: unknown[]) => {
           if (items.length === 0) return ''
           const rows = items as Array<{ key: string; value: string }>
@@ -149,7 +165,7 @@ export async function runDevStory(
   if (staleStatus !== null) {
     logger.warn(
       { storyFilePath, staleStatus },
-      'Story spec contains deprecated Status field — stripped before dispatch (status is managed by Dolt work graph)',
+      'Story spec contains deprecated Status field — stripped before dispatch (status is managed by Dolt work graph)'
     )
     storyContent = stripDeprecatedStatusField(storyContent)
   }
@@ -172,14 +188,14 @@ export async function runDevStory(
   let testPatternsContent = ''
   try {
     const solutioningDecisions = await getDecisionsByPhase(deps.db, 'solutioning')
-    const testPatternDecisions = solutioningDecisions.filter(
-      (d) => d.category === 'test-patterns',
-    )
+    const testPatternDecisions = solutioningDecisions.filter((d) => d.category === 'test-patterns')
     if (testPatternDecisions.length > 0) {
       testPatternsContent =
-        '## Test Patterns\n' +
-        testPatternDecisions.map((d) => `- ${d.key}: ${d.value}`).join('\n')
-      logger.debug({ storyKey, count: testPatternDecisions.length }, 'Loaded test patterns from decision store')
+        '## Test Patterns\n' + testPatternDecisions.map((d) => `- ${d.key}: ${d.value}`).join('\n')
+      logger.debug(
+        { storyKey, count: testPatternDecisions.length },
+        'Loaded test patterns from decision store'
+      )
     } else {
       testPatternsContent = resolveDefaultTestPatterns(deps.projectRoot)
       logger.debug({ storyKey }, 'No test-pattern decisions — using stack-aware defaults')
@@ -227,7 +243,10 @@ export async function runDevStory(
   // Build repo-map context (Story 28-7)
   let repoContextContent = ''
   if (deps.repoMapInjector !== undefined) {
-    const injection = await deps.repoMapInjector.buildContext(storyContent, deps.maxRepoMapTokens ?? 2000)
+    const injection = await deps.repoMapInjector.buildContext(
+      storyContent,
+      deps.maxRepoMapTokens ?? 2000
+    )
     repoContextContent = injection.text
     logger.info(
       {
@@ -236,7 +255,7 @@ export async function runDevStory(
         symbolCount: injection.symbolCount,
         truncated: injection.truncated,
       },
-      'Repo-map context assembled',
+      'Repo-map context assembled'
     )
   }
 
@@ -246,7 +265,10 @@ export async function runDevStory(
   let priorFindingsContent = ''
   if (handlerFindingsPrompt !== undefined && handlerFindingsPrompt.length > 0) {
     priorFindingsContent = handlerFindingsPrompt
-    logger.debug({ storyKey, findingsLen: handlerFindingsPrompt.length }, 'Using pre-computed findings from handler (Story 53-8 AC2)')
+    logger.debug(
+      { storyKey, findingsLen: handlerFindingsPrompt.length },
+      'Using pre-computed findings from handler (Story 53-8 AC2)'
+    )
   } else {
     try {
       const findings = await FindingsInjector.inject(deps.db, {
@@ -256,7 +278,10 @@ export async function runDevStory(
       })
       if (findings.length > 0) {
         priorFindingsContent = findings
-        logger.debug({ storyKey, findingsLen: findings.length }, 'Injecting relevance-scored findings into dev-story prompt')
+        logger.debug(
+          { storyKey, findingsLen: findings.length },
+          'Injecting relevance-scored findings into dev-story prompt'
+        )
       }
     } catch {
       // Graceful fallback — empty string on error
@@ -302,15 +327,26 @@ export async function runDevStory(
     { name: 'test_patterns', content: testPatternsContent, priority: 'optional' },
     { name: 'test_plan', content: testPlanContent, priority: 'optional' },
     { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' },
-    { name: 'verify_command', content: deps.pack.manifest.verifyCommand !== false ? (deps.pack.manifest.verifyCommand ?? 'npx turbo build') : '', priority: 'optional' },
-    { name: 'install_command', content: resolveInstallCommand(deps.projectRoot), priority: 'optional' },
+    {
+      name: 'verify_command',
+      content:
+        deps.pack.manifest.verifyCommand !== false
+          ? (deps.pack.manifest.verifyCommand ?? 'npx turbo build')
+          : '',
+      priority: 'optional',
+    },
+    {
+      name: 'install_command',
+      content: resolveInstallCommand(deps.projectRoot),
+      priority: 'optional',
+    },
   ]
 
   const { prompt, tokenCount, truncated } = assemblePrompt(template, sections, TOKEN_CEILING)
 
   logger.info(
     { storyKey, tokenCount, ceiling: TOKEN_CEILING, truncated },
-    'Assembled dev-story prompt',
+    'Assembled dev-story prompt'
   )
 
   // ---------------------------------------------------------------------------
@@ -329,7 +365,9 @@ export async function runDevStory(
       ...(deps.projectRoot !== undefined ? { workingDirectory: deps.projectRoot } : {}),
       ...(deps.otlpEndpoint !== undefined ? { otlpEndpoint: deps.otlpEndpoint } : {}),
       ...(deps.maxContextTokens !== undefined ? { maxContextTokens: deps.maxContextTokens } : {}),
-      ...(deps.optimizationDirectives !== undefined ? { optimizationDirectives: deps.optimizationDirectives } : {}),
+      ...(deps.optimizationDirectives !== undefined
+        ? { optimizationDirectives: deps.optimizationDirectives }
+        : {}),
       storyKey,
     })
 
@@ -350,10 +388,16 @@ export async function runDevStory(
   }
 
   if (dispatchResult.status === 'timeout') {
-    logger.error({ storyKey, durationMs: dispatchResult.durationMs }, 'Dev-story dispatch timed out')
+    logger.error(
+      { storyKey, durationMs: dispatchResult.durationMs },
+      'Dev-story dispatch timed out'
+    )
     // Log partial output if any
     if (dispatchResult.output.length > 0) {
-      logger.info({ storyKey, partialOutput: dispatchResult.output.slice(0, 500) }, 'Partial output before timeout')
+      logger.info(
+        { storyKey, partialOutput: dispatchResult.output.slice(0, 500) },
+        'Partial output before timeout'
+      )
     }
     return {
       ...makeFailureResult(`dispatch_timeout after ${dispatchResult.durationMs}ms`),
@@ -364,13 +408,18 @@ export async function runDevStory(
   if (dispatchResult.status === 'failed' || dispatchResult.exitCode !== 0) {
     logger.error(
       { storyKey, exitCode: dispatchResult.exitCode, status: dispatchResult.status },
-      'Dev-story dispatch failed',
+      'Dev-story dispatch failed'
     )
     if (dispatchResult.output.length > 0) {
-      logger.info({ storyKey, partialOutput: dispatchResult.output.slice(0, 500) }, 'Partial output from failed dispatch')
+      logger.info(
+        { storyKey, partialOutput: dispatchResult.output.slice(0, 500) },
+        'Partial output from failed dispatch'
+      )
     }
     return {
-      ...makeFailureResult(`dispatch_failed with exit_code=${dispatchResult.exitCode}: ${dispatchResult.output.slice(0, 200)}`),
+      ...makeFailureResult(
+        `dispatch_failed with exit_code=${dispatchResult.exitCode}: ${dispatchResult.output.slice(0, 200)}`
+      ),
       tokenUsage,
     }
   }
@@ -382,7 +431,10 @@ export async function runDevStory(
   if (dispatchResult.parseError !== null || dispatchResult.parsed === null) {
     const details = dispatchResult.parseError ?? 'parsed result was null'
     const rawSnippet = dispatchResult.output ? dispatchResult.output.slice(0, 1000) : '(empty)'
-    logger.error({ storyKey, parseError: details, rawOutputSnippet: rawSnippet }, 'YAML schema validation failed')
+    logger.error(
+      { storyKey, parseError: details, rawOutputSnippet: rawSnippet },
+      'YAML schema validation failed'
+    )
 
     // Recover files_modified from git when YAML output is missing.
     // The dev agent may have done real work (created files, passed tests)
@@ -393,13 +445,13 @@ export async function runDevStory(
       if (filesModified.length > 0) {
         logger.info(
           { storyKey, fileCount: filesModified.length },
-          'Recovered files_modified from git status (YAML fallback)',
+          'Recovered files_modified from git status (YAML fallback)'
         )
       }
     } catch (err) {
       logger.warn(
         { storyKey, error: err instanceof Error ? err.message : String(err) },
-        'Failed to recover files_modified from git',
+        'Failed to recover files_modified from git'
       )
     }
 
@@ -423,7 +475,7 @@ export async function runDevStory(
 
   logger.info(
     { storyKey, result: parsed.result, acMet: parsed.ac_met.length },
-    'Dev-story workflow completed',
+    'Dev-story workflow completed'
   )
 
   const successResult: DevStoryResult = {
@@ -535,13 +587,9 @@ async function buildProjectContext(storyContent: string, projectRoot: string): P
     '',
   ]
 
-  const fileBlocks = existingFiles.map((f) => [
-    `#### \`${f.path}\``,
-    '```typescript',
-    f.content,
-    '```',
-    '',
-  ].join('\n'))
+  const fileBlocks = existingFiles.map((f) =>
+    [`#### \`${f.path}\``, '```typescript', f.content, '```', ''].join('\n')
+  )
 
   return [...header, ...fileBlocks].join('\n')
 }
@@ -579,7 +627,7 @@ function extractReferencedFiles(storyContent: string): string[] {
 function extractFilesInScope(storyContent: string): string {
   // Match "## File List", "### File List", or "### Git Diff" / "## Dev Agent Record" as terminators
   const fileListMatch = storyContent.match(
-    /^#{2,3}\s+File\s+List\s*\n([\s\S]*?)(?=\n#{2,3}\s|\n## Dev Agent Record|$)/im,
+    /^#{2,3}\s+File\s+List\s*\n([\s\S]*?)(?=\n#{2,3}\s|\n## Dev Agent Record|$)/im
   )
   if (!fileListMatch || !fileListMatch[1]) return ''
 

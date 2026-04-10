@@ -20,7 +20,10 @@
 
 import * as readline from 'node:readline'
 import type { Writable, Readable } from 'node:stream'
-import type { PipelineEvent, PipelinePhase } from '../modules/implementation-orchestrator/event-types.js'
+import type {
+  PipelineEvent,
+  PipelinePhase,
+} from '../modules/implementation-orchestrator/event-types.js'
 import type {
   TuiState,
   TuiStoryState,
@@ -80,11 +83,16 @@ export interface TuiApp {
 
 function mapPhaseToLabel(phase: PipelinePhase): StoryPhaseLabel {
   switch (phase) {
-    case 'create-story': return 'create'
-    case 'dev-story': return 'dev'
-    case 'code-review': return 'review'
-    case 'fix': return 'fix'
-    default: return 'wait'
+    case 'create-story':
+      return 'create'
+    case 'dev-story':
+      return 'dev'
+    case 'code-review':
+      return 'review'
+    case 'fix':
+      return 'fix'
+    default:
+      return 'wait'
   }
 }
 
@@ -102,20 +110,30 @@ function makeStatusLabel(phase: StoryPhaseLabel, eventStatus: string, verdict?: 
   if (eventStatus === 'failed') return 'failed'
   if (eventStatus === 'in_progress') {
     switch (phase) {
-      case 'create': return 'creating story...'
-      case 'dev': return 'implementing...'
-      case 'review': return 'reviewing...'
-      case 'fix': return 'fixing issues...'
-      default: return 'in progress...'
+      case 'create':
+        return 'creating story...'
+      case 'dev':
+        return 'implementing...'
+      case 'review':
+        return 'reviewing...'
+      case 'fix':
+        return 'fixing issues...'
+      default:
+        return 'in progress...'
     }
   }
   if (eventStatus === 'complete') {
     switch (phase) {
-      case 'create': return 'story created'
-      case 'dev': return 'implemented'
-      case 'review': return verdict !== undefined ? `reviewed (${verdict})` : 'reviewed'
-      case 'fix': return 'fixes applied'
-      default: return 'complete'
+      case 'create':
+        return 'story created'
+      case 'dev':
+        return 'implemented'
+      case 'review':
+        return verdict !== undefined ? `reviewed (${verdict})` : 'reviewed'
+      case 'fix':
+        return 'fixes applied'
+      default:
+        return 'complete'
     }
   }
   return 'queued'
@@ -131,10 +149,7 @@ function makeStatusLabel(phase: StoryPhaseLabel, eventStatus: string, verdict?: 
  * @param output - Writable stream for rendering (typically process.stdout)
  * @param input  - Readable stream for keyboard input (typically process.stdin)
  */
-export function createTuiApp(
-  output: Writable,
-  input: Readable,
-): TuiApp {
+export function createTuiApp(output: Writable, input: Readable): TuiApp {
   // Determine color support
   const isTTY = (output as NodeJS.WriteStream).isTTY === true
   const useColor = supportsColor(isTTY)
@@ -180,11 +195,13 @@ export function createTuiApp(
     if (cols < MIN_COLS || rows < MIN_ROWS) {
       // Render warning
       write(ANSI.CLEAR_SCREEN + ANSI.HOME)
-      write(colorize(
-        `Terminal too small: ${cols}x${rows} (minimum ${MIN_COLS}x${MIN_ROWS})\n`,
-        ANSI.YELLOW,
-        useColor,
-      ))
+      write(
+        colorize(
+          `Terminal too small: ${cols}x${rows} (minimum ${MIN_COLS}x${MIN_ROWS})\n`,
+          ANSI.YELLOW,
+          useColor
+        )
+      )
       write('Please resize your terminal.\n')
       return false
     }
@@ -315,7 +332,7 @@ export function createTuiApp(
     // Put stdin in raw mode for single keypress capture
     if ((input as NodeJS.ReadStream).isTTY === true) {
       try {
-        (input as NodeJS.ReadStream).setRawMode(true)
+        ;(input as NodeJS.ReadStream).setRawMode(true)
       } catch {
         // Raw mode not available — ignore
       }
@@ -328,7 +345,10 @@ export function createTuiApp(
 
     const stdin = input as NodeJS.ReadStream
 
-    const onKeypress = (chunk: unknown, key: { name?: string; ctrl?: boolean; sequence?: string } | undefined): void => {
+    const onKeypress = (
+      chunk: unknown,
+      key: { name?: string; ctrl?: boolean; sequence?: string } | undefined
+    ): void => {
       if (key === undefined) return
       handleKeypress(key)
     }
@@ -364,7 +384,7 @@ export function createTuiApp(
         if (state.view === 'overview') {
           state.selectedIndex = Math.min(
             Math.max(0, state.storyOrder.length - 1),
-            state.selectedIndex + 1,
+            state.selectedIndex + 1
           )
           render()
         }
@@ -422,9 +442,10 @@ export function createTuiApp(
 
     // Handle terminal resize using the injected output stream when possible,
     // falling back to process.stdout for environments that don't support it.
-    const resizeEmitter = typeof (output as NodeJS.WriteStream).on === 'function'
-      ? (output as NodeJS.WriteStream)
-      : process.stdout
+    const resizeEmitter =
+      typeof (output as NodeJS.WriteStream).on === 'function'
+        ? (output as NodeJS.WriteStream)
+        : process.stdout
     resizeEmitter.on('resize', onResize)
 
     // Initial render
@@ -449,9 +470,10 @@ export function createTuiApp(
     write(ANSI.ALT_SCREEN_EXIT)
 
     // Remove resize listener from whichever emitter was used in init()
-    const resizeEmitter = typeof (output as NodeJS.WriteStream).on === 'function'
-      ? (output as NodeJS.WriteStream)
-      : process.stdout
+    const resizeEmitter =
+      typeof (output as NodeJS.WriteStream).on === 'function'
+        ? (output as NodeJS.WriteStream)
+        : process.stdout
     resizeEmitter.off('resize', onResize)
 
     // Close readline
@@ -467,7 +489,7 @@ export function createTuiApp(
     // Restore stdin
     if ((input as NodeJS.ReadStream).isTTY === true) {
       try {
-        (input as NodeJS.ReadStream).setRawMode(false)
+        ;(input as NodeJS.ReadStream).setRawMode(false)
       } catch {
         // Ignore
       }
@@ -531,9 +553,8 @@ export function createTuiApp(
           story.phase = event.result === 'success' ? 'done' : 'failed'
           story.status = event.result === 'success' ? 'succeeded' : 'failed'
           const cycleWord = event.review_cycles === 1 ? 'cycle' : 'cycles'
-          story.statusLabel = event.result === 'success'
-            ? `SHIP_IT (${event.review_cycles} ${cycleWord})`
-            : 'FAILED'
+          story.statusLabel =
+            event.result === 'success' ? `SHIP_IT (${event.review_cycles} ${cycleWord})` : 'FAILED'
           story.reviewCycles = event.review_cycles
         }
         break
@@ -645,7 +666,5 @@ export function isTuiCapable(): boolean {
  * Print the non-TTY fallback warning message.
  */
 export function printNonTtyWarning(): void {
-  process.stderr.write(
-    'TUI requires an interactive terminal. Falling back to default output.\n',
-  )
+  process.stderr.write('TUI requires an interactive terminal. Falling back to default output.\n')
 }

@@ -62,9 +62,7 @@ describe('generateEscalationDiagnosis', () => {
   })
 
   it('handles fix dispatch timeout', () => {
-    const issues = [
-      { severity: 'major', description: 'AC2 not implemented', file: 'src/foo.ts' },
-    ]
+    const issues = [{ severity: 'major', description: 'AC2 not implemented', file: 'src/foo.ts' }]
     const result = generateEscalationDiagnosis(issues, 2, 'fix-dispatch-timeout')
 
     expect(result.recommendedAction).toBe('retry-targeted')

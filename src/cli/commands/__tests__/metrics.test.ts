@@ -31,7 +31,12 @@ vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
 }))
 
-const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+const mockAdapter = {
+  query: vi.fn().mockResolvedValue([]),
+  exec: vi.fn().mockResolvedValue(undefined),
+  transaction: vi.fn(),
+  close: vi.fn().mockResolvedValue(undefined),
+}
 
 vi.mock('../../../persistence/adapter.js', () => ({
   createDatabaseAdapter: vi.fn(() => mockAdapter),
@@ -195,9 +200,7 @@ describe('runMetricsAction — Dolt path present', () => {
       projectRoot: '/tmp/test-project',
       sprint: 'sprint-1',
     })
-    expect(createStateStore).toHaveBeenCalledWith(
-      expect.objectContaining({ backend: 'dolt' }),
-    )
+    expect(createStateStore).toHaveBeenCalledWith(expect.objectContaining({ backend: 'dolt' }))
     expect(mockStateStore.initialize).toHaveBeenCalled()
     expect(mockStateStore.queryMetrics).toHaveBeenCalled()
     expect(mockStateStore.close).toHaveBeenCalled()
@@ -238,7 +241,7 @@ describe('runMetricsAction — Dolt path present', () => {
       sprint: 'sprint-2',
     })
     expect(mockStateStore.queryMetrics).toHaveBeenCalledWith(
-      expect.objectContaining({ sprint: 'sprint-2' }),
+      expect.objectContaining({ sprint: 'sprint-2' })
     )
   })
 
@@ -258,7 +261,7 @@ describe('runMetricsAction — Dolt path present', () => {
       story: '26-1',
     })
     expect(mockStateStore.queryMetrics).toHaveBeenCalledWith(
-      expect.objectContaining({ storyKey: '26-1' }),
+      expect.objectContaining({ storyKey: '26-1' })
     )
   })
 
@@ -278,7 +281,7 @@ describe('runMetricsAction — Dolt path present', () => {
       aggregate: true,
     })
     expect(mockStateStore.queryMetrics).toHaveBeenCalledWith(
-      expect.objectContaining({ aggregate: true }),
+      expect.objectContaining({ aggregate: true })
     )
   })
 
@@ -292,7 +295,13 @@ describe('runMetricsAction — Dolt path present', () => {
     })
 
     const doltResult = [
-      { storyKey: '26-1', taskType: 'dev-story', tokensIn: 1000, tokensOut: 500, result: 'success' },
+      {
+        storyKey: '26-1',
+        taskType: 'dev-story',
+        tokensIn: 1000,
+        tokensOut: 500,
+        result: 'success',
+      },
     ]
     mockStateStore.queryMetrics.mockResolvedValueOnce(doltResult)
 

@@ -35,13 +35,21 @@ const { setupTelemetryDb, cleanupTelemetryDb } = vi.hoisted(() => {
       writeFileSync(TELEMETRY_DB_PATH, '')
     },
     cleanupTelemetryDb: () => {
-      try { rmSync(TELEMETRY_TEST_ROOT, { recursive: true, force: true }) } catch { /* ignore */ }
+      try {
+        rmSync(TELEMETRY_TEST_ROOT, { recursive: true, force: true })
+      } catch {
+        /* ignore */
+      }
     },
   }
 })
 
-beforeAll(() => { setupTelemetryDb() })
-afterAll(() => { cleanupTelemetryDb() })
+beforeAll(() => {
+  setupTelemetryDb()
+})
+afterAll(() => {
+  cleanupTelemetryDb()
+})
 
 // ---------------------------------------------------------------------------
 // Mocks — set up before any imports of the module under test
@@ -59,7 +67,12 @@ vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
 }))
 
-const mockAdapter = { query: vi.fn().mockResolvedValue([]), exec: vi.fn().mockResolvedValue(undefined), transaction: vi.fn(), close: vi.fn().mockResolvedValue(undefined) }
+const mockAdapter = {
+  query: vi.fn().mockResolvedValue([]),
+  exec: vi.fn().mockResolvedValue(undefined),
+  transaction: vi.fn(),
+  close: vi.fn().mockResolvedValue(undefined),
+}
 
 vi.mock('../../../persistence/adapter.js', () => ({
   createDatabaseAdapter: vi.fn(() => mockAdapter),
@@ -127,9 +140,6 @@ vi.mock('../../../modules/telemetry/index.js', () => ({
   AdapterTelemetryPersistence: vi.fn().mockImplementation(() => mockTelemetryPersistence),
 }))
 
-
-
-
 // ---------------------------------------------------------------------------
 // Fixture factories
 // ---------------------------------------------------------------------------
@@ -148,7 +158,9 @@ function makeEfficiencyScore(storyKey = '27-6', compositeScore = 75) {
     contextSpikeCount: 1,
     totalTurns: 13,
     coldStartTurnsExcluded: 0,
-    perModelBreakdown: [{ model: 'claude-sonnet', cacheHitRate: 0.75, avgIoRatio: 2.0, costPer1KOutputTokens: 0.003 }],
+    perModelBreakdown: [
+      { model: 'claude-sonnet', cacheHitRate: 0.75, avgIoRatio: 2.0, costPer1KOutputTokens: 0.003 },
+    ],
     perSourceBreakdown: [{ source: 'claude-code', compositeScore: 88, turnCount: 10 }],
   }
 }
@@ -240,7 +252,9 @@ function captureStdout(): { output: () => string; restore: () => void } {
   })
   return {
     output: () => writes.join(''),
-    restore: () => { process.stdout.write = orig },
+    restore: () => {
+      process.stdout.write = orig
+    },
   }
 }
 
@@ -253,7 +267,9 @@ function captureStderr(): { output: () => string; restore: () => void } {
   })
   return {
     output: () => writes.join(''),
-    restore: () => { process.stderr.write = orig },
+    restore: () => {
+      process.stderr.write = orig
+    },
   }
 }
 
@@ -581,7 +597,10 @@ describe('metrics command — telemetry modes', () => {
         totalTurns: 3,
         avgCacheHitRate: 0.75,
       }
-      mockTelemetryPersistence.getDispatchEfficiencyScores.mockResolvedValue([dispatchScore1, dispatchScore2])
+      mockTelemetryPersistence.getDispatchEfficiencyScores.mockResolvedValue([
+        dispatchScore1,
+        dispatchScore2,
+      ])
 
       const { runMetricsAction } = await import('../metrics.js')
       const stdout = captureStdout()
@@ -629,7 +648,10 @@ describe('metrics command — telemetry modes', () => {
     it('should call getAllRecommendations with limit 50 and return 0', async () => {
       await setupExistsSyncForTelemetry()
 
-      const recs = [makeRecommendation({ severity: 'critical' }), makeRecommendation({ id: 'bbbb1234bbbb1234', severity: 'warning' })]
+      const recs = [
+        makeRecommendation({ severity: 'critical' }),
+        makeRecommendation({ id: 'bbbb1234bbbb1234', severity: 'warning' }),
+      ]
       mockTelemetryPersistence.getAllRecommendations.mockResolvedValue(recs)
 
       const { runMetricsAction } = await import('../metrics.js')

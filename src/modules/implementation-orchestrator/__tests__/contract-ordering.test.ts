@@ -14,20 +14,25 @@ import {
   buildContractDependencyGraph,
   detectConflictGroupsWithContracts,
 } from '../conflict-detector.js'
-import type {
-  ContractDeclaration,
-  ContractDependencyEdge,
-} from '../conflict-detector.js'
+import type { ContractDeclaration, ContractDependencyEdge } from '../conflict-detector.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeExport(storyKey: string, contractName: string, filePath = 'src/types.ts'): ContractDeclaration {
+function makeExport(
+  storyKey: string,
+  contractName: string,
+  filePath = 'src/types.ts'
+): ContractDeclaration {
   return { storyKey, contractName, direction: 'export', filePath }
 }
 
-function makeImport(storyKey: string, contractName: string, filePath = 'src/types.ts'): ContractDeclaration {
+function makeImport(
+  storyKey: string,
+  contractName: string,
+  filePath = 'src/types.ts'
+): ContractDeclaration {
   return { storyKey, contractName, direction: 'import', filePath }
 }
 
@@ -155,11 +160,7 @@ describe('buildContractDependencyGraph', () => {
 
 describe('detectConflictGroupsWithContracts — AC4: no regression (no contract overlap)', () => {
   it('returns a single batch with all groups when no contract declarations', () => {
-    const { batches, edges } = detectConflictGroupsWithContracts(
-      ['A', 'B', 'C'],
-      undefined,
-      [],
-    )
+    const { batches, edges } = detectConflictGroupsWithContracts(['A', 'B', 'C'], undefined, [])
     expect(edges).toHaveLength(0)
     expect(batches).toHaveLength(1)
     // All stories in the single batch
@@ -172,9 +173,13 @@ describe('detectConflictGroupsWithContracts — AC4: no regression (no contract 
   it('returns single batch with original groups when no matching contracts', () => {
     const declarations: ContractDeclaration[] = [
       makeExport('A', 'FooSchema'),
-      makeImport('B', 'BarSchema'),  // different contract name — no match
+      makeImport('B', 'BarSchema'), // different contract name — no match
     ]
-    const { batches, edges } = detectConflictGroupsWithContracts(['A', 'B', 'C'], undefined, declarations)
+    const { batches, edges } = detectConflictGroupsWithContracts(
+      ['A', 'B', 'C'],
+      undefined,
+      declarations
+    )
     expect(edges).toHaveLength(0)
     expect(batches).toHaveLength(1)
     // All stories still present
@@ -196,7 +201,7 @@ describe('detectConflictGroupsWithContracts — AC4: no regression (no contract 
     const { batches } = detectConflictGroupsWithContracts(
       ['12-1', '12-2', '13-1'],
       { moduleMap: { '12-': 'module-a', '13-': 'module-b' } },
-      [],
+      []
     )
     // Single batch (no contract deps)
     expect(batches).toHaveLength(1)
@@ -217,7 +222,11 @@ describe('detectConflictGroupsWithContracts — AC2: exporter before importer', 
       makeExport('A', 'FooSchema'),
       makeImport('B', 'FooSchema'),
     ]
-    const { batches, edges } = detectConflictGroupsWithContracts(['A', 'B'], undefined, declarations)
+    const { batches, edges } = detectConflictGroupsWithContracts(
+      ['A', 'B'],
+      undefined,
+      declarations
+    )
     expect(edges).toHaveLength(1)
     expect(batches.length).toBeGreaterThanOrEqual(2)
     expect(batchOf(batches, 'A')).toBeLessThan(batchOf(batches, 'B'))
@@ -278,8 +287,8 @@ describe('detectConflictGroupsWithContracts — AC3: dual-export serialization',
 
   it('dual-export ordering is deterministic (alphabetically earlier comes first)', () => {
     const declarations: ContractDeclaration[] = [
-      makeExport('B', 'BarSchema'),  // B declared first
-      makeExport('A', 'BarSchema'),  // A declared second
+      makeExport('B', 'BarSchema'), // B declared first
+      makeExport('A', 'BarSchema'), // A declared second
     ]
     const { batches } = detectConflictGroupsWithContracts(['A', 'B'], undefined, declarations)
     // A comes before B alphabetically → A in earlier batch
@@ -318,7 +327,7 @@ describe('detectConflictGroupsWithContracts — mixed file conflicts + contract 
     const { batches } = detectConflictGroupsWithContracts(
       ['12-1', '12-2', '13-1'],
       { moduleMap: { '12-': 'module-a', '13-': 'module-b' } },
-      declarations,
+      declarations
     )
     // module-a group (12-1, 12-2) must be in earlier batch than module-b group (13-1)
     expect(batchOf(batches, '12-1')).toBeLessThan(batchOf(batches, '13-1'))
@@ -335,7 +344,7 @@ describe('detectConflictGroupsWithContracts — mixed file conflicts + contract 
     const { batches } = detectConflictGroupsWithContracts(
       ['12-1', '12-2'],
       { moduleMap: { '12-': 'module-a' } },
-      declarations,
+      declarations
     )
     // Both in same file-conflict group → same batch (the contract dep is a self-loop at group level)
     expect(batchOf(batches, '12-1')).toBe(batchOf(batches, '12-2'))
@@ -351,7 +360,7 @@ describe('detectConflictGroupsWithContracts — mixed file conflicts + contract 
     const { batches } = detectConflictGroupsWithContracts(
       ['12-1', '12-2', '99-1'],
       { moduleMap: { '12-': 'module-a' } },
-      declarations,
+      declarations
     )
     // module-a group must come before 99-1
     expect(batchOf(batches, '12-1')).toBeLessThan(batchOf(batches, '99-1'))
@@ -379,10 +388,14 @@ describe('detectConflictGroupsWithContracts — edge cases', () => {
 
   it('ignores declarations for unknown story keys (not in storyKeys list)', () => {
     const declarations: ContractDeclaration[] = [
-      makeExport('UNKNOWN', 'FooSchema'),  // not in storyKeys
+      makeExport('UNKNOWN', 'FooSchema'), // not in storyKeys
       makeImport('B', 'FooSchema'),
     ]
-    const { batches, edges } = detectConflictGroupsWithContracts(['A', 'B'], undefined, declarations)
+    const { batches, edges } = detectConflictGroupsWithContracts(
+      ['A', 'B'],
+      undefined,
+      declarations
+    )
     // Edge exists in the graph but UNKNOWN isn't in any group → ignored
     // B should still be in some batch
     expect(batchOf(batches, 'B')).toBeGreaterThanOrEqual(0)

@@ -96,7 +96,9 @@ vi.mock('../../../modules/agent-dispatch/index.js', () => ({
 }))
 vi.mock('../../../adapters/adapter-registry.js', () => ({
   AdapterRegistry: vi.fn().mockImplementation(() => ({
-    discoverAndRegister: vi.fn().mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] }),
+    discoverAndRegister: vi
+      .fn()
+      .mockResolvedValue({ registeredCount: 0, failedCount: 0, results: [] }),
   })),
 }))
 vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
@@ -122,14 +124,12 @@ vi.mock('../../../core/event-bus.js', () => ({
 // Import module under test AFTER mocks
 // ---------------------------------------------------------------------------
 
-import {
-  scaffoldClaudeSettings,
-  scaffoldStatuslineScript,
-  runInitAction,
-} from '../init.js'
+import { scaffoldClaudeSettings, scaffoldStatuslineScript, runInitAction } from '../init.js'
 import { SUBSTRATE_OWNED_SETTINGS_KEYS } from '../pipeline-shared.js'
 
-const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+const mockRegistry = {
+  discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }),
+} as any
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -191,14 +191,11 @@ describe('scaffoldStatuslineScript', () => {
 
     await scaffoldStatuslineScript('/test/project')
 
-    expect(mockMkdirSync).toHaveBeenCalledWith(
-      join('/test/project', '.claude'),
-      { recursive: true },
-    )
+    expect(mockMkdirSync).toHaveBeenCalledWith(join('/test/project', '.claude'), {
+      recursive: true,
+    })
 
-    const writeCall = mockWriteFile.mock.calls.find(([p]) =>
-      String(p).includes('statusline.sh'),
-    )
+    const writeCall = mockWriteFile.mock.calls.find(([p]) => String(p).includes('statusline.sh'))
     expect(writeCall).toBeDefined()
     expect(String(writeCall![1])).toContain('#!/bin/bash')
     expect(String(writeCall![1])).toContain('substrate-ai')
@@ -217,7 +214,7 @@ describe('scaffoldStatuslineScript', () => {
 
     expect(mockChmodSync).toHaveBeenCalledWith(
       join('/test/project', '.claude', 'statusline.sh'),
-      0o755,
+      0o755
     )
   })
 
@@ -234,9 +231,7 @@ describe('scaffoldStatuslineScript', () => {
     await scaffoldStatuslineScript('/test/project')
     await scaffoldStatuslineScript('/test/project')
 
-    const writeCalls = mockWriteFile.mock.calls.filter(([p]) =>
-      String(p).includes('statusline.sh'),
-    )
+    const writeCalls = mockWriteFile.mock.calls.filter(([p]) => String(p).includes('statusline.sh'))
     expect(writeCalls).toHaveLength(2)
   })
 
@@ -246,9 +241,7 @@ describe('scaffoldStatuslineScript', () => {
 
     await scaffoldStatuslineScript('/test/project')
 
-    const writeCalls = mockWriteFile.mock.calls.filter(([p]) =>
-      String(p).includes('statusline.sh'),
-    )
+    const writeCalls = mockWriteFile.mock.calls.filter(([p]) => String(p).includes('statusline.sh'))
     expect(writeCalls).toHaveLength(0)
   })
 })
@@ -385,10 +378,9 @@ describe('scaffoldClaudeSettings', () => {
 
     await scaffoldClaudeSettings('/test/project')
 
-    expect(mockMkdirSync).toHaveBeenCalledWith(
-      join('/test/project', '.claude'),
-      { recursive: true },
-    )
+    expect(mockMkdirSync).toHaveBeenCalledWith(join('/test/project', '.claude'), {
+      recursive: true,
+    })
   })
 })
 
@@ -419,7 +411,9 @@ describe('runInitAction settings scaffold integration', () => {
     mockReadFile.mockImplementation((path: string) => {
       const p = String(path)
       if (p.includes('claude-md-substrate-section.md')) {
-        return Promise.resolve('<!-- substrate:start -->\n## Substrate Pipeline\n<!-- substrate:end -->\n')
+        return Promise.resolve(
+          '<!-- substrate:start -->\n## Substrate Pipeline\n<!-- substrate:end -->\n'
+        )
       }
       if (p.includes('statusline.sh')) {
         return Promise.resolve(STATUSLINE_TEMPLATE)
@@ -442,7 +436,7 @@ describe('runInitAction settings scaffold integration', () => {
     expect(exitCode).toBe(0)
 
     const statuslineCall = mockWriteFile.mock.calls.find(([p]) =>
-      String(p).includes('statusline.sh'),
+      String(p).includes('statusline.sh')
     )
     expect(statuslineCall).toBeDefined()
     expect(String(statuslineCall![1])).toContain('substrate-ai')
@@ -463,9 +457,7 @@ describe('runInitAction settings scaffold integration', () => {
 
     expect(exitCode).toBe(0)
 
-    const settingsCall = mockWriteFile.mock.calls.find(([p]) =>
-      String(p).includes('settings.json'),
-    )
+    const settingsCall = mockWriteFile.mock.calls.find(([p]) => String(p).includes('settings.json'))
     expect(settingsCall).toBeDefined()
     const parsed = JSON.parse(String(settingsCall![1]))
     expect(parsed.statusLine).toBeDefined()
@@ -485,7 +477,9 @@ describe('runInitAction settings scaffold integration', () => {
     mockReadFile.mockImplementation((path: string) => {
       const p = String(path)
       if (p.includes('claude-md-substrate-section.md')) {
-        return Promise.resolve('<!-- substrate:start -->\n## Substrate Pipeline\n<!-- substrate:end -->\n')
+        return Promise.resolve(
+          '<!-- substrate:start -->\n## Substrate Pipeline\n<!-- substrate:end -->\n'
+        )
       }
       if (p.includes('statusline.sh')) {
         return Promise.resolve(STATUSLINE_TEMPLATE)
@@ -506,9 +500,7 @@ describe('runInitAction settings scaffold integration', () => {
 
     expect(exitCode).toBe(0)
 
-    const settingsCall = mockWriteFile.mock.calls.find(([p]) =>
-      String(p).includes('settings.json'),
-    )
+    const settingsCall = mockWriteFile.mock.calls.find(([p]) => String(p).includes('settings.json'))
     expect(settingsCall).toBeDefined()
     const parsed = JSON.parse(String(settingsCall![1]))
     expect(parsed.permissions).toEqual(existingSettings.permissions)

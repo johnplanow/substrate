@@ -105,7 +105,11 @@ describe('emitDegradedModeHint', () => {
     mockCheckDoltInstalled.mockRejectedValueOnce(new MockDoltNotInstalled())
     mockExistsSync.mockReturnValue(false)
 
-    await emitDegradedModeHint({ outputFormat: 'text', command: 'diff', statePath: '/project/.substrate/state' })
+    await emitDegradedModeHint({
+      outputFormat: 'text',
+      command: 'diff',
+      statePath: '/project/.substrate/state',
+    })
 
     expect(stderrSpy).toHaveBeenCalledOnce()
     const written = String(stderrSpy.mock.calls[0][0])
@@ -117,7 +121,11 @@ describe('emitDegradedModeHint', () => {
     mockCheckDoltInstalled.mockResolvedValueOnce(undefined)
     mockExistsSync.mockReturnValueOnce(false)
 
-    await emitDegradedModeHint({ outputFormat: 'text', command: 'history', statePath: '/project/.substrate/state' })
+    await emitDegradedModeHint({
+      outputFormat: 'text',
+      command: 'history',
+      statePath: '/project/.substrate/state',
+    })
 
     expect(stderrSpy).toHaveBeenCalledOnce()
     const written = String(stderrSpy.mock.calls[0][0])

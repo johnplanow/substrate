@@ -17,7 +17,7 @@ export interface GameLoopOrchestrator {
    * @param playerIndex - The AI player index (1-3)
    * @story 7-3
    */
-  startAiTurn(playerIndex: number): Promise<void>;
+  startAiTurn(playerIndex: number): Promise<void>
 
   /**
    * Callback invoked when an AI turn completes.
@@ -25,7 +25,7 @@ export interface GameLoopOrchestrator {
    *
    * @story 7-3
    */
-  onAiTurnComplete(): void;
+  onAiTurnComplete(): void
 }
 
 /**
@@ -40,13 +40,13 @@ export function createGameLoopOrchestrator(): GameLoopOrchestrator {
   return {
     async startAiTurn(playerIndex: number): Promise<void> {
       // Stub implementation - to be filled by Story 7-3
-      console.log(`[Stub] Starting AI turn for player ${playerIndex}`);
-      return Promise.resolve();
+      console.log(`[Stub] Starting AI turn for player ${playerIndex}`)
+      return Promise.resolve()
     },
 
     onAiTurnComplete(): void {
       // Stub implementation - to be filled by Story 7-3
-      console.log('[Stub] AI turn complete');
+      console.log('[Stub] AI turn complete')
     },
-  };
+  }
 }

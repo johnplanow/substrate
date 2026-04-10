@@ -93,8 +93,20 @@ describe('ConsumerAnalyzer', () => {
 
     it('should group spans with same operationName and no toolName into single ConsumerStats', () => {
       const spans = [
-        makeSpan({ spanId: 's1', operationName: 'bash', name: 'bash', inputTokens: 100, outputTokens: 50 }),
-        makeSpan({ spanId: 's2', operationName: 'bash', name: 'bash', inputTokens: 200, outputTokens: 100 }),
+        makeSpan({
+          spanId: 's1',
+          operationName: 'bash',
+          name: 'bash',
+          inputTokens: 100,
+          outputTokens: 50,
+        }),
+        makeSpan({
+          spanId: 's2',
+          operationName: 'bash',
+          name: 'bash',
+          inputTokens: 200,
+          outputTokens: 100,
+        }),
       ]
       const result = analyzer.analyze(spans)
 
@@ -189,12 +201,14 @@ describe('ConsumerAnalyzer', () => {
       // Create 25 spans all with same consumerKey
       const spans: NormalizedSpan[] = []
       for (let i = 0; i < 25; i++) {
-        spans.push(makeSpan({
-          operationName: 'bash',
-          name: 'bash',
-          inputTokens: (i + 1) * 10,
-          outputTokens: 5,
-        }))
+        spans.push(
+          makeSpan({
+            operationName: 'bash',
+            name: 'bash',
+            inputTokens: (i + 1) * 10,
+            outputTokens: 5,
+          })
+        )
       }
       const result = analyzer.analyze(spans)
 
@@ -207,13 +221,15 @@ describe('ConsumerAnalyzer', () => {
       const spans: NormalizedSpan[] = []
       // Create 25 spans with different token counts
       for (let i = 0; i < 25; i++) {
-        spans.push(makeSpan({
-          spanId: `span-top-${i}`,
-          operationName: 'bash',
-          name: 'bash',
-          inputTokens: (i + 1) * 10,
-          outputTokens: 0,
-        }))
+        spans.push(
+          makeSpan({
+            spanId: `span-top-${i}`,
+            operationName: 'bash',
+            name: 'bash',
+            inputTokens: (i + 1) * 10,
+            outputTokens: 0,
+          })
+        )
       }
       const result = analyzer.analyze(spans)
       const topTokens = result[0].topInvocations.map((t) => t.totalTokens)
@@ -255,9 +271,27 @@ describe('ConsumerAnalyzer', () => {
 
     it('should sort results by totalTokens descending', () => {
       const spans = [
-        makeSpan({ spanId: 's1', operationName: 'low_op', name: 'low_op', inputTokens: 100, outputTokens: 0 }),
-        makeSpan({ spanId: 's2', operationName: 'high_op', name: 'high_op', inputTokens: 1000, outputTokens: 0 }),
-        makeSpan({ spanId: 's3', operationName: 'mid_op', name: 'mid_op', inputTokens: 500, outputTokens: 0 }),
+        makeSpan({
+          spanId: 's1',
+          operationName: 'low_op',
+          name: 'low_op',
+          inputTokens: 100,
+          outputTokens: 0,
+        }),
+        makeSpan({
+          spanId: 's2',
+          operationName: 'high_op',
+          name: 'high_op',
+          inputTokens: 1000,
+          outputTokens: 0,
+        }),
+        makeSpan({
+          spanId: 's3',
+          operationName: 'mid_op',
+          name: 'mid_op',
+          inputTokens: 500,
+          outputTokens: 0,
+        }),
       ]
       const result = analyzer.analyze(spans)
 
@@ -274,8 +308,20 @@ describe('ConsumerAnalyzer', () => {
 
     it('should compute percentage correctly for each group', () => {
       const spans = [
-        makeSpan({ spanId: 's1', operationName: 'op_a', name: 'op_a', inputTokens: 300, outputTokens: 0 }),
-        makeSpan({ spanId: 's2', operationName: 'op_b', name: 'op_b', inputTokens: 700, outputTokens: 0 }),
+        makeSpan({
+          spanId: 's1',
+          operationName: 'op_a',
+          name: 'op_a',
+          inputTokens: 300,
+          outputTokens: 0,
+        }),
+        makeSpan({
+          spanId: 's2',
+          operationName: 'op_b',
+          name: 'op_b',
+          inputTokens: 700,
+          outputTokens: 0,
+        }),
       ]
       const result = analyzer.analyze(spans)
 
@@ -302,8 +348,20 @@ describe('ConsumerAnalyzer', () => {
 
     it('should call categorizer.classify for each consumer group', () => {
       const spans = [
-        makeSpan({ spanId: 's1', operationName: 'op_a', name: 'op_a', inputTokens: 100, outputTokens: 0 }),
-        makeSpan({ spanId: 's2', operationName: 'op_b', name: 'op_b', inputTokens: 200, outputTokens: 0 }),
+        makeSpan({
+          spanId: 's1',
+          operationName: 'op_a',
+          name: 'op_a',
+          inputTokens: 100,
+          outputTokens: 0,
+        }),
+        makeSpan({
+          spanId: 's2',
+          operationName: 'op_b',
+          name: 'op_b',
+          inputTokens: 200,
+          outputTokens: 0,
+        }),
       ]
       analyzer.analyze(spans)
       expect(mockCategorizer.classify).toHaveBeenCalledTimes(2)
@@ -313,7 +371,13 @@ describe('ConsumerAnalyzer', () => {
       const mockCat = makeMockCategorizer('file_reads')
       const customAnalyzer = new ConsumerAnalyzer(mockCat, makeMockLogger())
       const spans = [
-        makeSpan({ spanId: 's1', operationName: 'op_a', name: 'op_a', inputTokens: 100, outputTokens: 0 }),
+        makeSpan({
+          spanId: 's1',
+          operationName: 'op_a',
+          name: 'op_a',
+          inputTokens: 100,
+          outputTokens: 0,
+        }),
       ]
       const result = customAnalyzer.analyze(spans)
       expect(result[0].category).toBe('file_reads')
@@ -476,8 +540,20 @@ describe('ConsumerAnalyzer.analyzeFromTurns()', () => {
 
   it('should group turns with same model and no toolName into single ConsumerStats', () => {
     const turns = [
-      makeTurn({ spanId: 't1', model: 'claude-sonnet', toolName: undefined, inputTokens: 100, outputTokens: 50 }),
-      makeTurn({ spanId: 't2', model: 'claude-sonnet', toolName: undefined, inputTokens: 200, outputTokens: 100 }),
+      makeTurn({
+        spanId: 't1',
+        model: 'claude-sonnet',
+        toolName: undefined,
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
+      makeTurn({
+        spanId: 't2',
+        model: 'claude-sonnet',
+        toolName: undefined,
+        inputTokens: 200,
+        outputTokens: 100,
+      }),
     ]
     const result = analyzer.analyzeFromTurns(turns)
 
@@ -489,8 +565,20 @@ describe('ConsumerAnalyzer.analyzeFromTurns()', () => {
 
   it('should separate turns with same model but different toolNames', () => {
     const turns = [
-      makeTurn({ spanId: 't1', model: 'claude-sonnet', toolName: 'bash', inputTokens: 100, outputTokens: 50 }),
-      makeTurn({ spanId: 't2', model: 'claude-sonnet', toolName: 'read_file', inputTokens: 200, outputTokens: 100 }),
+      makeTurn({
+        spanId: 't1',
+        model: 'claude-sonnet',
+        toolName: 'bash',
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
+      makeTurn({
+        spanId: 't2',
+        model: 'claude-sonnet',
+        toolName: 'read_file',
+        inputTokens: 200,
+        outputTokens: 100,
+      }),
     ]
     const result = analyzer.analyzeFromTurns(turns)
 
@@ -502,8 +590,20 @@ describe('ConsumerAnalyzer.analyzeFromTurns()', () => {
 
   it('should separate turns with different models', () => {
     const turns = [
-      makeTurn({ spanId: 't1', model: 'claude-sonnet', toolName: undefined, inputTokens: 100, outputTokens: 50 }),
-      makeTurn({ spanId: 't2', model: 'claude-haiku', toolName: undefined, inputTokens: 200, outputTokens: 100 }),
+      makeTurn({
+        spanId: 't1',
+        model: 'claude-sonnet',
+        toolName: undefined,
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
+      makeTurn({
+        spanId: 't2',
+        model: 'claude-haiku',
+        toolName: undefined,
+        inputTokens: 200,
+        outputTokens: 100,
+      }),
     ]
     const result = analyzer.analyzeFromTurns(turns)
 
@@ -515,7 +615,13 @@ describe('ConsumerAnalyzer.analyzeFromTurns()', () => {
 
   it('should use "unknown" as model part when turn.model is undefined', () => {
     const turns = [
-      makeTurn({ spanId: 't1', model: undefined, toolName: undefined, inputTokens: 100, outputTokens: 50 }),
+      makeTurn({
+        spanId: 't1',
+        model: undefined,
+        toolName: undefined,
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
     ]
     const result = analyzer.analyzeFromTurns(turns)
 
@@ -525,7 +631,13 @@ describe('ConsumerAnalyzer.analyzeFromTurns()', () => {
 
   it('should build consumerKey as model|toolName', () => {
     const turns = [
-      makeTurn({ spanId: 't1', model: 'my-model', toolName: 'my-tool', inputTokens: 100, outputTokens: 50 }),
+      makeTurn({
+        spanId: 't1',
+        model: 'my-model',
+        toolName: 'my-tool',
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
     ]
     const result = analyzer.analyzeFromTurns(turns)
     expect(result[0].consumerKey).toBe('my-model|my-tool')
@@ -578,7 +690,14 @@ describe('ConsumerAnalyzer.analyzeFromTurns()', () => {
   it('should cap topInvocations at 20 when group has 25 turns', () => {
     const turns: TurnAnalysis[] = []
     for (let i = 0; i < 25; i++) {
-      turns.push(makeTurn({ model: 'claude-sonnet', toolName: undefined, inputTokens: (i + 1) * 10, outputTokens: 5 }))
+      turns.push(
+        makeTurn({
+          model: 'claude-sonnet',
+          toolName: undefined,
+          inputTokens: (i + 1) * 10,
+          outputTokens: 5,
+        })
+      )
     }
     const result = analyzer.analyzeFromTurns(turns)
 
@@ -611,7 +730,14 @@ describe('ConsumerAnalyzer.analyzeFromTurns()', () => {
 
   it('should call categorizer.classify with turn name and toolName', () => {
     const turns = [
-      makeTurn({ spanId: 't1', model: 'claude-sonnet', name: 'bash', toolName: 'my_tool', inputTokens: 100, outputTokens: 50 }),
+      makeTurn({
+        spanId: 't1',
+        model: 'claude-sonnet',
+        name: 'bash',
+        toolName: 'my_tool',
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
     ]
     analyzer.analyzeFromTurns(turns)
     expect(mockCategorizer.classify).toHaveBeenCalledWith('bash', 'my_tool')

@@ -49,9 +49,7 @@ describe('--stop-after option parsing', () => {
   })
 
   it('rejects an invalid phase name', () => {
-    expect(() => createStopAfterGate('nonexistent' as PhaseName)).toThrow(
-      /invalid phase name/i,
-    )
+    expect(() => createStopAfterGate('nonexistent' as PhaseName)).toThrow(/invalid phase name/i)
   })
 })
 

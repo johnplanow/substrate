@@ -22,10 +22,7 @@ import {
   supersedeDecision,
   getActiveDecisions,
 } from '../../src/persistence/queries/amendments.js'
-import {
-  createDecision,
-  createPipelineRun,
-} from '../../src/persistence/queries/decisions.js'
+import { createDecision, createPipelineRun } from '../../src/persistence/queries/decisions.js'
 import { createAmendmentContextHandler } from '../../src/modules/amendment-handlers/index.js'
 import { runPostPhaseSupersessionDetection } from '../../src/cli/commands/amend.js'
 import { runAnalysisPhase } from '../../src/modules/phase-orchestrator/phases/analysis.js'
@@ -33,7 +30,11 @@ import { runPlanningPhase } from '../../src/modules/phase-orchestrator/phases/pl
 import type { PhaseDeps, ProductBrief } from '../../src/modules/phase-orchestrator/phases/types.js'
 import type { MethodologyPack } from '../../src/modules/methodology-pack/types.js'
 import type { ContextCompiler } from '../../src/modules/context-compiler/context-compiler.js'
-import type { Dispatcher, DispatchHandle, DispatchResult } from '../../src/modules/agent-dispatch/types.js'
+import type {
+  Dispatcher,
+  DispatchHandle,
+  DispatchResult,
+} from '../../src/modules/agent-dispatch/types.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -49,7 +50,7 @@ async function insertRun(
   adapter: DatabaseAdapter,
   id: string,
   status: string = 'completed',
-  parentRunId: string | null = null,
+  parentRunId: string | null = null
 ): Promise<void> {
   await adapter.exec(`
     INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
@@ -67,7 +68,7 @@ async function insertDecision(
     key?: string
     value?: string
     rationale?: string | null
-  } = {},
+  } = {}
 ): Promise<void> {
   const {
     phase = 'analysis',
@@ -92,7 +93,7 @@ const SAMPLE_BRIEF: ProductBrief = {
 
 function makeDispatchResult(
   parsed: unknown,
-  overrides: Partial<DispatchResult<unknown>> = {},
+  overrides: Partial<DispatchResult<unknown>> = {}
 ): DispatchResult<unknown> {
   return {
     id: 'dispatch-001',
@@ -124,7 +125,7 @@ function makeDispatcher(result: DispatchResult<unknown>): Dispatcher {
 
 function makePack(
   analysisTemplate = 'Analyze the concept: {{concept}}\nProvide product brief.',
-  planningTemplate = 'Plan based on: {{product_brief}}\nProvide requirements.',
+  planningTemplate = 'Plan based on: {{product_brief}}\nProvide requirements.'
 ): MethodologyPack {
   return {
     manifest: {
@@ -158,11 +159,7 @@ function makeContextCompiler(): ContextCompiler {
   } as unknown as ContextCompiler
 }
 
-function makeDeps(
-  db: DatabaseAdapter,
-  dispatcher: Dispatcher,
-  pack?: MethodologyPack,
-): PhaseDeps {
+function makeDeps(db: DatabaseAdapter, dispatcher: Dispatcher, pack?: MethodologyPack): PhaseDeps {
   return {
     db,
     pack: pack ?? makePack(),
@@ -217,7 +214,10 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     // Verify parent decision is now superseded in DB
-    const [parentRow] = await adapter.query<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentDecId])
+    const [parentRow] = await adapter.query<{ superseded_by: string | null }>(
+      'SELECT superseded_by FROM decisions WHERE id = ?',
+      [parentDecId]
+    )
 
     expect(parentRow.superseded_by).toBe(amendmentDecId)
   })
@@ -285,7 +285,10 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     const log = handler.getSupersessionLog()
     expect(log).toHaveLength(0)
 
-    const [parentRow] = await adapter.query<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentDecId])
+    const [parentRow] = await adapter.query<{ superseded_by: string | null }>(
+      'SELECT superseded_by FROM decisions WHERE id = ?',
+      [parentDecId]
+    )
     expect(parentRow.superseded_by).toBeNull()
   })
 
@@ -359,8 +362,14 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     const log = handler.getSupersessionLog()
     expect(log).toHaveLength(2)
 
-    const [parentRow1] = await adapter.query<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentDecId1])
-    const [parentRow2] = await adapter.query<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentDecId2])
+    const [parentRow1] = await adapter.query<{ superseded_by: string | null }>(
+      'SELECT superseded_by FROM decisions WHERE id = ?',
+      [parentDecId1]
+    )
+    const [parentRow2] = await adapter.query<{ superseded_by: string | null }>(
+      'SELECT superseded_by FROM decisions WHERE id = ?',
+      [parentDecId2]
+    )
     expect(parentRow1.superseded_by).toBe(amendDecId1)
     expect(parentRow2.superseded_by).toBe(amendDecId2)
   })
@@ -412,7 +421,9 @@ describe('Gap 1: runPostPhaseSupersessionDetection with real DB (12-8 + 12-12)',
     })
 
     // Running detection should not throw and should not match parentDecId (not in snapshot)
-    await expect(runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)).resolves.not.toThrow()
+    await expect(
+      runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
+    ).resolves.not.toThrow()
 
     // No match was found because parentDecId is not in the handler's parent decisions
     expect(handler.getSupersessionLog()).toHaveLength(0)
@@ -508,7 +519,9 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
     const amendmentRunId = randomUUID()
     await insertRun(adapter, amendmentRunId, 'running', parentRunId)
 
-    const [run] = await adapter.query<{ id: string }>('SELECT id FROM pipeline_runs WHERE id = ?', [amendmentRunId])
+    const [run] = await adapter.query<{ id: string }>('SELECT id FROM pipeline_runs WHERE id = ?', [
+      amendmentRunId,
+    ])
     expect(run).toBeDefined()
 
     // Capture what the dispatcher receives
@@ -520,10 +533,12 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
           id: 'dispatch-001',
           status: 'completed',
           cancel: vi.fn(),
-          result: Promise.resolve(makeDispatchResult({
-            result: 'success',
-            product_brief: SAMPLE_BRIEF,
-          })),
+          result: Promise.resolve(
+            makeDispatchResult({
+              result: 'success',
+              product_brief: SAMPLE_BRIEF,
+            })
+          ),
         }
         return handle
       }),
@@ -557,10 +572,12 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
           id: 'dispatch-001',
           status: 'completed',
           cancel: vi.fn(),
-          result: Promise.resolve(makeDispatchResult({
-            result: 'success',
-            product_brief: SAMPLE_BRIEF,
-          })),
+          result: Promise.resolve(
+            makeDispatchResult({
+              result: 'success',
+              product_brief: SAMPLE_BRIEF,
+            })
+          ),
         }
         return handle
       }),
@@ -592,10 +609,12 @@ describe('Gap 2: Amendment context injection into runAnalysisPhase (12-8 + 12-11
           id: 'dispatch-001',
           status: 'completed',
           cancel: vi.fn(),
-          result: Promise.resolve(makeDispatchResult({
-            result: 'success',
-            product_brief: SAMPLE_BRIEF,
-          })),
+          result: Promise.resolve(
+            makeDispatchResult({
+              result: 'success',
+              product_brief: SAMPLE_BRIEF,
+            })
+          ),
         }
         return handle
       }),
@@ -678,15 +697,21 @@ describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11
           id: 'dispatch-001',
           status: 'completed',
           cancel: vi.fn(),
-          result: Promise.resolve(makeDispatchResult({
-            result: 'success',
-            functional_requirements: [{ description: 'User can create tasks', priority: 'must' }],
-            non_functional_requirements: [{ description: 'Fast response time', category: 'performance' }],
-            user_stories: [{ title: 'Task creation', description: 'As a user, I want to create tasks' }],
-            tech_stack: { language: 'TypeScript' },
-            domain_model: { Task: { fields: ['id', 'title'] } },
-            out_of_scope: [],
-          })),
+          result: Promise.resolve(
+            makeDispatchResult({
+              result: 'success',
+              functional_requirements: [{ description: 'User can create tasks', priority: 'must' }],
+              non_functional_requirements: [
+                { description: 'Fast response time', category: 'performance' },
+              ],
+              user_stories: [
+                { title: 'Task creation', description: 'As a user, I want to create tasks' },
+              ],
+              tech_stack: { language: 'TypeScript' },
+              domain_model: { Task: { fields: ['id', 'title'] } },
+              out_of_scope: [],
+            })
+          ),
         }
         return handle
       }),
@@ -735,15 +760,17 @@ describe('Gap 3: Amendment context injection into runPlanningPhase (12-8 + 12-11
           id: 'dispatch-001',
           status: 'completed',
           cancel: vi.fn(),
-          result: Promise.resolve(makeDispatchResult({
-            result: 'success',
-            functional_requirements: [{ description: 'User can create tasks', priority: 'must' }],
-            non_functional_requirements: [{ description: 'Fast', category: 'performance' }],
-            user_stories: [{ title: 'Task creation', description: 'As a user...' }],
-            tech_stack: { language: 'TypeScript' },
-            domain_model: { Task: { fields: ['id'] } },
-            out_of_scope: [],
-          })),
+          result: Promise.resolve(
+            makeDispatchResult({
+              result: 'success',
+              functional_requirements: [{ description: 'User can create tasks', priority: 'must' }],
+              non_functional_requirements: [{ description: 'Fast', category: 'performance' }],
+              user_stories: [{ title: 'Task creation', description: 'As a user...' }],
+              tech_stack: { language: 'TypeScript' },
+              domain_model: { Task: { fields: ['id'] } },
+              out_of_scope: [],
+            })
+          ),
         }
         return handle
       }),
@@ -806,10 +833,12 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
           id: 'dispatch-001',
           status: 'completed',
           cancel: vi.fn(),
-          result: Promise.resolve(makeDispatchResult({
-            result: 'success',
-            product_brief: SAMPLE_BRIEF,
-          })),
+          result: Promise.resolve(
+            makeDispatchResult({
+              result: 'success',
+              product_brief: SAMPLE_BRIEF,
+            })
+          ),
         }
         return handle
       }),
@@ -832,17 +861,22 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
 
     // Step 6: Verify supersession state
     // The parent's problem_statement decision should now be superseded
-    const [parentRow] = await adapter.query<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentDecId])
+    const [parentRow] = await adapter.query<{ superseded_by: string | null }>(
+      'SELECT superseded_by FROM decisions WHERE id = ?',
+      [parentDecId]
+    )
 
     expect(parentRow.superseded_by).not.toBeNull()
 
     // Active decisions for parent run should NOT include the superseded one
-    const activeParentDecisions = await getActiveDecisions(adapter,{ pipeline_run_id: parentRunId })
+    const activeParentDecisions = await getActiveDecisions(adapter, {
+      pipeline_run_id: parentRunId,
+    })
     const activeParentIds = activeParentDecisions.map((d) => d.id)
     expect(activeParentIds).not.toContain(parentDecId)
 
     // Active decisions for amendment run should include the new problem_statement
-    const activeAmendDecisions = await getActiveDecisions(adapter,{
+    const activeAmendDecisions = await getActiveDecisions(adapter, {
       pipeline_run_id: amendmentRunId,
       phase: 'analysis',
       category: 'product-brief',
@@ -884,11 +918,11 @@ describe('Gap 4: Full amendment pipeline: analysis â†’ supersession writeback â†
     await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
 
     // After supersession writeback, loadParentRunDecisions should exclude the superseded one
-    const freshParentDecisions = await loadParentRunDecisions(adapter,parentRunId)
+    const freshParentDecisions = await loadParentRunDecisions(adapter, parentRunId)
     const freshIds = freshParentDecisions.map((d) => d.id)
     expect(freshIds).not.toContain(parentDecId)
     // But the amendment decision (in amendment run) should be accessible
-    const amendActive = await getActiveDecisions(adapter,{ pipeline_run_id: amendmentRunId })
+    const amendActive = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
     expect(amendActive.map((d) => d.id)).toContain(amendDecId)
   })
 })
@@ -1046,7 +1080,10 @@ describe('Gap 6: Handler snapshot vs. live DB state consistency (12-8 + 12-12)',
     expect(decisionsAfter.map((d) => d.id)).toContain(parentDecId)
 
     // But the DB reflects the new state (superseded_by is set)
-    const [dbRow] = await adapter.query<{ superseded_by: string | null }>('SELECT superseded_by FROM decisions WHERE id = ?', [parentDecId])
+    const [dbRow] = await adapter.query<{ superseded_by: string | null }>(
+      'SELECT superseded_by FROM decisions WHERE id = ?',
+      [parentDecId]
+    )
     expect(dbRow.superseded_by).toBe(amendDecId)
 
     // The in-memory supersession log DOES reflect the supersession

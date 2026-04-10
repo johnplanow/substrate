@@ -106,7 +106,10 @@ const STORY_GEN_OUTPUT = {
           key: '1-1',
           title: 'Create tasks',
           description: 'Users can create new tasks in the board',
-          acceptance_criteria: ['User can create a task with title', 'Task appears on the board view'],
+          acceptance_criteria: [
+            'User can create a task with title',
+            'Task appears on the board view',
+          ],
           priority: 'must' as const,
         },
         {
@@ -187,31 +190,56 @@ function makeMultiStepPack(): MethodologyPack {
             {
               name: 'architecture-step-1-context',
               template: 'architecture-step-1-context',
-              context: [{ placeholder: 'requirements', source: 'decision:planning.functional-requirements' }],
+              context: [
+                {
+                  placeholder: 'requirements',
+                  source: 'decision:planning.functional-requirements',
+                },
+              ],
               outputCategory: 'architecture',
             },
             {
               name: 'architecture-step-2-decisions',
               template: 'architecture-step-2-decisions',
-              context: [{ placeholder: 'requirements', source: 'decision:planning.functional-requirements' }],
+              context: [
+                {
+                  placeholder: 'requirements',
+                  source: 'decision:planning.functional-requirements',
+                },
+              ],
               outputCategory: 'architecture',
             },
             {
               name: 'architecture-step-3-patterns',
               template: 'architecture-step-3-patterns',
-              context: [{ placeholder: 'architecture_decisions', source: 'decision:solutioning.architecture' }],
+              context: [
+                {
+                  placeholder: 'architecture_decisions',
+                  source: 'decision:solutioning.architecture',
+                },
+              ],
               outputCategory: 'architecture',
             },
             {
               name: 'stories-step-1-epics',
               template: 'stories-step-1-epics',
-              context: [{ placeholder: 'requirements', source: 'decision:planning.functional-requirements' }],
+              context: [
+                {
+                  placeholder: 'requirements',
+                  source: 'decision:planning.functional-requirements',
+                },
+              ],
               outputCategory: 'epic-design',
             },
             {
               name: 'stories-step-2-stories',
               template: 'stories-step-2-stories',
-              context: [{ placeholder: 'requirements', source: 'decision:planning.functional-requirements' }],
+              context: [
+                {
+                  placeholder: 'requirements',
+                  source: 'decision:planning.functional-requirements',
+                },
+              ],
               outputCategory: 'stories',
             },
           ],
@@ -230,7 +258,9 @@ function makeMultiStepPack(): MethodologyPack {
     getPhases: vi.fn().mockReturnValue([]),
     getPrompt: vi.fn().mockImplementation((key: string) => {
       if (key === 'readiness-check') {
-        return Promise.resolve('Readiness: {{functional_requirements}} {{non_functional_requirements}} {{architecture_decisions}} {{stories}} {{ux_decisions}}')
+        return Promise.resolve(
+          'Readiness: {{functional_requirements}} {{non_functional_requirements}} {{architecture_decisions}} {{stories}} {{ux_decisions}}'
+        )
       }
       return Promise.resolve(`Template: {{requirements}} {{architecture_decisions}}`)
     }),
@@ -241,14 +271,16 @@ function makeMultiStepPack(): MethodologyPack {
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
 function makeDeps(
   adapter: DatabaseAdapter,
   dispatcher: Dispatcher,
-  pack: MethodologyPack,
+  pack: MethodologyPack
 ): PhaseDeps {
   return { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
@@ -365,14 +397,16 @@ describe('runSolutioningPhase() multi-step path', () => {
         name: 'test-pack',
         version: '1.0.0',
         description: 'Test',
-        phases: [{
-          name: 'solutioning',
-          description: 'Solutioning',
-          entryGates: ['prd-complete'],
-          exitGates: ['architecture-complete'],
-          artifacts: ['architecture', 'stories'],
-          // No steps → single-dispatch
-        }],
+        phases: [
+          {
+            name: 'solutioning',
+            description: 'Solutioning',
+            entryGates: ['prd-complete'],
+            exitGates: ['architecture-complete'],
+            artifacts: ['architecture', 'stories'],
+            // No steps → single-dispatch
+          },
+        ],
         prompts: {
           architecture: 'prompts/architecture.md',
           'story-generation': 'prompts/story-generation.md',
@@ -381,7 +415,11 @@ describe('runSolutioningPhase() multi-step path', () => {
         templates: {},
       },
       getPhases: vi.fn().mockReturnValue([]),
-      getPrompt: vi.fn().mockResolvedValue('Template: {{requirements}} {{architecture_decisions}} {{gap_analysis}}'),
+      getPrompt: vi
+        .fn()
+        .mockResolvedValue(
+          'Template: {{requirements}} {{architecture_decisions}} {{gap_analysis}}'
+        ),
       getConstraints: vi.fn().mockResolvedValue([]),
       getTemplate: vi.fn().mockResolvedValue(''),
     }
@@ -395,17 +433,21 @@ describe('runSolutioningPhase() multi-step path', () => {
     }
     const singleStoryOutput = {
       result: 'success',
-      epics: [{
-        title: 'Core',
-        description: 'Core features',
-        stories: [{
-          key: '1-1',
-          title: 'Create tasks',
-          description: 'Task creation feature',
-          acceptance_criteria: ['Users can create tasks on the board'],
-          priority: 'must',
-        }],
-      }],
+      epics: [
+        {
+          title: 'Core',
+          description: 'Core features',
+          stories: [
+            {
+              key: '1-1',
+              title: 'Create tasks',
+              description: 'Task creation feature',
+              acceptance_criteria: ['Users can create tasks on the board'],
+              priority: 'must',
+            },
+          ],
+        },
+      ],
     }
     const results = [singleArchOutput, singleStoryOutput, READINESS_OUTPUT]
 
@@ -429,9 +471,13 @@ describe('runSolutioningPhase() multi-step path', () => {
     // noStepsPack needs to handle the readiness-check prompt
     vi.mocked(noStepsPack.getPrompt).mockImplementation((key: string) => {
       if (key === 'readiness-check') {
-        return Promise.resolve('Readiness: {{functional_requirements}} {{non_functional_requirements}} {{architecture_decisions}} {{stories}} {{ux_decisions}}')
+        return Promise.resolve(
+          'Readiness: {{functional_requirements}} {{non_functional_requirements}} {{architecture_decisions}} {{stories}} {{ux_decisions}}'
+        )
       }
-      return Promise.resolve('Template: {{requirements}} {{architecture_decisions}} {{gap_analysis}}')
+      return Promise.resolve(
+        'Template: {{requirements}} {{architecture_decisions}} {{gap_analysis}}'
+      )
     })
 
     const deps = makeDeps(adapter, dispatcher, noStepsPack)

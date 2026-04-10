@@ -9,9 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import {
-  EVENT_TYPE_NAMES,
-} from '../event-types.js'
+import { EVENT_TYPE_NAMES } from '../event-types.js'
 import {
   PIPELINE_EVENT_METADATA,
   generateInteractionPatternsSection,
@@ -98,7 +96,9 @@ describe('AC2: Experiment event types in EVENT_TYPE_NAMES', () => {
   })
 
   it('supervisor:experiment:recommendations has ts, run_id, and count fields', () => {
-    const meta = PIPELINE_EVENT_METADATA.find((e) => e.type === 'supervisor:experiment:recommendations')
+    const meta = PIPELINE_EVENT_METADATA.find(
+      (e) => e.type === 'supervisor:experiment:recommendations'
+    )
     expect(meta).toBeDefined()
     const fieldNames = meta!.fields.map((f) => f.name)
     expect(fieldNames).toContain('ts')

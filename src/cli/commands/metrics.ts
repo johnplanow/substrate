@@ -39,8 +39,19 @@ import { createLogger } from '../../utils/logger.js'
 import type { OutputFormat } from './pipeline-shared.js'
 import { formatOutput } from './pipeline-shared.js'
 import { AdapterTelemetryPersistence } from '../../modules/telemetry/index.js'
-import type { EfficiencyScore, Recommendation, TurnAnalysis, CategoryStats, ConsumerStats } from '../../modules/telemetry/index.js'
-import { getFactoryRunSummaries, getScenarioResultsForRun, listGraphRuns, getTwinRunsForRun } from '@substrate-ai/factory'
+import type {
+  EfficiencyScore,
+  Recommendation,
+  TurnAnalysis,
+  CategoryStats,
+  ConsumerStats,
+} from '../../modules/telemetry/index.js'
+import {
+  getFactoryRunSummaries,
+  getScenarioResultsForRun,
+  listGraphRuns,
+  getTwinRunsForRun,
+} from '@substrate-ai/factory'
 import type { FactoryRunSummary, ScenarioResultRow, PortMapping } from '@substrate-ai/factory'
 
 const logger = createLogger('metrics-cmd')
@@ -96,7 +107,9 @@ export interface MetricsOptions {
 // Telemetry helper: open adapter-backed DB for telemetry queries
 // ---------------------------------------------------------------------------
 
-async function openTelemetryAdapter(basePath: string): Promise<{ persistence: AdapterTelemetryPersistence; close: () => Promise<void> } | null> {
+async function openTelemetryAdapter(
+  basePath: string
+): Promise<{ persistence: AdapterTelemetryPersistence; close: () => Promise<void> } | null> {
   try {
     const adapter = createDatabaseAdapter({ backend: 'auto', basePath })
     const persistence = new AdapterTelemetryPersistence(adapter)
@@ -114,20 +127,24 @@ function rowsToEfficiencyScore(rows: EfficiencyScore[]): EfficiencyScore[] {
 // Telemetry text formatters
 // ---------------------------------------------------------------------------
 
-function printEfficiencyTable(scores: EfficiencyScore[], dispatchScoresByStory: Map<string, EfficiencyScore[]> = new Map()): void {
+function printEfficiencyTable(
+  scores: EfficiencyScore[],
+  dispatchScoresByStory: Map<string, EfficiencyScore[]> = new Map()
+): void {
   process.stdout.write(`\nEfficiency Scores (${scores.length} records)\n`)
   process.stdout.write('─'.repeat(80) + '\n')
   process.stdout.write(
-    `  ${'Story Key'.padEnd(14)} ${'Score'.padStart(6)} ${'Cache Hit%'.padStart(11)} ${'I/O Ratio'.padStart(10)} ${'Ctx Mgmt'.padStart(9)} Model\n`,
+    `  ${'Story Key'.padEnd(14)} ${'Score'.padStart(6)} ${'Cache Hit%'.padStart(11)} ${'I/O Ratio'.padStart(10)} ${'Ctx Mgmt'.padStart(9)} Model\n`
   )
   process.stdout.write('  ' + '─'.repeat(76) + '\n')
   for (const s of scores) {
     const cacheHitPct = s.totalTurns > 0 ? `${(s.avgCacheHitRate * 100).toFixed(1)}%` : '0.0%'
     const ioRatio = s.avgIoRatio.toFixed(2)
     const ctxMgmt = String(Math.round(s.contextManagementSubScore))
-    const model = s.perModelBreakdown.length > 0 ? (s.perModelBreakdown[0]?.model ?? 'unknown') : 'unknown'
+    const model =
+      s.perModelBreakdown.length > 0 ? (s.perModelBreakdown[0]?.model ?? 'unknown') : 'unknown'
     process.stdout.write(
-      `  ${s.storyKey.padEnd(14)} ${String(s.compositeScore).padStart(6)} ${cacheHitPct.padStart(11)} ${ioRatio.padStart(10)} ${ctxMgmt.padStart(9)} ${model}\n`,
+      `  ${s.storyKey.padEnd(14)} ${String(s.compositeScore).padStart(6)} ${cacheHitPct.padStart(11)} ${ioRatio.padStart(10)} ${ctxMgmt.padStart(9)} ${model}\n`
     )
     // Print per-dispatch rows (at most 5) indented under the story row
     const dispatchScores = dispatchScoresByStory.get(s.storyKey)
@@ -136,9 +153,10 @@ function printEfficiencyTable(scores: EfficiencyScore[], dispatchScoresByStory: 
       for (const ds of rows) {
         const taskType = ds.taskType ?? 'unknown'
         const phase = ds.phase ?? 'unknown'
-        const dsCacheHitPct = ds.totalTurns > 0 ? `${(ds.avgCacheHitRate * 100).toFixed(1)}%` : '0.0%'
+        const dsCacheHitPct =
+          ds.totalTurns > 0 ? `${(ds.avgCacheHitRate * 100).toFixed(1)}%` : '0.0%'
         process.stdout.write(
-          `    ↳ ${taskType}/${phase} score=${ds.compositeScore} cache=${dsCacheHitPct} turns=${ds.totalTurns}\n`,
+          `    ↳ ${taskType}/${phase} score=${ds.compositeScore} cache=${dsCacheHitPct} turns=${ds.totalTurns}\n`
         )
       }
     }
@@ -149,13 +167,13 @@ function printRecommendationTable(recs: Recommendation[]): void {
   process.stdout.write(`\nRecommendations (${recs.length} records)\n`)
   process.stdout.write('─'.repeat(80) + '\n')
   process.stdout.write(
-    `  ${'Story'.padEnd(12)} ${'Severity'.padEnd(10)} ${'Rule'.padEnd(24)} ${'Savings Tokens'.padStart(15)}\n`,
+    `  ${'Story'.padEnd(12)} ${'Severity'.padEnd(10)} ${'Rule'.padEnd(24)} ${'Savings Tokens'.padStart(15)}\n`
   )
   process.stdout.write('  ' + '─'.repeat(64) + '\n')
   for (const r of recs) {
     const savings = r.potentialSavingsTokens !== undefined ? String(r.potentialSavingsTokens) : '-'
     process.stdout.write(
-      `  ${r.storyKey.padEnd(12)} ${r.severity.padEnd(10)} ${r.ruleId.padEnd(24)} ${savings.padStart(15)}\n`,
+      `  ${r.storyKey.padEnd(12)} ${r.severity.padEnd(10)} ${r.ruleId.padEnd(24)} ${savings.padStart(15)}\n`
     )
     process.stdout.write(`    ${r.title}\n`)
   }
@@ -165,7 +183,7 @@ function printTurnTable(turns: TurnAnalysis[], storyKey: string): void {
   process.stdout.write(`\nTurn Analysis: ${storyKey} (${turns.length} turns)\n`)
   process.stdout.write('─'.repeat(100) + '\n')
   process.stdout.write(
-    `  ${'#'.padStart(4)} ${'Tokens In'.padStart(10)} ${'Tok Out'.padStart(8)} ${'Cache Hit%'.padStart(11)} ${'Ctx Size'.padStart(9)} ${'Task Type'.padEnd(16)} ${'Phase'.padEnd(16)} Spike\n`,
+    `  ${'#'.padStart(4)} ${'Tokens In'.padStart(10)} ${'Tok Out'.padStart(8)} ${'Cache Hit%'.padStart(11)} ${'Ctx Size'.padStart(9)} ${'Task Type'.padEnd(16)} ${'Phase'.padEnd(16)} Spike\n`
   )
   process.stdout.write('  ' + '─'.repeat(86) + '\n')
   for (const t of turns) {
@@ -174,7 +192,7 @@ function printTurnTable(turns: TurnAnalysis[], storyKey: string): void {
     const taskType = (t.taskType ?? '-').padEnd(16)
     const phase = (t.phase ?? '-').padEnd(16)
     process.stdout.write(
-      `  ${String(t.turnNumber).padStart(4)} ${t.inputTokens.toLocaleString().padStart(10)} ${t.outputTokens.toLocaleString().padStart(8)} ${cacheHitPct.padStart(11)} ${t.contextSize.toLocaleString().padStart(9)} ${taskType} ${phase}${spike}\n`,
+      `  ${String(t.turnNumber).padStart(4)} ${t.inputTokens.toLocaleString().padStart(10)} ${t.outputTokens.toLocaleString().padStart(8)} ${cacheHitPct.padStart(11)} ${t.contextSize.toLocaleString().padStart(9)} ${taskType} ${phase}${spike}\n`
     )
   }
 }
@@ -183,14 +201,14 @@ function printConsumerTable(consumers: ConsumerStats[], storyKey: string): void 
   process.stdout.write(`\nConsumer Stats: ${storyKey} (${consumers.length} consumers)\n`)
   process.stdout.write('─'.repeat(80) + '\n')
   process.stdout.write(
-    `  ${'Consumer Key'.padEnd(36)} ${'Category'.padEnd(20)} ${'Tokens'.padStart(10)} ${'%'.padStart(7)}\n`,
+    `  ${'Consumer Key'.padEnd(36)} ${'Category'.padEnd(20)} ${'Tokens'.padStart(10)} ${'%'.padStart(7)}\n`
   )
   process.stdout.write('  ' + '─'.repeat(76) + '\n')
   for (const c of consumers) {
     const key = c.consumerKey.slice(0, 34)
     const pct = `${c.percentage.toFixed(1)}%`
     process.stdout.write(
-      `  ${key.padEnd(36)} ${c.category.padEnd(20)} ${c.totalTokens.toLocaleString().padStart(10)} ${pct.padStart(7)}\n`,
+      `  ${key.padEnd(36)} ${c.category.padEnd(20)} ${c.totalTokens.toLocaleString().padStart(10)} ${pct.padStart(7)}\n`
     )
   }
 }
@@ -199,7 +217,7 @@ function printCategoryTable(stats: CategoryStats[], label: string): void {
   process.stdout.write(`\nCategory Stats${label} (${stats.length} categories)\n`)
   process.stdout.write('─'.repeat(80) + '\n')
   process.stdout.write(
-    `  ${'Category'.padEnd(22)} ${'Tokens'.padStart(12)} ${'%'.padStart(8)} ${'Events'.padStart(8)} ${'Avg/Event'.padStart(10)} Trend\n`,
+    `  ${'Category'.padEnd(22)} ${'Tokens'.padStart(12)} ${'%'.padStart(8)} ${'Events'.padStart(8)} ${'Avg/Event'.padStart(10)} Trend\n`
   )
   process.stdout.write('  ' + '─'.repeat(70) + '\n')
   const sorted = [...stats].sort((a, b) => b.totalTokens - a.totalTokens)
@@ -207,7 +225,7 @@ function printCategoryTable(stats: CategoryStats[], label: string): void {
     const pct = `${c.percentage.toFixed(1)}%`
     const avg = c.avgTokensPerEvent.toFixed(0)
     process.stdout.write(
-      `  ${c.category.padEnd(22)} ${c.totalTokens.toLocaleString().padStart(12)} ${pct.padStart(8)} ${String(c.eventCount).padStart(8)} ${avg.padStart(10)} ${c.trend}\n`,
+      `  ${c.category.padEnd(22)} ${c.totalTokens.toLocaleString().padStart(12)} ${pct.padStart(8)} ${String(c.eventCount).padStart(8)} ${avg.padStart(10)} ${c.trend}\n`
     )
   }
 }
@@ -220,36 +238,72 @@ function printFactoryRunTable(runs: FactoryRunSummary[]): void {
   process.stdout.write(`\nFactory Runs (${runs.length} records)\n`)
   process.stdout.write('─'.repeat(80) + '\n')
   process.stdout.write(
-    `  ${'run_id'.padEnd(10)} ${'score'.padStart(7)} ${'passes'.padStart(7)} ${'started_at'.padEnd(20)} ${'cost_usd'.padStart(10)} ${'status'.padEnd(16)}\n`,
+    `  ${'run_id'.padEnd(10)} ${'score'.padStart(7)} ${'passes'.padStart(7)} ${'started_at'.padEnd(20)} ${'cost_usd'.padStart(10)} ${'status'.padEnd(16)}\n`
   )
   process.stdout.write('  ' + '─'.repeat(74) + '\n')
   for (const run of runs) {
-    const scoreStr = run.satisfaction_score !== null ? `${(run.satisfaction_score * 100).toFixed(1)}%` : '—'
+    const scoreStr =
+      run.satisfaction_score !== null ? `${(run.satisfaction_score * 100).toFixed(1)}%` : '—'
     const passesStr = run.passes !== null ? (run.passes ? '✓' : '✗') : '—'
     const startedAt = run.started_at.slice(0, 19)
     const costStr = `$${run.total_cost_usd.toFixed(4)}`
     const statusStr = run.convergence_status ?? '—'
     process.stdout.write(
-      `  ${run.run_id.slice(0, 8).padEnd(10)} ${scoreStr.padStart(7)} ${passesStr.padStart(7)} ${startedAt.padEnd(20)} ${costStr.padStart(10)} ${statusStr.padEnd(16)}\n`,
+      `  ${run.run_id.slice(0, 8).padEnd(10)} ${scoreStr.padStart(7)} ${passesStr.padStart(7)} ${startedAt.padEnd(20)} ${costStr.padStart(10)} ${statusStr.padEnd(16)}\n`
     )
   }
 }
 
 export async function runMetricsAction(options: MetricsOptions): Promise<number> {
-  const { outputFormat, projectRoot, limit = 10, compare, tagBaseline, analysis, sprint, story, taskType, since, aggregate, efficiency, recommendations, turns, consumers, categories, compareStories, routingRecommendations, run, factory } = options
+  const {
+    outputFormat,
+    projectRoot,
+    limit = 10,
+    compare,
+    tagBaseline,
+    analysis,
+    sprint,
+    story,
+    taskType,
+    since,
+    aggregate,
+    efficiency,
+    recommendations,
+    turns,
+    consumers,
+    categories,
+    compareStories,
+    routingRecommendations,
+    run,
+    factory,
+  } = options
 
   // ---------------------------------------------------------------------------
   // Flag conflict detection for telemetry modes
   // ---------------------------------------------------------------------------
-  const telemetryModes = [efficiency, recommendations, turns, consumers, categories, compareStories].filter(Boolean)
+  const telemetryModes = [
+    efficiency,
+    recommendations,
+    turns,
+    consumers,
+    categories,
+    compareStories,
+  ].filter(Boolean)
   if (telemetryModes.length > 1) {
-    process.stderr.write('Error: --efficiency, --recommendations, --turns, --consumers, --categories, and --compare-stories are mutually exclusive\n')
+    process.stderr.write(
+      'Error: --efficiency, --recommendations, --turns, --consumers, --categories, and --compare-stories are mutually exclusive\n'
+    )
     return 1
   }
   // Telemetry modes are mutually exclusive with existing exclusive modes
   const hasTelemetryMode = telemetryModes.length > 0
-  if (hasTelemetryMode && (compare !== undefined || tagBaseline !== undefined || analysis !== undefined)) {
-    process.stderr.write('Error: telemetry modes (--efficiency, --recommendations, --turns, --consumers, --categories, --compare-stories) cannot be combined with --compare, --tag-baseline, or --analysis\n')
+  if (
+    hasTelemetryMode &&
+    (compare !== undefined || tagBaseline !== undefined || analysis !== undefined)
+  ) {
+    process.stderr.write(
+      'Error: telemetry modes (--efficiency, --recommendations, --turns, --consumers, --categories, --compare-stories) cannot be combined with --compare, --tag-baseline, or --analysis\n'
+    )
     return 1
   }
 
@@ -265,7 +319,8 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     // For aggregate modes (efficiency, recommendations, categories): allow graceful no-data message
 
     if (!doltExists) {
-      const msg = 'No telemetry data yet — run a pipeline with Dolt initialized and `telemetry.enabled: true`'
+      const msg =
+        'No telemetry data yet — run a pipeline with Dolt initialized and `telemetry.enabled: true`'
       if (turns !== undefined || consumers !== undefined) {
         // Story-scoped modes exit 1 when not found
         process.stderr.write(`Error: ${msg}\n`)
@@ -296,7 +351,6 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
 
     const telemetryPersistence = telemetryHandle.persistence
     try {
-
       // -- efficiency mode --
       if (efficiency === true) {
         const scores = await telemetryPersistence.getEfficiencyScores(20)
@@ -309,14 +363,16 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
             if (ds.length > 0) {
               dispatchScoresByStory.set(sk, ds)
             }
-          }),
+          })
         )
         if (outputFormat === 'json') {
           const efficiencyWithDispatch = scores.map((s) => ({
             ...rowsToEfficiencyScore([s])[0],
             dispatchScores: dispatchScoresByStory.get(s.storyKey) ?? [],
           }))
-          process.stdout.write(formatOutput({ efficiency: efficiencyWithDispatch }, 'json', true) + '\n')
+          process.stdout.write(
+            formatOutput({ efficiency: efficiencyWithDispatch }, 'json', true) + '\n'
+          )
         } else {
           printEfficiencyTable(scores, dispatchScoresByStory)
         }
@@ -325,16 +381,24 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
 
       // -- recommendations mode --
       if (recommendations === true) {
-        const recs = story !== undefined
-          ? await telemetryPersistence.getRecommendations(story)
-          : await telemetryPersistence.getAllRecommendations(50)
+        const recs =
+          story !== undefined
+            ? await telemetryPersistence.getRecommendations(story)
+            : await telemetryPersistence.getAllRecommendations(50)
         if (outputFormat === 'json') {
-          process.stdout.write(formatOutput({ recommendations: recs, ...(story !== undefined && { storyKey: story }) }, 'json', true) + '\n')
+          process.stdout.write(
+            formatOutput(
+              { recommendations: recs, ...(story !== undefined && { storyKey: story }) },
+              'json',
+              true
+            ) + '\n'
+          )
         } else {
           if (recs.length === 0) {
-            const msg = story !== undefined
-              ? `No recommendations found for story '${story}'`
-              : 'No recommendations yet — run a pipeline with `telemetry.enabled: true`'
+            const msg =
+              story !== undefined
+                ? `No recommendations found for story '${story}'`
+                : 'No recommendations yet — run a pipeline with `telemetry.enabled: true`'
             process.stdout.write(msg + '\n')
           } else {
             printRecommendationTable(recs)
@@ -389,7 +453,9 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
         const categoryData = await telemetryPersistence.getCategoryStats(storyKey ?? '')
         const label = storyKey !== undefined ? `: ${storyKey}` : ''
         if (outputFormat === 'json') {
-          process.stdout.write(formatOutput({ categories: categoryData, storyKey }, 'json', true) + '\n')
+          process.stdout.write(
+            formatOutput({ categories: categoryData, storyKey }, 'json', true) + '\n'
+          )
         } else {
           printCategoryTable(categoryData, label)
         }
@@ -404,7 +470,9 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           telemetryPersistence.getEfficiencyScore(keyB),
         ])
         if (scoreA === null || scoreB === null) {
-          const missing = [scoreA === null ? keyA : null, scoreB === null ? keyB : null].filter(Boolean).join(', ')
+          const missing = [scoreA === null ? keyA : null, scoreB === null ? keyB : null]
+            .filter(Boolean)
+            .join(', ')
           const msg = `No efficiency score found for story: ${missing}`
           if (outputFormat === 'json') {
             process.stdout.write(formatOutput(null, 'json', false, msg) + '\n')
@@ -417,27 +485,47 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           compositeScore: scoreB.compositeScore - scoreA.compositeScore,
           cacheHitSubScore: scoreB.cacheHitSubScore - scoreA.cacheHitSubScore,
           ioRatioSubScore: scoreB.ioRatioSubScore - scoreA.ioRatioSubScore,
-          contextManagementSubScore: scoreB.contextManagementSubScore - scoreA.contextManagementSubScore,
-          tokenDensitySubScore: (scoreB.tokenDensitySubScore ?? 0) - (scoreA.tokenDensitySubScore ?? 0),
+          contextManagementSubScore:
+            scoreB.contextManagementSubScore - scoreA.contextManagementSubScore,
+          tokenDensitySubScore:
+            (scoreB.tokenDensitySubScore ?? 0) - (scoreA.tokenDensitySubScore ?? 0),
         }
         if (outputFormat === 'json') {
-          process.stdout.write(formatOutput({ storyA: scoreA, storyB: scoreB, delta }, 'json', true) + '\n')
+          process.stdout.write(
+            formatOutput({ storyA: scoreA, storyB: scoreB, delta }, 'json', true) + '\n'
+          )
         } else {
           const sign = (n: number) => (n > 0 ? '+' : '')
           process.stdout.write(`\nEfficiency Comparison: ${keyA} vs ${keyB}\n`)
           process.stdout.write('─'.repeat(80) + '\n')
-          process.stdout.write(`  ${'Metric'.padEnd(30)} ${keyA.padStart(12)} ${keyB.padStart(12)} ${'Delta'.padStart(10)}\n`)
+          process.stdout.write(
+            `  ${'Metric'.padEnd(30)} ${keyA.padStart(12)} ${keyB.padStart(12)} ${'Delta'.padStart(10)}\n`
+          )
           process.stdout.write('  ' + '─'.repeat(66) + '\n')
-          process.stdout.write(`  ${'Composite Score'.padEnd(30)} ${String(scoreA.compositeScore).padStart(12)} ${String(scoreB.compositeScore).padStart(12)} ${`${sign(delta.compositeScore)}${delta.compositeScore}`.padStart(10)}\n`)
-          process.stdout.write(`  ${'Cache Hit Sub-Score'.padEnd(30)} ${scoreA.cacheHitSubScore.toFixed(1).padStart(12)} ${scoreB.cacheHitSubScore.toFixed(1).padStart(12)} ${`${sign(delta.cacheHitSubScore)}${delta.cacheHitSubScore.toFixed(1)}`.padStart(10)}\n`)
-          process.stdout.write(`  ${'I/O Ratio Sub-Score'.padEnd(30)} ${scoreA.ioRatioSubScore.toFixed(1).padStart(12)} ${scoreB.ioRatioSubScore.toFixed(1).padStart(12)} ${`${sign(delta.ioRatioSubScore)}${delta.ioRatioSubScore.toFixed(1)}`.padStart(10)}\n`)
-          process.stdout.write(`  ${'Context Mgmt Sub-Score'.padEnd(30)} ${scoreA.contextManagementSubScore.toFixed(1).padStart(12)} ${scoreB.contextManagementSubScore.toFixed(1).padStart(12)} ${`${sign(delta.contextManagementSubScore)}${delta.contextManagementSubScore.toFixed(1)}`.padStart(10)}\n`)
-          process.stdout.write(`  ${'Token Density Sub-Score'.padEnd(30)} ${(scoreA.tokenDensitySubScore ?? 0).toFixed(1).padStart(12)} ${(scoreB.tokenDensitySubScore ?? 0).toFixed(1).padStart(12)} ${`${sign(delta.tokenDensitySubScore)}${delta.tokenDensitySubScore.toFixed(1)}`.padStart(10)}\n`)
+          process.stdout.write(
+            `  ${'Composite Score'.padEnd(30)} ${String(scoreA.compositeScore).padStart(12)} ${String(scoreB.compositeScore).padStart(12)} ${`${sign(delta.compositeScore)}${delta.compositeScore}`.padStart(10)}\n`
+          )
+          process.stdout.write(
+            `  ${'Cache Hit Sub-Score'.padEnd(30)} ${scoreA.cacheHitSubScore.toFixed(1).padStart(12)} ${scoreB.cacheHitSubScore.toFixed(1).padStart(12)} ${`${sign(delta.cacheHitSubScore)}${delta.cacheHitSubScore.toFixed(1)}`.padStart(10)}\n`
+          )
+          process.stdout.write(
+            `  ${'I/O Ratio Sub-Score'.padEnd(30)} ${scoreA.ioRatioSubScore.toFixed(1).padStart(12)} ${scoreB.ioRatioSubScore.toFixed(1).padStart(12)} ${`${sign(delta.ioRatioSubScore)}${delta.ioRatioSubScore.toFixed(1)}`.padStart(10)}\n`
+          )
+          process.stdout.write(
+            `  ${'Context Mgmt Sub-Score'.padEnd(30)} ${scoreA.contextManagementSubScore.toFixed(1).padStart(12)} ${scoreB.contextManagementSubScore.toFixed(1).padStart(12)} ${`${sign(delta.contextManagementSubScore)}${delta.contextManagementSubScore.toFixed(1)}`.padStart(10)}\n`
+          )
+          process.stdout.write(
+            `  ${'Token Density Sub-Score'.padEnd(30)} ${(scoreA.tokenDensitySubScore ?? 0).toFixed(1).padStart(12)} ${(scoreB.tokenDensitySubScore ?? 0).toFixed(1).padStart(12)} ${`${sign(delta.tokenDensitySubScore)}${delta.tokenDensitySubScore.toFixed(1)}`.padStart(10)}\n`
+          )
         }
         return 0
       }
     } finally {
-      try { await telemetryHandle.close() } catch { /* ignore */ }
+      try {
+        await telemetryHandle.close()
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -465,7 +553,9 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           const raw = await stateStore.getMetric(runId, 'phase_token_breakdown')
           if (raw !== undefined && raw !== null) {
             const parsed: PhaseTokenBreakdown =
-              typeof raw === 'string' ? (JSON.parse(raw) as PhaseTokenBreakdown) : (raw as PhaseTokenBreakdown)
+              typeof raw === 'string'
+                ? (JSON.parse(raw) as PhaseTokenBreakdown)
+                : (raw as PhaseTokenBreakdown)
             breakdowns.push(parsed)
           }
         } catch {
@@ -506,8 +596,8 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
               insufficientData: analysis.insufficientData,
             },
             'json',
-            true,
-          ) + '\n',
+            true
+          ) + '\n'
         )
       } else {
         process.stdout.write(`Routing Recommendations:\n`)
@@ -518,13 +608,15 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
         } else {
           for (const rec of analysis.recommendations) {
             process.stdout.write(
-              `  ${rec.phase} | ${rec.currentModel} → ${rec.suggestedModel} | est. savings: ${Math.round(rec.estimatedSavingsPct)}%\n`,
+              `  ${rec.phase} | ${rec.currentModel} → ${rec.suggestedModel} | est. savings: ${Math.round(rec.estimatedSavingsPct)}%\n`
             )
           }
         }
       }
     } finally {
-      await stateStore.close().catch(() => { /* ignore */ })
+      await stateStore.close().catch(() => {
+        /* ignore */
+      })
     }
     return 0
   }
@@ -552,9 +644,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
         const parsed = JSON.parse(content)
         process.stdout.write(formatOutput(parsed, 'json', true) + '\n')
       } else {
-        const content = await readFile(mdPath, 'utf-8').catch(() =>
-          readFile(jsonPath, 'utf-8'),
-        )
+        const content = await readFile(mdPath, 'utf-8').catch(() => readFile(jsonPath, 'utf-8'))
         process.stdout.write(content + '\n')
       }
       return 0
@@ -576,9 +666,21 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
   // the adapter directly for factory queries (factory tables may exist even without SDLC Dolt state).
   if (!existsSync(doltStateDir) && factory !== true && run === undefined) {
     if (outputFormat === 'json') {
-      process.stdout.write(formatOutput({ runs: [], message: 'No metrics yet — no pipeline database found. Initialize Dolt with `substrate init`.' }, 'json', true) + '\n')
+      process.stdout.write(
+        formatOutput(
+          {
+            runs: [],
+            message:
+              'No metrics yet — no pipeline database found. Initialize Dolt with `substrate init`.',
+          },
+          'json',
+          true
+        ) + '\n'
+      )
     } else {
-      process.stdout.write('No metrics yet — no pipeline database found. Initialize Dolt with `substrate init`.\n')
+      process.stdout.write(
+        'No metrics yet — no pipeline database found. Initialize Dolt with `substrate init`.\n'
+      )
     }
     return 0
   }
@@ -615,11 +717,16 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
         return 1
       }
       if (outputFormat === 'json') {
-        process.stdout.write(formatOutput({ run_id: resolvedRunId, type: 'factory', iterations: rows }, 'json', true) + '\n')
+        process.stdout.write(
+          formatOutput({ run_id: resolvedRunId, type: 'factory', iterations: rows }, 'json', true) +
+            '\n'
+        )
       } else {
         process.stdout.write(`\nFactory Run: ${resolvedRunId}\n`)
         process.stdout.write('─'.repeat(80) + '\n')
-        process.stdout.write(`  ${'#'.padStart(3)} ${'score'.padStart(7)} ${'passes'.padStart(7)} ${'passed/total'.padStart(13)} ${'executed_at'.padEnd(20)}\n`)
+        process.stdout.write(
+          `  ${'#'.padStart(3)} ${'score'.padStart(7)} ${'passes'.padStart(7)} ${'passed/total'.padStart(13)} ${'executed_at'.padEnd(20)}\n`
+        )
         process.stdout.write('  ' + '─'.repeat(54) + '\n')
         for (const r of rows) {
           const scoreStr = `${(r.satisfaction_score * 100).toFixed(1)}%`
@@ -627,7 +734,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           const passedTotal = `${r.passed}/${r.total_scenarios}`
           const execAt = String(r.executed_at).slice(0, 19)
           process.stdout.write(
-            `  ${String(r.iteration).padStart(3)} ${scoreStr.padStart(7)} ${passesStr.padStart(7)} ${passedTotal.padStart(13)} ${execAt.padEnd(20)}\n`,
+            `  ${String(r.iteration).padStart(3)} ${scoreStr.padStart(7)} ${passesStr.padStart(7)} ${passedTotal.padStart(13)} ${execAt.padEnd(20)}\n`
           )
         }
         // Display twin lifecycle info for this run (story 47-7)
@@ -636,12 +743,14 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           if (twinRuns.length > 0) {
             process.stdout.write('\nTwins:\n')
             for (const twin of twinRuns) {
-              const ports = twin.ports.map((p: PortMapping) => `${p.host}:${p.container}`).join(', ')
+              const ports = twin.ports
+                .map((p: PortMapping) => `${p.host}:${p.container}`)
+                .join(', ')
               const stoppedAt = twin.stopped_at ?? 'still running'
               process.stdout.write(
                 `  ${twin.twin_name} [${twin.status}] ports: ${ports || 'none'} ` +
-                `started: ${twin.started_at} stopped: ${stoppedAt} ` +
-                `health failures: ${twin.health_failure_count}\n`,
+                  `started: ${twin.started_at} stopped: ${stoppedAt} ` +
+                  `health failures: ${twin.health_failure_count}\n`
               )
             }
           }
@@ -711,13 +820,23 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
         process.stdout.write(formatOutput(delta, 'json', true) + '\n')
       } else {
         const sign = (n: number) => (n > 0 ? '+' : '')
-        const fmtPct = (pct: number | null) => pct === null ? 'N/A' : `${sign(pct)}${pct}%`
+        const fmtPct = (pct: number | null) => (pct === null ? 'N/A' : `${sign(pct)}${pct}%`)
         process.stdout.write(`\nMetrics Comparison: ${idA.slice(0, 8)} vs ${idB.slice(0, 8)}\n`)
-        process.stdout.write(`  Input tokens:   ${sign(delta.token_input_delta)}${delta.token_input_delta.toLocaleString()} (${fmtPct(delta.token_input_pct)})\n`)
-        process.stdout.write(`  Output tokens:  ${sign(delta.token_output_delta)}${delta.token_output_delta.toLocaleString()} (${fmtPct(delta.token_output_pct)})\n`)
-        process.stdout.write(`  Wall clock:     ${sign(delta.wall_clock_delta_seconds)}${delta.wall_clock_delta_seconds}s (${fmtPct(delta.wall_clock_pct)})\n`)
-        process.stdout.write(`  Review cycles:  ${sign(delta.review_cycles_delta)}${delta.review_cycles_delta} (${fmtPct(delta.review_cycles_pct)})\n`)
-        process.stdout.write(`  Cost USD:       ${delta.cost_delta < 0 ? '-' : sign(delta.cost_delta)}$${Math.abs(delta.cost_delta).toFixed(4)} (${fmtPct(delta.cost_pct)})\n`)
+        process.stdout.write(
+          `  Input tokens:   ${sign(delta.token_input_delta)}${delta.token_input_delta.toLocaleString()} (${fmtPct(delta.token_input_pct)})\n`
+        )
+        process.stdout.write(
+          `  Output tokens:  ${sign(delta.token_output_delta)}${delta.token_output_delta.toLocaleString()} (${fmtPct(delta.token_output_pct)})\n`
+        )
+        process.stdout.write(
+          `  Wall clock:     ${sign(delta.wall_clock_delta_seconds)}${delta.wall_clock_delta_seconds}s (${fmtPct(delta.wall_clock_pct)})\n`
+        )
+        process.stdout.write(
+          `  Review cycles:  ${sign(delta.review_cycles_delta)}${delta.review_cycles_delta} (${fmtPct(delta.review_cycles_pct)})\n`
+        )
+        process.stdout.write(
+          `  Cost USD:       ${delta.cost_delta < 0 ? '-' : sign(delta.cost_delta)}$${Math.abs(delta.cost_delta).toFixed(4)} (${fmtPct(delta.cost_pct)})\n`
+        )
       }
       return 0
     }
@@ -730,10 +849,18 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     // A bare `substrate metrics` with no filter flags should not query Dolt unnecessarily.
     let doltMetrics: MetricRecord[] | undefined
     const doltStatePath = join(dbRoot, '.substrate', 'state', '.dolt')
-    const hasDoltFilters = sprint !== undefined || story !== undefined || taskType !== undefined || since !== undefined || aggregate === true
+    const hasDoltFilters =
+      sprint !== undefined ||
+      story !== undefined ||
+      taskType !== undefined ||
+      since !== undefined ||
+      aggregate === true
     if (existsSync(doltStatePath) && hasDoltFilters) {
       try {
-        const stateStore = createStateStore({ backend: 'dolt', basePath: join(dbRoot, '.substrate', 'state') })
+        const stateStore = createStateStore({
+          backend: 'dolt',
+          basePath: join(dbRoot, '.substrate', 'state'),
+        })
         await stateStore.initialize()
         const doltFilter: MetricFilter = {}
         if (sprint !== undefined) doltFilter.sprint = sprint
@@ -744,7 +871,10 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
         doltMetrics = await stateStore.queryMetrics(doltFilter)
         await stateStore.close()
       } catch (doltErr) {
-        logger.warn({ err: doltErr }, 'StateStore query failed — falling back to SQLite metrics only')
+        logger.warn(
+          { err: doltErr },
+          'StateStore query failed — falling back to SQLite metrics only'
+        )
       }
     }
 
@@ -803,7 +933,9 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       const kvStore = new FileStateStore({ basePath: join(dbRoot, '.substrate') })
       for (const run of runs) {
         const raw = await kvStore.getMetric(run.run_id, 'phase_token_breakdown')
-        phaseBreakdownMap[run.run_id] = (raw !== undefined ? raw : null) as PhaseTokenBreakdown | null
+        phaseBreakdownMap[run.run_id] = (
+          raw !== undefined ? raw : null
+        ) as PhaseTokenBreakdown | null
       }
     } catch {
       // Non-fatal: fall back to null for all runs
@@ -814,7 +946,10 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     try {
       factoryRuns = await getFactoryRunSummaries(adapter, limit)
     } catch (err) {
-      logger.debug({ err }, 'getFactoryRunSummaries failed — table may not exist in older databases')
+      logger.debug(
+        { err },
+        'getFactoryRunSummaries failed — table may not exist in older databases'
+      )
     }
 
     if (outputFormat === 'json') {
@@ -824,7 +959,11 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
         type: 'sdlc' as const,
         phase_token_breakdown: phaseBreakdownMap[run.run_id] ?? null,
       }))
-      const jsonPayload: Record<string, unknown> = { runs: runsWithBreakdown, graph_runs: factoryRuns, story_metrics: storyMetrics }
+      const jsonPayload: Record<string, unknown> = {
+        runs: runsWithBreakdown,
+        graph_runs: factoryRuns,
+        story_metrics: storyMetrics,
+      }
       if (doltMetrics !== undefined) {
         if (aggregate) {
           // Aggregate mode: output as properly-named AggregateMetricResult objects with totals
@@ -849,8 +988,15 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       }
       process.stdout.write(formatOutput(jsonPayload, 'json', true) + '\n')
     } else {
-      if (runs.length === 0 && storyMetrics.length === 0 && (doltMetrics === undefined || doltMetrics.length === 0) && factoryRuns.length === 0) {
-        process.stdout.write('No run metrics recorded yet. Run `substrate run` to generate metrics.\n')
+      if (
+        runs.length === 0 &&
+        storyMetrics.length === 0 &&
+        (doltMetrics === undefined || doltMetrics.length === 0) &&
+        factoryRuns.length === 0
+      ) {
+        process.stdout.write(
+          'No run metrics recorded yet. Run `substrate run` to generate metrics.\n'
+        )
         return 0
       }
       if (runs.length > 0) {
@@ -864,16 +1010,22 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           if (run.completed_at) {
             process.stdout.write(`  Completed: ${run.completed_at}  (${run.wall_clock_seconds}s)\n`)
           }
-          process.stdout.write(`  Stories:   attempted=${run.stories_attempted} succeeded=${run.stories_succeeded} failed=${run.stories_failed} escalated=${run.stories_escalated}\n`)
-          process.stdout.write(`  Tokens:    ${(run.total_input_tokens ?? 0).toLocaleString()} in / ${(run.total_output_tokens ?? 0).toLocaleString()} out  $${(run.total_cost_usd ?? 0).toFixed(4)}\n`)
-          process.stdout.write(`  Cycles:    ${run.total_review_cycles}  |  Dispatches: ${run.total_dispatches}  |  Concurrency: ${run.concurrency_setting}\n`)
+          process.stdout.write(
+            `  Stories:   attempted=${run.stories_attempted} succeeded=${run.stories_succeeded} failed=${run.stories_failed} escalated=${run.stories_escalated}\n`
+          )
+          process.stdout.write(
+            `  Tokens:    ${(run.total_input_tokens ?? 0).toLocaleString()} in / ${(run.total_output_tokens ?? 0).toLocaleString()} out  $${(run.total_cost_usd ?? 0).toFixed(4)}\n`
+          )
+          process.stdout.write(
+            `  Cycles:    ${run.total_review_cycles}  |  Dispatches: ${run.total_dispatches}  |  Concurrency: ${run.concurrency_setting}\n`
+          )
           // Story 28-6: Print phase token breakdown table if present
           const breakdown = phaseBreakdownMap[run.run_id]
           if (breakdown !== null && breakdown !== undefined && breakdown.entries.length > 0) {
             process.stdout.write('  Phase Token Breakdown:\n')
             for (const entry of breakdown.entries) {
               process.stdout.write(
-                `    ${entry.phase.padEnd(10)} | ${entry.model.padEnd(30)} | in: ${entry.inputTokens} | out: ${entry.outputTokens} | dispatches: ${entry.dispatchCount}\n`,
+                `    ${entry.phase.padEnd(10)} | ${entry.model.padEnd(30)} | in: ${entry.inputTokens} | out: ${entry.outputTokens} | dispatches: ${entry.dispatchCount}\n`
               )
             }
           }
@@ -882,14 +1034,17 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       if (storyMetrics.length > 0) {
         process.stdout.write(`\nPer-Story Efficiency Metrics (${storyMetrics.length} stories)\n`)
         process.stdout.write('─'.repeat(80) + '\n')
-        process.stdout.write(`  ${'Story'.padEnd(16)} ${'Run'.padEnd(12)} ${'Wall(s)'.padStart(8)} ${'Tokens In'.padStart(10)} ${'Tokens Out'.padStart(11)} ${'Cycles'.padStart(7)} ${'Stalled'.padStart(8)}\n`)
+        process.stdout.write(
+          `  ${'Story'.padEnd(16)} ${'Run'.padEnd(12)} ${'Wall(s)'.padStart(8)} ${'Tokens In'.padStart(10)} ${'Tokens Out'.padStart(11)} ${'Cycles'.padStart(7)} ${'Stalled'.padStart(8)}\n`
+        )
         process.stdout.write('  ' + '─'.repeat(76) + '\n')
         for (const sm of storyMetrics) {
           const runShort = sm.run_id.slice(0, 8)
           const stalledStr = sm.stalled ? 'yes' : 'no'
-          const costStr = sm.cost_usd !== undefined && sm.cost_usd > 0 ? `  $${sm.cost_usd.toFixed(4)}` : ''
+          const costStr =
+            sm.cost_usd !== undefined && sm.cost_usd > 0 ? `  $${sm.cost_usd.toFixed(4)}` : ''
           process.stdout.write(
-            `  ${sm.story_key.padEnd(16)} ${runShort.padEnd(12)} ${String(sm.wall_clock_seconds).padStart(8)} ${sm.input_tokens.toLocaleString().padStart(10)} ${sm.output_tokens.toLocaleString().padStart(11)} ${String(sm.review_cycles).padStart(7)} ${stalledStr.padStart(8)}${costStr}\n`,
+            `  ${sm.story_key.padEnd(16)} ${runShort.padEnd(12)} ${String(sm.wall_clock_seconds).padStart(8)} ${sm.input_tokens.toLocaleString().padStart(10)} ${sm.output_tokens.toLocaleString().padStart(11)} ${String(sm.review_cycles).padStart(7)} ${stalledStr.padStart(8)}${costStr}\n`
           )
         }
       }
@@ -898,7 +1053,9 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           // Aggregate mode: display task_type | count | avg_cost_usd | sum_tokens_in | sum_tokens_out
           process.stdout.write(`\nStateStore Aggregate Metrics (by task type)\n`)
           process.stdout.write('─'.repeat(80) + '\n')
-          process.stdout.write(`  ${'Task Type'.padEnd(20)} ${'Count'.padStart(8)} ${'Avg Cost'.padStart(12)} ${'Sum Tokens In'.padStart(14)} ${'Sum Tokens Out'.padStart(15)}\n`)
+          process.stdout.write(
+            `  ${'Task Type'.padEnd(20)} ${'Count'.padStart(8)} ${'Avg Cost'.padStart(12)} ${'Sum Tokens In'.padStart(14)} ${'Sum Tokens Out'.padStart(15)}\n`
+          )
           process.stdout.write('  ' + '─'.repeat(72) + '\n')
           let totalCount = 0
           let totalCost = 0
@@ -914,19 +1071,21 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
             totalTokensIn += m.tokensIn ?? 0
             totalTokensOut += m.tokensOut ?? 0
             process.stdout.write(
-              `  ${m.taskType.padEnd(20)} ${String(count).padStart(8)} ${avgCost.padStart(12)} ${sumIn.padStart(14)} ${sumOut.padStart(15)}\n`,
+              `  ${m.taskType.padEnd(20)} ${String(count).padStart(8)} ${avgCost.padStart(12)} ${sumIn.padStart(14)} ${sumOut.padStart(15)}\n`
             )
           }
           // Overall totals row
           process.stdout.write('  ' + '─'.repeat(72) + '\n')
           process.stdout.write(
-            `  ${'TOTAL'.padEnd(20)} ${String(totalCount).padStart(8)} ${`$${totalCost.toFixed(4)}`.padStart(12)} ${totalTokensIn.toLocaleString().padStart(14)} ${totalTokensOut.toLocaleString().padStart(15)}\n`,
+            `  ${'TOTAL'.padEnd(20)} ${String(totalCount).padStart(8)} ${`$${totalCost.toFixed(4)}`.padStart(12)} ${totalTokensIn.toLocaleString().padStart(14)} ${totalTokensOut.toLocaleString().padStart(15)}\n`
           )
         } else {
           // Regular mode: display per-record details
           process.stdout.write(`\nStateStore Metrics (${doltMetrics.length} records)\n`)
           process.stdout.write('─'.repeat(80) + '\n')
-          process.stdout.write(`  ${'Story'.padEnd(16)} ${'Task Type'.padEnd(16)} ${'Tokens In'.padStart(10)} ${'Tokens Out'.padStart(11)} ${'Wall(ms)'.padStart(10)} ${'Result'.padEnd(12)}\n`)
+          process.stdout.write(
+            `  ${'Story'.padEnd(16)} ${'Task Type'.padEnd(16)} ${'Tokens In'.padStart(10)} ${'Tokens Out'.padStart(11)} ${'Wall(ms)'.padStart(10)} ${'Result'.padEnd(12)}\n`
+          )
           process.stdout.write('  ' + '─'.repeat(76) + '\n')
           for (const m of doltMetrics) {
             const tokIn = m.tokensIn !== undefined ? m.tokensIn.toLocaleString() : '-'
@@ -934,7 +1093,7 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
             const wall = m.wallClockMs !== undefined ? String(m.wallClockMs) : '-'
             const res = m.result ?? '-'
             process.stdout.write(
-              `  ${m.storyKey.padEnd(16)} ${m.taskType.padEnd(16)} ${tokIn.padStart(10)} ${tokOut.padStart(11)} ${wall.padStart(10)} ${res.padEnd(12)}\n`,
+              `  ${m.storyKey.padEnd(16)} ${m.taskType.padEnd(16)} ${tokIn.padStart(10)} ${tokOut.padStart(11)} ${wall.padStart(10)} ${res.padEnd(12)}\n`
             )
           }
         }
@@ -970,21 +1129,28 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
 export function registerMetricsCommand(
   program: Command,
   _version = '0.0.0',
-  projectRoot = process.cwd(),
+  projectRoot = process.cwd()
 ): void {
   program
     .command('metrics')
     .description('Show historical pipeline run metrics and cross-run comparison')
     .option('--project-root <path>', 'Project root directory', projectRoot)
+    .option('--output-format <format>', 'Output format: human (default) or json', 'human')
     .option(
-      '--output-format <format>',
-      'Output format: human (default) or json',
-      'human',
+      '--limit <n>',
+      'Number of runs to show (default: 10)',
+      (v: string) => parseInt(v, 10),
+      10
     )
-    .option('--limit <n>', 'Number of runs to show (default: 10)', (v: string) => parseInt(v, 10), 10)
-    .option('--compare <run-id-a,run-id-b>', 'Compare two runs side-by-side (comma-separated IDs, e.g. abc123,def456)')
+    .option(
+      '--compare <run-id-a,run-id-b>',
+      'Compare two runs side-by-side (comma-separated IDs, e.g. abc123,def456)'
+    )
     .option('--tag-baseline <run-id>', 'Mark a run as the performance baseline')
-    .option('--analysis <run-id>', 'Read and output the analysis report for the specified run (AC5 of Story 17-3)')
+    .option(
+      '--analysis <run-id>',
+      'Read and output the analysis report for the specified run (AC5 of Story 17-3)'
+    )
     .option('--sprint <sprint>', 'Filter StateStore metrics by sprint (e.g. sprint-1)')
     .option('--story <story-key>', 'Filter StateStore metrics by story key (e.g. 26-1)')
     .option('--task-type <type>', 'Filter StateStore metrics by task type (e.g. dev-story)')
@@ -995,8 +1161,14 @@ export function registerMetricsCommand(
     .option('--turns <storyKey>', 'Show per-turn analysis for a specific story')
     .option('--consumers <storyKey>', 'Show consumer stats for a specific story')
     .option('--categories', 'Show category stats (optionally scoped by --story <storyKey>)')
-    .option('--compare-stories <storyA,storyB>', 'Compare efficiency scores of two stories side-by-side (comma-separated keys)')
-    .option('--routing-recommendations', 'Show routing recommendations derived from phase token breakdown history')
+    .option(
+      '--compare-stories <storyA,storyB>',
+      'Compare efficiency scores of two stories side-by-side (comma-separated keys)'
+    )
+    .option(
+      '--routing-recommendations',
+      'Show routing recommendations derived from phase token breakdown history'
+    )
     .option('--run <run-id>', 'Show per-iteration score history for a specific factory run')
     .option('--factory', 'Show only factory graph run metrics (excludes SDLC runs)')
     .action(
@@ -1036,7 +1208,9 @@ export function registerMetricsCommand(
           if (parts.length === 2 && parts[0] && parts[1]) {
             compareStoriesIds = [parts[0], parts[1]]
           } else {
-            process.stderr.write('Error: --compare-stories requires exactly two comma-separated story keys\n')
+            process.stderr.write(
+              'Error: --compare-stories requires exactly two comma-separated story keys\n'
+            )
             process.exitCode = 1
             return
           }
@@ -1059,12 +1233,14 @@ export function registerMetricsCommand(
           ...(opts.consumers !== undefined && { consumers: opts.consumers }),
           ...(opts.categories !== undefined && { categories: opts.categories }),
           ...(compareStoriesIds !== undefined && { compareStories: compareStoriesIds }),
-          ...(opts.routingRecommendations !== undefined && { routingRecommendations: opts.routingRecommendations }),
+          ...(opts.routingRecommendations !== undefined && {
+            routingRecommendations: opts.routingRecommendations,
+          }),
           ...(opts.run !== undefined && { run: opts.run }),
           ...(opts.factory !== undefined && { factory: opts.factory }),
         }
         const exitCode = await runMetricsAction(metricsOpts)
         process.exitCode = exitCode
-      },
+      }
     )
 }

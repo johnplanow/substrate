@@ -45,10 +45,7 @@ import {
 } from '../../persistence/queries/amendments.js'
 import { createAmendmentContextHandler } from '../../modules/amendment-handlers/index.js'
 import type { AmendmentContextHandler } from '../../modules/amendment-handlers/index.js'
-import {
-  generateDeltaDocument,
-  formatDeltaDocument,
-} from '../../modules/delta-document/index.js'
+import { generateDeltaDocument, formatDeltaDocument } from '../../modules/delta-document/index.js'
 import { createLogger } from '../../utils/logger.js'
 import {
   VALID_PHASES,
@@ -79,9 +76,12 @@ export async function runPostPhaseSupersessionDetection(
   adapter: DatabaseAdapter,
   amendmentRunId: string,
   currentPhase: string,
-  handler: AmendmentContextHandler,
+  handler: AmendmentContextHandler
 ): Promise<void> {
-  const newDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId, phase: currentPhase })
+  const newDecisions = await getActiveDecisions(adapter, {
+    pipeline_run_id: amendmentRunId,
+    phase: currentPhase,
+  })
   const parentDecisions = handler.getParentDecisions()
 
   for (const newDec of newDecisions) {
@@ -101,7 +101,10 @@ export async function runPostPhaseSupersessionDetection(
         })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        logger.warn({ err, originalId: parentMatch.id, supersedingId: newDec.id }, `Supersession failed: ${msg}`)
+        logger.warn(
+          { err, originalId: parentMatch.id, supersedingId: newDec.id },
+          `Supersession failed: ${msg}`
+        )
       }
     }
   }
@@ -125,7 +128,17 @@ export interface AmendOptions {
 }
 
 export async function runAmendAction(options: AmendOptions): Promise<number> {
-  const { concept: conceptArg, conceptFile, runId: specifiedRunId, stopAfter, from: startPhase, projectRoot, pack: packName, registry: injectedRegistry, agent: agentId } = options
+  const {
+    concept: conceptArg,
+    conceptFile,
+    runId: specifiedRunId,
+    stopAfter,
+    from: startPhase,
+    projectRoot,
+    pack: packName,
+    registry: injectedRegistry,
+    agent: agentId,
+  } = options
 
   // AC2: --concept or --concept-file is required (before any DB reads/writes)
   let concept: string
@@ -148,20 +161,26 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
   if (stopAfter !== undefined && startPhase !== undefined) {
     const conflictResult = validateStopAfterFromConflict(stopAfter, startPhase)
     if (!conflictResult.valid) {
-      process.stderr.write(`Error: ${conflictResult.error ?? 'Invalid --stop-after / --from combination'}\n`)
+      process.stderr.write(
+        `Error: ${conflictResult.error ?? 'Invalid --stop-after / --from combination'}\n`
+      )
       return 1
     }
   }
 
   // Validate --from phase
   if (startPhase !== undefined && !VALID_PHASES.includes(startPhase)) {
-    process.stderr.write(`Error: Invalid phase '${startPhase}'. Valid phases: ${VALID_PHASES.join(', ')}\n`)
+    process.stderr.write(
+      `Error: Invalid phase '${startPhase}'. Valid phases: ${VALID_PHASES.join(', ')}\n`
+    )
     return 1
   }
 
   // Validate --stop-after phase
   if (stopAfter !== undefined && !VALID_PHASES.includes(stopAfter)) {
-    process.stderr.write(`Error: Invalid phase: "${stopAfter}". Valid phases: ${VALID_PHASES.join(', ')}\n`)
+    process.stderr.write(
+      `Error: Invalid phase: "${stopAfter}". Valid phases: ${VALID_PHASES.join(', ')}\n`
+    )
     return 1
   }
 
@@ -219,7 +238,9 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
     }
 
     // AC6: createAmendmentContextHandler() before the phase loop
-    const handler = await createAmendmentContextHandler(adapter, parentRunId, { framingConcept: concept })
+    const handler = await createAmendmentContextHandler(adapter, parentRunId, {
+      framingConcept: concept,
+    })
 
     // Load methodology pack and assemble PhaseDeps (matching runFullPipeline pattern)
     const packLoader = createPackLoader()
@@ -228,7 +249,9 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
       pack = await packLoader.load(packPath)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      process.stderr.write(`Error: Methodology pack '${packName}' not found. Run 'substrate init' first.\n${msg}\n`)
+      process.stderr.write(
+        `Error: Methodology pack '${packName}' not found. Run 'substrate init' first.\n${msg}\n`
+      )
       return 1
     }
 
@@ -260,7 +283,9 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
           })
         }
         if (parentDecisions.length > 0) {
-          process.stdout.write(`[AMENDMENT] Copied ${parentDecisions.length} ${phase} decisions from parent run\n`)
+          process.stdout.write(
+            `[AMENDMENT] Copied ${parentDecisions.length} ${phase} decisions from parent run\n`
+          )
         }
       }
     }
@@ -274,13 +299,22 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
 
       // AC6 + AC9: Load context for this phase and inject it
       const amendmentContext = handler.loadContextForPhase(currentPhase)
-      logger.info({ phase: currentPhase, amendmentContextLen: amendmentContext.length }, 'Amendment context loaded for phase')
+      logger.info(
+        { phase: currentPhase, amendmentContextLen: amendmentContext.length },
+        'Amendment context loaded for phase'
+      )
 
-      process.stdout.write(`\n[AMENDMENT:${currentPhase.toUpperCase()}] Starting (with amendment context)...\n`)
+      process.stdout.write(
+        `\n[AMENDMENT:${currentPhase.toUpperCase()}] Starting (with amendment context)...\n`
+      )
 
       // Execute actual phase runners with amendment context (AC4)
       if (currentPhase === 'analysis') {
-        const result = await runAnalysisPhase(phaseDeps, { runId: amendmentRunId, concept, amendmentContext })
+        const result = await runAnalysisPhase(phaseDeps, {
+          runId: amendmentRunId,
+          concept,
+          amendmentContext,
+        })
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, amendmentRunId, {
@@ -293,14 +327,19 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
         }
         if (result.result === 'failed') {
           await updatePipelineRun(adapter, amendmentRunId, { status: 'failed' })
-          process.stderr.write(`Error: Analysis phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`)
+          process.stderr.write(
+            `Error: Analysis phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`
+          )
           return 1
         }
         // AC1 (Story 12-12): Post-phase supersession detection
         await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'analysis', handler)
         process.stdout.write(`[AMENDMENT:ANALYSIS] Complete\n`)
       } else if (currentPhase === 'planning') {
-        const result = await runPlanningPhase(phaseDeps, { runId: amendmentRunId, amendmentContext })
+        const result = await runPlanningPhase(phaseDeps, {
+          runId: amendmentRunId,
+          amendmentContext,
+        })
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, amendmentRunId, {
@@ -313,14 +352,19 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
         }
         if (result.result === 'failed') {
           await updatePipelineRun(adapter, amendmentRunId, { status: 'failed' })
-          process.stderr.write(`Error: Planning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`)
+          process.stderr.write(
+            `Error: Planning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`
+          )
           return 1
         }
         // AC1 (Story 12-12): Post-phase supersession detection
         await runPostPhaseSupersessionDetection(adapter, amendmentRunId, 'planning', handler)
         process.stdout.write(`[AMENDMENT:PLANNING] Complete\n`)
       } else if (currentPhase === 'solutioning') {
-        const result = await runSolutioningPhase(phaseDeps, { runId: amendmentRunId, amendmentContext })
+        const result = await runSolutioningPhase(phaseDeps, {
+          runId: amendmentRunId,
+          amendmentContext,
+        })
         if (result.tokenUsage.input > 0 || result.tokenUsage.output > 0) {
           const costUsd = (result.tokenUsage.input * 3 + result.tokenUsage.output * 15) / 1_000_000
           await addTokenUsage(adapter, amendmentRunId, {
@@ -333,7 +377,9 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
         }
         if (result.result === 'failed') {
           await updatePipelineRun(adapter, amendmentRunId, { status: 'failed' })
-          process.stderr.write(`Error: Solutioning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`)
+          process.stderr.write(
+            `Error: Solutioning phase failed: ${result.error ?? 'unknown error'}${result.details ? ` — ${result.details}` : ''}\n`
+          )
           return 1
         }
         // AC1 (Story 12-12): Post-phase supersession detection
@@ -341,7 +387,9 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
         process.stdout.write(`[AMENDMENT:SOLUTIONING] Complete\n`)
       } else if (currentPhase === 'implementation') {
         // Implementation phase: context injection only (implementation is story-based, not re-run on amend)
-        process.stdout.write(`[AMENDMENT:IMPLEMENTATION] Context injected (${amendmentContext.length} chars)\n`)
+        process.stdout.write(
+          `[AMENDMENT:IMPLEMENTATION] Context injected (${amendmentContext.length} chars)\n`
+        )
       }
 
       // AC7: Stop-after gate reused from Story 12-2
@@ -350,7 +398,7 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
         if (gate.shouldHalt()) {
           const decisionsCountRows = await adapter.query<{ cnt: number }>(
             `SELECT COUNT(*) as cnt FROM decisions WHERE pipeline_run_id = ?`,
-            [amendmentRunId],
+            [amendmentRunId]
           )
           const decisionsCount = decisionsCountRows[0]?.cnt ?? 0
 
@@ -379,7 +427,9 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
     }
 
     // Query amendment decisions and superseded decisions from DB
-    const amendmentDecisions = await getActiveDecisions(adapter, { pipeline_run_id: amendmentRunId })
+    const amendmentDecisions = await getActiveDecisions(adapter, {
+      pipeline_run_id: amendmentRunId,
+    })
     const parentDecisions = handler.getParentDecisions()
     const supersessionLog = handler.getSupersessionLog()
 
@@ -429,7 +479,7 @@ export function registerAmendCommand(
   program: Command,
   _version = '0.0.0',
   projectRoot = process.cwd(),
-  registry?: AdapterRegistry,
+  registry?: AdapterRegistry
 ): void {
   program
     .command('amend')
@@ -441,11 +491,7 @@ export function registerAmendCommand(
     .option('--from <phase>', 'Start pipeline from this phase')
     .option('--pack <name>', 'Methodology pack name', 'bmad')
     .option('--project-root <path>', 'Project root directory', projectRoot)
-    .option(
-      '--output-format <format>',
-      'Output format: human (default) or json',
-      'human',
-    )
+    .option('--output-format <format>', 'Output format: human (default) or json', 'human')
     .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
     .action(
       async (opts: {
@@ -471,6 +517,6 @@ export function registerAmendCommand(
           registry,
         })
         process.exitCode = exitCode
-      },
+      }
     )
 }

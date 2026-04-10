@@ -85,14 +85,18 @@ vi.mock('node:fs', () => ({
   readdirSync: vi.fn().mockReturnValue([]),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/foo.ts']),
 }))
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 vi.mock('../seed-methodology-context.js', () => ({
   seedMethodologyContext: vi.fn().mockReturnValue({ decisionsCreated: 0, skippedCategories: [] }),
@@ -121,7 +125,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
         checks: [],
         status: 'pass',
         duration_ms: 0,
-      }),
+      })
     ),
     register: vi.fn(),
   })),
@@ -197,7 +201,9 @@ function createMockDispatcher(): Dispatcher & { dispatch: ReturnType<typeof vi.f
     dispatch,
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -211,7 +217,7 @@ function createMockEventBus(): TypedEventBus {
 }
 
 function createMockIngestionServer(
-  endpointUrl = 'http://localhost:9317',
+  endpointUrl = 'http://localhost:9317'
 ): IngestionServer & { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> } {
   return {
     start: vi.fn().mockResolvedValue(undefined),
@@ -223,7 +229,10 @@ function createMockIngestionServer(
       OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
       OTEL_EXPORTER_OTLP_ENDPOINT: endpointUrl,
     }),
-  } as unknown as IngestionServer & { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }
+  } as unknown as IngestionServer & {
+    start: ReturnType<typeof vi.fn>
+    stop: ReturnType<typeof vi.fn>
+  }
 }
 
 function defaultConfig(overrides?: Partial<OrchestratorConfig>): OrchestratorConfig {
@@ -385,17 +394,17 @@ describe('IngestionServer lifecycle wiring (Story 27-9, Task 5)', () => {
     // verify otlpEndpoint is included so sub-agents receive telemetry env vars
     expect(mockRunCreateStory).toHaveBeenCalledWith(
       expect.objectContaining({ otlpEndpoint: endpointUrl }),
-      expect.anything(),
+      expect.anything()
     )
     // runDevStory receives the same endpoint
     expect(mockRunDevStory).toHaveBeenCalledWith(
       expect.objectContaining({ otlpEndpoint: endpointUrl }),
-      expect.anything(),
+      expect.anything()
     )
     // runCodeReview receives the same endpoint
     expect(mockRunCodeReview).toHaveBeenCalledWith(
       expect.objectContaining({ otlpEndpoint: endpointUrl }),
-      expect.anything(),
+      expect.anything()
     )
   })
 
@@ -417,7 +426,7 @@ describe('IngestionServer lifecycle wiring (Story 27-9, Task 5)', () => {
     // WorkflowDeps should have otlpEndpoint as undefined (not set)
     expect(mockRunDevStory).toHaveBeenCalledWith(
       expect.not.objectContaining({ otlpEndpoint: expect.anything() }),
-      expect.anything(),
+      expect.anything()
     )
   })
 

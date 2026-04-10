@@ -84,7 +84,9 @@ vi.mock('node:fs', () => ({
 }))
 
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
@@ -93,7 +95,9 @@ vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
 }))
 
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
-  detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
+  detectInterfaceChanges: vi
+    .fn()
+    .mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
 }))
 
 // ---------------------------------------------------------------------------
@@ -169,7 +173,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -323,21 +329,24 @@ describe('AC3: orchestrator stores interface contract declarations after create-
     })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['25-4'])
 
     // createDecision should have been called with interface-contract entries
     const interfaceContractCalls = mockCreateDecision.mock.calls.filter(
-      (call) => call[1]?.category === 'interface-contract',
+      (call) => call[1]?.category === 'interface-contract'
     )
     expect(interfaceContractCalls).toHaveLength(2)
 
     // Verify the export declaration
-    const exportCall = interfaceContractCalls.find((call) =>
-      call[1]?.key === '25-4:JudgeResult',
-    )
+    const exportCall = interfaceContractCalls.find((call) => call[1]?.key === '25-4:JudgeResult')
     expect(exportCall).toBeDefined()
     const exportValue = JSON.parse(exportCall![1]?.value ?? '{}')
     expect(exportValue.direction).toBe('export')
@@ -347,9 +356,7 @@ describe('AC3: orchestrator stores interface contract declarations after create-
     expect(exportValue.transport).toBe('queue: judge-results')
 
     // Verify the import declaration
-    const importCall = interfaceContractCalls.find((call) =>
-      call[1]?.key === '25-4:CheckRunInput',
-    )
+    const importCall = interfaceContractCalls.find((call) => call[1]?.key === '25-4:CheckRunInput')
     expect(importCall).toBeDefined()
     const importValue = JSON.parse(importCall![1]?.value ?? '{}')
     expect(importValue.direction).toBe('import')
@@ -374,13 +381,18 @@ describe('AC3: orchestrator stores interface contract declarations after create-
     })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['25-4'])
 
     const interfaceContractCalls = mockCreateDecision.mock.calls.filter(
-      (call) => call[1]?.category === 'interface-contract',
+      (call) => call[1]?.category === 'interface-contract'
     )
     for (const call of interfaceContractCalls) {
       expect(call[1]?.phase).toBe('implementation')
@@ -404,13 +416,18 @@ describe('AC3: orchestrator stores interface contract declarations after create-
     })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['25-3'])
 
     const interfaceContractCalls = mockCreateDecision.mock.calls.filter(
-      (call) => call[1]?.category === 'interface-contract',
+      (call) => call[1]?.category === 'interface-contract'
     )
     expect(interfaceContractCalls).toHaveLength(0)
   })
@@ -426,7 +443,12 @@ describe('AC3: orchestrator stores interface contract declarations after create-
     mockReadFile.mockRejectedValue(new Error('ENOENT: file not found'))
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     const status = await orchestrator.run(['25-4'])
@@ -462,13 +484,18 @@ AC1: Something
     })
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config,
+      db,
+      pack,
+      contextCompiler,
+      dispatcher,
+      eventBus,
+      config,
     })
 
     await orchestrator.run(['25-4'])
 
     const interfaceContractCalls = mockCreateDecision.mock.calls.filter(
-      (call) => call[1]?.category === 'interface-contract',
+      (call) => call[1]?.category === 'interface-contract'
     )
     expect(interfaceContractCalls).toHaveLength(1)
     expect(interfaceContractCalls[0][1]?.key).toBe('25-4:MyCustomSchema')

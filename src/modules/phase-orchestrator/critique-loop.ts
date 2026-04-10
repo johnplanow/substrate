@@ -101,7 +101,7 @@ export async function runCritiqueLoop(
   runId: string,
   phase: string,
   deps: PhaseDeps,
-  options: CritiqueOptions = {},
+  options: CritiqueOptions = {}
 ): Promise<CritiqueLoopResult> {
   const { maxIterations = 2, projectContext = '', phaseContext = '' } = options
   const startMs = Date.now()
@@ -130,7 +130,7 @@ export async function runCritiqueLoop(
       const message = err instanceof Error ? err.message : String(err)
       logger.warn(
         { phaseId, promptName: critiquePromptName, err: message },
-        'Critique loop: failed to load critique prompt template — skipping critique',
+        'Critique loop: failed to load critique prompt template — skipping critique'
       )
       return {
         verdict: 'pass',
@@ -163,7 +163,7 @@ export async function runCritiqueLoop(
         const errMsg = result.parseError ?? `Critique dispatch ended with status '${result.status}'`
         logger.warn(
           { phaseId, iteration: i + 1, err: errMsg },
-          'Critique loop: critique dispatch failed — treating as pass to avoid blocking pipeline',
+          'Critique loop: critique dispatch failed — treating as pass to avoid blocking pipeline'
         )
         return {
           verdict: 'pass',
@@ -182,7 +182,7 @@ export async function runCritiqueLoop(
       const message = err instanceof Error ? err.message : String(err)
       logger.warn(
         { phaseId, iteration: i + 1, err: message },
-        'Critique loop: critique dispatch threw — treating as pass to avoid blocking pipeline',
+        'Critique loop: critique dispatch threw — treating as pass to avoid blocking pipeline'
       )
       return {
         verdict: 'pass',
@@ -230,7 +230,7 @@ export async function runCritiqueLoop(
       const message = err instanceof Error ? err.message : String(err)
       logger.warn(
         { phaseId, iteration: i + 1, err: message },
-        'Critique loop: failed to store critique decision — continuing',
+        'Critique loop: failed to store critique decision — continuing'
       )
     }
 
@@ -240,7 +240,7 @@ export async function runCritiqueLoop(
     if (critiqueOutput.verdict === 'pass') {
       logger.info(
         { phaseId, iteration: i + 1 },
-        'Critique loop: artifact passed critique — loop complete',
+        'Critique loop: artifact passed critique — loop complete'
       )
       return {
         verdict: 'pass',
@@ -257,7 +257,7 @@ export async function runCritiqueLoop(
     // ------------------------------------------------------------------
     logger.info(
       { phaseId, iteration: i + 1, issueCount: critiqueOutput.issue_count },
-      'Critique loop: artifact needs work — dispatching refinement',
+      'Critique loop: artifact needs work — dispatching refinement'
     )
 
     if (i < maxIterations - 1) {
@@ -266,7 +266,10 @@ export async function runCritiqueLoop(
       try {
         const refineTemplate = await deps.pack.getPrompt('refine-artifact')
         const issuesText = critiqueOutput.issues
-          .map((issue) => `- [${issue.severity}] ${issue.category}: ${issue.description}\n  Suggestion: ${issue.suggestion}`)
+          .map(
+            (issue) =>
+              `- [${issue.severity}] ${issue.category}: ${issue.description}\n  Suggestion: ${issue.suggestion}`
+          )
           .join('\n')
 
         refinePrompt = refineTemplate
@@ -277,7 +280,7 @@ export async function runCritiqueLoop(
         const message = err instanceof Error ? err.message : String(err)
         logger.warn(
           { phaseId, iteration: i + 1, err: message },
-          'Critique loop: failed to load refinement prompt — stopping loop',
+          'Critique loop: failed to load refinement prompt — stopping loop'
         )
         break
       }
@@ -301,13 +304,13 @@ export async function runCritiqueLoop(
           const delta = refinedLength - originalLength
           logger.info(
             { phaseId, iteration: i + 1, originalLength, refinedLength, delta },
-            'Critique loop: refinement complete',
+            'Critique loop: refinement complete'
           )
           currentArtifact = refineResult.output
         } else {
           logger.warn(
             { phaseId, iteration: i + 1, status: refineResult.status },
-            'Critique loop: refinement dispatch failed — stopping loop',
+            'Critique loop: refinement dispatch failed — stopping loop'
           )
           break
         }
@@ -315,7 +318,7 @@ export async function runCritiqueLoop(
         const message = err instanceof Error ? err.message : String(err)
         logger.warn(
           { phaseId, iteration: i + 1, err: message },
-          'Critique loop: refinement dispatch threw — stopping loop',
+          'Critique loop: refinement dispatch threw — stopping loop'
         )
         break
       }
@@ -330,12 +333,17 @@ export async function runCritiqueLoop(
   if (remainingIssues.length > 0) {
     logger.warn(
       { phaseId, maxIterations, issueCount: remainingIssues.length },
-      'Critique loop: max iterations reached with unresolved issues',
+      'Critique loop: max iterations reached with unresolved issues'
     )
     for (const issue of remainingIssues) {
       logger.warn(
-        { phaseId, severity: issue.severity, category: issue.category, description: issue.description },
-        `Critique loop: unresolved issue — ${issue.severity}: ${issue.description}`,
+        {
+          phaseId,
+          severity: issue.severity,
+          category: issue.category,
+          description: issue.description,
+        },
+        `Critique loop: unresolved issue — ${issue.severity}: ${issue.description}`
       )
     }
   }

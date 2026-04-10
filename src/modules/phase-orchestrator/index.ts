@@ -12,7 +12,11 @@
 export type { PhaseOrchestrator } from './phase-orchestrator.js'
 export { createPhaseOrchestrator } from './phase-orchestrator-impl.js'
 export type { PhaseOrchestratorDeps } from './phase-orchestrator-impl.js'
-export { runGates, serializePhaseHistory, deserializePhaseHistory } from './phase-orchestrator-impl.js'
+export {
+  runGates,
+  serializePhaseHistory,
+  deserializePhaseHistory,
+} from './phase-orchestrator-impl.js'
 
 // ---------------------------------------------------------------------------
 // Types

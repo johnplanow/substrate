@@ -59,7 +59,7 @@ export interface PhaseOrchestratorDeps {
 export async function runGates(
   gates: GateCheck[],
   adapter: DatabaseAdapter,
-  runId: string,
+  runId: string
 ): Promise<GateRunResult> {
   const failures: Array<{ gate: string; error: string }> = []
 
@@ -315,14 +315,20 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
   async evaluateEntryGates(runId: string): Promise<GateRunResult> {
     const run = await getPipelineRunById(this._db, runId)
     if (!run) {
-      return { passed: false, failures: [{ gate: 'run-exists', error: `Pipeline run '${runId}' not found` }] }
+      return {
+        passed: false,
+        failures: [{ gate: 'run-exists', error: `Pipeline run '${runId}' not found` }],
+      }
     }
 
     const currentPhaseName = run.current_phase ?? this._phases[0]?.name ?? 'analysis'
     const currentPhaseIdx = this._phases.findIndex((p) => p.name === currentPhaseName)
 
     if (currentPhaseIdx === -1) {
-      return { passed: false, failures: [{ gate: 'phase-exists', error: `Phase '${currentPhaseName}' not found` }] }
+      return {
+        passed: false,
+        failures: [{ gate: 'phase-exists', error: `Phase '${currentPhaseName}' not found` }],
+      }
     }
 
     const currentPhaseDef = this._phases[currentPhaseIdx]
@@ -366,7 +372,7 @@ class PhaseOrchestratorImpl implements PhaseOrchestrator {
     // a crash, don't regress to an earlier phase (e.g., analysis).
     let resumePhaseIdx = gateDerivedResumeIdx
     if (run.current_phase) {
-      const dbPhaseIdx = this._phases.findIndex(p => p.name === run.current_phase)
+      const dbPhaseIdx = this._phases.findIndex((p) => p.name === run.current_phase)
       if (dbPhaseIdx >= 0 && dbPhaseIdx > gateDerivedResumeIdx) {
         resumePhaseIdx = dbPhaseIdx
       }

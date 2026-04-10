@@ -38,7 +38,11 @@ function getLatestSessionId(_adapter: DatabaseAdapter): string | null {
 }
 import { formatTable, buildJsonOutput } from '../utils/formatting.js'
 import type { CLIJsonOutput } from '../utils/formatting.js'
-import type { SessionCostSummary, AgentCostBreakdown, CostEntry } from '../../modules/cost-tracker/types.js'
+import type {
+  SessionCostSummary,
+  AgentCostBreakdown,
+  CostEntry,
+} from '../../modules/cost-tracker/types.js'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('cost-cmd')
@@ -97,7 +101,7 @@ export interface CostJsonData {
 export function formatCostSummaryTable(
   summary: SessionCostSummary,
   includePlanning = true,
-  planningCostUsd = 0,
+  planningCostUsd = 0
 ): string {
   const lines: string[] = []
 
@@ -107,8 +111,12 @@ export function formatCostSummaryTable(
   }
   lines.push('')
   lines.push(`Total Cost:    $${summary.total_cost_usd.toFixed(4)}`)
-  lines.push(`  Subscription: $${summary.subscription_cost_usd.toFixed(4)} (${summary.subscription_task_count} task${summary.subscription_task_count === 1 ? '' : 's'})`)
-  lines.push(`  API Billed:   $${summary.api_cost_usd.toFixed(4)} (${summary.api_task_count} task${summary.api_task_count === 1 ? '' : 's'})`)
+  lines.push(
+    `  Subscription: $${summary.subscription_cost_usd.toFixed(4)} (${summary.subscription_task_count} task${summary.subscription_task_count === 1 ? '' : 's'})`
+  )
+  lines.push(
+    `  API Billed:   $${summary.api_cost_usd.toFixed(4)} (${summary.api_task_count} task${summary.api_task_count === 1 ? '' : 's'})`
+  )
   lines.push(`  Savings:      $${summary.savings_usd.toFixed(4)}`)
 
   // When planning costs are excluded from the totals, show them separately (AC5)
@@ -238,7 +246,7 @@ export function formatCostCsv(summary: SessionCostSummary, taskEntries?: CostEnt
         csvField(e.billing_mode),
         csvField(e.cost_usd.toFixed(4)),
         csvField(e.savings_usd.toFixed(4)),
-      ].join(','),
+      ].join(',')
     )
     return [header, ...rows].join('\n')
   }
@@ -281,7 +289,7 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
   const doltDir = join(projectRoot, '.substrate', 'state', '.dolt')
   if (!existsSync(dbPath) && !existsSync(doltDir)) {
     process.stderr.write(
-      `Error: No Substrate database found at ${dbPath}. Run 'substrate init' first.\n`,
+      `Error: No Substrate database found at ${dbPath}. Run 'substrate init' first.\n`
     )
     return COST_EXIT_ERROR
   }
@@ -290,7 +298,7 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
   const validFormats = ['table', 'json', 'csv']
   if (!validFormats.includes(outputFormat)) {
     process.stderr.write(
-      `Error: Invalid output format '${outputFormat}'. Valid formats: ${validFormats.join(', ')}\n`,
+      `Error: Invalid output format '${outputFormat}'. Valid formats: ${validFormats.join(', ')}\n`
     )
     return COST_EXIT_ERROR
   }
@@ -310,7 +318,11 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
 
     if (!sessionId) {
       if (outputFormat === 'json') {
-        const output = buildJsonOutput('substrate cost', { message: 'No cost data found', sessions: [] }, version)
+        const output = buildJsonOutput(
+          'substrate cost',
+          { message: 'No cost data found', sessions: [] },
+          version
+        )
         process.stdout.write(JSON.stringify(output, null, 2) + '\n')
       } else {
         process.stdout.write('No cost data found\n')
@@ -330,10 +342,14 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
     // Check for empty data (AC8)
     if (summary.task_count === 0) {
       if (outputFormat === 'json') {
-        const output: CLIJsonOutput<CostJsonData> = buildJsonOutput('substrate cost', {
-          session_id: sessionId,
-          summary,
-        }, version)
+        const output: CLIJsonOutput<CostJsonData> = buildJsonOutput(
+          'substrate cost',
+          {
+            session_id: sessionId,
+            summary,
+          },
+          version
+        )
         process.stdout.write(JSON.stringify(output, null, 2) + '\n')
       } else {
         process.stdout.write('No cost data found\n')
@@ -361,7 +377,11 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
         jsonData.agents = summary.per_agent_breakdown
       }
 
-      const output: CLIJsonOutput<CostJsonData> = buildJsonOutput('substrate cost', jsonData, version)
+      const output: CLIJsonOutput<CostJsonData> = buildJsonOutput(
+        'substrate cost',
+        jsonData,
+        version
+      )
       process.stdout.write(JSON.stringify(output, null, 2) + '\n')
       return COST_EXIT_SUCCESS
     }
@@ -420,47 +440,43 @@ export async function runCostAction(options: CostActionOptions): Promise<number>
 export function registerCostCommand(
   program: Command,
   version = '0.0.0',
-  projectRoot = process.cwd(),
+  projectRoot = process.cwd()
 ): void {
   program
     .command('cost')
     .description('Show cost breakdown for the current session')
     .option('--session <id>', 'Session ID to report on (defaults to latest)')
-    .option(
-      '--output-format <format>',
-      'Output format: table (default), json, or csv',
-      'table',
-    )
+    .option('--output-format <format>', 'Output format: table (default), json, or csv', 'table')
     .option('--json', 'Output JSON (shorthand for --output-format json)', false)
     .option('--by-task', 'Show cost breakdown by task', false)
     .option('--by-agent', 'Show cost breakdown by agent', false)
     .option('--by-billing', 'Show cost breakdown by billing mode', false)
     .option('--include-planning', 'Include planning costs in report', false)
-    .action(async (opts: {
-      session?: string
-      outputFormat: string
-      json: boolean
-      byTask: boolean
-      byAgent: boolean
-      byBilling: boolean
-      includePlanning: boolean
-    }) => {
-      // Resolve output format: --json flag overrides --output-format
-      const outputFormat = opts.json
-        ? 'json'
-        : opts.outputFormat as 'table' | 'json' | 'csv'
+    .action(
+      async (opts: {
+        session?: string
+        outputFormat: string
+        json: boolean
+        byTask: boolean
+        byAgent: boolean
+        byBilling: boolean
+        includePlanning: boolean
+      }) => {
+        // Resolve output format: --json flag overrides --output-format
+        const outputFormat = opts.json ? 'json' : (opts.outputFormat as 'table' | 'json' | 'csv')
 
-      const exitCode = await runCostAction({
-        ...(opts.session !== undefined && { sessionId: opts.session }),
-        outputFormat,
-        byTask: opts.byTask,
-        byAgent: opts.byAgent,
-        byBilling: opts.byBilling,
-        includePlanning: opts.includePlanning,
-        projectRoot,
-        version,
-      })
+        const exitCode = await runCostAction({
+          ...(opts.session !== undefined && { sessionId: opts.session }),
+          outputFormat,
+          byTask: opts.byTask,
+          byAgent: opts.byAgent,
+          byBilling: opts.byBilling,
+          includePlanning: opts.includePlanning,
+          projectRoot,
+          version,
+        })
 
-      process.exitCode = exitCode
-    })
+        process.exitCode = exitCode
+      }
+    )
 }

@@ -193,7 +193,7 @@ describe('DoltStateStore.queryMetrics filter routing', () => {
             },
           ],
         ],
-      ]),
+      ])
     )
     const store = makeDoltStore(client)
     const results = await store.queryMetrics({})

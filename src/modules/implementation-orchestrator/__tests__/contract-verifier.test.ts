@@ -40,9 +40,7 @@ const mockReadFileSync = vi.mocked(readFileSync)
 
 const PROJECT_ROOT = '/project'
 
-function makeExportDecl(
-  overrides?: Partial<ContractDeclaration>,
-): ContractDeclaration {
+function makeExportDecl(overrides?: Partial<ContractDeclaration>): ContractDeclaration {
   return {
     storyKey: '25-5',
     contractName: 'JudgeResult',
@@ -52,9 +50,7 @@ function makeExportDecl(
   }
 }
 
-function makeImportDecl(
-  overrides?: Partial<ContractDeclaration>,
-): ContractDeclaration {
+function makeImportDecl(overrides?: Partial<ContractDeclaration>): ContractDeclaration {
   return {
     storyKey: '25-6',
     contractName: 'JudgeResult',
@@ -153,10 +149,30 @@ describe('verifyContracts: AC2 exported file existence', () => {
     })
 
     const declarations: ContractDeclaration[] = [
-      { storyKey: 'exp-a', contractName: 'ContractA', direction: 'export', filePath: 'src/modules/contractA.ts' },
-      { storyKey: 'imp-a', contractName: 'ContractA', direction: 'import', filePath: 'src/consumer.ts' },
-      { storyKey: 'exp-b', contractName: 'ContractB', direction: 'export', filePath: 'src/modules/contractB.ts' },
-      { storyKey: 'imp-b', contractName: 'ContractB', direction: 'import', filePath: 'src/consumer2.ts' },
+      {
+        storyKey: 'exp-a',
+        contractName: 'ContractA',
+        direction: 'export',
+        filePath: 'src/modules/contractA.ts',
+      },
+      {
+        storyKey: 'imp-a',
+        contractName: 'ContractA',
+        direction: 'import',
+        filePath: 'src/consumer.ts',
+      },
+      {
+        storyKey: 'exp-b',
+        contractName: 'ContractB',
+        direction: 'export',
+        filePath: 'src/modules/contractB.ts',
+      },
+      {
+        storyKey: 'imp-b',
+        contractName: 'ContractB',
+        direction: 'import',
+        filePath: 'src/consumer2.ts',
+      },
     ]
 
     const result = verifyContracts(declarations, PROJECT_ROOT)
@@ -268,8 +284,7 @@ describe('verifyContracts: AC3 TypeScript type-check', () => {
       const p = path as string
       // Export file exists and tsconfig exists, but tsc binary is absent
       return (
-        p === `${PROJECT_ROOT}/src/modules/judge/types.ts` ||
-        p === `${PROJECT_ROOT}/tsconfig.json`
+        p === `${PROJECT_ROOT}/src/modules/judge/types.ts` || p === `${PROJECT_ROOT}/tsconfig.json`
       )
     })
 
@@ -295,7 +310,7 @@ describe('verifyContracts: AC3 TypeScript type-check', () => {
 
     expect(mockExecSync).toHaveBeenCalledWith(
       expect.stringContaining('tsc'),
-      expect.objectContaining({ cwd: PROJECT_ROOT }),
+      expect.objectContaining({ cwd: PROJECT_ROOT })
     )
   })
 
@@ -314,7 +329,7 @@ describe('verifyContracts: AC3 TypeScript type-check', () => {
 
     expect(mockExecSync).toHaveBeenCalledWith(
       expect.stringContaining('--noEmit'),
-      expect.any(Object),
+      expect.any(Object)
     )
   })
 })
@@ -346,10 +361,7 @@ describe('verifyContracts: edge cases', () => {
     mockExistsSync.mockImplementation((path: unknown) => {
       const p = path as string
       // Export file is MISSING, but tsconfig and tsc binary exist
-      return (
-        p === `${PROJECT_ROOT}/tsconfig.json` ||
-        p === `${PROJECT_ROOT}/node_modules/.bin/tsc`
-      )
+      return p === `${PROJECT_ROOT}/tsconfig.json` || p === `${PROJECT_ROOT}/node_modules/.bin/tsc`
     })
 
     const tscError = {
@@ -380,7 +392,7 @@ const TSCONFIG_PATH = `${PROJECT_ROOT}/tsconfig.json`
 const TSC_BIN_PATH = `${PROJECT_ROOT}/node_modules/.bin/tsc`
 const EXPORT_FILE_PATH = `${PROJECT_ROOT}/src/modules/judge/types.ts`
 
-describe("verifyContracts: AC (Story 37-4) non-TypeScript profile skips tsc", () => {
+describe('verifyContracts: AC (Story 37-4) non-TypeScript profile skips tsc', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -389,14 +401,11 @@ describe("verifyContracts: AC (Story 37-4) non-TypeScript profile skips tsc", ()
     mockExistsSync.mockImplementation((path: unknown) => {
       const p = path as string
       return (
-        p === PROFILE_PATH ||
-        p === TSCONFIG_PATH ||
-        p === TSC_BIN_PATH ||
-        p === EXPORT_FILE_PATH
+        p === PROFILE_PATH || p === TSCONFIG_PATH || p === TSC_BIN_PATH || p === EXPORT_FILE_PATH
       )
     })
     mockReadFileSync.mockReturnValue(
-      "project:\n  type: single\n  buildCommand: 'go build ./...'\n  packages: []\n" as unknown as Buffer,
+      "project:\n  type: single\n  buildCommand: 'go build ./...'\n  packages: []\n" as unknown as Buffer
     )
 
     const result = verifyContracts([makeExportDecl(), makeImportDecl()], PROJECT_ROOT)
@@ -409,14 +418,11 @@ describe("verifyContracts: AC (Story 37-4) non-TypeScript profile skips tsc", ()
     mockExistsSync.mockImplementation((path: unknown) => {
       const p = path as string
       return (
-        p === PROFILE_PATH ||
-        p === TSCONFIG_PATH ||
-        p === TSC_BIN_PATH ||
-        p === EXPORT_FILE_PATH
+        p === PROFILE_PATH || p === TSCONFIG_PATH || p === TSC_BIN_PATH || p === EXPORT_FILE_PATH
       )
     })
     mockReadFileSync.mockReturnValue(
-      "project:\n  type: single\n  buildCommand: 'npm run build'\n  packages: []\n" as unknown as Buffer,
+      "project:\n  type: single\n  buildCommand: 'npm run build'\n  packages: []\n" as unknown as Buffer
     )
     mockExecSync.mockReturnValue('' as unknown as Buffer)
 
@@ -429,14 +435,11 @@ describe("verifyContracts: AC (Story 37-4) non-TypeScript profile skips tsc", ()
     mockExistsSync.mockImplementation((path: unknown) => {
       const p = path as string
       return (
-        p === PROFILE_PATH ||
-        p === TSCONFIG_PATH ||
-        p === TSC_BIN_PATH ||
-        p === EXPORT_FILE_PATH
+        p === PROFILE_PATH || p === TSCONFIG_PATH || p === TSC_BIN_PATH || p === EXPORT_FILE_PATH
       )
     })
     mockReadFileSync.mockReturnValue(
-      "project:\n  type: monorepo\n  buildCommand: 'turbo build'\n  packages:\n    - path: apps/web\n      language: typescript\n    - path: apps/lock-service\n      language: go\n" as unknown as Buffer,
+      "project:\n  type: monorepo\n  buildCommand: 'turbo build'\n  packages:\n    - path: apps/web\n      language: typescript\n    - path: apps/lock-service\n      language: go\n" as unknown as Buffer
     )
     mockExecSync.mockReturnValue('' as unknown as Buffer)
 
@@ -449,14 +452,11 @@ describe("verifyContracts: AC (Story 37-4) non-TypeScript profile skips tsc", ()
     mockExistsSync.mockImplementation((path: unknown) => {
       const p = path as string
       return (
-        p === PROFILE_PATH ||
-        p === TSCONFIG_PATH ||
-        p === TSC_BIN_PATH ||
-        p === EXPORT_FILE_PATH
+        p === PROFILE_PATH || p === TSCONFIG_PATH || p === TSC_BIN_PATH || p === EXPORT_FILE_PATH
       )
     })
     mockReadFileSync.mockReturnValue(
-      "project:\n  type: monorepo\n  packages:\n    - path: apps/service\n      language: go\n    - path: apps/worker\n      language: rust\n" as unknown as Buffer,
+      'project:\n  type: monorepo\n  packages:\n    - path: apps/service\n      language: go\n    - path: apps/worker\n      language: rust\n' as unknown as Buffer
     )
 
     verifyContracts([makeExportDecl(), makeImportDecl()], PROJECT_ROOT)
@@ -468,11 +468,7 @@ describe("verifyContracts: AC (Story 37-4) non-TypeScript profile skips tsc", ()
     mockExistsSync.mockImplementation((path: unknown) => {
       const p = path as string
       // Profile does NOT exist, but tsconfig, tsc binary, and export file do
-      return (
-        p === TSCONFIG_PATH ||
-        p === TSC_BIN_PATH ||
-        p === EXPORT_FILE_PATH
-      )
+      return p === TSCONFIG_PATH || p === TSC_BIN_PATH || p === EXPORT_FILE_PATH
     })
     mockExecSync.mockReturnValue('' as unknown as Buffer)
 
@@ -488,9 +484,7 @@ describe("verifyContracts: AC (Story 37-4) non-TypeScript profile skips tsc", ()
     })
     mockReadFileSync.mockReturnValue(':::invalid yaml:::' as unknown as Buffer)
 
-    expect(() =>
-      verifyContracts([makeExportDecl(), makeImportDecl()], PROJECT_ROOT),
-    ).not.toThrow()
+    expect(() => verifyContracts([makeExportDecl(), makeImportDecl()], PROJECT_ROOT)).not.toThrow()
   })
 
   it('AC7: non-TypeScript profile + missing exported file still reports Exported file not found mismatch', () => {
@@ -500,7 +494,7 @@ describe("verifyContracts: AC (Story 37-4) non-TypeScript profile skips tsc", ()
       return p === PROFILE_PATH
     })
     mockReadFileSync.mockReturnValue(
-      "project:\n  type: single\n  buildCommand: 'go build ./...'\n  packages: []\n" as unknown as Buffer,
+      "project:\n  type: single\n  buildCommand: 'go build ./...'\n  packages: []\n" as unknown as Buffer
     )
 
     const result = verifyContracts([makeExportDecl(), makeImportDecl()], PROJECT_ROOT)

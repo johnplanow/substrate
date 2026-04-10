@@ -75,14 +75,20 @@ describe('resolveDefaultTestPatterns', () => {
 
     it('returns Vitest patterns when profile YAML is invalid', () => {
       mockExistsSync.mockReturnValue(true)
-      mockReadFileSync.mockReturnValue('::: invalid yaml :::' as unknown as ReturnType<typeof readFileSync>)
+      mockReadFileSync.mockReturnValue(
+        '::: invalid yaml :::' as unknown as ReturnType<typeof readFileSync>
+      )
       const result = resolveDefaultTestPatterns('/some/project')
       expect(result).toContain('vitest')
     })
 
     it('returns Vitest patterns for unrecognized testCommand (bazel test)', () => {
       mockExistsSync.mockReturnValue(true)
-      mockReadFileSync.mockReturnValue(makeProfile({ testCommand: 'bazel test //...' }) as unknown as ReturnType<typeof readFileSync>)
+      mockReadFileSync.mockReturnValue(
+        makeProfile({ testCommand: 'bazel test //...' }) as unknown as ReturnType<
+          typeof readFileSync
+        >
+      )
       const result = resolveDefaultTestPatterns('/some/project')
       expect(result).toContain('vitest')
     })
@@ -107,7 +113,9 @@ describe('resolveDefaultTestPatterns', () => {
   describe('Go stack', () => {
     it('returns Go patterns when testCommand contains "go test ./..."', () => {
       mockExistsSync.mockReturnValue(true)
-      mockReadFileSync.mockReturnValue(makeProfile({ testCommand: 'go test ./...' }) as unknown as ReturnType<typeof readFileSync>)
+      mockReadFileSync.mockReturnValue(
+        makeProfile({ testCommand: 'go test ./...' }) as unknown as ReturnType<typeof readFileSync>
+      )
       const result = resolveDefaultTestPatterns('/go/project')
       expect(result).toContain('go test')
       expect(result).not.toContain('vitest')
@@ -115,7 +123,9 @@ describe('resolveDefaultTestPatterns', () => {
 
     it('returns Go patterns via language field when testCommand absent', () => {
       mockExistsSync.mockReturnValue(true)
-      mockReadFileSync.mockReturnValue(makeProfile({ language: 'go' }) as unknown as ReturnType<typeof readFileSync>)
+      mockReadFileSync.mockReturnValue(
+        makeProfile({ language: 'go' }) as unknown as ReturnType<typeof readFileSync>
+      )
       const result = resolveDefaultTestPatterns('/go/project')
       expect(result).toContain('go test')
       expect(result).not.toContain('vitest')
@@ -129,7 +139,9 @@ describe('resolveDefaultTestPatterns', () => {
   describe('Gradle (JVM) stack', () => {
     it('returns Gradle patterns when testCommand contains "./gradlew test"', () => {
       mockExistsSync.mockReturnValue(true)
-      mockReadFileSync.mockReturnValue(makeProfile({ testCommand: './gradlew test' }) as unknown as ReturnType<typeof readFileSync>)
+      mockReadFileSync.mockReturnValue(
+        makeProfile({ testCommand: './gradlew test' }) as unknown as ReturnType<typeof readFileSync>
+      )
       const result = resolveDefaultTestPatterns('/java/project')
       expect(result).toContain('./gradlew test')
       expect(result).toContain('@Test')
@@ -138,14 +150,18 @@ describe('resolveDefaultTestPatterns', () => {
 
     it('returns Gradle patterns via language=kotlin', () => {
       mockExistsSync.mockReturnValue(true)
-      mockReadFileSync.mockReturnValue(makeProfile({ language: 'kotlin' }) as unknown as ReturnType<typeof readFileSync>)
+      mockReadFileSync.mockReturnValue(
+        makeProfile({ language: 'kotlin' }) as unknown as ReturnType<typeof readFileSync>
+      )
       const result = resolveDefaultTestPatterns('/kotlin/project')
       expect(result).toContain('./gradlew test')
     })
 
     it('returns Gradle patterns via language=java', () => {
       mockExistsSync.mockReturnValue(true)
-      mockReadFileSync.mockReturnValue(makeProfile({ language: 'java' }) as unknown as ReturnType<typeof readFileSync>)
+      mockReadFileSync.mockReturnValue(
+        makeProfile({ language: 'java' }) as unknown as ReturnType<typeof readFileSync>
+      )
       const result = resolveDefaultTestPatterns('/java/project')
       expect(result).toContain('./gradlew test')
     })
@@ -158,7 +174,9 @@ describe('resolveDefaultTestPatterns', () => {
   describe('Maven stack', () => {
     it('returns Maven patterns when testCommand contains "mvn test"', () => {
       mockExistsSync.mockReturnValue(true)
-      mockReadFileSync.mockReturnValue(makeProfile({ testCommand: 'mvn test' }) as unknown as ReturnType<typeof readFileSync>)
+      mockReadFileSync.mockReturnValue(
+        makeProfile({ testCommand: 'mvn test' }) as unknown as ReturnType<typeof readFileSync>
+      )
       const result = resolveDefaultTestPatterns('/maven/project')
       expect(result).toContain('mvn test')
       expect(result).not.toContain('vitest')
@@ -172,7 +190,9 @@ describe('resolveDefaultTestPatterns', () => {
   describe('Cargo (Rust) stack', () => {
     it('returns Cargo patterns when testCommand contains "cargo test"', () => {
       mockExistsSync.mockReturnValue(true)
-      mockReadFileSync.mockReturnValue(makeProfile({ testCommand: 'cargo test' }) as unknown as ReturnType<typeof readFileSync>)
+      mockReadFileSync.mockReturnValue(
+        makeProfile({ testCommand: 'cargo test' }) as unknown as ReturnType<typeof readFileSync>
+      )
       const result = resolveDefaultTestPatterns('/rust/project')
       expect(result).toContain('cargo test')
       expect(result).toContain('#[test]')
@@ -181,7 +201,9 @@ describe('resolveDefaultTestPatterns', () => {
 
     it('returns Cargo patterns via language=rust', () => {
       mockExistsSync.mockReturnValue(true)
-      mockReadFileSync.mockReturnValue(makeProfile({ language: 'rust' }) as unknown as ReturnType<typeof readFileSync>)
+      mockReadFileSync.mockReturnValue(
+        makeProfile({ language: 'rust' }) as unknown as ReturnType<typeof readFileSync>
+      )
       const result = resolveDefaultTestPatterns('/rust/project')
       expect(result).toContain('cargo test')
     })
@@ -194,7 +216,9 @@ describe('resolveDefaultTestPatterns', () => {
   describe('pytest (Python) stack', () => {
     it('returns pytest patterns when testCommand contains "pytest"', () => {
       mockExistsSync.mockReturnValue(true)
-      mockReadFileSync.mockReturnValue(makeProfile({ testCommand: 'pytest' }) as unknown as ReturnType<typeof readFileSync>)
+      mockReadFileSync.mockReturnValue(
+        makeProfile({ testCommand: 'pytest' }) as unknown as ReturnType<typeof readFileSync>
+      )
       const result = resolveDefaultTestPatterns('/py/project')
       expect(result).toContain('pytest')
       expect(result).not.toContain('vitest')
@@ -202,7 +226,9 @@ describe('resolveDefaultTestPatterns', () => {
 
     it('returns pytest patterns via language=python', () => {
       mockExistsSync.mockReturnValue(true)
-      mockReadFileSync.mockReturnValue(makeProfile({ language: 'python' }) as unknown as ReturnType<typeof readFileSync>)
+      mockReadFileSync.mockReturnValue(
+        makeProfile({ language: 'python' }) as unknown as ReturnType<typeof readFileSync>
+      )
       const result = resolveDefaultTestPatterns('/py/project')
       expect(result).toContain('pytest')
     })
@@ -214,9 +240,14 @@ describe('resolveDefaultTestPatterns', () => {
 
   it('reads profile from .substrate/project-profile.yaml relative to projectRoot', () => {
     mockExistsSync.mockReturnValue(true)
-    mockReadFileSync.mockReturnValue(makeProfile({ testCommand: 'go test ./...' }) as unknown as ReturnType<typeof readFileSync>)
+    mockReadFileSync.mockReturnValue(
+      makeProfile({ testCommand: 'go test ./...' }) as unknown as ReturnType<typeof readFileSync>
+    )
     resolveDefaultTestPatterns('/my/project')
     expect(mockExistsSync).toHaveBeenCalledWith('/my/project/.substrate/project-profile.yaml')
-    expect(mockReadFileSync).toHaveBeenCalledWith('/my/project/.substrate/project-profile.yaml', 'utf-8')
+    expect(mockReadFileSync).toHaveBeenCalledWith(
+      '/my/project/.substrate/project-profile.yaml',
+      'utf-8'
+    )
   })
 })

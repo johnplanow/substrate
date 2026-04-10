@@ -71,7 +71,11 @@ async function promptConfirm(question: string): Promise<boolean> {
 // npm install runner
 // ---------------------------------------------------------------------------
 
-async function runNpmInstall(version: string, global: boolean, spawnFn: SpawnFn = spawn): Promise<void> {
+async function runNpmInstall(
+  version: string,
+  global: boolean,
+  spawnFn: SpawnFn = spawn
+): Promise<void> {
   const args = global
     ? ['install', '-g', `substrate@${version}`]
     : ['install', `substrate@${version}`]
@@ -197,9 +201,7 @@ export async function runUpgradeCommand(options: UpgradeCommandOptions): Promise
 
   // Run npm install
   const global = isGlobalInstall()
-  console.log(
-    `Running: npm install ${global ? '-g ' : ''}substrate@${result.latestVersion}`
-  )
+  console.log(`Running: npm install ${global ? '-g ' : ''}substrate@${result.latestVersion}`)
 
   try {
     await runNpmInstall(result.latestVersion, global, spawnFn)

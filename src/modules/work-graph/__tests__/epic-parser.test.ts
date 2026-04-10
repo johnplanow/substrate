@@ -167,9 +167,7 @@ describe('EpicParser.parseStories', () => {
   })
 
   it('throws with "No story map section" message when section is absent', () => {
-    expect(() => parser.parseStories(FIXTURE_NO_STORY_MAP)).toThrowError(
-      /No story map section/i,
-    )
+    expect(() => parser.parseStories(FIXTURE_NO_STORY_MAP)).toThrowError(/No story map section/i)
   })
 
   it('throws when story map section is present but all lines are malformed', () => {
@@ -249,7 +247,7 @@ describe('EpicParser.parseDependencies', () => {
         expect.objectContaining({ story_key: '31-2', depends_on: '31-1' }),
         expect.objectContaining({ story_key: '31-3', depends_on: '31-2' }),
         expect.objectContaining({ story_key: '31-4', depends_on: '31-3' }),
-      ]),
+      ])
     )
 
     // Also gates: 31-5 and 31-6 depend_on 31-3
@@ -257,7 +255,7 @@ describe('EpicParser.parseDependencies', () => {
       expect.arrayContaining([
         expect.objectContaining({ story_key: '31-5', depends_on: '31-3' }),
         expect.objectContaining({ story_key: '31-6', depends_on: '31-3' }),
-      ]),
+      ])
     )
   })
 

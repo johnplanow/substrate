@@ -52,17 +52,25 @@ afterEach(async () => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function captureOutput(): { getStdout: () => string; getStderr: () => string; restore: () => void } {
+function captureOutput(): {
+  getStdout: () => string
+  getStderr: () => string
+  restore: () => void
+} {
   let stdout = ''
   let stderr = ''
-  const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((data: string | Uint8Array) => {
-    stdout += typeof data === 'string' ? data : data.toString()
-    return true
-  })
-  const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((data: string | Uint8Array) => {
-    stderr += typeof data === 'string' ? data : data.toString()
-    return true
-  })
+  const stdoutSpy = vi
+    .spyOn(process.stdout, 'write')
+    .mockImplementation((data: string | Uint8Array) => {
+      stdout += typeof data === 'string' ? data : data.toString()
+      return true
+    })
+  const stderrSpy = vi
+    .spyOn(process.stderr, 'write')
+    .mockImplementation((data: string | Uint8Array) => {
+      stderr += typeof data === 'string' ? data : data.toString()
+      return true
+    })
   return {
     getStdout: () => stdout,
     getStderr: () => stderr,
@@ -146,7 +154,11 @@ describe('runConfigExport — AC2: write to file', () => {
     const outputPath = join(testDir, 'substrate-backup.yaml')
     const { restore } = captureOutput()
     try {
-      const exitCode = await runConfigExport({ output: outputPath, projectConfigDir, globalConfigDir })
+      const exitCode = await runConfigExport({
+        output: outputPath,
+        projectConfigDir,
+        globalConfigDir,
+      })
       expect(exitCode).toBe(CONFIG_EXIT_SUCCESS)
       const content = await readFile(outputPath, 'utf-8')
       expect(content).toContain('config_format_version')
@@ -185,7 +197,11 @@ describe('runConfigExport — AC2: write to file', () => {
     const outputPath = join(testDir, 'output.yaml')
     const { restore } = captureOutput()
     try {
-      const exitCode = await runConfigExport({ output: outputPath, projectConfigDir, globalConfigDir })
+      const exitCode = await runConfigExport({
+        output: outputPath,
+        projectConfigDir,
+        globalConfigDir,
+      })
       expect(exitCode).toBe(0)
     } finally {
       restore()
@@ -244,7 +260,11 @@ describe('runConfigExport — AC3: JSON format', () => {
   it('exits with code 0', async () => {
     const { restore } = captureOutput()
     try {
-      const exitCode = await runConfigExport({ outputFormat: 'json', projectConfigDir, globalConfigDir })
+      const exitCode = await runConfigExport({
+        outputFormat: 'json',
+        projectConfigDir,
+        globalConfigDir,
+      })
       expect(exitCode).toBe(CONFIG_EXIT_SUCCESS)
     } finally {
       restore()
@@ -333,11 +353,7 @@ describe('runConfigImport — AC4: valid file, diff, apply', () => {
 
   it('accepts JSON import files', async () => {
     const importFile = join(testDir, 'import.json')
-    await writeFile(
-      importFile,
-      JSON.stringify({ global: { log_level: 'debug' } }),
-      'utf-8'
-    )
+    await writeFile(importFile, JSON.stringify({ global: { log_level: 'debug' } }), 'utf-8')
 
     const { getStdout, restore } = captureOutput()
     try {

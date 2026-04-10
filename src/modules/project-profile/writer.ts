@@ -35,7 +35,7 @@ const PROFILE_HEADER =
  */
 export async function writeProjectProfile(
   profilePath: string,
-  profile: ProjectProfile,
+  profile: ProjectProfile
 ): Promise<void> {
   const yamlContent = yaml.dump(profile)
   await writeFile(profilePath, PROFILE_HEADER + yamlContent, 'utf-8')

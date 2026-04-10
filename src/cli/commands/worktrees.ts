@@ -22,7 +22,12 @@ import { createGitWorktreeManager } from '../../modules/git-worktree/git-worktre
 import type { WorktreeInfo } from '../../modules/git-worktree/git-worktree-manager.js'
 import { createEventBus } from '../../core/event-bus.js'
 import { formatTable, buildJsonOutput } from '../utils/formatting.js'
-import type { TaskStatus, WorktreeDisplayInfo, WorktreeJsonEntry, WorktreeSortKey } from '../types/worktree-output.js'
+import type {
+  TaskStatus,
+  WorktreeDisplayInfo,
+  WorktreeJsonEntry,
+  WorktreeSortKey,
+} from '../types/worktree-output.js'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('worktrees-cmd')
@@ -39,7 +44,15 @@ export const WORKTREES_EXIT_ERROR = 1
 // ---------------------------------------------------------------------------
 
 /** Valid task statuses for filtering */
-const VALID_STATUSES: TaskStatus[] = ['pending', 'ready', 'running', 'completed', 'failed', 'paused', 'queued']
+const VALID_STATUSES: TaskStatus[] = [
+  'pending',
+  'ready',
+  'running',
+  'completed',
+  'failed',
+  'paused',
+  'queued',
+]
 
 /** Valid sort keys */
 const VALID_SORT_KEYS: WorktreeSortKey[] = ['created', 'task-id', 'status']
@@ -52,7 +65,10 @@ const VALID_SORT_KEYS: WorktreeSortKey[] = ['created', 'task-id', 'status']
  * Format a Date for display in the worktrees table.
  */
 function formatTimestamp(date: Date): string {
-  return date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')
+  return date
+    .toISOString()
+    .replace('T', ' ')
+    .replace(/\.\d{3}Z$/, ' UTC')
 }
 
 /**
@@ -64,7 +80,7 @@ function formatTimestamp(date: Date): string {
 export function buildWorktreeDisplayInfo(
   worktreeInfo: WorktreeInfo,
   taskStatus: TaskStatus = 'running',
-  completedAt?: Date,
+  completedAt?: Date
 ): WorktreeDisplayInfo {
   return {
     taskId: worktreeInfo.taskId,
@@ -82,7 +98,7 @@ export function buildWorktreeDisplayInfo(
  */
 export function sortWorktrees(
   worktrees: WorktreeDisplayInfo[],
-  sortKey: WorktreeSortKey,
+  sortKey: WorktreeSortKey
 ): WorktreeDisplayInfo[] {
   const sorted = [...worktrees]
 
@@ -112,7 +128,7 @@ export function sortWorktrees(
  */
 export function filterWorktreesByStatus(
   worktrees: WorktreeDisplayInfo[],
-  status: TaskStatus,
+  status: TaskStatus
 ): WorktreeDisplayInfo[] {
   return worktrees.filter((w) => w.taskStatus === status)
 }
@@ -251,60 +267,55 @@ export async function listWorktreesAction(options: WorktreesActionOptions): Prom
 export function registerWorktreesCommand(
   program: Command,
   version = '0.0.0',
-  projectRoot = process.cwd(),
+  projectRoot = process.cwd()
 ): void {
   program
     .command('worktrees')
     .description('List all active git worktrees and their associated tasks')
-    .option(
-      '--output-format <format>',
-      'Output format: table (default) or json',
-      'table',
-    )
+    .option('--output-format <format>', 'Output format: table (default) or json', 'table')
     .option('--json', 'Output JSON (shorthand for --output-format json)', false)
-    .option(
-      '--status <status>',
-      `Filter by task status: ${VALID_STATUSES.join(', ')}`,
-    )
-    .option(
-      '--sort <key>',
-      `Sort by: ${VALID_SORT_KEYS.join(', ')} (default: created)`,
-      'created',
-    )
-    .action(async (opts: { outputFormat: string; json: boolean; status?: string; sort: string }) => {
-      // Resolve output format: --json flag overrides --output-format
-      const outputFormat: 'table' | 'json' = opts.json ? 'json' : (opts.outputFormat === 'json' ? 'json' : 'table')
+    .option('--status <status>', `Filter by task status: ${VALID_STATUSES.join(', ')}`)
+    .option('--sort <key>', `Sort by: ${VALID_SORT_KEYS.join(', ')} (default: created)`, 'created')
+    .action(
+      async (opts: { outputFormat: string; json: boolean; status?: string; sort: string }) => {
+        // Resolve output format: --json flag overrides --output-format
+        const outputFormat: 'table' | 'json' = opts.json
+          ? 'json'
+          : opts.outputFormat === 'json'
+            ? 'json'
+            : 'table'
 
-      // Validate status filter
-      let statusFilter: TaskStatus | undefined
-      if (opts.status !== undefined) {
-        if (!VALID_STATUSES.includes(opts.status as TaskStatus)) {
+        // Validate status filter
+        let statusFilter: TaskStatus | undefined
+        if (opts.status !== undefined) {
+          if (!VALID_STATUSES.includes(opts.status as TaskStatus)) {
+            process.stderr.write(
+              `Invalid status "${opts.status}". Valid values: ${VALID_STATUSES.join(', ')}\n`
+            )
+            process.exitCode = WORKTREES_EXIT_ERROR
+            return
+          }
+          statusFilter = opts.status as TaskStatus
+        }
+
+        // Validate sort key
+        if (!VALID_SORT_KEYS.includes(opts.sort as WorktreeSortKey)) {
           process.stderr.write(
-            `Invalid status "${opts.status}". Valid values: ${VALID_STATUSES.join(', ')}\n`,
+            `Invalid sort key "${opts.sort}". Valid values: ${VALID_SORT_KEYS.join(', ')}\n`
           )
           process.exitCode = WORKTREES_EXIT_ERROR
           return
         }
-        statusFilter = opts.status as TaskStatus
+
+        const exitCode = await listWorktreesAction({
+          outputFormat,
+          status: statusFilter,
+          sort: opts.sort as WorktreeSortKey,
+          projectRoot,
+          version,
+        })
+
+        process.exitCode = exitCode
       }
-
-      // Validate sort key
-      if (!VALID_SORT_KEYS.includes(opts.sort as WorktreeSortKey)) {
-        process.stderr.write(
-          `Invalid sort key "${opts.sort}". Valid values: ${VALID_SORT_KEYS.join(', ')}\n`,
-        )
-        process.exitCode = WORKTREES_EXIT_ERROR
-        return
-      }
-
-      const exitCode = await listWorktreesAction({
-        outputFormat,
-        status: statusFilter,
-        sort: opts.sort as WorktreeSortKey,
-        projectRoot,
-        version,
-      })
-
-      process.exitCode = exitCode
-    })
+    )
 }

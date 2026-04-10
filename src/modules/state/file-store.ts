@@ -117,9 +117,16 @@ export class FileStateStore implements StateStore {
       if (storyKey !== undefined && m.storyKey !== storyKey) return false
       if (taskType !== undefined && m.taskType !== taskType) return false
       if (filter.sprint !== undefined && m.sprint !== filter.sprint) return false
-      if (filter.dateFrom !== undefined && m.recordedAt !== undefined && m.recordedAt < filter.dateFrom) return false
-      if (filter.dateTo !== undefined && m.recordedAt !== undefined && m.recordedAt > filter.dateTo) return false
-      if (filter.since !== undefined && m.recordedAt !== undefined && m.recordedAt < filter.since) return false
+      if (
+        filter.dateFrom !== undefined &&
+        m.recordedAt !== undefined &&
+        m.recordedAt < filter.dateFrom
+      )
+        return false
+      if (filter.dateTo !== undefined && m.recordedAt !== undefined && m.recordedAt > filter.dateTo)
+        return false
+      if (filter.since !== undefined && m.recordedAt !== undefined && m.recordedAt < filter.since)
+        return false
       return true
     })
   }
@@ -189,7 +196,10 @@ export class FileStateStore implements StateStore {
   }
 
   async setContracts(storyKey: string, contracts: ContractRecord[]): Promise<void> {
-    this._contracts.set(storyKey, contracts.map((c) => ({ ...c })))
+    this._contracts.set(
+      storyKey,
+      contracts.map((c) => ({ ...c }))
+    )
   }
 
   async queryContracts(filter?: ContractFilter): Promise<ContractRecord[]> {
@@ -207,8 +217,14 @@ export class FileStateStore implements StateStore {
     })
   }
 
-  async setContractVerification(storyKey: string, results: ContractVerificationRecord[]): Promise<void> {
-    this._contractVerifications.set(storyKey, results.map((r) => ({ ...r })))
+  async setContractVerification(
+    storyKey: string,
+    results: ContractVerificationRecord[]
+  ): Promise<void> {
+    this._contractVerifications.set(
+      storyKey,
+      results.map((r) => ({ ...r }))
+    )
 
     if (this._basePath !== undefined) {
       // Serialize the full map as a flat JSON object: { storyKey: records[] }

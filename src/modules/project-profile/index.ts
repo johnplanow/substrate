@@ -18,11 +18,7 @@ export {
 } from './schema.js'
 
 // Detection functions
-export {
-  detectProjectProfile,
-  detectSingleProjectStack,
-  detectMonorepoProfile,
-} from './detect.js'
+export { detectProjectProfile, detectSingleProjectStack, detectMonorepoProfile } from './detect.js'
 
 // Loader (primary entry point for runtime consumers)
 export { loadProjectProfile } from './loader.js'

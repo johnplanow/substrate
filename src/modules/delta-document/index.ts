@@ -22,14 +22,14 @@ import type { Decision } from '../../persistence/schemas/decisions.js'
 
 export interface ImpactFinding {
   confidence: 'HIGH' | 'MEDIUM' | 'LOW'
-  area: string           // e.g., 'Architecture', 'Data Model', 'API Surface'
+  area: string // e.g., 'Architecture', 'Data Model', 'API Surface'
   description: string
   relatedDecisionIds: string[]
 }
 
 export interface ExecutiveSummary {
-  text: string           // Minimum 20 words (NFR-3)
-  wordCount: number      // Computed, not user-supplied
+  text: string // Minimum 20 words (NFR-3)
+  wordCount: number // Computed, not user-supplied
 }
 
 export interface DeltaDocumentOptions {
@@ -38,15 +38,15 @@ export interface DeltaDocumentOptions {
   parentDecisions: Decision[]
   amendmentDecisions: Decision[]
   supersededDecisions: Decision[]
-  newStories?: string[]          // Story file paths or keys
-  framingConcept?: string        // Concept that motivated the amendment
-  runImpactAnalysis?: boolean    // Default: true
+  newStories?: string[] // Story file paths or keys
+  framingConcept?: string // Concept that motivated the amendment
+  runImpactAnalysis?: boolean // Default: true
 }
 
 export interface DeltaDocument {
   amendmentRunId: string
   parentRunId: string
-  generatedAt: string           // ISO 8601
+  generatedAt: string // ISO 8601
   executiveSummary: ExecutiveSummary
   newDecisions: Decision[]
   supersededDecisions: Decision[]
@@ -65,7 +65,7 @@ export interface DeltaDocument {
  */
 function computeNewDecisions(
   parentDecisions: Decision[],
-  amendmentDecisions: Decision[],
+  amendmentDecisions: Decision[]
 ): Decision[] {
   const parentIds = new Set(parentDecisions.map((d) => d.id))
   return amendmentDecisions.filter((d) => !parentIds.has(d.id))
@@ -95,26 +95,26 @@ function buildExecutiveSummary(options: DeltaDocumentOptions): ExecutiveSummary 
 function buildRecommendations(
   newDecisions: Decision[],
   supersededDecisions: Decision[],
-  impactFindings: ImpactFinding[],
+  impactFindings: ImpactFinding[]
 ): string[] {
   const recommendations: string[] = []
 
   if (supersededDecisions.length > 0) {
     recommendations.push(
-      `Review the ${supersededDecisions.length} superseded decision(s) to ensure downstream artifacts are updated.`,
+      `Review the ${supersededDecisions.length} superseded decision(s) to ensure downstream artifacts are updated.`
     )
   }
 
   if (newDecisions.length > 0) {
     recommendations.push(
-      `Validate the ${newDecisions.length} new decision(s) against existing constraints and requirements.`,
+      `Validate the ${newDecisions.length} new decision(s) against existing constraints and requirements.`
     )
   }
 
   const highConfidence = impactFindings.filter((f) => f.confidence === 'HIGH')
   if (highConfidence.length > 0) {
     recommendations.push(
-      `Address ${highConfidence.length} HIGH confidence impact finding(s) before proceeding to the next pipeline phase.`,
+      `Address ${highConfidence.length} HIGH confidence impact finding(s) before proceeding to the next pipeline phase.`
     )
   }
 
@@ -143,10 +143,12 @@ function parseImpactFindings(agentOutput: string): ImpactFinding[] {
         typeof item === 'object' &&
         item !== null &&
         'confidence' in item &&
-        ['HIGH', 'MEDIUM', 'LOW'].includes((item as Record<string, unknown>).confidence as string) &&
+        ['HIGH', 'MEDIUM', 'LOW'].includes(
+          (item as Record<string, unknown>).confidence as string
+        ) &&
         'area' in item &&
         'description' in item &&
-        'relatedDecisionIds' in item,
+        'relatedDecisionIds' in item
     )
   } catch {
     return []
@@ -171,7 +173,7 @@ function parseImpactFindings(agentOutput: string): ImpactFinding[] {
  */
 export async function generateDeltaDocument(
   options: DeltaDocumentOptions,
-  dispatch?: (prompt: string) => Promise<string>,
+  dispatch?: (prompt: string) => Promise<string>
 ): Promise<DeltaDocument> {
   const newDecisions = computeNewDecisions(options.parentDecisions, options.amendmentDecisions)
   const executiveSummary = buildExecutiveSummary(options)
@@ -179,7 +181,10 @@ export async function generateDeltaDocument(
   let impactFindings: ImpactFinding[] = []
 
   if (options.runImpactAnalysis !== false && dispatch) {
-    const prompt = buildImpactAnalysisPrompt(options.supersededDecisions, options.amendmentDecisions)
+    const prompt = buildImpactAnalysisPrompt(
+      options.supersededDecisions,
+      options.amendmentDecisions
+    )
     try {
       const agentOutput = await dispatch(prompt)
       impactFindings = parseImpactFindings(agentOutput)
@@ -192,7 +197,7 @@ export async function generateDeltaDocument(
   const recommendations = buildRecommendations(
     newDecisions,
     options.supersededDecisions,
-    impactFindings,
+    impactFindings
   )
 
   const doc: DeltaDocument = {
@@ -228,9 +233,7 @@ export function validateDeltaDocument(doc: DeltaDocument): { valid: boolean; err
       doc.executiveSummary.text.trim() === '' ||
       doc.executiveSummary.wordCount < 20
     ) {
-      errors.push(
-        'Executive summary is required and must be at least 20 words (NFR-3)',
-      )
+      errors.push('Executive summary is required and must be at least 20 words (NFR-3)')
     }
   } catch {
     errors.push('Executive summary is required and must be at least 20 words (NFR-3)')
@@ -351,7 +354,7 @@ export function formatDeltaDocument(doc: DeltaDocument): string {
  */
 export function buildImpactAnalysisPrompt(
   superseded: Decision[],
-  newDecisions: Decision[],
+  newDecisions: Decision[]
 ): string {
   const supersededSection =
     superseded.length === 0

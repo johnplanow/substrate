@@ -45,7 +45,7 @@ async function createTestDb(): Promise<{ adapter: DatabaseAdapter }> {
 
 async function createTestRun(
   adapter: DatabaseAdapter,
-  overrides: { start_phase?: string; config_json?: string; status?: string } = {},
+  overrides: { start_phase?: string; config_json?: string; status?: string } = {}
 ): Promise<{ id: string; status: string }> {
   const run = await createPipelineRun(adapter, {
     methodology: 'bmad',
@@ -405,10 +405,7 @@ describe('Integration: phase completion summary content (AC5 of Story 12-2)', ()
       startedAt: '2026-02-22T10:00:00.000Z',
       completedAt: '2026-02-22T10:01:30.000Z',
       decisionsCount: 7,
-      artifactPaths: [
-        '_bmad-output/prd.md',
-        '_bmad-output/requirements.md',
-      ],
+      artifactPaths: ['_bmad-output/prd.md', '_bmad-output/requirements.md'],
       runId: run.id,
     })
 
@@ -632,7 +629,13 @@ describe('Integration: gate statelessness with concurrent DB runs (AC7)', () => 
 
 describe('Integration: VALID_PHASES type consistency (AC4 of Story 12-1)', () => {
   it('VALID_PHASES exported from stop-after module matches the five canonical phases', () => {
-    expect(VALID_PHASES).toEqual(['research', 'analysis', 'planning', 'solutioning', 'implementation'])
+    expect(VALID_PHASES).toEqual([
+      'research',
+      'analysis',
+      'planning',
+      'solutioning',
+      'implementation',
+    ])
   })
 
   it('auto.ts VALID_PHASES (re-imported from stop-after module) is used for gate construction', () => {

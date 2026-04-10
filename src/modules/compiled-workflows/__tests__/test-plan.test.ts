@@ -99,7 +99,8 @@ function makeSuccessDispatchResult(): DispatchResult {
     id: 'dispatch-1',
     status: 'completed',
     exitCode: 0,
-    output: 'result: success\ntest_files:\n  - src/foo/__tests__/foo.test.ts\ntest_categories:\n  - unit\ncoverage_notes: "AC1 covered"\n',
+    output:
+      'result: success\ntest_files:\n  - src/foo/__tests__/foo.test.ts\ntest_categories:\n  - unit\ncoverage_notes: "AC1 covered"\n',
     parsed: {
       result: 'success',
       test_files: ['src/foo/__tests__/foo.test.ts'],
@@ -128,7 +129,9 @@ function makeDispatcher(result: DispatchResult | Promise<DispatchResult>): Dispa
   }
 }
 
-function makePack(template: string = 'Test Plan\n\n{{story_content}}\n\nEmit YAML.'): MethodologyPack {
+function makePack(
+  template: string = 'Test Plan\n\n{{story_content}}\n\nEmit YAML.'
+): MethodologyPack {
   return {
     manifest: {
       name: 'bmad',
@@ -227,7 +230,7 @@ describe('AC1: runTestPlan dispatches sub-agent and returns typed result', () =>
         agent: 'claude-code',
         taskType: 'test-plan',
         outputSchema: TestPlanResultSchema,
-      }),
+      })
     )
   })
 
@@ -238,7 +241,7 @@ describe('AC1: runTestPlan dispatches sub-agent and returns typed result', () =>
     await runTestPlan(deps, defaultParams)
 
     expect(dispatcher.dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ outputSchema: TestPlanResultSchema }),
+      expect.objectContaining({ outputSchema: TestPlanResultSchema })
     )
   })
 
@@ -278,7 +281,7 @@ describe('AC2: Test plan stored in decision store', () => {
         phase: 'implementation',
         category: TEST_PLAN,
         key: DEFAULT_STORY_KEY,
-      }),
+      })
     )
   })
 
@@ -302,7 +305,7 @@ describe('AC2: Test plan stored in decision store', () => {
 
     expect(mockCreateDecision).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ pipeline_run_id: 'run-abc' }),
+      expect.objectContaining({ pipeline_run_id: 'run-abc' })
     )
   })
 
@@ -364,7 +367,7 @@ describe('AC6: Failure scenarios', () => {
 
   it('returns failure with story_file_not_found when ENOENT', async () => {
     mockReadFile.mockRejectedValue(
-      Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' }),
+      Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
     )
 
     const result = await runTestPlan(makeDeps(), defaultParams)
@@ -396,7 +399,7 @@ describe('AC6: Failure scenarios', () => {
     }
     const result = await runTestPlan(
       makeDeps({ dispatcher: makeDispatcher(failedResult) }),
-      defaultParams,
+      defaultParams
     )
 
     expect(result.result).toBe('failed')
@@ -416,7 +419,7 @@ describe('AC6: Failure scenarios', () => {
     }
     const result = await runTestPlan(
       makeDeps({ dispatcher: makeDispatcher(timeoutResult) }),
-      defaultParams,
+      defaultParams
     )
 
     expect(result.result).toBe('failed')
@@ -436,7 +439,7 @@ describe('AC6: Failure scenarios', () => {
     }
     const result = await runTestPlan(
       makeDeps({ dispatcher: makeDispatcher(nullParsedResult) }),
-      defaultParams,
+      defaultParams
     )
 
     expect(result.result).toBe('failed')
@@ -456,9 +459,7 @@ describe('AC6: Failure scenarios', () => {
   })
 
   it('returns failure with { test_files: [], test_categories: [], coverage_notes: "" } shape', async () => {
-    mockReadFile.mockRejectedValue(
-      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
-    )
+    mockReadFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
 
     const result = await runTestPlan(makeDeps(), defaultParams)
 
@@ -536,7 +537,7 @@ describe('AC7: TestPlanResultSchema validates output shape', () => {
         test_files: [],
         test_categories: [],
         coverage_notes: '',
-      }),
+      })
     ).toThrow()
   })
 
@@ -564,7 +565,7 @@ describe('projectRoot injection', () => {
     await runTestPlan(deps, defaultParams)
 
     expect(dispatcher.dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ workingDirectory: '/my/project' }),
+      expect.objectContaining({ workingDirectory: '/my/project' })
     )
   })
 

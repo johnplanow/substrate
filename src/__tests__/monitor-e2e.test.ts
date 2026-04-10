@@ -81,7 +81,7 @@ describe('Monitor Agent E2E Integration', () => {
     if (!syncAdapter) throw new Error('No sync adapter available')
     const [row] = syncAdapter.querySync<{ task_id: string; outcome: string; input_tokens: number }>(
       'SELECT * FROM task_metrics WHERE task_id = ?',
-      ['task-e2e-1'],
+      ['task-e2e-1']
     )
     expect(row).toBeDefined()
     expect(row!.task_id).toBe('task-e2e-1')
@@ -101,10 +101,11 @@ describe('Monitor Agent E2E Integration', () => {
 
     const syncAdapter = (monitorDb as unknown as { _syncAdapter: SyncAdapter | null })._syncAdapter
     if (!syncAdapter) throw new Error('No sync adapter available')
-    const [row] = syncAdapter.querySync<{ task_id: string; outcome: string; failure_reason: string }>(
-      'SELECT * FROM task_metrics WHERE task_id = ?',
-      ['task-e2e-fail'],
-    )
+    const [row] = syncAdapter.querySync<{
+      task_id: string
+      outcome: string
+      failure_reason: string
+    }>('SELECT * FROM task_metrics WHERE task_id = ?', ['task-e2e-fail'])
     expect(row).toBeDefined()
     expect(row!.task_id).toBe('task-e2e-fail')
     expect(row!.outcome).toBe('failure')
@@ -176,11 +177,14 @@ describe('Monitor Agent E2E Integration', () => {
     if (!syncAdapter) throw new Error('No sync adapter available')
     const oldDate = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString()
 
-    syncAdapter.querySync(`
+    syncAdapter.querySync(
+      `
       INSERT INTO task_metrics (task_id, agent, task_type, outcome, input_tokens, output_tokens,
         duration_ms, cost, estimated_cost, billing_mode, recorded_at)
       VALUES ('old-task', 'claude', 'coding', 'success', 100, 200, 500, 0.05, 0.04, 'api', ?)
-    `, [oldDate])
+    `,
+      [oldDate]
+    )
 
     const deleted = monitorDb.pruneOldData(90)
     expect(deleted).toBe(1)
@@ -200,7 +204,7 @@ describe('Monitor Agent E2E Integration', () => {
     const syncAdapter = (monitorDb as unknown as { _syncAdapter: SyncAdapter | null })._syncAdapter
     if (!syncAdapter) throw new Error('No sync adapter available')
     const tables = syncAdapter.querySync<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
     )
     const tableNames = tables.map((t) => t.name)
 

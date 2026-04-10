@@ -86,7 +86,8 @@ function makeSuccessDispatchResult(overrides: Partial<DispatchResult> = {}): Dis
     id: 'dispatch-1',
     status: 'completed',
     exitCode: 0,
-    output: 'result: success\nstory_file: /path/to/story.md\nstory_key: 10-2-dev-story\nstory_title: Story Title\n',
+    output:
+      'result: success\nstory_file: /path/to/story.md\nstory_key: 10-2-dev-story\nstory_title: Story Title\n',
     parsed: {
       result: 'success',
       story_file: '/path/to/story.md',
@@ -122,7 +123,9 @@ function makeDispatcher(result: DispatchResult | Promise<DispatchResult>): Dispa
 /**
  * Build a mock MethodologyPack
  */
-function makePack(template: string = 'Epic: {{epic_shard}}\nPrev: {{prev_dev_notes}}\nArch: {{arch_constraints}}\nTemplate: {{story_template}}'): MethodologyPack {
+function makePack(
+  template: string = 'Epic: {{epic_shard}}\nPrev: {{prev_dev_notes}}\nArch: {{arch_constraints}}\nTemplate: {{story_template}}'
+): MethodologyPack {
   return {
     manifest: {
       name: 'bmad',
@@ -136,7 +139,11 @@ function makePack(template: string = 'Epic: {{epic_shard}}\nPrev: {{prev_dev_not
     getPhases: vi.fn().mockReturnValue([]),
     getPrompt: vi.fn().mockResolvedValue(template),
     getConstraints: vi.fn().mockResolvedValue([]),
-    getTemplate: vi.fn().mockResolvedValue('# Story Template\n\n## Story\n\n## Acceptance Criteria\n\n## Tasks / Subtasks\n\n## Dev Notes\n\n## Dev Agent Record'),
+    getTemplate: vi
+      .fn()
+      .mockResolvedValue(
+        '# Story Template\n\n## Story\n\n## Acceptance Criteria\n\n## Tasks / Subtasks\n\n## Dev Notes\n\n## Dev Agent Record'
+      ),
   }
 }
 
@@ -158,7 +165,11 @@ function makeDb(): DatabaseAdapter {
   return {
     query: vi.fn().mockResolvedValue([]),
     exec: vi.fn().mockResolvedValue(undefined),
-    transaction: vi.fn().mockImplementation((fn: (adapter: DatabaseAdapter) => Promise<unknown>) => fn({} as DatabaseAdapter)),
+    transaction: vi
+      .fn()
+      .mockImplementation((fn: (adapter: DatabaseAdapter) => Promise<unknown>) =>
+        fn({} as DatabaseAdapter)
+      ),
     close: vi.fn().mockResolvedValue(undefined),
   } as unknown as DatabaseAdapter
 }
@@ -192,7 +203,14 @@ beforeEach(() => {
   // Default: epic shard found, no prev notes, no arch constraints
   mockGetDecisionsByPhase.mockImplementation((_, phase: string) => {
     if (phase === 'implementation') {
-      return [makeDecision('implementation', 'epic-shard', 'epic-10', 'Epic 10: Compiled Workflows\n\nDescription: Token-efficient workflows.')]
+      return [
+        makeDecision(
+          'implementation',
+          'epic-shard',
+          'epic-10',
+          'Epic 10: Compiled Workflows\n\nDescription: Token-efficient workflows.'
+        ),
+      ]
     }
     if (phase === 'solutioning') {
       return [makeDecision('solutioning', 'architecture', 'ADR-001', 'Modular monolith')]
@@ -229,7 +247,8 @@ describe('AC1: Pack Prompt Retrieval', () => {
 
   it('template contains expected BMAD placeholders', async () => {
     const capturedPrompts: string[] = []
-    const template = 'Epic: {{epic_shard}}\nPrev: {{prev_dev_notes}}\nArch: {{arch_constraints}}\nTemplate: {{story_template}}'
+    const template =
+      'Epic: {{epic_shard}}\nPrev: {{prev_dev_notes}}\nArch: {{arch_constraints}}\nTemplate: {{story_template}}'
     const pack = makePack(template)
 
     const dispatcher: Dispatcher = {
@@ -739,21 +758,27 @@ describe('AC8: Essential Logic Preservation', () => {
   })
 
   it('template contains placeholder for prev_dev_notes', async () => {
-    const pack = makePack('{{epic_shard}}\n{{prev_dev_notes}}\n{{arch_constraints}}\n{{story_template}}')
+    const pack = makePack(
+      '{{epic_shard}}\n{{prev_dev_notes}}\n{{arch_constraints}}\n{{story_template}}'
+    )
     const templateContent = await pack.getPrompt('create-story')
 
     expect(templateContent).toContain('{{prev_dev_notes}}')
   })
 
   it('template contains placeholder for arch_constraints', async () => {
-    const pack = makePack('{{epic_shard}}\n{{prev_dev_notes}}\n{{arch_constraints}}\n{{story_template}}')
+    const pack = makePack(
+      '{{epic_shard}}\n{{prev_dev_notes}}\n{{arch_constraints}}\n{{story_template}}'
+    )
     const templateContent = await pack.getPrompt('create-story')
 
     expect(templateContent).toContain('{{arch_constraints}}')
   })
 
   it('template contains placeholder for story_template', async () => {
-    const pack = makePack('{{epic_shard}}\n{{prev_dev_notes}}\n{{arch_constraints}}\n{{story_template}}')
+    const pack = makePack(
+      '{{epic_shard}}\n{{prev_dev_notes}}\n{{arch_constraints}}\n{{story_template}}'
+    )
     const templateContent = await pack.getPrompt('create-story')
 
     expect(templateContent).toContain('{{story_template}}')
@@ -803,7 +828,12 @@ describe('Decision store fallback behavior', () => {
       if (phase === 'implementation') {
         return [
           makeDecision('implementation', 'epic-shard', 'epic-9', 'WRONG EPIC CONTENT'),
-          makeDecision('implementation', 'epic-shard', 'epic-10', 'CORRECT EPIC CONTENT for epic-10'),
+          makeDecision(
+            'implementation',
+            'epic-shard',
+            'epic-10',
+            'CORRECT EPIC CONTENT for epic-10'
+          ),
         ]
       }
       return []
@@ -885,10 +915,11 @@ Implement mode selection landing screen, variant configuration, and setup execut
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    await runCreateStory(
-      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
-      { ...defaultParams, epicId: '7', storyKey: '7-1' },
-    )
+    await runCreateStory(makeDeps({ dispatcher, projectRoot: '/fake/project' }), {
+      ...defaultParams,
+      epicId: '7',
+      storyKey: '7-1',
+    })
 
     expect(capturedPrompts[0]).toContain('Mode Selection & Game Setup')
   })
@@ -897,7 +928,8 @@ Implement mode selection landing screen, variant configuration, and setup execut
     // Empty decisions table
     mockGetDecisionsByPhase.mockResolvedValue([])
 
-    const archContent = '# Architecture\n\nModular monolith with XState state machines.\n\n## Key Decisions\n\nADR-001: Use Zustand for state management.'
+    const archContent =
+      '# Architecture\n\nModular monolith with XState state machines.\n\n## Key Decisions\n\nADR-001: Use Zustand for state management.'
 
     mockExistsSync.mockImplementation((p: unknown) => {
       if (String(p).includes('architecture.md')) return true
@@ -925,10 +957,7 @@ Implement mode selection landing screen, variant configuration, and setup execut
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    await runCreateStory(
-      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
-      defaultParams,
-    )
+    await runCreateStory(makeDeps({ dispatcher, projectRoot: '/fake/project' }), defaultParams)
 
     expect(capturedPrompts[0]).toContain('Modular monolith')
   })
@@ -937,10 +966,7 @@ Implement mode selection landing screen, variant configuration, and setup execut
     mockGetDecisionsByPhase.mockResolvedValue([])
     mockExistsSync.mockReturnValue(false)
 
-    const result = await runCreateStory(
-      makeDeps({ projectRoot: '/fake/project' }),
-      defaultParams,
-    )
+    const result = await runCreateStory(makeDeps({ projectRoot: '/fake/project' }), defaultParams)
 
     // Should still succeed (dispatch runs, just with empty context sections)
     expect(result.result).toBe('success')
@@ -952,9 +978,9 @@ Implement mode selection landing screen, variant configuration, and setup execut
     await runCreateStory(makeDeps(), defaultParams)
 
     // existsSync should NOT have been called with epics.md or architecture.md paths
-    const fsCalls = mockExistsSync.mock.calls.map(c => String(c[0]))
-    expect(fsCalls.filter(p => p.includes('epics.md'))).toHaveLength(0)
-    expect(fsCalls.filter(p => p.includes('architecture.md'))).toHaveLength(0)
+    const fsCalls = mockExistsSync.mock.calls.map((c) => String(c[0]))
+    expect(fsCalls.filter((p) => p.includes('epics.md'))).toHaveLength(0)
+    expect(fsCalls.filter((p) => p.includes('architecture.md'))).toHaveLength(0)
   })
 
   it('falls back to epics.md with h3 headings (readEpicShardFromFile h3 coverage)', async () => {
@@ -998,10 +1024,11 @@ Other epic content.
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    await runCreateStory(
-      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
-      { ...defaultParams, epicId: '7', storyKey: '7-1' },
-    )
+    await runCreateStory(makeDeps({ dispatcher, projectRoot: '/fake/project' }), {
+      ...defaultParams,
+      epicId: '7',
+      storyKey: '7-1',
+    })
 
     expect(capturedPrompts[0]).toContain('Mode Selection & Game Setup')
   })
@@ -1047,10 +1074,11 @@ Other epic content.
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    await runCreateStory(
-      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
-      { ...defaultParams, epicId: '7', storyKey: '7-1' },
-    )
+    await runCreateStory(makeDeps({ dispatcher, projectRoot: '/fake/project' }), {
+      ...defaultParams,
+      epicId: '7',
+      storyKey: '7-1',
+    })
 
     expect(capturedPrompts[0]).toContain('Mode Selection & Game Setup')
   })
@@ -1217,10 +1245,7 @@ describe('AC4 (37-0): Direct per-storyKey epic shard lookup', () => {
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    await runCreateStory(
-      makeDeps({ dispatcher }),
-      { epicId: '37', storyKey: '37-1' }
-    )
+    await runCreateStory(makeDeps({ dispatcher }), { epicId: '37', storyKey: '37-1' })
 
     // Per-story shard content must appear directly in the prompt
     expect(capturedPrompts[0]).toContain(perStoryContent)
@@ -1258,10 +1283,7 @@ describe('AC4 (37-0): Direct per-storyKey epic shard lookup', () => {
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    await runCreateStory(
-      makeDeps({ dispatcher }),
-      { epicId: '37', storyKey: '37-1' }
-    )
+    await runCreateStory(makeDeps({ dispatcher }), { epicId: '37', storyKey: '37-1' })
 
     expect(capturedPrompts[0]).toContain(perStoryContent)
     expect(capturedPrompts[0]).not.toContain(perEpicContent)
@@ -1308,10 +1330,7 @@ Other story content.
       shutdown: vi.fn().mockResolvedValue(undefined),
     }
 
-    await runCreateStory(
-      makeDeps({ dispatcher }),
-      { epicId: '23', storyKey: '23-1' }
-    )
+    await runCreateStory(makeDeps({ dispatcher }), { epicId: '23', storyKey: '23-1' })
 
     // Should inject the story-specific section (extracted from per-epic shard)
     expect(capturedPrompts[0]).toContain('Target Story')

@@ -42,7 +42,7 @@ export interface PhaseDetectionResult {
 export async function detectStartPhase(
   db: DatabaseAdapter,
   projectRoot: string,
-  epicNumber?: number,
+  epicNumber?: number
 ): Promise<PhaseDetectionResult> {
   // Fast path: if stories are discoverable, go straight to implementation
   try {
@@ -66,7 +66,7 @@ export async function detectStartPhase(
     for (const entry of PHASE_ARTIFACTS) {
       const rows = await db.query<{ id: string }>(
         'SELECT id FROM artifacts WHERE phase = ? AND type = ? LIMIT 1',
-        [entry.phase, entry.type],
+        [entry.phase, entry.type]
       )
       const row = rows[0]
 
@@ -75,9 +75,10 @@ export async function detectStartPhase(
       } else if (!entry.optional) {
         // Required phase not completed — this is where we need to start
         const needsConcept = entry.phase === 'analysis'
-        const reason = lastCompletedPhase !== undefined
-          ? `${lastCompletedPhase} phase complete — continuing with ${entry.phase}`
-          : 'No pipeline state found — starting from the beginning'
+        const reason =
+          lastCompletedPhase !== undefined
+            ? `${lastCompletedPhase} phase complete — continuing with ${entry.phase}`
+            : 'No pipeline state found — starting from the beginning'
         return { phase: entry.phase, needsConcept, reason }
       }
       // Optional phase not found — skip and continue scanning

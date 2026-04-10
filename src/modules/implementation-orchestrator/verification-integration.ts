@@ -42,7 +42,7 @@ export interface AssembleVerificationContextOpts {
  * BuildCheck's hard limit.
  */
 export function assembleVerificationContext(
-  opts: AssembleVerificationContextOpts,
+  opts: AssembleVerificationContextOpts
 ): VerificationContext {
   let commitSha: string
   try {
@@ -121,7 +121,7 @@ export class VerificationStore {
 export function persistVerificationResult(
   storyKey: string,
   summary: VerificationSummary,
-  runManifest: RunManifest | null | undefined,
+  runManifest: RunManifest | null | undefined
 ): void {
   if (runManifest == null) {
     return
@@ -129,6 +129,9 @@ export function persistVerificationResult(
   runManifest
     .patchStoryState(storyKey, { verification_result: summary })
     .catch((err: unknown) =>
-      _logger.warn({ err, storyKey }, 'manifest verification_result write failed — pipeline continues'),
+      _logger.warn(
+        { err, storyKey },
+        'manifest verification_result write failed — pipeline continues'
+      )
     )
 }

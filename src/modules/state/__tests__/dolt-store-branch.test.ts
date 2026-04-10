@@ -72,7 +72,7 @@ describe('AC1: branchForStory', () => {
     const calls = vi.mocked(client.query).mock.calls
     const branchCall = calls.find(([sql]) => String(sql).includes('DOLT_BRANCH'))
     expect(branchCall).toBeDefined()
-    expect(String(branchCall![0])).toContain("story/26-7")
+    expect(String(branchCall![0])).toContain('story/26-7')
     // Should target 'main' branch (3rd arg)
     expect(branchCall![2]).toBe('main')
   })
@@ -148,8 +148,12 @@ describe('AC2: Write routing', () => {
     await store.setStoryState('26-8', makeStory({ storyKey: '26-8' }))
 
     const calls = vi.mocked(client.query).mock.calls
-    const story7Calls = calls.filter(([sql, , branch]) => String(sql).includes('REPLACE INTO') && branch === 'story/26-7')
-    const story8Calls = calls.filter(([sql, , branch]) => String(sql).includes('REPLACE INTO') && branch === 'story/26-8')
+    const story7Calls = calls.filter(
+      ([sql, , branch]) => String(sql).includes('REPLACE INTO') && branch === 'story/26-7'
+    )
+    const story8Calls = calls.filter(
+      ([sql, , branch]) => String(sql).includes('REPLACE INTO') && branch === 'story/26-8'
+    )
     expect(story7Calls).toHaveLength(1)
     expect(story8Calls).toHaveLength(1)
   })
@@ -205,7 +209,9 @@ describe('AC3: mergeStory', () => {
     await store.branchForStory('26-7')
     vi.mocked(client.query).mockClear()
     // Return no conflicts
-    vi.mocked(client.query).mockResolvedValue([{ hash: 'abc', fast_forward: 1, conflicts: 0, message: '' }])
+    vi.mocked(client.query).mockResolvedValue([
+      { hash: 'abc', fast_forward: 1, conflicts: 0, message: '' },
+    ])
     await store.mergeStory('26-7')
     const calls = vi.mocked(client.query).mock.calls
     const mergeCall = calls.find(([sql]) => String(sql).includes('DOLT_MERGE'))
@@ -219,7 +225,9 @@ describe('AC3: mergeStory', () => {
     const store = makeStore(client)
     await store.branchForStory('26-7')
     vi.mocked(client.query).mockClear()
-    vi.mocked(client.query).mockResolvedValue([{ hash: 'abc', fast_forward: 1, conflicts: 0, message: '' }])
+    vi.mocked(client.query).mockResolvedValue([
+      { hash: 'abc', fast_forward: 1, conflicts: 0, message: '' },
+    ])
     await store.mergeStory('26-7')
     const calls = vi.mocked(client.query).mock.calls
     // Find the post-merge DOLT_COMMIT (contains "Merge story"), not the pre-merge ones
@@ -233,7 +241,9 @@ describe('AC3: mergeStory', () => {
     const store = makeStore(client)
     await store.branchForStory('26-7')
     vi.mocked(client.query).mockClear()
-    vi.mocked(client.query).mockResolvedValue([{ hash: 'abc', fast_forward: 1, conflicts: 0, message: '' }])
+    vi.mocked(client.query).mockResolvedValue([
+      { hash: 'abc', fast_forward: 1, conflicts: 0, message: '' },
+    ])
     await store.mergeStory('26-7')
     // After merge, subsequent writes should target 'main' again
     vi.mocked(client.query).mockClear()
@@ -257,7 +267,9 @@ describe('AC4: rollbackStory', () => {
     const store = makeStore(client)
     await expect(store.rollbackStory('26-7')).resolves.toBeUndefined()
     const calls = vi.mocked(client.query).mock.calls
-    expect(calls.find(([sql]) => String(sql).includes('DOLT_BRANCH') && String(sql).includes('-D'))).toBeUndefined()
+    expect(
+      calls.find(([sql]) => String(sql).includes('DOLT_BRANCH') && String(sql).includes('-D'))
+    ).toBeUndefined()
   })
 
   it('calls DOLT_BRANCH -D on main after branchForStory', async () => {
@@ -268,7 +280,9 @@ describe('AC4: rollbackStory', () => {
     vi.mocked(client.query).mockResolvedValue([])
     await store.rollbackStory('26-7')
     const calls = vi.mocked(client.query).mock.calls
-    const dropCall = calls.find(([sql]) => String(sql).includes('DOLT_BRANCH') && String(sql).includes('-D'))
+    const dropCall = calls.find(
+      ([sql]) => String(sql).includes('DOLT_BRANCH') && String(sql).includes('-D')
+    )
     expect(dropCall).toBeDefined()
     expect(String(dropCall![0])).toContain('story/26-7')
     expect(dropCall![2]).toBe('main')
@@ -324,13 +338,17 @@ describe('AC5: Merge conflict detection', () => {
     vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_ADD on main
     vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_COMMIT on main
     // DOLT_MERGE returns conflicts=1
-    vi.mocked(client.query).mockResolvedValueOnce([{ hash: null, fast_forward: 0, conflicts: 1, message: 'conflicts' }])
+    vi.mocked(client.query).mockResolvedValueOnce([
+      { hash: null, fast_forward: 0, conflicts: 1, message: 'conflicts' },
+    ])
     // dolt_conflicts_stories returns conflict detail
-    vi.mocked(client.query).mockResolvedValueOnce([{
-      base_story_key: '26-7',
-      our_status: 'COMPLETE',
-      their_status: 'ESCALATED',
-    }])
+    vi.mocked(client.query).mockResolvedValueOnce([
+      {
+        base_story_key: '26-7',
+        our_status: 'COMPLETE',
+        their_status: 'ESCALATED',
+      },
+    ])
     await expect(store.mergeStory('26-7')).rejects.toBeInstanceOf(DoltMergeConflictError)
   })
 
@@ -344,8 +362,12 @@ describe('AC5: Merge conflict detection', () => {
     vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_COMMIT on story branch
     vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_ADD on main
     vi.mocked(client.query).mockResolvedValueOnce([]) // DOLT_COMMIT on main
-    vi.mocked(client.query).mockResolvedValueOnce([{ conflicts: 1, hash: null, fast_forward: 0, message: '' }])
-    vi.mocked(client.query).mockResolvedValueOnce([{ base_story_key: '26-7', our_status: 'A', their_status: 'B' }])
+    vi.mocked(client.query).mockResolvedValueOnce([
+      { conflicts: 1, hash: null, fast_forward: 0, message: '' },
+    ])
+    vi.mocked(client.query).mockResolvedValueOnce([
+      { base_story_key: '26-7', our_status: 'A', their_status: 'B' },
+    ])
     try {
       await store.mergeStory('26-7')
       expect.fail('Should have thrown')
@@ -373,7 +395,7 @@ describe('AC6: diffStory row-level diff', () => {
     // dolt_log query is issued for the merged-story fallback
     expect(client.query).toHaveBeenCalledWith(
       expect.stringContaining('dolt_log'),
-      expect.arrayContaining(['%26-7%']),
+      expect.arrayContaining(['%26-7%'])
     )
   })
 
@@ -383,15 +405,31 @@ describe('AC6: diffStory row-level diff', () => {
     // Set up query mock: DOLT_BRANCH returns [], DOLT_DIFF returns rows for specific tables
     vi.mocked(client.query).mockImplementation(async (sql: string) => {
       if (sql.includes('DOLT_BRANCH')) return []
-      if (sql.includes("DOLT_DIFF") && sql.includes("'stories'")) {
+      if (sql.includes('DOLT_DIFF') && sql.includes("'stories'")) {
         return [
-          { diff_type: 'added', after_story_key: '26-7', after_phase: 'COMPLETE', before_story_key: null },
-          { diff_type: 'modified', after_story_key: '26-7', after_phase: 'IN_REVIEW', before_story_key: '26-7', before_phase: 'IN_DEV' },
+          {
+            diff_type: 'added',
+            after_story_key: '26-7',
+            after_phase: 'COMPLETE',
+            before_story_key: null,
+          },
+          {
+            diff_type: 'modified',
+            after_story_key: '26-7',
+            after_phase: 'IN_REVIEW',
+            before_story_key: '26-7',
+            before_phase: 'IN_DEV',
+          },
         ]
       }
-      if (sql.includes("DOLT_DIFF") && sql.includes("'contracts'")) {
+      if (sql.includes('DOLT_DIFF') && sql.includes("'contracts'")) {
         return [
-          { diff_type: 'removed', before_story_key: '26-7', before_contract_name: 'old-contract', after_story_key: null },
+          {
+            diff_type: 'removed',
+            before_story_key: '26-7',
+            before_contract_name: 'old-contract',
+            after_story_key: null,
+          },
         ]
       }
       return []
@@ -448,7 +486,9 @@ describe('Story key validation', () => {
 
   it('branchForStory rejects story key with SQL injection payload', async () => {
     const store = makeStore(makeMockClient())
-    await expect(store.branchForStory("'; DROP TABLE stories;--")).rejects.toThrow('Invalid story key')
+    await expect(store.branchForStory("'; DROP TABLE stories;--")).rejects.toThrow(
+      'Invalid story key'
+    )
   })
 
   it('mergeStory rejects story key with spaces', async () => {

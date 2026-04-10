@@ -41,7 +41,11 @@ export interface ConceptFile {
   problemStatement: string
   decisionsMade: string[]
   keyConstraints: string[]
-  amendmentTypeHint: 'pure_new_scope' | 'change_existing_scope' | 'architecture_correction' | 'mixed'
+  amendmentTypeHint:
+    | 'pure_new_scope'
+    | 'change_existing_scope'
+    | 'architecture_correction'
+    | 'mixed'
   rawSummary: string
   generatedAt: string
   sessionId: string
@@ -98,7 +102,7 @@ export interface BrainstormOptions {
  * @throws if projectRoot is empty or not provided
  */
 export async function detectBrainstormContext(
-  projectRoot: string,
+  projectRoot: string
 ): Promise<{ isAmendment: boolean; briefPath?: string; prdPath?: string }> {
   if (!projectRoot) {
     throw new Error('projectRoot is required')
@@ -142,7 +146,7 @@ export async function detectBrainstormContext(
  * @returns Object with loaded document content (undefined if file missing)
  */
 export async function loadAmendmentContextDocuments(
-  projectRoot: string,
+  projectRoot: string
 ): Promise<{ brief?: string; prd?: string }> {
   const briefPath = join(projectRoot, 'product-brief.md')
   const prdPath = join(projectRoot, 'requirements.md')
@@ -176,20 +180,38 @@ export async function loadAmendmentContextDocuments(
  *
  * Uses keyword analysis on user input and persona responses.
  */
-function inferAmendmentTypeHint(
-  session: BrainstormSession,
-): ConceptFile['amendmentTypeHint'] {
+function inferAmendmentTypeHint(session: BrainstormSession): ConceptFile['amendmentTypeHint'] {
   const allText = session.turns
-    .flatMap((t) => [
-      t.userInput,
-      ...t.personas.map((p) => p.response),
-    ])
+    .flatMap((t) => [t.userInput, ...t.personas.map((p) => p.response)])
     .join(' ')
     .toLowerCase()
 
-  const architectureKeywords = ['breaking change', 'refactor', 'redesign', 'migration', 'architecture', 'rewrite']
-  const changeExistingKeywords = ['modify', 'update', 'change', 'improve', 'enhance', 'fix', 'tweak', 'adjust']
-  const newScopeKeywords = ['new feature', 'new capability', 'add', 'create', 'build', 'implement new']
+  const architectureKeywords = [
+    'breaking change',
+    'refactor',
+    'redesign',
+    'migration',
+    'architecture',
+    'rewrite',
+  ]
+  const changeExistingKeywords = [
+    'modify',
+    'update',
+    'change',
+    'improve',
+    'enhance',
+    'fix',
+    'tweak',
+    'adjust',
+  ]
+  const newScopeKeywords = [
+    'new feature',
+    'new capability',
+    'add',
+    'create',
+    'build',
+    'implement new',
+  ]
 
   let archScore = 0
   let changeScore = 0
@@ -284,9 +306,7 @@ export function generateConceptFile(session: BrainstormSession): ConceptFile {
   // Raw summary: concatenate all turns chronologically
   const rawSummary = session.turns
     .map((turn) => {
-      const personaTexts = turn.personas
-        .map((p) => `**${p.name}:** ${p.response}`)
-        .join('\n\n')
+      const personaTexts = turn.personas.map((p) => `**${p.name}:** ${p.response}`).join('\n\n')
       return `**User:** ${turn.userInput}\n\n${personaTexts}`
     })
     .join('\n\n---\n\n')
@@ -372,7 +392,7 @@ export function formatConceptFileAsMarkdown(concept: ConceptFile): string {
 export async function saveSessionToDisk(
   session: BrainstormSession,
   projectRoot: string,
-  outputPath?: string,
+  outputPath?: string
 ): Promise<string> {
   const concept = generateConceptFile(session)
   const markdown = formatConceptFileAsMarkdown(concept)
@@ -381,7 +401,8 @@ export async function saveSessionToDisk(
   if (outputPath) {
     filePath = outputPath
   } else {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', 'T').slice(0, 19) + 'Z'
+    const timestamp =
+      new Date().toISOString().replace(/[:.]/g, '-').replace('T', 'T').slice(0, 19) + 'Z'
     const filename = `brainstorm-session-${timestamp}.md`
     filePath = join(projectRoot, filename)
   }
@@ -415,7 +436,7 @@ function buildPersonaPrompt(
   personaName: string,
   personaInstructions: string,
   userPrompt: string,
-  context: BrainstormContext,
+  context: BrainstormContext
 ): string {
   const contextSection = [
     context.brief ? `**Product Brief:**\n${context.brief}` : '',
@@ -449,7 +470,7 @@ function buildPersonaPrompt(
 export async function dispatchToPersonas(
   userPrompt: string,
   context: BrainstormContext,
-  llmDispatch?: (prompt: string, personaName: string) => Promise<string>,
+  llmDispatch?: (prompt: string, personaName: string) => Promise<string>
 ): Promise<PersonaResponse[]> {
   const personas = [
     {
@@ -491,7 +512,7 @@ export async function dispatchToPersonas(
           response: `[Error: ${msg}. Please retry.]`,
         }
       }
-    }),
+    })
   )
 
   return results
@@ -504,9 +525,7 @@ export async function dispatchToPersonas(
 const SEPARATOR = '─'.repeat(60)
 
 function formatPersonaResponses(personas: PersonaResponse[]): string {
-  return personas
-    .map((p) => `\n**${p.name}:**\n${p.response}`)
-    .join(`\n\n${SEPARATOR}`)
+  return personas.map((p) => `\n**${p.name}:**\n${p.response}`).join(`\n\n${SEPARATOR}`)
 }
 
 const HELP_TEXT = `
@@ -533,7 +552,7 @@ Any other input will be dispatched to 3 AI personas for responses.
 export async function runBrainstormSession(
   options: BrainstormOptions,
   llmDispatch?: (prompt: string, personaName: string) => Promise<string>,
-  rlInterface?: ReturnType<typeof createInterface>,
+  rlInterface?: ReturnType<typeof createInterface>
 ): Promise<number> {
   const { projectRoot, outputPath } = options
 
@@ -582,7 +601,9 @@ export async function runBrainstormSession(
   process.stdout.write('  Substrate Brainstorm Session\n')
   process.stdout.write(`${SEPARATOR}\n`)
   if (isAmendment) {
-    process.stdout.write('\nHere is what has already been decided. What new idea are we exploring?\n')
+    process.stdout.write(
+      '\nHere is what has already been decided. What new idea are we exploring?\n'
+    )
     if (briefContent) {
       process.stdout.write('  [Product brief loaded]\n')
     }
@@ -592,7 +613,9 @@ export async function runBrainstormSession(
   } else {
     process.stdout.write('\nStarting new brainstorm session. What product idea are we exploring?\n')
   }
-  process.stdout.write('\nType !help for commands, !wrap to generate concept file, !quit to exit.\n\n')
+  process.stdout.write(
+    '\nType !help for commands, !wrap to generate concept file, !quit to exit.\n\n'
+  )
 
   // Step 4: Set up readline interface
   const rl =
@@ -697,7 +720,9 @@ export async function runBrainstormSession(
     rl.on('close', async () => {
       if (!sessionEnded) {
         // stdin closed without explicit !wrap or !quit
-        process.stdout.write('\nSession ended. Type !wrap to generate concept file, or !quit to exit.\n')
+        process.stdout.write(
+          '\nSession ended. Type !wrap to generate concept file, or !quit to exit.\n'
+        )
         await endSession(false)
       }
     })
@@ -735,37 +760,35 @@ export async function runBrainstormSession(
 export function registerBrainstormCommand(
   program: Command,
   _version = '0.0.0',
-  projectRoot = process.cwd(),
+  projectRoot = process.cwd()
 ): void {
   program
     .command('brainstorm')
     .description(
       'Interactive multi-persona brainstorm session\n\n' +
         'Start an AI-facilitated ideation session with Pragmatic Engineer,\n' +
-        'Product Thinker, and Devil\'s Advocate personas.\n\n' +
-        'Session commands: !wrap (save & exit), !quit (exit without saving), !help',
+        "Product Thinker, and Devil's Advocate personas.\n\n" +
+        'Session commands: !wrap (save & exit), !quit (exit without saving), !help'
     )
     .option(
       '--existing',
       'Auto-detect and pre-load existing product brief (product-brief.md) and PRD (requirements.md)',
-      false,
+      false
     )
     .option('--project-root <path>', 'Override project root directory', projectRoot)
     .option('--output-path <path>', 'Override output file path for concept file')
-    .action(
-      async (opts: { existing: boolean; projectRoot: string; outputPath?: string }) => {
-        try {
-          const exitCode = await runBrainstormSession({
-            existing: opts.existing,
-            projectRoot: opts.projectRoot,
-            outputPath: opts.outputPath,
-          })
-          process.exitCode = exitCode
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          process.stderr.write(`Error: ${msg}\n`)
-          process.exitCode = 1
-        }
-      },
-    )
+    .action(async (opts: { existing: boolean; projectRoot: string; outputPath?: string }) => {
+      try {
+        const exitCode = await runBrainstormSession({
+          existing: opts.existing,
+          projectRoot: opts.projectRoot,
+          outputPath: opts.outputPath,
+        })
+        process.exitCode = exitCode
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`Error: ${msg}\n`)
+        process.exitCode = 1
+      }
+    })
 }

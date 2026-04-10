@@ -119,9 +119,7 @@ describe('CodeReviewResultSchema', () => {
     const result = CodeReviewResultSchema.safeParse({
       verdict: 'NEEDS_MAJOR_REWORK',
       issues: 0, // agent forgot to count
-      issue_list: [
-        { severity: 'blocker', description: 'Critical bug', file: 'src/c.ts', line: 1 },
-      ],
+      issue_list: [{ severity: 'blocker', description: 'Critical bug', file: 'src/c.ts', line: 1 }],
     })
     expect(result.success).toBe(true)
     if (result.success) {
@@ -133,9 +131,7 @@ describe('CodeReviewResultSchema', () => {
     const result = CodeReviewResultSchema.safeParse({
       verdict: 'NEEDS_MINOR_FIXES',
       issues: 1,
-      issue_list: [
-        { severity: 'major', description: 'Bug', file: 'src/foo.ts', line: '99' },
-      ],
+      issue_list: [{ severity: 'major', description: 'Bug', file: 'src/foo.ts', line: '99' }],
     })
     expect(result.success).toBe(true)
     if (result.success) {
@@ -234,9 +230,7 @@ describe('CodeReviewResultSchema', () => {
     const result = CodeReviewResultSchema.safeParse({
       verdict: 'NEEDS_MINOR_FIXES',
       issues: 1,
-      issue_list: [
-        { severity: 'minor', description: 'Missing comment', file: 'src/a.ts' },
-      ],
+      issue_list: [{ severity: 'minor', description: 'Missing comment', file: 'src/a.ts' }],
     })
     expect(result.success).toBe(true)
     if (result.success) {
@@ -281,7 +275,9 @@ describe('CodeReviewResultSchema', () => {
       expect(result.data.verdict).toBe('LGTM_WITH_NOTES')
       expect(result.data.agentVerdict).toBe('LGTM_WITH_NOTES')
       expect(result.data.issues).toBe(0)
-      expect(result.data.notes).toBe('Consider extracting helper to a shared module — no action required.')
+      expect(result.data.notes).toBe(
+        'Consider extracting helper to a shared module — no action required.'
+      )
     }
   })
 
@@ -302,9 +298,7 @@ describe('CodeReviewResultSchema', () => {
     const result = CodeReviewResultSchema.safeParse({
       verdict: 'LGTM_WITH_NOTES',
       issues: 1,
-      issue_list: [
-        { severity: 'minor', description: 'Missing JSDoc', file: 'src/a.ts' },
-      ],
+      issue_list: [{ severity: 'minor', description: 'Missing JSDoc', file: 'src/a.ts' }],
     })
     expect(result.success).toBe(true)
     if (result.success) {
@@ -317,9 +311,7 @@ describe('CodeReviewResultSchema', () => {
     const result = CodeReviewResultSchema.safeParse({
       verdict: 'LGTM_WITH_NOTES',
       issues: 1,
-      issue_list: [
-        { severity: 'blocker', description: 'Security hole', file: 'src/auth.ts' },
-      ],
+      issue_list: [{ severity: 'blocker', description: 'Security hole', file: 'src/auth.ts' }],
     })
     expect(result.success).toBe(true)
     if (result.success) {

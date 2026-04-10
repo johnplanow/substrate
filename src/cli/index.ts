@@ -165,19 +165,22 @@ export async function createProgram(): Promise<Command> {
 function checkForUpdatesInBackground(currentVersion: string): void {
   if (process.env.SUBSTRATE_NO_UPDATE_CHECK === '1') return
   // Dynamic import to avoid loading version-manager for every CLI invocation
-  import('./commands/upgrade.js').then(async () => {
-    const { createVersionManager } = await import('../modules/version-manager/version-manager-impl.js')
-    const vm = createVersionManager()
-    const result = await vm.checkForUpdates()
-    if (result.updateAvailable) {
-      const pfx = process.env['npm_command'] === 'exec' ? 'npx ' : ''
-      process.stderr.write(
-        `\nUpdate available: ${result.currentVersion} → ${result.latestVersion}. Run \`${pfx}substrate upgrade\` to update.\n`
-      )
-    }
-  }).catch(() => {
-    // Silently ignore — never block CLI for update checks
-  })
+  import('./commands/upgrade.js')
+    .then(async () => {
+      const { createVersionManager } =
+        await import('../modules/version-manager/version-manager-impl.js')
+      const vm = createVersionManager()
+      const result = await vm.checkForUpdates()
+      if (result.updateAvailable) {
+        const pfx = process.env['npm_command'] === 'exec' ? 'npx ' : ''
+        process.stderr.write(
+          `\nUpdate available: ${result.currentVersion} → ${result.latestVersion}. Run \`${pfx}substrate upgrade\` to update.\n`
+        )
+      }
+    })
+    .catch(() => {
+      // Silently ignore — never block CLI for update checks
+    })
 }
 
 /** Main entry point */

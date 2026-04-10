@@ -132,7 +132,9 @@ export const PlanningClassificationOutputSchema = z.object({
   key_goals: z.array(z.string().min(1)).min(1).optional(),
 })
 
-export type PlanningClassificationOutputSchemaType = z.infer<typeof PlanningClassificationOutputSchema>
+export type PlanningClassificationOutputSchemaType = z.infer<
+  typeof PlanningClassificationOutputSchema
+>
 
 /**
  * Step 2 output: Functional requirements & user stories.
@@ -241,13 +243,16 @@ export type ArchContextOutputSchemaType = z.infer<typeof ArchContextOutputSchema
  */
 export const EpicDesignOutputSchema = z.object({
   result: z.enum(['success', 'failed']),
-  epics: z.array(
-    z.object({
-      title: z.string().min(3),
-      description: z.string().min(5),
-      fr_coverage: z.array(z.string()).default([]),
-    }),
-  ).min(1).optional(),
+  epics: z
+    .array(
+      z.object({
+        title: z.string().min(3),
+        description: z.string().min(5),
+        fr_coverage: z.array(z.string()).default([]),
+      })
+    )
+    .min(1)
+    .optional(),
 })
 
 export type EpicDesignOutputSchemaType = z.infer<typeof EpicDesignOutputSchema>

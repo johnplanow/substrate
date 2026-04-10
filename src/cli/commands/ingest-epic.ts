@@ -79,7 +79,7 @@ export function registerIngestEpicCommand(program: Command): void {
 
         const epicNum = stories[0]!.epic_num
         process.stdout.write(
-          `Ingested ${result.storiesUpserted} stories and ${result.dependenciesReplaced} dependencies from epic ${epicNum}\n`,
+          `Ingested ${result.storiesUpserted} stories and ${result.dependenciesReplaced} dependencies from epic ${epicNum}\n`
         )
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)

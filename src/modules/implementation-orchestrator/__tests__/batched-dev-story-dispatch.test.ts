@@ -59,10 +59,12 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
-  inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
+  inspectProcessTree: vi
+    .fn()
+    .mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
 }))
 vi.mock('../../agent-dispatch/dispatcher-impl.js', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
@@ -84,7 +86,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
         checks: [],
         status: 'pass',
         duration_ms: 0,
-      }),
+      })
     ),
     register: vi.fn(),
   })),
@@ -212,7 +214,9 @@ function createMockDispatcher(): Dispatcher {
     dispatch: vi.fn().mockReturnValue(mockHandle),
     getPending: vi.fn().mockReturnValue(0),
     getRunning: vi.fn().mockReturnValue(0),
-    getMemoryState: vi.fn().mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
+    getMemoryState: vi
+      .fn()
+      .mockReturnValue({ isPressured: false, freeMB: 1024, thresholdMB: 256, pressureLevel: 0 }),
     shutdown: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -317,7 +321,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -344,7 +353,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])
@@ -362,7 +376,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -380,7 +399,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['5-1'])
@@ -403,7 +427,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['13-3'])
@@ -422,7 +451,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['13-3'])
@@ -448,7 +482,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-3'])
@@ -471,7 +510,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-3'])
@@ -501,7 +545,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-3'])
@@ -525,7 +574,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-3'])
@@ -548,7 +602,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-3'])
@@ -557,14 +616,11 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       // Verify both batches' files are covered across the per-batch review calls.
       expect(mockRunCodeReview).toHaveBeenCalledTimes(2)
       const allReviewedFiles = mockRunCodeReview.mock.calls.flatMap(
-        (call) => (call[1] as { filesModified?: string[] }).filesModified ?? [],
+        (call) => (call[1] as { filesModified?: string[] }).filesModified ?? []
       )
-      expect(allReviewedFiles).toEqual(expect.arrayContaining([
-        'src/types.ts',
-        'src/impl.ts',
-        'src/tests.ts',
-        'src/index.ts',
-      ]))
+      expect(allReviewedFiles).toEqual(
+        expect.arrayContaining(['src/types.ts', 'src/impl.ts', 'src/tests.ts', 'src/index.ts'])
+      )
     })
 
     it('deduplicates files appearing in multiple batches', async () => {
@@ -577,7 +633,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-3'])
@@ -604,7 +665,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['13-3'])
@@ -625,7 +691,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       await orchestrator.run(['13-3'])
@@ -635,7 +706,7 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
         expect.anything(),
         expect.objectContaining({
           filesModified: expect.arrayContaining(['src/batch2-file.ts']),
-        }),
+        })
       )
     })
 
@@ -649,7 +720,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['13-3'])
@@ -673,7 +749,12 @@ describe('Batched Dev-Story Dispatch (Story 13-3)', () => {
       mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
       const orchestrator = createImplementationOrchestrator({
-        db, pack, contextCompiler, dispatcher, eventBus, config,
+        db,
+        pack,
+        contextCompiler,
+        dispatcher,
+        eventBus,
+        config,
       })
 
       const status = await orchestrator.run(['5-1'])

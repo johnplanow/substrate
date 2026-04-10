@@ -15,11 +15,7 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeLevel(
-  level: number,
-  name: string,
-  result: LevelResult
-): ValidationLevel {
+function makeLevel(level: number, name: string, result: LevelResult): ValidationLevel {
   return {
     level,
     name,

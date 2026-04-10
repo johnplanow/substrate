@@ -9,8 +9,8 @@
  */
 
 export interface ModeSelectionProps {
-  onSelectPlayVsAi: () => void;
-  onSelectAdvisor: () => void;
+  onSelectPlayVsAi: () => void
+  onSelectAdvisor: () => void
 }
 
 /**
@@ -21,7 +21,7 @@ export interface ModeSelectionProps {
  * @returns Mock JSX element (would be real React.Element in production)
  */
 export function ModeSelection(props: ModeSelectionProps): any {
-  const { onSelectPlayVsAi, onSelectAdvisor } = props;
+  const { onSelectPlayVsAi, onSelectAdvisor } = props
 
   // Mock React component structure
   return {
@@ -44,7 +44,8 @@ export function ModeSelection(props: ModeSelectionProps): any {
               {
                 type: 'button',
                 props: {
-                  className: 'btn btn-primary bg-elevated hover:bg-surface text-lg py-4 px-8 rounded-lg',
+                  className:
+                    'btn btn-primary bg-elevated hover:bg-surface text-lg py-4 px-8 rounded-lg',
                   onClick: onSelectPlayVsAi,
                   'data-testid': 'play-vs-ai-button',
                   children: 'Play vs AI',
@@ -53,7 +54,8 @@ export function ModeSelection(props: ModeSelectionProps): any {
               {
                 type: 'button',
                 props: {
-                  className: 'btn btn-secondary bg-elevated hover:bg-surface text-lg py-4 px-8 rounded-lg',
+                  className:
+                    'btn btn-secondary bg-elevated hover:bg-surface text-lg py-4 px-8 rounded-lg',
                   onClick: onSelectAdvisor,
                   'data-testid': 'advisor-mode-button',
                   children: 'Advisor Mode',
@@ -64,5 +66,5 @@ export function ModeSelection(props: ModeSelectionProps): any {
         },
       ],
     },
-  };
+  }
 }

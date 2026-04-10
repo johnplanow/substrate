@@ -132,7 +132,7 @@ describe('checkDoltInstalled', () => {
   it('DoltNotInstalled message contains the install URL', async () => {
     setSpawnExit(0, 'ENOENT')
     await expect(checkDoltInstalled()).rejects.toThrow(
-      'https://docs.dolthub.com/introduction/installation',
+      'https://docs.dolthub.com/introduction/installation'
     )
   })
 })
@@ -183,10 +183,9 @@ describe('initializeDolt — first run', () => {
 
   it('calls mkdir with { recursive: true } on statePath', async () => {
     await initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
-    expect(mkdirMock).toHaveBeenCalledWith(
-      expect.stringContaining('.substrate'),
-      { recursive: true },
-    )
+    expect(mkdirMock).toHaveBeenCalledWith(expect.stringContaining('.substrate'), {
+      recursive: true,
+    })
   })
 
   it('commands run in correct order: init → sql → log → add → commit', async () => {
@@ -259,23 +258,25 @@ describe('initializeDolt — error propagation', () => {
 
   it('propagates DoltNotInstalled when spawn emits ENOENT on version check', async () => {
     setSpawnExit(0, 'ENOENT')
-    await expect(initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })).rejects.toBeInstanceOf(
-      DoltNotInstalled,
-    )
+    await expect(
+      initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
+    ).rejects.toBeInstanceOf(DoltNotInstalled)
   })
 
   it('propagates DoltInitError when dolt init exits non-zero', async () => {
     // checkDoltInstalled resolves even on exit 1 (binary found but unhealthy).
     // runDoltCommand('init') with exit 1 throws DoltInitError.
     setSpawnExit(1)
-    await expect(initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })).rejects.toBeInstanceOf(
-      DoltInitError,
-    )
+    await expect(
+      initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
+    ).rejects.toBeInstanceOf(DoltInitError)
   })
 
   it('DoltInitError message contains the failing command', async () => {
     setSpawnExit(1)
-    await expect(initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })).rejects.toThrow('dolt')
+    await expect(
+      initializeDolt({ projectRoot: '/fake/project', schemaPath: '/fake/project/schema.sql' })
+    ).rejects.toThrow('dolt')
   })
 })
 
@@ -283,9 +284,7 @@ describe('initializeDolt — error propagation', () => {
 // schema.sql content validation
 // ---------------------------------------------------------------------------
 
-const SCHEMA_PATH = fileURLToPath(
-  new URL('../../state/schema.sql', import.meta.url),
-)
+const SCHEMA_PATH = fileURLToPath(new URL('../../state/schema.sql', import.meta.url))
 
 describe('schema.sql content validation', () => {
   let schemaContent: string
@@ -310,18 +309,13 @@ describe('schema.sql content validation', () => {
 
   for (const table of EXPECTED_TABLES) {
     it(`defines table "${table}" with CREATE TABLE IF NOT EXISTS`, () => {
-      expect(schemaContent).toMatch(
-        new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`, 'i'),
-      )
+      expect(schemaContent).toMatch(new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`, 'i'))
     })
 
     it(`table "${table}" has a PRIMARY KEY clause`, () => {
       // Find the CREATE TABLE block for this table and check it contains PRIMARY KEY
       const tableBlockMatch = schemaContent.match(
-        new RegExp(
-          `CREATE TABLE IF NOT EXISTS ${table}[\\s\\S]*?\\);`,
-          'i',
-        ),
+        new RegExp(`CREATE TABLE IF NOT EXISTS ${table}[\\s\\S]*?\\);`, 'i')
       )
       expect(tableBlockMatch).not.toBeNull()
       expect(tableBlockMatch![0]).toMatch(/PRIMARY KEY/i)
@@ -330,8 +324,10 @@ describe('schema.sql content validation', () => {
 
   it('does not use AUTO_INCREMENT outside repo_map_symbols', () => {
     // repo_map_symbols uses BIGINT AUTO_INCREMENT per story 28-2 spec
-    const withoutRepoMapSymbols = schemaContent
-      .replace(/CREATE TABLE IF NOT EXISTS repo_map_symbols[\s\S]*?\);/i, '')
+    const withoutRepoMapSymbols = schemaContent.replace(
+      /CREATE TABLE IF NOT EXISTS repo_map_symbols[\s\S]*?\);/i,
+      ''
+    )
     expect(withoutRepoMapSymbols).not.toMatch(/AUTO_INCREMENT/i)
   })
 

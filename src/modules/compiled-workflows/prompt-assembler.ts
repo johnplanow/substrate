@@ -62,7 +62,7 @@ export interface AssembleResult {
 export function assemblePrompt(
   template: string,
   sections: PromptSection[],
-  tokenCeiling: number = 2200,
+  tokenCeiling: number = 2200
 ): AssembleResult {
   // Build content map from sections
   const contentMap: Record<string, string> = {}
@@ -81,7 +81,7 @@ export function assemblePrompt(
   // Over budget — truncate sections by reverse priority (optional first)
   logger.warn(
     { tokenCount, ceiling: tokenCeiling },
-    'Prompt exceeds token ceiling — truncating optional sections',
+    'Prompt exceeds token ceiling — truncating optional sections'
   )
 
   const priorityOrder: SectionPriority[] = ['optional', 'important']
@@ -111,7 +111,7 @@ export function assemblePrompt(
         contentMap[section.name] = truncateToTokens(section.content, targetSectionTokens)
         logger.warn(
           { sectionName: section.name, targetSectionTokens },
-          'Section truncated to fit token budget',
+          'Section truncated to fit token budget'
         )
       }
 
@@ -129,7 +129,7 @@ export function assemblePrompt(
   if (tokenCount > tokenCeiling) {
     logger.warn(
       { tokenCount, ceiling: tokenCeiling },
-      'Required sections alone exceed token ceiling — returning over-budget prompt',
+      'Required sections alone exceed token ceiling — returning over-budget prompt'
     )
   }
 

@@ -37,17 +37,21 @@ async function openDb() {
   return adapter
 }
 
-function insertPipelineRun(adapter: InMemoryDatabaseAdapter, id: string, status = 'completed'): void {
+function insertPipelineRun(
+  adapter: InMemoryDatabaseAdapter,
+  id: string,
+  status = 'completed'
+): void {
   adapter.querySync(
     `INSERT INTO pipeline_runs (id, methodology, status, parent_run_id, created_at, updated_at)
      VALUES (?, 'bmad', ?, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-    [id, status],
+    [id, status]
   )
 }
 
 async function seedRunMetrics(
   adapter: InMemoryDatabaseAdapter,
-  overrides: Partial<RunMetricsInput> & { run_id: string },
+  overrides: Partial<RunMetricsInput> & { run_id: string }
 ): Promise<void> {
   const { run_id, ...rest } = overrides
   await writeRunMetrics(adapter, {
@@ -242,12 +246,12 @@ describe('aggregateTokenUsageForRun (T9)', () => {
     adapter.querySync(
       `INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      ['run-tok-1', 'dev-story', 'claude', 100, 50, 0.005],
+      ['run-tok-1', 'dev-story', 'claude', 100, 50, 0.005]
     )
     adapter.querySync(
       `INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      ['run-tok-1', 'code-review', 'claude', 200, 100, 0.010],
+      ['run-tok-1', 'code-review', 'claude', 200, 100, 0.01]
     )
 
     const agg = await aggregateTokenUsageForRun(adapter, 'run-tok-1')
@@ -262,7 +266,7 @@ describe('aggregateTokenUsageForRun (T9)', () => {
     adapter.querySync(
       `INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      ['run-tok-2a', 'dev-story', 'claude', 999, 888, 0.099],
+      ['run-tok-2a', 'dev-story', 'claude', 999, 888, 0.099]
     )
 
     const agg = await aggregateTokenUsageForRun(adapter, 'run-tok-2b')
@@ -566,12 +570,12 @@ describe('aggregateTokenUsageForStory', () => {
     input: number,
     output: number,
     cost: number,
-    metadata: string | null,
+    metadata: string | null
   ): void {
     adapter.querySync(
       `INSERT INTO token_usage (pipeline_run_id, phase, agent, input_tokens, output_tokens, cost_usd, metadata)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [runId, phase, 'claude', input, output, cost, metadata],
+      [runId, phase, 'claude', input, output, cost, metadata]
     )
   }
 
@@ -586,8 +590,13 @@ describe('aggregateTokenUsageForStory', () => {
   it('returns zeros when no rows match the given storyKey', async () => {
     insertPipelineRun(adapter, 'run-story-nomatch')
     insertTokenUsageWithMetadata(
-      adapter, 'run-story-nomatch', 'dev-story', 100, 50, 0.005,
-      JSON.stringify({ storyKey: '17-2' }),
+      adapter,
+      'run-story-nomatch',
+      'dev-story',
+      100,
+      50,
+      0.005,
+      JSON.stringify({ storyKey: '17-2' })
     )
     const agg = await aggregateTokenUsageForStory(adapter, 'run-story-nomatch', '17-1')
     expect(agg.input).toBe(0)
@@ -597,9 +606,7 @@ describe('aggregateTokenUsageForStory', () => {
 
   it('returns zeros when metadata is NULL', async () => {
     insertPipelineRun(adapter, 'run-story-null-meta')
-    insertTokenUsageWithMetadata(
-      adapter, 'run-story-null-meta', 'dev-story', 100, 50, 0.005, null,
-    )
+    insertTokenUsageWithMetadata(adapter, 'run-story-null-meta', 'dev-story', 100, 50, 0.005, null)
     const agg = await aggregateTokenUsageForStory(adapter, 'run-story-null-meta', '17-1')
     expect(agg.input).toBe(0)
     expect(agg.output).toBe(0)
@@ -610,17 +617,32 @@ describe('aggregateTokenUsageForStory', () => {
     insertPipelineRun(adapter, 'run-story-match')
     // Matching rows for story 17-1
     insertTokenUsageWithMetadata(
-      adapter, 'run-story-match', 'dev-story', 100, 50, 0.005,
-      JSON.stringify({ storyKey: '17-1' }),
+      adapter,
+      'run-story-match',
+      'dev-story',
+      100,
+      50,
+      0.005,
+      JSON.stringify({ storyKey: '17-1' })
     )
     insertTokenUsageWithMetadata(
-      adapter, 'run-story-match', 'code-review', 200, 80, 0.010,
-      JSON.stringify({ storyKey: '17-1' }),
+      adapter,
+      'run-story-match',
+      'code-review',
+      200,
+      80,
+      0.01,
+      JSON.stringify({ storyKey: '17-1' })
     )
     // Non-matching row for story 17-2
     insertTokenUsageWithMetadata(
-      adapter, 'run-story-match', 'dev-story', 999, 999, 0.999,
-      JSON.stringify({ storyKey: '17-2' }),
+      adapter,
+      'run-story-match',
+      'dev-story',
+      999,
+      999,
+      0.999,
+      JSON.stringify({ storyKey: '17-2' })
     )
     const agg = await aggregateTokenUsageForStory(adapter, 'run-story-match', '17-1')
     expect(agg.input).toBe(300)
@@ -632,8 +654,13 @@ describe('aggregateTokenUsageForStory', () => {
     insertPipelineRun(adapter, 'run-story-other-run-a')
     insertPipelineRun(adapter, 'run-story-other-run-b')
     insertTokenUsageWithMetadata(
-      adapter, 'run-story-other-run-a', 'dev-story', 500, 200, 0.02,
-      JSON.stringify({ storyKey: '17-1' }),
+      adapter,
+      'run-story-other-run-a',
+      'dev-story',
+      500,
+      200,
+      0.02,
+      JSON.stringify({ storyKey: '17-1' })
     )
     const agg = await aggregateTokenUsageForStory(adapter, 'run-story-other-run-b', '17-1')
     expect(agg.input).toBe(0)

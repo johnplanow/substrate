@@ -40,7 +40,9 @@ export async function runCancelAction(options: {
 
   if (pid === null && zombies.length === 0) {
     if (outputFormat === 'json') {
-      process.stdout.write(formatOutput({ cancelled: false, reason: 'no_running_pipeline' }, 'json', true) + '\n')
+      process.stdout.write(
+        formatOutput({ cancelled: false, reason: 'no_running_pipeline' }, 'json', true) + '\n'
+      )
     } else {
       process.stdout.write('No running pipeline found.\n')
     }
@@ -52,7 +54,9 @@ export async function runCancelAction(options: {
         if (outputFormat === 'human') {
           process.stdout.write('Cleaned up stale PID file.\n')
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
 
     return 0
@@ -68,7 +72,9 @@ export async function runCancelAction(options: {
         try {
           process.kill(childPid, 'SIGTERM')
           killed.push(childPid)
-        } catch { /* already dead */ }
+        } catch {
+          /* already dead */
+        }
       }
 
       // Kill orchestrator
@@ -96,14 +102,18 @@ export async function runCancelAction(options: {
     try {
       process.kill(zombiePid, 'SIGKILL')
       killed.push(zombiePid)
-    } catch { /* already dead */ }
+    } catch {
+      /* already dead */
+    }
   }
 
   // Step 3: Clean up PID file
   if (existsSync(pidFilePath)) {
     try {
       unlinkSync(pidFilePath)
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   // Step 4: Mark pipeline run as cancelled in the database
@@ -115,7 +125,9 @@ export async function runCancelAction(options: {
       for (const run of runningRuns) {
         await updatePipelineRun(adapter, run.id, { status: 'stopped' })
         // Source demotion: mirror to manifest (authoritative)
-        RunManifest.open(run.id, join(dbRoot, 'runs')).update({ run_status: 'stopped' }).catch(() => {})
+        RunManifest.open(run.id, join(dbRoot, 'runs'))
+          .update({ run_status: 'stopped' })
+          .catch(() => {})
         if (outputFormat === 'human') {
           process.stdout.write(`Marked pipeline run ${run.id} as stopped.\n`)
         }
@@ -128,11 +140,17 @@ export async function runCancelAction(options: {
   }
 
   if (outputFormat === 'json') {
-    process.stdout.write(formatOutput({
-      cancelled: true,
-      killed_pids: killed,
-      zombies_killed: zombies.length,
-    }, 'json', true) + '\n')
+    process.stdout.write(
+      formatOutput(
+        {
+          cancelled: true,
+          killed_pids: killed,
+          zombies_killed: zombies.length,
+        },
+        'json',
+        true
+      ) + '\n'
+    )
   } else if (killed.length === 0 && zombies.length > 0) {
     process.stdout.write(`Killed ${zombies.length} zombie process(es).\n`)
   }
@@ -146,29 +164,20 @@ export async function runCancelAction(options: {
 // Command registration
 // ---------------------------------------------------------------------------
 
-export function registerCancelCommand(
-  program: Command,
-  projectRoot = process.cwd(),
-): void {
+export function registerCancelCommand(program: Command, projectRoot = process.cwd()): void {
   program
     .command('cancel')
     .description('Cancel the running pipeline — kills orchestrator, cleans up state')
     .option('--force', 'Use SIGKILL instead of SIGTERM')
     .option('--project-root <path>', 'Project root directory', projectRoot)
     .option('--output-format <format>', 'Output format: human (default) or json', 'human')
-    .action(
-      async (opts: {
-        force?: boolean
-        projectRoot: string
-        outputFormat: string
-      }) => {
-        const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
-        const exitCode = await runCancelAction({
-          outputFormat,
-          projectRoot: opts.projectRoot,
-          force: opts.force,
-        })
-        process.exitCode = exitCode
-      },
-    )
+    .action(async (opts: { force?: boolean; projectRoot: string; outputFormat: string }) => {
+      const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
+      const exitCode = await runCancelAction({
+        outputFormat,
+        projectRoot: opts.projectRoot,
+        force: opts.force,
+      })
+      process.exitCode = exitCode
+    })
 }

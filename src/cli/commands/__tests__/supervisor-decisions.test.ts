@@ -13,15 +13,15 @@ import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { createDecision, getDecisionsByCategory, createPipelineRun } from '../../../persistence/queries/decisions.js'
+import {
+  createDecision,
+  getDecisionsByCategory,
+  createPipelineRun,
+} from '../../../persistence/queries/decisions.js'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { OPERATIONAL_FINDING } from '../../../persistence/schemas/operational.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import {
-  handleStallRecovery,
-  buildTerminalSummary,
-  runSupervisorAction,
-} from '../supervisor.js'
+import { handleStallRecovery, buildTerminalSummary, runSupervisorAction } from '../supervisor.js'
 import type { PipelineHealthOutput } from '../health.js'
 
 // Mock the DB adapter factory so defaultSupervisorDeps uses the test adapter
@@ -29,7 +29,9 @@ vi.mock('../../../persistence/adapter.js', () => {
   let mockAdapter: DatabaseAdapter | null = null
   return {
     createDatabaseAdapter: () => mockAdapter!,
-    __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
+    __setMockAdapter: (a: DatabaseAdapter) => {
+      mockAdapter = a
+    },
   }
 })
 
@@ -48,7 +50,9 @@ vi.mock('../../../utils/git-root.js', () => ({
 
 async function openTestDb(): Promise<InMemoryDatabaseAdapter> {
   const adapter = new InMemoryDatabaseAdapter()
-  const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
+  const { initSchema: realInitSchema } = await vi.importActual<
+    typeof import('../../../persistence/schema.js')
+  >('../../../persistence/schema.js')
   await realInitSchema(adapter)
   return adapter
 }
@@ -99,7 +103,7 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
     const now = Date.now()
     // Filter to active stories (not PENDING, COMPLETE, or ESCALATED)
     const activeStories = Object.entries(storyDetails).filter(
-      ([, s]) => s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED',
+      ([, s]) => s.phase !== 'PENDING' && s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED'
     )
 
     for (const [storyKey, storyState] of activeStories) {
@@ -179,18 +183,20 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
       {
         emitEvent: vi.fn(),
         log: vi.fn(),
-      },
+      }
     )
 
     expect(result).not.toBeNull()
     expect(result!.maxRestartsExceeded).toBe(true)
-    expect(writeStallFindings).toHaveBeenCalledWith(expect.objectContaining({
-      runId: 'run-test',
-      outcome: 'max-restarts-escalated',
-      staleness_secs: 700,
-      attempt: 3,
-      projectRoot: '/tmp/test',
-    }))
+    expect(writeStallFindings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run-test',
+        outcome: 'max-restarts-escalated',
+        staleness_secs: 700,
+        attempt: 3,
+        projectRoot: '/tmp/test',
+      })
+    )
   })
 
   it('handleStallRecovery invokes writeStallFindings with recovered on successful restart', async () => {
@@ -215,15 +221,17 @@ describe('AC1: Supervisor writes stall findings to decision store', () => {
       {
         emitEvent: vi.fn(),
         log: vi.fn(),
-      },
+      }
     )
 
     expect(result).not.toBeNull()
     expect(result!.maxRestartsExceeded).toBe(false)
-    expect(writeStallFindings).toHaveBeenCalledWith(expect.objectContaining({
-      outcome: 'recovered',
-      attempt: 1,
-    }))
+    expect(writeStallFindings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'recovered',
+        attempt: 1,
+      })
+    )
   })
 })
 
@@ -351,7 +359,9 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
     writeFileSync(dbPath, '')
 
     smokeAdapter = new InMemoryDatabaseAdapter()
-    const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
+    const { initSchema: realInitSchema } = await vi.importActual<
+      typeof import('../../../persistence/schema.js')
+    >('../../../persistence/schema.js')
     await realInitSchema(smokeAdapter)
     const run = await createPipelineRun(smokeAdapter, { methodology: 'bmad' })
     runId = run.id
@@ -363,10 +373,14 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
       query: (sql, params) => smokeAdapter.query(sql, params),
       exec: (sql) => smokeAdapter.exec(sql),
       transaction: (fn) => smokeAdapter.transaction(fn),
-      close: async () => { /* no-op — smokeAdapter is closed in afterEach */ },
+      close: async () => {
+        /* no-op — smokeAdapter is closed in afterEach */
+      },
     }
 
-    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = (await import('../../../persistence/adapter.js')) as {
+      __setMockAdapter: (a: DatabaseAdapter) => void
+    }
     dbModule.__setMockAdapter(nonClosableProxy)
 
     stdoutChunks = []
@@ -378,7 +392,11 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
 
   afterEach(async () => {
     writeSpy.mockRestore()
-    try { await smokeAdapter.close() } catch { /* already closed */ }
+    try {
+      await smokeAdapter.close()
+    } catch {
+      /* already closed */
+    }
     if (existsSync(tempProjectRoot)) {
       rmSync(tempProjectRoot, { recursive: true, force: true })
     }
@@ -411,7 +429,9 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
               last_activity: new Date().toISOString(),
               process: { orchestrator_pid: null, child_pids: [], zombies: [] },
               stories: {
-                active: 1, completed: 0, escalated: 0,
+                active: 1,
+                completed: 0,
+                escalated: 0,
                 details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } },
               },
             }
@@ -425,7 +445,9 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
             last_activity: new Date().toISOString(),
             process: { orchestrator_pid: null, child_pids: [], zombies: [] },
             stories: {
-              active: 0, completed: 1, escalated: 0,
+              active: 0,
+              completed: 1,
+              escalated: 0,
               details: { '1-1': { phase: 'COMPLETE', review_cycles: 1 } },
             },
           }
@@ -436,7 +458,7 @@ describe('Smoke: defaultSupervisorDeps writes decisions through real DB', () => 
         incrementRestarts: vi.fn(),
         getAllDescendants: vi.fn().mockReturnValue([]),
         // Do NOT override writeStallFindings or writeRunSummary — let defaultSupervisorDeps handle them
-      },
+      }
     )
 
     // Verify the decisions landed in the DB via the injected adapter
@@ -494,7 +516,9 @@ describe('Fix 3: supervisor exit code when pipeline completes after maxRestartsE
               last_activity: new Date().toISOString(),
               process: { orchestrator_pid: null, child_pids: [], zombies: [] },
               stories: {
-                active: 1, completed: 0, escalated: 0,
+                active: 1,
+                completed: 0,
+                escalated: 0,
                 details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } },
               },
             }
@@ -509,7 +533,9 @@ describe('Fix 3: supervisor exit code when pipeline completes after maxRestartsE
             last_activity: new Date().toISOString(),
             process: { orchestrator_pid: null, child_pids: [], zombies: [] },
             stories: {
-              active: 0, completed: 1, escalated: 0,
+              active: 0,
+              completed: 1,
+              escalated: 0,
               details: { '1-1': { phase: 'COMPLETE', review_cycles: 1 } },
             },
           }
@@ -522,7 +548,7 @@ describe('Fix 3: supervisor exit code when pipeline completes after maxRestartsE
         getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
         writeStallFindings: vi.fn(),
         writeRunSummary: vi.fn(),
-      },
+      }
     )
 
     // Should exit 0 (pipeline completed successfully) not 2 (maxRestartsExceeded)
@@ -553,7 +579,9 @@ describe('Fix 3: supervisor exit code when pipeline completes after maxRestartsE
               last_activity: new Date().toISOString(),
               process: { orchestrator_pid: null, child_pids: [], zombies: [] },
               stories: {
-                active: 1, completed: 0, escalated: 0,
+                active: 1,
+                completed: 0,
+                escalated: 0,
                 details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } },
               },
             }
@@ -567,7 +595,9 @@ describe('Fix 3: supervisor exit code when pipeline completes after maxRestartsE
             last_activity: new Date().toISOString(),
             process: { orchestrator_pid: null, child_pids: [], zombies: [] },
             stories: {
-              active: 0, completed: 0, escalated: 1,
+              active: 0,
+              completed: 0,
+              escalated: 1,
               details: { '1-1': { phase: 'ESCALATED', review_cycles: 2 } },
             },
           }
@@ -580,7 +610,7 @@ describe('Fix 3: supervisor exit code when pipeline completes after maxRestartsE
         getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
         writeStallFindings: vi.fn(),
         writeRunSummary: vi.fn(),
-      },
+      }
     )
 
     // Should exit 1 (escalations) not 2
@@ -612,7 +642,9 @@ describe('Fix 3: supervisor exit code when pipeline completes after maxRestartsE
               last_activity: new Date().toISOString(),
               process: { orchestrator_pid: null, child_pids: [], zombies: [] },
               stories: {
-                active: 1, completed: 0, escalated: 0,
+                active: 1,
+                completed: 0,
+                escalated: 0,
                 details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } },
               },
             }
@@ -627,7 +659,9 @@ describe('Fix 3: supervisor exit code when pipeline completes after maxRestartsE
             last_activity: new Date().toISOString(),
             process: { orchestrator_pid: 1234, child_pids: [5678], zombies: [] },
             stories: {
-              active: 1, completed: 0, escalated: 0,
+              active: 1,
+              completed: 0,
+              escalated: 0,
               details: { '1-1': { phase: 'IN_DEV', review_cycles: 0 } },
             },
           }
@@ -640,7 +674,7 @@ describe('Fix 3: supervisor exit code when pipeline completes after maxRestartsE
         getTokenSnapshot: vi.fn().mockReturnValue({ input: 0, output: 0, cost_usd: 0 }),
         writeStallFindings: vi.fn(),
         writeRunSummary: vi.fn(),
-      },
+      }
     )
 
     // Pipeline didn't reach terminal state — should still exit 2

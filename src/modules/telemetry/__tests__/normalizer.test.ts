@@ -115,7 +115,10 @@ const LOGS_PAYLOAD = {
                 { key: 'event.name', value: { stringValue: 'tool_call' } },
                 { key: 'session.id', value: { stringValue: 'session-abc' } },
                 { key: 'tool.name', value: { stringValue: 'Read' } },
-                { key: 'gen_ai.request.model', value: { stringValue: 'claude-3-5-sonnet-20241022' } },
+                {
+                  key: 'gen_ai.request.model',
+                  value: { stringValue: 'claude-3-5-sonnet-20241022' },
+                },
                 { key: 'anthropic.input_tokens', value: { intValue: '500' } },
                 { key: 'anthropic.output_tokens', value: { intValue: '50' } },
               ],
@@ -153,7 +156,7 @@ describe('TelemetryNormalizer.normalizeSpan', () => {
     expect(() => normalizer.normalizeSpan({ resourceSpans: 'not-array' })).not.toThrow()
     expect(() => normalizer.normalizeSpan({ resourceSpans: [null] })).not.toThrow()
     expect(() =>
-      normalizer.normalizeSpan({ resourceSpans: [{ scopeSpans: [{ spans: [null] }] }] }),
+      normalizer.normalizeSpan({ resourceSpans: [{ scopeSpans: [{ spans: [null] }] }] })
     ).not.toThrow()
   })
 
@@ -234,7 +237,9 @@ describe('TelemetryNormalizer.normalizeSpan', () => {
     const payload = {
       resourceSpans: [
         {
-          resource: { attributes: [{ key: 'service.name', value: { stringValue: 'claude-code' } }] },
+          resource: {
+            attributes: [{ key: 'service.name', value: { stringValue: 'claude-code' } }],
+          },
           scopeSpans: [
             {
               spans: [
@@ -244,7 +249,10 @@ describe('TelemetryNormalizer.normalizeSpan', () => {
                   name: 'LLM.call',
                   startTimeUnixNano: '1709900000000000000',
                   attributes: [
-                    { key: 'gen_ai.request.model', value: { stringValue: 'claude-3-5-sonnet-20241022' } },
+                    {
+                      key: 'gen_ai.request.model',
+                      value: { stringValue: 'claude-3-5-sonnet-20241022' },
+                    },
                     {
                       key: 'llm.response.body',
                       value: {
@@ -282,7 +290,10 @@ describe('TelemetryNormalizer.normalizeSpan', () => {
                   name: 'LLM.call',
                   startTimeUnixNano: '1709900000000000000',
                   attributes: [
-                    { key: 'gen_ai.request.model', value: { stringValue: 'claude-3-5-sonnet-20241022' } },
+                    {
+                      key: 'gen_ai.request.model',
+                      value: { stringValue: 'claude-3-5-sonnet-20241022' },
+                    },
                     { key: 'anthropic.input_tokens', value: { intValue: '1000000' } },
                     { key: 'anthropic.output_tokens', value: { intValue: '0' } },
                   ],

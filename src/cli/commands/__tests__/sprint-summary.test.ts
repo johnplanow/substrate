@@ -15,10 +15,7 @@ import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { initSchema } from '../../../persistence/schema.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
-import {
-  buildPipelineStatusOutput,
-  formatPipelineStatusHuman,
-} from '../pipeline-shared.js'
+import { buildPipelineStatusOutput, formatPipelineStatusHuman } from '../pipeline-shared.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -32,7 +29,7 @@ async function createTestDb(): Promise<InMemoryDatabaseAdapter> {
 
 async function createTestRun(
   adapter: InMemoryDatabaseAdapter,
-  overrides: { token_usage_json?: string | null; config_json?: string | null } = {},
+  overrides: { token_usage_json?: string | null; config_json?: string | null } = {}
 ): Promise<PipelineRun> {
   const run = await createPipelineRun(adapter, {
     methodology: 'bmad',
@@ -40,10 +37,10 @@ async function createTestRun(
     config_json: overrides.config_json ?? null,
   })
   if (overrides.token_usage_json !== undefined) {
-    adapter.querySync(
-      `UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`,
-      [overrides.token_usage_json, run.id],
-    )
+    adapter.querySync(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [
+      overrides.token_usage_json,
+      run.id,
+    ])
   }
   return adapter.querySync<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])[0]!
 }
@@ -58,7 +55,7 @@ function makeStoryState(
       startedAt?: string
       completedAt?: string
     }
-  >,
+  >
 ): string {
   return JSON.stringify({ state: 'RUNNING', stories })
 }
@@ -185,7 +182,7 @@ describe('buildPipelineStatusOutput — AC1: per-story details', () => {
     const result = buildPipelineStatusOutput(run, [], 0, 0)
 
     expect(Object.keys(result.stories?.details ?? {})).toEqual(
-      expect.arrayContaining(['10-1', '10-2', '10-3']),
+      expect.arrayContaining(['10-1', '10-2', '10-3'])
     )
   })
 })
@@ -530,7 +527,12 @@ describe('formatPipelineStatusHuman — AC4: sprint progress table', () => {
       }),
       config_json: JSON.stringify({
         phaseHistory: [
-          { phase: 'analysis', startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:01:00Z', gateResults: [] },
+          {
+            phase: 'analysis',
+            startedAt: '2026-01-01T00:00:00Z',
+            completedAt: '2026-01-01T00:01:00Z',
+            gateResults: [],
+          },
         ],
       }),
     })

@@ -5,10 +5,13 @@ describe('ResearchDiscoveryOutputSchema', () => {
   it('parses valid discovery output with all fields', () => {
     const input = {
       result: 'success',
-      concept_classification: 'B2B SaaS platform targeting DevOps teams in the cloud infrastructure space',
+      concept_classification:
+        'B2B SaaS platform targeting DevOps teams in the cloud infrastructure space',
       market_findings: 'The cloud automation market is valued at $12B growing at 18% CAGR.',
-      domain_findings: 'Industry standards include Terraform HCL and GitOps workflows (CNCF). SOC 2 Type II is table stakes for enterprise.',
-      technical_findings: 'Dominant pattern is event-driven with control plane / data plane separation. Primary challenge is state reconciliation.',
+      domain_findings:
+        'Industry standards include Terraform HCL and GitOps workflows (CNCF). SOC 2 Type II is table stakes for enterprise.',
+      technical_findings:
+        'Dominant pattern is event-driven with control plane / data plane separation. Primary challenge is state reconciliation.',
     }
     const result = ResearchDiscoveryOutputSchema.parse(input)
     expect(result.result).toBe('success')
@@ -38,9 +41,12 @@ describe('ResearchSynthesisOutputSchema', () => {
   it('parses valid synthesis output with all fields', () => {
     const input = {
       result: 'success',
-      market_context: 'The cloud infrastructure automation market is a $12B opportunity growing at 18% CAGR.',
-      competitive_landscape: 'Direct competitors include Terraform Cloud, Spacelift, and Scalr. Differentiation opportunity in AI-assisted workflows.',
-      technical_feasibility: 'High feasibility using proven Go agent + event-driven control plane pattern.',
+      market_context:
+        'The cloud infrastructure automation market is a $12B opportunity growing at 18% CAGR.',
+      competitive_landscape:
+        'Direct competitors include Terraform Cloud, Spacelift, and Scalr. Differentiation opportunity in AI-assisted workflows.',
+      technical_feasibility:
+        'High feasibility using proven Go agent + event-driven control plane pattern.',
       risk_flags: [
         'Regulatory: SOC 2 Type II compliance adds 4-6 months to enterprise close',
         'Technical: Distributed state reconciliation under network partitions is an unsolved problem',

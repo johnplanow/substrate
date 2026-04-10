@@ -13,7 +13,13 @@ import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { createPipelineRun } from '../../../persistence/queries/decisions.js'
 import type { PipelineRun } from '../../../persistence/queries/decisions.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
-import { getAutoHealthData, inspectProcessTree, isOrchestratorProcessLine, getAllDescendantPids, DEFAULT_STALL_THRESHOLD_SECONDS } from '../health.js'
+import {
+  getAutoHealthData,
+  inspectProcessTree,
+  isOrchestratorProcessLine,
+  getAllDescendantPids,
+  DEFAULT_STALL_THRESHOLD_SECONDS,
+} from '../health.js'
 import { runSupervisorAction } from '../supervisor.js'
 import type { SupervisorDeps, SupervisorOptions } from '../supervisor.js'
 import type { PipelineHealthOutput } from '../health.js'
@@ -24,7 +30,9 @@ import type { PipelineHealthOutput } from '../health.js'
 
 async function createTestDb(): Promise<DatabaseAdapter> {
   const adapter = new InMemoryDatabaseAdapter()
-  const { initSchema: realInitSchema } = await vi.importActual<typeof import('../../../persistence/schema.js')>('../../../persistence/schema.js')
+  const { initSchema: realInitSchema } = await vi.importActual<
+    typeof import('../../../persistence/schema.js')
+  >('../../../persistence/schema.js')
   await realInitSchema(adapter)
   return adapter
 }
@@ -36,7 +44,7 @@ async function createTestRun(
     current_phase?: string
     token_usage_json?: string
     updated_at?: string
-  } = {},
+  } = {}
 ): Promise<PipelineRun> {
   const run = await createPipelineRun(adapter, {
     methodology: 'bmad',
@@ -44,18 +52,32 @@ async function createTestRun(
     config_json: null,
   })
   if (overrides.status !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [overrides.status, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET status = ? WHERE id = ?`, [
+      overrides.status,
+      run.id,
+    ])
   }
   if (overrides.current_phase !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [overrides.current_phase, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET current_phase = ? WHERE id = ?`, [
+      overrides.current_phase,
+      run.id,
+    ])
   }
   if (overrides.token_usage_json !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [overrides.token_usage_json, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET token_usage_json = ? WHERE id = ?`, [
+      overrides.token_usage_json,
+      run.id,
+    ])
   }
   if (overrides.updated_at !== undefined) {
-    await adapter.query(`UPDATE pipeline_runs SET updated_at = ? WHERE id = ?`, [overrides.updated_at, run.id])
+    await adapter.query(`UPDATE pipeline_runs SET updated_at = ? WHERE id = ?`, [
+      overrides.updated_at,
+      run.id,
+    ])
   }
-  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [run.id])
+  const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [
+    run.id,
+  ])
   return rows[0]!
 }
 
@@ -67,7 +89,9 @@ vi.mock('../../../persistence/adapter.js', () => {
   let mockAdapter: DatabaseAdapter | null = null
   return {
     createDatabaseAdapter: () => mockAdapter!,
-    __setMockAdapter: (a: DatabaseAdapter) => { mockAdapter = a },
+    __setMockAdapter: (a: DatabaseAdapter) => {
+      mockAdapter = a
+    },
   }
 })
 
@@ -80,7 +104,7 @@ vi.mock('../../../utils/git-root.js', () => ({
 }))
 
 vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     existsSync: vi.fn().mockReturnValue(true),
@@ -96,7 +120,9 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = (await import('../../../persistence/adapter.js')) as {
+      __setMockAdapter: (a: DatabaseAdapter) => void
+    }
     dbModule.__setMockAdapter(adapter)
   })
 
@@ -107,7 +133,8 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
   it('staleness is non-negative for UTC timestamp without Z suffix (SQLite format)', async () => {
     // Simulate SQLite format: "YYYY-MM-DD HH:MM:SS" (no Z, no T, UTC value)
     const fiveMinAgo = new Date(Date.now() - 300_000)
-    const sqliteFormat = fiveMinAgo.toISOString()
+    const sqliteFormat = fiveMinAgo
+      .toISOString()
       .replace('T', ' ')
       .replace(/\.\d{3}Z$/, '') // "2026-03-02 04:01:56"
 
@@ -126,7 +153,8 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
 
   it('staleness is non-negative for timestamp that is 11 minutes old (SQLite format)', async () => {
     const elevenMinAgo = new Date(Date.now() - 660_000)
-    const sqliteFormat = elevenMinAgo.toISOString()
+    const sqliteFormat = elevenMinAgo
+      .toISOString()
       .replace('T', ' ')
       .replace(/\.\d{3}Z$/, '')
 
@@ -144,7 +172,8 @@ describe('getAutoHealthData — staleness timezone fix (AC1, AC4)', () => {
 
   it('staleness matches wall-clock seconds (within 5s tolerance)', async () => {
     const tenSecAgo = new Date(Date.now() - 10_000)
-    const sqliteFormat = tenSecAgo.toISOString()
+    const sqliteFormat = tenSecAgo
+      .toISOString()
       .replace('T', ' ')
       .replace(/\.\d{3}Z$/, '')
 
@@ -183,7 +212,9 @@ describe('Dolt timezone regression — createPipelineRun writes UTC timestamps',
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = (await import('../../../persistence/adapter.js')) as {
+      __setMockAdapter: (a: DatabaseAdapter) => void
+    }
     dbModule.__setMockAdapter(adapter)
   })
 
@@ -480,7 +511,9 @@ describe('getAutoHealthData — AC7: health detection across all phases', () => 
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = (await import('../../../persistence/adapter.js')) as {
+      __setMockAdapter: (a: DatabaseAdapter) => void
+    }
     dbModule.__setMockAdapter(adapter)
   })
 
@@ -640,7 +673,10 @@ describe('getAllDescendantPids — AC8: recursive orphan cleanup', () => {
 
   it('returns empty array when roots have no children', () => {
     // Process tree: root 100, no children
-    const psOutput = buildPsOutput([[1, 0], [100, 99]])
+    const psOutput = buildPsOutput([
+      [1, 0],
+      [100, 99],
+    ])
     const mockExec = vi.fn().mockReturnValue(psOutput)
     const result = getAllDescendantPids([100], mockExec)
     expect(result).toEqual([])
@@ -751,7 +787,9 @@ describe('getAllDescendantPids — AC8: recursive orphan cleanup', () => {
   })
 
   it('returns empty array gracefully when ps command fails', () => {
-    const mockExec = vi.fn().mockImplementation(() => { throw new Error('ps failed') })
+    const mockExec = vi.fn().mockImplementation(() => {
+      throw new Error('ps failed')
+    })
     const result = getAllDescendantPids([1000, 1001], mockExec)
     expect(result).toEqual([])
   })
@@ -852,7 +890,9 @@ describe('getAutoHealthData — child liveness prevents false STALLED', () => {
 
   beforeEach(async () => {
     adapter = await createTestDb()
-    const dbModule = await import('../../../persistence/adapter.js') as { __setMockAdapter: (a: DatabaseAdapter) => void }
+    const dbModule = (await import('../../../persistence/adapter.js')) as {
+      __setMockAdapter: (a: DatabaseAdapter) => void
+    }
     dbModule.__setMockAdapter(adapter)
   })
 

@@ -31,7 +31,10 @@ import type { PipelineRun } from '../../../persistence/queries/decisions.js'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { createBuiltInPhases } from '../../../modules/phase-orchestrator/built-in-phases.js'
 import { createPhaseOrchestrator } from '../../../modules/phase-orchestrator/index.js'
-import { buildResearchSteps, runResearchPhase } from '../../../modules/phase-orchestrator/phases/research.js'
+import {
+  buildResearchSteps,
+  runResearchPhase,
+} from '../../../modules/phase-orchestrator/phases/research.js'
 import { runSteps, resolveContext } from '../../../modules/phase-orchestrator/step-runner.js'
 import type { StepDefinition, ContextRef } from '../../../modules/phase-orchestrator/step-runner.js'
 import {
@@ -48,7 +51,10 @@ import type { Dispatcher, DispatchResult } from '../../../modules/agent-dispatch
 // ---------------------------------------------------------------------------
 
 async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter; tmpDir: string }> {
-  const tmpDir = join(tmpdir(), `research-smoke-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  const tmpDir = join(
+    tmpdir(),
+    `research-smoke-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  )
   const adapter = new InMemoryDatabaseAdapter()
   await initSchema(adapter)
   return { adapter, tmpDir }
@@ -56,7 +62,7 @@ async function createTestDb(): Promise<{ adapter: InMemoryDatabaseAdapter; tmpDi
 
 async function createTestRun(
   adapter: InMemoryDatabaseAdapter,
-  startPhase = 'research',
+  startPhase = 'research'
 ): Promise<string> {
   const run = await createPipelineRun(adapter, { methodology: 'bmad', start_phase: startPhase })
   return run.id
@@ -80,7 +86,10 @@ const SYNTHESIS_OUTPUT = {
   competitive_landscape: 'GitHub Copilot, Cursor, Cody dominate code-gen; pipeline space open',
   technical_feasibility: 'Proven stack, low risk; main challenge is LLM cost management',
   risk_flags: ['LLM API cost volatility', 'Rapid competitive entry'],
-  opportunity_signals: ['AI-native pipelines are blue-ocean', 'Developer willingness to pay for AI tools increasing'],
+  opportunity_signals: [
+    'AI-native pipelines are blue-ocean',
+    'Developer willingness to pay for AI tools increasing',
+  ],
 }
 
 const ANALYSIS_VISION_OUTPUT = {
@@ -106,9 +115,10 @@ function makeDispatchResult<T>(parsed: T): DispatchResult<T> {
  * Build a sequencing dispatcher that returns different outputs for different
  * task types or call indices.
  */
-function makeSequencingDispatcher(
-  outputsByType: Record<string, unknown>,
-): { dispatcher: Dispatcher; capturedPrompts: Map<string, string[]> } {
+function makeSequencingDispatcher(outputsByType: Record<string, unknown>): {
+  dispatcher: Dispatcher
+  capturedPrompts: Map<string, string[]>
+} {
   const capturedPrompts = new Map<string, string[]>()
   const dispatcher: Dispatcher = {
     dispatch: vi.fn().mockImplementation((opts: { prompt: string; taskType: string }) => {
@@ -134,7 +144,7 @@ function makeSequencingDispatcher(
 
 function makePack(
   prompts: Record<string, string>,
-  overrides: { research?: boolean; uxDesign?: boolean } = {},
+  overrides: { research?: boolean; uxDesign?: boolean } = {}
 ): MethodologyPack {
   return {
     manifest: {
@@ -159,14 +169,16 @@ function makePack(
 
 function makeContextCompiler(): ContextCompiler {
   return {
-    compile: vi.fn().mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
+    compile: vi
+      .fn()
+      .mockResolvedValue({ prompt: '', tokenCount: 0, sections: [], truncated: false }),
   } as unknown as ContextCompiler
 }
 
 function makeDeps(
   adapter: InMemoryDatabaseAdapter,
   dispatcher: Dispatcher,
-  pack: MethodologyPack,
+  pack: MethodologyPack
 ): PhaseDeps {
   return { db: adapter, pack, contextCompiler: makeContextCompiler(), dispatcher }
 }
@@ -207,7 +219,12 @@ describe('CLI flag wiring: --research / --skip-research', () => {
     const phases = createBuiltInPhases({ researchEnabled: true, uxDesignEnabled: true })
     const names = phases.map((p) => p.name)
     expect(names).toEqual([
-      'research', 'analysis', 'planning', 'ux-design', 'solutioning', 'implementation',
+      'research',
+      'analysis',
+      'planning',
+      'ux-design',
+      'solutioning',
+      'implementation',
     ])
   })
 })
@@ -221,7 +238,7 @@ describe('Manifest flag precedence (effectiveResearch logic)', () => {
   function resolveEffectiveResearch(
     manifestResearch: boolean | undefined,
     cliResearch: boolean | undefined,
-    cliSkipResearch: boolean | undefined,
+    cliSkipResearch: boolean | undefined
   ): boolean {
     let effective = manifestResearch === true
     if (cliResearch === true) effective = true
@@ -271,7 +288,11 @@ describe('Research → Analysis gate enforcement', () => {
 
   afterEach(async () => {
     await adapter.close()
-    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true })
+    } catch {
+      /* ignore */
+    }
   })
 
   it('analysis phase entry gate BLOCKS when research enabled but research-findings artifact missing', async () => {
@@ -338,16 +359,23 @@ describe('Research phase decision store persistence', () => {
 
   afterEach(async () => {
     await adapter.close()
-    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true })
+    } catch {
+      /* ignore */
+    }
   })
 
   it('step 1 discovery persists all 4 fields to decision store', async () => {
     const { dispatcher } = makeSequencingDispatcher({
       'research-discovery': DISCOVERY_OUTPUT,
     })
-    const pack = makePack({
-      'research-step-1-discovery': '{{concept}}',
-    }, { research: true })
+    const pack = makePack(
+      {
+        'research-step-1-discovery': '{{concept}}',
+      },
+      { research: true }
+    )
     const deps = makeDeps(adapter, dispatcher, pack)
 
     // Run only step 1
@@ -384,9 +412,12 @@ describe('Research phase decision store persistence', () => {
     const { dispatcher } = makeSequencingDispatcher({
       'research-synthesis': SYNTHESIS_OUTPUT,
     })
-    const pack = makePack({
-      'research-step-2-synthesis': '{{concept}}\n{{raw_findings}}',
-    }, { research: true })
+    const pack = makePack(
+      {
+        'research-step-2-synthesis': '{{concept}}\n{{raw_findings}}',
+      },
+      { research: true }
+    )
     const deps = makeDeps(adapter, dispatcher, pack)
 
     // Run only step 2
@@ -418,10 +449,13 @@ describe('Research phase decision store persistence', () => {
       'research-discovery': DISCOVERY_OUTPUT,
       'research-synthesis': SYNTHESIS_OUTPUT,
     })
-    const pack = makePack({
-      'research-step-1-discovery': 'Discover: {{concept}}',
-      'research-step-2-synthesis': 'Synthesize: {{concept}} from {{raw_findings}}',
-    }, { research: true })
+    const pack = makePack(
+      {
+        'research-step-1-discovery': 'Discover: {{concept}}',
+        'research-step-2-synthesis': 'Synthesize: {{concept}} from {{raw_findings}}',
+      },
+      { research: true }
+    )
     const deps = makeDeps(adapter, dispatcher, pack)
 
     const result = await runResearchPhase(deps, {
@@ -435,7 +469,7 @@ describe('Research phase decision store persistence', () => {
     // Verify artifact registered in DB using adapter.querySync
     const artifact = adapter.querySync<{ type: string; id: string }>(
       `SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'research-findings'`,
-      [runId],
+      [runId]
     )[0]
     expect(artifact).toBeDefined()
     expect(artifact!.type).toBe('research-findings')
@@ -475,7 +509,11 @@ describe('Research → Analysis context handoff', () => {
 
   afterEach(async () => {
     await adapter.close()
-    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true })
+    } catch {
+      /* ignore */
+    }
   })
 
   it('research phase output flows into analysis prompt via decision:research.findings', async () => {
@@ -484,10 +522,13 @@ describe('Research → Analysis context handoff', () => {
       'research-discovery': DISCOVERY_OUTPUT,
       'research-synthesis': SYNTHESIS_OUTPUT,
     })
-    const researchPack = makePack({
-      'research-step-1-discovery': 'Discover: {{concept}}',
-      'research-step-2-synthesis': 'Synthesize: {{concept}} from {{raw_findings}}',
-    }, { research: true })
+    const researchPack = makePack(
+      {
+        'research-step-1-discovery': 'Discover: {{concept}}',
+        'research-step-2-synthesis': 'Synthesize: {{concept}} from {{raw_findings}}',
+      },
+      { research: true }
+    )
     const researchDeps = makeDeps(adapter, researchDispatcher, researchPack)
 
     const researchResult = await runResearchPhase(researchDeps, {
@@ -516,7 +557,8 @@ describe('Research → Analysis context handoff', () => {
       'analysis-vision': ANALYSIS_VISION_OUTPUT,
     })
     const analysisPack = makePack({
-      'analysis-step-1-vision': '### Concept\n{{concept}}\n\n### Research\n{{research_findings}}\n\n## Vision',
+      'analysis-step-1-vision':
+        '### Concept\n{{concept}}\n\n### Research\n{{research_findings}}\n\n## Vision',
     })
     const analysisDeps = makeDeps(adapter, analysisDispatcher, analysisPack)
 
@@ -539,13 +581,9 @@ describe('Research → Analysis context handoff', () => {
       ],
     }
 
-    const analysisResult = await runSteps(
-      [analysisStep],
-      analysisDeps,
-      runId,
-      'analysis',
-      { concept: 'AI pipeline tool' },
-    )
+    const analysisResult = await runSteps([analysisStep], analysisDeps, runId, 'analysis', {
+      concept: 'AI pipeline tool',
+    })
 
     expect(analysisResult.success).toBe(true)
 
@@ -578,7 +616,11 @@ describe('Research phase token usage tracking', () => {
 
   afterEach(async () => {
     await adapter.close()
-    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true })
+    } catch {
+      /* ignore */
+    }
   })
 
   it('token usage is accumulated across both research steps', async () => {
@@ -623,7 +665,11 @@ describe('Research phase failure propagation', () => {
 
   afterEach(async () => {
     await adapter.close()
-    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true })
+    } catch {
+      /* ignore */
+    }
   })
 
   it('returns failed result when dispatcher throws', async () => {
@@ -687,7 +733,7 @@ describe('Research phase failure propagation', () => {
     // No artifact should exist
     const artifact = adapter.querySync<{ type: string }>(
       `SELECT * FROM artifacts WHERE pipeline_run_id = ? AND type = 'research-findings'`,
-      [runId],
+      [runId]
     )[0]
     expect(artifact).toBeUndefined()
   })
@@ -699,10 +745,7 @@ describe('Research phase failure propagation', () => {
 
 describe('runFullPipeline phase order construction', () => {
   // Replicate the phase order logic from run.ts:1009-1013
-  function buildPhaseOrder(
-    effectiveResearch: boolean,
-    effectiveUxDesign: boolean,
-  ): string[] {
+  function buildPhaseOrder(effectiveResearch: boolean, effectiveUxDesign: boolean): string[] {
     const phaseOrder: string[] = []
     if (effectiveResearch) phaseOrder.push('research')
     phaseOrder.push('analysis', 'planning')
@@ -713,19 +756,31 @@ describe('runFullPipeline phase order construction', () => {
 
   it('research=true, ux=false → research first', () => {
     expect(buildPhaseOrder(true, false)).toEqual([
-      'research', 'analysis', 'planning', 'solutioning', 'implementation',
+      'research',
+      'analysis',
+      'planning',
+      'solutioning',
+      'implementation',
     ])
   })
 
   it('research=true, ux=true → full 6-phase order', () => {
     expect(buildPhaseOrder(true, true)).toEqual([
-      'research', 'analysis', 'planning', 'ux-design', 'solutioning', 'implementation',
+      'research',
+      'analysis',
+      'planning',
+      'ux-design',
+      'solutioning',
+      'implementation',
     ])
   })
 
   it('research=false, ux=false → standard 4-phase order', () => {
     expect(buildPhaseOrder(false, false)).toEqual([
-      'analysis', 'planning', 'solutioning', 'implementation',
+      'analysis',
+      'planning',
+      'solutioning',
+      'implementation',
     ])
   })
 
@@ -796,7 +851,11 @@ describe('Backwards compatibility: pipeline without research', () => {
 
   afterEach(async () => {
     await adapter.close()
-    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true })
+    } catch {
+      /* ignore */
+    }
   })
 
   it('phase orchestrator without research starts at analysis and has no research gates', async () => {

@@ -13,7 +13,4 @@ export {
   getSessionCost,
   getTaskCost,
 } from '@substrate-ai/core'
-export type {
-  CreateCostEntryInput,
-  LegacyCostEntryInput,
-} from '@substrate-ai/core'
+export type { CreateCostEntryInput, LegacyCostEntryInput } from '@substrate-ai/core'

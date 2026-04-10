@@ -79,7 +79,10 @@ function makeCapture(): { stream: Writable; output(): string; chunks: string[] }
 }
 
 function makeInput(): PassThrough & { isTTY?: boolean; setRawMode?: (mode: boolean) => void } {
-  const stream = new PassThrough() as PassThrough & { isTTY?: boolean; setRawMode?: (mode: boolean) => void }
+  const stream = new PassThrough() as PassThrough & {
+    isTTY?: boolean
+    setRawMode?: (mode: boolean) => void
+  }
   stream.isTTY = false
   stream.setRawMode = vi.fn()
   return stream
@@ -96,7 +99,7 @@ function makeStartEvent(stories = ['10-1', '10-2'], concurrency = 3): PipelineSt
 function makeCompleteEvent(
   succeeded = ['10-1'],
   failed: string[] = [],
-  escalated: string[] = [],
+  escalated: string[] = []
 ): PipelineCompleteEvent {
   return { type: 'pipeline:complete', ts: '', succeeded, failed, escalated }
 }
@@ -105,12 +108,23 @@ function makePhaseEvent(
   key: string,
   phase: StoryPhaseEvent['phase'],
   status: StoryPhaseEvent['status'],
-  verdict?: string,
+  verdict?: string
 ): StoryPhaseEvent {
-  return { type: 'story:phase', ts: '', key, phase, status, ...(verdict !== undefined && { verdict }) }
+  return {
+    type: 'story:phase',
+    ts: '',
+    key,
+    phase,
+    status,
+    ...(verdict !== undefined && { verdict }),
+  }
 }
 
-function makeDoneEvent(key: string, result: 'success' = 'success', review_cycles = 1): StoryDoneEvent {
+function makeDoneEvent(
+  key: string,
+  result: 'success' = 'success',
+  review_cycles = 1
+): StoryDoneEvent {
   return { type: 'story:done', ts: '', key, result, review_cycles }
 }
 
@@ -221,7 +235,9 @@ describe('createEventEmitter — unit (Gap 1)', () => {
     emitter.emit(makeDoneEvent('10-1', 'success', 1))
     emitter.emit(makeCompleteEvent(['10-1']))
 
-    const lines = output().split('\n').filter((l) => l.trim() !== '')
+    const lines = output()
+      .split('\n')
+      .filter((l) => l.trim() !== '')
     expect(lines).toHaveLength(3)
   })
 
@@ -231,7 +247,9 @@ describe('createEventEmitter — unit (Gap 1)', () => {
 
     emitter.emit(makeMetricsEvent('24-4'))
 
-    const lines = output().split('\n').filter((l) => l.trim() !== '')
+    const lines = output()
+      .split('\n')
+      .filter((l) => l.trim() !== '')
     expect(lines).toHaveLength(1)
 
     const parsed = JSON.parse(lines[0]!) as StoryMetricsEvent
@@ -378,7 +396,10 @@ describe('EventEmitter → ProgressRenderer NDJSON round-trip (Gap 2)', () => {
       emitter.emit(evt)
     }
 
-    const lines = emitterCapture.output().split('\n').filter((l) => l.trim() !== '')
+    const lines = emitterCapture
+      .output()
+      .split('\n')
+      .filter((l) => l.trim() !== '')
     const parsed = lines.map((l) => JSON.parse(l) as PipelineEvent)
 
     const rendererCapture = makeCapture()
@@ -401,7 +422,10 @@ describe('EventEmitter → ProgressRenderer NDJSON round-trip (Gap 2)', () => {
     emitter.emit(makeStartEvent(['10-1']))
     emitter.emit(makeCompleteEvent(['10-1']))
 
-    const lines = emitterCapture.output().split('\n').filter((l) => l.trim() !== '')
+    const lines = emitterCapture
+      .output()
+      .split('\n')
+      .filter((l) => l.trim() !== '')
 
     for (const line of lines) {
       const parsed = JSON.parse(line) as PipelineEvent
@@ -428,7 +452,10 @@ describe('EventEmitter → TUI App integration (Gap 3)', () => {
     emitter.emit(makeEscalationEvent('10-2', 'Escalated after 3 cycles', 3))
     emitter.emit(makeCompleteEvent(['10-1'], [], ['10-2']))
 
-    const lines = emitterCapture.output().split('\n').filter((l) => l.trim() !== '')
+    const lines = emitterCapture
+      .output()
+      .split('\n')
+      .filter((l) => l.trim() !== '')
     const parsedEvents = lines.map((l) => JSON.parse(l) as PipelineEvent)
 
     const tuiOutput = makeCapture()
@@ -461,7 +488,10 @@ describe('EventEmitter → TUI App integration (Gap 3)', () => {
     emitter.emit(makeLogEvent('10-1', 'implementing phase 1'))
     emitter.emit(makeCompleteEvent(['10-1']))
 
-    const lines = emitterCapture.output().split('\n').filter((l) => l.trim() !== '')
+    const lines = emitterCapture
+      .output()
+      .split('\n')
+      .filter((l) => l.trim() !== '')
     const parsedEvents = lines.map((l) => JSON.parse(l) as PipelineEvent)
 
     const tuiOutput = makeCapture()
@@ -711,7 +741,7 @@ describe('claude-md-substrate-section.md template file integrity (Gap 7)', () =>
     'src',
     'cli',
     'templates',
-    'claude-md-substrate-section.md',
+    'claude-md-substrate-section.md'
   )
 
   it('template file exists at expected path', () => {
@@ -756,12 +786,12 @@ describe('claude-md-substrate-section.md template file integrity (Gap 7)', () =>
 describe('isTuiCapable and printNonTtyWarning interaction (Gap 8)', () => {
   it('printNonTtyWarning writes TUI fallback message to stderr', () => {
     const stderrChunks: string[] = []
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(
-      (chunk: string | Uint8Array) => {
+    const stderrSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
         stderrChunks.push(chunk.toString())
         return true
-      },
-    )
+      })
 
     printNonTtyWarning()
 
@@ -801,12 +831,12 @@ describe('isTuiCapable and printNonTtyWarning interaction (Gap 8)', () => {
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true })
 
     const stderrChunks: string[] = []
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(
-      (chunk: string | Uint8Array) => {
+    const stderrSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
         stderrChunks.push(chunk.toString())
         return true
-      },
-    )
+      })
 
     // Simulate auto.ts logic
     const tuiFlag = true
@@ -840,7 +870,9 @@ describe('EventEmitter event sequence integrity', () => {
     emitter.emit(makeDoneEvent('10-1', 'success', 1))
     emitter.emit(makeCompleteEvent(['10-1']))
 
-    const lines = output().split('\n').filter((l) => l.trim() !== '')
+    const lines = output()
+      .split('\n')
+      .filter((l) => l.trim() !== '')
     expect(lines).toHaveLength(3)
 
     const types = lines.map((l) => (JSON.parse(l) as PipelineEvent).type)
@@ -859,7 +891,9 @@ describe('EventEmitter event sequence integrity', () => {
     emitter.emit(makeEscalationEvent('10-3', 'Complex issue', 3))
     emitter.emit(makeCompleteEvent(['10-1'], ['10-2'], ['10-3']))
 
-    const lines = output().split('\n').filter((l) => l.trim() !== '')
+    const lines = output()
+      .split('\n')
+      .filter((l) => l.trim() !== '')
     expect(lines).toHaveLength(5)
 
     const complete = JSON.parse(lines[4]!) as PipelineCompleteEvent

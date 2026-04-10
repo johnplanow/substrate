@@ -156,7 +156,7 @@ phases:
   // --- AC2: error modes ---
 
   it('AC2: throws RoutingConfigError (CONFIG_NOT_FOUND) when file is missing', () => {
-    setReadError('ENOENT: no such file or directory, open \'/missing.yml\'')
+    setReadError("ENOENT: no such file or directory, open '/missing.yml'")
 
     expect(() => loadModelRoutingConfig('/missing.yml')).toThrow(RoutingConfigError)
 

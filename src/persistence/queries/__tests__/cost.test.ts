@@ -53,7 +53,7 @@ function insertSession(adapter: InMemoryDatabaseAdapter, id: string): void {
   adapter.querySync(
     `INSERT INTO sessions (id, graph_file, status, created_at, updated_at)
      VALUES (?, 'test.json', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-    [id],
+    [id]
   )
 }
 
@@ -62,7 +62,7 @@ function insertTask(adapter: InMemoryDatabaseAdapter, sessionId: string, taskId:
   adapter.querySync(
     `INSERT INTO tasks (id, session_id, name, prompt, status, cost_usd, created_at, updated_at)
      VALUES (?, ?, 'test-task', 'test-prompt', 'completed', 0.0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-    [taskId, sessionId],
+    [taskId, sessionId]
   )
 }
 
@@ -85,7 +85,7 @@ function insertCostEntryDirect(
     taskId?: string | null
     model?: string | null
     provider?: string
-  } = {},
+  } = {}
 ): void {
   const {
     agent = 'test-agent',
@@ -104,12 +104,27 @@ function insertCostEntryDirect(
        (session_id, task_id, agent, billing_mode, category,
         input_tokens, output_tokens, estimated_cost, model, provider, savings_usd)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [sessionId, taskId, agent, billingMode, category, inputTokens, outputTokens, estimatedCost, model, provider, savingsUsd],
+    [
+      sessionId,
+      taskId,
+      agent,
+      billingMode,
+      category,
+      inputTokens,
+      outputTokens,
+      estimatedCost,
+      model,
+      provider,
+      savingsUsd,
+    ]
   )
 }
 
 /** Build a minimal CreateCostEntryInput for recordCostEntry tests. */
-function makeEntry(sessionId: string, overrides: Partial<CreateCostEntryInput> = {}): CreateCostEntryInput {
+function makeEntry(
+  sessionId: string,
+  overrides: Partial<CreateCostEntryInput> = {}
+): CreateCostEntryInput {
   return {
     session_id: sessionId,
     task_id: null,
@@ -160,7 +175,10 @@ describe('recordCostEntry()', () => {
   })
 
   it('inserted row is retrievable via getCostEntryById', async () => {
-    const id = await recordCostEntry(adapter, makeEntry('sess-rec', { agent: 'my-agent', cost_usd: 0.042 }))
+    const id = await recordCostEntry(
+      adapter,
+      makeEntry('sess-rec', { agent: 'my-agent', cost_usd: 0.042 })
+    )
     const fetched = await getCostEntryById(adapter, id)
     expect(fetched).not.toBeNull()
     expect(fetched?.agent).toBe('my-agent')
@@ -169,7 +187,10 @@ describe('recordCostEntry()', () => {
 
   it('stores category as execution (hardcoded value)', async () => {
     const id = await recordCostEntry(adapter, makeEntry('sess-rec'))
-    const row = adapter.querySync<{ category: string }>('SELECT category FROM cost_entries WHERE id = ?', [id])[0]
+    const row = adapter.querySync<{ category: string }>(
+      'SELECT category FROM cost_entries WHERE id = ?',
+      [id]
+    )[0]
     expect(row?.category).toBe('execution')
   })
 })
@@ -206,7 +227,7 @@ describe('getCostEntryById()', () => {
         tokens_output: 100,
         cost_usd: 0.01,
         savings_usd: 0,
-      }),
+      })
     )
     const entry = await getCostEntryById(adapter, id)
     expect(entry).not.toBeNull()
@@ -226,7 +247,7 @@ describe('getCostEntryById()', () => {
   it('maps savings_usd correctly for subscription entries', async () => {
     const id = await recordCostEntry(
       adapter,
-      makeEntry('sess-get', { billing_mode: 'subscription', cost_usd: 0, savings_usd: 0.02 }),
+      makeEntry('sess-get', { billing_mode: 'subscription', cost_usd: 0, savings_usd: 0.02 })
     )
     const entry = await getCostEntryById(adapter, id)
     expect(entry?.billing_mode).toBe('subscription')
@@ -253,7 +274,9 @@ describe('incrementTaskCost()', () => {
 
   it('increments task cost_usd by the given delta', async () => {
     await incrementTaskCost(adapter, 'task-inc', 0.05)
-    const row = adapter.querySync<{ cost_usd: number }>('SELECT cost_usd FROM tasks WHERE id = ?', ['task-inc'])[0]
+    const row = adapter.querySync<{ cost_usd: number }>('SELECT cost_usd FROM tasks WHERE id = ?', [
+      'task-inc',
+    ])[0]
     expect(row?.cost_usd).toBeCloseTo(0.05)
   })
 
@@ -261,7 +284,9 @@ describe('incrementTaskCost()', () => {
     await incrementTaskCost(adapter, 'task-inc', 0.01)
     await incrementTaskCost(adapter, 'task-inc', 0.02)
     await incrementTaskCost(adapter, 'task-inc', 0.03)
-    const row = adapter.querySync<{ cost_usd: number }>('SELECT cost_usd FROM tasks WHERE id = ?', ['task-inc'])[0]
+    const row = adapter.querySync<{ cost_usd: number }>('SELECT cost_usd FROM tasks WHERE id = ?', [
+      'task-inc',
+    ])[0]
     expect(row?.cost_usd).toBeCloseTo(0.06)
   })
 })
@@ -304,7 +329,11 @@ describe('getSessionCostSummary()', () => {
 
   it('separates subscription and api costs correctly', async () => {
     insertCostEntryDirect(adapter, 'sess-sum', { billingMode: 'api', estimatedCost: 0.01 })
-    insertCostEntryDirect(adapter, 'sess-sum', { billingMode: 'subscription', estimatedCost: 0.02, savingsUsd: 0.02 })
+    insertCostEntryDirect(adapter, 'sess-sum', {
+      billingMode: 'subscription',
+      estimatedCost: 0.02,
+      savingsUsd: 0.02,
+    })
     const summary = await getSessionCostSummary(adapter, 'sess-sum')
     expect(summary.api_cost_usd).toBeCloseTo(0.01)
     expect(summary.subscription_cost_usd).toBeCloseTo(0.02)
@@ -386,8 +415,18 @@ describe('getTaskCostSummary()', () => {
   })
 
   it('aggregates tokens and cost across multiple entries', async () => {
-    insertCostEntryDirect(adapter, 'sess-task', { taskId: 'task-t1', inputTokens: 100, outputTokens: 50, estimatedCost: 0.01 })
-    insertCostEntryDirect(adapter, 'sess-task', { taskId: 'task-t1', inputTokens: 200, outputTokens: 100, estimatedCost: 0.02 })
+    insertCostEntryDirect(adapter, 'sess-task', {
+      taskId: 'task-t1',
+      inputTokens: 100,
+      outputTokens: 50,
+      estimatedCost: 0.01,
+    })
+    insertCostEntryDirect(adapter, 'sess-task', {
+      taskId: 'task-t1',
+      inputTokens: 200,
+      outputTokens: 100,
+      estimatedCost: 0.02,
+    })
     const summary = await getTaskCostSummary(adapter, 'task-t1')
     expect(summary.tokens.input).toBe(300)
     expect(summary.tokens.output).toBe(150)
@@ -425,8 +464,17 @@ describe('getAgentCostBreakdown()', () => {
   beforeEach(async () => {
     adapter = await openDb()
     insertSession(adapter, 'sess-agt')
-    insertCostEntryDirect(adapter, 'sess-agt', { agent: 'agt-x', billingMode: 'api', estimatedCost: 0.01 })
-    insertCostEntryDirect(adapter, 'sess-agt', { agent: 'agt-x', billingMode: 'subscription', estimatedCost: 0.02, savingsUsd: 0.02 })
+    insertCostEntryDirect(adapter, 'sess-agt', {
+      agent: 'agt-x',
+      billingMode: 'api',
+      estimatedCost: 0.01,
+    })
+    insertCostEntryDirect(adapter, 'sess-agt', {
+      agent: 'agt-x',
+      billingMode: 'subscription',
+      estimatedCost: 0.02,
+      savingsUsd: 0.02,
+    })
     insertCostEntryDirect(adapter, 'sess-agt', { agent: 'agt-y', estimatedCost: 0.05 })
   })
 
@@ -596,8 +644,16 @@ describe('getSessionCost() [legacy]', () => {
   })
 
   it('returns correct aggregated totals', async () => {
-    insertCostEntryDirect(adapter, 'sess-leg', { estimatedCost: 0.01, inputTokens: 100, outputTokens: 50 })
-    insertCostEntryDirect(adapter, 'sess-leg', { estimatedCost: 0.02, inputTokens: 200, outputTokens: 80 })
+    insertCostEntryDirect(adapter, 'sess-leg', {
+      estimatedCost: 0.01,
+      inputTokens: 100,
+      outputTokens: 50,
+    })
+    insertCostEntryDirect(adapter, 'sess-leg', {
+      estimatedCost: 0.02,
+      inputTokens: 200,
+      outputTokens: 80,
+    })
     const result = await getSessionCost(adapter, 'sess-leg')
     expect(result.total_cost).toBeCloseTo(0.03)
     expect(result.total_input_tokens).toBe(300)
@@ -632,7 +688,12 @@ describe('getTaskCost() [legacy]', () => {
   })
 
   it('returns correct totals for task entries', async () => {
-    insertCostEntryDirect(adapter, 'sess-tleg', { taskId: 'task-tleg', estimatedCost: 0.01, inputTokens: 100, outputTokens: 40 })
+    insertCostEntryDirect(adapter, 'sess-tleg', {
+      taskId: 'task-tleg',
+      estimatedCost: 0.01,
+      inputTokens: 100,
+      outputTokens: 40,
+    })
     const result = await getTaskCost(adapter, 'task-tleg')
     expect(result.total_cost).toBeCloseTo(0.01)
     expect(result.total_input_tokens).toBe(100)

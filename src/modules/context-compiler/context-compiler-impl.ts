@@ -76,7 +76,7 @@ async function executeQuery(db: DatabaseAdapter, query: StoreQuery): Promise<unk
  */
 async function processSection(
   db: DatabaseAdapter,
-  section: TemplateSection,
+  section: TemplateSection
 ): Promise<{ text: string; tokens: number }> {
   const rows = await executeQuery(db, section.query)
   const text = section.format(rows)
@@ -128,7 +128,7 @@ export class ContextCompilerImpl implements ContextCompiler {
       if (text.includes(excludedPath)) {
         logger.warn(
           { sectionName, excludedPath },
-          'ContextCompiler: section excluded — contains path from exclusion list',
+          'ContextCompiler: section excluded — contains path from exclusion list'
         )
         return ''
       }
@@ -144,7 +144,7 @@ export class ContextCompilerImpl implements ContextCompiler {
     const template = this._templates.get(descriptor.taskType)
     if (template === undefined) {
       throw new Error(
-        `ContextCompiler: no template registered for task type "${descriptor.taskType}"`,
+        `ContextCompiler: no template registered for task type "${descriptor.taskType}"`
       )
     }
 
@@ -210,7 +210,7 @@ export class ContextCompilerImpl implements ContextCompiler {
           anyTruncated = true
           logger.warn(
             { section: section.name, originalTokens: tokens, budgetTokens: truncatedTokens },
-            'Context compiler: truncated "important" section to fit token budget',
+            'Context compiler: truncated "important" section to fit token budget'
           )
           sectionReports.push({
             name: section.name,
@@ -224,7 +224,7 @@ export class ContextCompilerImpl implements ContextCompiler {
           anyTruncated = true
           logger.warn(
             { section: section.name, tokens },
-            'Context compiler: omitted "important" section — no budget remaining',
+            'Context compiler: omitted "important" section — no budget remaining'
           )
           sectionReports.push({
             name: section.name,
@@ -256,7 +256,7 @@ export class ContextCompilerImpl implements ContextCompiler {
                 tokens,
                 budgetFractionRemaining: budgetFractionRemaining.toFixed(2),
               },
-              'Context compiler: omitted "optional" section — insufficient budget',
+              'Context compiler: omitted "optional" section — insufficient budget'
             )
           }
           sectionReports.push({
@@ -294,7 +294,7 @@ const PRIORITY_ORDER: Record<string, number> = {
 
 function sortByPriority(sections: TemplateSection[]): TemplateSection[] {
   return [...sections].sort(
-    (a, b) => (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99),
+    (a, b) => (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99)
   )
 }
 

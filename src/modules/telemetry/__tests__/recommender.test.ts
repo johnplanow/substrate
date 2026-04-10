@@ -211,7 +211,9 @@ describe('Recommender', () => {
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
-      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'big_op|tool')
+      const rec = result.find(
+        (r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'big_op|tool'
+      )
       expect(rec?.severity).toBe('warning') // 80% would be critical, but capped at warning due to <50K
     })
 
@@ -222,7 +224,9 @@ describe('Recommender', () => {
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
-      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'op|tool')
+      const rec = result.find(
+        (r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'op|tool'
+      )
       expect(rec?.severity).toBe('info') // <20K tokens → capped at info
     })
 
@@ -233,7 +237,9 @@ describe('Recommender', () => {
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
-      const biggestConsumerRec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'big_op|tool')
+      const biggestConsumerRec = result.find(
+        (r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'big_op|tool'
+      )
       expect(biggestConsumerRec?.severity).toBe('critical')
     })
 
@@ -251,9 +257,7 @@ describe('Recommender', () => {
 
   describe('large_file_reads rule', () => {
     it('should fire only for spans with inputTokens > 3000', () => {
-      const spans = [
-        makeSpan({ operationName: 'file_read', inputTokens: 3001, outputTokens: 0 }),
-      ]
+      const spans = [makeSpan({ operationName: 'file_read', inputTokens: 3001, outputTokens: 0 })]
       const context = makeContext({ allSpans: spans })
       const result = recommender.analyze(context)
       const fileReadRecs = result.filter((r) => r.ruleId === 'large_file_reads')
@@ -261,9 +265,7 @@ describe('Recommender', () => {
     })
 
     it('should NOT fire for spans with inputTokens exactly 3000', () => {
-      const spans = [
-        makeSpan({ operationName: 'file_read', inputTokens: 3000, outputTokens: 0 }),
-      ]
+      const spans = [makeSpan({ operationName: 'file_read', inputTokens: 3000, outputTokens: 0 })]
       const context = makeContext({ allSpans: spans })
       const result = recommender.analyze(context)
       const fileReadRecs = result.filter((r) => r.ruleId === 'large_file_reads')
@@ -271,9 +273,7 @@ describe('Recommender', () => {
     })
 
     it('should NOT fire for spans where operationName is not file_read', () => {
-      const spans = [
-        makeSpan({ operationName: 'tool_use', inputTokens: 5000, outputTokens: 0 }),
-      ]
+      const spans = [makeSpan({ operationName: 'tool_use', inputTokens: 5000, outputTokens: 0 })]
       const context = makeContext({ allSpans: spans })
       const result = recommender.analyze(context)
       const fileReadRecs = result.filter((r) => r.ruleId === 'large_file_reads')
@@ -282,7 +282,12 @@ describe('Recommender', () => {
 
     it('should include suggestion to use line ranges in description', () => {
       const spans = [
-        makeSpan({ operationName: 'file_read', inputTokens: 4000, outputTokens: 0, name: 'read_src_file' }),
+        makeSpan({
+          operationName: 'file_read',
+          inputTokens: 4000,
+          outputTokens: 0,
+          name: 'read_src_file',
+        }),
       ]
       const context = makeContext({ allSpans: spans })
       const result = recommender.analyze(context)
@@ -297,9 +302,7 @@ describe('Recommender', () => {
 
   describe('expensive_bash rule', () => {
     it('should fire for spans named bash with outputTokens > 3000', () => {
-      const spans = [
-        makeSpan({ name: 'bash', outputTokens: 3500 }),
-      ]
+      const spans = [makeSpan({ name: 'bash', outputTokens: 3500 })]
       const context = makeContext({ allSpans: spans })
       const result = recommender.analyze(context)
       const bashRecs = result.filter((r) => r.ruleId === 'expensive_bash')
@@ -307,9 +310,7 @@ describe('Recommender', () => {
     })
 
     it('should fire for spans named execute_command with outputTokens > 3000', () => {
-      const spans = [
-        makeSpan({ name: 'execute_command', outputTokens: 4000 }),
-      ]
+      const spans = [makeSpan({ name: 'execute_command', outputTokens: 4000 })]
       const context = makeContext({ allSpans: spans })
       const result = recommender.analyze(context)
       const bashRecs = result.filter((r) => r.ruleId === 'expensive_bash')
@@ -317,9 +318,7 @@ describe('Recommender', () => {
     })
 
     it('should fire for spans with operationName execute_command', () => {
-      const spans = [
-        makeSpan({ operationName: 'execute_command', outputTokens: 3500 }),
-      ]
+      const spans = [makeSpan({ operationName: 'execute_command', outputTokens: 3500 })]
       const context = makeContext({ allSpans: spans })
       const result = recommender.analyze(context)
       const bashRecs = result.filter((r) => r.ruleId === 'expensive_bash')
@@ -327,9 +326,7 @@ describe('Recommender', () => {
     })
 
     it('should NOT fire for spans with outputTokens <= 3000', () => {
-      const spans = [
-        makeSpan({ name: 'bash', outputTokens: 2999 }),
-      ]
+      const spans = [makeSpan({ name: 'bash', outputTokens: 2999 })]
       const context = makeContext({ allSpans: spans })
       const result = recommender.analyze(context)
       const bashRecs = result.filter((r) => r.ruleId === 'expensive_bash')
@@ -348,8 +345,22 @@ describe('Recommender', () => {
           spanId: 'turn-1',
           turnNumber: 1,
           childSpans: [
-            { spanId: 'c1', name: 'read_file', toolName: 'read', inputTokens: 1000, outputTokens: 0, durationMs: 100 },
-            { spanId: 'c2', name: 'read_file', toolName: 'read', inputTokens: 1000, outputTokens: 0, durationMs: 100 },
+            {
+              spanId: 'c1',
+              name: 'read_file',
+              toolName: 'read',
+              inputTokens: 1000,
+              outputTokens: 0,
+              durationMs: 100,
+            },
+            {
+              spanId: 'c2',
+              name: 'read_file',
+              toolName: 'read',
+              inputTokens: 1000,
+              outputTokens: 0,
+              durationMs: 100,
+            },
           ],
         }),
       ]
@@ -365,7 +376,14 @@ describe('Recommender', () => {
         makeTurn({
           spanId: 'turn-1',
           childSpans: [
-            { spanId: 'c1', name: 'read_file', toolName: 'read', inputTokens: 1000, outputTokens: 0, durationMs: 100 },
+            {
+              spanId: 'c1',
+              name: 'read_file',
+              toolName: 'read',
+              inputTokens: 1000,
+              outputTokens: 0,
+              durationMs: 100,
+            },
           ],
         }),
       ]
@@ -397,7 +415,7 @@ describe('Recommender', () => {
       // A spike turn with tiny token count relative to total would normally be 'info'
       // but context_growth_spike must be at least 'warning'
       const spans = Array.from({ length: 100 }, (_, i) =>
-        makeSpan({ spanId: `span-${i}`, inputTokens: 10000, outputTokens: 5000 }),
+        makeSpan({ spanId: `span-${i}`, inputTokens: 10000, outputTokens: 5000 })
       )
       const spikeTurn = makeTurn({
         spanId: 'turn-spike',
@@ -416,10 +434,38 @@ describe('Recommender', () => {
       const spikeTurn = makeTurn({
         isContextSpike: true,
         childSpans: [
-          { spanId: 'c1', name: 'big_tool', toolName: 'bash', inputTokens: 5000, outputTokens: 0, durationMs: 100 },
-          { spanId: 'c2', name: 'medium_tool', toolName: 'read', inputTokens: 2000, outputTokens: 0, durationMs: 100 },
-          { spanId: 'c3', name: 'small_tool', toolName: null, inputTokens: 100, outputTokens: 0, durationMs: 100 },
-          { spanId: 'c4', name: 'tiny_tool', toolName: null, inputTokens: 10, outputTokens: 0, durationMs: 100 },
+          {
+            spanId: 'c1',
+            name: 'big_tool',
+            toolName: 'bash',
+            inputTokens: 5000,
+            outputTokens: 0,
+            durationMs: 100,
+          },
+          {
+            spanId: 'c2',
+            name: 'medium_tool',
+            toolName: 'read',
+            inputTokens: 2000,
+            outputTokens: 0,
+            durationMs: 100,
+          },
+          {
+            spanId: 'c3',
+            name: 'small_tool',
+            toolName: null,
+            inputTokens: 100,
+            outputTokens: 0,
+            durationMs: 100,
+          },
+          {
+            spanId: 'c4',
+            name: 'tiny_tool',
+            toolName: null,
+            inputTokens: 10,
+            outputTokens: 0,
+            durationMs: 100,
+          },
         ],
       })
       const context = makeContext({ turns: [spikeTurn] })
@@ -502,7 +548,7 @@ describe('Recommender', () => {
     })
 
     it('should NOT fire when cache hit rate is >= 30%', () => {
-      const efficiencyScore = makeEfficiencyScore({ avgCacheHitRate: 0.30 })
+      const efficiencyScore = makeEfficiencyScore({ avgCacheHitRate: 0.3 })
       const spans = [makeSpan({ inputTokens: 1000, cacheReadTokens: 300, outputTokens: 0 })]
       const context = makeContext({ efficiencyScore, allSpans: spans })
       const result = recommender.analyze(context)
@@ -608,7 +654,9 @@ describe('Recommender', () => {
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
-      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'big_consumer|tool')
+      const rec = result.find(
+        (r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'big_consumer|tool'
+      )
       expect(rec?.severity).toBe('critical')
     })
 
@@ -619,7 +667,9 @@ describe('Recommender', () => {
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
-      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'medium_consumer|tool')
+      const rec = result.find(
+        (r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'medium_consumer|tool'
+      )
       expect(rec?.severity).toBe('warning')
     })
 
@@ -631,7 +681,9 @@ describe('Recommender', () => {
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
-      const rec = result.find((r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'small_consumer|tool')
+      const rec = result.find(
+        (r) => r.ruleId === 'biggest_consumers' && r.actionTarget === 'small_consumer|tool'
+      )
       expect(rec?.severity).toBe('info')
     })
   })
@@ -647,7 +699,7 @@ describe('Recommender', () => {
       const consumers: ConsumerStats[] = [
         makeConsumer({ consumerKey: 'critical_op|tool', totalTokens: 80000, percentage: 80 }), // critical (>50K, >25%)
         makeConsumer({ consumerKey: 'warning_op|tool', totalTokens: 25000, percentage: 15 }), // warning (>20K, >10%)
-        makeConsumer({ consumerKey: 'info_op|tool', totalTokens: 12000, percentage: 6 }),      // info (>10K, ≤10%)
+        makeConsumer({ consumerKey: 'info_op|tool', totalTokens: 12000, percentage: 6 }), // info (>10K, ≤10%)
       ]
       const context = makeContext({ consumers })
       const result = recommender.analyze(context)
@@ -664,8 +716,18 @@ describe('Recommender', () => {
     it('should sort within same severity by potentialSavingsTokens descending', () => {
       // Two growing categories at the same severity (warning, >25%)
       const categories: CategoryStats[] = [
-        makeCategory({ category: 'file_reads', trend: 'growing', totalTokens: 3000, percentage: 30 }),
-        makeCategory({ category: 'tool_outputs', trend: 'growing', totalTokens: 2000, percentage: 26 }),
+        makeCategory({
+          category: 'file_reads',
+          trend: 'growing',
+          totalTokens: 3000,
+          percentage: 30,
+        }),
+        makeCategory({
+          category: 'tool_outputs',
+          trend: 'growing',
+          totalTokens: 2000,
+          percentage: 26,
+        }),
       ]
       const context = makeContext({ categories })
       const result = recommender.analyze(context)
@@ -718,7 +780,7 @@ describe('Recommender', () => {
     it('should emit warning for >30pp cache hit rate drop between consecutive dispatches', () => {
       // dispatch 1: 80%, dispatch 2: 45% → 35pp drop → warning
       const dispatchScores = [
-        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.80, timestamp: 1000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.8, timestamp: 1000 }),
         makeEfficiencyScore({ dispatchId: 'dispatch-2', avgCacheHitRate: 0.45, timestamp: 2000 }),
       ]
       const context = makeContext({ dispatchScores })
@@ -734,8 +796,8 @@ describe('Recommender', () => {
     it('should emit critical for >50pp cache hit rate drop between consecutive dispatches', () => {
       // dispatch 1: 90%, dispatch 2: 30% → 60pp drop → critical
       const dispatchScores = [
-        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.90, timestamp: 1000 }),
-        makeEfficiencyScore({ dispatchId: 'dispatch-2', avgCacheHitRate: 0.30, timestamp: 2000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.9, timestamp: 1000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-2', avgCacheHitRate: 0.3, timestamp: 2000 }),
       ]
       const context = makeContext({ dispatchScores })
       const result = recommender.analyze(context)
@@ -747,7 +809,7 @@ describe('Recommender', () => {
     it('should emit no recommendation when drop is exactly 30pp or less', () => {
       // dispatch 1: 70%, dispatch 2: 45% → 25pp drop → no rec
       const dispatchScores = [
-        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.70, timestamp: 1000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.7, timestamp: 1000 }),
         makeEfficiencyScore({ dispatchId: 'dispatch-2', avgCacheHitRate: 0.45, timestamp: 2000 }),
       ]
       const context = makeContext({ dispatchScores })
@@ -765,7 +827,7 @@ describe('Recommender', () => {
 
     it('should emit no recommendation when dispatchScores has exactly 1 entry', () => {
       const dispatchScores = [
-        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.90, timestamp: 1000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.9, timestamp: 1000 }),
       ]
       const context = makeContext({ dispatchScores })
       const result = recommender.analyze(context)
@@ -783,9 +845,9 @@ describe('Recommender', () => {
     it('should emit 2 recommendations for three dispatches with two regressions', () => {
       // Three dispatches all showing regression
       const dispatchScores = [
-        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.90, timestamp: 1000 }),
-        makeEfficiencyScore({ dispatchId: 'dispatch-2', avgCacheHitRate: 0.50, timestamp: 2000 }),
-        makeEfficiencyScore({ dispatchId: 'dispatch-3', avgCacheHitRate: 0.10, timestamp: 3000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.9, timestamp: 1000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-2', avgCacheHitRate: 0.5, timestamp: 2000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-3', avgCacheHitRate: 0.1, timestamp: 3000 }),
       ]
       const context = makeContext({ dispatchScores })
       const result = recommender.analyze(context)
@@ -796,9 +858,9 @@ describe('Recommender', () => {
     it('should emit recommendation only for regressing pair when first pair is fine', () => {
       // Pair 1: 0.80 → 0.75 (5pp drop, no rec); Pair 2: 0.75 → 0.20 (55pp drop, critical)
       const dispatchScores = [
-        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.80, timestamp: 1000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-1', avgCacheHitRate: 0.8, timestamp: 1000 }),
         makeEfficiencyScore({ dispatchId: 'dispatch-2', avgCacheHitRate: 0.75, timestamp: 2000 }),
-        makeEfficiencyScore({ dispatchId: 'dispatch-3', avgCacheHitRate: 0.20, timestamp: 3000 }),
+        makeEfficiencyScore({ dispatchId: 'dispatch-3', avgCacheHitRate: 0.2, timestamp: 3000 }),
       ]
       const context = makeContext({ dispatchScores })
       const result = recommender.analyze(context)
@@ -818,7 +880,7 @@ describe('Recommender', () => {
     it('should produce deterministic output for the sample fixture', () => {
       const fixturePath = resolve(
         process.cwd(),
-        'tests/fixtures/telemetry/sample-recommender-context.json',
+        'tests/fixtures/telemetry/sample-recommender-context.json'
       )
       const fixture = JSON.parse(readFileSync(fixturePath, 'utf-8')) as RecommenderContext
       // Pin generatedAt for determinism

@@ -78,11 +78,7 @@ describe('WorkerAdapter Interface', () => {
 
   describe('All adapters have unique ids', () => {
     it('built-in adapter ids are all distinct', () => {
-      const adapters = [
-        new ClaudeCodeAdapter(),
-        new CodexCLIAdapter(),
-        new GeminiCLIAdapter(),
-      ]
+      const adapters = [new ClaudeCodeAdapter(), new CodexCLIAdapter(), new GeminiCLIAdapter()]
       const ids = adapters.map((a) => a.id)
       const uniqueIds = new Set(ids)
       expect(uniqueIds.size).toBe(adapters.length)

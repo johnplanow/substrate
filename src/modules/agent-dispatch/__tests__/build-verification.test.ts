@@ -86,7 +86,13 @@ function makeExecError(opts: {
   stderr?: string
   killed?: boolean
   signal?: string | null
-}): Error & { status?: number | null; stdout?: string; stderr?: string; killed?: boolean; signal?: string | null } {
+}): Error & {
+  status?: number | null
+  stdout?: string
+  stderr?: string
+  killed?: boolean
+  signal?: string | null
+} {
   const err = new Error('Command failed') as Error & {
     status?: number | null
     stdout?: string
@@ -141,7 +147,7 @@ describe('runBuildVerification', () => {
 
     expect(mockExecSync).toHaveBeenCalledWith(
       DEFAULT_VERIFY_COMMAND,
-      expect.objectContaining({ cwd: projectRoot }),
+      expect.objectContaining({ cwd: projectRoot })
     )
   })
 
@@ -161,7 +167,7 @@ describe('runBuildVerification', () => {
 
     expect(mockExecSync).toHaveBeenCalledWith(
       'pnpm build',
-      expect.objectContaining({ cwd: projectRoot }),
+      expect.objectContaining({ cwd: projectRoot })
     )
   })
 
@@ -173,7 +179,7 @@ describe('runBuildVerification', () => {
 
     expect(mockExecSync).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ timeout: DEFAULT_VERIFY_TIMEOUT_MS }),
+      expect.objectContaining({ timeout: DEFAULT_VERIFY_TIMEOUT_MS })
     )
   })
 
@@ -185,7 +191,7 @@ describe('runBuildVerification', () => {
 
     expect(mockExecSync).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ timeout: 30_000 }),
+      expect.objectContaining({ timeout: 30_000 })
     )
   })
 
@@ -196,7 +202,9 @@ describe('runBuildVerification', () => {
   it('returns status: failed when command exits with non-zero code (AC3)', () => {
     mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ status: 1, stderr: 'Type error in foo.ts\n' })
-    mockExecSync.mockImplementation(() => { throw err })
+    mockExecSync.mockImplementation(() => {
+      throw err
+    })
 
     const result = runBuildVerification({ projectRoot })
 
@@ -207,8 +215,14 @@ describe('runBuildVerification', () => {
 
   it('captures stderr output in the result on build failure (AC3)', () => {
     mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
-    const err = makeExecError({ status: 1, stderr: 'Cannot find module "missing-module"', stdout: '' })
-    mockExecSync.mockImplementation(() => { throw err })
+    const err = makeExecError({
+      status: 1,
+      stderr: 'Cannot find module "missing-module"',
+      stdout: '',
+    })
+    mockExecSync.mockImplementation(() => {
+      throw err
+    })
 
     const result = runBuildVerification({ projectRoot })
 
@@ -218,7 +232,9 @@ describe('runBuildVerification', () => {
   it('combines stdout and stderr output on build failure', () => {
     mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ status: 1, stdout: 'partial output', stderr: 'error details' })
-    mockExecSync.mockImplementation(() => { throw err })
+    mockExecSync.mockImplementation(() => {
+      throw err
+    })
 
     const result = runBuildVerification({ projectRoot })
 
@@ -229,7 +245,9 @@ describe('runBuildVerification', () => {
   it('returns exitCode from error.status on failure', () => {
     mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ status: 2 })
-    mockExecSync.mockImplementation(() => { throw err })
+    mockExecSync.mockImplementation(() => {
+      throw err
+    })
 
     const result = runBuildVerification({ projectRoot })
 
@@ -243,7 +261,9 @@ describe('runBuildVerification', () => {
   it('returns status: timeout when process is killed due to timeout (AC8)', () => {
     mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ killed: true, signal: 'SIGTERM', status: null })
-    mockExecSync.mockImplementation(() => { throw err })
+    mockExecSync.mockImplementation(() => {
+      throw err
+    })
 
     const result = runBuildVerification({ projectRoot })
 
@@ -255,7 +275,9 @@ describe('runBuildVerification', () => {
   it('returns timeout reason when killed is true regardless of signal value', () => {
     mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ killed: true, signal: null, status: null })
-    mockExecSync.mockImplementation(() => { throw err })
+    mockExecSync.mockImplementation(() => {
+      throw err
+    })
 
     const result = runBuildVerification({ projectRoot })
 
@@ -299,7 +321,9 @@ describe('runBuildVerification', () => {
 
   it('handles non-Error throw from execSync gracefully', () => {
     mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
-    mockExecSync.mockImplementation(() => { throw 'string error' })
+    mockExecSync.mockImplementation(() => {
+      throw 'string error'
+    })
 
     const result = runBuildVerification({ projectRoot })
 
@@ -316,9 +340,12 @@ describe('runBuildVerification', () => {
     mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({
       status: 1,
-      stderr: 'npm error Missing script: "build"\nnpm error\nnpm error To see a list of scripts, run:\nnpm error   npm run\n',
+      stderr:
+        'npm error Missing script: "build"\nnpm error\nnpm error To see a list of scripts, run:\nnpm error   npm run\n',
     })
-    mockExecSync.mockImplementation(() => { throw err })
+    mockExecSync.mockImplementation(() => {
+      throw err
+    })
 
     const result = runBuildVerification({ projectRoot })
 
@@ -332,7 +359,9 @@ describe('runBuildVerification', () => {
       status: 1,
       stderr: 'error Command "build" not found.',
     })
-    mockExecSync.mockImplementation(() => { throw err })
+    mockExecSync.mockImplementation(() => {
+      throw err
+    })
 
     const result = runBuildVerification({ projectRoot })
 
@@ -346,7 +375,9 @@ describe('runBuildVerification', () => {
       status: 1,
       stderr: 'error TS2304: Cannot find name "foo".',
     })
-    mockExecSync.mockImplementation(() => { throw err })
+    mockExecSync.mockImplementation(() => {
+      throw err
+    })
 
     const result = runBuildVerification({ projectRoot })
 
@@ -360,7 +391,9 @@ describe('runBuildVerification', () => {
     // Simulate Buffer values (as execSync may return without encoding option)
     ;(err as Record<string, unknown>).stdout = Buffer.from('stdout bytes')
     ;(err as Record<string, unknown>).stderr = Buffer.from('stderr bytes')
-    mockExecSync.mockImplementation(() => { throw err })
+    mockExecSync.mockImplementation(() => {
+      throw err
+    })
 
     const result = runBuildVerification({ projectRoot })
 
@@ -380,7 +413,7 @@ describe('runBuildVerification', () => {
 
     expect(mockExecSync).toHaveBeenCalledWith(
       'pnpm run build',
-      expect.objectContaining({ cwd: projectRoot }),
+      expect.objectContaining({ cwd: projectRoot })
     )
 
     // AC4: logger.info must be called with the detection fields
@@ -390,7 +423,7 @@ describe('runBuildVerification', () => {
         lockfile: 'pnpm-lock.yaml',
         resolvedCommand: 'pnpm run build',
       }),
-      expect.any(String),
+      expect.any(String)
     )
   })
 
@@ -402,7 +435,7 @@ describe('runBuildVerification', () => {
 
     expect(mockExecSync).toHaveBeenCalledWith(
       'make build',
-      expect.objectContaining({ cwd: projectRoot }),
+      expect.objectContaining({ cwd: projectRoot })
     )
   })
 })
@@ -529,7 +562,11 @@ describe('detectPackageManager', () => {
   it('yarn wins over bun and npm in priority order (AC1)', () => {
     mockExistsSync.mockImplementation((p: unknown) => {
       const path = String(p)
-      return path.endsWith('yarn.lock') || path.endsWith('bun.lockb') || path.endsWith('package-lock.json')
+      return (
+        path.endsWith('yarn.lock') ||
+        path.endsWith('bun.lockb') ||
+        path.endsWith('package-lock.json')
+      )
     })
 
     const result = detectPackageManager(projectRoot)
@@ -556,9 +593,7 @@ describe('detectPackageManager', () => {
 
   describe('profile override (Story 37-3)', () => {
     it('AC1: returns buildCommand from profile when project-profile.yaml exists with buildCommand', () => {
-      mockExistsSync.mockImplementation((p: unknown) =>
-        String(p).endsWith('project-profile.yaml'),
-      )
+      mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('project-profile.yaml'))
       mockReadFileSync.mockReturnValue('project:\n  buildCommand: "turbo build"\n')
 
       const result = detectPackageManager(projectRoot)
@@ -607,9 +642,7 @@ describe('detectPackageManager', () => {
     })
 
     it('AC6: profile buildCommand runs through runBuildVerification and calls execSync', () => {
-      mockExistsSync.mockImplementation((p: unknown) =>
-        String(p).endsWith('project-profile.yaml'),
-      )
+      mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('project-profile.yaml'))
       mockReadFileSync.mockReturnValue('project:\n  buildCommand: "go build ./..."\n')
       mockExecSync.mockReturnValue('')
 
@@ -617,7 +650,7 @@ describe('detectPackageManager', () => {
 
       expect(mockExecSync).toHaveBeenCalledWith(
         'go build ./...',
-        expect.objectContaining({ cwd: projectRoot }),
+        expect.objectContaining({ cwd: projectRoot })
       )
       expect(result.status).toBe('passed')
     })
@@ -641,9 +674,11 @@ describe('detectPackageManager', () => {
     it('AC3: returns pnpm run build when no profile and no turbo.json but pnpm-lock.yaml exists', () => {
       mockExistsSync.mockImplementation((p: unknown) => {
         const path = String(p)
-        return !path.endsWith('project-profile.yaml') &&
+        return (
+          !path.endsWith('project-profile.yaml') &&
           !path.endsWith('turbo.json') &&
           path.endsWith('pnpm-lock.yaml')
+        )
       })
 
       const result = detectPackageManager(projectRoot)
@@ -655,9 +690,11 @@ describe('detectPackageManager', () => {
     it('AC4: skips build when no profile and no turbo.json but go.mod exists', () => {
       mockExistsSync.mockImplementation((p: unknown) => {
         const path = String(p)
-        return !path.endsWith('project-profile.yaml') &&
+        return (
+          !path.endsWith('project-profile.yaml') &&
           !path.endsWith('turbo.json') &&
           path.endsWith('go.mod')
+        )
       })
       mockExecSync.mockReturnValue('')
 
@@ -700,7 +737,7 @@ describe('deriveTurboFilters', () => {
 
     const result = deriveTurboFilters(
       ['apps/web/src/foo.ts', 'packages/db/src/bar.ts'],
-      '/fake/project',
+      '/fake/project'
     )
 
     expect(result).toContain('--filter=web')
@@ -709,10 +746,7 @@ describe('deriveTurboFilters', () => {
   })
 
   it('returns empty array for non-package paths', () => {
-    const result = deriveTurboFilters(
-      ['README.md', '.github/workflows/ci.yaml'],
-      '/fake/project',
-    )
+    const result = deriveTurboFilters(['README.md', '.github/workflows/ci.yaml'], '/fake/project')
     expect(result).toEqual([])
   })
 
@@ -721,18 +755,17 @@ describe('deriveTurboFilters', () => {
 
     const result = deriveTurboFilters(
       ['apps/web/src/a.ts', 'apps/web/src/b.ts', 'apps/web/src/c.ts'],
-      '/fake/project',
+      '/fake/project'
     )
     expect(result).toEqual(['--filter=web'])
   })
 
   it('skips directories without package.json (e.g., Go apps)', () => {
-    mockReadFileSync.mockImplementation(() => { throw new Error('ENOENT') })
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error('ENOENT')
+    })
 
-    const result = deriveTurboFilters(
-      ['apps/lock-service/internal/handler.go'],
-      '/fake/project',
-    )
+    const result = deriveTurboFilters(['apps/lock-service/internal/handler.go'], '/fake/project')
     expect(result).toEqual([])
   })
 })

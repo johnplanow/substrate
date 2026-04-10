@@ -87,8 +87,7 @@ describe('RepoMapInjector', () => {
     })
 
     it('deduplicates repeated file references', async () => {
-      const storyContent =
-        'See src/modules/foo/bar.ts and also src/modules/foo/bar.ts again.'
+      const storyContent = 'See src/modules/foo/bar.ts and also src/modules/foo/bar.ts again.'
       queryMock.mockResolvedValue(makeQueryResult({ symbolCount: 0 }))
 
       await injector.buildContext(storyContent)
@@ -110,7 +109,7 @@ describe('RepoMapInjector', () => {
       const result = await injector.buildContext(storyContent)
 
       expect(result).toEqual({ text: '', symbolCount: 0, truncated: false })
-      expect((logger.warn as Mock)).toHaveBeenCalledOnce()
+      expect(logger.warn as Mock).toHaveBeenCalledOnce()
     })
 
     it('logs warn with error message and storyContent snippet', async () => {
@@ -132,7 +131,9 @@ describe('RepoMapInjector', () => {
   describe('AC2 — zero symbols returned', () => {
     it('returns empty text and zero symbolCount when query returns no symbols', async () => {
       const storyContent = 'Modify src/modules/empty/module.ts.'
-      queryMock.mockResolvedValue(makeQueryResult({ symbols: [], symbolCount: 0, truncated: false }))
+      queryMock.mockResolvedValue(
+        makeQueryResult({ symbols: [], symbolCount: 0, truncated: false })
+      )
 
       const result = await injector.buildContext(storyContent)
 
@@ -176,8 +177,7 @@ describe('RepoMapInjector', () => {
   // -------------------------------------------------------------------------
   describe('test file filtering', () => {
     it('excludes .test.ts files from the query files array', async () => {
-      const storyContent =
-        'See src/modules/foo/__tests__/bar.test.ts and src/modules/foo/bar.ts.'
+      const storyContent = 'See src/modules/foo/__tests__/bar.test.ts and src/modules/foo/bar.ts.'
       queryMock.mockResolvedValue(makeQueryResult())
 
       await injector.buildContext(storyContent)
@@ -188,8 +188,7 @@ describe('RepoMapInjector', () => {
     })
 
     it('excludes .test.tsx files from the query files array', async () => {
-      const storyContent =
-        'Modify src/components/Button.test.tsx and src/components/Button.tsx.'
+      const storyContent = 'Modify src/components/Button.test.tsx and src/components/Button.tsx.'
       queryMock.mockResolvedValue(makeQueryResult())
 
       await injector.buildContext(storyContent)
@@ -243,8 +242,7 @@ describe('RepoMapInjector', () => {
   // -------------------------------------------------------------------------
   describe('AC5 — .substrate/ path exclusion guard', () => {
     it('does not query repo-map engine for .substrate/scenarios/ paths in story content', async () => {
-      const storyContent =
-        'Story references .substrate/scenarios/scenario-login.sh for context.'
+      const storyContent = 'Story references .substrate/scenarios/scenario-login.sh for context.'
       queryMock.mockResolvedValue(makeQueryResult())
 
       await injector.buildContext(storyContent)

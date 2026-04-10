@@ -14,7 +14,12 @@ import { registerArtifact, getPipelineRunById } from '../../../persistence/queri
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import { createPhaseOrchestrator } from '../phase-orchestrator-impl.js'
 import type { PhaseDefinition } from '../types.js'
-import { runGates, serializePhaseHistory, deserializePhaseHistory, parseConfigJson } from '../phase-orchestrator-impl.js'
+import {
+  runGates,
+  serializePhaseHistory,
+  deserializePhaseHistory,
+  parseConfigJson,
+} from '../phase-orchestrator-impl.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -56,7 +61,10 @@ function createNoGatePhase(name: string): PhaseDefinition {
 }
 
 // Register a product-brief artifact for a run (simulates analysis completing)
-async function registerProductBriefArtifact(adapter: DatabaseAdapter, runId: string): Promise<void> {
+async function registerProductBriefArtifact(
+  adapter: DatabaseAdapter,
+  runId: string
+): Promise<void> {
   await registerArtifact(adapter, {
     pipeline_run_id: runId,
     phase: 'analysis',
@@ -76,7 +84,10 @@ async function registerPrdArtifact(adapter: DatabaseAdapter, runId: string): Pro
   })
 }
 
-async function registerArchitectureArtifact(adapter: DatabaseAdapter, runId: string): Promise<void> {
+async function registerArchitectureArtifact(
+  adapter: DatabaseAdapter,
+  runId: string
+): Promise<void> {
   await registerArtifact(adapter, {
     pipeline_run_id: runId,
     phase: 'solutioning',
@@ -168,9 +179,7 @@ describe('PhaseOrchestrator — core', () => {
       const runId = await orchestrator.startRun('Test concept')
 
       expect(typeof runId).toBe('string')
-      expect(runId).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-      )
+      expect(runId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
 
       const run = await getPipelineRunById(adapter, runId)
       expect(run).toBeDefined()
@@ -211,7 +220,7 @@ describe('PhaseOrchestrator — core', () => {
       const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
       await expect(
-        orchestrator.getRunStatus('00000000-0000-0000-0000-000000000000'),
+        orchestrator.getRunStatus('00000000-0000-0000-0000-000000000000')
       ).rejects.toThrow()
     })
   })
@@ -364,9 +373,7 @@ describe('PhaseOrchestrator — core', () => {
       const pack = createMockPack()
       const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
-      await expect(
-        orchestrator.resumeRun('00000000-0000-0000-0000-000000000000'),
-      ).rejects.toThrow()
+      await expect(orchestrator.resumeRun('00000000-0000-0000-0000-000000000000')).rejects.toThrow()
     })
 
     it('resumeRun with no completed exit gates resumes at analysis', async () => {
@@ -502,7 +509,7 @@ describe('PhaseOrchestrator — core', () => {
       expect(typeof artifact.id).toBe('string')
     })
 
-    it('artifacts from different runs do not appear in each other\'s status', async () => {
+    it("artifacts from different runs do not appear in each other's status", async () => {
       const pack = createMockPack()
       const orchestrator = createPhaseOrchestrator({ db: adapter, pack })
 
@@ -709,7 +716,8 @@ describe('PhaseOrchestrator — core', () => {
 
       const runId = await orchestrator.startRun('Test concept', 'solutioning')
 
-      const failureReason = 'Solutioning phase failed: architecture_generation_failed — prompt too long'
+      const failureReason =
+        'Solutioning phase failed: architecture_generation_failed — prompt too long'
       await orchestrator.markPhaseFailed(runId, 'solutioning', failureReason)
 
       const runAfter = await getPipelineRunById(adapter, runId)

@@ -11,7 +11,10 @@ import { readFileSync, existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
-import { getDecisionsByPhase, getDecisionsByPhaseForRun } from '../../persistence/queries/decisions.js'
+import {
+  getDecisionsByPhase,
+  getDecisionsByPhaseForRun,
+} from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import { CreateStoryResultSchema } from './schemas.js'
@@ -56,9 +59,12 @@ export async function runCreateStory(
   // Resolve token ceiling: config override takes priority over hardcoded default
   const { ceiling: TOKEN_CEILING, source: tokenCeilingSource } = getTokenCeiling(
     'create-story',
-    deps.tokenCeilings,
+    deps.tokenCeilings
   )
-  logger.info({ workflow: 'create-story', ceiling: TOKEN_CEILING, source: tokenCeilingSource }, 'Token ceiling resolved')
+  logger.info(
+    { workflow: 'create-story', ceiling: TOKEN_CEILING, source: tokenCeilingSource },
+    'Token ceiling resolved'
+  )
 
   // Step 1: Get compiled prompt template
   let template: string
@@ -90,7 +96,7 @@ export async function runCreateStory(
   try {
     const storyDecisions = await getDecisionsByPhase(deps.db, 'solutioning')
     const storyDef = storyDecisions.find(
-      (d: Decision) => d.category === 'stories' && d.key === storyKey,
+      (d: Decision) => d.category === 'stories' && d.key === storyKey
     )
     if (storyDef) {
       storyDefinitionContent = storyDef.value
@@ -184,7 +190,8 @@ export async function runCreateStory(
 
   // Step 7: Handle failure and timeout
   if (dispatchResult.status === 'failed') {
-    const errorMsg = dispatchResult.parseError ?? `Dispatch failed with exit code ${dispatchResult.exitCode}`
+    const errorMsg =
+      dispatchResult.parseError ?? `Dispatch failed with exit code ${dispatchResult.exitCode}`
     const stderrDetail = dispatchResult.output ? ` Output: ${dispatchResult.output}` : ''
     logger.warn(
       {
@@ -193,7 +200,7 @@ export async function runCreateStory(
         exitCode: dispatchResult.exitCode,
         outputSnippet: dispatchResult.output?.slice(0, 500),
       },
-      'Create-story dispatch failed',
+      'Create-story dispatch failed'
     )
     return {
       result: 'failed',
@@ -215,10 +222,11 @@ export async function runCreateStory(
   if (dispatchResult.parsed === null) {
     const details = dispatchResult.parseError ?? 'No YAML block found in output'
     // Log up to 1000 chars of raw output to help diagnose missing YAML blocks
-    const rawSnippet = dispatchResult.output
-      ? dispatchResult.output.slice(0, 1000)
-      : '(empty)'
-    logger.warn({ epicId, storyKey, details, rawOutputSnippet: rawSnippet }, 'Create-story output schema validation failed')
+    const rawSnippet = dispatchResult.output ? dispatchResult.output.slice(0, 1000) : '(empty)'
+    logger.warn(
+      { epicId, storyKey, details, rawOutputSnippet: rawSnippet },
+      'Create-story output schema validation failed'
+    )
     return {
       result: 'failed',
       error: 'schema_validation_failed',
@@ -266,7 +274,10 @@ export async function runCreateStory(
  * decisions created before run IDs were tracked).
  * Returns an empty array and logs a warning if the query fails.
  */
-async function getImplementationDecisions(deps: WorkflowDeps, pipelineRunId?: string): Promise<Decision[]> {
+async function getImplementationDecisions(
+  deps: WorkflowDeps,
+  pipelineRunId?: string
+): Promise<Decision[]> {
   try {
     if (pipelineRunId) {
       const scoped = await getDecisionsByPhaseForRun(deps.db, pipelineRunId, 'implementation')
@@ -274,7 +285,10 @@ async function getImplementationDecisions(deps: WorkflowDeps, pipelineRunId?: st
     }
     return await getDecisionsByPhase(deps.db, 'implementation')
   } catch (err) {
-    logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to retrieve implementation decisions')
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      'Failed to retrieve implementation decisions'
+    )
     return []
   }
 }
@@ -307,7 +321,7 @@ export function extractStorySection(shardContent: string, storyKey: string): str
   // 4. Bare key with colon: "23-1:"
   const headingPattern = new RegExp(
     `(?:^#{2,4}\\s+Story\\s+${escaped}\\b|^Story\\s+${escaped}:|^\\*\\*${escaped}\\*\\*|^${escaped}:)`,
-    'mi',
+    'mi'
   )
 
   const match = headingPattern.exec(shardContent)
@@ -319,12 +333,11 @@ export function extractStorySection(shardContent: string, storyKey: string): str
   // Next story heading: any of the same patterns
   const nextStoryPattern = new RegExp(
     `(?:^#{2,4}\\s+Story\\s+[\\d]|^Story\\s+[\\d][\\d-]*:|^\\*\\*[\\d][\\d-]*\\*\\*|^[\\d][\\d-]*:)`,
-    'mi',
+    'mi'
   )
   const nextMatch = nextStoryPattern.exec(rest)
-  const endIdx = nextMatch !== null
-    ? startIdx + match[0].length + nextMatch.index
-    : shardContent.length
+  const endIdx =
+    nextMatch !== null ? startIdx + match[0].length + nextMatch.index : shardContent.length
 
   const section = shardContent.slice(startIdx, endIdx).trim()
   return section.length > 0 ? section : null
@@ -340,7 +353,12 @@ export function extractStorySection(shardContent: string, storyKey: string): str
  *      + extractStorySection() to narrow to the requested story.            → AC6
  *   3. File-based fallback: read epics.md from disk + extractStorySection(). → AC6
  */
-function getEpicShard(decisions: Decision[], epicId: string, projectRoot?: string, storyKey?: string): string {
+function getEpicShard(
+  decisions: Decision[],
+  epicId: string,
+  projectRoot?: string,
+  storyKey?: string
+): string {
   try {
     // AC4: Direct per-story lookup (post-37-0 schema — key = storyKey)
     if (storyKey) {
@@ -364,10 +382,16 @@ function getEpicShard(decisions: Decision[], epicId: string, projectRoot?: strin
       if (storyKey) {
         const storySection = extractStorySection(shardContent, storyKey)
         if (storySection) {
-          logger.debug({ epicId, storyKey }, 'Extracted per-story section from epic shard (pre-37-0 fallback)')
+          logger.debug(
+            { epicId, storyKey },
+            'Extracted per-story section from epic shard (pre-37-0 fallback)'
+          )
           return storySection
         }
-        logger.debug({ epicId, storyKey }, 'No matching story section found — using full epic shard')
+        logger.debug(
+          { epicId, storyKey },
+          'No matching story section found — using full epic shard'
+        )
       }
       return shardContent
     }
@@ -380,7 +404,10 @@ function getEpicShard(decisions: Decision[], epicId: string, projectRoot?: strin
         if (storyKey) {
           const storySection = extractStorySection(fallback, storyKey)
           if (storySection) {
-            logger.debug({ epicId, storyKey }, 'Extracted per-story section from file-based epic shard')
+            logger.debug(
+              { epicId, storyKey },
+              'Extracted per-story section from file-based epic shard'
+            )
             return storySection
           }
         }
@@ -390,7 +417,10 @@ function getEpicShard(decisions: Decision[], epicId: string, projectRoot?: strin
 
     return ''
   } catch (err) {
-    logger.warn({ epicId, error: err instanceof Error ? err.message : String(err) }, 'Failed to retrieve epic shard')
+    logger.warn(
+      { epicId, error: err instanceof Error ? err.message : String(err) },
+      'Failed to retrieve epic shard'
+    )
     return ''
   }
 }
@@ -408,7 +438,10 @@ function getPrevDevNotes(decisions: Decision[], epicId: string): string {
     if (devNotes.length === 0) return ''
     return devNotes[devNotes.length - 1].value
   } catch (err) {
-    logger.warn({ epicId, error: err instanceof Error ? err.message : String(err) }, 'Failed to retrieve prev dev notes')
+    logger.warn(
+      { epicId, error: err instanceof Error ? err.message : String(err) },
+      'Failed to retrieve prev dev notes'
+    )
     return ''
   }
 }
@@ -436,17 +469,23 @@ async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
 
       // Summarize: keep each decision's first line (key: value) and truncate
       // long values to prevent agent loop exhaustion on large architecture docs
-      const summarized = constraints.map((d: Decision) => {
-        const lines = d.value.split('\n')
-        const header = lines[0] ?? d.key
-        const body = lines.slice(1).join('\n')
-        const truncatedBody = body.length > 300 ? body.slice(0, 297) + '...' : body
-        return `${header}\n${truncatedBody}`
-      }).join('\n\n')
+      const summarized = constraints
+        .map((d: Decision) => {
+          const lines = d.value.split('\n')
+          const header = lines[0] ?? d.key
+          const body = lines.slice(1).join('\n')
+          const truncatedBody = body.length > 300 ? body.slice(0, 297) + '...' : body
+          return `${header}\n${truncatedBody}`
+        })
+        .join('\n\n')
 
       logger.info(
-        { fullLength: full.length, summarizedLength: summarized.length, decisions: constraints.length },
-        'Architecture constraints summarized to fit create-story budget',
+        {
+          fullLength: full.length,
+          summarizedLength: summarized.length,
+          decisions: constraints.length,
+        },
+        'Architecture constraints summarized to fit create-story budget'
       )
       return summarized.slice(0, ARCH_CONSTRAINT_MAX_CHARS)
     }
@@ -455,7 +494,9 @@ async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
     if (deps.projectRoot) {
       const fallback = readArchConstraintsFromFile(deps.projectRoot)
       if (fallback) {
-        logger.info('Using file-based fallback for architecture constraints (decisions table empty)')
+        logger.info(
+          'Using file-based fallback for architecture constraints (decisions table empty)'
+        )
         return fallback.length > ARCH_CONSTRAINT_MAX_CHARS
           ? fallback.slice(0, ARCH_CONSTRAINT_MAX_CHARS) + '\n\n[truncated for token budget]'
           : fallback
@@ -464,7 +505,10 @@ async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
 
     return ''
   } catch (err) {
-    logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to retrieve architecture constraints')
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      'Failed to retrieve architecture constraints'
+    )
     return ''
   }
 }
@@ -488,10 +532,7 @@ function readEpicShardFromFile(projectRoot: string, epicId: string): string {
     // Extract the numeric part of epicId (e.g., '7' from '7' or 'epic-7')
     const epicNum = epicId.replace(/^epic-/i, '')
     // Step 1: Find the epic heading and detect its heading level (##, ###, or ####)
-    const headingPattern = new RegExp(
-      `^(#{2,4})\\s+(?:Epic\\s+)?${epicNum}[.:\\s]`,
-      'm',
-    )
+    const headingPattern = new RegExp(`^(#{2,4})\\s+(?:Epic\\s+)?${epicNum}[.:\\s]`, 'm')
     const headingMatch = headingPattern.exec(content)
     if (!headingMatch) return ''
 
@@ -508,7 +549,10 @@ function readEpicShardFromFile(projectRoot: string, epicId: string): string {
 
     return content.slice(startIdx, endIdx).trim()
   } catch (err) {
-    logger.warn({ epicId, error: err instanceof Error ? err.message : String(err) }, 'File-based epic shard fallback failed')
+    logger.warn(
+      { epicId, error: err instanceof Error ? err.message : String(err) },
+      'File-based epic shard fallback failed'
+    )
     return ''
   }
 }
@@ -532,7 +576,10 @@ function readArchConstraintsFromFile(projectRoot: string): string {
     // Return a truncated version to fit within the token budget
     return content.slice(0, 1500)
   } catch (err) {
-    logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'File-based architecture fallback failed')
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      'File-based architecture fallback failed'
+    )
     return ''
   }
 }
@@ -546,7 +593,10 @@ async function getStoryTemplate(deps: WorkflowDeps): Promise<string> {
   try {
     return await deps.pack.getTemplate('story')
   } catch (err) {
-    logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to retrieve story template from pack')
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      'Failed to retrieve story template from pack'
+    )
     return ''
   }
 }
@@ -564,7 +614,9 @@ async function getStoryTemplate(deps: WorkflowDeps): Promise<string> {
  *
  * @returns `{ valid: true }` or `{ valid: false, reason: 'empty' | 'missing_structure' }`
  */
-export async function isValidStoryFile(filePath: string): Promise<{ valid: boolean; reason?: string }> {
+export async function isValidStoryFile(
+  filePath: string
+): Promise<{ valid: boolean; reason?: string }> {
   try {
     const content = await readFile(filePath, 'utf-8')
     if (content.trim().length === 0) {

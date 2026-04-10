@@ -3,11 +3,6 @@
  *
  * @see packages/core/src/dispatch/interface-change-detector.ts
  */
-export {
-  detectInterfaceChanges,
-  extractExportedNames,
-} from '@substrate-ai/core'
+export { detectInterfaceChanges, extractExportedNames } from '@substrate-ai/core'
 
-export type {
-  InterfaceChangeResult,
-} from '@substrate-ai/core'
+export type { InterfaceChangeResult } from '@substrate-ai/core'

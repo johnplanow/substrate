@@ -55,7 +55,9 @@ export function discoverPackageJsonPaths(projectRoot: string): string[] {
   // Parse workspaces from root package.json
   let workspaceGlobs: string[] = []
   try {
-    const rootPkg = JSON.parse(readFileSync(rootPkgPath, 'utf-8')) as { workspaces?: string[] | { packages?: string[] } }
+    const rootPkg = JSON.parse(readFileSync(rootPkgPath, 'utf-8')) as {
+      workspaces?: string[] | { packages?: string[] }
+    }
     if (Array.isArray(rootPkg.workspaces)) {
       workspaceGlobs = rootPkg.workspaces
     } else if (rootPkg.workspaces && Array.isArray(rootPkg.workspaces.packages)) {
@@ -147,7 +149,7 @@ export function detectPackageChanges(snapshot: PackageSnapshotData, projectRoot:
  */
 export function restorePackageSnapshot(
   snapshot: PackageSnapshotData,
-  options: { projectRoot: string; timeoutMs?: number },
+  options: { projectRoot: string; timeoutMs?: number }
 ): RestoreResult {
   const { projectRoot, timeoutMs = 120_000 } = options
   let filesRestored = 0
@@ -170,12 +172,18 @@ export function restorePackageSnapshot(
       encoding: 'utf-8',
       stdio: 'pipe',
     })
-    logger.info({ filesRestored, installCommand: snapshot.installCommand }, 'Package snapshot restored successfully')
+    logger.info(
+      { filesRestored, installCommand: snapshot.installCommand },
+      'Package snapshot restored successfully'
+    )
 
     return { restored: true, filesRestored, installExitCode: 0 }
   } catch (err: unknown) {
     const exitCode = (err as { status?: number }).status ?? 1
-    logger.warn({ filesRestored, exitCode, err }, 'Package snapshot restore failed during npm install')
+    logger.warn(
+      { filesRestored, exitCode, err },
+      'Package snapshot restore failed during npm install'
+    )
     return { restored: false, filesRestored, installExitCode: exitCode, error: String(err) }
   }
 }

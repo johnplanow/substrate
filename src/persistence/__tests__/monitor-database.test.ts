@@ -70,7 +70,7 @@ describe('MonitorDatabaseImpl', () => {
 
   it('creates all required tables on initialization', async () => {
     const tables = await adapter.query<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
     )
 
     const tableNames = tables.map((t) => t.name)
@@ -82,7 +82,7 @@ describe('MonitorDatabaseImpl', () => {
 
   it('creates all required indexes for task_metrics', async () => {
     const indexes = await adapter.query<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_metrics'",
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_metrics'"
     )
 
     const indexNames = indexes.map((i) => i.name)
@@ -137,7 +137,7 @@ describe('MonitorDatabaseImpl', () => {
 
     const results = await adapter.query<{ outcome: string; failure_reason: string }>(
       'SELECT * FROM task_metrics WHERE task_id = ?',
-      ['task-fail'],
+      ['task-fail']
     )
 
     expect(results[0]!.outcome).toBe('failure')
@@ -145,7 +145,9 @@ describe('MonitorDatabaseImpl', () => {
   })
 
   it('can insert multiple metrics rows', async () => {
-    db.insertTaskMetrics(makeMetricsRow({ taskId: 'task-1', recordedAt: new Date(Date.now() - 1000).toISOString() }))
+    db.insertTaskMetrics(
+      makeMetricsRow({ taskId: 'task-1', recordedAt: new Date(Date.now() - 1000).toISOString() })
+    )
     db.insertTaskMetrics(makeMetricsRow({ taskId: 'task-2', recordedAt: new Date().toISOString() }))
     db.insertTaskMetrics(makeMetricsRow({ taskId: 'task-3', agent: 'codex', taskType: 'testing' }))
 
@@ -208,16 +210,40 @@ describe('MonitorDatabaseImpl', () => {
   // -------------------------------------------------------------------------
 
   it('returns all aggregates when no filter provided', () => {
-    db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 10, outputTokens: 20, durationMs: 50, cost: 0.01 })
-    db.updateAggregates('codex', 'testing', { outcome: 'success', inputTokens: 20, outputTokens: 40, durationMs: 100, cost: 0.02 })
+    db.updateAggregates('claude', 'coding', {
+      outcome: 'success',
+      inputTokens: 10,
+      outputTokens: 20,
+      durationMs: 50,
+      cost: 0.01,
+    })
+    db.updateAggregates('codex', 'testing', {
+      outcome: 'success',
+      inputTokens: 20,
+      outputTokens: 40,
+      durationMs: 100,
+      cost: 0.02,
+    })
 
     const aggregates = db.getAggregates()
     expect(aggregates.length).toBe(2)
   })
 
   it('filters aggregates by agent', () => {
-    db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 10, outputTokens: 20, durationMs: 50, cost: 0.01 })
-    db.updateAggregates('codex', 'testing', { outcome: 'success', inputTokens: 20, outputTokens: 40, durationMs: 100, cost: 0.02 })
+    db.updateAggregates('claude', 'coding', {
+      outcome: 'success',
+      inputTokens: 10,
+      outputTokens: 20,
+      durationMs: 50,
+      cost: 0.01,
+    })
+    db.updateAggregates('codex', 'testing', {
+      outcome: 'success',
+      inputTokens: 20,
+      outputTokens: 40,
+      durationMs: 100,
+      cost: 0.02,
+    })
 
     const aggregates = db.getAggregates({ agent: 'claude' })
     expect(aggregates).toHaveLength(1)
@@ -225,8 +251,20 @@ describe('MonitorDatabaseImpl', () => {
   })
 
   it('filters aggregates by taskType', () => {
-    db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 10, outputTokens: 20, durationMs: 50, cost: 0.01 })
-    db.updateAggregates('codex', 'testing', { outcome: 'success', inputTokens: 20, outputTokens: 40, durationMs: 100, cost: 0.02 })
+    db.updateAggregates('claude', 'coding', {
+      outcome: 'success',
+      inputTokens: 10,
+      outputTokens: 20,
+      durationMs: 50,
+      cost: 0.01,
+    })
+    db.updateAggregates('codex', 'testing', {
+      outcome: 'success',
+      inputTokens: 20,
+      outputTokens: 40,
+      durationMs: 100,
+      cost: 0.02,
+    })
 
     const aggregates = db.getAggregates({ taskType: 'testing' })
     expect(aggregates).toHaveLength(1)
@@ -235,8 +273,20 @@ describe('MonitorDatabaseImpl', () => {
 
   it('filters aggregates by sinceDate using performance_aggregates.last_updated (AC2/AC3)', () => {
     // updateAggregates sets last_updated to now, so these rows will pass a recent sinceDate filter
-    db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
-    db.updateAggregates('codex', 'testing', { outcome: 'success', inputTokens: 200, outputTokens: 0, durationMs: 0, cost: 0 })
+    db.updateAggregates('claude', 'coding', {
+      outcome: 'success',
+      inputTokens: 100,
+      outputTokens: 0,
+      durationMs: 0,
+      cost: 0,
+    })
+    db.updateAggregates('codex', 'testing', {
+      outcome: 'success',
+      inputTokens: 200,
+      outputTokens: 0,
+      durationMs: 0,
+      cost: 0,
+    })
 
     // Filter to only rows updated since 5 days ago — both rows were just written, so both should pass
     const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
@@ -246,7 +296,13 @@ describe('MonitorDatabaseImpl', () => {
   })
 
   it('returns empty array when sinceDate is in the future', () => {
-    db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+    db.updateAggregates('claude', 'coding', {
+      outcome: 'success',
+      inputTokens: 100,
+      outputTokens: 0,
+      durationMs: 0,
+      cost: 0,
+    })
 
     const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
     const aggregates = db.getAggregates({ sinceDate: futureDate })
@@ -273,7 +329,9 @@ describe('MonitorDatabaseImpl', () => {
   })
 
   it('returns 0 when no records are old enough to prune', () => {
-    db.insertTaskMetrics(makeMetricsRow({ taskId: 'recent-task', recordedAt: new Date().toISOString() }))
+    db.insertTaskMetrics(
+      makeMetricsRow({ taskId: 'recent-task', recordedAt: new Date().toISOString() })
+    )
 
     const deleted = db.pruneOldData(90)
     expect(deleted).toBe(0)
@@ -298,12 +356,42 @@ describe('MonitorDatabaseImpl', () => {
     const recent = new Date().toISOString()
 
     // Insert old and recent metrics
-    db.insertTaskMetrics(makeMetricsRow({ taskId: 'old-success', agent: 'claude', taskType: 'coding', outcome: 'success', inputTokens: 1000, recordedAt: old }))
-    db.insertTaskMetrics(makeMetricsRow({ taskId: 'new-success', agent: 'claude', taskType: 'coding', outcome: 'success', inputTokens: 200, recordedAt: recent }))
+    db.insertTaskMetrics(
+      makeMetricsRow({
+        taskId: 'old-success',
+        agent: 'claude',
+        taskType: 'coding',
+        outcome: 'success',
+        inputTokens: 1000,
+        recordedAt: old,
+      })
+    )
+    db.insertTaskMetrics(
+      makeMetricsRow({
+        taskId: 'new-success',
+        agent: 'claude',
+        taskType: 'coding',
+        outcome: 'success',
+        inputTokens: 200,
+        recordedAt: recent,
+      })
+    )
 
     // Manually update aggregates to include old record's data
-    db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 1000, outputTokens: 0, durationMs: 0, cost: 0 })
-    db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 200, outputTokens: 0, durationMs: 0, cost: 0 })
+    db.updateAggregates('claude', 'coding', {
+      outcome: 'success',
+      inputTokens: 1000,
+      outputTokens: 0,
+      durationMs: 0,
+      cost: 0,
+    })
+    db.updateAggregates('claude', 'coding', {
+      outcome: 'success',
+      inputTokens: 200,
+      outputTokens: 0,
+      durationMs: 0,
+      cost: 0,
+    })
 
     // Prune old data
     db.pruneOldData(90)
@@ -320,7 +408,13 @@ describe('MonitorDatabaseImpl', () => {
   it('clears aggregates when all metrics are pruned', () => {
     const old = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString()
     db.insertTaskMetrics(makeMetricsRow({ taskId: 'old-task', recordedAt: old }))
-    db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+    db.updateAggregates('claude', 'coding', {
+      outcome: 'success',
+      inputTokens: 100,
+      outputTokens: 0,
+      durationMs: 0,
+      cost: 0,
+    })
 
     db.pruneOldData(90)
     db.rebuildAggregates()
@@ -349,12 +443,22 @@ describe('MonitorDatabaseImpl', () => {
   it('resetAllData() deletes all task_metrics and performance_aggregates rows', async () => {
     db.insertTaskMetrics(makeMetricsRow({ taskId: 'task-1' }))
     db.insertTaskMetrics(makeMetricsRow({ taskId: 'task-2' }))
-    db.updateAggregates('claude', 'coding', { outcome: 'success', inputTokens: 100, outputTokens: 0, durationMs: 0, cost: 0 })
+    db.updateAggregates('claude', 'coding', {
+      outcome: 'success',
+      inputTokens: 100,
+      outputTokens: 0,
+      durationMs: 0,
+      cost: 0,
+    })
 
     db.resetAllData()
 
-    const metricsRows = await adapter.query<{ cnt: number }>('SELECT COUNT(*) as cnt FROM task_metrics')
-    const aggRows = await adapter.query<{ cnt: number }>('SELECT COUNT(*) as cnt FROM performance_aggregates')
+    const metricsRows = await adapter.query<{ cnt: number }>(
+      'SELECT COUNT(*) as cnt FROM task_metrics'
+    )
+    const aggRows = await adapter.query<{ cnt: number }>(
+      'SELECT COUNT(*) as cnt FROM performance_aggregates'
+    )
 
     expect(metricsRows[0]!.cnt).toBe(0)
     expect(aggRows[0]!.cnt).toBe(0)
