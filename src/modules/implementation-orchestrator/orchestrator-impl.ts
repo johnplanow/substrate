@@ -2527,9 +2527,23 @@ export function createImplementationOrchestrator(
           }
         }
 
-        if (hasNewCommits) {
+        if (hasNewCommits && baselineHeadSha) {
+          // Recover the file list from the committed diff (baseline..HEAD)
+          try {
+            const committedFiles = execSync(`git diff --name-only ${baselineHeadSha}..HEAD`, {
+              cwd: projectRoot ?? process.cwd(),
+              encoding: 'utf-8',
+              timeout: 5000,
+              stdio: ['ignore', 'pipe', 'pipe'],
+            }).trim()
+            if (committedFiles.length > 0) {
+              gitDiffFiles = committedFiles.split('\n').filter(Boolean)
+            }
+          } catch {
+            // git failed — gitDiffFiles stays empty, code review will use baselineCommit fallback
+          }
           logger.info(
-            { storyKey, baselineHeadSha },
+            { storyKey, baselineHeadSha, committedFileCount: gitDiffFiles?.length ?? 0 },
             'Working tree clean but new commits detected since dispatch — skipping zero-diff escalation'
           )
         } else {
@@ -3060,6 +3074,8 @@ export function createImplementationOrchestrator(
               buildPassed: _buildPassed,
               // Scope re-reviews: pass previous issues so the reviewer verifies fixes first
               ...(previousIssueList.length > 0 ? { previousIssues: previousIssueList } : {}),
+              // Pass baseline commit so code review can diff committed changes
+              ...(baselineHeadSha ? { baselineCommit: baselineHeadSha } : {}),
             }
           )
         }

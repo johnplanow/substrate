@@ -30,6 +30,8 @@ import {
   getGitDiffStatForFiles,
   stageIntentToAdd,
   getGitChangedFiles,
+  getGitDiffBetweenCommits,
+  getGitDiffStatBetweenCommits,
 } from './git-helpers.js'
 import { getTokenCeiling } from './token-ceiling.js'
 import { ScopeGuardrail } from './scope-guardrail.js'
@@ -152,6 +154,7 @@ export async function runCodeReview(
     filesModified,
     previousIssues,
     buildPassed,
+    baselineCommit,
   } = params
   const cwd = workingDirectory ?? process.cwd()
 
@@ -236,6 +239,28 @@ export async function runCodeReview(
         'Full git diff would exceed token ceiling — using stat-only summary'
       )
       gitDiffContent = await getGitDiffStatSummary(cwd)
+    }
+  }
+
+  // When working tree diff is empty but a baseline commit is available, the agent
+  // likely committed its work. Diff against the baseline to capture what changed.
+  if (gitDiffContent.trim().length === 0 && baselineCommit) {
+    logger.info(
+      { storyKey, baselineCommit },
+      'Working tree diff empty — diffing against baseline commit'
+    )
+    const commitDiff = await getGitDiffBetweenCommits(baselineCommit, 'HEAD', cwd)
+    const commitTotal = nonDiffTokens + countTokens(commitDiff)
+    if (commitDiff.trim().length > 0) {
+      if (commitTotal <= TOKEN_CEILING) {
+        gitDiffContent = commitDiff
+      } else {
+        logger.warn(
+          { estimatedTotal: commitTotal, ceiling: TOKEN_CEILING },
+          'Baseline..HEAD diff exceeds token ceiling — using stat-only summary'
+        )
+        gitDiffContent = await getGitDiffStatBetweenCommits(baselineCommit, 'HEAD', cwd)
+      }
     }
   }
 
