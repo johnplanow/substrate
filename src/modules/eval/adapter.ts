@@ -40,15 +40,27 @@ export class PromptfooAdapter implements EvalAdapter {
 
       const evalResult = await promptfoo.evaluate(testSuite as any)
 
-      const testResults = evalResult.results?.[0]?.results ?? []
-      const assertionResults: AssertionResult[] = testResults.map(
-        (r: any, i: number) => ({
-          name: assertions[i]?.label ?? `assertion-${i}`,
-          score: r.score ?? (r.success ? 1.0 : 0.0),
-          pass: r.success ?? false,
-          reason: r.reason ?? '',
-        }),
-      )
+      // promptfoo's Eval.results is EvalResult[] — one entry per test case.
+      // We submit a single test with N assertions, so there's one row whose
+      // gradingResult.componentResults holds per-assertion grading. When there
+      // is only one assertion, promptfoo may skip componentResults and put the
+      // single result at the top level — fall back to that.
+      const testResult = (evalResult as { results?: Array<{ gradingResult?: any }> })
+        .results?.[0]
+      const grading = testResult?.gradingResult
+      const componentResults: Array<{ pass?: boolean; score?: number; reason?: string }> =
+        Array.isArray(grading?.componentResults) && grading.componentResults.length > 0
+          ? grading.componentResults
+          : grading
+            ? [grading]
+            : []
+
+      const assertionResults: AssertionResult[] = componentResults.map((r, i) => ({
+        name: assertions[i]?.label ?? `assertion-${i}`,
+        score: r.score ?? (r.pass ? 1.0 : 0.0),
+        pass: r.pass ?? false,
+        reason: r.reason ?? '',
+      }))
 
       const avgScore =
         assertionResults.length > 0

@@ -15,23 +15,30 @@ describe('PromptfooAdapter', () => {
     const { default: promptfoo } = await import('promptfoo')
     const mockEvaluate = vi.mocked(promptfoo.evaluate)
 
+    // New promptfoo shape: Eval.results is EvalResult[], each with a
+    // gradingResult whose componentResults array holds per-assertion scores.
     mockEvaluate.mockResolvedValueOnce({
       results: [
         {
-          results: [
-            {
-              success: true,
-              score: 0.9,
-              reason: 'Output follows instructions well',
-              assertion: { type: 'llm-rubric', value: 'test rubric' },
-            },
-            {
-              success: true,
-              score: 0.8,
-              reason: 'Good coverage of required sections',
-              assertion: { type: 'llm-rubric', value: 'section check' },
-            },
-          ],
+          gradingResult: {
+            pass: true,
+            score: 0.85,
+            reason: 'Aggregated pass',
+            componentResults: [
+              {
+                pass: true,
+                score: 0.9,
+                reason: 'Output follows instructions well',
+                assertion: { type: 'llm-rubric', value: 'test rubric' },
+              },
+              {
+                pass: true,
+                score: 0.8,
+                reason: 'Good coverage of required sections',
+                assertion: { type: 'llm-rubric', value: 'section check' },
+              },
+            ],
+          },
         },
       ],
       stats: { successes: 2, failures: 0 },
@@ -57,17 +64,18 @@ describe('PromptfooAdapter', () => {
     const { default: promptfoo } = await import('promptfoo')
     const mockEvaluate = vi.mocked(promptfoo.evaluate)
 
+    // Single-assertion case: no componentResults — the gradingResult itself
+    // is the one result. Adapter should fall back to treating it as a
+    // single-element array.
     mockEvaluate.mockResolvedValueOnce({
       results: [
         {
-          results: [
-            {
-              success: false,
-              score: 0.4,
-              reason: 'Output ignores key instructions',
-              assertion: { type: 'llm-rubric', value: 'rubric' },
-            },
-          ],
+          gradingResult: {
+            pass: false,
+            score: 0.4,
+            reason: 'Output ignores key instructions',
+            assertion: { type: 'llm-rubric', value: 'rubric' },
+          },
         },
       ],
       stats: { successes: 0, failures: 1 },
