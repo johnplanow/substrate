@@ -126,6 +126,45 @@ describe('EvalEngine deep tier', () => {
     }
   }
 
+  it('applies rubric weights to compute weighted score', async () => {
+    const adapter = mockAdapterDeep({
+      'rubric': {
+        layer: 'rubric',
+        score: 0.75, // simple mean of 0.9 and 0.6 — should be overwritten
+        pass: true,
+        assertions: [
+          { name: 'rubric:a', score: 0.9, pass: true, reason: 'good' },
+          { name: 'rubric:b', score: 0.6, pass: true, reason: 'ok' },
+        ],
+      },
+    })
+
+    const engine = new EvalEngine(adapter)
+
+    const phases: PhaseData[] = [
+      {
+        phase: 'analysis',
+        output: 'output',
+        promptTemplate: '', // skip prompt compliance by having empty template
+        context: {},
+        rubric: {
+          dimensions: [
+            { name: 'a', weight: 0.8, prompt: 'check a' },
+            { name: 'b', weight: 0.2, prompt: 'check b' },
+          ],
+        },
+      },
+    ]
+
+    const report = await engine.evaluate(phases, 'deep', 'run-003')
+
+    // Weighted score: 0.8 * 0.9 + 0.2 * 0.6 = 0.72 + 0.12 = 0.84
+    // NOT the simple mean of 0.75 that came from the adapter
+    const rubricLayer = report.phases[0].layers.find((l) => l.layer === 'rubric')
+    expect(rubricLayer).toBeDefined()
+    expect(rubricLayer!.score).toBeCloseTo(0.84, 2)
+  })
+
   it('runs golden comparison and cross-phase analysis in deep mode', async () => {
     const adapter = mockAdapterDeep({
       'prompt-compliance': {

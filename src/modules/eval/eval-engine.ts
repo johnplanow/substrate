@@ -113,7 +113,7 @@ export class EvalEngine {
       }
     }
 
-    // Deep tier: rubric scoring
+    // Deep tier: rubric scoring (with weighted aggregation)
     if (depth === 'deep' && phaseData.rubric) {
       const rubricAssertions = this.rubricScorer.buildAssertions(phaseData.rubric)
       if (rubricAssertions.length > 0) {
@@ -122,7 +122,29 @@ export class EvalEngine {
           rubricAssertions,
           'rubric',
         )
-        layers.push(result)
+
+        // Build per-dimension scores map from assertion results
+        // (assertion labels are `rubric:<dimension-name>`)
+        const dimensionScores: Record<string, number> = {}
+        for (const a of result.assertions) {
+          if (a.name.startsWith('rubric:')) {
+            const dimName = a.name.slice('rubric:'.length)
+            dimensionScores[dimName] = a.score
+          }
+        }
+
+        // Apply dimension weights from the rubric
+        const weightedScore = this.rubricScorer.weightedScore(
+          phaseData.rubric,
+          dimensionScores,
+        )
+
+        // Overwrite the layer score with the weighted version
+        layers.push({
+          ...result,
+          score: weightedScore,
+          pass: weightedScore >= DEFAULT_PASS_THRESHOLD,
+        })
       }
     }
 
