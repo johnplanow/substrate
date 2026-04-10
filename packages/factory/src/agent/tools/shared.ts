@@ -23,13 +23,22 @@ export function createSharedTools(shellTimeoutMs = 10_000): ToolDefinition[] {
 function createReadFileTool(): ToolDefinition<{ path: string; offset?: number; limit?: number }> {
   return {
     name: 'read_file',
-    description: 'Read a file from the filesystem, with optional offset and limit for line ranges. Returns content with 1-based line numbers.',
+    description:
+      'Read a file from the filesystem, with optional offset and limit for line ranges. Returns content with 1-based line numbers.',
     inputSchema: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Path to the file to read' },
-        offset: { type: 'number', minimum: 1, description: 'Line number to start reading from (1-based, optional)' },
-        limit: { type: 'number', minimum: 1, description: 'Maximum number of lines to read (optional)' },
+        offset: {
+          type: 'number',
+          minimum: 1,
+          description: 'Line number to start reading from (1-based, optional)',
+        },
+        limit: {
+          type: 'number',
+          minimum: 1,
+          description: 'Maximum number of lines to read (optional)',
+        },
       },
       required: ['path'],
     },
@@ -38,7 +47,8 @@ function createReadFileTool(): ToolDefinition<{ path: string; offset?: number; l
       const raw = await readFile(args.path, 'utf-8')
       const lines = raw.split('\n')
       const offset = args.offset !== undefined ? args.offset - 1 : 0
-      const slice = args.limit !== undefined ? lines.slice(offset, offset + args.limit) : lines.slice(offset)
+      const slice =
+        args.limit !== undefined ? lines.slice(offset, offset + args.limit) : lines.slice(offset)
       const numbered = slice.map((line, i) => {
         const lineNum = offset + i + 1
         return `${String(lineNum).padStart(3)}\t${line}`
@@ -70,7 +80,9 @@ function createWriteFileTool(): ToolDefinition<{ path: string; content: string }
   }
 }
 
-function createShellTool(shellTimeoutMs: number): ToolDefinition<{ command: string; timeout_ms?: number }> {
+function createShellTool(
+  shellTimeoutMs: number
+): ToolDefinition<{ command: string; timeout_ms?: number }> {
   return {
     name: 'shell',
     description: 'Execute a shell command and return its output.',
@@ -89,7 +101,7 @@ function createShellTool(shellTimeoutMs: number): ToolDefinition<{ command: stri
       if (result.exitCode !== 0) {
         throw new Error(
           [result.stdout, result.stderr].filter(Boolean).join('\n') ||
-          `Command failed with exit code ${result.exitCode}`,
+            `Command failed with exit code ${result.exitCode}`
         )
       }
       const combined = [result.stdout, result.stderr].filter(Boolean).join('\n')
@@ -98,10 +110,13 @@ function createShellTool(shellTimeoutMs: number): ToolDefinition<{ command: stri
   }
 }
 
-function createGrepTool(shellTimeoutMs: number): ToolDefinition<{ pattern: string; paths: string[] }> {
+function createGrepTool(
+  shellTimeoutMs: number
+): ToolDefinition<{ pattern: string; paths: string[] }> {
   return {
     name: 'grep',
-    description: 'Search for a regex pattern in files. Returns matching lines with filenames and line numbers.',
+    description:
+      'Search for a regex pattern in files. Returns matching lines with filenames and line numbers.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -124,7 +139,7 @@ function createGrepTool(shellTimeoutMs: number): ToolDefinition<{ pattern: strin
       }
       // Escape double quotes and use -- to separate options from arguments
       const escapedPattern = args.pattern.replace(/"/g, '\\"')
-      const escapedPaths = args.paths.map(p => `"${p.replace(/"/g, '\\"')}"`).join(' ')
+      const escapedPaths = args.paths.map((p) => `"${p.replace(/"/g, '\\"')}"`).join(' ')
       const cmd = `rg --no-heading -n -- "${escapedPattern}" ${escapedPaths} 2>&1`
       try {
         const result = await env.exec(cmd, shellTimeoutMs)

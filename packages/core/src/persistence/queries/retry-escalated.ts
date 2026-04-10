@@ -56,7 +56,7 @@ export interface RetryableEscalationsResult {
  */
 export async function getRetryableEscalations(
   adapter: DatabaseAdapter,
-  runId?: string,
+  runId?: string
 ): Promise<RetryableEscalationsResult> {
   const decisions = await getDecisionsByCategory(adapter, ESCALATION_DIAGNOSIS)
   const result: RetryableEscalationsResult = { retryable: [], skipped: [] }
@@ -98,7 +98,7 @@ export async function getRetryableEscalations(
   // Determine effective runId:
   // - If caller supplies a runId, use it (AC5)
   // - Otherwise, use the runId of the last decision (most recently created = latest run) (AC1)
-  const effectiveRunId: string = runId ?? (parsed[parsed.length - 1]!.decisionRunId)
+  const effectiveRunId: string = runId ?? parsed[parsed.length - 1]!.decisionRunId
 
   // Deduplicate by storyKey: keep the last entry per storyKey (last write wins since the
   // list is ordered by created_at ASC — later entries in the array are more recent).

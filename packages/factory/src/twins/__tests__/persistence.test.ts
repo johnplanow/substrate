@@ -41,17 +41,17 @@ describe('AC1: twin_runs table', () => {
   it('exists after factorySchema — INSERT succeeds', async () => {
     await expect(
       adapter.query(
-        "INSERT INTO twin_runs (id, twin_name, started_at, status) VALUES ('t1', 'localstack', '2026-01-01T00:00:00.000Z', 'running')",
-      ),
+        "INSERT INTO twin_runs (id, twin_name, started_at, status) VALUES ('t1', 'localstack', '2026-01-01T00:00:00.000Z', 'running')"
+      )
     ).resolves.toBeDefined()
   })
 
   it('has ports_json column (nullable)', async () => {
     await adapter.query(
-      "INSERT INTO twin_runs (id, twin_name, started_at, status, ports_json) VALUES ('t2', 'wiremock', '2026-01-01T00:00:00.000Z', 'running', NULL)",
+      "INSERT INTO twin_runs (id, twin_name, started_at, status, ports_json) VALUES ('t2', 'wiremock', '2026-01-01T00:00:00.000Z', 'running', NULL)"
     )
     const rows = await adapter.query<{ ports_json: string | null }>(
-      "SELECT ports_json FROM twin_runs WHERE id = 't2'",
+      "SELECT ports_json FROM twin_runs WHERE id = 't2'"
     )
     expect(rows[0]?.ports_json).toBeNull()
   })
@@ -65,17 +65,17 @@ describe('AC2: twin_health_failures table', () => {
   it('exists after factorySchema — INSERT succeeds', async () => {
     await expect(
       adapter.query(
-        "INSERT INTO twin_health_failures (twin_name, checked_at, error_message) VALUES ('localstack', '2026-01-01T00:00:00.000Z', 'connect ECONNREFUSED')",
-      ),
+        "INSERT INTO twin_health_failures (twin_name, checked_at, error_message) VALUES ('localstack', '2026-01-01T00:00:00.000Z', 'connect ECONNREFUSED')"
+      )
     ).resolves.toBeDefined()
   })
 
   it('supports querying by twin_name via idx_twin_health_failures_twin', async () => {
     await adapter.query(
-      "INSERT INTO twin_health_failures (twin_name, checked_at, error_message) VALUES ('wiremock', '2026-01-01T00:00:00.000Z', 'timeout')",
+      "INSERT INTO twin_health_failures (twin_name, checked_at, error_message) VALUES ('wiremock', '2026-01-01T00:00:00.000Z', 'timeout')"
     )
     const rows = await adapter.query<{ error_message: string }>(
-      "SELECT error_message FROM twin_health_failures WHERE twin_name = 'wiremock'",
+      "SELECT error_message FROM twin_health_failures WHERE twin_name = 'wiremock'"
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]?.error_message).toBe('timeout')
@@ -114,10 +114,7 @@ describe('AC3: insertTwinRun', () => {
         { host: 4572, container: 4572 },
       ],
     })
-    const rows = await adapter.query<TwinRunRow>(
-      'SELECT * FROM twin_runs WHERE id = ?',
-      [id],
-    )
+    const rows = await adapter.query<TwinRunRow>('SELECT * FROM twin_runs WHERE id = ?', [id])
     expect(rows).toHaveLength(1)
     const row = rows[0]!
     expect(row.twin_name).toBe('localstack')
@@ -134,10 +131,7 @@ describe('AC3: insertTwinRun', () => {
       ports: [],
       run_id: 'factory-run-abc',
     })
-    const rows = await adapter.query<TwinRunRow>(
-      'SELECT * FROM twin_runs WHERE id = ?',
-      [id],
-    )
+    const rows = await adapter.query<TwinRunRow>('SELECT * FROM twin_runs WHERE id = ?', [id])
     expect(rows[0]?.run_id).toBe('factory-run-abc')
   })
 
@@ -146,10 +140,7 @@ describe('AC3: insertTwinRun', () => {
       twin_name: 'localstack',
       ports: [],
     })
-    const rows = await adapter.query<TwinRunRow>(
-      'SELECT status FROM twin_runs WHERE id = ?',
-      [id],
-    )
+    const rows = await adapter.query<TwinRunRow>('SELECT status FROM twin_runs WHERE id = ?', [id])
     expect(rows[0]?.status).toBe('running')
   })
 })
@@ -167,10 +158,7 @@ describe('AC4: updateTwinRun', () => {
     const stoppedAt = '2026-03-23T12:00:00.000Z'
     await updateTwinRun(adapter, id, { status: 'stopped', stopped_at: stoppedAt })
 
-    const rows = await adapter.query<TwinRunRow>(
-      'SELECT * FROM twin_runs WHERE id = ?',
-      [id],
-    )
+    const rows = await adapter.query<TwinRunRow>('SELECT * FROM twin_runs WHERE id = ?', [id])
     expect(rows[0]?.status).toBe('stopped')
     expect(rows[0]?.stopped_at).toBe(stoppedAt)
   })
@@ -188,8 +176,12 @@ describe('AC5: recordTwinHealthFailure', () => {
       error_message: 'connect ECONNREFUSED 127.0.0.1:4566',
     })
 
-    const rows = await adapter.query<{ twin_name: string; error_message: string; run_id: string | null }>(
-      "SELECT twin_name, error_message, run_id FROM twin_health_failures WHERE twin_name = 'localstack'",
+    const rows = await adapter.query<{
+      twin_name: string
+      error_message: string
+      run_id: string | null
+    }>(
+      "SELECT twin_name, error_message, run_id FROM twin_health_failures WHERE twin_name = 'localstack'"
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]?.twin_name).toBe('localstack')
@@ -206,10 +198,14 @@ describe('AC5: recordTwinHealthFailure', () => {
     const after = new Date().toISOString()
 
     const rows = await adapter.query<{ checked_at: string }>(
-      "SELECT checked_at FROM twin_health_failures WHERE twin_name = 'wiremock'",
+      "SELECT checked_at FROM twin_health_failures WHERE twin_name = 'wiremock'"
     )
-    expect(new Date(rows[0]?.checked_at ?? '').getTime()).toBeGreaterThanOrEqual(new Date(before).getTime())
-    expect(new Date(rows[0]?.checked_at ?? '').getTime()).toBeLessThanOrEqual(new Date(after).getTime())
+    expect(new Date(rows[0]?.checked_at ?? '').getTime()).toBeGreaterThanOrEqual(
+      new Date(before).getTime()
+    )
+    expect(new Date(rows[0]?.checked_at ?? '').getTime()).toBeLessThanOrEqual(
+      new Date(after).getTime()
+    )
   })
 })
 
@@ -272,7 +268,7 @@ describe('AC6: getTwinRunsForRun', () => {
     // Insert directly with null ports_json
     await adapter.query(
       "INSERT INTO twin_runs (id, run_id, twin_name, started_at, status) VALUES ('no-ports-id', ?, 'no-ports-twin', '2026-01-01T00:00:00.000Z', 'running')",
-      [runId],
+      [runId]
     )
 
     const summaries = await getTwinRunsForRun(adapter, runId)
@@ -303,7 +299,7 @@ describe('AC6: getTwinRunsForRun', () => {
 async function pollUntil(
   predicate: () => Promise<boolean>,
   maxAttempts = 100,
-  intervalMs = 1,
+  intervalMs = 1
 ): Promise<void> {
   for (let i = 0; i < maxAttempts; i++) {
     if (await predicate()) return
@@ -327,13 +323,13 @@ describe('AC7: TwinPersistenceCoordinator', () => {
     // Poll until the row appears — deterministic, no fixed-delay timeout
     await pollUntil(async () => {
       const rows = await adapter.query<TwinRunRow>(
-        "SELECT * FROM twin_runs WHERE twin_name = 'localstack'",
+        "SELECT * FROM twin_runs WHERE twin_name = 'localstack'"
       )
       return rows.length > 0
     })
 
     const rows = await adapter.query<TwinRunRow>(
-      "SELECT * FROM twin_runs WHERE twin_name = 'localstack'",
+      "SELECT * FROM twin_runs WHERE twin_name = 'localstack'"
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]?.status).toBe('running')
@@ -355,7 +351,7 @@ describe('AC7: TwinPersistenceCoordinator', () => {
     // (guards against twin:stopped firing before the row id is stored)
     await pollUntil(async () => {
       const rows = await adapter.query<TwinRunRow>(
-        "SELECT * FROM twin_runs WHERE twin_name = 'localstack'",
+        "SELECT * FROM twin_runs WHERE twin_name = 'localstack'"
       )
       return rows.length > 0
     })
@@ -365,13 +361,13 @@ describe('AC7: TwinPersistenceCoordinator', () => {
     // Poll until updateTwinRun has committed the stopped status
     await pollUntil(async () => {
       const rows = await adapter.query<TwinRunRow>(
-        "SELECT status FROM twin_runs WHERE twin_name = 'localstack'",
+        "SELECT status FROM twin_runs WHERE twin_name = 'localstack'"
       )
       return rows[0]?.status === 'stopped'
     })
 
     const rows = await adapter.query<TwinRunRow>(
-      "SELECT * FROM twin_runs WHERE twin_name = 'localstack'",
+      "SELECT * FROM twin_runs WHERE twin_name = 'localstack'"
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]?.status).toBe('stopped')
@@ -391,14 +387,16 @@ describe('AC7: TwinPersistenceCoordinator', () => {
     // Poll until the health failure record is persisted
     await pollUntil(async () => {
       const rows = await adapter.query<{ twin_name: string; error_message: string }>(
-        "SELECT * FROM twin_health_failures WHERE twin_name = 'wiremock'",
+        "SELECT * FROM twin_health_failures WHERE twin_name = 'wiremock'"
       )
       return rows.length > 0
     })
 
-    const rows = await adapter.query<{ twin_name: string; error_message: string; run_id: string | null }>(
-      "SELECT * FROM twin_health_failures WHERE twin_name = 'wiremock'",
-    )
+    const rows = await adapter.query<{
+      twin_name: string
+      error_message: string
+      run_id: string | null
+    }>("SELECT * FROM twin_health_failures WHERE twin_name = 'wiremock'")
     expect(rows).toHaveLength(1)
     expect(rows[0]?.error_message).toBe('connection refused on port 8080')
     expect(rows[0]?.run_id).toBe('run-health-1')

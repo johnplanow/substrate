@@ -180,7 +180,8 @@ export class RoutingDecisionBuilder {
     if (this._fallbackChain !== undefined) decision.fallbackChain = this._fallbackChain
     if (this._estimatedCostUsd !== undefined) decision.estimatedCostUsd = this._estimatedCostUsd
     if (this._rateLimit !== undefined) decision.rateLimit = this._rateLimit
-    if (this._monitorRecommendation !== undefined) decision.monitorRecommendation = this._monitorRecommendation
+    if (this._monitorRecommendation !== undefined)
+      decision.monitorRecommendation = this._monitorRecommendation
     return decision
   }
 }

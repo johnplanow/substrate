@@ -171,7 +171,7 @@ export interface AnalysisReport {
  */
 export function analyzeTokenEfficiency(
   stories: StoryMetricsRow[],
-  baselineStories: StoryMetricsRow[],
+  baselineStories: StoryMetricsRow[]
 ): TokenEfficiencyFinding[] {
   const baselineMap = new Map<string, StoryMetricsRow>()
   for (const bs of baselineStories) {
@@ -219,7 +219,7 @@ export function analyzeTokenEfficiency(
  */
 export function analyzeTimings(
   stories: StoryMetricsRow[],
-  concurrencySetting?: number,
+  concurrencySetting?: number
 ): TimingAnalysis {
   const phaseTotal: Record<string, number> = {}
   const highConcentrationStories: TimingFinding[] = []
@@ -282,9 +282,7 @@ export function analyzeTimings(
 
   const totalPhaseTime = Object.values(phaseTotal).reduce((s, v) => s + (v ?? 0), 0)
   const bottleneckPct =
-    totalPhaseTime > 0
-      ? Math.round((bottleneckSeconds / totalPhaseTime) * 100 * 10) / 10
-      : 0
+    totalPhaseTime > 0 ? Math.round((bottleneckSeconds / totalPhaseTime) * 100 * 10) / 10 : 0
 
   // Effective concurrency = (sum of story wall-clocks) / (total elapsed)
   let effective_concurrency: number | null = null
@@ -324,7 +322,7 @@ export function generateRecommendations(
     avg_cycles_baseline: number | null
     delta_pct: number | null
   },
-  timing: TimingAnalysis,
+  timing: TimingAnalysis
 ): AnalysisRecommendation[] {
   const recs: AnalysisRecommendation[] = []
 
@@ -384,7 +382,7 @@ export function generateAnalysisReport(
   run: RunMetricsRow,
   stories: StoryMetricsRow[],
   baseline: RunMetricsRow | undefined,
-  baselineStories: StoryMetricsRow[],
+  baselineStories: StoryMetricsRow[]
 ): AnalysisReport {
   const generated_at = new Date().toISOString()
 
@@ -403,22 +401,17 @@ export function generateAnalysisReport(
   const wall_clock_baseline = baseline?.wall_clock_seconds ?? null
   const wall_clock_delta_pct =
     wall_clock_baseline !== null && wall_clock_baseline > 0
-      ? Math.round(
-          ((wall_clock_seconds - wall_clock_baseline) / wall_clock_baseline) * 100 * 10,
-        ) / 10
+      ? Math.round(((wall_clock_seconds - wall_clock_baseline) / wall_clock_baseline) * 100 * 10) /
+        10
       : null
 
-  const avg_review_cycles = computeAvg(stories.map(s => s.review_cycles ?? 0))
+  const avg_review_cycles = computeAvg(stories.map((s) => s.review_cycles ?? 0))
   const avg_review_cycles_baseline =
-    baselineStories.length > 0
-      ? computeAvg(baselineStories.map(s => s.review_cycles ?? 0))
-      : null
+    baselineStories.length > 0 ? computeAvg(baselineStories.map((s) => s.review_cycles ?? 0)) : null
   const review_cycles_delta_pct =
     avg_review_cycles_baseline !== null && avg_review_cycles_baseline > 0
       ? Math.round(
-          ((avg_review_cycles - avg_review_cycles_baseline) / avg_review_cycles_baseline) *
-            100 *
-            10,
+          ((avg_review_cycles - avg_review_cycles_baseline) / avg_review_cycles_baseline) * 100 * 10
         ) / 10
       : null
 
@@ -445,9 +438,9 @@ export function generateAnalysisReport(
   // analyzeReviewCycles (in the monolith) adds SDLC-specific issue_patterns extraction;
   // here we produce a structurally correct result with empty issue_patterns.
   const highCycleStories = stories
-    .filter(s => (s.review_cycles ?? 0) > 2)
+    .filter((s) => (s.review_cycles ?? 0) > 2)
     .sort((a, b) => (b.review_cycles ?? 0) - (a.review_cycles ?? 0))
-    .map(s => ({
+    .map((s) => ({
       story_key: s.story_key,
       phase: 'code-review',
       review_cycles: s.review_cycles ?? 0,
@@ -472,7 +465,13 @@ export function generateAnalysisReport(
   }
 
   // --- Markdown ---
-  const markdown = buildMarkdownReport(run.run_id, generated_at, baseline?.run_id, summary, findings)
+  const markdown = buildMarkdownReport(
+    run.run_id,
+    generated_at,
+    baseline?.run_id,
+    summary,
+    findings
+  )
 
   return {
     run_id: run.run_id,
@@ -493,7 +492,7 @@ export function generateAnalysisReport(
  */
 export function writeAnalysisReport(
   report: AnalysisReport,
-  projectRoot: string,
+  projectRoot: string
 ): { mdPath: string; jsonPath: string } {
   const dir = path.join(projectRoot, '_bmad-output', 'supervisor-reports')
   fs.mkdirSync(dir, { recursive: true })
@@ -513,9 +512,9 @@ export function writeAnalysisReport(
         findings: report.findings,
       },
       null,
-      2,
+      2
     ),
-    'utf8',
+    'utf8'
   )
 
   return { mdPath, jsonPath }
@@ -553,7 +552,7 @@ function buildMarkdownReport(
   generatedAt: string,
   baselineRunId: string | undefined,
   summary: AnalysisSummary,
-  findings: AnalysisFindings,
+  findings: AnalysisFindings
 ): string {
   const lines: string[] = []
 
@@ -571,7 +570,9 @@ function buildMarkdownReport(
   const tokenDeltaStr =
     summary.token_delta_pct !== null ? `, delta: ${fmtPct(summary.token_delta_pct)}` : ''
   const baselineTokenStr =
-    summary.total_tokens_baseline !== null ? ` (baseline: ${summary.total_tokens_baseline}${tokenDeltaStr})` : ''
+    summary.total_tokens_baseline !== null
+      ? ` (baseline: ${summary.total_tokens_baseline}${tokenDeltaStr})`
+      : ''
   lines.push(`- Total tokens: ${summary.total_tokens}${baselineTokenStr}`)
 
   const clockMin = (summary.wall_clock_seconds / 60).toFixed(1)
@@ -581,7 +582,7 @@ function buildMarkdownReport(
       : ''
   lines.push(`- Wall clock: ${clockMin}m${baselineClockStr}`)
   lines.push(
-    `- Stories: ${summary.stories_succeeded} succeeded, ${summary.stories_failed} failed, ${summary.stories_escalated} escalated`,
+    `- Stories: ${summary.stories_succeeded} succeeded, ${summary.stories_failed} failed, ${summary.stories_escalated} escalated`
   )
   const baselineCycleStr =
     summary.avg_review_cycles_baseline !== null
@@ -591,7 +592,10 @@ function buildMarkdownReport(
   lines.push('')
 
   // Regressions
-  if (findings.token_efficiency.length > 0 || findings.review_cycles.high_cycle_stories.length > 0) {
+  if (
+    findings.token_efficiency.length > 0 ||
+    findings.review_cycles.high_cycle_stories.length > 0
+  ) {
     lines.push('## Regressions')
 
     if (findings.token_efficiency.length > 0) {
@@ -601,7 +605,7 @@ function buildMarkdownReport(
       lines.push('|-------|-------|--------|----------|-------|')
       for (const f of findings.token_efficiency) {
         lines.push(
-          `| ${f.story_key} | ${f.phase} | ${f.tokens_actual} | ${f.tokens_baseline} | ${fmtPct(f.delta_pct)} |`,
+          `| ${f.story_key} | ${f.phase} | ${f.tokens_actual} | ${f.tokens_baseline} | ${fmtPct(f.delta_pct)} |`
         )
       }
     }
@@ -620,12 +624,15 @@ function buildMarkdownReport(
   }
 
   // Timing
-  if (findings.timing.bottleneck_phase !== null || findings.timing.high_phase_concentration_stories.length > 0) {
+  if (
+    findings.timing.bottleneck_phase !== null ||
+    findings.timing.high_phase_concentration_stories.length > 0
+  ) {
     lines.push('## Timing Analysis')
 
     if (findings.timing.bottleneck_phase !== null) {
       lines.push(
-        `- Bottleneck phase: **${findings.timing.bottleneck_phase}** (${findings.timing.bottleneck_phase_seconds.toFixed(1)}s, ${findings.timing.bottleneck_phase_pct}% of total phase time)`,
+        `- Bottleneck phase: **${findings.timing.bottleneck_phase}** (${findings.timing.bottleneck_phase_seconds.toFixed(1)}s, ${findings.timing.bottleneck_phase_pct}% of total phase time)`
       )
     }
     if (findings.timing.effective_concurrency !== null) {
@@ -633,7 +640,9 @@ function buildMarkdownReport(
         findings.timing.configured_concurrency !== null
           ? ` (configured: ${findings.timing.configured_concurrency}, ratio: ${findings.timing.concurrency_ratio ?? 'N/A'})`
           : ''
-      lines.push(`- Effective concurrency: ${findings.timing.effective_concurrency}x${configuredStr}`)
+      lines.push(
+        `- Effective concurrency: ${findings.timing.effective_concurrency}x${configuredStr}`
+      )
     }
 
     if (findings.timing.high_phase_concentration_stories.length > 0) {
@@ -643,7 +652,7 @@ function buildMarkdownReport(
       lines.push('|-------|---------------|------------|------------|---|')
       for (const f of findings.timing.high_phase_concentration_stories) {
         lines.push(
-          `| ${f.story_key} | ${f.dominant_phase} | ${f.dominant_phase_seconds.toFixed(1)}s | ${f.total_seconds.toFixed(1)}s | ${f.dominant_phase_pct}% |`,
+          `| ${f.story_key} | ${f.dominant_phase} | ${f.dominant_phase_seconds.toFixed(1)}s | ${f.total_seconds.toFixed(1)}s | ${f.dominant_phase_pct}% |`
         )
       }
     }
@@ -657,7 +666,7 @@ function buildMarkdownReport(
     lines.push('')
     for (let i = 0; i < findings.recommendations.length; i++) {
       const r = findings.recommendations[i]
-      const label = r?.story_key ? `${r.type} in ${r.story_key}` : r?.type ?? ''
+      const label = r?.story_key ? `${r.type} in ${r.story_key}` : (r?.type ?? '')
       lines.push(`${i + 1}. **${label}**: ${r?.recommendation ?? ''}`)
     }
     lines.push('')
@@ -669,10 +678,17 @@ function buildMarkdownReport(
   lines.push('```json')
   lines.push(
     JSON.stringify(
-      { summary, findings: { token_efficiency: findings.token_efficiency, review_cycles: findings.review_cycles, timing: findings.timing } },
+      {
+        summary,
+        findings: {
+          token_efficiency: findings.token_efficiency,
+          review_cycles: findings.review_cycles,
+          timing: findings.timing,
+        },
+      },
       null,
-      2,
-    ),
+      2
+    )
   )
   lines.push('```')
   lines.push('')

@@ -54,10 +54,7 @@ export function deriveProvider(model: string): string {
  */
 export function buildMiddlewareChain(
   middleware: MiddlewareFn[],
-  base: MiddlewareNext,
+  base: MiddlewareNext
 ): MiddlewareNext {
-  return middleware.reduceRight<MiddlewareNext>(
-    (next, mw) => (req) => mw(req, next),
-    base,
-  )
+  return middleware.reduceRight<MiddlewareNext>((next, mw) => (req) => mw(req, next), base)
 }

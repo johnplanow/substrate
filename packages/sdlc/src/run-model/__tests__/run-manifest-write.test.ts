@@ -27,7 +27,9 @@ function makeTempDir(): string {
 }
 
 /** Build a minimal RunManifestData for tests (omitting generation/updated_at). */
-function makeData(overrides?: Partial<Omit<RunManifestData, 'generation' | 'updated_at'>>): Omit<RunManifestData, 'generation' | 'updated_at'> {
+function makeData(
+  overrides?: Partial<Omit<RunManifestData, 'generation' | 'updated_at'>>
+): Omit<RunManifestData, 'generation' | 'updated_at'> {
   const cost: CostAccumulation = { per_story: {}, run_total: 0 }
   return {
     run_id: 'test-run-1',
@@ -160,7 +162,8 @@ describe('RunManifest — write path', () => {
   // AC5: latency under 50ms with 30 story entries
   // -------------------------------------------------------------------------
 
-  it('AC5: write() with 30 story entries completes in <50ms', async () => { // latency-sensitive
+  it('AC5: write() with 30 story entries completes in <50ms', async () => {
+    // latency-sensitive
     await fs.mkdir(tempDir, { recursive: true })
     const manifest = new RunManifest(runId, tempDir)
     const data = makeData({

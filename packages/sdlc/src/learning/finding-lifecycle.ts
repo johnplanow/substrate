@@ -42,8 +42,8 @@ export class FindingLifecycleManager {
       return finding
     }
 
-    const existingCount = finding.affected_files.filter(
-      (f) => existsSync(join(projectRoot, f)),
+    const existingCount = finding.affected_files.filter((f) =>
+      existsSync(join(projectRoot, f))
     ).length
 
     if (existingCount === 0) {
@@ -99,7 +99,7 @@ export class FindingLifecycleManager {
         `SELECT COUNT(DISTINCT pipeline_run_id) AS cnt
          FROM decisions
          WHERE created_at > ? AND pipeline_run_id != ?`,
-        [finding.created_at, finding.run_id],
+        [finding.created_at, finding.run_id]
       )
       return Number(result[0]?.cnt ?? 0)
     } catch {
@@ -123,7 +123,11 @@ export class FindingLifecycleManager {
    *
    * AC4: async — interacts with the DB
    */
-  static async archiveFinding(finding: Finding, currentRunId: string, db: DatabaseAdapter): Promise<void> {
+  static async archiveFinding(
+    finding: Finding,
+    currentRunId: string,
+    db: DatabaseAdapter
+  ): Promise<void> {
     try {
       await createDecision(db, {
         category: LEARNING_FINDING,
@@ -147,7 +151,10 @@ export class FindingLifecycleManager {
    *
    * AC5: async — interacts with the DB
    */
-  static async retireContradictedFindings(successContext: SuccessContext, db: DatabaseAdapter): Promise<void> {
+  static async retireContradictedFindings(
+    successContext: SuccessContext,
+    db: DatabaseAdapter
+  ): Promise<void> {
     try {
       const rows = await getDecisionsByCategory(db, LEARNING_FINDING)
 

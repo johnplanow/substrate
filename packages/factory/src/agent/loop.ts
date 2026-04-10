@@ -96,7 +96,7 @@ export function convertHistoryToMessages(history: Turn[]): LLMMessage[] {
       case 'tool_results':
         messages.push({
           role: 'user',
-          content: turn.results.map(r => ({
+          content: turn.results.map((r) => ({
             kind: 'tool_result',
             toolResult: {
               toolCallId: r.tool_call_id,
@@ -123,7 +123,7 @@ export function buildLLMRequest(session: CodingAgentSession): LLMRequest {
   const config = session.config
 
   // Convert ToolDefinition[] → LLMToolDefinition[]
-  const tools = profile.tools().map(t => ({
+  const tools = profile.tools().map((t) => ({
     name: t.name,
     description: t.description,
     parameters: t.inputSchema,
@@ -420,7 +420,7 @@ export class CodingAgentSession {
   private async _executeToolCalls(toolCalls: LLMToolCall[]): Promise<ToolCallResult[]> {
     if (this.providerProfile.supports_parallel_tool_calls && toolCalls.length > 1) {
       // Parallel dispatch
-      return Promise.all(toolCalls.map(tc => this._executeSingleTool(tc)))
+      return Promise.all(toolCalls.map((tc) => this._executeSingleTool(tc)))
     } else {
       // Sequential dispatch
       const results: ToolCallResult[] = []
@@ -459,7 +459,7 @@ export class CodingAgentSession {
     const toolResult = await this._toolRegistry.execute(
       toolCall.name,
       toolCall.arguments,
-      this.executionEnv,
+      this.executionEnv
     )
 
     const rawOutput = toolResult.content

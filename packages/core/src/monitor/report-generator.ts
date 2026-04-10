@@ -63,7 +63,7 @@ export interface ReportGeneratorOptions {
 
 export function generateMonitorReport(
   monitorDb: MonitorDatabase,
-  options: ReportGeneratorOptions = {},
+  options: ReportGeneratorOptions = {}
 ): MonitorReport {
   const { sinceDate, includeRecommendations = false } = options
   const generatedAt = new Date().toISOString()
@@ -71,15 +71,18 @@ export function generateMonitorReport(
   const aggregates = monitorDb.getAggregates(sinceDate ? { sinceDate } : undefined)
 
   // Per-agent summaries
-  const agentMap = new Map<string, {
-    totalTasks: number
-    successfulTasks: number
-    failedTasks: number
-    totalInputTokens: number
-    totalOutputTokens: number
-    totalDurationMs: number
-    lastUpdated: string | null
-  }>()
+  const agentMap = new Map<
+    string,
+    {
+      totalTasks: number
+      successfulTasks: number
+      failedTasks: number
+      totalInputTokens: number
+      totalOutputTokens: number
+      totalDurationMs: number
+      lastUpdated: string | null
+    }
+  >()
 
   for (const agg of aggregates) {
     const existing = agentMap.get(agg.agent)
@@ -116,21 +119,29 @@ export function generateMonitorReport(
       total_tasks: totalTasks,
       success_rate: totalTasks > 0 ? (stats.successfulTasks / totalTasks) * 100 : 0,
       failure_rate: totalTasks > 0 ? (stats.failedTasks / totalTasks) * 100 : 0,
-      average_tokens: totalTasks > 0 ? (stats.totalInputTokens + stats.totalOutputTokens) / totalTasks : 0,
+      average_tokens:
+        totalTasks > 0 ? (stats.totalInputTokens + stats.totalOutputTokens) / totalTasks : 0,
       average_duration: totalTasks > 0 ? stats.totalDurationMs / totalTasks : 0,
-      token_efficiency: stats.totalInputTokens > 0 ? stats.totalOutputTokens / stats.totalInputTokens : 0,
+      token_efficiency:
+        stats.totalInputTokens > 0 ? stats.totalOutputTokens / stats.totalInputTokens : 0,
     }
   })
 
   agentSummaries.sort((a, b) => b.total_tasks - a.total_tasks)
 
   // Per-task-type breakdown
-  const taskTypeMap = new Map<string, Map<string, {
-    totalTasks: number
-    successfulTasks: number
-    totalInputTokens: number
-    totalOutputTokens: number
-  }>>()
+  const taskTypeMap = new Map<
+    string,
+    Map<
+      string,
+      {
+        totalTasks: number
+        successfulTasks: number
+        totalInputTokens: number
+        totalOutputTokens: number
+      }
+    >
+  >()
 
   for (const agg of aggregates) {
     let agentsForType = taskTypeMap.get(agg.taskType)
@@ -196,9 +207,7 @@ export function generateMonitorReport(
     recommendations = engine.exportRecommendationsJson()
   }
 
-  const timeRange = sinceDate
-    ? { since: sinceDate, until: generatedAt }
-    : undefined
+  const timeRange = sinceDate ? { since: sinceDate, until: generatedAt } : undefined
 
   return {
     generated_at: generatedAt,

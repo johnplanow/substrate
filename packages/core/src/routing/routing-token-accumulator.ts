@@ -61,7 +61,7 @@ export class RoutingTokenAccumulator {
     this._dispatchMap.set(event.dispatchId, { phase: event.phase, model: event.model })
     this._logger.debug(
       { dispatchId: event.dispatchId, phase: event.phase, model: event.model },
-      'routing:model-selected registered',
+      'routing:model-selected registered'
     )
   }
 
@@ -71,18 +71,14 @@ export class RoutingTokenAccumulator {
    *
    * @param event - payload from `agent:completed` (must include inputTokens / outputTokens)
    */
-  onAgentCompleted(event: {
-    dispatchId: string
-    inputTokens: number
-    outputTokens: number
-  }): void {
+  onAgentCompleted(event: { dispatchId: string; inputTokens: number; outputTokens: number }): void {
     const mapping = this._dispatchMap.get(event.dispatchId)
     const phase = mapping?.phase ?? 'default'
     const model = mapping?.model ?? 'unknown'
     this._upsertBucket(phase, model, event.inputTokens, event.outputTokens)
     this._logger.debug(
       { dispatchId: event.dispatchId, phase, model, inputTokens: event.inputTokens },
-      'agent:completed attributed',
+      'agent:completed attributed'
     )
   }
 
@@ -109,7 +105,7 @@ export class RoutingTokenAccumulator {
 
     this._logger.debug(
       { runId, entryCount: entries.length },
-      'Phase token breakdown flushed to StateStore',
+      'Phase token breakdown flushed to StateStore'
     )
 
     // Clear in-memory state — a subsequent flush() will write an empty breakdown.
@@ -125,7 +121,7 @@ export class RoutingTokenAccumulator {
     phase: string,
     model: string,
     inputTokens: number,
-    outputTokens: number,
+    outputTokens: number
   ): void {
     const key = `${phase}::${model}`
     const existing = this._buckets.get(key)

@@ -38,7 +38,7 @@ const stubGraph = {}
 function makeContext(
   stringValues: Record<string, string | undefined> = {},
   listValues: Record<string, string[] | undefined> = {},
-  objectValues: Record<string, unknown> = {},
+  objectValues: Record<string, unknown> = {}
 ) {
   return {
     getString: vi.fn().mockImplementation((key: string, defaultValue?: string): string => {
@@ -431,7 +431,7 @@ describe('createSdlcCodeReviewHandler — optional context pass-through (AC5)', 
 
     const context = makeContext(
       { storyKey: '43-5', storyFilePath: '/stories/43-5.md' },
-      { filesModified: ['/src/foo.ts', '/src/bar.ts'] },
+      { filesModified: ['/src/foo.ts', '/src/bar.ts'] }
     )
     const handler = createSdlcCodeReviewHandler(options)
     await handler(stubNode, context, stubGraph)
@@ -493,7 +493,7 @@ describe('createSdlcCodeReviewHandler — optional context pass-through (AC5)', 
     const context = makeContext(
       { storyKey: '43-5', storyFilePath: '/stories/43-5.md' },
       {},
-      { codeReviewIssueList: priorIssues },
+      { codeReviewIssueList: priorIssues }
     )
     const handler = createSdlcCodeReviewHandler(options)
     await handler(stubNode, context, stubGraph)
@@ -534,7 +534,10 @@ describe('createSdlcCodeReviewHandler — optional context pass-through (AC5)', 
     const handler = createSdlcCodeReviewHandler(options)
     await handler(stubNode, context, stubGraph)
 
-    expect(mockRunCodeReview).toHaveBeenCalledWith(fakeDeps, expect.objectContaining({ storyKey: '43-5' }))
+    expect(mockRunCodeReview).toHaveBeenCalledWith(
+      fakeDeps,
+      expect.objectContaining({ storyKey: '43-5' })
+    )
   })
 })
 
@@ -592,7 +595,9 @@ describe('createSdlcCodeReviewHandler — telemetry (AC6)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseStartCall = emitMock.mock.calls.find(([event]) => event === 'orchestrator:story-phase-start')
+    const phaseStartCall = emitMock.mock.calls.find(
+      ([event]) => event === 'orchestrator:story-phase-start'
+    )
     expect(phaseStartCall).toBeDefined()
     expect(phaseStartCall?.[1]).toEqual({ storyKey: '43-5', phase: 'code-review' })
   })
@@ -611,7 +616,9 @@ describe('createSdlcCodeReviewHandler — telemetry (AC6)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseCompleteCall = emitMock.mock.calls.find(([event]) => event === 'orchestrator:story-phase-complete')
+    const phaseCompleteCall = emitMock.mock.calls.find(
+      ([event]) => event === 'orchestrator:story-phase-complete'
+    )
     expect(phaseCompleteCall).toBeDefined()
     expect(phaseCompleteCall?.[1]).toMatchObject({
       storyKey: '43-5',
@@ -634,14 +641,18 @@ describe('createSdlcCodeReviewHandler — telemetry (AC6)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseCompleteCall = emitMock.mock.calls.find(([event]) => event === 'orchestrator:story-phase-complete')
+    const phaseCompleteCall = emitMock.mock.calls.find(
+      ([event]) => event === 'orchestrator:story-phase-complete'
+    )
     expect(phaseCompleteCall?.[1]).toMatchObject({
       result: { status: 'FAILURE', verdict: 'NEEDS_MINOR_FIXES' },
     })
   })
 
   it('emits orchestrator:story-phase-complete even when runCodeReview throws (AC6)', async () => {
-    const mockRunCodeReview = vi.fn<RunCodeReviewFn>().mockRejectedValue(new Error('unexpected crash'))
+    const mockRunCodeReview = vi
+      .fn<RunCodeReviewFn>()
+      .mockRejectedValue(new Error('unexpected crash'))
     const mockEventBus = makeEventBus()
     const options: SdlcCodeReviewHandlerOptions = {
       deps: {},
@@ -654,8 +665,12 @@ describe('createSdlcCodeReviewHandler — telemetry (AC6)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseStartCalls = emitMock.mock.calls.filter(([e]) => e === 'orchestrator:story-phase-start')
-    const phaseCompleteCalls = emitMock.mock.calls.filter(([e]) => e === 'orchestrator:story-phase-complete')
+    const phaseStartCalls = emitMock.mock.calls.filter(
+      ([e]) => e === 'orchestrator:story-phase-start'
+    )
+    const phaseCompleteCalls = emitMock.mock.calls.filter(
+      ([e]) => e === 'orchestrator:story-phase-complete'
+    )
 
     expect(phaseStartCalls).toHaveLength(1)
     expect(phaseCompleteCalls).toHaveLength(1)
@@ -675,7 +690,9 @@ describe('createSdlcCodeReviewHandler — telemetry (AC6)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseCompleteCall = emitMock.mock.calls.find(([e]) => e === 'orchestrator:story-phase-complete')
+    const phaseCompleteCall = emitMock.mock.calls.find(
+      ([e]) => e === 'orchestrator:story-phase-complete'
+    )
     expect(phaseCompleteCall?.[1]).toMatchObject({ result: { status: 'FAILURE' } })
   })
 
@@ -693,7 +710,9 @@ describe('createSdlcCodeReviewHandler — telemetry (AC6)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseCompleteCall = emitMock.mock.calls.find(([e]) => e === 'orchestrator:story-phase-complete')
+    const phaseCompleteCall = emitMock.mock.calls.find(
+      ([e]) => e === 'orchestrator:story-phase-complete'
+    )
     const resultPayload = (phaseCompleteCall?.[1] as { result: { verdict?: string } })?.result
     expect(resultPayload?.verdict).toBeUndefined()
   })
@@ -712,7 +731,9 @@ describe('createSdlcCodeReviewHandler — telemetry (AC6)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseCompleteCalls = emitMock.mock.calls.filter(([e]) => e === 'orchestrator:story-phase-complete')
+    const phaseCompleteCalls = emitMock.mock.calls.filter(
+      ([e]) => e === 'orchestrator:story-phase-complete'
+    )
     expect(phaseCompleteCalls).toHaveLength(1)
   })
 })

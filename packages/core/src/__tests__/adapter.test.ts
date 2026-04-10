@@ -144,7 +144,7 @@ describe('createDatabaseAdapter', () => {
 
       const adapter = createDatabaseAdapter(
         { backend: 'dolt', basePath: '/tmp/test-project' },
-        factory,
+        factory
       )
 
       expect(adapter).toBeInstanceOf(DoltDatabaseAdapter)
@@ -157,9 +157,7 @@ describe('createDatabaseAdapter', () => {
       const adapter = createDatabaseAdapter({ backend: 'dolt' })
 
       expect(adapter).toBeInstanceOf(InMemoryDatabaseAdapter)
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('no doltClientFactory provided'),
-      )
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no doltClientFactory provided'))
     })
   })
 
@@ -174,7 +172,7 @@ describe('createDatabaseAdapter', () => {
 
       const adapter = createDatabaseAdapter(
         { backend: 'auto', basePath: '/tmp/test-project' },
-        factory,
+        factory
       )
 
       expect(adapter).toBeInstanceOf(DoltDatabaseAdapter)
@@ -187,7 +185,7 @@ describe('createDatabaseAdapter', () => {
 
       const adapter = createDatabaseAdapter(
         { backend: 'auto', basePath: '/tmp/test-project' },
-        factory,
+        factory
       )
 
       expect(adapter).toBeInstanceOf(InMemoryDatabaseAdapter)
@@ -278,14 +276,12 @@ describe('createDatabaseAdapter', () => {
 
       const adapter = createDatabaseAdapter(
         { backend: 'auto', basePath: '/tmp/test-project' },
-        factory,
+        factory
       )
 
       expect(adapter).toBeInstanceOf(DoltDatabaseAdapter)
       // Should have warned about the retry
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('retrying once'),
-      )
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('retrying once'))
     })
 
     it('falls back to InMemory with warning when .dolt dir exists but binary fails on both attempts', () => {
@@ -295,17 +291,13 @@ describe('createDatabaseAdapter', () => {
 
       const adapter = createDatabaseAdapter(
         { backend: 'auto', basePath: '/tmp/test-project' },
-        factory,
+        factory
       )
 
       expect(adapter).toBeInstanceOf(InMemoryDatabaseAdapter)
       // Should warn about retry and about final fallback
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('retrying once'),
-      )
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('still unavailable after retry'),
-      )
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('retrying once'))
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('still unavailable after retry'))
     })
   })
 
@@ -325,7 +317,7 @@ describe('createDatabaseAdapter', () => {
       const { factory } = makeMockDoltClientFactory()
       const adapter = createDatabaseAdapter(
         { backend: 'auto', basePath: '/tmp/test-project' },
-        factory,
+        factory
       )
       expect(adapter.backendType).toBe('dolt')
     })

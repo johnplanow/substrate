@@ -13,11 +13,7 @@ export class AdtError extends Error {
   public readonly code: string
   public readonly context: Record<string, unknown>
 
-  constructor(
-    message: string,
-    code: string,
-    context: Record<string, unknown> = {}
-  ) {
+  constructor(message: string, code: string, context: Record<string, unknown> = {}) {
     super(message)
     this.name = 'AdtError'
     this.code = code

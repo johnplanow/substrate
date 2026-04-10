@@ -2,7 +2,12 @@
  * Convergence subsystem barrel exports.
  * Story 42-16.
  */
-export type { ConvergenceController, ConvergenceControllerConfig, GoalGateResult, CheckGoalGatesOptions } from './controller.js'
+export type {
+  ConvergenceController,
+  ConvergenceControllerConfig,
+  GoalGateResult,
+  CheckGoalGatesOptions,
+} from './controller.js'
 export { createConvergenceController } from './controller.js'
 
 // Per-node budget enforcement — story 45-3
@@ -16,13 +21,36 @@ export { checkPipelineBudget, PipelineBudgetManager } from './budget.js'
 export { checkSessionBudget, SessionBudgetManager } from './budget.js'
 
 // Plateau detection — story 45-6
-export type { PlateauDetectorOptions, PlateauDetector, PlateauCheckContext, PlateauCheckResult } from './plateau.js'
+export type {
+  PlateauDetectorOptions,
+  PlateauDetector,
+  PlateauCheckContext,
+  PlateauCheckResult,
+} from './plateau.js'
 export { createPlateauDetector, checkPlateauAndEmit } from './plateau.js'
 
 // Remediation context injection — story 45-7
-export { REMEDIATION_CONTEXT_KEY, buildRemediationContext, formatScenarioDiff, deriveFixScope, injectRemediationContext, getRemediationContext } from './remediation.js'
+export {
+  REMEDIATION_CONTEXT_KEY,
+  buildRemediationContext,
+  formatScenarioDiff,
+  deriveFixScope,
+  injectRemediationContext,
+  getRemediationContext,
+} from './remediation.js'
 export type { RemediationContext, BuildRemediationContextParams } from './remediation.js'
 
 // Dual-signal coordinator — story 46-5/46-6
-export type { DualSignalVerdict, DualSignalAgreement, DualSignalResult, DualSignalCoordinator, DualSignalCoordinatorOptions, QualityMode } from './dual-signal.js'
-export { evaluateDualSignal, createDualSignalCoordinator, CONTEXT_KEY_CODE_REVIEW_VERDICT } from './dual-signal.js'
+export type {
+  DualSignalVerdict,
+  DualSignalAgreement,
+  DualSignalResult,
+  DualSignalCoordinator,
+  DualSignalCoordinatorOptions,
+  QualityMode,
+} from './dual-signal.js'
+export {
+  evaluateDualSignal,
+  createDualSignalCoordinator,
+  CONTEXT_KEY_CODE_REVIEW_VERDICT,
+} from './dual-signal.js'

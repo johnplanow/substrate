@@ -13,10 +13,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { TypedEventBus } from '@substrate-ai/core'
 import type { FactoryEvents } from '../../events.js'
-import {
-  createDualSignalCoordinator,
-  CONTEXT_KEY_CODE_REVIEW_VERDICT,
-} from '../dual-signal.js'
+import { createDualSignalCoordinator, CONTEXT_KEY_CODE_REVIEW_VERDICT } from '../dual-signal.js'
 import type { DualSignalVerdict } from '../dual-signal.js'
 
 // ---------------------------------------------------------------------------
@@ -61,7 +58,7 @@ describe('createDualSignalCoordinator — scenario-primary mode', () => {
         score: 0.9,
         threshold: 0.8,
         agreement: 'DISAGREE',
-      }),
+      })
     )
   })
 
@@ -83,7 +80,7 @@ describe('createDualSignalCoordinator — scenario-primary mode', () => {
         score: 0.9,
         threshold: 0.8,
         agreement: 'DISAGREE',
-      }),
+      })
     )
   })
 
@@ -106,7 +103,7 @@ describe('createDualSignalCoordinator — scenario-primary mode', () => {
         score: 0.3,
         threshold: 0.8,
         agreement: 'DISAGREE',
-      }),
+      })
     )
   })
 
@@ -137,7 +134,11 @@ describe('createDualSignalCoordinator — scenario-primary mode', () => {
     coordinator.evaluate('SHIP_IT', 0.6, 'run-order')
 
     expect(mockBus.emit).toHaveBeenNthCalledWith(1, 'scenario:score-computed', expect.any(Object))
-    expect(mockBus.emit).toHaveBeenNthCalledWith(2, 'scenario:advisory-computed', expect.any(Object))
+    expect(mockBus.emit).toHaveBeenNthCalledWith(
+      2,
+      'scenario:advisory-computed',
+      expect.any(Object)
+    )
   })
 
   it('score-computed uses scenarioPassed (not codeReviewPassed) for passes field', () => {
@@ -153,7 +154,7 @@ describe('createDualSignalCoordinator — scenario-primary mode', () => {
 
     expect(mockBus.emit).toHaveBeenCalledWith(
       'scenario:score-computed',
-      expect.objectContaining({ passes: true, scenarioPassed: true, codeReviewPassed: false }),
+      expect.objectContaining({ passes: true, scenarioPassed: true, codeReviewPassed: false })
     )
   })
 
@@ -173,7 +174,7 @@ describe('createDualSignalCoordinator — scenario-primary mode', () => {
         verdict: 'LGTM_WITH_NOTES',
         codeReviewPassed: true,
         agreement: 'DISAGREE', // scenario 0.7 < threshold 0.8 → disagree
-      }),
+      })
     )
   })
 })

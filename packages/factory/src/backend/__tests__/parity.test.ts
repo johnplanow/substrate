@@ -82,7 +82,9 @@ beforeEach(() => {
     }),
     processInput: mockProcessInput,
     close: mockClose,
-    get history() { return mockHistory },
+    get history() {
+      return mockHistory
+    },
   }
 
   vi.mocked(createSession).mockReturnValue(mockSession as never)
@@ -205,7 +207,11 @@ describe('AC1 – SUCCESS outcome structure parity', () => {
     mockHistory.push(makeAssistantTurn('implementation output'))
     const directBackend = buildDirectBackend()
     const handler = createCodergenHandler({ directBackend })
-    const outcome = await handler(makeNode({ id: 'node1', backend: 'direct' }), makeContext(), makeGraph())
+    const outcome = await handler(
+      makeNode({ id: 'node1', backend: 'direct' }),
+      makeContext(),
+      makeGraph()
+    )
 
     expect(outcome.status).toBe('SUCCESS')
     expect(outcome.contextUpdates?.['node1_output']).toBe('implementation output')
@@ -219,12 +225,20 @@ describe('AC1 – SUCCESS outcome structure parity', () => {
     mockHistory.push(makeAssistantTurn('implementation output'))
     const directBackend = buildDirectBackend()
     const directHandler = createCodergenHandler({ directBackend })
-    const directOutcome = await directHandler(makeNode({ id: 'node1', backend: 'direct' }), makeContext(), makeGraph())
+    const directOutcome = await directHandler(
+      makeNode({ id: 'node1', backend: 'direct' }),
+      makeContext(),
+      makeGraph()
+    )
 
     // Core parity: status and contextUpdates structure must be identical
     expect(cliOutcome.status).toBe(directOutcome.status)
-    expect(Object.keys(cliOutcome.contextUpdates ?? {})).toEqual(Object.keys(directOutcome.contextUpdates ?? {}))
-    expect(cliOutcome.contextUpdates?.['node1_output']).toBe(directOutcome.contextUpdates?.['node1_output'])
+    expect(Object.keys(cliOutcome.contextUpdates ?? {})).toEqual(
+      Object.keys(directOutcome.contextUpdates ?? {})
+    )
+    expect(cliOutcome.contextUpdates?.['node1_output']).toBe(
+      directOutcome.contextUpdates?.['node1_output']
+    )
   })
 
   it('documented difference: CLI path sets notes; direct path does not', async () => {
@@ -235,7 +249,11 @@ describe('AC1 – SUCCESS outcome structure parity', () => {
     mockHistory.push(makeAssistantTurn('implementation output'))
     const directBackend = buildDirectBackend()
     const directHandler = createCodergenHandler({ directBackend })
-    const directOutcome = await directHandler(makeNode({ id: 'node1', backend: 'direct' }), makeContext(), makeGraph())
+    const directOutcome = await directHandler(
+      makeNode({ id: 'node1', backend: 'direct' }),
+      makeContext(),
+      makeGraph()
+    )
 
     // Documented difference: CLI sets notes, direct does not
     expect(cliOutcome.notes).toBe('implementation output')
@@ -262,7 +280,11 @@ describe('AC2 – FAILURE outcome structural parity', () => {
     })
     const directBackend = buildDirectBackend()
     const handler = createCodergenHandler({ directBackend })
-    const outcome = await handler(makeNode({ id: 'node1', backend: 'direct' }), makeContext(), makeGraph())
+    const outcome = await handler(
+      makeNode({ id: 'node1', backend: 'direct' }),
+      makeContext(),
+      makeGraph()
+    )
 
     expect(outcome.status).toBe('FAILURE')
   })
@@ -279,7 +301,11 @@ describe('AC2 – FAILURE outcome structural parity', () => {
     })
     const directBackend = buildDirectBackend()
     const directHandler = createCodergenHandler({ directBackend })
-    const directOutcome = await directHandler(makeNode({ id: 'node1', backend: 'direct' }), makeContext(), makeGraph())
+    const directOutcome = await directHandler(
+      makeNode({ id: 'node1', backend: 'direct' }),
+      makeContext(),
+      makeGraph()
+    )
 
     // Both carry FAILURE status
     expect(cliOutcome.status).toBe('FAILURE')
@@ -299,16 +325,20 @@ describe('AC3 – TOOL_CALL events visible on direct path only', () => {
   it('direct backend onEvent collector receives TOOL_CALL_START and TOOL_CALL_END', async () => {
     mockProcessInput.mockImplementation(async () => {
       emitEvent(EventKind.TOOL_CALL_START, { tool_name: 'read_file', call_id: 'call-1' })
-      emitEvent(EventKind.TOOL_CALL_END, { call_id: 'call-1', output: 'file contents', is_error: false })
+      emitEvent(EventKind.TOOL_CALL_END, {
+        call_id: 'call-1',
+        output: 'file contents',
+        is_error: false,
+      })
       mockHistory.push(makeAssistantTurn('done'))
     })
 
     const collectedEvents: SessionEvent[] = []
-    const directBackend = buildDirectBackend(e => collectedEvents.push(e))
+    const directBackend = buildDirectBackend((e) => collectedEvents.push(e))
     const handler = createCodergenHandler({ directBackend })
     await handler(makeNode({ id: 'node1', backend: 'direct' }), makeContext(), makeGraph())
 
-    const kinds = collectedEvents.map(e => e.kind)
+    const kinds = collectedEvents.map((e) => e.kind)
     expect(kinds).toContain(EventKind.TOOL_CALL_START)
     expect(kinds).toContain(EventKind.TOOL_CALL_END)
   })
@@ -320,11 +350,11 @@ describe('AC3 – TOOL_CALL events visible on direct path only', () => {
     })
 
     const collectedEvents: SessionEvent[] = []
-    const directBackend = buildDirectBackend(e => collectedEvents.push(e))
+    const directBackend = buildDirectBackend((e) => collectedEvents.push(e))
     const handler = createCodergenHandler({ directBackend })
     await handler(makeNode({ id: 'node1', backend: 'direct' }), makeContext(), makeGraph())
 
-    const startEvent = collectedEvents.find(e => e.kind === EventKind.TOOL_CALL_START)
+    const startEvent = collectedEvents.find((e) => e.kind === EventKind.TOOL_CALL_START)
     expect(startEvent?.data?.['tool_name']).toBe('write_file')
     expect(startEvent?.data?.['call_id']).toBe('call-42')
   })
@@ -348,16 +378,18 @@ describe('AC3 – TOOL_CALL events visible on direct path only', () => {
 describe('AC4 – LOOP_DETECTION signal visible on direct path only', () => {
   it('LOOP_DETECTION event is captured by the onEvent collector', async () => {
     mockProcessInput.mockImplementation(async () => {
-      emitEvent(EventKind.LOOP_DETECTION, { message: 'loop detected: pattern length 2 repeated 5 times' })
+      emitEvent(EventKind.LOOP_DETECTION, {
+        message: 'loop detected: pattern length 2 repeated 5 times',
+      })
       mockHistory.push(makeAssistantTurn('done'))
     })
 
     const collectedEvents: SessionEvent[] = []
-    const directBackend = buildDirectBackend(e => collectedEvents.push(e))
+    const directBackend = buildDirectBackend((e) => collectedEvents.push(e))
     const handler = createCodergenHandler({ directBackend })
     await handler(makeNode({ id: 'node1', backend: 'direct' }), makeContext(), makeGraph())
 
-    const loopEvent = collectedEvents.find(e => e.kind === EventKind.LOOP_DETECTION)
+    const loopEvent = collectedEvents.find((e) => e.kind === EventKind.LOOP_DETECTION)
     expect(loopEvent).toBeDefined()
     expect(loopEvent?.data?.['message']).toBe('loop detected: pattern length 2 repeated 5 times')
   })
@@ -380,7 +412,9 @@ describe('AC4 – LOOP_DETECTION signal visible on direct path only', () => {
 
 describe('AC5 – token usage observability', () => {
   it('direct backend: AssistantTurn.usage fields are readable from session.history', async () => {
-    mockHistory.push(makeAssistantTurn('result', { inputTokens: 100, outputTokens: 50, totalTokens: 150 }))
+    mockHistory.push(
+      makeAssistantTurn('result', { inputTokens: 100, outputTokens: 50, totalTokens: 150 })
+    )
 
     const directBackend = buildDirectBackend()
     const handler = createCodergenHandler({ directBackend })

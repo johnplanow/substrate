@@ -98,18 +98,22 @@ describe('DispatchGate.check', () => {
   // -------------------------------------------------------------------------
 
   it('returns proceed when there are no completed stories (AC7 — no conflict)', async () => {
-    const result = await DispatchGate.check(makeGateOptions({
-      completedStories: [],
-    }))
+    const result = await DispatchGate.check(
+      makeGateOptions({
+        completedStories: [],
+      })
+    )
 
     expect(result.decision).toBe('proceed')
   })
 
   it('returns proceed when completed stories have no file overlap', async () => {
-    const result = await DispatchGate.check(makeGateOptions({
-      pendingFiles: ['packages/sdlc/src/gating/types.ts'],
-      completedStories: [{ key: '53-8', modifiedFiles: ['packages/sdlc/src/learning/types.ts'] }],
-    }))
+    const result = await DispatchGate.check(
+      makeGateOptions({
+        pendingFiles: ['packages/sdlc/src/gating/types.ts'],
+        completedStories: [{ key: '53-8', modifiedFiles: ['packages/sdlc/src/learning/types.ts'] }],
+      })
+    )
 
     expect(result.decision).toBe('proceed')
   })
@@ -121,16 +125,18 @@ describe('DispatchGate.check', () => {
   it('returns warn when files overlap but no namespace collision is found (AC2)', async () => {
     mockReadFile.mockResolvedValue('export class OtherClass { }' as unknown as Buffer)
 
-    const result = await DispatchGate.check(makeGateOptions({
-      storyContent: 'export class DispatchGate { }',
-      pendingFiles: ['packages/sdlc/src/gating/dispatch-gate.ts'],
-      completedStories: [
-        {
-          key: '53-8',
-          modifiedFiles: ['packages/sdlc/src/gating/dispatch-gate.ts'],
-        },
-      ],
-    }))
+    const result = await DispatchGate.check(
+      makeGateOptions({
+        storyContent: 'export class DispatchGate { }',
+        pendingFiles: ['packages/sdlc/src/gating/dispatch-gate.ts'],
+        completedStories: [
+          {
+            key: '53-8',
+            modifiedFiles: ['packages/sdlc/src/gating/dispatch-gate.ts'],
+          },
+        ],
+      })
+    )
 
     expect(result.decision).toBe('warn')
     expect(result.conflictType).toBe('file-overlap')
@@ -147,16 +153,18 @@ describe('DispatchGate.check', () => {
     mockReadFile.mockResolvedValue('export class ConflictDetector { }' as unknown as Buffer)
 
     const storyContent = 'export class ConflictDetector { detect() { } }'
-    const result = await DispatchGate.check(makeGateOptions({
-      storyContent,
-      pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
-      completedStories: [
-        {
-          key: '53-8',
-          modifiedFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
-        },
-      ],
-    }))
+    const result = await DispatchGate.check(
+      makeGateOptions({
+        storyContent,
+        pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
+        completedStories: [
+          {
+            key: '53-8',
+            modifiedFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
+          },
+        ],
+      })
+    )
 
     expect(result.decision).toBe('block')
     expect(result.conflictType).toBe('namespace-collision')
@@ -173,16 +181,18 @@ describe('DispatchGate.check', () => {
   it('returns gated when storyContent is empty and collision exists (AC5)', async () => {
     mockReadFile.mockResolvedValue('export class ConflictDetector { }' as unknown as Buffer)
 
-    const result = await DispatchGate.check(makeGateOptions({
-      storyContent: '', // empty content → auto-resolution fails
-      pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
-      completedStories: [
-        {
-          key: '53-8',
-          modifiedFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
-        },
-      ],
-    }))
+    const result = await DispatchGate.check(
+      makeGateOptions({
+        storyContent: '', // empty content → auto-resolution fails
+        pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
+        completedStories: [
+          {
+            key: '53-8',
+            modifiedFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
+          },
+        ],
+      })
+    )
 
     expect(result.decision).toBe('gated')
     expect(result.conflictType).toBe('namespace-collision')
@@ -200,13 +210,19 @@ describe('DispatchGate.check', () => {
       affected_files: ['packages/sdlc/src/gating/conflict-detector.ts'],
     })
 
-    mockGetDecisionsByCategory.mockResolvedValue([makeDecisionRow(finding)] as ReturnType<typeof getDecisionsByCategory> extends Promise<infer T> ? T : never)
+    mockGetDecisionsByCategory.mockResolvedValue([makeDecisionRow(finding)] as ReturnType<
+      typeof getDecisionsByCategory
+    > extends Promise<infer T>
+      ? T
+      : never)
 
-    const result = await DispatchGate.check(makeGateOptions({
-      storyContent: 'export class ConflictDetector { }',
-      pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
-      completedStories: [], // no completed story overlap — pre-emption is from learning store only
-    }))
+    const result = await DispatchGate.check(
+      makeGateOptions({
+        storyContent: 'export class ConflictDetector { }',
+        pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
+        completedStories: [], // no completed story overlap — pre-emption is from learning store only
+      })
+    )
 
     expect(result.decision).toBe('block')
     expect(result.conflictType).toBe('learning-preemption')
@@ -221,12 +237,18 @@ describe('DispatchGate.check', () => {
       affected_files: ['packages/sdlc/src/gating/conflict-detector.ts'],
     })
 
-    mockGetDecisionsByCategory.mockResolvedValue([makeDecisionRow(finding)] as ReturnType<typeof getDecisionsByCategory> extends Promise<infer T> ? T : never)
+    mockGetDecisionsByCategory.mockResolvedValue([makeDecisionRow(finding)] as ReturnType<
+      typeof getDecisionsByCategory
+    > extends Promise<infer T>
+      ? T
+      : never)
 
-    const result = await DispatchGate.check(makeGateOptions({
-      pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
-      completedStories: [],
-    }))
+    const result = await DispatchGate.check(
+      makeGateOptions({
+        pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
+        completedStories: [],
+      })
+    )
 
     // Low confidence → not pre-empted → proceed (no other collisions)
     expect(result.decision).toBe('proceed')
@@ -239,12 +261,18 @@ describe('DispatchGate.check', () => {
       affected_files: ['packages/sdlc/src/gating/conflict-detector.ts'],
     })
 
-    mockGetDecisionsByCategory.mockResolvedValue([makeDecisionRow(finding)] as ReturnType<typeof getDecisionsByCategory> extends Promise<infer T> ? T : never)
+    mockGetDecisionsByCategory.mockResolvedValue([makeDecisionRow(finding)] as ReturnType<
+      typeof getDecisionsByCategory
+    > extends Promise<infer T>
+      ? T
+      : never)
 
-    const result = await DispatchGate.check(makeGateOptions({
-      pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
-      completedStories: [],
-    }))
+    const result = await DispatchGate.check(
+      makeGateOptions({
+        pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
+        completedStories: [],
+      })
+    )
 
     expect(result.decision).toBe('proceed')
   })
@@ -257,12 +285,18 @@ describe('DispatchGate.check', () => {
       contradicted_by: 'run-prev', // tombstoned
     })
 
-    mockGetDecisionsByCategory.mockResolvedValue([makeDecisionRow(finding)] as ReturnType<typeof getDecisionsByCategory> extends Promise<infer T> ? T : never)
+    mockGetDecisionsByCategory.mockResolvedValue([makeDecisionRow(finding)] as ReturnType<
+      typeof getDecisionsByCategory
+    > extends Promise<infer T>
+      ? T
+      : never)
 
-    const result = await DispatchGate.check(makeGateOptions({
-      pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
-      completedStories: [],
-    }))
+    const result = await DispatchGate.check(
+      makeGateOptions({
+        pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
+        completedStories: [],
+      })
+    )
 
     expect(result.decision).toBe('proceed')
   })
@@ -274,10 +308,12 @@ describe('DispatchGate.check', () => {
   it('returns proceed when DB throws during learning query (AC7 non-fatal)', async () => {
     mockGetDecisionsByCategory.mockRejectedValue(new Error('DB connection failed'))
 
-    const result = await DispatchGate.check(makeGateOptions({
-      pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
-      completedStories: [],
-    }))
+    const result = await DispatchGate.check(
+      makeGateOptions({
+        pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
+        completedStories: [],
+      })
+    )
 
     expect(result.decision).toBe('proceed')
   })
@@ -302,14 +338,18 @@ describe('DispatchGate.check', () => {
 
   it('skips malformed finding rows from DB without error (AC7)', async () => {
     // Return a row with invalid JSON
-    mockGetDecisionsByCategory.mockResolvedValue([
-      { value: 'not-valid-json' },
-    ] as ReturnType<typeof getDecisionsByCategory> extends Promise<infer T> ? T : never)
+    mockGetDecisionsByCategory.mockResolvedValue([{ value: 'not-valid-json' }] as ReturnType<
+      typeof getDecisionsByCategory
+    > extends Promise<infer T>
+      ? T
+      : never)
 
-    const result = await DispatchGate.check(makeGateOptions({
-      pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
-      completedStories: [],
-    }))
+    const result = await DispatchGate.check(
+      makeGateOptions({
+        pendingFiles: ['packages/sdlc/src/gating/conflict-detector.ts'],
+        completedStories: [],
+      })
+    )
 
     expect(result.decision).toBe('proceed')
   })

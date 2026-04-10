@@ -15,7 +15,12 @@ import * as path from 'node:path'
 import { access } from 'node:fs/promises'
 import type { TypedEventBus, CoreEvents } from '../events/index.js'
 import type { ILogger } from '../dispatch/types.js'
-import type { GitWorktreeManager, WorktreeInfo, ConflictReport, MergeResult } from './git-worktree-manager.js'
+import type {
+  GitWorktreeManager,
+  WorktreeInfo,
+  ConflictReport,
+  MergeResult,
+} from './git-worktree-manager.js'
 import * as gitUtils from './git-utils.js'
 
 /**
@@ -56,7 +61,7 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     projectRoot: string,
     baseDirectory: string = DEFAULT_WORKTREE_BASE,
     db: LegacyDbLike | null = null,
-    logger?: ILogger,
+    logger?: ILogger
   ) {
     this._eventBus = eventBus
     this._projectRoot = projectRoot
@@ -196,7 +201,10 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
       worktreeExists = true
     } catch {
       // Worktree directory doesn't exist — already cleaned up or never created
-      this._logger.debug({ taskId, worktreePath }, 'cleanupWorktree: worktree does not exist, skipping removal')
+      this._logger.debug(
+        { taskId, worktreePath },
+        'cleanupWorktree: worktree does not exist, skipping removal'
+      )
     }
 
     // Remove worktree directory (only if it exists)
@@ -227,7 +235,10 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
   async cleanupAllWorktrees(): Promise<number> {
     this._logger.debug({ projectRoot: this._projectRoot }, 'cleanupAllWorktrees')
 
-    const orphanedPaths = await gitUtils.getOrphanedWorktrees(this._projectRoot, this._baseDirectory)
+    const orphanedPaths = await gitUtils.getOrphanedWorktrees(
+      this._projectRoot,
+      this._baseDirectory
+    )
     let cleaned = 0
 
     for (const worktreePath of orphanedPaths) {
@@ -239,9 +250,15 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
       try {
         await gitUtils.removeWorktree(worktreePath, this._projectRoot)
         worktreeRemoved = true
-        this._logger.debug({ taskId, worktreePath }, 'cleanupAllWorktrees: removed orphaned worktree')
+        this._logger.debug(
+          { taskId, worktreePath },
+          'cleanupAllWorktrees: removed orphaned worktree'
+        )
       } catch (err) {
-        this._logger.warn({ taskId, worktreePath, err }, 'cleanupAllWorktrees: failed to remove worktree')
+        this._logger.warn(
+          { taskId, worktreePath, err },
+          'cleanupAllWorktrees: failed to remove worktree'
+        )
       }
 
       // Remove orphaned branch
@@ -252,7 +269,10 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
           this._logger.debug({ taskId, branchName }, 'cleanupAllWorktrees: removed orphaned branch')
         }
       } catch (err) {
-        this._logger.warn({ taskId, branchName, err }, 'cleanupAllWorktrees: failed to remove branch')
+        this._logger.warn(
+          { taskId, branchName, err },
+          'cleanupAllWorktrees: failed to remove branch'
+        )
       }
 
       // Only count as cleaned if worktree removal succeeded
@@ -284,7 +304,7 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     } catch {
       throw new Error(
         `detectConflicts: Worktree for task "${taskId}" not found at "${worktreePath}". ` +
-        `The worktree may have already been cleaned up.`,
+          `The worktree may have already been cleaned up.`
       )
     }
 
@@ -319,7 +339,10 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
       })
     }
 
-    this._logger.info({ taskId, hasConflicts: report.hasConflicts, conflictCount: conflictingFiles.length }, 'Conflict detection complete')
+    this._logger.info(
+      { taskId, hasConflicts: report.hasConflicts, conflictCount: conflictingFiles.length },
+      'Conflict detection complete'
+    )
     return report
   }
 
@@ -337,7 +360,10 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
 
     if (conflictReport.hasConflicts) {
       // Return failure result without attempting merge
-      this._logger.info({ taskId, conflictCount: conflictReport.conflictingFiles.length }, 'Merge skipped due to conflicts')
+      this._logger.info(
+        { taskId, conflictCount: conflictReport.conflictingFiles.length },
+        'Merge skipped due to conflicts'
+      )
       return {
         success: false,
         mergedFiles: [],
@@ -349,7 +375,9 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     const mergeSuccess = await gitUtils.performMerge(branchName, this._projectRoot)
 
     if (!mergeSuccess) {
-      throw new Error(`mergeWorktree: git merge --no-ff failed for task "${taskId}" branch "${branchName}"`)
+      throw new Error(
+        `mergeWorktree: git merge --no-ff failed for task "${taskId}" branch "${branchName}"`
+      )
     }
 
     // Get the list of merged files
@@ -367,14 +395,23 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
       mergedFiles,
     }
 
-    this._logger.info({ taskId, branchName, mergedFileCount: mergedFiles.length }, 'Worktree merged successfully')
+    this._logger.info(
+      { taskId, branchName, mergedFileCount: mergedFiles.length },
+      'Worktree merged successfully'
+    )
     return result
   }
 
   async listWorktrees(): Promise<WorktreeInfo[]> {
-    this._logger.debug({ projectRoot: this._projectRoot, baseDirectory: this._baseDirectory }, 'listWorktrees')
+    this._logger.debug(
+      { projectRoot: this._projectRoot, baseDirectory: this._baseDirectory },
+      'listWorktrees'
+    )
 
-    const worktreePaths = await gitUtils.getOrphanedWorktrees(this._projectRoot, this._baseDirectory)
+    const worktreePaths = await gitUtils.getOrphanedWorktrees(
+      this._projectRoot,
+      this._baseDirectory
+    )
     const results: WorktreeInfo[] = []
 
     for (const worktreePath of worktreePaths) {
@@ -435,6 +472,6 @@ export function createGitWorktreeManager(options: GitWorktreeManagerOptions): Gi
     options.projectRoot,
     options.baseDirectory,
     options.db ?? null,
-    options.logger,
+    options.logger
   )
 }

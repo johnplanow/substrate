@@ -32,9 +32,7 @@ import { BuildCheck } from './checks/build-check.js'
  * Compute the worst-case aggregate status across a list of check results.
  * Precedence: fail > warn > pass.
  */
-function aggregateStatus(
-  checks: VerificationCheckResult[],
-): 'pass' | 'warn' | 'fail' {
+function aggregateStatus(checks: VerificationCheckResult[]): 'pass' | 'warn' | 'fail' {
   let result: 'pass' | 'warn' | 'fail' = 'pass'
   for (const c of checks) {
     if (c.status === 'fail') return 'fail'
@@ -111,7 +109,7 @@ export class VerificationPipeline {
         const elapsed = Date.now() - checkStart
         const message = err instanceof Error ? err.message : String(err)
         process.stderr.write(
-          `[verification-pipeline] check "${check.name}" threw an unhandled exception: ${message}\n`,
+          `[verification-pipeline] check "${check.name}" threw an unhandled exception: ${message}\n`
         )
         result = {
           checkName: check.name,
@@ -164,7 +162,7 @@ export class VerificationPipeline {
  */
 export function createDefaultVerificationPipeline(
   bus: TypedEventBus<SdlcEvents>,
-  config?: TrivialOutputCheckConfig,
+  config?: TrivialOutputCheckConfig
 ): VerificationPipeline {
   // Canonical Tier A order: 1→PhantomReview, 2→TrivialOutput, 3→Build (story 51-4)
   const checks: VerificationCheck[] = [

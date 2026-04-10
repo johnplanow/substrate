@@ -4,11 +4,7 @@
  * Re-exports all dispatch symbols from packages/core/src/dispatch/.
  */
 
-export {
-  DEFAULT_TIMEOUTS,
-  DEFAULT_MAX_TURNS,
-  DispatcherShuttingDownError,
-} from "./types.js"
+export { DEFAULT_TIMEOUTS, DEFAULT_MAX_TURNS, DispatcherShuttingDownError } from './types.js'
 
 export type {
   DispatchRequest,
@@ -22,38 +18,21 @@ export type {
   ICliAdapter,
   IAdapterRegistry,
   ILogger,
-} from "./types.js"
+} from './types.js'
 
 // Utility exports
-export {
-  extractYamlBlock,
-  parseYamlResult,
-} from "./yaml-parser.js"
+export { extractYamlBlock, parseYamlResult } from './yaml-parser.js'
 
-export {
-  detectInterfaceChanges,
-  extractExportedNames,
-} from "./interface-change-detector.js"
+export { detectInterfaceChanges, extractExportedNames } from './interface-change-detector.js'
 
-export type {
-  InterfaceChangeResult,
-} from "./interface-change-detector.js"
+export type { InterfaceChangeResult } from './interface-change-detector.js'
 
 // Output quality estimation
-export {
-  estimateOutputQuality,
-} from "./output-quality.js"
+export { estimateOutputQuality } from './output-quality.js'
 
-export type {
-  OutputQualitySignals,
-} from "./output-quality.js"
+export type { OutputQualitySignals } from './output-quality.js'
 
 // Implementation exports
-export {
-  DispatcherImpl,
-  createDispatcher,
-} from "./dispatcher-impl.js"
+export { DispatcherImpl, createDispatcher } from './dispatcher-impl.js'
 
-export type {
-  CreateDispatcherOptions,
-} from "./dispatcher-impl.js"
+export type { CreateDispatcherOptions } from './dispatcher-impl.js'

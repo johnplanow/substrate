@@ -39,8 +39,7 @@ export function createValidator(): GraphValidator {
       const errors = diagnostics.filter((d) => d.severity === 'error')
       if (errors.length > 0) {
         throw new Error(
-          'Graph validation failed:\n' +
-            errors.map((d) => `[${d.ruleId}] ${d.message}`).join('\n'),
+          'Graph validation failed:\n' + errors.map((d) => `[${d.ruleId}] ${d.message}`).join('\n')
         )
       }
     },

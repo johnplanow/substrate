@@ -25,7 +25,7 @@ import {
 // ---------------------------------------------------------------------------
 
 function makeScenarioRunResult(
-  scenarios: Array<{ name: string; status: 'pass' | 'fail'; stderr?: string; stdout?: string }>,
+  scenarios: Array<{ name: string; status: 'pass' | 'fail'; stderr?: string; stdout?: string }>
 ): ScenarioRunResult {
   const results = scenarios.map((s) => ({
     ...s,
@@ -109,7 +109,9 @@ describe('formatScenarioDiff', () => {
   })
 
   it('AC2 (no output): failed scenario with both stderr and stdout empty uses "(no output)"', () => {
-    const results = makeScenarioRunResult([{ name: 'silent-fail', status: 'fail', stderr: '', stdout: '' }])
+    const results = makeScenarioRunResult([
+      { name: 'silent-fail', status: 'fail', stderr: '', stdout: '' },
+    ])
     const diff = formatScenarioDiff(results)
     expect(diff).toContain('silent-fail')
     expect(diff).toContain('(no output)')

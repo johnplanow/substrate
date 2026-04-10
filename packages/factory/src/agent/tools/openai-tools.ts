@@ -95,7 +95,11 @@ export async function applyV4aPatch(patch: string, workdir: string): Promise<str
  * Apply an update block (hunks with +/- lines) to an existing file.
  * Returns the next line index after the block.
  */
-async function applyUpdateBlock(lines: string[], startIdx: number, absPath: string): Promise<number> {
+async function applyUpdateBlock(
+  lines: string[],
+  startIdx: number,
+  absPath: string
+): Promise<number> {
   let content: string
   try {
     content = await readFile(absPath, 'utf-8')
@@ -166,13 +170,18 @@ async function applyUpdateBlock(lines: string[], startIdx: number, absPath: stri
 /**
  * Apply a hunk with removals to contentLines (in-place mutation).
  */
-function applyHunk(contentLines: string[], removals: string[], additions: string[], _context: string[]): void {
+function applyHunk(
+  contentLines: string[],
+  removals: string[],
+  additions: string[],
+  _context: string[]
+): void {
   // Find the first removal line in contentLines
   const firstRemoval = removals[0] ?? ''
-  const startIdx = contentLines.findIndex(l => l === firstRemoval)
+  const startIdx = contentLines.findIndex((l) => l === firstRemoval)
   if (startIdx === -1) {
     // Try to find by trimmed match
-    const trimIdx = contentLines.findIndex(l => l.trim() === firstRemoval.trim())
+    const trimIdx = contentLines.findIndex((l) => l.trim() === firstRemoval.trim())
     if (trimIdx === -1) return // can't apply, skip
     contentLines.splice(trimIdx, removals.length, ...additions)
     return

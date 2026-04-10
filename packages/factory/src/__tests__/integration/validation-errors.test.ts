@@ -24,10 +24,7 @@ import { ERROR_RULE_VIOLATION_DOT, WARNING_RULE_VIOLATION_DOT } from './graphs.j
  *
  * @throws Error with "validation errors" in the message when the graph has errors.
  */
-async function runWithValidation(
-  dotString: string,
-  config: GraphExecutorConfig,
-): Promise<Outcome> {
+async function runWithValidation(dotString: string, config: GraphExecutorConfig): Promise<Outcome> {
   const graph = parseGraph(dotString)
   const validator = createValidator()
   const errors = validator.validate(graph).filter((d) => d.severity === 'error')
@@ -97,7 +94,7 @@ describe('AC3: error-rule violations block execution', () => {
         runId: 'test-run-ac3',
         logsRoot,
         handlerRegistry: registry,
-      }),
+      })
     ).rejects.toThrow(/validation errors/)
   })
 

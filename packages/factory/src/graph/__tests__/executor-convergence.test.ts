@@ -78,7 +78,7 @@ function makeGraph(
   edgeList: GraphEdge[],
   startNodeId: string,
   exitNodeId: string,
-  opts?: GraphOpts,
+  opts?: GraphOpts
 ): Graph {
   const nodeMap = new Map(nodeList.map((n) => [n.id, n]))
   return {
@@ -115,7 +115,7 @@ function makeRegistry(handlerMap: Record<string, ReturnType<typeof vi.fn>>): IHa
 /** Build a minimal GraphExecutorConfig with test defaults. */
 function makeConfig(
   registry: IHandlerRegistry,
-  overrides?: Partial<GraphExecutorConfig>,
+  overrides?: Partial<GraphExecutorConfig>
 ): GraphExecutorConfig {
   return {
     runId: 'convergence-test-run',
@@ -169,7 +169,7 @@ describe('AC1: Session budget halt takes highest priority', () => {
       [makeNode('start'), makeNode('exit')],
       [makeEdge('start', 'exit')],
       'start',
-      'exit',
+      'exit'
     )
 
     const executor = createGraphExecutor()
@@ -201,7 +201,7 @@ describe('AC2: Pipeline budget halt takes second priority', () => {
       [makeNode('start'), makeNode('next'), makeNode('exit')],
       [makeEdge('start', 'next'), makeEdge('next', 'exit')],
       'start',
-      'exit',
+      'exit'
     )
 
     const executor = createGraphExecutor()
@@ -238,14 +238,10 @@ describe('AC3: resolveRetryTarget at exit node routes to retry target', () => {
 
     const graph = makeGraph(
       [makeNode('start'), goalGateNode, makeNode('fix'), makeNode('exit')],
-      [
-        makeEdge('start', 'exit'),
-        makeEdge('fix', 'goalGate'),
-        makeEdge('goalGate', 'exit'),
-      ],
+      [makeEdge('start', 'exit'), makeEdge('fix', 'goalGate'), makeEdge('goalGate', 'exit')],
       'start',
       'exit',
-      { retryTarget: 'fix' },
+      { retryTarget: 'fix' }
     )
 
     const executor = createGraphExecutor()
@@ -275,7 +271,7 @@ describe('AC4: no retry target resolves to FAIL', () => {
       [makeNode('start'), goalGateNode, makeNode('exit')],
       [makeEdge('start', 'exit')],
       'start',
-      'exit',
+      'exit'
       // No retryTarget at any level
     )
 
@@ -308,13 +304,10 @@ describe('AC5: Plateau detection halts convergence loop', () => {
 
     const graph = makeGraph(
       [makeNode('start'), goalGateNode, makeNode('fix'), makeNode('exit')],
-      [
-        makeEdge('start', 'exit'),
-        makeEdge('fix', 'exit'),
-      ],
+      [makeEdge('start', 'exit'), makeEdge('fix', 'exit')],
       'start',
       'exit',
-      { retryTarget: 'fix' },
+      { retryTarget: 'fix' }
     )
 
     const executor = createGraphExecutor()
@@ -323,7 +316,7 @@ describe('AC5: Plateau detection halts convergence loop', () => {
       makeConfig(registry, {
         plateauWindow: 2,
         plateauThreshold: 0.5,
-      }),
+      })
     )
 
     expect(result.status).toBe('FAIL')
@@ -346,12 +339,10 @@ describe('AC6: Remediation context injected before retry dispatch', () => {
     const goalGateNode = makeNode('goalGate', { goalGate: true })
     const startHandler = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
     const goalGateHandler = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
-    const fixHandler = vi.fn().mockImplementation(
-      async (_node: GraphNode, ctx: IGraphContext) => {
-        capturedRemediation = getRemediationContext(ctx)
-        return { status: 'SUCCESS' }
-      },
-    )
+    const fixHandler = vi.fn().mockImplementation(async (_node: GraphNode, ctx: IGraphContext) => {
+      capturedRemediation = getRemediationContext(ctx)
+      return { status: 'SUCCESS' }
+    })
 
     const registry = makeRegistry({
       start: startHandler,
@@ -361,14 +352,10 @@ describe('AC6: Remediation context injected before retry dispatch', () => {
 
     const graph = makeGraph(
       [makeNode('start'), goalGateNode, makeNode('fix'), makeNode('exit')],
-      [
-        makeEdge('start', 'exit'),
-        makeEdge('fix', 'goalGate'),
-        makeEdge('goalGate', 'exit'),
-      ],
+      [makeEdge('start', 'exit'), makeEdge('fix', 'goalGate'), makeEdge('goalGate', 'exit')],
       'start',
       'exit',
-      { retryTarget: 'fix' },
+      { retryTarget: 'fix' }
     )
 
     const executor = createGraphExecutor()
@@ -406,14 +393,10 @@ describe('AC7: Convergence loop exits SUCCESS on convergence', () => {
 
     const graph = makeGraph(
       [makeNode('start'), goalGateNode, makeNode('fix'), makeNode('exit')],
-      [
-        makeEdge('start', 'exit'),
-        makeEdge('fix', 'goalGate'),
-        makeEdge('goalGate', 'exit'),
-      ],
+      [makeEdge('start', 'exit'), makeEdge('fix', 'goalGate'), makeEdge('goalGate', 'exit')],
       'start',
       'exit',
-      { retryTarget: 'fix' },
+      { retryTarget: 'fix' }
     )
 
     const executor = createGraphExecutor()
@@ -442,14 +425,10 @@ describe('AC7: Convergence loop exits SUCCESS on convergence', () => {
 
     const graph = makeGraph(
       [makeNode('start'), goalGateNode, makeNode('fix'), makeNode('exit')],
-      [
-        makeEdge('start', 'exit'),
-        makeEdge('fix', 'goalGate'),
-        makeEdge('goalGate', 'exit'),
-      ],
+      [makeEdge('start', 'exit'), makeEdge('fix', 'goalGate'), makeEdge('goalGate', 'exit')],
       'start',
       'exit',
-      { retryTarget: 'fix' },
+      { retryTarget: 'fix' }
     )
 
     const executor = createGraphExecutor()
@@ -490,13 +469,10 @@ describe('Satisfaction score key alignment (BUG 1 regression)', () => {
 
     const graph = makeGraph(
       [makeNode('start'), goalGateNode, makeNode('fix'), makeNode('exit')],
-      [
-        makeEdge('start', 'exit'),
-        makeEdge('fix', 'exit'),
-      ],
+      [makeEdge('start', 'exit'), makeEdge('fix', 'exit')],
       'start',
       'exit',
-      { retryTarget: 'fix' },
+      { retryTarget: 'fix' }
     )
 
     const executor = createGraphExecutor()
@@ -505,7 +481,7 @@ describe('Satisfaction score key alignment (BUG 1 regression)', () => {
       makeConfig(registry, {
         plateauWindow: 2,
         plateauThreshold: 0.05,
-      }),
+      })
     )
 
     expect(result.status).toBe('FAIL')
@@ -536,14 +512,17 @@ describe('convergence:budget-exhausted event emission (BUG 2 regression)', () =>
       [makeNode('start'), makeNode('exit')],
       [makeEdge('start', 'exit')],
       'start',
-      'exit',
+      'exit'
     )
 
     const executor = createGraphExecutor()
-    const result = await executor.run(graph, makeConfig(registry, {
-      wallClockCapMs: 100,
-      eventBus,
-    }))
+    const result = await executor.run(
+      graph,
+      makeConfig(registry, {
+        wallClockCapMs: 100,
+        eventBus,
+      })
+    )
 
     expect(result.status).toBe('FAIL')
     // Verify the event was emitted
@@ -570,14 +549,17 @@ describe('convergence:budget-exhausted event emission (BUG 2 regression)', () =>
       [makeNode('start'), makeNode('next'), makeNode('exit')],
       [makeEdge('start', 'next'), makeEdge('next', 'exit')],
       'start',
-      'exit',
+      'exit'
     )
 
     const executor = createGraphExecutor()
-    const result = await executor.run(graph, makeConfig(registry, {
-      pipelineBudgetCapUsd: 0.01,
-      eventBus,
-    }))
+    const result = await executor.run(
+      graph,
+      makeConfig(registry, {
+        pipelineBudgetCapUsd: 0.01,
+        eventBus,
+      })
+    )
 
     expect(result.status).toBe('FAIL')
     // Verify the event was emitted

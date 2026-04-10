@@ -133,11 +133,7 @@ export interface WorkerAdapter {
    * @param exitCode  Exit code from the planning invocation
    * @returns Parsed plan result
    */
-  parsePlanOutput(
-    stdout: string,
-    stderr: string,
-    exitCode: number
-  ): PlanParseResult
+  parsePlanOutput(stdout: string, stderr: string, exitCode: number): PlanParseResult
 
   /**
    * Estimate the token count for a given prompt string.

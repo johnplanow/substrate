@@ -112,7 +112,7 @@ function getExecutionCommand(filePath: string): string {
 function runScenario(
   entry: { name: string; path: string },
   projectRoot: string,
-  env?: Record<string, string>,
+  env?: Record<string, string>
 ): Promise<ScenarioResult> {
   return new Promise((resolve) => {
     const startTime = Date.now()
@@ -183,7 +183,7 @@ function runScenario(
  */
 function buildStartupFailureResult(
   scenarioEntries: ScenarioManifest['scenarios'],
-  err: Error,
+  err: Error
 ): ScenarioRunResult {
   const scenarios: ScenarioResult[] = scenarioEntries.map((entry) => ({
     name: entry.name,
@@ -235,7 +235,7 @@ export function createScenarioRunner(options?: ScenarioRunnerOptions): ScenarioR
 
         // Existing code path — unchanged
         const scenarios = await Promise.all(
-          manifest.scenarios.map((entry) => runScenario(entry, projectRoot)),
+          manifest.scenarios.map((entry) => runScenario(entry, projectRoot))
         )
 
         const passed = scenarios.filter((s) => s.status === 'pass').length
@@ -280,7 +280,7 @@ export function createScenarioRunner(options?: ScenarioRunnerOptions): ScenarioR
 
       try {
         const scenarios = await Promise.all(
-          manifest.scenarios.map((entry) => runScenario(entry, projectRoot, twinEnv)),
+          manifest.scenarios.map((entry) => runScenario(entry, projectRoot, twinEnv))
         )
 
         const passed = scenarios.filter((s) => s.status === 'pass').length

@@ -149,7 +149,7 @@ export function createPlateauDetector(options?: PlateauDetectorOptions): Plateau
  */
 export function checkPlateauAndEmit(
   detector: PlateauDetector,
-  context: PlateauCheckContext,
+  context: PlateauCheckContext
 ): PlateauCheckResult {
   const { runId, nodeId, eventBus } = context
   const scores = detector.getScores()

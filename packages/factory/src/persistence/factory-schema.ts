@@ -47,7 +47,9 @@ export async function factorySchema(adapter: DatabaseAdapter): Promise<void> {
       context_snapshot TEXT
     )
   `)
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_graph_node_results_run ON graph_node_results(run_id)')
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_graph_node_results_run ON graph_node_results(run_id)'
+  )
 
   // -- scenario_results (AC3, AC4) --------------------------------------------
   await adapter.exec(`
@@ -66,7 +68,9 @@ export async function factorySchema(adapter: DatabaseAdapter): Promise<void> {
       executed_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_scenario_results_run ON scenario_results(run_id)')
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_scenario_results_run ON scenario_results(run_id)'
+  )
 
   // -- twin_runs (AC1) --------------------------------------------------------
   await adapter.exec(`
@@ -92,6 +96,6 @@ export async function factorySchema(adapter: DatabaseAdapter): Promise<void> {
     )
   `)
   await adapter.exec(
-    'CREATE INDEX IF NOT EXISTS idx_twin_health_failures_twin ON twin_health_failures(twin_name)',
+    'CREATE INDEX IF NOT EXISTS idx_twin_health_failures_twin ON twin_health_failures(twin_name)'
   )
 }

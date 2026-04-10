@@ -11,7 +11,11 @@ import type { FactoryEvents } from '../events.js'
  * A function that handles a single graph node during execution.
  * Must be async — the executor always awaits handlers.
  */
-export type NodeHandler = (node: GraphNode, context: IGraphContext, graph: Graph) => Promise<Outcome>
+export type NodeHandler = (
+  node: GraphNode,
+  context: IGraphContext,
+  graph: Graph
+) => Promise<Outcome>
 
 /**
  * Interface for the handler registry that maps node types and shapes to

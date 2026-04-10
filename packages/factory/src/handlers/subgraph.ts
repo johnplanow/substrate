@@ -103,9 +103,7 @@ export function createSubgraphHandler(options: SubgraphHandlerOptions): NodeHand
     }
 
     // Step 3: Resolve file path
-    const filePath = path.isAbsolute(graphFile)
-      ? graphFile
-      : path.join(options.baseDir, graphFile)
+    const filePath = path.isAbsolute(graphFile) ? graphFile : path.join(options.baseDir, graphFile)
 
     // Step 4: Load file
     const loader = options.graphFileLoader ?? ((fp) => readFile(fp, 'utf-8'))
@@ -172,7 +170,12 @@ export function createSubgraphHandler(options: SubgraphHandlerOptions): NodeHand
       ...(parentStylesheet !== undefined ? { inheritedStylesheet: parentStylesheet } : {}),
     }
 
-    let subOutcome: { status: string; contextUpdates?: Record<string, unknown>; notes?: string; failureReason?: string }
+    let subOutcome: {
+      status: string
+      contextUpdates?: Record<string, unknown>
+      notes?: string
+      failureReason?: string
+    }
     try {
       subOutcome = await createGraphExecutor().run(subgraph, subConfig)
     } catch (err: unknown) {
@@ -201,9 +204,12 @@ export function createSubgraphHandler(options: SubgraphHandlerOptions): NodeHand
       nodeId: node.id,
       graphFile: filePath,
       depth: currentDepth,
-      status: subOutcome.status === 'SUCCESS' ? 'SUCCESS'
-        : subOutcome.status === 'PARTIAL_SUCCESS' ? 'PARTIAL_SUCCESS'
-        : 'FAIL',
+      status:
+        subOutcome.status === 'SUCCESS'
+          ? 'SUCCESS'
+          : subOutcome.status === 'PARTIAL_SUCCESS'
+            ? 'PARTIAL_SUCCESS'
+            : 'FAIL',
       durationMs,
     })
 

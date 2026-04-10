@@ -39,7 +39,7 @@ export class ToolRegistry implements IToolRegistry {
     if (!valid) {
       const errors = validate.errors ?? []
       const messages = errors
-        .map(e => {
+        .map((e) => {
           const path = e.instancePath ?? e.dataPath ?? ''
           return `${path} ${e.message ?? ''}`.trim()
         })

@@ -43,7 +43,7 @@ export function createLoggingMiddleware(options: LoggingMiddlewareOptions): Midd
         provider,
         request.model,
         response.usage.inputTokens,
-        response.usage.outputTokens,
+        response.usage.outputTokens
       )
       await appendLog({
         timestamp: new Date(start).toISOString(),

@@ -11,11 +11,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { GraphContext } from '../../graph/context.js'
 import type { GraphNode, Graph, GraphEdge } from '../../graph/types.js'
-import {
-  parseAcceleratorKey,
-  deriveChoices,
-  createWaitHumanHandler,
-} from '../wait-human.js'
+import { parseAcceleratorKey, deriveChoices, createWaitHumanHandler } from '../wait-human.js'
 import { createDefaultRegistry } from '../registry.js'
 
 // ---------------------------------------------------------------------------
@@ -77,8 +73,12 @@ function makeGraph(edges: GraphEdge[]): Graph {
     nodes: new Map(),
     edges,
     outgoingEdges: (nodeId: string) => edges.filter((e) => e.fromNode === nodeId),
-    startNode: () => { throw new Error('not implemented') },
-    exitNode: () => { throw new Error('not implemented') },
+    startNode: () => {
+      throw new Error('not implemented')
+    },
+    exitNode: () => {
+      throw new Error('not implemented')
+    },
   }
 }
 

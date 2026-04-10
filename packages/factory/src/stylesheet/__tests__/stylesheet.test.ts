@@ -173,7 +173,7 @@ describe('parseStylesheet', () => {
 
   it('multiple declarations in one rule parsed correctly', () => {
     const result = parseStylesheet(
-      '* { llm_model: claude-sonnet-4-5; llm_provider: anthropic; reasoning_effort: high; }',
+      '* { llm_model: claude-sonnet-4-5; llm_provider: anthropic; reasoning_effort: high; }'
     )
     expect(result[0]!.declarations).toHaveLength(3)
   })
@@ -233,7 +233,7 @@ describe('resolveNodeStyles', () => {
   // AC1 — universal rule
   it('universal rule → all three properties resolved from the rule', () => {
     const stylesheet: ParsedStylesheet = parseStylesheet(
-      '* { llm_model: claude-sonnet-4-5; llm_provider: anthropic; reasoning_effort: high; }',
+      '* { llm_model: claude-sonnet-4-5; llm_provider: anthropic; reasoning_effort: high; }'
     )
     const node = makeNode({ id: 'any_node', shape: 'box' })
     const resolved = resolveNodeStyles(node, stylesheet)
@@ -321,7 +321,7 @@ describe('resolveNodeStyles', () => {
   // AC5 — specificity
   it('ID rule + class rule on same node → ID property value wins (specificity 3 > 2)', () => {
     const stylesheet = parseStylesheet(
-      '.code { llm_model: class-model; }\n#target { llm_model: id-model; }',
+      '.code { llm_model: class-model; }\n#target { llm_model: id-model; }'
     )
     const node = makeNode({ id: 'target', class: 'code' })
     const resolved = resolveNodeStyles(node, stylesheet)
@@ -340,18 +340,14 @@ describe('resolveNodeStyles', () => {
   })
 
   it('two universal rules → later rule property value wins for overlapping properties', () => {
-    const stylesheet = parseStylesheet(
-      '* { llm_model: first; }\n* { llm_model: second; }',
-    )
+    const stylesheet = parseStylesheet('* { llm_model: first; }\n* { llm_model: second; }')
     const node = makeNode({ id: 'any' })
     const resolved = resolveNodeStyles(node, stylesheet)
     expect(resolved.llmModel).toBe('second')
   })
 
   it('two equal-specificity shape rules → later rule wins for same property', () => {
-    const stylesheet = parseStylesheet(
-      'box { llm_model: first; }\nbox { llm_model: second; }',
-    )
+    const stylesheet = parseStylesheet('box { llm_model: first; }\nbox { llm_model: second; }')
     const node = makeNode({ id: 'n', shape: 'box' })
     const resolved = resolveNodeStyles(node, stylesheet)
     expect(resolved.llmModel).toBe('second')
@@ -359,7 +355,7 @@ describe('resolveNodeStyles', () => {
 
   it('non-overlapping rules accumulate all properties', () => {
     const stylesheet = parseStylesheet(
-      '* { llm_model: base-model; }\n.code { llm_provider: anthropic; }',
+      '* { llm_model: base-model; }\n.code { llm_provider: anthropic; }'
     )
     const node = makeNode({ id: 'n', class: 'code' })
     const resolved = resolveNodeStyles(node, stylesheet)
@@ -416,7 +412,7 @@ describe('stylesheet_syntax validator rule (uses real parser)', () => {
 
   it('stylesheet with class and ID selectors → no stylesheet_syntax diagnostic', () => {
     const graph = makeGraph(
-      '.code { llm_model: claude-opus-4; }\n#review { reasoning_effort: high; }',
+      '.code { llm_model: claude-opus-4; }\n#review { reasoning_effort: high; }'
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'stylesheet_syntax')

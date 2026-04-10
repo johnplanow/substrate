@@ -90,7 +90,7 @@ function makeParallelRegistry(
     eventBus?: TypedEventBus<FactoryEvents>
     runId?: string
     fanInLlmCall?: (prompt: string) => Promise<string>
-  },
+  }
 ): HandlerRegistry {
   const registry = new HandlerRegistry()
 
@@ -102,14 +102,20 @@ function makeParallelRegistry(
       handlerRegistry: registry,
       ...(opts?.eventBus !== undefined ? { eventBus: opts.eventBus } : {}),
       ...(opts?.runId !== undefined ? { runId: opts.runId } : {}),
-    }),
+    })
   )
   registry.register(
     'parallel.fan_in',
-    createFanInHandler(opts?.fanInLlmCall !== undefined ? { llmCall: opts.fanInLlmCall } : undefined),
+    createFanInHandler(
+      opts?.fanInLlmCall !== undefined ? { llmCall: opts.fanInLlmCall } : undefined
+    )
   )
 
-  const defaultHandler: NodeHandler = async (node: GraphNode, context: IGraphContext, graph: Graph) => {
+  const defaultHandler: NodeHandler = async (
+    node: GraphNode,
+    context: IGraphContext,
+    graph: Graph
+  ) => {
     const h = branchMocks.get(node.id)
     if (h) return h(node, context, graph)
     return { status: 'SUCCESS' as const }
@@ -128,12 +134,16 @@ function makeChainRegistry(
   opts?: {
     eventBus?: TypedEventBus<FactoryEvents>
     runId?: string
-  },
+  }
 ): IHandlerRegistry {
   // We need a HandlerRegistry instance so we can pass handlerRegistry: registry to parallel
   const registry = new HandlerRegistry()
 
-  const defaultHandler: NodeHandler = async (node: GraphNode, context: IGraphContext, graph: Graph) => {
+  const defaultHandler: NodeHandler = async (
+    node: GraphNode,
+    context: IGraphContext,
+    graph: Graph
+  ) => {
     const h = branchMocks.get(node.id)
     if (h) return h(node, context, graph)
     return { status: 'SUCCESS' as const }
@@ -149,7 +159,7 @@ function makeChainRegistry(
       handlerRegistry: registry,
       ...(opts?.eventBus !== undefined ? { eventBus: opts.eventBus } : {}),
       ...(opts?.runId !== undefined ? { runId: opts.runId } : {}),
-    }),
+    })
   )
   registry.register('parallel.fan_in', createFanInHandler())
 
@@ -241,10 +251,13 @@ describe('parallel fan-out/fan-in — wait_all policy', () => {
     const graph = parseGraph(PARALLEL_FAN_OUT_DOT)
     const mocks = new Map<string, NodeHandler>()
     // Branch_a (index 0) sets a unique key in its context
-    mocks.set('branch_a', vi.fn(async (_node: GraphNode, ctx: IGraphContext) => {
-      ctx.set('winner_key', 'from_branch_a')
-      return { status: 'SUCCESS' as const }
-    }))
+    mocks.set(
+      'branch_a',
+      vi.fn(async (_node: GraphNode, ctx: IGraphContext) => {
+        ctx.set('winner_key', 'from_branch_a')
+        return { status: 'SUCCESS' as const }
+      })
+    )
     mocks.set('branch_b', vi.fn().mockResolvedValue({ status: 'FAILURE' }))
     mocks.set('branch_c', vi.fn().mockResolvedValue({ status: 'FAILURE' }))
 
@@ -273,14 +286,19 @@ describe('parallel fan-out/fan-in — first_success policy', () => {
     const graph = parseGraph(FIRST_SUCCESS_POLICY_DOT)
 
     let resolveA: (v: void) => void
-    const blockA = new Promise<void>((resolve) => { resolveA = resolve })
+    const blockA = new Promise<void>((resolve) => {
+      resolveA = resolve
+    })
 
     // branch_a is delayed; branch_b resolves immediately
     const mocks = new Map<string, NodeHandler>()
-    mocks.set('branch_a', vi.fn(async () => {
-      await blockA
-      return { status: 'SUCCESS' as const }
-    }))
+    mocks.set(
+      'branch_a',
+      vi.fn(async () => {
+        await blockA
+        return { status: 'SUCCESS' as const }
+      })
+    )
     mocks.set('branch_b', vi.fn().mockResolvedValue({ status: 'SUCCESS' }))
 
     // Unblock branch_a after branch_b has resolved
@@ -438,7 +456,7 @@ describe('fan-in — heuristic winner selection', () => {
     // fan_in node needs a prompt for LLM selection
     fanInNode.prompt = 'Select the best implementation branch'
 
-    const mockLlmCall = vi.fn().mockResolvedValue('2')  // LLM picks branch_id=2
+    const mockLlmCall = vi.fn().mockResolvedValue('2') // LLM picks branch_id=2
     const registry = makeChainRegistry(mocks, {})
     const parallelHandler = registry.resolve(fanOutNode)
     const fanInHandler = createFanInHandler({ llmCall: mockLlmCall })
@@ -463,14 +481,20 @@ describe('parallel fan-out/fan-in — context isolation', () => {
     const graph = parseGraph(PARALLEL_FAN_OUT_DOT)
     const mocks = new Map<string, NodeHandler>()
 
-    mocks.set('branch_a', vi.fn(async (_node: GraphNode, ctx: IGraphContext) => {
-      ctx.set('key_a', 'value_from_a')
-      return { status: 'SUCCESS' as const }
-    }))
-    mocks.set('branch_b', vi.fn(async (_node: GraphNode, ctx: IGraphContext) => {
-      ctx.set('key_b', 'value_from_b')
-      return { status: 'SUCCESS' as const }
-    }))
+    mocks.set(
+      'branch_a',
+      vi.fn(async (_node: GraphNode, ctx: IGraphContext) => {
+        ctx.set('key_a', 'value_from_a')
+        return { status: 'SUCCESS' as const }
+      })
+    )
+    mocks.set(
+      'branch_b',
+      vi.fn(async (_node: GraphNode, ctx: IGraphContext) => {
+        ctx.set('key_b', 'value_from_b')
+        return { status: 'SUCCESS' as const }
+      })
+    )
     mocks.set('branch_c', vi.fn().mockResolvedValue({ status: 'SUCCESS' }))
 
     const fanOutNode = graph.nodes.get('fan_out')!
@@ -527,7 +551,11 @@ describe('parallel fan-out/fan-in — event emission', () => {
     const parallelStarted = events.filter((e) => e.event === 'graph:parallel-started')
     expect(parallelStarted).toHaveLength(1)
 
-    const payload = parallelStarted[0]!.payload as { branchCount: number; policy: string; runId: string }
+    const payload = parallelStarted[0]!.payload as {
+      branchCount: number
+      policy: string
+      runId: string
+    }
     expect(payload.branchCount).toBe(3)
     expect(payload.policy).toBe('wait_all')
     expect(payload.runId).toBe('evt-test')

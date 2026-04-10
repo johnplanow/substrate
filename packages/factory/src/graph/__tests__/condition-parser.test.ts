@@ -12,11 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import {
-  parseCondition,
-  evaluateCondition,
-  ConditionParseError,
-} from '../condition-parser.js'
+import { parseCondition, evaluateCondition, ConditionParseError } from '../condition-parser.js'
 import { createValidator } from '../validator.js'
 import type { Graph, GraphEdge, GraphNode } from '../types.js'
 
@@ -249,7 +245,7 @@ describe('evaluateCondition — happy path', () => {
       evaluateCondition('outcome=success && iteration!=0', {
         outcome: 'success',
         iteration: '1',
-      }),
+      })
     ).toBe(true)
   })
 
@@ -258,7 +254,7 @@ describe('evaluateCondition — happy path', () => {
       evaluateCondition('outcome=success && iteration!=0', {
         outcome: 'failure',
         iteration: '1',
-      }),
+      })
     ).toBe(false)
   })
 
@@ -267,7 +263,7 @@ describe('evaluateCondition — happy path', () => {
       evaluateCondition('outcome=success && iteration!=0', {
         outcome: 'success',
         iteration: '0',
-      }),
+      })
     ).toBe(false)
   })
 
@@ -332,18 +328,14 @@ describe('evaluateCondition — error propagation', () => {
 
 describe('AC7: condition_syntax rule uses parseCondition', () => {
   it('valid condition outcome=success → no diagnostics', () => {
-    const graph = makeGraph([
-      { fromNode: 'start', toNode: 'exit', condition: 'outcome=success' },
-    ])
+    const graph = makeGraph([{ fromNode: 'start', toNode: 'exit', condition: 'outcome=success' }])
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'condition_syntax')
     expect(diags).toHaveLength(0)
   })
 
   it('valid condition outcome!=fail → no diagnostics', () => {
-    const graph = makeGraph([
-      { fromNode: 'start', toNode: 'exit', condition: 'outcome!=fail' },
-    ])
+    const graph = makeGraph([{ fromNode: 'start', toNode: 'exit', condition: 'outcome!=fail' }])
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'condition_syntax')
     expect(diags).toHaveLength(0)
@@ -363,9 +355,7 @@ describe('AC7: condition_syntax rule uses parseCondition', () => {
   })
 
   it('AC5 via validator: outcome==success (double-equals) → error diagnostic', () => {
-    const graph = makeGraph([
-      { fromNode: 'start', toNode: 'exit', condition: 'outcome==success' },
-    ])
+    const graph = makeGraph([{ fromNode: 'start', toNode: 'exit', condition: 'outcome==success' }])
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'condition_syntax')
     expect(diags).toHaveLength(1)

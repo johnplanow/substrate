@@ -35,9 +35,7 @@ export interface InjectionContext {
 export function scoreRelevance(finding: Finding, context: InjectionContext): number {
   // --- Jaccard file overlap ---
   // Cap target files to the 20 shortest paths (sorted ascending by length)
-  const cappedTargets = (context.targetFiles ?? [])
-    .sort((a, b) => a.length - b.length)
-    .slice(0, 20)
+  const cappedTargets = (context.targetFiles ?? []).sort((a, b) => a.length - b.length).slice(0, 20)
   const targetSet = new Set(cappedTargets)
   const intersectionCount = finding.affected_files.filter((f) => targetSet.has(f)).length
   const jaccardFileOverlap =
@@ -66,5 +64,8 @@ export function scoreRelevance(finding: Finding, context: InjectionContext): num
         ? 1.0
         : 0.0
 
-  return Math.min(1, Math.max(0, 0.5 * jaccardFileOverlap + 0.3 * packageMatch + 0.2 * rootCauseMatch))
+  return Math.min(
+    1,
+    Math.max(0, 0.5 * jaccardFileOverlap + 0.3 * packageMatch + 0.2 * rootCauseMatch)
+  )
 }

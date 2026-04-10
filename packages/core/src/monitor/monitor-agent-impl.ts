@@ -56,7 +56,7 @@ export class MonitorAgentImpl implements MonitorAgent {
     eventBus: TypedEventBus<CoreEvents>,
     monitorDb: MonitorDatabase,
     config: MonitorConfig = {},
-    logger?: ILogger,
+    logger?: ILogger
   ) {
     this._eventBus = eventBus
     this._monitorDb = monitorDb
@@ -96,14 +96,22 @@ export class MonitorAgentImpl implements MonitorAgent {
         outputTokens = Math.max(0, result.tokensUsed - inputTokens)
       }
       const data: {
-        failureReason?: string; inputTokens?: number; outputTokens?: number
-        durationMs?: number; cost?: number; estimatedCost?: number
-        billingMode?: string; taskType?: string
+        failureReason?: string
+        inputTokens?: number
+        outputTokens?: number
+        durationMs?: number
+        cost?: number
+        estimatedCost?: number
+        billingMode?: string
+        taskType?: string
       } = { billingMode: 'api' }
       if (inputTokens !== undefined) data.inputTokens = inputTokens
       if (outputTokens !== undefined) data.outputTokens = outputTokens
       if (result.durationMs !== undefined) data.durationMs = result.durationMs
-      if (result.costUsd !== undefined) { data.cost = result.costUsd; data.estimatedCost = result.costUsd }
+      if (result.costUsd !== undefined) {
+        data.cost = result.costUsd
+        data.estimatedCost = result.costUsd
+      }
       if (taskType !== undefined) data.taskType = taskType
       this.recordTaskMetrics(taskId, agent, 'success', data)
     }
@@ -129,8 +137,14 @@ export class MonitorAgentImpl implements MonitorAgent {
     this._logger.info('MonitorAgent shutting down')
     this._eventBus.off('task:complete', this._onTaskComplete)
     this._eventBus.off('task:failed', this._onTaskFailed)
-    if (this._retentionTimer !== null) { clearTimeout(this._retentionTimer); this._retentionTimer = null }
-    if (this._retentionIntervalTimer !== null) { clearInterval(this._retentionIntervalTimer); this._retentionIntervalTimer = null }
+    if (this._retentionTimer !== null) {
+      clearTimeout(this._retentionTimer)
+      this._retentionTimer = null
+    }
+    if (this._retentionIntervalTimer !== null) {
+      clearInterval(this._retentionIntervalTimer)
+      this._retentionIntervalTimer = null
+    }
     this._monitorDb.close()
     this._logger.info('MonitorAgent shutdown complete')
   }
@@ -157,10 +171,16 @@ export class MonitorAgentImpl implements MonitorAgent {
       const now = new Date().toISOString()
 
       const row: TaskMetricsRow = {
-        taskId, agent: agent || 'unknown', taskType, outcome,
-        inputTokens: data.inputTokens ?? 0, outputTokens: data.outputTokens ?? 0,
-        durationMs: data.durationMs ?? 0, cost: data.cost ?? 0,
-        estimatedCost: data.estimatedCost ?? 0, billingMode: data.billingMode ?? 'api',
+        taskId,
+        agent: agent || 'unknown',
+        taskType,
+        outcome,
+        inputTokens: data.inputTokens ?? 0,
+        outputTokens: data.outputTokens ?? 0,
+        durationMs: data.durationMs ?? 0,
+        cost: data.cost ?? 0,
+        estimatedCost: data.estimatedCost ?? 0,
+        billingMode: data.billingMode ?? 'api',
         recordedAt: now,
       }
       if (data.failureReason !== undefined) row.failureReason = data.failureReason
@@ -173,8 +193,14 @@ export class MonitorAgentImpl implements MonitorAgent {
         durationMs: data.durationMs ?? 0,
         cost: data.cost ?? 0,
       })
-      this._eventBus.emit('monitor:metrics_recorded', { taskId, agent: agent || 'unknown', taskType })
-      this._logger.debug(`Task metrics recorded: taskId=${taskId} taskType=${taskType} outcome=${outcome}`)
+      this._eventBus.emit('monitor:metrics_recorded', {
+        taskId,
+        agent: agent || 'unknown',
+        taskType,
+      })
+      this._logger.debug(
+        `Task metrics recorded: taskId=${taskId} taskType=${taskType} outcome=${outcome}`
+      )
     } catch (err) {
       this._logger.error(`Failed to record task metrics: taskId=${taskId} err=${String(err)}`)
     }
@@ -207,7 +233,17 @@ export class MonitorAgentImpl implements MonitorAgent {
       }
     }
     const now = new Date()
-    const nextRun = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), this._retentionHourUtc, 0, 0, 0))
+    const nextRun = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        this._retentionHourUtc,
+        0,
+        0,
+        0
+      )
+    )
     if (nextRun.getTime() <= now.getTime()) nextRun.setUTCDate(nextRun.getUTCDate() + 1)
     const delayMs = nextRun.getTime() - now.getTime()
     const firstRunTimer = setTimeout(() => {

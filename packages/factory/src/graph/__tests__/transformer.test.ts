@@ -68,7 +68,9 @@ vi.mock('../../convergence/index.js', () => ({
     fixScope: '',
   }),
   injectRemediationContext: vi.fn(),
-  computeBackoffDelay: vi.fn().mockImplementation((attempt: number) => Math.min(1000 * 2 ** attempt, 30000)),
+  computeBackoffDelay: vi
+    .fn()
+    .mockImplementation((attempt: number) => Math.min(1000 * 2 ** attempt, 30000)),
   createDualSignalCoordinator: vi.fn().mockReturnValue({ evaluate: vi.fn() }),
   CONTEXT_KEY_CODE_REVIEW_VERDICT: 'factory.codeReviewVerdict',
 }))
@@ -330,8 +332,26 @@ describe('AC5 — executor integration: applyStylesheet called before handler di
       ['exit', exitNode],
     ])
     const edges: GraphEdge[] = [
-      { fromNode: 'start', toNode: 'work', label: '', condition: '', weight: 1, fidelity: '', threadId: '', loopRestart: false },
-      { fromNode: 'work', toNode: 'exit', label: '', condition: '', weight: 1, fidelity: '', threadId: '', loopRestart: false },
+      {
+        fromNode: 'start',
+        toNode: 'work',
+        label: '',
+        condition: '',
+        weight: 1,
+        fidelity: '',
+        threadId: '',
+        loopRestart: false,
+      },
+      {
+        fromNode: 'work',
+        toNode: 'exit',
+        label: '',
+        condition: '',
+        weight: 1,
+        fidelity: '',
+        threadId: '',
+        loopRestart: false,
+      },
     ]
     const graph: Graph = {
       id: 'ac5-graph',
@@ -344,9 +364,15 @@ describe('AC5 — executor integration: applyStylesheet called before handler di
       defaultFidelity: '',
       nodes: nodeMap,
       edges,
-      outgoingEdges(nodeId: string) { return edges.filter((e) => e.fromNode === nodeId) },
-      startNode() { return nodeMap.get('start')! },
-      exitNode() { return nodeMap.get('exit')! },
+      outgoingEdges(nodeId: string) {
+        return edges.filter((e) => e.fromNode === nodeId)
+      },
+      startNode() {
+        return nodeMap.get('start')!
+      },
+      exitNode() {
+        return nodeMap.get('exit')!
+      },
     }
     return { graph, workNode }
   }

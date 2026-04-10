@@ -32,17 +32,16 @@ import { exitHandler } from '../../handlers/exit.js'
 import { createManagerLoopHandler } from '../../handlers/manager-loop.js'
 import type { Graph } from '../../graph/types.js'
 
-import {
-  MANAGER_LOOP_DOT,
-  MANAGER_LOOP_BODY_DOT,
-} from '../fixtures/manager-loop.dot.js'
+import { MANAGER_LOOP_DOT, MANAGER_LOOP_BODY_DOT } from '../fixtures/manager-loop.dot.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /** Build a HandlerRegistry for the body graph. Codergen nodes use the default mock. */
-function makeBodyRegistry(outcomeOverride?: { status: 'SUCCESS' | 'FAILURE' | 'PARTIAL_SUCCESS' }): HandlerRegistry {
+function makeBodyRegistry(outcomeOverride?: {
+  status: 'SUCCESS' | 'FAILURE' | 'PARTIAL_SUCCESS'
+}): HandlerRegistry {
   const registry = new HandlerRegistry()
   registry.register('start', startHandler)
   registry.register('exit', exitHandler)
@@ -134,7 +133,10 @@ describe('manager loop — error cases', () => {
   })
 
   it('returns FAILURE when graphFileLoader throws', async () => {
-    const { graph, loopNodeId } = makeLoopGraph({ graph_file: '/missing/body.dot', max_cycles: '1' })
+    const { graph, loopNodeId } = makeLoopGraph({
+      graph_file: '/missing/body.dot',
+      max_cycles: '1',
+    })
     const loopNode = graph.nodes.get(loopNodeId)!
 
     const handler = createManagerLoopHandler({

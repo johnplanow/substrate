@@ -33,7 +33,7 @@ class MockSummaryEngine implements SummaryEngine {
   async summarize(
     content: string,
     targetLevel: SummaryLevel,
-    _opts?: SummarizeOptions,
+    _opts?: SummarizeOptions
   ): Promise<Summary> {
     return {
       level: targetLevel,
@@ -46,7 +46,7 @@ class MockSummaryEngine implements SummaryEngine {
   async expand(
     summary: Summary,
     _targetLevel: SummaryLevel,
-    opts?: ExpandOptions,
+    opts?: ExpandOptions
   ): Promise<string> {
     return opts?.originalContent ?? summary.content
   }
@@ -201,20 +201,16 @@ describe('compress', () => {
 
 describe('AutoSummarizer constructor — threshold validation', () => {
   it('throws RangeError when threshold is 0.4 (below 0.5)', () => {
+    expect(() => new AutoSummarizer(mockEngine, 1000, { threshold: 0.4 })).toThrowError(RangeError)
     expect(() => new AutoSummarizer(mockEngine, 1000, { threshold: 0.4 })).toThrowError(
-      RangeError,
-    )
-    expect(() => new AutoSummarizer(mockEngine, 1000, { threshold: 0.4 })).toThrowError(
-      'context_summarize_threshold must be between 0.5 and 0.95',
+      'context_summarize_threshold must be between 0.5 and 0.95'
     )
   })
 
   it('throws RangeError when threshold is 0.96 (above 0.95)', () => {
+    expect(() => new AutoSummarizer(mockEngine, 1000, { threshold: 0.96 })).toThrowError(RangeError)
     expect(() => new AutoSummarizer(mockEngine, 1000, { threshold: 0.96 })).toThrowError(
-      RangeError,
-    )
-    expect(() => new AutoSummarizer(mockEngine, 1000, { threshold: 0.96 })).toThrowError(
-      'context_summarize_threshold must be between 0.5 and 0.95',
+      'context_summarize_threshold must be between 0.5 and 0.95'
     )
   })
 

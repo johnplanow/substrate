@@ -47,7 +47,10 @@ export class SummaryCache {
     const dir = join(this.config.storageDir, this.config.runId, 'summaries')
     await mkdir(dir, { recursive: true })
     const record: CachedSummaryRecord = { summary, cachedAt: new Date().toISOString() }
-    await writeFile(this.summaryPath(summary.originalHash, summary.level), JSON.stringify(record, null, 2))
+    await writeFile(
+      this.summaryPath(summary.originalHash, summary.level),
+      JSON.stringify(record, null, 2)
+    )
     if (originalContent !== undefined && this.config.storeOriginals !== false) {
       await writeFile(this.originalPath(summary.originalHash), originalContent)
     }
@@ -79,12 +82,16 @@ export class CachingSummaryEngine implements SummaryEngine {
 
   constructor(
     private readonly inner: SummaryEngine,
-    private readonly cache: SummaryCache,
+    private readonly cache: SummaryCache
   ) {
     this.name = `caching(${inner.name})`
   }
 
-  async summarize(content: string, targetLevel: SummaryLevel, opts?: SummarizeOptions): Promise<Summary> {
+  async summarize(
+    content: string,
+    targetLevel: SummaryLevel,
+    opts?: SummarizeOptions
+  ): Promise<Summary> {
     const originalHash = createHash('sha256').update(content).digest('hex')
     const cached = await this.cache.get(originalHash, targetLevel)
     if (cached !== null) return cached

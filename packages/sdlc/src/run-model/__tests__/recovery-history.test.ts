@@ -177,9 +177,7 @@ describe('RunManifestSchema backward compatibility (AC7)', () => {
 
   it('accepts a recovery entry with unknown outcome string in the history (AC7)', () => {
     const manifest = makeMinimalManifest({
-      recovery_history: [
-        makeEntry({ outcome: 'some-future-outcome' }),
-      ],
+      recovery_history: [makeEntry({ outcome: 'some-future-outcome' })],
     })
     const result = RunManifestSchema.safeParse(manifest)
     expect(result.success).toBe(true)

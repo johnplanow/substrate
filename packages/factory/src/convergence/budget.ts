@@ -58,7 +58,7 @@ export interface BackoffOptions {
 export function checkNodeBudget(
   nodeId: string,
   retryCount: number,
-  maxRetries: number,
+  maxRetries: number
 ): BudgetCheckResult {
   if (retryCount < maxRetries) {
     return { allowed: true }
@@ -274,4 +274,3 @@ export class SessionBudgetManager {
     return checkSessionBudget(this.getElapsedMs(), capSeconds * 1000)
   }
 }
-

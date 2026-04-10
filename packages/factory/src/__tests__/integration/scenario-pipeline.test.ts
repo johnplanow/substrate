@@ -100,10 +100,10 @@ describe('AC1: first iteration — 2/3 pass, route to implement', () => {
     const result2 = buildScenarioRunResult(3, 3)
     mockSpawn
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 })
       )
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 })
       )
 
     const graph = parseGraph(readFixtureDot())
@@ -121,7 +121,7 @@ describe('AC1: first iteration — 2/3 pass, route to implement', () => {
     const routeEdgeSelections = events.filter(
       (e) =>
         e.event === 'graph:edge-selected' &&
-        (e.payload as Record<string, unknown>)['fromNode'] === 'route',
+        (e.payload as Record<string, unknown>)['fromNode'] === 'route'
     )
     // The FIRST route selection should be the retry path back to implement
     expect(routeEdgeSelections.length).toBeGreaterThanOrEqual(1)
@@ -133,10 +133,10 @@ describe('AC1: first iteration — 2/3 pass, route to implement', () => {
     const result2 = buildScenarioRunResult(3, 3)
     mockSpawn
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 })
       )
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 })
       )
 
     const graph = parseGraph(readFixtureDot())
@@ -153,12 +153,12 @@ describe('AC1: first iteration — 2/3 pass, route to implement', () => {
     const validateCompletions = events.filter(
       (e) =>
         e.event === 'graph:node-completed' &&
-        (e.payload as Record<string, unknown>)['nodeId'] === 'validate',
+        (e.payload as Record<string, unknown>)['nodeId'] === 'validate'
     )
     expect(validateCompletions.length).toBeGreaterThanOrEqual(1)
-    const firstValidateOutcome = (
-      validateCompletions[0]?.payload as Record<string, unknown>
-    )['outcome'] as Record<string, unknown>
+    const firstValidateOutcome = (validateCompletions[0]?.payload as Record<string, unknown>)[
+      'outcome'
+    ] as Record<string, unknown>
     const contextUpdates = firstValidateOutcome['contextUpdates'] as Record<string, number>
     expect(contextUpdates['satisfaction_score']).toBeCloseTo(2 / 3, 5)
   })
@@ -185,10 +185,10 @@ describe('AC2: two-iteration convergence', () => {
     const result2 = buildScenarioRunResult(3, 3)
     mockSpawn
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 })
       )
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 })
       )
 
     const graph = parseGraph(readFixtureDot())
@@ -206,10 +206,10 @@ describe('AC2: two-iteration convergence', () => {
     const result2 = buildScenarioRunResult(3, 3)
     mockSpawn
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 })
       )
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 })
       )
 
     const graph = parseGraph(readFixtureDot())
@@ -225,13 +225,13 @@ describe('AC2: two-iteration convergence', () => {
     const validateCompletions = events.filter(
       (e) =>
         e.event === 'graph:node-completed' &&
-        (e.payload as Record<string, unknown>)['nodeId'] === 'validate',
+        (e.payload as Record<string, unknown>)['nodeId'] === 'validate'
     )
     expect(validateCompletions.length).toBe(2)
     // Second validate should have satisfaction_score = 1.0
-    const secondValidateOutcome = (
-      validateCompletions[1]?.payload as Record<string, unknown>
-    )['outcome'] as Record<string, unknown>
+    const secondValidateOutcome = (validateCompletions[1]?.payload as Record<string, unknown>)[
+      'outcome'
+    ] as Record<string, unknown>
     const contextUpdates = secondValidateOutcome['contextUpdates'] as Record<string, number>
     expect(contextUpdates['satisfaction_score']).toBe(1.0)
   })
@@ -241,10 +241,10 @@ describe('AC2: two-iteration convergence', () => {
     const result2 = buildScenarioRunResult(3, 3)
     mockSpawn
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 })
       )
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 })
       )
 
     const graph = parseGraph(readFixtureDot())
@@ -261,7 +261,7 @@ describe('AC2: two-iteration convergence', () => {
     const routeEdgeSelections = events.filter(
       (e) =>
         e.event === 'graph:edge-selected' &&
-        (e.payload as Record<string, unknown>)['fromNode'] === 'route',
+        (e.payload as Record<string, unknown>)['fromNode'] === 'route'
     )
     expect(routeEdgeSelections.length).toBe(2)
     // The LAST selection should be to exit
@@ -274,10 +274,10 @@ describe('AC2: two-iteration convergence', () => {
     const result2 = buildScenarioRunResult(3, 3)
     mockSpawn
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 })
       )
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 })
       )
 
     const graph = parseGraph(readFixtureDot())
@@ -293,7 +293,7 @@ describe('AC2: two-iteration convergence', () => {
     const validateCompletions = events.filter(
       (e) =>
         e.event === 'graph:node-completed' &&
-        (e.payload as Record<string, unknown>)['nodeId'] === 'validate',
+        (e.payload as Record<string, unknown>)['nodeId'] === 'validate'
     )
     expect(validateCompletions).toHaveLength(2)
   })
@@ -322,10 +322,10 @@ describe('AC2: two-iteration convergence', () => {
     const result2 = buildScenarioRunResult(3, 3)
     mockSpawn
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 })
       )
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 })
       )
 
     await createGraphExecutor().run(parseGraph(readFixtureDot()), {

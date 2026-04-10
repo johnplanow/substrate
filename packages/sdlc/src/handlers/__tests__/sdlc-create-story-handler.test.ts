@@ -262,9 +262,9 @@ describe('createSdlcCreateStoryHandler — missing required context (AC5)', () =
 
 describe('createSdlcCreateStoryHandler — unexpected thrown error', () => {
   it('returns FAILURE with caught message when runCreateStory throws (AC3)', async () => {
-    const mockRunCreateStory = vi.fn<RunCreateStoryFn>().mockRejectedValue(
-      new Error('unexpected network failure')
-    )
+    const mockRunCreateStory = vi
+      .fn<RunCreateStoryFn>()
+      .mockRejectedValue(new Error('unexpected network failure'))
     const mockEventBus = makeEventBus()
     const options: SdlcCreateStoryHandlerOptions = {
       deps: {},
@@ -306,17 +306,19 @@ describe('createSdlcCreateStoryHandler — telemetry (AC4)', () => {
   it('emits phase-start before and phase-complete after runCreateStory on success', async () => {
     const callOrder: string[] = []
 
-    const mockRunCreateStory = vi
-      .fn<RunCreateStoryFn>()
-      .mockImplementation(async () => {
-        callOrder.push('runCreateStory')
-        return successResult
-      })
+    const mockRunCreateStory = vi.fn<RunCreateStoryFn>().mockImplementation(async () => {
+      callOrder.push('runCreateStory')
+      return successResult
+    })
 
     const mockEmit = vi.fn().mockImplementation((event: string) => {
       callOrder.push(event)
     })
-    const mockEventBus = { emit: mockEmit, on: vi.fn(), off: vi.fn() } as unknown as TypedEventBus<SdlcEvents>
+    const mockEventBus = {
+      emit: mockEmit,
+      on: vi.fn(),
+      off: vi.fn(),
+    } as unknown as TypedEventBus<SdlcEvents>
     const options: SdlcCreateStoryHandlerOptions = {
       deps: {},
       eventBus: mockEventBus,
@@ -349,7 +351,9 @@ describe('createSdlcCreateStoryHandler — telemetry (AC4)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseStartCall = emitMock.mock.calls.find(([event]) => event === 'orchestrator:story-phase-start')
+    const phaseStartCall = emitMock.mock.calls.find(
+      ([event]) => event === 'orchestrator:story-phase-start'
+    )
     expect(phaseStartCall).toBeDefined()
     expect(phaseStartCall?.[1]).toEqual({ storyKey: '43-3', phase: 'create-story' })
   })
@@ -368,7 +372,9 @@ describe('createSdlcCreateStoryHandler — telemetry (AC4)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseCompleteCall = emitMock.mock.calls.find(([event]) => event === 'orchestrator:story-phase-complete')
+    const phaseCompleteCall = emitMock.mock.calls.find(
+      ([event]) => event === 'orchestrator:story-phase-complete'
+    )
     expect(phaseCompleteCall).toBeDefined()
     expect(phaseCompleteCall?.[1]).toEqual({
       storyKey: '43-3',
@@ -378,9 +384,7 @@ describe('createSdlcCreateStoryHandler — telemetry (AC4)', () => {
   })
 
   it('emits phase-complete even when runCreateStory throws (AC4)', async () => {
-    const mockRunCreateStory = vi.fn<RunCreateStoryFn>().mockRejectedValue(
-      new Error('boom')
-    )
+    const mockRunCreateStory = vi.fn<RunCreateStoryFn>().mockRejectedValue(new Error('boom'))
     const mockEventBus = makeEventBus()
     const options: SdlcCreateStoryHandlerOptions = {
       deps: {},
@@ -393,8 +397,12 @@ describe('createSdlcCreateStoryHandler — telemetry (AC4)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseStartCalls = emitMock.mock.calls.filter(([e]) => e === 'orchestrator:story-phase-start')
-    const phaseCompleteCalls = emitMock.mock.calls.filter(([e]) => e === 'orchestrator:story-phase-complete')
+    const phaseStartCalls = emitMock.mock.calls.filter(
+      ([e]) => e === 'orchestrator:story-phase-start'
+    )
+    const phaseCompleteCalls = emitMock.mock.calls.filter(
+      ([e]) => e === 'orchestrator:story-phase-complete'
+    )
 
     expect(phaseStartCalls).toHaveLength(1)
     expect(phaseCompleteCalls).toHaveLength(1)
@@ -414,7 +422,9 @@ describe('createSdlcCreateStoryHandler — telemetry (AC4)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseCompleteCalls = emitMock.mock.calls.filter(([e]) => e === 'orchestrator:story-phase-complete')
+    const phaseCompleteCalls = emitMock.mock.calls.filter(
+      ([e]) => e === 'orchestrator:story-phase-complete'
+    )
     expect(phaseCompleteCalls).toHaveLength(1)
   })
 })

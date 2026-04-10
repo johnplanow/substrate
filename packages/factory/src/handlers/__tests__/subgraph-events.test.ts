@@ -214,14 +214,18 @@ describe('subgraph event payload type conformance to FactoryEvents', () => {
     const calls = (mockBus.emit as ReturnType<typeof vi.fn>).mock.calls
 
     // graph:subgraph-started payload: { runId: string; nodeId: string; graphFile: string; depth: number }
-    const startedPayload = calls.find((c: unknown[]) => c[0] === 'graph:subgraph-started')?.[1] as Record<string, unknown>
+    const startedPayload = calls.find(
+      (c: unknown[]) => c[0] === 'graph:subgraph-started'
+    )?.[1] as Record<string, unknown>
     expect(typeof startedPayload['runId']).toBe('string')
     expect(typeof startedPayload['nodeId']).toBe('string')
     expect(typeof startedPayload['graphFile']).toBe('string')
     expect(typeof startedPayload['depth']).toBe('number')
 
     // graph:subgraph-completed payload: { runId: string; nodeId: string; graphFile: string; depth: number; status: StageStatus; durationMs: number }
-    const completedPayload = calls.find((c: unknown[]) => c[0] === 'graph:subgraph-completed')?.[1] as Record<string, unknown>
+    const completedPayload = calls.find(
+      (c: unknown[]) => c[0] === 'graph:subgraph-completed'
+    )?.[1] as Record<string, unknown>
     expect(typeof completedPayload['runId']).toBe('string')
     expect(typeof completedPayload['nodeId']).toBe('string')
     expect(typeof completedPayload['graphFile']).toBe('string')

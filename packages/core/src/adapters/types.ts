@@ -254,4 +254,3 @@ export interface DiscoveryReport {
   /** Per-adapter detail results */
   results: AdapterDiscoveryResult[]
 }
-

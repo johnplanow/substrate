@@ -39,11 +39,11 @@ import type { ScenarioRunResult, ScenarioWeights } from '../../scenarios/scorer.
 // ---------------------------------------------------------------------------
 
 function makeRunResult(
-  scenarios: Array<{ name: string; status: 'pass' | 'fail' }>,
+  scenarios: Array<{ name: string; status: 'pass' | 'fail' }>
 ): ScenarioRunResult {
-  const passedCount = scenarios.filter(s => s.status === 'pass').length
+  const passedCount = scenarios.filter((s) => s.status === 'pass').length
   return {
-    scenarios: scenarios.map(s => ({
+    scenarios: scenarios.map((s) => ({
       name: s.name,
       status: s.status,
       exitCode: s.status === 'pass' ? 0 : 1,
@@ -60,7 +60,11 @@ function makeRunResult(
   }
 }
 
-function makeGraphRunInput(id: string, status: string, overrides: Partial<GraphRunInput> = {}): GraphRunInput {
+function makeGraphRunInput(
+  id: string,
+  status: string,
+  overrides: Partial<GraphRunInput> = {}
+): GraphRunInput {
   return {
     id,
     graph_file: 'pipeline.dot',
@@ -181,21 +185,27 @@ describe('Scenario-primary mode — advisory events and gate control', () => {
 
     const emitMock = vi.mocked(mockBus.emit)
 
-    expect(emitMock).toHaveBeenCalledWith('scenario:score-computed', expect.objectContaining({
-      runId: 'run-1',
-      passes: true,
-      score: 0.9,
-      threshold: 0.8,
-    }))
+    expect(emitMock).toHaveBeenCalledWith(
+      'scenario:score-computed',
+      expect.objectContaining({
+        runId: 'run-1',
+        passes: true,
+        score: 0.9,
+        threshold: 0.8,
+      })
+    )
 
-    expect(emitMock).toHaveBeenCalledWith('scenario:advisory-computed', expect.objectContaining({
-      runId: 'run-1',
-      verdict: 'NEEDS_MAJOR_REWORK',
-      codeReviewPassed: false,
-      score: 0.9,
-      threshold: 0.8,
-      agreement: 'DISAGREE',
-    }))
+    expect(emitMock).toHaveBeenCalledWith(
+      'scenario:advisory-computed',
+      expect.objectContaining({
+        runId: 'run-1',
+        verdict: 'NEEDS_MAJOR_REWORK',
+        codeReviewPassed: false,
+        score: 0.9,
+        threshold: 0.8,
+        agreement: 'DISAGREE',
+      })
+    )
   })
 
   it('emits scenario:score-computed with passes=false when score fails (code review passes)', () => {
@@ -209,16 +219,22 @@ describe('Scenario-primary mode — advisory events and gate control', () => {
 
     const emitMock = vi.mocked(mockBus.emit)
 
-    expect(emitMock).toHaveBeenCalledWith('scenario:score-computed', expect.objectContaining({
-      runId: 'run-2',
-      passes: false,
-    }))
+    expect(emitMock).toHaveBeenCalledWith(
+      'scenario:score-computed',
+      expect.objectContaining({
+        runId: 'run-2',
+        passes: false,
+      })
+    )
 
-    expect(emitMock).toHaveBeenCalledWith('scenario:advisory-computed', expect.objectContaining({
-      runId: 'run-2',
-      agreement: 'DISAGREE',
-      codeReviewPassed: true,
-    }))
+    expect(emitMock).toHaveBeenCalledWith(
+      'scenario:advisory-computed',
+      expect.objectContaining({
+        runId: 'run-2',
+        agreement: 'DISAGREE',
+        codeReviewPassed: true,
+      })
+    )
   })
 
   it('emits advisory-computed with agreement=AGREE when both signals agree', () => {
@@ -230,10 +246,13 @@ describe('Scenario-primary mode — advisory events and gate control', () => {
 
     coordinator.evaluate('SHIP_IT', 0.85, 'run-3')
 
-    expect(vi.mocked(mockBus.emit)).toHaveBeenCalledWith('scenario:advisory-computed', expect.objectContaining({
-      runId: 'run-3',
-      agreement: 'AGREE',
-    }))
+    expect(vi.mocked(mockBus.emit)).toHaveBeenCalledWith(
+      'scenario:advisory-computed',
+      expect.objectContaining({
+        runId: 'run-3',
+        agreement: 'AGREE',
+      })
+    )
   })
 
   it('does NOT emit scenario:advisory-computed in default dual-signal mode', () => {
@@ -246,7 +265,9 @@ describe('Scenario-primary mode — advisory events and gate control', () => {
     coordinator.evaluate('SHIP_IT', 0.9, 'run-4')
 
     const emitMock = vi.mocked(mockBus.emit)
-    const advisoryCalls = emitMock.mock.calls.filter(call => call[0] === 'scenario:advisory-computed')
+    const advisoryCalls = emitMock.mock.calls.filter(
+      (call) => call[0] === 'scenario:advisory-computed'
+    )
     expect(advisoryCalls).toHaveLength(0)
   })
 
@@ -260,8 +281,8 @@ describe('Scenario-primary mode — advisory events and gate control', () => {
     coordinator.evaluate('NEEDS_MINOR_FIXES', 0.9, 'specific-run-id-xyz')
 
     const emitMock = vi.mocked(mockBus.emit)
-    const scoreCall = emitMock.mock.calls.find(c => c[0] === 'scenario:score-computed')
-    const advisoryCall = emitMock.mock.calls.find(c => c[0] === 'scenario:advisory-computed')
+    const scoreCall = emitMock.mock.calls.find((c) => c[0] === 'scenario:score-computed')
+    const advisoryCall = emitMock.mock.calls.find((c) => c[0] === 'scenario:advisory-computed')
 
     expect(scoreCall?.[1]).toMatchObject({ runId: 'specific-run-id-xyz' })
     expect(advisoryCall?.[1]).toMatchObject({ runId: 'specific-run-id-xyz' })
@@ -277,7 +298,7 @@ describe('Scenario-primary mode — advisory events and gate control', () => {
     const result = coordinator.evaluate('NEEDS_MAJOR_REWORK', 0.9, 'run-5')
 
     const emitMock = vi.mocked(mockBus.emit)
-    const scoreCall = emitMock.mock.calls.find(c => c[0] === 'scenario:score-computed')
+    const scoreCall = emitMock.mock.calls.find((c) => c[0] === 'scenario:score-computed')
     const payload = scoreCall?.[1] as { score: number; passes: boolean; agreement: string }
 
     expect(result.score).toBe(payload.score)
@@ -304,7 +325,7 @@ describe('Score persistence roundtrip', () => {
     const runId = 'persist-test-001'
     await upsertGraphRun(adapter, makeGraphRunInput(runId, 'running'))
 
-    const breakdown = [{ name: 'critical', passed: true, weight: 3.0, contribution: 0.60 }]
+    const breakdown = [{ name: 'critical', passed: true, weight: 3.0, contribution: 0.6 }]
     const input: ScenarioResultInput = {
       run_id: runId,
       node_id: 'scenario-node',
@@ -312,8 +333,8 @@ describe('Score persistence roundtrip', () => {
       total_scenarios: 1,
       passed: 1,
       failed: 0,
-      satisfaction_score: 0.80,
-      threshold: 0.80,
+      satisfaction_score: 0.8,
+      threshold: 0.8,
       passes: true,
       details: JSON.stringify(breakdown),
     }
@@ -323,9 +344,9 @@ describe('Score persistence roundtrip', () => {
 
     expect(rows).toHaveLength(1)
     expect(rows[0]!.run_id).toBe(runId)
-    expect(rows[0]!.satisfaction_score).toBeCloseTo(0.80, 10)
+    expect(rows[0]!.satisfaction_score).toBeCloseTo(0.8, 10)
     expect(rows[0]!.passes).toBe(true)
-    expect(rows[0]!.threshold).toBeCloseTo(0.80, 10)
+    expect(rows[0]!.threshold).toBeCloseTo(0.8, 10)
     expect(rows[0]!.node_id).toBe('scenario-node')
     expect(rows[0]!.iteration).toBe(1)
 
@@ -334,7 +355,7 @@ describe('Score persistence roundtrip', () => {
     expect(parsedBreakdown[0].name).toBe('critical')
     expect(parsedBreakdown[0].passed).toBe(true)
     expect(parsedBreakdown[0].weight).toBe(3.0)
-    expect(parsedBreakdown[0].contribution).toBeCloseTo(0.60, 10)
+    expect(parsedBreakdown[0].contribution).toBeCloseTo(0.6, 10)
   })
 
   it('handles empty/null details without parse error on retrieve', async () => {
@@ -348,8 +369,8 @@ describe('Score persistence roundtrip', () => {
       total_scenarios: 2,
       passed: 1,
       failed: 1,
-      satisfaction_score: 0.50,
-      threshold: 0.80,
+      satisfaction_score: 0.5,
+      threshold: 0.8,
       passes: false,
       // No details field
     }
@@ -361,7 +382,7 @@ describe('Score persistence roundtrip', () => {
     expect(rows[0]!.details).toBeNull()
     // Confirm it doesn't throw when attempting to parse (null guard)
     const detail = rows[0]!.details
-    expect(() => detail !== null ? JSON.parse(detail) : null).not.toThrow()
+    expect(() => (detail !== null ? JSON.parse(detail) : null)).not.toThrow()
   })
 
   it('AC5: inserts 3 iterations and retrieves in ascending order with correct scores', async () => {
@@ -369,19 +390,37 @@ describe('Score persistence roundtrip', () => {
     await upsertGraphRun(adapter, makeGraphRunInput(runId, 'running'))
 
     await insertScenarioResult(adapter, {
-      run_id: runId, node_id: 'node-1', iteration: 1,
-      total_scenarios: 5, passed: 3, failed: 2,
-      satisfaction_score: 0.60, threshold: 0.80, passes: false,
+      run_id: runId,
+      node_id: 'node-1',
+      iteration: 1,
+      total_scenarios: 5,
+      passed: 3,
+      failed: 2,
+      satisfaction_score: 0.6,
+      threshold: 0.8,
+      passes: false,
     })
     await insertScenarioResult(adapter, {
-      run_id: runId, node_id: 'node-1', iteration: 2,
-      total_scenarios: 5, passed: 4, failed: 1,
-      satisfaction_score: 0.72, threshold: 0.80, passes: false,
+      run_id: runId,
+      node_id: 'node-1',
+      iteration: 2,
+      total_scenarios: 5,
+      passed: 4,
+      failed: 1,
+      satisfaction_score: 0.72,
+      threshold: 0.8,
+      passes: false,
     })
     await insertScenarioResult(adapter, {
-      run_id: runId, node_id: 'node-1', iteration: 3,
-      total_scenarios: 5, passed: 5, failed: 0,
-      satisfaction_score: 0.85, threshold: 0.80, passes: true,
+      run_id: runId,
+      node_id: 'node-1',
+      iteration: 3,
+      total_scenarios: 5,
+      passed: 5,
+      failed: 0,
+      satisfaction_score: 0.85,
+      threshold: 0.8,
+      passes: true,
     })
 
     const rows = await getScenarioResultsForRun(adapter, runId)
@@ -392,7 +431,7 @@ describe('Score persistence roundtrip', () => {
     expect(rows[1]!.iteration).toBe(2)
     expect(rows[2]!.iteration).toBe(3)
     // Correct scores
-    expect(rows[0]!.satisfaction_score).toBeCloseTo(0.60, 10)
+    expect(rows[0]!.satisfaction_score).toBeCloseTo(0.6, 10)
     expect(rows[1]!.satisfaction_score).toBeCloseTo(0.72, 10)
     expect(rows[2]!.satisfaction_score).toBeCloseTo(0.85, 10)
     // passes correctness
@@ -411,9 +450,15 @@ describe('Score persistence roundtrip', () => {
     await upsertGraphRun(adapter, makeGraphRunInput(runId, 'running'))
 
     await insertScenarioResult(adapter, {
-      run_id: runId, node_id: 'node-1', iteration: 1,
-      total_scenarios: 5, passed: 2, failed: 3,
-      satisfaction_score: 0.40, threshold: 0.80, passes: false,
+      run_id: runId,
+      node_id: 'node-1',
+      iteration: 1,
+      total_scenarios: 5,
+      passed: 2,
+      failed: 3,
+      satisfaction_score: 0.4,
+      threshold: 0.8,
+      passes: false,
     })
 
     const rows = await getScenarioResultsForRun(adapter, runId)
@@ -426,9 +471,15 @@ describe('Score persistence roundtrip', () => {
     await upsertGraphRun(adapter, makeGraphRunInput(runId, 'running'))
 
     await insertScenarioResult(adapter, {
-      run_id: runId, node_id: 'node-1', iteration: 1,
-      total_scenarios: 5, passed: 5, failed: 0,
-      satisfaction_score: 1.0, threshold: 0.80, passes: true,
+      run_id: runId,
+      node_id: 'node-1',
+      iteration: 1,
+      total_scenarios: 5,
+      passed: 5,
+      failed: 0,
+      satisfaction_score: 1.0,
+      threshold: 0.8,
+      passes: true,
     })
 
     const rows = await getScenarioResultsForRun(adapter, runId)
@@ -454,10 +505,13 @@ describe('Factory run listing and upsert semantics', () => {
     const runId = 'upsert-test-001'
 
     await upsertGraphRun(adapter, makeGraphRunInput(runId, 'running'))
-    await upsertGraphRun(adapter, makeGraphRunInput(runId, 'completed', {
-      final_outcome: 'SUCCESS',
-      completed_at: new Date().toISOString(),
-    }))
+    await upsertGraphRun(
+      adapter,
+      makeGraphRunInput(runId, 'completed', {
+        final_outcome: 'SUCCESS',
+        completed_at: new Date().toISOString(),
+      })
+    )
 
     const runs = await listGraphRuns(adapter, 10)
     expect(runs).toHaveLength(1)
@@ -569,7 +623,7 @@ describe('End-to-end: scoring → persistence → listing', () => {
     await upsertGraphRun(adapter, makeGraphRunInput(runId, 'running'))
 
     const runs = await listGraphRuns(adapter, 10)
-    const run = runs.find(r => r.id === runId)
+    const run = runs.find((r) => r.id === runId)
     expect(run).toBeDefined()
     expect(run!.status).toBe('running')
   })
@@ -579,19 +633,22 @@ describe('End-to-end: scoring → persistence → listing', () => {
     await upsertGraphRun(adapter, makeGraphRunInput(runId, 'running'))
 
     // Update to completed
-    await upsertGraphRun(adapter, makeGraphRunInput(runId, 'completed', {
-      final_outcome: 'SUCCESS',
-      completed_at: new Date().toISOString(),
-    }))
+    await upsertGraphRun(
+      adapter,
+      makeGraphRunInput(runId, 'completed', {
+        final_outcome: 'SUCCESS',
+        completed_at: new Date().toISOString(),
+      })
+    )
 
     const runs = await listGraphRuns(adapter, 10)
-    const run = runs.find(r => r.id === runId)
+    const run = runs.find((r) => r.id === runId)
     expect(run).toBeDefined()
     expect(run!.status).toBe('completed')
     expect(run!.final_outcome).toBe('SUCCESS')
 
     // Confirm only 1 row (no duplicate)
-    const matchingRuns = runs.filter(r => r.id === runId)
+    const matchingRuns = runs.filter((r) => r.id === runId)
     expect(matchingRuns).toHaveLength(1)
   })
 

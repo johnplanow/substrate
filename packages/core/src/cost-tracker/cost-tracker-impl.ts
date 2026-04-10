@@ -32,7 +32,7 @@ export interface CostTracker {
     modelUsed: string,
     tokensInput: number,
     tokensOutput: number,
-    billingMode: 'subscription' | 'api',
+    billingMode: 'subscription' | 'api'
   ): Promise<CostEntry>
 
   getTaskCost(taskId: string): Promise<TaskCostSummary>
@@ -41,8 +41,12 @@ export interface CostTracker {
 
   getAgentCostBreakdown(
     sessionId: string,
-    agent: string,
-  ): Promise<{ cost_usd: number; task_count: number; billing_breakdown: { subscription: number; api: number } }>
+    agent: string
+  ): Promise<{
+    cost_usd: number
+    task_count: number
+    billing_breakdown: { subscription: number; api: number }
+  }>
 
   getAllCosts(sessionId: string, limit?: number): Promise<CostEntry[]>
 }
@@ -57,7 +61,12 @@ export class CostTrackerImpl implements CostTracker {
   private readonly _tokenRates: TokenRates
   private readonly _logger: ILogger
 
-  constructor(db: DatabaseAdapter, eventBus: TypedEventBus<CoreEvents>, tokenRates: TokenRates, logger?: ILogger) {
+  constructor(
+    db: DatabaseAdapter,
+    eventBus: TypedEventBus<CoreEvents>,
+    tokenRates: TokenRates,
+    logger?: ILogger
+  ) {
     this._db = db
     this._eventBus = eventBus
     this._tokenRates = tokenRates
@@ -72,9 +81,15 @@ export class CostTrackerImpl implements CostTracker {
     modelUsed: string,
     tokensInput: number,
     tokensOutput: number,
-    billingMode: 'subscription' | 'api',
+    billingMode: 'subscription' | 'api'
   ): Promise<CostEntry> {
-    const equivalentApiCost = estimateCostSafe(providerUsed, modelUsed, tokensInput, tokensOutput, this._tokenRates)
+    const equivalentApiCost = estimateCostSafe(
+      providerUsed,
+      modelUsed,
+      tokensInput,
+      tokensOutput,
+      this._tokenRates
+    )
 
     const costUsd = billingMode === 'subscription' ? 0 : equivalentApiCost
     const savingsUsd = billingMode === 'subscription' ? equivalentApiCost : 0
@@ -116,8 +131,15 @@ export class CostTrackerImpl implements CostTracker {
     })
 
     this._logger.debug(
-      { taskId, billingMode, costUsd: entry.cost_usd, savingsUsd: entry.savings_usd, tokensInput, tokensOutput },
-      'Cost recorded',
+      {
+        taskId,
+        billingMode,
+        costUsd: entry.cost_usd,
+        savingsUsd: entry.savings_usd,
+        tokensInput,
+        tokensOutput,
+      },
+      'Cost recorded'
     )
 
     return entry
@@ -133,8 +155,12 @@ export class CostTrackerImpl implements CostTracker {
 
   async getAgentCostBreakdown(
     sessionId: string,
-    agent: string,
-  ): Promise<{ cost_usd: number; task_count: number; billing_breakdown: { subscription: number; api: number } }> {
+    agent: string
+  ): Promise<{
+    cost_usd: number
+    task_count: number
+    billing_breakdown: { subscription: number; api: number }
+  }> {
     const breakdown = await getAgentCostBreakdown(this._db, sessionId, agent)
     return {
       cost_usd: breakdown.cost_usd,
@@ -167,5 +193,10 @@ export interface CostTrackerOptions {
 }
 
 export function createCostTracker(options: CostTrackerOptions): CostTracker {
-  return new CostTrackerImpl(options.db, options.eventBus, options.tokenRates ?? TOKEN_RATES, options.logger)
+  return new CostTrackerImpl(
+    options.db,
+    options.eventBus,
+    options.tokenRates ?? TOKEN_RATES,
+    options.logger
+  )
 }

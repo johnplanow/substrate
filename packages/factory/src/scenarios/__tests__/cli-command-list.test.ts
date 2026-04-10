@@ -148,47 +148,44 @@ describe('AC7: top-level scenarios run backward compatibility', () => {
     vi.clearAllMocks()
   })
 
-  it(
-    'AC7: scenarios run at top-level still works when factory scenarios is also registered on the same program',
-    async () => {
-      const { ScenarioStore } = await import('../store.js')
-      const { createScenarioRunner } = await import('../runner.js')
+  it('AC7: scenarios run at top-level still works when factory scenarios is also registered on the same program', async () => {
+    const { ScenarioStore } = await import('../store.js')
+    const { createScenarioRunner } = await import('../runner.js')
 
-      vi.mocked(ScenarioStore).mockImplementationOnce(() => ({
-        discover: vi.fn().mockResolvedValue({
-          scenarios: [{ name: 's.sh', path: '/abs/s.sh', checksum: 'aaa' }],
-          capturedAt: Date.now(),
-        }),
-        verifyIntegrity: vi.fn(),
-        verify: vi.fn(),
-      }))
+    vi.mocked(ScenarioStore).mockImplementationOnce(() => ({
+      discover: vi.fn().mockResolvedValue({
+        scenarios: [{ name: 's.sh', path: '/abs/s.sh', checksum: 'aaa' }],
+        capturedAt: Date.now(),
+      }),
+      verifyIntegrity: vi.fn(),
+      verify: vi.fn(),
+    }))
 
-      vi.mocked(createScenarioRunner).mockReturnValueOnce({
-        run: vi.fn().mockResolvedValue({
-          summary: { total: 1, passed: 1, failed: 0 },
-          scenarios: [
-            { name: 's.sh', status: 'pass', exitCode: 0, stdout: '', stderr: '', durationMs: 5 },
-          ],
-          durationMs: 10,
-        }),
-      })
+    vi.mocked(createScenarioRunner).mockReturnValueOnce({
+      run: vi.fn().mockResolvedValue({
+        summary: { total: 1, passed: 1, failed: 0 },
+        scenarios: [
+          { name: 's.sh', status: 'pass', exitCode: 0, stdout: '', stderr: '', durationMs: 5 },
+        ],
+        durationMs: 10,
+      }),
+    })
 
-      // Simulate dual registration: scenarios at top-level (story 44-5)
-      // AND under factory (story 44-8) — mirrors createProgram() in src/cli/index.ts
-      const program = new Command()
-      program.exitOverride()
-      registerScenariosCommand(program) // top-level (AC7 path, story 44-5)
-      const factoryCmd = program.command('factory').description('Factory commands')
-      registerScenariosCommand(factoryCmd) // under factory (story 44-8 path)
+    // Simulate dual registration: scenarios at top-level (story 44-5)
+    // AND under factory (story 44-8) — mirrors createProgram() in src/cli/index.ts
+    const program = new Command()
+    program.exitOverride()
+    registerScenariosCommand(program) // top-level (AC7 path, story 44-5)
+    const factoryCmd = program.command('factory').description('Factory commands')
+    registerScenariosCommand(factoryCmd) // under factory (story 44-8 path)
 
-      // Invoke the top-level path — must still work per AC7
-      await program.parseAsync(['node', 'substrate', 'scenarios', 'run'])
+    // Invoke the top-level path — must still work per AC7
+    await program.parseAsync(['node', 'substrate', 'scenarios', 'run'])
 
-      const logged = getWrittenLines(spy)
-      expect(logged.some((l) => l.includes('Scenarios:'))).toBe(true)
-      expect(logged.some((l) => l.includes('[PASS]'))).toBe(true)
-    },
-  )
+    const logged = getWrittenLines(spy)
+    expect(logged.some((l) => l.includes('Scenarios:'))).toBe(true)
+    expect(logged.some((l) => l.includes('[PASS]'))).toBe(true)
+  })
 })
 
 describe('scenarios run subcommand', () => {

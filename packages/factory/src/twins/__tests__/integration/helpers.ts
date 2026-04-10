@@ -50,17 +50,14 @@ export function makeLocalstackTwinDef(): TwinDefinition {
  */
 export function makeTmpScenario(
   twins?: string[],
-  exitCode: number = 0,
+  exitCode: number = 0
 ): { manifest: ScenarioManifest; cleanup: () => void } {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-integ-'))
   const scriptPath = path.join(tmpDir, 'scenario-test.sh')
   const scriptContent = `#!/bin/sh\necho "{}"\nexit ${exitCode}\n`
   fs.writeFileSync(scriptPath, scriptContent)
   fs.chmodSync(scriptPath, 0o755)
-  const checksum = crypto
-    .createHash('sha256')
-    .update(fs.readFileSync(scriptPath))
-    .digest('hex')
+  const checksum = crypto.createHash('sha256').update(fs.readFileSync(scriptPath)).digest('hex')
 
   const manifest: ScenarioManifest = {
     scenarios: [{ name: 'scenario-test.sh', path: scriptPath, checksum }],

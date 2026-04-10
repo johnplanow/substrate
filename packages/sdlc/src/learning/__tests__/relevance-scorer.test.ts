@@ -63,11 +63,7 @@ describe('scoreRelevance — jaccardFileOverlap', () => {
   })
 
   it('returns jaccardFileOverlap=1.0 for perfect overlap (3 matching files)', () => {
-    const files = [
-      'packages/sdlc/src/a.ts',
-      'packages/sdlc/src/b.ts',
-      'packages/sdlc/src/c.ts',
-    ]
+    const files = ['packages/sdlc/src/a.ts', 'packages/sdlc/src/b.ts', 'packages/sdlc/src/c.ts']
     const finding = makeFinding({ affected_files: files })
     const ctx = makeContext({ targetFiles: [...files] })
     // jaccard = 3 / min(3,3) = 1.0
@@ -99,7 +95,7 @@ describe('scoreRelevance — jaccardFileOverlap', () => {
 
   it('caps target files to 20 shortest paths (26-file input → 20 used)', () => {
     // Generate 26 target files (20 short + 1 long + 5 extra) with varying lengths; shorter ones selected
-    const shortFiles = Array.from({ length: 20 }, (_, i) => `src/a${i}.ts`)  // 9-10 chars
+    const shortFiles = Array.from({ length: 20 }, (_, i) => `src/a${i}.ts`) // 9-10 chars
     const longFile = 'packages/very/long/path/that/is/definitely/the/longest/file.ts'
     const extraFiles = Array.from({ length: 5 }, (_, i) => `packages/long${i}/src/extra/file.ts`)
     const allTargets = [...shortFiles, longFile, ...extraFiles]
@@ -150,7 +146,7 @@ describe('scoreRelevance — packageMatch', () => {
 
   it('returns packageMatch=0.5 when no package can be inferred from affected_files', () => {
     const finding = makeFinding({
-      affected_files: ['src/utils/helper.ts'],  // no 'packages/' prefix
+      affected_files: ['src/utils/helper.ts'], // no 'packages/' prefix
     })
     const ctx = makeContext({ packageName: 'sdlc', targetFiles: [] })
     // inferredPackages = [] → packageMatch = 0.5

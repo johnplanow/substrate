@@ -5,8 +5,8 @@
  * Consumers should import from this package rather than from the monolith.
  */
 
-import type { ZodSchema } from "zod"
-import type { BillingMode } from "../types.js"
+import type { ZodSchema } from 'zod'
+import type { BillingMode } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Routing abstraction (re-exported from routing module)
@@ -17,7 +17,7 @@ import type { BillingMode } from "../types.js"
 // consumers should import them from the routing submodule (or from @substrate-ai/core directly,
 // which re-exports the full routing barrel). Keeping the re-export here would create a diamond
 // ambiguity since root index.ts exports both dispatch/index.js and routing/index.js.
-import type { ModelResolution, IRoutingResolver } from "../routing/routing-engine.js"
+import type { ModelResolution, IRoutingResolver } from '../routing/routing-engine.js'
 
 // ---------------------------------------------------------------------------
 // DispatchRequest
@@ -65,7 +65,7 @@ export interface DispatchHandle {
   /** Unique identifier for this dispatch */
   id: string
   /** Current lifecycle status */
-  status: "queued" | "running" | "completed" | "failed" | "timeout"
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'timeout'
   /** Cancel this dispatch (sends SIGTERM if running, removes from queue if queued) */
   cancel(): Promise<void>
 }
@@ -81,7 +81,7 @@ export interface DispatchResult<T = unknown> {
   /** Unique identifier matching the DispatchHandle */
   id: string
   /** Final status of the dispatch */
-  status: "completed" | "failed" | "timeout"
+  status: 'completed' | 'failed' | 'timeout'
   /** Exit code from the subprocess */
   exitCode: number
   /** Output from the agent */
@@ -146,27 +146,27 @@ export interface DispatchConfig {
  * Default timeout values per task type (milliseconds).
  */
 export const DEFAULT_TIMEOUTS: Record<string, number> = {
-  "analysis": 300_000,
-  "planning": 300_000,
-  "architecture": 300_000,
-  "story-generation": 300_000,
-  "create-story": 600_000,
-  "dev-story": 1_800_000,
-  "code-review": 900_000,
-  "minor-fixes": 300_000,
-  "major-rework": 900_000,
-  "readiness-check": 600_000,
-  "elicitation": 900_000,
-  "analysis-vision": 180_000,
-  "analysis-scope": 180_000,
-  "planning-classification": 180_000,
-  "planning-frs": 240_000,
-  "planning-nfrs": 240_000,
-  "arch-context": 180_000,
-  "arch-decisions": 240_000,
-  "arch-patterns": 240_000,
-  "story-epics": 240_000,
-  "story-stories": 600_000,
+  analysis: 300_000,
+  planning: 300_000,
+  architecture: 300_000,
+  'story-generation': 300_000,
+  'create-story': 600_000,
+  'dev-story': 1_800_000,
+  'code-review': 900_000,
+  'minor-fixes': 300_000,
+  'major-rework': 900_000,
+  'readiness-check': 600_000,
+  elicitation: 900_000,
+  'analysis-vision': 180_000,
+  'analysis-scope': 180_000,
+  'planning-classification': 180_000,
+  'planning-frs': 240_000,
+  'planning-nfrs': 240_000,
+  'arch-context': 180_000,
+  'arch-decisions': 240_000,
+  'arch-patterns': 240_000,
+  'story-epics': 240_000,
+  'story-stories': 600_000,
 }
 
 /**
@@ -174,28 +174,28 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
  * Passed as --max-turns to Claude CLI to prevent turn exhaustion without YAML emission.
  */
 export const DEFAULT_MAX_TURNS: Record<string, number> = {
-  "analysis": 15,
-  "planning": 20,
-  "architecture": 25,
-  "story-generation": 30,
-  "readiness-check": 20,
-  "elicitation": 15,
-  "critique": 15,
-  "dev-story": 75,
-  "major-rework": 50,
-  "code-review": 25,
-  "create-story": 30,
-  "minor-fixes": 25,
-  "analysis-vision": 8,
-  "analysis-scope": 10,
-  "planning-classification": 8,
-  "planning-frs": 12,
-  "planning-nfrs": 12,
-  "arch-context": 10,
-  "arch-decisions": 15,
-  "arch-patterns": 12,
-  "story-epics": 15,
-  "story-stories": 20,
+  analysis: 15,
+  planning: 20,
+  architecture: 25,
+  'story-generation': 30,
+  'readiness-check': 20,
+  elicitation: 15,
+  critique: 15,
+  'dev-story': 75,
+  'major-rework': 50,
+  'code-review': 25,
+  'create-story': 30,
+  'minor-fixes': 25,
+  'analysis-vision': 8,
+  'analysis-scope': 10,
+  'planning-classification': 8,
+  'planning-frs': 12,
+  'planning-nfrs': 12,
+  'arch-context': 10,
+  'arch-decisions': 15,
+  'arch-patterns': 12,
+  'story-epics': 15,
+  'story-stories': 20,
 }
 
 // ---------------------------------------------------------------------------
@@ -281,8 +281,8 @@ export interface Dispatcher {
  */
 export class DispatcherShuttingDownError extends Error {
   constructor() {
-    super("Dispatcher is shutting down and cannot accept new requests")
-    this.name = "DispatcherShuttingDownError"
+    super('Dispatcher is shutting down and cannot accept new requests')
+    this.name = 'DispatcherShuttingDownError'
   }
 }
 

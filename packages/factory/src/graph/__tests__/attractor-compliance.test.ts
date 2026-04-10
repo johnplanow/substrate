@@ -116,7 +116,7 @@ function makeGraph(
   nodes: GraphNode[],
   edges: GraphEdge[],
   startNodeId?: string,
-  exitNodeId?: string,
+  exitNodeId?: string
 ): Graph {
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
   const resolveStart = (): GraphNode => {
@@ -163,7 +163,7 @@ function makeLintGraph(
     modelStylesheet: string
     retryTarget: string
     fallbackRetryTarget: string
-  }>,
+  }>
 ): Graph {
   const baseNodes: GraphNode[] = [
     makeNode('start', { shape: 'Mdiamond', type: '' }),
@@ -174,7 +174,7 @@ function makeLintGraph(
     makeEdge(e.fromNode, e.toNode, {
       condition: e.condition ?? '',
       loopRestart: e.loopRestart ?? false,
-    }),
+    })
   )
   const nodeMap = new Map(baseNodes.map((n) => [n.id, n]))
   return {
@@ -197,18 +197,18 @@ function makeLintGraph(
 /** Build a mock IHandlerRegistry that resolves every node via the given handler factory. */
 function makeRegistry(
   handlerFactory: (node: GraphNode, ctx: IGraphContext) => void,
-  statusOverride?: 'SUCCESS' | 'FAILURE',
+  statusOverride?: 'SUCCESS' | 'FAILURE'
 ): IHandlerRegistry {
   return {
     register: vi.fn(),
     registerShape: vi.fn(),
     setDefault: vi.fn(),
-    resolve: vi.fn().mockImplementation(
-      () => async (node: GraphNode, ctx: IGraphContext): Promise<Outcome> => {
+    resolve: vi
+      .fn()
+      .mockImplementation(() => async (node: GraphNode, ctx: IGraphContext): Promise<Outcome> => {
         handlerFactory(node, ctx)
         return { status: statusOverride ?? ('SUCCESS' as const) }
-      },
-    ),
+      }),
   }
 }
 
@@ -238,7 +238,10 @@ describe('selectEdge compliance — spec Section 3.3', () => {
   // Step 1: Condition-matched edges beat weight
   it('AC1 — Step 1: condition match returns conditional edge over high-weight unconditional', async () => {
     const node = makeNode('origin')
-    const condEdge = makeEdge('origin', 'dest-conditional', { condition: 'outcome=success', weight: 0 })
+    const condEdge = makeEdge('origin', 'dest-conditional', {
+      condition: 'outcome=success',
+      weight: 0,
+    })
     const unconEdge = makeEdge('origin', 'dest-unconditional', { weight: 10 })
     const graph = makeGraph([node], [condEdge, unconEdge])
     const ctx = new GraphContext({ outcome: 'success' })
@@ -250,7 +253,10 @@ describe('selectEdge compliance — spec Section 3.3', () => {
 
   it('AC1 variant — Step 1: no condition match falls through to Step 4 (weight)', async () => {
     const node = makeNode('origin')
-    const condEdge = makeEdge('origin', 'dest-conditional', { condition: 'outcome=success', weight: 0 })
+    const condEdge = makeEdge('origin', 'dest-conditional', {
+      condition: 'outcome=success',
+      weight: 0,
+    })
     const unconEdge = makeEdge('origin', 'dest-unconditional', { weight: 10 })
     const graph = makeGraph([node], [condEdge, unconEdge])
     const ctx = new GraphContext({ outcome: 'failure' })
@@ -376,7 +382,7 @@ describe('evaluateGates compliance — spec Section 3.4', () => {
         makeNode('failing', { goalGate: true }),
         makeNode('unrecorded', { goalGate: true }),
       ],
-      [],
+      []
     )
     const result = controller.evaluateGates(graph)
     expect(result.satisfied).toBe(false)
@@ -391,7 +397,7 @@ describe('evaluateGates compliance — spec Section 3.4', () => {
     controller.recordOutcome('nodeB', 'PARTIAL_SUCCESS')
     const graph = makeGraph(
       [makeNode('nodeA', { goalGate: true }), makeNode('nodeB', { goalGate: true })],
-      [],
+      []
     )
     const result = controller.evaluateGates(graph)
     expect(result).toEqual({ satisfied: true, failingNodes: [] })
@@ -403,7 +409,7 @@ describe('evaluateGates compliance — spec Section 3.4', () => {
     controller.recordOutcome('nodeB', 'FAILURE')
     const graph = makeGraph(
       [makeNode('nodeA', { goalGate: true }), makeNode('nodeB', { goalGate: true })],
-      [],
+      []
     )
     const result = controller.evaluateGates(graph)
     expect(result.satisfied).toBe(false)
@@ -415,7 +421,7 @@ describe('evaluateGates compliance — spec Section 3.4', () => {
     const controller = createConvergenceController()
     const graph = makeGraph(
       [makeNode('nodeA', { goalGate: false }), makeNode('nodeB', { goalGate: false })],
-      [],
+      []
     )
     const result = controller.evaluateGates(graph)
     expect(result).toEqual({ satisfied: true, failingNodes: [] })
@@ -704,7 +710,7 @@ digraph compliance_edge_attrs {
     // Graph with no Mdiamond node and no id=start/Start
     const graph = makeLintGraph(
       [{ id: 'work', type: 'codergen', prompt: 'work' }],
-      [{ fromNode: 'work', toNode: 'exit' }],
+      [{ fromNode: 'work', toNode: 'exit' }]
     )
     // Override the nodes map to remove start (the makeLintGraph adds start by default — use manual build)
     const nodeMap = new Map<string, GraphNode>()
@@ -712,12 +718,20 @@ digraph compliance_edge_attrs {
     nodeMap.set('exit', makeNode('exit', { shape: 'Msquare', type: '' }))
     const edges: GraphEdge[] = [makeEdge('work', 'exit')]
     const g: Graph = {
-      id: 'test', goal: '', label: '', modelStylesheet: '',
-      defaultMaxRetries: 0, retryTarget: '', fallbackRetryTarget: '', defaultFidelity: '',
+      id: 'test',
+      goal: '',
+      label: '',
+      modelStylesheet: '',
+      defaultMaxRetries: 0,
+      retryTarget: '',
+      fallbackRetryTarget: '',
+      defaultFidelity: '',
       nodes: nodeMap,
       edges,
       outgoingEdges: (id) => edges.filter((e) => e.fromNode === id),
-      startNode: () => { throw new Error('no start') },
+      startNode: () => {
+        throw new Error('no start')
+      },
       exitNode: () => nodeMap.get('exit')!,
     }
     const diags = createValidator().validate(g)
@@ -732,13 +746,21 @@ digraph compliance_edge_attrs {
     nodeMap.set('work', makeNode('work', { type: 'codergen', prompt: 'work' }))
     const edges: GraphEdge[] = [makeEdge('start', 'work')]
     const g: Graph = {
-      id: 'test', goal: '', label: '', modelStylesheet: '',
-      defaultMaxRetries: 0, retryTarget: '', fallbackRetryTarget: '', defaultFidelity: '',
+      id: 'test',
+      goal: '',
+      label: '',
+      modelStylesheet: '',
+      defaultMaxRetries: 0,
+      retryTarget: '',
+      fallbackRetryTarget: '',
+      defaultFidelity: '',
       nodes: nodeMap,
       edges,
       outgoingEdges: (id) => edges.filter((e) => e.fromNode === id),
       startNode: () => nodeMap.get('start')!,
-      exitNode: () => { throw new Error('no exit') },
+      exitNode: () => {
+        throw new Error('no exit')
+      },
     }
     const diags = createValidator().validate(g)
     const rule = diags.find((d) => d.ruleId === 'terminal_node')
@@ -753,7 +775,7 @@ digraph compliance_edge_attrs {
         { fromNode: 'start', toNode: 'work' },
         { fromNode: 'work', toNode: 'exit' },
         { fromNode: 'work', toNode: 'start' }, // incoming edge to start
-      ],
+      ]
     )
     const diags = createValidator().validate(graph)
     const rule = diags.find((d) => d.ruleId === 'start_no_incoming')
@@ -768,7 +790,7 @@ digraph compliance_edge_attrs {
         { fromNode: 'start', toNode: 'work' },
         { fromNode: 'work', toNode: 'exit' },
         { fromNode: 'exit', toNode: 'work' }, // outgoing edge from exit
-      ],
+      ]
     )
     const diags = createValidator().validate(graph)
     const rule = diags.find((d) => d.ruleId === 'exit_no_outgoing')
@@ -788,8 +810,14 @@ digraph compliance_edge_attrs {
       makeEdge('work', 'ghost_node'), // ghost_node does NOT exist in nodeMap
     ]
     const g: Graph = {
-      id: 'test', goal: '', label: '', modelStylesheet: '',
-      defaultMaxRetries: 0, retryTarget: '', fallbackRetryTarget: '', defaultFidelity: '',
+      id: 'test',
+      goal: '',
+      label: '',
+      modelStylesheet: '',
+      defaultMaxRetries: 0,
+      retryTarget: '',
+      fallbackRetryTarget: '',
+      defaultFidelity: '',
       nodes: nodeMap,
       edges,
       outgoingEdges: (id) => edges.filter((e) => e.fromNode === id),
@@ -812,7 +840,7 @@ digraph compliance_edge_attrs {
         { fromNode: 'start', toNode: 'work' },
         { fromNode: 'work', toNode: 'exit' },
         // 'unreachable' has no incoming edges from start
-      ],
+      ]
     )
     const diags = createValidator().validate(graph)
     const rule = diags.find((d) => d.ruleId === 'reachability')
@@ -826,7 +854,7 @@ digraph compliance_edge_attrs {
       [
         { fromNode: 'start', toNode: 'work' },
         { fromNode: 'work', toNode: 'exit', condition: 'a==b' }, // double-equals is invalid
-      ],
+      ]
     )
     const diags = createValidator().validate(graph)
     const rule = diags.find((d) => d.ruleId === 'condition_syntax')
@@ -838,8 +866,11 @@ digraph compliance_edge_attrs {
     // Build graph with invalid inline stylesheet
     const graph = makeLintGraph(
       [{ id: 'work', type: 'codergen', prompt: 'work' }],
-      [{ fromNode: 'start', toNode: 'work' }, { fromNode: 'work', toNode: 'exit' }],
-      { modelStylesheet: '!!! invalid stylesheet content !!!' },
+      [
+        { fromNode: 'start', toNode: 'work' },
+        { fromNode: 'work', toNode: 'exit' },
+      ],
+      { modelStylesheet: '!!! invalid stylesheet content !!!' }
     )
     const diags = createValidator().validate(graph)
     const rule = diags.find((d) => d.ruleId === 'stylesheet_syntax')
@@ -854,7 +885,10 @@ digraph compliance_edge_attrs {
   it('AC6 — lint rule "type_known" fires (severity=warning) for unknown node type', () => {
     const graph = makeLintGraph(
       [{ id: 'work', type: 'wizard_type', prompt: 'work' }], // wizard_type is unknown
-      [{ fromNode: 'start', toNode: 'work' }, { fromNode: 'work', toNode: 'exit' }],
+      [
+        { fromNode: 'start', toNode: 'work' },
+        { fromNode: 'work', toNode: 'exit' },
+      ]
     )
     const diags = createValidator().validate(graph)
     const rule = diags.find((d) => d.ruleId === 'type_known')
@@ -865,7 +899,10 @@ digraph compliance_edge_attrs {
   it('AC6 — lint rule "fidelity_valid" fires (severity=warning) for invalid fidelity value', () => {
     const graph = makeLintGraph(
       [{ id: 'work', type: 'codergen', prompt: 'work', fidelity: 'ultra_high' }], // invalid fidelity
-      [{ fromNode: 'start', toNode: 'work' }, { fromNode: 'work', toNode: 'exit' }],
+      [
+        { fromNode: 'start', toNode: 'work' },
+        { fromNode: 'work', toNode: 'exit' },
+      ]
     )
     const diags = createValidator().validate(graph)
     const rule = diags.find((d) => d.ruleId === 'fidelity_valid')
@@ -876,7 +913,10 @@ digraph compliance_edge_attrs {
   it('AC6 — lint rule "retry_target_exists" fires (severity=warning) for missing retryTarget node', () => {
     const graph = makeLintGraph(
       [{ id: 'work', type: 'codergen', prompt: 'work', retryTarget: 'nonexistent' }],
-      [{ fromNode: 'start', toNode: 'work' }, { fromNode: 'work', toNode: 'exit' }],
+      [
+        { fromNode: 'start', toNode: 'work' },
+        { fromNode: 'work', toNode: 'exit' },
+      ]
     )
     const diags = createValidator().validate(graph)
     const rule = diags.find((d) => d.ruleId === 'retry_target_exists')
@@ -887,7 +927,10 @@ digraph compliance_edge_attrs {
   it('AC6 — lint rule "goal_gate_has_retry" fires (severity=warning) when goalGate=true node has no retryTarget', () => {
     const graph = makeLintGraph(
       [{ id: 'work', type: 'codergen', prompt: 'work', goalGate: true, retryTarget: '' }],
-      [{ fromNode: 'start', toNode: 'work' }, { fromNode: 'work', toNode: 'exit' }],
+      [
+        { fromNode: 'start', toNode: 'work' },
+        { fromNode: 'work', toNode: 'exit' },
+      ]
       // no graph-level retryTarget either (default '')
     )
     const diags = createValidator().validate(graph)
@@ -899,7 +942,10 @@ digraph compliance_edge_attrs {
   it('AC6 — lint rule "prompt_on_llm_nodes" fires (severity=warning) for codergen node with no prompt or label', () => {
     const graph = makeLintGraph(
       [{ id: 'work', type: 'codergen', prompt: '', label: '' }], // no prompt AND no label
-      [{ fromNode: 'start', toNode: 'work' }, { fromNode: 'work', toNode: 'exit' }],
+      [
+        { fromNode: 'start', toNode: 'work' },
+        { fromNode: 'work', toNode: 'exit' },
+      ]
     )
     const diags = createValidator().validate(graph)
     const rule = diags.find((d) => d.ruleId === 'prompt_on_llm_nodes')

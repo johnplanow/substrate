@@ -46,7 +46,10 @@ export type CreateCostEntryInput = Omit<CostEntry, 'id' | 'created_at'>
  * Uses SELECT MAX(id) instead of last_insert_rowid() / LAST_INSERT_ID()
  * for portability across both SQLite and MySQL/Dolt backends.
  */
-export async function recordCostEntry(adapter: DatabaseAdapter, entry: CreateCostEntryInput): Promise<number> {
+export async function recordCostEntry(
+  adapter: DatabaseAdapter,
+  entry: CreateCostEntryInput
+): Promise<number> {
   await adapter.query(
     `INSERT INTO cost_entries (
       session_id, task_id, agent, billing_mode, category,
@@ -66,7 +69,7 @@ export async function recordCostEntry(adapter: DatabaseAdapter, entry: CreateCos
       entry.model,
       entry.provider,
       entry.savings_usd,
-    ],
+    ]
   )
 
   const idRows = await adapter.query<{ id: number }>('SELECT MAX(id) AS id FROM cost_entries')
@@ -78,7 +81,10 @@ export async function recordCostEntry(adapter: DatabaseAdapter, entry: CreateCos
  *
  * Returns null if no row is found for the given id.
  */
-export async function getCostEntryById(adapter: DatabaseAdapter, id: number): Promise<CostEntry | null> {
+export async function getCostEntryById(
+  adapter: DatabaseAdapter,
+  id: number
+): Promise<CostEntry | null> {
   const rows = await adapter.query<{
     id: number
     session_id: string
@@ -124,12 +130,13 @@ export async function getCostEntryById(adapter: DatabaseAdapter, id: number): Pr
 export async function incrementTaskCost(
   adapter: DatabaseAdapter,
   taskId: string,
-  costDelta: number,
+  costDelta: number
 ): Promise<void> {
-  await adapter.query(
-    'UPDATE tasks SET cost_usd = cost_usd + ?, updated_at = ? WHERE id = ?',
-    [costDelta, new Date().toISOString(), taskId],
-  )
+  await adapter.query('UPDATE tasks SET cost_usd = cost_usd + ?, updated_at = ? WHERE id = ?', [
+    costDelta,
+    new Date().toISOString(),
+    taskId,
+  ])
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +151,7 @@ export async function incrementTaskCost(
  */
 export async function getSessionCostSummary(
   adapter: DatabaseAdapter,
-  sessionId: string,
+  sessionId: string
 ): Promise<SessionCostSummary> {
   // Aggregate totals including the earliest recorded_at timestamp
   const totalsRows = await adapter.query<{
@@ -168,10 +175,11 @@ export async function getSessionCostSummary(
       MIN(timestamp)                   AS earliest_recorded_at
     FROM cost_entries
     WHERE session_id = ?`,
-    [sessionId],
+    [sessionId]
   )
   const totalsRow = totalsRows[0]
-  if (totalsRow === undefined) throw new Error('getSessionCostSummary: aggregate query returned no rows')
+  if (totalsRow === undefined)
+    throw new Error('getSessionCostSummary: aggregate query returned no rows')
 
   // Per-agent breakdown
   const agentRows = await adapter.query<{
@@ -193,7 +201,7 @@ export async function getSessionCostSummary(
     WHERE session_id = ?
     GROUP BY agent
     ORDER BY cost_usd DESC`,
-    [sessionId],
+    [sessionId]
   )
 
   const perAgentBreakdown: AgentCostBreakdown[] = agentRows.map((row) => ({
@@ -241,7 +249,7 @@ export async function getSessionCostSummary(
 export async function getSessionCostSummaryFiltered(
   adapter: DatabaseAdapter,
   sessionId: string,
-  includePlanning: boolean,
+  includePlanning: boolean
 ): Promise<SessionCostSummary> {
   const categoryFilter = includePlanning ? '' : "AND category != 'planning'"
 
@@ -266,10 +274,11 @@ export async function getSessionCostSummaryFiltered(
       MIN(timestamp)                   AS earliest_recorded_at
     FROM cost_entries
     WHERE session_id = ? ${categoryFilter}`,
-    [sessionId],
+    [sessionId]
   )
   const totalsRow = totalsRows[0]
-  if (totalsRow === undefined) throw new Error('getSessionCostSummaryFiltered: aggregate query returned no rows')
+  if (totalsRow === undefined)
+    throw new Error('getSessionCostSummaryFiltered: aggregate query returned no rows')
 
   const agentRows = await adapter.query<{
     agent: string
@@ -290,7 +299,7 @@ export async function getSessionCostSummaryFiltered(
     WHERE session_id = ? ${categoryFilter}
     GROUP BY agent
     ORDER BY cost_usd DESC`,
-    [sessionId],
+    [sessionId]
   )
 
   const perAgentBreakdown: AgentCostBreakdown[] = agentRows.map((row) => ({
@@ -331,7 +340,7 @@ export async function getSessionCostSummaryFiltered(
  */
 export async function getTaskCostSummary(
   adapter: DatabaseAdapter,
-  taskId: string,
+  taskId: string
 ): Promise<TaskCostSummary> {
   const rows = await adapter.query<{
     cost_usd: number
@@ -350,7 +359,7 @@ export async function getTaskCostSummary(
       MAX(billing_mode)                AS last_billing_mode
     FROM cost_entries
     WHERE task_id = ?`,
-    [taskId],
+    [taskId]
   )
   const row = rows[0]
   if (row === undefined) throw new Error('getTaskCostSummary: aggregate query returned no rows')
@@ -385,7 +394,7 @@ export async function getTaskCostSummary(
 export async function getAgentCostBreakdown(
   adapter: DatabaseAdapter,
   sessionId: string,
-  agent: string,
+  agent: string
 ): Promise<AgentCostBreakdown> {
   const rows = await adapter.query<{
     task_count: number
@@ -402,7 +411,7 @@ export async function getAgentCostBreakdown(
       SUM(CASE WHEN billing_mode = 'api' THEN 1 ELSE 0 END)          AS api_tasks
     FROM cost_entries
     WHERE session_id = ? AND agent = ?`,
-    [sessionId, agent],
+    [sessionId, agent]
   )
   const row = rows[0]
   if (row === undefined) throw new Error('getAgentCostBreakdown: aggregate query returned no rows')
@@ -426,7 +435,7 @@ export async function getAgentCostBreakdown(
 export async function getAllCostEntries(
   adapter: DatabaseAdapter,
   sessionId: string,
-  limit?: number,
+  limit?: number
 ): Promise<CostEntry[]> {
   type RawRow = {
     id: number
@@ -450,12 +459,12 @@ export async function getAllCostEntries(
   if (limit !== undefined) {
     rows = await adapter.query<RawRow>(
       'SELECT * FROM cost_entries WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?',
-      [sessionId, limit],
+      [sessionId, limit]
     )
   } else {
     rows = await adapter.query<RawRow>(
       'SELECT * FROM cost_entries WHERE session_id = ? ORDER BY timestamp DESC',
-      [sessionId],
+      [sessionId]
     )
   }
 
@@ -487,7 +496,7 @@ export async function getAllCostEntries(
 export async function getAllCostEntriesFiltered(
   adapter: DatabaseAdapter,
   sessionId: string,
-  includePlanning: boolean,
+  includePlanning: boolean
 ): Promise<CostEntry[]> {
   const categoryFilter = includePlanning ? '' : "AND category != 'planning'"
 
@@ -510,7 +519,7 @@ export async function getAllCostEntriesFiltered(
     `SELECT * FROM cost_entries
     WHERE session_id = ? ${categoryFilter}
     ORDER BY timestamp DESC`,
-    [sessionId],
+    [sessionId]
   )
 
   return rows.map((row) => ({
@@ -539,13 +548,13 @@ export async function getAllCostEntriesFiltered(
  */
 export async function getPlanningCostTotal(
   adapter: DatabaseAdapter,
-  sessionId: string,
+  sessionId: string
 ): Promise<number> {
   const rows = await adapter.query<{ planning_cost: number }>(
     `SELECT COALESCE(SUM(estimated_cost), 0) AS planning_cost
     FROM cost_entries
     WHERE session_id = ? AND category = 'planning'`,
-    [sessionId],
+    [sessionId]
   )
   return rows[0]?.planning_cost ?? 0
 }
@@ -571,8 +580,13 @@ export type LegacyCostEntryInput = {
 /** @deprecated Use getSessionCostSummary instead */
 export async function getSessionCost(
   adapter: DatabaseAdapter,
-  sessionId: string,
-): Promise<{ total_cost: number; total_input_tokens: number; total_output_tokens: number; entry_count: number }> {
+  sessionId: string
+): Promise<{
+  total_cost: number
+  total_input_tokens: number
+  total_output_tokens: number
+  entry_count: number
+}> {
   const rows = await adapter.query<{
     total_cost: number
     total_input_tokens: number
@@ -586,7 +600,7 @@ export async function getSessionCost(
       COUNT(*) AS entry_count
     FROM cost_entries
     WHERE session_id = ?`,
-    [sessionId],
+    [sessionId]
   )
   const sessionRow = rows[0]
   if (sessionRow === undefined) throw new Error('getSessionCost: aggregate query returned no rows')
@@ -596,8 +610,13 @@ export async function getSessionCost(
 /** @deprecated Use getTaskCostSummary instead */
 export async function getTaskCost(
   adapter: DatabaseAdapter,
-  taskId: string,
-): Promise<{ total_cost: number; total_input_tokens: number; total_output_tokens: number; entry_count: number }> {
+  taskId: string
+): Promise<{
+  total_cost: number
+  total_input_tokens: number
+  total_output_tokens: number
+  entry_count: number
+}> {
   const rows = await adapter.query<{
     total_cost: number
     total_input_tokens: number
@@ -611,7 +630,7 @@ export async function getTaskCost(
       COUNT(*) AS entry_count
     FROM cost_entries
     WHERE task_id = ?`,
-    [taskId],
+    [taskId]
   )
   const taskRow = rows[0]
   if (taskRow === undefined) throw new Error('getTaskCost: aggregate query returned no rows')

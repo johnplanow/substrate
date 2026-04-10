@@ -176,10 +176,13 @@ describe('TwinHealthMonitor — failing polls', () => {
     monitor.start([twin])
     await vi.advanceTimersByTimeAsync(1100)
 
-    expect(eventBus.emit).toHaveBeenCalledWith('twin:health-warning', expect.objectContaining({
-      twinName: 'my-twin',
-      consecutiveFailures: 1,
-    }))
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      'twin:health-warning',
+      expect.objectContaining({
+        twinName: 'my-twin',
+        consecutiveFailures: 1,
+      })
+    )
     expect(monitor.getStatus()).toEqual({ 'my-twin': 'degraded' })
 
     monitor.stop()
@@ -233,9 +236,12 @@ describe('TwinHealthMonitor — failing polls', () => {
     // Advance 3 full intervals
     await vi.advanceTimersByTimeAsync(3200)
 
-    expect(eventBus.emit).toHaveBeenCalledWith('twin:health-failed', expect.objectContaining({
-      twinName: 'my-twin',
-    }))
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      'twin:health-failed',
+      expect.objectContaining({
+        twinName: 'my-twin',
+      })
+    )
     expect(monitor.getStatus()).toEqual({ 'my-twin': 'unhealthy' })
 
     monitor.stop()

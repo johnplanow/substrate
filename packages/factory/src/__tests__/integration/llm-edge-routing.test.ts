@@ -75,7 +75,11 @@ function makeNode(id: string, type = 'codergen'): GraphNode {
 }
 
 /** Build a minimal GraphEdge. */
-function makeEdge(fromNode: string, toNode: string, opts?: { condition?: string; label?: string; weight?: number }): GraphEdge {
+function makeEdge(
+  fromNode: string,
+  toNode: string,
+  opts?: { condition?: string; label?: string; weight?: number }
+): GraphEdge {
   return {
     fromNode,
     toNode,
@@ -103,8 +107,12 @@ function makeGraph(nodes: GraphNode[], edges: GraphEdge[]): Graph {
     nodes: nodeMap,
     edges,
     outgoingEdges: (nodeId: string) => edges.filter((e) => e.fromNode === nodeId),
-    startNode: () => { throw new Error('not needed') },
-    exitNode: () => { throw new Error('not needed') },
+    startNode: () => {
+      throw new Error('not needed')
+    },
+    exitNode: () => {
+      throw new Error('not needed')
+    },
   } as Graph
 }
 
@@ -186,7 +194,9 @@ describe('LLM-evaluated edge routing — affirmative / negative responses', () =
     const context = new GraphContext()
 
     const mockLlm = vi.fn().mockResolvedValue('')
-    const edge = await selectEdge(decisionNode, SUCCESS_OUTCOME, context, graph, { llmCall: mockLlm })
+    const edge = await selectEdge(decisionNode, SUCCESS_OUTCOME, context, graph, {
+      llmCall: mockLlm,
+    })
 
     expect(edge!.toNode).toBe('exit')
   })
@@ -201,7 +211,9 @@ describe('LLM-evaluated edge routing — affirmative / negative responses', () =
     const context = new GraphContext()
 
     const mockLlm = vi.fn().mockResolvedValue('maybe, not sure')
-    const edge = await selectEdge(decisionNode, SUCCESS_OUTCOME, context, graph, { llmCall: mockLlm })
+    const edge = await selectEdge(decisionNode, SUCCESS_OUTCOME, context, graph, {
+      llmCall: mockLlm,
+    })
 
     expect(edge!.toNode).toBe('exit')
   })
@@ -313,7 +325,7 @@ describe('LLM-evaluated edge routing — graph:llm-edge-evaluated events', () =>
       selectEdge(decisionNode, SUCCESS_OUTCOME, context, graph, {
         llmCall: vi.fn().mockResolvedValue('yes'),
         // No eventBus
-      }),
+      })
     ).resolves.not.toThrow()
   })
 })
@@ -325,9 +337,7 @@ describe('LLM-evaluated edge routing — graph:llm-edge-evaluated events', () =>
 describe('LLM-evaluated edge routing — non-LLM edges', () => {
   it('edge without llm: prefix is not evaluated via LLM; mock LLM never called', async () => {
     const decisionNode = makeNode('decision')
-    const edges = [
-      makeEdge('decision', 'exit', { label: 'approved' }),
-    ]
+    const edges = [makeEdge('decision', 'exit', { label: 'approved' })]
     const graph = makeGraph([decisionNode, makeNode('exit', 'exit')], edges)
     const context = new GraphContext()
 
@@ -337,7 +347,7 @@ describe('LLM-evaluated edge routing — non-LLM edges', () => {
       { status: 'SUCCESS' as const, preferredLabel: 'approved' },
       context,
       graph,
-      { llmCall: mockLlm },
+      { llmCall: mockLlm }
     )
 
     expect(mockLlm).not.toHaveBeenCalled()
@@ -353,7 +363,7 @@ describe('LLM-evaluated edge routing — non-LLM edges', () => {
     ]
     const graph = makeGraph(
       [router, makeNode('path_a'), makeNode('path_b'), makeNode('exit', 'exit')],
-      edges,
+      edges
     )
     const context = new GraphContext()
 
@@ -364,7 +374,7 @@ describe('LLM-evaluated edge routing — non-LLM edges', () => {
       { status: 'SUCCESS' as const, preferredLabel: 'approved' },
       context,
       graph,
-      { llmCall: mockLlm },
+      { llmCall: mockLlm }
     )
 
     // LLM edge is evaluated FIRST (condition check), but the static edges in step 2 win?
@@ -395,7 +405,7 @@ describe('LLM-evaluated edge routing — non-LLM edges', () => {
       { status: 'SUCCESS' as const, preferredLabel: 'approved' },
       context,
       graph,
-      { llmCall: vi.fn().mockResolvedValue('no') },
+      { llmCall: vi.fn().mockResolvedValue('no') }
     )
 
     expect(edge!.toNode).toBe('path_a')

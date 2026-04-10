@@ -42,7 +42,7 @@ export function createSdlcPhaseHandler(deps: SdlcPhaseHandlerDeps): SdlcNodeHand
   return async (
     node: { id: string; label: string; prompt: string },
     context: { getString(key: string, defaultValue?: string): string },
-    _graph: unknown,
+    _graph: unknown
   ): Promise<SdlcOutcome> => {
     // AC5: Phase selection is driven by node.id
     const phaseName = node.id
@@ -90,14 +90,18 @@ export function createSdlcPhaseHandler(deps: SdlcPhaseHandlerDeps): SdlcNodeHand
     const artifactTypes = PHASE_ARTIFACT_TYPES[phaseName]
     if (artifactTypes !== undefined) {
       try {
-        const db = (deps.phaseDeps as { db?: { query: (sql: string, params?: unknown[]) => Promise<unknown[]> } }).db
+        const db = (
+          deps.phaseDeps as {
+            db?: { query: (sql: string, params?: unknown[]) => Promise<unknown[]> }
+          }
+        ).db
         if (db) {
           // Check if ALL required artifacts for this phase exist globally
           let allExist = true
           for (const at of artifactTypes) {
             const rows = await db.query(
               'SELECT id, path, content_hash, summary FROM artifacts WHERE phase = ? AND type = ? ORDER BY created_at DESC LIMIT 1',
-              [phaseName, at],
+              [phaseName, at]
             )
             if (!Array.isArray(rows) || rows.length === 0) {
               allExist = false
@@ -110,22 +114,32 @@ export function createSdlcPhaseHandler(deps: SdlcPhaseHandlerDeps): SdlcNodeHand
             const pipelineRunId = context.getString('pipelineRunId', '')
             if (pipelineRunId) {
               for (const at of artifactTypes) {
-                const existing = await db.query(
+                const existing = (await db.query(
                   'SELECT id, path, content_hash, summary FROM artifacts WHERE phase = ? AND type = ? ORDER BY created_at DESC LIMIT 1',
-                  [phaseName, at],
-                ) as Array<{ id: string; path: string; content_hash?: string; summary?: string }>
-                const src = existing[0] as { path: string; content_hash?: string; summary?: string } | undefined
+                  [phaseName, at]
+                )) as Array<{ id: string; path: string; content_hash?: string; summary?: string }>
+                const src = existing[0] as
+                  | { path: string; content_hash?: string; summary?: string }
+                  | undefined
                 if (src) {
                   // Check if we've already registered this for the current run
                   const alreadyRegistered = await db.query(
                     'SELECT id FROM artifacts WHERE pipeline_run_id = ? AND phase = ? AND type = ? LIMIT 1',
-                    [pipelineRunId, phaseName, at],
+                    [pipelineRunId, phaseName, at]
                   )
                   if (!Array.isArray(alreadyRegistered) || alreadyRegistered.length === 0) {
                     const newId = crypto.randomUUID()
                     await db.query(
                       'INSERT INTO artifacts (id, pipeline_run_id, phase, type, path, content_hash, summary) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                      [newId, pipelineRunId, phaseName, at, src.path, src.content_hash ?? null, src.summary ?? null],
+                      [
+                        newId,
+                        pipelineRunId,
+                        phaseName,
+                        at,
+                        src.path,
+                        src.content_hash ?? null,
+                        src.summary ?? null,
+                      ]
                     )
                   }
                 }
@@ -155,9 +169,7 @@ export function createSdlcPhaseHandler(deps: SdlcPhaseHandlerDeps): SdlcNodeHand
       const entryGateResult = await deps.orchestrator.evaluateEntryGates(runId)
       if (!entryGateResult.passed) {
         const failures =
-          entryGateResult.failures
-            ?.map((f) => `${f.gate}: ${f.error}`)
-            .join('; ') ?? 'no details'
+          entryGateResult.failures?.map((f) => `${f.gate}: ${f.error}`).join('; ') ?? 'no details'
         return { status: 'FAILURE', failureReason: `entry gate failed: ${failures}` }
       }
 
@@ -171,9 +183,8 @@ export function createSdlcPhaseHandler(deps: SdlcPhaseHandlerDeps): SdlcNodeHand
         if (!advanceResult.advanced) {
           // Story 43-13 AC3, AC4: Exit gate failure — prefix with 'exit gate failed: '
           const failures =
-            advanceResult.gateFailures
-              ?.map((f) => `${f.gate}: ${f.error}`)
-              .join('; ') ?? 'no details'
+            advanceResult.gateFailures?.map((f) => `${f.gate}: ${f.error}`).join('; ') ??
+            'no details'
           return { status: 'FAILURE', failureReason: `exit gate failed: ${failures}` }
         }
 

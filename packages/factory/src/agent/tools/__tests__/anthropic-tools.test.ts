@@ -27,7 +27,10 @@ describe('createEditFileTool — executor', () => {
     await writeFile(filePath, 'const x = 1;\nconst y = 2;\n', 'utf-8')
 
     const tool = createEditFileTool()
-    const result = await tool.executor({ path: filePath, old_string: 'const x = 1;', new_string: 'const x = 42;' }, mockEnv)
+    const result = await tool.executor(
+      { path: filePath, old_string: 'const x = 1;', new_string: 'const x = 42;' },
+      mockEnv
+    )
 
     expect(result).toContain('Edited')
     const updated = await readFile(filePath, 'utf-8')
@@ -41,7 +44,10 @@ describe('createEditFileTool — executor', () => {
 
     const tool = createEditFileTool()
     await expect(
-      tool.executor({ path: filePath, old_string: 'nonexistent', new_string: 'replacement' }, mockEnv),
+      tool.executor(
+        { path: filePath, old_string: 'nonexistent', new_string: 'replacement' },
+        mockEnv
+      )
     ).rejects.toThrow('old_string not found in file')
   })
 
@@ -51,7 +57,7 @@ describe('createEditFileTool — executor', () => {
 
     const tool = createEditFileTool()
     await expect(
-      tool.executor({ path: filePath, old_string: 'foo', new_string: 'baz' }, mockEnv),
+      tool.executor({ path: filePath, old_string: 'foo', new_string: 'baz' }, mockEnv)
     ).rejects.toThrow('ambiguous (found 2 times)')
   })
 

@@ -88,7 +88,7 @@ describe('ScenarioRunner — twin integration', () => {
     expect(callOrder[0]).toBe('startTwins:stripe,sendgrid')
     // startTwins must appear before stopTwins
     expect(callOrder.indexOf('startTwins:stripe,sendgrid')).toBeLessThan(
-      callOrder.indexOf('stopTwins'),
+      callOrder.indexOf('stopTwins')
     )
     expect(result.summary.total).toBe(1)
   })
@@ -97,7 +97,7 @@ describe('ScenarioRunner — twin integration', () => {
   it('(b) injects env vars from startTwins into scenario subprocess environment', async () => {
     // Script prints an env var as JSON
     const { scriptPath, checksum } = createTmpScript(
-      '#!/bin/sh\nprintf \'{"TWIN_INJECTED":"%s"}\' "$TWIN_URL"\n',
+      '#!/bin/sh\nprintf \'{"TWIN_INJECTED":"%s"}\' "$TWIN_URL"\n'
     )
     const scenarioName = path.basename(scriptPath)
 

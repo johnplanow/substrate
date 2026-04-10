@@ -46,7 +46,7 @@ describe('getPipelineTemplate()', () => {
     expect(t?.name).toBe('staged-validation')
   })
 
-  it("returns undefined for an unknown template name", () => {
+  it('returns undefined for an unknown template name', () => {
     const t = getPipelineTemplate('nonexistent')
     expect(t).toBeUndefined()
   })

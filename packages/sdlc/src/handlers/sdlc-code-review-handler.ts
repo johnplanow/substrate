@@ -149,10 +149,9 @@ export function createSdlcCodeReviewHandler(options: SdlcCodeReviewHandlerOption
     const storyFilePath = context.getString('storyFilePath', '')
 
     if (!storyKey || !storyFilePath) {
-      const missingFields = [
-        !storyKey && 'storyKey',
-        !storyFilePath && 'storyFilePath',
-      ].filter(Boolean)
+      const missingFields = [!storyKey && 'storyKey', !storyFilePath && 'storyFilePath'].filter(
+        Boolean
+      )
       return {
         status: 'FAILURE',
         failureReason: `Missing required context: ${missingFields.join(', ')}`,
@@ -169,7 +168,9 @@ export function createSdlcCodeReviewHandler(options: SdlcCodeReviewHandlerOption
     const filesModified = filesModifiedRaw.length > 0 ? filesModifiedRaw : undefined
 
     // codeReviewIssueList: complex object array — retrieved via get() not getList()
-    const codeReviewIssueListRaw = context.get?.('codeReviewIssueList') as CodeReviewIssue[] | undefined
+    const codeReviewIssueListRaw = context.get?.('codeReviewIssueList') as
+      | CodeReviewIssue[]
+      | undefined
     const previousIssues =
       Array.isArray(codeReviewIssueListRaw) && codeReviewIssueListRaw.length > 0
         ? codeReviewIssueListRaw

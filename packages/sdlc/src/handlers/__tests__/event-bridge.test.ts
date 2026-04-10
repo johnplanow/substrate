@@ -35,10 +35,14 @@ function makeFixture(overrides: Partial<SdlcEventBridgeOptions> = {}) {
 describe('AC1: graph:node-started → orchestrator:story-phase-start', () => {
   it('emits story-phase-start for dev_story with phase "dev"', () => {
     const { graphEvents, sdlcBus } = makeFixture()
-    graphEvents.emit('graph:node-started', { runId: 'r1', nodeId: 'dev_story', nodeType: 'sdlc.dev-story' })
+    graphEvents.emit('graph:node-started', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      nodeType: 'sdlc.dev-story',
+    })
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-phase-start',
-      expect.objectContaining({ storyKey: '43-9', phase: 'dev' }),
+      expect.objectContaining({ storyKey: '43-9', phase: 'dev' })
     )
   })
 
@@ -57,26 +61,34 @@ describe('AC1: graph:node-started → orchestrator:story-phase-start', () => {
       graphEvents.emit('graph:node-started', { runId: 'r1', nodeId, nodeType: 'sdlc.phase' })
       expect(sdlcBus.emit).toHaveBeenCalledWith(
         'orchestrator:story-phase-start',
-        expect.objectContaining({ storyKey: '43-9', phase: expectedPhase }),
+        expect.objectContaining({ storyKey: '43-9', phase: expectedPhase })
       )
     }
   })
 
   it('includes pipelineRunId in payload when provided', () => {
     const { graphEvents, sdlcBus } = makeFixture({ pipelineRunId: 'run-42' })
-    graphEvents.emit('graph:node-started', { runId: 'r1', nodeId: 'dev_story', nodeType: 'sdlc.dev-story' })
+    graphEvents.emit('graph:node-started', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      nodeType: 'sdlc.dev-story',
+    })
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-phase-start',
-      expect.objectContaining({ storyKey: '43-9', phase: 'dev', pipelineRunId: 'run-42' }),
+      expect.objectContaining({ storyKey: '43-9', phase: 'dev', pipelineRunId: 'run-42' })
     )
   })
 
   it('includes storyKey from opts in all emitted events', () => {
     const { graphEvents, sdlcBus } = makeFixture({ storyKey: 'custom-key-1' })
-    graphEvents.emit('graph:node-started', { runId: 'r1', nodeId: 'planning', nodeType: 'sdlc.phase' })
+    graphEvents.emit('graph:node-started', {
+      runId: 'r1',
+      nodeId: 'planning',
+      nodeType: 'sdlc.phase',
+    })
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-phase-start',
-      expect.objectContaining({ storyKey: 'custom-key-1', phase: 'planning' }),
+      expect.objectContaining({ storyKey: 'custom-key-1', phase: 'planning' })
     )
   })
 })
@@ -92,7 +104,7 @@ describe('AC2: graph:node-completed → orchestrator:story-phase-complete', () =
     graphEvents.emit('graph:node-completed', { runId: 'r1', nodeId: 'code_review', outcome })
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-phase-complete',
-      expect.objectContaining({ storyKey: '43-9', phase: 'review', result: outcome }),
+      expect.objectContaining({ storyKey: '43-9', phase: 'review', result: outcome })
     )
   })
 
@@ -102,16 +114,20 @@ describe('AC2: graph:node-completed → orchestrator:story-phase-complete', () =
     graphEvents.emit('graph:node-completed', { runId: 'r1', nodeId: 'dev_story', outcome })
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-phase-complete',
-      expect.objectContaining({ storyKey: '43-9', phase: 'dev', result: outcome }),
+      expect.objectContaining({ storyKey: '43-9', phase: 'dev', result: outcome })
     )
   })
 
   it('includes pipelineRunId in story-phase-complete when provided', () => {
     const { graphEvents, sdlcBus } = makeFixture({ pipelineRunId: 'pipeline-99' })
-    graphEvents.emit('graph:node-completed', { runId: 'r1', nodeId: 'analysis', outcome: { status: 'SUCCESS' } })
+    graphEvents.emit('graph:node-completed', {
+      runId: 'r1',
+      nodeId: 'analysis',
+      outcome: { status: 'SUCCESS' },
+    })
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-phase-complete',
-      expect.objectContaining({ pipelineRunId: 'pipeline-99' }),
+      expect.objectContaining({ pipelineRunId: 'pipeline-99' })
     )
   })
 })
@@ -132,14 +148,20 @@ describe('AC3: graph:completed → orchestrator:story-complete', () => {
     // codeReviewDispatches=0 retries + 1 base dispatch = reviewCycles 1
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-complete',
-      expect.objectContaining({ storyKey: '43-9', reviewCycles: 1 }),
+      expect.objectContaining({ storyKey: '43-9', reviewCycles: 1 })
     )
   })
 
   it('emits story-complete with reviewCycles=2 after one graph:node-retried event for dev_story (Story 53-13)', () => {
     const { graphEvents, sdlcBus } = makeFixture()
     // One dev_story retry (triggered after a failed code review) = 2 total code-review dispatches
-    graphEvents.emit('graph:node-retried', { runId: 'r1', nodeId: 'dev_story', attempt: 1, maxAttempts: 3, delayMs: 0 })
+    graphEvents.emit('graph:node-retried', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 0,
+    })
     graphEvents.emit('graph:completed', {
       runId: 'r1',
       finalOutcome: { status: 'SUCCESS' },
@@ -148,7 +170,7 @@ describe('AC3: graph:completed → orchestrator:story-complete', () => {
     })
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-complete',
-      expect.objectContaining({ storyKey: '43-9', reviewCycles: 2 }),
+      expect.objectContaining({ storyKey: '43-9', reviewCycles: 2 })
     )
   })
 
@@ -160,10 +182,7 @@ describe('AC3: graph:completed → orchestrator:story-complete', () => {
       totalCostUsd: 0,
       durationMs: 0,
     })
-    expect(sdlcBus.emit).not.toHaveBeenCalledWith(
-      'orchestrator:story-complete',
-      expect.anything(),
-    )
+    expect(sdlcBus.emit).not.toHaveBeenCalledWith('orchestrator:story-complete', expect.anything())
   })
 })
 
@@ -174,7 +193,11 @@ describe('AC3: graph:completed → orchestrator:story-complete', () => {
 describe('AC4: graph:goal-gate-unsatisfied → orchestrator:story-escalated', () => {
   it('emits story-escalated with NEEDS_MAJOR_REWORK when dev_story goal gate is unsatisfied', () => {
     const { graphEvents, sdlcBus } = makeFixture()
-    graphEvents.emit('graph:goal-gate-unsatisfied', { runId: 'r1', nodeId: 'dev_story', retryTarget: null })
+    graphEvents.emit('graph:goal-gate-unsatisfied', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      retryTarget: null,
+    })
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-escalated',
       expect.objectContaining({
@@ -182,19 +205,41 @@ describe('AC4: graph:goal-gate-unsatisfied → orchestrator:story-escalated', ()
         lastVerdict: 'NEEDS_MAJOR_REWORK',
         reviewCycles: 0,
         issues: [],
-      }),
+      })
     )
   })
 
   it('includes correct reviewCycles count in escalation payload', () => {
     const { graphEvents, sdlcBus } = makeFixture()
-    graphEvents.emit('graph:node-retried', { runId: 'r1', nodeId: 'dev_story', attempt: 1, maxAttempts: 3, delayMs: 0 })
-    graphEvents.emit('graph:node-retried', { runId: 'r1', nodeId: 'dev_story', attempt: 2, maxAttempts: 3, delayMs: 0 })
-    graphEvents.emit('graph:node-retried', { runId: 'r1', nodeId: 'dev_story', attempt: 3, maxAttempts: 3, delayMs: 0 })
-    graphEvents.emit('graph:goal-gate-unsatisfied', { runId: 'r1', nodeId: 'dev_story', retryTarget: null })
+    graphEvents.emit('graph:node-retried', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 0,
+    })
+    graphEvents.emit('graph:node-retried', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      attempt: 2,
+      maxAttempts: 3,
+      delayMs: 0,
+    })
+    graphEvents.emit('graph:node-retried', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      attempt: 3,
+      maxAttempts: 3,
+      delayMs: 0,
+    })
+    graphEvents.emit('graph:goal-gate-unsatisfied', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      retryTarget: null,
+    })
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-escalated',
-      expect.objectContaining({ reviewCycles: 3 }),
+      expect.objectContaining({ reviewCycles: 3 })
     )
   })
 
@@ -215,30 +260,35 @@ describe('AC4: graph:goal-gate-unsatisfied → orchestrator:story-escalated', ()
         lastVerdict: 'NEEDS_MINOR_FIXES',
         reviewCycles: 2,
         issues: ['Missing null check in handler', 'Test coverage below threshold'],
-      }),
+      })
     )
   })
 
   it('defaults to NEEDS_MAJOR_REWORK and empty issues when event data has no extras', () => {
     const { graphEvents, sdlcBus } = makeFixture()
-    graphEvents.emit('graph:goal-gate-unsatisfied', { runId: 'r1', nodeId: 'dev_story', retryTarget: null })
+    graphEvents.emit('graph:goal-gate-unsatisfied', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      retryTarget: null,
+    })
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-escalated',
       expect.objectContaining({
         storyKey: '43-9',
         lastVerdict: 'NEEDS_MAJOR_REWORK',
         issues: [],
-      }),
+      })
     )
   })
 
   it('does NOT emit story-escalated for non-dev_story nodes', () => {
     const { graphEvents, sdlcBus } = makeFixture()
-    graphEvents.emit('graph:goal-gate-unsatisfied', { runId: 'r1', nodeId: 'code_review', retryTarget: null })
-    expect(sdlcBus.emit).not.toHaveBeenCalledWith(
-      'orchestrator:story-escalated',
-      expect.anything(),
-    )
+    graphEvents.emit('graph:goal-gate-unsatisfied', {
+      runId: 'r1',
+      nodeId: 'code_review',
+      retryTarget: null,
+    })
+    expect(sdlcBus.emit).not.toHaveBeenCalledWith('orchestrator:story-escalated', expect.anything())
   })
 })
 
@@ -261,26 +311,44 @@ describe('AC5: non-SDLC nodes are silently ignored', () => {
 
   it('emits no SDLC event for graph:node-completed on "start" node', () => {
     const { graphEvents, sdlcBus } = makeFixture()
-    graphEvents.emit('graph:node-completed', { runId: 'r1', nodeId: 'start', outcome: { status: 'SUCCESS' } })
+    graphEvents.emit('graph:node-completed', {
+      runId: 'r1',
+      nodeId: 'start',
+      outcome: { status: 'SUCCESS' },
+    })
     expect(sdlcBus.emit).not.toHaveBeenCalled()
   })
 
   it('emits no SDLC event for graph:node-completed on "exit" node', () => {
     const { graphEvents, sdlcBus } = makeFixture()
-    graphEvents.emit('graph:node-completed', { runId: 'r1', nodeId: 'exit', outcome: { status: 'SUCCESS' } })
+    graphEvents.emit('graph:node-completed', {
+      runId: 'r1',
+      nodeId: 'exit',
+      outcome: { status: 'SUCCESS' },
+    })
     expect(sdlcBus.emit).not.toHaveBeenCalled()
   })
 
   it('emits no SDLC event for an unknown node ID', () => {
     const { graphEvents, sdlcBus } = makeFixture()
-    graphEvents.emit('graph:node-started', { runId: 'r1', nodeId: 'unknown_node', nodeType: 'custom' })
+    graphEvents.emit('graph:node-started', {
+      runId: 'r1',
+      nodeId: 'unknown_node',
+      nodeType: 'custom',
+    })
     expect(sdlcBus.emit).not.toHaveBeenCalled()
   })
 
   it('does NOT count graph:node-retried for non-dev_story/non-code_review nodes in reviewCycles (Story 53-13)', () => {
     const { graphEvents, sdlcBus } = makeFixture()
     // Retry on an unknown node should NOT count toward reviewCycles
-    graphEvents.emit('graph:node-retried', { runId: 'r1', nodeId: 'unknown_node', attempt: 1, maxAttempts: 3, delayMs: 0 })
+    graphEvents.emit('graph:node-retried', {
+      runId: 'r1',
+      nodeId: 'unknown_node',
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 0,
+    })
     graphEvents.emit('graph:completed', {
       runId: 'r1',
       finalOutcome: { status: 'SUCCESS' },
@@ -290,7 +358,7 @@ describe('AC5: non-SDLC nodes are silently ignored', () => {
     // unknown_node retry does not affect devStoryRetries; base dispatch = reviewCycles 1
     expect(sdlcBus.emit).toHaveBeenCalledWith(
       'orchestrator:story-complete',
-      expect.objectContaining({ reviewCycles: 1 }),
+      expect.objectContaining({ reviewCycles: 1 })
     )
   })
 })
@@ -304,7 +372,11 @@ describe('AC7: bridge teardown removes all graph event listeners', () => {
     const { graphEvents, sdlcBus, bridge } = makeFixture()
 
     // Fire some events before teardown to establish baseline behavior
-    graphEvents.emit('graph:node-started', { runId: 'r1', nodeId: 'dev_story', nodeType: 'sdlc.dev-story' })
+    graphEvents.emit('graph:node-started', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      nodeType: 'sdlc.dev-story',
+    })
     const callsBeforeTeardown = sdlcBus.emit.mock.calls.length
     expect(callsBeforeTeardown).toBeGreaterThan(0)
 
@@ -315,11 +387,34 @@ describe('AC7: bridge teardown removes all graph event listeners', () => {
     sdlcBus.emit.mockClear()
 
     // Fire the same events again — should produce zero SDLC emissions
-    graphEvents.emit('graph:node-started', { runId: 'r1', nodeId: 'dev_story', nodeType: 'sdlc.dev-story' })
-    graphEvents.emit('graph:node-completed', { runId: 'r1', nodeId: 'dev_story', outcome: { status: 'SUCCESS' } })
-    graphEvents.emit('graph:node-retried', { runId: 'r1', nodeId: 'dev_story', attempt: 1, maxAttempts: 2, delayMs: 0 })
-    graphEvents.emit('graph:completed', { runId: 'r1', finalOutcome: { status: 'SUCCESS' }, totalCostUsd: 0, durationMs: 0 })
-    graphEvents.emit('graph:goal-gate-unsatisfied', { runId: 'r1', nodeId: 'dev_story', retryTarget: null })
+    graphEvents.emit('graph:node-started', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      nodeType: 'sdlc.dev-story',
+    })
+    graphEvents.emit('graph:node-completed', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      outcome: { status: 'SUCCESS' },
+    })
+    graphEvents.emit('graph:node-retried', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      attempt: 1,
+      maxAttempts: 2,
+      delayMs: 0,
+    })
+    graphEvents.emit('graph:completed', {
+      runId: 'r1',
+      finalOutcome: { status: 'SUCCESS' },
+      totalCostUsd: 0,
+      durationMs: 0,
+    })
+    graphEvents.emit('graph:goal-gate-unsatisfied', {
+      runId: 'r1',
+      nodeId: 'dev_story',
+      retryTarget: null,
+    })
 
     expect(sdlcBus.emit).not.toHaveBeenCalled()
   })

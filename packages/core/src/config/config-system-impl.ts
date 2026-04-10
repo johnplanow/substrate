@@ -74,10 +74,7 @@ type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K]
 }
 
-export function deepMerge<T extends Record<string, unknown>>(
-  base: T,
-  override: DeepPartial<T>
-): T {
+export function deepMerge<T extends Record<string, unknown>>(base: T, override: DeepPartial<T>): T {
   const result = { ...base } as Record<string, unknown>
   for (const [key, val] of Object.entries(override)) {
     if (
@@ -246,9 +243,7 @@ export class ConfigSystemImpl implements ConfigSystem {
     let merged: SubstrateConfig = structuredClone(DEFAULT_CONFIG)
 
     // 2. Apply global user config if present
-    const globalConfig = await this._loadYamlFile(
-      join(this._globalConfigDir, 'config.yaml')
-    )
+    const globalConfig = await this._loadYamlFile(join(this._globalConfigDir, 'config.yaml'))
     if (globalConfig !== null) {
       merged = deepMerge(
         merged as unknown as Record<string, unknown>,
@@ -257,9 +252,7 @@ export class ConfigSystemImpl implements ConfigSystem {
     }
 
     // 3. Apply project config if present
-    const projectConfig = await this._loadYamlFile(
-      join(this._projectConfigDir, 'config.yaml')
-    )
+    const projectConfig = await this._loadYamlFile(join(this._projectConfigDir, 'config.yaml'))
     if (projectConfig !== null) {
       merged = deepMerge(
         merged as unknown as Record<string, unknown>,
@@ -290,10 +283,9 @@ export class ConfigSystemImpl implements ConfigSystem {
       const issues = result.error.issues
         .map((issue) => `  • ${issue.path.join('.')}: ${issue.message}`)
         .join('\n')
-      throw new ConfigError(
-        `Configuration validation failed:\n${issues}`,
-        { issues: result.error.issues }
-      )
+      throw new ConfigError(`Configuration validation failed:\n${issues}`, {
+        issues: result.error.issues,
+      })
     }
 
     this._config = result.data
@@ -322,17 +314,11 @@ export class ConfigSystemImpl implements ConfigSystem {
 
     // Reject unknown keys — the key must resolve to something in the merged config
     if (existing === undefined) {
-      throw new ConfigError(
-        `Unknown config key: ${key}`,
-        { key }
-      )
+      throw new ConfigError(`Unknown config key: ${key}`, { key })
     }
 
     // Key path must resolve to a non-object (scalar) — we don't allow replacing whole sections
-    if (
-      typeof existing === 'object' &&
-      existing !== null
-    ) {
+    if (typeof existing === 'object' && existing !== null) {
       throw new ConfigError(
         `Cannot set object key "${key}" — use a more specific dot-notation path`,
         { key }
@@ -356,10 +342,11 @@ export class ConfigSystemImpl implements ConfigSystem {
       const issues = partial.error.issues
         .map((i) => `  • ${i.path.join('.')}: ${i.message}`)
         .join('\n')
-      throw new ConfigError(
-        `Invalid value for "${key}":\n${issues}`,
-        { key, value, issues: partial.error.issues }
-      )
+      throw new ConfigError(`Invalid value for "${key}":\n${issues}`, {
+        key,
+        value,
+        issues: partial.error.issues,
+      })
     }
 
     // Write back and reload
@@ -408,28 +395,39 @@ export class ConfigSystemImpl implements ConfigSystem {
       if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
         const rawObj = parsed as Record<string, unknown>
         const version = rawObj['config_format_version']
-        if (version !== undefined && typeof version === 'string' && !isVersionSupported(version, SUPPORTED_CONFIG_FORMAT_VERSIONS)) {
+        if (
+          version !== undefined &&
+          typeof version === 'string' &&
+          !isVersionSupported(version, SUPPORTED_CONFIG_FORMAT_VERSIONS)
+        ) {
           // Attempt auto-migration if a migration path exists (FR63)
           if (defaultConfigMigrator.canMigrate(version, CURRENT_CONFIG_FORMAT_VERSION)) {
             const migrationOutput = defaultConfigMigrator.migrate(
-              rawObj, version, CURRENT_CONFIG_FORMAT_VERSION, filePath,
+              rawObj,
+              version,
+              CURRENT_CONFIG_FORMAT_VERSION,
+              filePath
             )
             if (migrationOutput.result.success) {
               this._logger.info(
-                { from: version, to: CURRENT_CONFIG_FORMAT_VERSION, backup: migrationOutput.result.backupPath },
-                'Config auto-migrated successfully',
+                {
+                  from: version,
+                  to: CURRENT_CONFIG_FORMAT_VERSION,
+                  backup: migrationOutput.result.backupPath,
+                },
+                'Config auto-migrated successfully'
               )
               parsed = migrationOutput.config
             } else {
               throw new ConfigIncompatibleFormatError(
                 `Config migration failed: ${migrationOutput.result.manualStepsRequired.join('; ')}`,
-                { filePath, version },
+                { filePath, version }
               )
             }
           } else {
             throw new ConfigIncompatibleFormatError(
               formatUnsupportedVersionError('config', version, SUPPORTED_CONFIG_FORMAT_VERSIONS),
-              { filePath },
+              { filePath }
             )
           }
         }
@@ -440,10 +438,10 @@ export class ConfigSystemImpl implements ConfigSystem {
         const issues = result.error.issues
           .map((i) => `  • ${i.path.join('.')}: ${i.message}`)
           .join('\n')
-        throw new ConfigError(
-          `Invalid config file at ${filePath}:\n${issues}`,
-          { filePath, issues: result.error.issues }
-        )
+        throw new ConfigError(`Invalid config file at ${filePath}:\n${issues}`, {
+          filePath,
+          issues: result.error.issues,
+        })
       }
 
       return result.data
@@ -451,10 +449,7 @@ export class ConfigSystemImpl implements ConfigSystem {
       if (err instanceof ConfigError) throw err
       if (err instanceof ConfigIncompatibleFormatError) throw err
       const message = err instanceof Error ? err.message : String(err)
-      throw new ConfigError(
-        `Failed to read config file at ${filePath}: ${message}`,
-        { filePath }
-      )
+      throw new ConfigError(`Failed to read config file at ${filePath}: ${message}`, { filePath })
     }
   }
 }

@@ -168,7 +168,7 @@ describe('Scenario Integrity Verification (Story 44-4)', () => {
     expect(outcome.status).toBe('SUCCESS')
 
     const integrityEvents = events.filter(
-      (e) => e.event === 'scenario:integrity-passed' || e.event === 'scenario:integrity-failed',
+      (e) => e.event === 'scenario:integrity-passed' || e.event === 'scenario:integrity-failed'
     )
     expect(integrityEvents).toHaveLength(0)
   })
@@ -236,7 +236,11 @@ describe('Scenario Integrity Verification (Story 44-4)', () => {
 
     const failedEvents = events.filter((e) => e.event === 'scenario:integrity-failed')
     expect(failedEvents).toHaveLength(1)
-    const payload = failedEvents[0]!.payload as { runId: string; nodeId: string; tampered: string[] }
+    const payload = failedEvents[0]!.payload as {
+      runId: string
+      nodeId: string
+      tampered: string[]
+    }
     expect(payload.runId).toBe('test-ac3-modify')
     expect(payload.nodeId).toBe('tool1')
     expect(payload.tampered).toContain('scenario-login.sh')
@@ -274,7 +278,11 @@ describe('Scenario Integrity Verification (Story 44-4)', () => {
 
     const failedEvents = events.filter((e) => e.event === 'scenario:integrity-failed')
     expect(failedEvents).toHaveLength(1)
-    const payload = failedEvents[0]!.payload as { runId: string; nodeId: string; tampered: string[] }
+    const payload = failedEvents[0]!.payload as {
+      runId: string
+      nodeId: string
+      tampered: string[]
+    }
     expect(payload.tampered).toContain('scenario-deploy.sh')
   })
 
@@ -307,7 +315,11 @@ describe('Scenario Integrity Verification (Story 44-4)', () => {
 
     const passedEvents = events.filter((e) => e.event === 'scenario:integrity-passed')
     expect(passedEvents).toHaveLength(1)
-    const payload = passedEvents[0]!.payload as { runId: string; nodeId: string; scenarioCount: number }
+    const payload = passedEvents[0]!.payload as {
+      runId: string
+      nodeId: string
+      scenarioCount: number
+    }
     expect(payload.runId).toBe('test-ac4')
     expect(payload.nodeId).toBe('tool1')
     expect(payload.scenarioCount).toBe(1)
@@ -369,8 +381,7 @@ describe('Scenario Integrity Verification (Story 44-4)', () => {
     // graph:node-started must NOT be emitted for the tool node
     const nodeStartedForTool = events.filter(
       (e) =>
-        e.event === 'graph:node-started' &&
-        (e.payload as { nodeId: string }).nodeId === 'tool1',
+        e.event === 'graph:node-started' && (e.payload as { nodeId: string }).nodeId === 'tool1'
     )
     expect(nodeStartedForTool).toHaveLength(0)
   })

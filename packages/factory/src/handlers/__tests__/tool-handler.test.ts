@@ -61,11 +61,7 @@ const stubGraph = {} as Graph
  * Create a mock child process that emits stdout/stderr data and closes with
  * the given exit code. Data is emitted asynchronously via process.nextTick.
  */
-function createMockProcess(options: {
-  stdout?: string
-  stderr?: string
-  exitCode?: number
-}) {
+function createMockProcess(options: { stdout?: string; stderr?: string; exitCode?: number }) {
   const stdoutEmitter = new EventEmitter()
   const stderrEmitter = new EventEmitter()
   const procEmitter = new EventEmitter()
@@ -112,7 +108,11 @@ describe('tool handler – success path (AC1)', () => {
     )
     const handler = createToolHandler()
     const ctx = new GraphContext()
-    const result = await handler(makeNode({ id: 'tool', toolCommand: 'echo hello' }), ctx, stubGraph)
+    const result = await handler(
+      makeNode({ id: 'tool', toolCommand: 'echo hello' }),
+      ctx,
+      stubGraph
+    )
     expect(result.status).toBe('SUCCESS')
   })
 
@@ -122,7 +122,11 @@ describe('tool handler – success path (AC1)', () => {
     )
     const handler = createToolHandler()
     const ctx = new GraphContext()
-    const result = await handler(makeNode({ id: 'tool', toolCommand: 'echo hello' }), ctx, stubGraph)
+    const result = await handler(
+      makeNode({ id: 'tool', toolCommand: 'echo hello' }),
+      ctx,
+      stubGraph
+    )
     expect(result.contextUpdates?.['tool.output']).toBe('hello')
   })
 
@@ -132,7 +136,11 @@ describe('tool handler – success path (AC1)', () => {
     )
     const handler = createToolHandler()
     const ctx = new GraphContext()
-    const result = await handler(makeNode({ id: 'my_tool', toolCommand: 'echo world' }), ctx, stubGraph)
+    const result = await handler(
+      makeNode({ id: 'my_tool', toolCommand: 'echo world' }),
+      ctx,
+      stubGraph
+    )
     expect(result.contextUpdates?.['my_tool.output']).toBe('world')
   })
 

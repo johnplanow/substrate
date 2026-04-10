@@ -14,7 +14,11 @@ import { DoltQueryError } from './dolt-errors.js'
  * Using an explicit wrapper rather than promisify() avoids the util.promisify.custom
  * symbol complexity when mocking in tests.
  */
-function runExecFile(cmd: string, args: string[], opts: { cwd?: string }): Promise<{ stdout: string; stderr: string }> {
+function runExecFile(
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string }
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFileCb(cmd, args, { ...opts, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
@@ -105,7 +109,7 @@ export class DoltClient {
    * See Dev Notes in story 53-14 for documented call-site exceptions.
    */
   async transact<T>(
-    fn: (query: <R>(sql: string, params?: unknown[]) => Promise<R[]>) => Promise<T>,
+    fn: (query: <R>(sql: string, params?: unknown[]) => Promise<R[]>) => Promise<T>
   ): Promise<T> {
     if (!this._connected) {
       await this.connect()
@@ -197,7 +201,9 @@ export class DoltClient {
   private _withCliLock<T>(fn: () => Promise<T>): Promise<T> {
     const prev = this._cliMutex
     let release!: () => void
-    this._cliMutex = new Promise<void>((resolve) => { release = resolve })
+    this._cliMutex = new Promise<void>((resolve) => {
+      release = resolve
+    })
     return prev.then(fn).finally(() => release())
   }
 
@@ -225,9 +231,7 @@ export class DoltClient {
         // Dolt CLI has no branch flag for `dolt sql`. Prepend DOLT_CHECKOUT
         // to switch branches when needed. Multi-statement output produces one
         // JSON object per line — parse the last line for the actual result.
-        const branchPrefix = branch
-          ? `CALL DOLT_CHECKOUT('${branch.replace(/'/g, "''")}'); `
-          : ''
+        const branchPrefix = branch ? `CALL DOLT_CHECKOUT('${branch.replace(/'/g, "''")}'); ` : ''
         const args = ['sql', '-q', branchPrefix + finalSql, '--result-format', 'json']
         const { stdout } = await runExecFile('dolt', args, { cwd: this.repoPath })
         // When branch prefix is used, stdout has multiple JSON lines; take the last one

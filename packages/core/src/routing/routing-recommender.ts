@@ -41,7 +41,7 @@ const MIN_BREAKDOWNS = 3
 const DOWNGRADE_THRESHOLD = 0.15
 
 /** Output ratio above this threshold triggers an upgrade recommendation. */
-const UPGRADE_THRESHOLD = 0.40
+const UPGRADE_THRESHOLD = 0.4
 
 /** Ordered list of model name fragments by tier (cheapest → most expensive). */
 const TIER_TO_MODEL_FRAGMENT: Record<number, string> = {
@@ -124,7 +124,7 @@ export class RoutingRecommender {
     if (breakdowns.length < MIN_BREAKDOWNS) {
       this._logger.debug(
         { dataPoints: breakdowns.length, threshold: MIN_BREAKDOWNS, reason: 'insufficient_data' },
-        'Insufficient data for routing analysis',
+        'Insufficient data for routing analysis'
       )
       return {
         recommendations: [],
@@ -157,7 +157,8 @@ export class RoutingRecommender {
     const confidence = Math.min(breakdowns.length / 10, 1)
 
     for (const [phase, outputRatio] of Object.entries(phaseOutputRatios)) {
-      const currentModel = config.phases[phase as keyof typeof config.phases]?.model ?? config.baseline_model
+      const currentModel =
+        config.phases[phase as keyof typeof config.phases]?.model ?? config.baseline_model
       const currentTier = this._getTier(currentModel)
 
       if (outputRatio < DOWNGRADE_THRESHOLD) {
@@ -170,7 +171,11 @@ export class RoutingRecommender {
         const suggestedKeyword = this._getTierKeyword(suggestedTier)
         // Build suggested model name by replacing the tier keyword in the current model name.
         // Falls back to just the keyword fragment if no keyword found in current model.
-        const suggestedModel = this._substituteTierKeyword(currentModel, currentTier, suggestedKeyword)
+        const suggestedModel = this._substituteTierKeyword(
+          currentModel,
+          currentTier,
+          suggestedKeyword
+        )
         const estimatedSavingsPct = ((currentTier - suggestedTier) / currentTier) * 50
 
         recommendations.push({
@@ -185,7 +190,7 @@ export class RoutingRecommender {
 
         this._logger.debug(
           { phase, currentModel, suggestedModel, outputRatio, estimatedSavingsPct },
-          'Downgrade recommendation generated',
+          'Downgrade recommendation generated'
         )
       } else if (outputRatio > UPGRADE_THRESHOLD) {
         // Candidate for upgrade
@@ -195,7 +200,11 @@ export class RoutingRecommender {
           continue
         }
         const suggestedKeyword = this._getTierKeyword(suggestedTier)
-        const suggestedModel = this._substituteTierKeyword(currentModel, currentTier, suggestedKeyword)
+        const suggestedModel = this._substituteTierKeyword(
+          currentModel,
+          currentTier,
+          suggestedKeyword
+        )
         const estimatedSavingsPct = ((currentTier - suggestedTier) / currentTier) * 50
 
         recommendations.push({
@@ -210,7 +219,7 @@ export class RoutingRecommender {
 
         this._logger.debug(
           { phase, currentModel, suggestedModel, outputRatio, estimatedSavingsPct },
-          'Upgrade recommendation generated',
+          'Upgrade recommendation generated'
         )
       }
       // Neutral zone (0.15..0.40): no recommendation
@@ -239,7 +248,7 @@ export class RoutingRecommender {
   private _substituteTierKeyword(
     currentModel: string,
     currentTier: number,
-    newKeyword: string,
+    newKeyword: string
   ): string {
     const currentKeyword = this._getTierKeyword(currentTier)
     if (currentModel.toLowerCase().includes(currentKeyword)) {

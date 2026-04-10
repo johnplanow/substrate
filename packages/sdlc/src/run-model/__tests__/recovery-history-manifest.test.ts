@@ -50,7 +50,7 @@ async function createManifest(tempDir: string, runId: string): Promise<RunManife
       cost_accumulation: { per_story: {}, run_total: 0 },
       pending_proposals: [],
     },
-    tempDir,
+    tempDir
   )
 }
 

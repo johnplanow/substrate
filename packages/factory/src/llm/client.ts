@@ -39,13 +39,13 @@ export class LLMClient {
     const registered = [...this.adapters.keys()]
     if (!providerName) {
       throw new Error(
-        `No provider matched model "${model}". Registered providers: ${registered.join(', ') || '(none)'}`,
+        `No provider matched model "${model}". Registered providers: ${registered.join(', ') || '(none)'}`
       )
     }
     const adapter = this.adapters.get(providerName)
     if (!adapter) {
       throw new Error(
-        `Provider "${providerName}" matched model "${model}" but is not registered. Registered providers: ${registered.join(', ') || '(none)'}`,
+        `Provider "${providerName}" matched model "${model}" but is not registered. Registered providers: ${registered.join(', ') || '(none)'}`
       )
     }
     return adapter

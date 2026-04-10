@@ -53,7 +53,7 @@ export function extractLlmQuestion(condition: string): string {
  */
 export function buildEvaluationPrompt(
   question: string,
-  contextSnapshot: Record<string, unknown>,
+  contextSnapshot: Record<string, unknown>
 ): string {
   return [
     `You are evaluating a routing condition in a software pipeline.`,
@@ -86,9 +86,7 @@ export function parseLlmBoolResponse(response: string): boolean {
   const affirmatives = ['yes', 'true', 'affirmative', 'correct', '1']
   return affirmatives.some(
     (token) =>
-      cleaned === token ||
-      cleaned.startsWith(token + ' ') ||
-      cleaned.startsWith(token + '\n'),
+      cleaned === token || cleaned.startsWith(token + ' ') || cleaned.startsWith(token + '\n')
   )
 }
 
@@ -112,7 +110,7 @@ export function parseLlmBoolResponse(response: string): boolean {
 export async function evaluateLlmCondition(
   question: string,
   contextSnapshot: Record<string, unknown>,
-  llmCall: (prompt: string) => Promise<string>,
+  llmCall: (prompt: string) => Promise<string>
 ): Promise<boolean> {
   try {
     const prompt = buildEvaluationPrompt(question, contextSnapshot)

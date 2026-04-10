@@ -65,8 +65,12 @@ function makeGraph(nodeList: GraphNode[]): Graph {
     nodes,
     edges: [],
     outgoingEdges: () => [],
-    startNode: () => { throw new Error('not used in these tests') },
-    exitNode: () => { throw new Error('not used in these tests') },
+    startNode: () => {
+      throw new Error('not used in these tests')
+    },
+    exitNode: () => {
+      throw new Error('not used in these tests')
+    },
   }
 }
 
@@ -238,7 +242,11 @@ describe('non-goalGate nodes are ignored in evaluateGates', () => {
 // ---------------------------------------------------------------------------
 
 /** Build a node with specific retry fields; other fields default to minimalNode. */
-function makeNodeWithRetry(id: string, retryTarget: string, fallbackRetryTarget: string): GraphNode {
+function makeNodeWithRetry(
+  id: string,
+  retryTarget: string,
+  fallbackRetryTarget: string
+): GraphNode {
   return { ...minimalNode, id, retryTarget, fallbackRetryTarget }
 }
 
@@ -282,7 +290,11 @@ describe('resolveRetryTarget — AC4: graph.fallbackRetryTarget resolves at leve
   it('returns graph.fallbackRetryTarget when levels 1–3 are absent', () => {
     const failedNode = makeNodeWithRetry('failing', '', '')
     const targetNode = makeNonGateNode('last_resort')
-    const graph = { ...makeGraph([failedNode, targetNode]), retryTarget: '', fallbackRetryTarget: 'last_resort' }
+    const graph = {
+      ...makeGraph([failedNode, targetNode]),
+      retryTarget: '',
+      fallbackRetryTarget: 'last_resort',
+    }
 
     const result = controller.resolveRetryTarget(failedNode, graph)
 
@@ -302,7 +314,11 @@ describe('resolveRetryTarget — AC5: returns null when no valid target exists a
 
   it('returns null when all four fields reference non-existent nodes', () => {
     const failedNode = makeNodeWithRetry('failing', 'ghost1', 'ghost2')
-    const graph = { ...makeGraph([failedNode]), retryTarget: 'ghost3', fallbackRetryTarget: 'ghost4' }
+    const graph = {
+      ...makeGraph([failedNode]),
+      retryTarget: 'ghost3',
+      fallbackRetryTarget: 'ghost4',
+    }
 
     const result = controller.resolveRetryTarget(failedNode, graph)
 
@@ -561,17 +577,21 @@ describe('checkGoalGates()', () => {
 // checkGoalGates() — satisfaction threshold (story 46-2)
 // ---------------------------------------------------------------------------
 
-describe("checkGoalGates() — satisfaction threshold (story 46-2)", () => {
+describe('checkGoalGates() — satisfaction threshold (story 46-2)', () => {
   /** Map-backed IGraphContext helper — avoids cross-package import of GraphContext class. */
   function makeContext(score: number): IGraphContext {
     const store = new Map<string, unknown>([['satisfaction_score', score]])
     return {
       get: (k) => store.get(k),
-      set: (k, v) => { store.set(k, v) },
+      set: (k, v) => {
+        store.set(k, v)
+      },
       getString: (k, d = '') => String(store.get(k) ?? d),
       getNumber: (k, d = 0) => Number(store.get(k) ?? d),
       getBoolean: (k, d = false) => Boolean(store.get(k) ?? d),
-      applyUpdates: (u) => { for (const [k, v] of Object.entries(u)) store.set(k, v) },
+      applyUpdates: (u) => {
+        for (const [k, v] of Object.entries(u)) store.set(k, v)
+      },
       snapshot: () => Object.fromEntries(store),
       clone: () => makeContext(score),
     }
@@ -596,7 +616,7 @@ describe("checkGoalGates() — satisfaction threshold (story 46-2)", () => {
   it('AC2: score=0.80 at threshold=0.8 → satisfied: true, failedGates: []', () => {
     const gate = makeGateNode('gate-node')
     const graph = makeGraph([gate])
-    const ctx = makeContext(0.80)
+    const ctx = makeContext(0.8)
 
     const result = controller.checkGoalGates(graph, 'run-1', undefined, {
       context: ctx,
@@ -701,7 +721,12 @@ describe("checkGoalGates() — satisfaction threshold (story 46-2)", () => {
     const eventBus = new TypedEventBusImpl<FactoryEvents>()
     const emitted: Array<{ runId: string; nodeId: string; satisfied: boolean; score?: number }> = []
     eventBus.on('graph:goal-gate-checked', (payload) => {
-      emitted.push({ runId: payload.runId, nodeId: payload.nodeId, satisfied: payload.satisfied, ...(payload.score !== undefined ? { score: payload.score } : {}) })
+      emitted.push({
+        runId: payload.runId,
+        nodeId: payload.nodeId,
+        satisfied: payload.satisfied,
+        ...(payload.score !== undefined ? { score: payload.score } : {}),
+      })
     })
     const ctx = makeContext(0.65)
 

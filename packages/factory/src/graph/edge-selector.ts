@@ -116,7 +116,7 @@ export async function selectEdge(
   outcome: Outcome,
   context: IGraphContext,
   graph: Graph,
-  options?: SelectEdgeOptions,
+  options?: SelectEdgeOptions
 ): Promise<GraphEdge | null> {
   // Collect all edges originating from this node.
   const outgoing = graph.edges.filter((e) => e.fromNode === node.id)

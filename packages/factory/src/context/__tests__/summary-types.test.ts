@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { SummaryLevel, SummarizeOptions, ExpandOptions, Summary } from '../summary-types.js'
-import {
-  SUMMARY_BUDGET,
-  DEFAULT_SUMMARY_LEVEL,
-  computeBudget,
-} from '../summary-types.js'
+import { SUMMARY_BUDGET, DEFAULT_SUMMARY_LEVEL, computeBudget } from '../summary-types.js'
 import type { SummaryEngine } from '../summary-engine.js'
 
 // MockSummaryEngine implements SummaryEngine — compile-time verification
@@ -14,7 +10,7 @@ class MockSummaryEngine implements SummaryEngine {
   async summarize(
     content: string,
     targetLevel: SummaryLevel,
-    _opts?: SummarizeOptions,
+    _opts?: SummarizeOptions
   ): Promise<Summary> {
     return {
       level: targetLevel,
@@ -27,7 +23,7 @@ class MockSummaryEngine implements SummaryEngine {
   async expand(
     summary: Summary,
     _targetLevel: SummaryLevel,
-    opts?: ExpandOptions,
+    opts?: ExpandOptions
   ): Promise<string> {
     return opts?.originalContent ?? summary.content
   }
@@ -43,7 +39,7 @@ describe('SUMMARY_BUDGET', () => {
   })
 
   it('medium level has budget 0.50', () => {
-    expect(SUMMARY_BUDGET['medium']).toBe(0.50)
+    expect(SUMMARY_BUDGET['medium']).toBe(0.5)
   })
 
   it('low level has budget 0.25', () => {
@@ -144,7 +140,7 @@ describe('computeBudget', () => {
   it('returns 50% of tokens for medium level', () => {
     const budget = computeBudget(100_000, 'medium')
     expect(budget.targetTokenCount).toBe(50_000)
-    expect(budget.compressionRatio).toBe(0.50)
+    expect(budget.compressionRatio).toBe(0.5)
   })
 
   it('returns 25% of tokens for low level', () => {

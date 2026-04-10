@@ -26,10 +26,12 @@ const MODEL_NAME_PATTERN = /^[a-zA-Z0-9._-]+$/
  * Per-phase model configuration.
  */
 export const ModelPhaseConfigSchema = z.object({
-  model: z.string().regex(
-    MODEL_NAME_PATTERN,
-    'Model name contains invalid characters (must match /^[a-zA-Z0-9._-]+$/)',
-  ),
+  model: z
+    .string()
+    .regex(
+      MODEL_NAME_PATTERN,
+      'Model name contains invalid characters (must match /^[a-zA-Z0-9._-]+$/)'
+    ),
   max_tokens: z.number().int().positive().optional(),
 })
 
@@ -49,10 +51,12 @@ export const ModelRoutingConfigSchema = z.object({
     generate: ModelPhaseConfigSchema.optional(),
     review: ModelPhaseConfigSchema.optional(),
   }),
-  baseline_model: z.string().regex(
-    MODEL_NAME_PATTERN,
-    'Baseline model name contains invalid characters (must match /^[a-zA-Z0-9._-]+$/)',
-  ),
+  baseline_model: z
+    .string()
+    .regex(
+      MODEL_NAME_PATTERN,
+      'Baseline model name contains invalid characters (must match /^[a-zA-Z0-9._-]+$/)'
+    ),
   overrides: z.record(z.string(), ModelPhaseConfigSchema).optional(),
   /**
    * When true, RoutingTuner will automatically apply conservative model downgrades
@@ -80,7 +84,7 @@ export class RoutingConfigError extends Error {
   constructor(
     message: string,
     code: RoutingConfigErrorCode,
-    readonly context?: Record<string, unknown>,
+    readonly context?: Record<string, unknown>
   ) {
     super(message)
     this.name = 'RoutingConfigError'
@@ -115,7 +119,7 @@ export function loadModelRoutingConfig(filePath: string): ModelRoutingConfig {
     throw new RoutingConfigError(
       `Cannot read routing config file at "${filePath}": ${message}`,
       'CONFIG_NOT_FOUND',
-      { filePath },
+      { filePath }
     )
   }
 
@@ -128,7 +132,7 @@ export function loadModelRoutingConfig(filePath: string): ModelRoutingConfig {
     throw new RoutingConfigError(
       `Invalid YAML in routing config file at "${filePath}": ${message}`,
       'INVALID_YAML',
-      { filePath },
+      { filePath }
     )
   }
 
@@ -136,13 +140,11 @@ export function loadModelRoutingConfig(filePath: string): ModelRoutingConfig {
   const result = ModelRoutingConfigSchema.safeParse(rawObject)
   if (!result.success) {
     const issues = result.error.issues
-    const details = issues
-      .map((e) => `  - ${e.path.join('.')}: ${e.message}`)
-      .join('\n')
+    const details = issues.map((e) => `  - ${e.path.join('.')}: ${e.message}`).join('\n')
     throw new RoutingConfigError(
       `Routing config validation failed for "${filePath}":\n${details}`,
       'SCHEMA_INVALID',
-      { filePath },
+      { filePath }
     )
   }
 

@@ -61,7 +61,7 @@ export class RoutingTuner {
     recommender: RoutingRecommender,
     eventEmitter: TypedEventBus<CoreEvents>,
     configPath: string,
-    logger: ILogger,
+    logger: ILogger
   ) {
     this._stateStore = stateStore
     this._recommender = recommender
@@ -96,7 +96,7 @@ export class RoutingTuner {
     if (breakdowns.length < MIN_BREAKDOWNS_FOR_TUNING) {
       this._logger.debug(
         { runId, available: breakdowns.length, required: MIN_BREAKDOWNS_FOR_TUNING },
-        'insufficient_data — not enough breakdowns for auto-tuning',
+        'insufficient_data — not enough breakdowns for auto-tuning'
       )
       return
     }
@@ -132,7 +132,10 @@ export class RoutingTuner {
       rawContent = readFileSync(this._configPath, 'utf-8')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      this._logger.warn({ err: msg, configPath: this._configPath }, 'Failed to read routing config for auto-tune')
+      this._logger.warn(
+        { err: msg, configPath: this._configPath },
+        'Failed to read routing config for auto-tune'
+      )
       return
     }
 
@@ -164,7 +167,10 @@ export class RoutingTuner {
       writeFileSync(this._configPath, yamlDump(rawObject, { lineWidth: 120 }), 'utf-8')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      this._logger.warn({ err: msg, configPath: this._configPath }, 'Failed to write updated routing config')
+      this._logger.warn(
+        { err: msg, configPath: this._configPath },
+        'Failed to write updated routing config'
+      )
       return
     }
 
@@ -191,8 +197,13 @@ export class RoutingTuner {
     })
 
     this._logger.info(
-      { runId, phase: topRec.phase, oldModel: topRec.currentModel, newModel: topRec.suggestedModel },
-      'Auto-tuned routing config — applied downgrade',
+      {
+        runId,
+        phase: topRec.phase,
+        oldModel: topRec.currentModel,
+        newModel: topRec.suggestedModel,
+      },
+      'Auto-tuned routing config — applied downgrade'
     )
   }
 
@@ -236,7 +247,9 @@ export class RoutingTuner {
         if (raw !== undefined && raw !== null) {
           // The value may be stored as an object or as a JSON string
           const parsed: PhaseTokenBreakdown =
-            typeof raw === 'string' ? (JSON.parse(raw) as PhaseTokenBreakdown) : (raw as PhaseTokenBreakdown)
+            typeof raw === 'string'
+              ? (JSON.parse(raw) as PhaseTokenBreakdown)
+              : (raw as PhaseTokenBreakdown)
           breakdowns.push(parsed)
         }
       } catch (err) {

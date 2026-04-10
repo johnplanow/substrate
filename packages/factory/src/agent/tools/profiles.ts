@@ -6,7 +6,11 @@
 import { createSharedTools } from './shared.js'
 import { createEditFileTool } from './anthropic-tools.js'
 import { createApplyPatchTool } from './openai-tools.js'
-import { createReadManyFilesTool, createListDirTool, createGeminiEditFileTool } from './gemini-tools.js'
+import {
+  createReadManyFilesTool,
+  createListDirTool,
+  createGeminiEditFileTool,
+} from './gemini-tools.js'
 import type { ToolDefinition } from './types.js'
 
 /**

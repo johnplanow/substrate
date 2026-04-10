@@ -67,7 +67,7 @@ export class LogTurnAnalyzer implements ILogTurnAnalyzer {
         (log) =>
           log != null &&
           typeof log === 'object' &&
-          ((log.inputTokens ?? 0) > 0 || (log.outputTokens ?? 0) > 0),
+          ((log.inputTokens ?? 0) > 0 || (log.outputTokens ?? 0) > 0)
       )
       if (validLogs.length === 0) {
         this._logger.debug('LogTurnAnalyzer: no LLM logs with tokens to analyze')
@@ -79,9 +79,7 @@ export class LogTurnAnalyzer implements ILogTurnAnalyzer {
       const grouped = new Map<string, NormalizedLog[]>()
       for (const log of validLogs) {
         const key =
-          log.traceId != null && log.spanId != null
-            ? `${log.traceId}:${log.spanId}`
-            : log.logId
+          log.traceId != null && log.spanId != null ? `${log.traceId}:${log.spanId}` : log.logId
         const group = grouped.get(key) ?? []
         group.push(log)
         grouped.set(key, group)
@@ -149,7 +147,7 @@ export class LogTurnAnalyzer implements ILogTurnAnalyzer {
             ...(log.phase !== undefined && { phase: log.phase }),
             ...(log.dispatchId !== undefined && { dispatchId: log.dispatchId }),
           }
-        },
+        }
       )
 
       // Second pass: spike detection (inputTokens > 2 × average)

@@ -31,7 +31,14 @@ const { mockSave, mockLoad, mockResume } = vi.hoisted(() => ({
   mockResume: vi.fn(),
 }))
 
-const { mockEvaluateGates, mockRecordOutcome, mockCheckGoalGates, mockResolveRetryTarget, mockRecordIterationContext, mockPrepareForIteration } = vi.hoisted(() => ({
+const {
+  mockEvaluateGates,
+  mockRecordOutcome,
+  mockCheckGoalGates,
+  mockResolveRetryTarget,
+  mockRecordIterationContext,
+  mockPrepareForIteration,
+} = vi.hoisted(() => ({
   mockEvaluateGates: vi.fn().mockReturnValue({ satisfied: true, failingNodes: [] }),
   mockRecordOutcome: vi.fn(),
   mockCheckGoalGates: vi.fn().mockReturnValue({ satisfied: true, failedGates: [] }),
@@ -89,7 +96,9 @@ vi.mock('../../convergence/index.js', () => ({
     fixScope: '',
   }),
   injectRemediationContext: vi.fn(),
-  computeBackoffDelay: vi.fn().mockImplementation((attempt: number) => Math.min(1000 * 2 ** attempt, 30000)),
+  computeBackoffDelay: vi
+    .fn()
+    .mockImplementation((attempt: number) => Math.min(1000 * 2 ** attempt, 30000)),
 }))
 
 // Import AFTER mocking
@@ -149,7 +158,7 @@ function makeGraph(
   nodeList: GraphNode[],
   edgeList: GraphEdge[],
   startNodeId: string,
-  exitNodeId: string,
+  exitNodeId: string
 ): Graph {
   const nodeMap = new Map(nodeList.map((n) => [n.id, n]))
   return {
@@ -193,7 +202,7 @@ function makeEventBus(): { bus: TypedEventBus<FactoryEvents>; emit: ReturnType<t
 /** Minimal config with fake logsRoot. */
 function makeConfig(
   registry: IHandlerRegistry,
-  overrides?: Partial<GraphExecutorConfig>,
+  overrides?: Partial<GraphExecutorConfig>
 ): GraphExecutorConfig {
   return {
     runId: 'test-run-id',
@@ -245,7 +254,7 @@ describe('AC1: 3-node graph traversal', () => {
 
     // graph:checkpoint-saved emitted once per completed node
     const checkpointSavedCalls = emit.mock.calls.filter(
-      ([event]) => event === 'graph:checkpoint-saved',
+      ([event]) => event === 'graph:checkpoint-saved'
     )
     expect(checkpointSavedCalls).toHaveLength(2)
 
@@ -424,11 +433,17 @@ describe('AC4: checkpoint save', () => {
     // 2 saves: after start, after codergen (not after exit)
     expect(mockSave).toHaveBeenCalledTimes(2)
 
-    const firstSave = mockSave.mock.calls[0]![1] as { currentNode: string; completedNodes: string[] }
+    const firstSave = mockSave.mock.calls[0]![1] as {
+      currentNode: string
+      completedNodes: string[]
+    }
     expect(firstSave.currentNode).toBe('start')
     expect(firstSave.completedNodes).toContain('start')
 
-    const secondSave = mockSave.mock.calls[1]![1] as { currentNode: string; completedNodes: string[] }
+    const secondSave = mockSave.mock.calls[1]![1] as {
+      currentNode: string
+      completedNodes: string[]
+    }
     expect(secondSave.currentNode).toBe('codergen')
     expect(secondSave.completedNodes).toContain('start')
     expect(secondSave.completedNodes).toContain('codergen')
@@ -467,7 +482,7 @@ describe('AC4: checkpoint resume', () => {
     const executor = createGraphExecutor()
     const outcome = await executor.run(
       graph,
-      makeConfig(registry, { checkpointPath: '/tmp/checkpoint.json' }),
+      makeConfig(registry, { checkpointPath: '/tmp/checkpoint.json' })
     )
 
     expect(outcome.status).toBe('SUCCESS')
@@ -492,14 +507,14 @@ describe('AC4: checkpoint resume', () => {
     mockLoad.mockResolvedValue({
       timestamp: Date.now(),
       currentNode: 'start',
-      completedNodes: [],  // start not in completedNodes
+      completedNodes: [], // start not in completedNodes
       nodeRetries: {},
       contextValues: {},
       logs: [],
     })
     mockResume.mockReturnValue({
       context: new GraphContext(),
-      completedNodes: new Set<string>(),  // empty set
+      completedNodes: new Set<string>(), // empty set
       nodeRetries: {},
       firstResumedNodeFidelity: '',
     })
@@ -507,7 +522,7 @@ describe('AC4: checkpoint resume', () => {
     const executor = createGraphExecutor()
     const outcome = await executor.run(
       graph,
-      makeConfig(registry, { checkpointPath: '/tmp/checkpoint.json' }),
+      makeConfig(registry, { checkpointPath: '/tmp/checkpoint.json' })
     )
 
     expect(outcome.status).toBe('SUCCESS')
@@ -688,9 +703,7 @@ describe('Edge case: cycle detection', () => {
     const graph = makeGraph([startNode, backNode, exitNode], edges, 'start', 'exit')
 
     const executor = createGraphExecutor()
-    await expect(executor.run(graph, makeConfig(registry))).rejects.toThrow(
-      'Graph cycle detected',
-    )
+    await expect(executor.run(graph, makeConfig(registry))).rejects.toThrow('Graph cycle detected')
   })
 })
 
@@ -707,7 +720,7 @@ describe('Edge case: missing target node', () => {
 
     const executor = createGraphExecutor()
     await expect(executor.run(graph, makeConfig(registry))).rejects.toThrow(
-      'Edge target node "nonexistent-node" not found in graph',
+      'Edge target node "nonexistent-node" not found in graph'
     )
   })
 })
@@ -756,7 +769,9 @@ describe('Context updates: applied after each node', () => {
     const handler = vi.fn().mockImplementation(async () => {
       callCount++
       if (callCount === 1) {
-        return { status: 'SUCCESS', contextUpdates: { myKey: 'myValue' } } as unknown as Awaited<ReturnType<NodeHandler>>
+        return { status: 'SUCCESS', contextUpdates: { myKey: 'myValue' } } as unknown as Awaited<
+          ReturnType<NodeHandler>
+        >
       }
       return { status: 'SUCCESS' } as unknown as Awaited<ReturnType<NodeHandler>>
     })
@@ -806,10 +821,7 @@ describe('AC6: RunStateManager integration — dotSource writes graph.dot and no
     const graph = makeGraph([startNode, exitNode], edges, 'start', 'exit')
 
     const executor = createGraphExecutor()
-    const outcome = await executor.run(
-      graph,
-      makeConfig(registry, { logsRoot: tmpDir, dotSource }),
-    )
+    const outcome = await executor.run(graph, makeConfig(registry, { logsRoot: tmpDir, dotSource }))
 
     expect(outcome.status).toBe('SUCCESS')
 
@@ -864,7 +876,9 @@ describe('allowPartial semantics', () => {
     const edges = [makeEdge('work', 'exit')]
     const graph = makeGraph([workNode, exitNode], edges, 'work', 'exit')
 
-    const partialHandler = vi.fn().mockResolvedValue({ status: 'PARTIAL_SUCCESS' } as unknown as Outcome)
+    const partialHandler = vi
+      .fn()
+      .mockResolvedValue({ status: 'PARTIAL_SUCCESS' } as unknown as Outcome)
     const registry = makeRegistry(partialHandler as unknown as NodeHandler)
 
     const executor = createGraphExecutor()
@@ -883,7 +897,9 @@ describe('allowPartial semantics', () => {
     const edges = [makeEdge('work', 'exit')]
     const graph = makeGraph([workNode, exitNode], edges, 'work', 'exit')
 
-    const partialHandler = vi.fn().mockResolvedValue({ status: 'PARTIAL_SUCCESS' } as unknown as Outcome)
+    const partialHandler = vi
+      .fn()
+      .mockResolvedValue({ status: 'PARTIAL_SUCCESS' } as unknown as Outcome)
     const registry = makeRegistry(partialHandler as unknown as NodeHandler)
 
     const executor = createGraphExecutor()
@@ -952,7 +968,12 @@ describe('outcome context injection', () => {
       makeEdge('conditional', 'exit', { condition: 'outcome=success' }),
       makeEdge('retry', 'exit'),
     ]
-    const graph = makeGraph([startNode, conditionalNode, retryNode, exitNode], edges, 'start', 'exit')
+    const graph = makeGraph(
+      [startNode, conditionalNode, retryNode, exitNode],
+      edges,
+      'start',
+      'exit'
+    )
 
     let callCount = 0
     const handler = vi.fn().mockImplementation(async () => {
@@ -1004,7 +1025,12 @@ describe('FAIL routing conditional edge fallthrough', () => {
       makeEdge('conditional', 'exit', { condition: 'outcome=success' }),
       makeEdge('fallback', 'exit'),
     ]
-    const graph = makeGraph([startNode, conditionalNode, fallbackNode, exitNode], edges, 'start', 'exit')
+    const graph = makeGraph(
+      [startNode, conditionalNode, fallbackNode, exitNode],
+      edges,
+      'start',
+      'exit'
+    )
 
     let callCount = 0
     const handler = vi.fn().mockImplementation(async () => {
@@ -1074,7 +1100,7 @@ describe('auto-summarizer convergence integration (story 49-3)', () => {
       [makeNode('start'), makeNode('mid'), makeNode('end')],
       [makeEdge('start', 'mid'), makeEdge('mid', 'end')],
       'start',
-      'end',
+      'end'
     )
 
     const executor = createGraphExecutor()
@@ -1087,7 +1113,7 @@ describe('auto-summarizer convergence integration (story 49-3)', () => {
     expect(mockRecordIterationContext).toHaveBeenCalled()
     // Each call should include an index and content string
     expect(mockRecordIterationContext).toHaveBeenCalledWith(
-      expect.objectContaining({ index: expect.any(Number), content: expect.any(String) }),
+      expect.objectContaining({ index: expect.any(Number), content: expect.any(String) })
     )
   })
 
@@ -1105,7 +1131,7 @@ describe('auto-summarizer convergence integration (story 49-3)', () => {
       [makeNode('start'), makeNode('end', { goalGate: true })],
       [makeEdge('start', 'end')],
       'start',
-      'end',
+      'end'
     )
 
     const executor = createGraphExecutor()

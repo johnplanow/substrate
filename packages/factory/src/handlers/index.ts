@@ -18,21 +18,19 @@ export type { NodeHandler, IHandlerRegistry } from './types.js'
 // Re-export ICodergenBackend so callers can import from @substrate-ai/factory/handlers (story 42-18)
 export type { ICodergenBackend } from '../backend/types.js'
 // Story 50-2: fan-in exports
-export { createFanInHandler, rankBranches, buildSelectionPrompt, parseLlmWinnerResponse } from './fan-in.js'
+export {
+  createFanInHandler,
+  rankBranches,
+  buildSelectionPrompt,
+  parseLlmWinnerResponse,
+} from './fan-in.js'
 export type { FanInHandlerOptions, BranchResult } from './fan-in.js'
 // Story 50-1: parallel handler exports
 export { createParallelHandler } from './parallel.js'
 export type { ParallelBranchResult, ParallelHandlerOptions, FanInBranchResult } from './types.js'
 // Story 50-3: join-policy exports
-export {
-  evaluateJoinPolicy,
-  BranchCancellationManager,
-} from './join-policy.js'
-export type {
-  JoinPolicy,
-  JoinPolicyConfig,
-  JoinDecision,
-} from './join-policy.js'
+export { evaluateJoinPolicy, BranchCancellationManager } from './join-policy.js'
+export type { JoinPolicy, JoinPolicyConfig, JoinDecision } from './join-policy.js'
 // Re-export BranchResult from join-policy under an alias to avoid collision with
 // fan-in's BranchResult (which is also exported as BranchResult above).
 // NOTE: Story 50-3 interface contracts specify this export as "BranchResult", but

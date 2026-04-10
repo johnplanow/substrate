@@ -70,7 +70,10 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
     // Snapshot: deep-clone each table's rows and auto-increment counters
     const snapshot = new Map<string, Row[]>()
     for (const [name, rows] of this._tables) {
-      snapshot.set(name, rows.map((r) => ({ ...r })))
+      snapshot.set(
+        name,
+        rows.map((r) => ({ ...r }))
+      )
     }
     const counterSnapshot = new Map(this._autoIncrementCounters)
 
@@ -196,7 +199,9 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
           // Table-level PRIMARY KEY constraint: PRIMARY KEY (col1, col2, ...)
           const tablePkM = /^PRIMARY\s+KEY\s*\(([^)]+)\)/i.exec(trimmedLine)
           if (tablePkM) {
-            const cols = tablePkM[1]!.split(',').map((c) => c.trim().replace(/^[`"](.+)[`"]$/, '$1'))
+            const cols = tablePkM[1]!
+              .split(',')
+              .map((c) => c.trim().replace(/^[`"](.+)[`"]$/, '$1'))
             pkCols.push(...cols)
             continue
           }
@@ -261,7 +266,9 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
 
   private _createIndex(sql: string): Row[] {
     // CREATE [UNIQUE] INDEX [IF NOT EXISTS] indexName ON tableName (...)
-    const m = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+ON\s+(\w+)/i.exec(sql)
+    const m = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+ON\s+(\w+)/i.exec(
+      sql
+    )
     if (m) {
       const name = m[1]!
       const tbl_name = m[2]!
@@ -324,7 +331,13 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
       masterRows.push({ type: 'table', name, tbl_name: name, rootpage: 0, sql: null })
     }
     for (const idx of this._indexes) {
-      masterRows.push({ type: 'index', name: idx.name, tbl_name: idx.tbl_name, rootpage: 0, sql: null })
+      masterRows.push({
+        type: 'index',
+        name: idx.name,
+        tbl_name: idx.tbl_name,
+        rootpage: 0,
+        sql: null,
+      })
     }
 
     // Extract WHERE clause conditions manually
@@ -348,7 +361,9 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
 
   private _insert(sql: string, _ignoreConflicts = false): Row[] {
     // INSERT INTO tableName (col1, col2, ...) VALUES (val1, val2, ...)
-    const m = /INSERT\s+(?:IGNORE\s+)?INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\((.+)\)\s*$/is.exec(sql)
+    const m = /INSERT\s+(?:IGNORE\s+)?INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\((.+)\)\s*$/is.exec(
+      sql
+    )
     if (!m) return []
 
     const tableName = m[1]!
@@ -391,7 +406,9 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
     if (pkCols && pkCols.length > 0 && !_ignoreConflicts) {
       const table = this._tables.get(tableName)!
       const isDuplicate = table.some((existingRow) =>
-        pkCols.every((col) => existingRow[col] !== undefined && String(existingRow[col]) === String(row[col]))
+        pkCols.every(
+          (col) => existingRow[col] !== undefined && String(existingRow[col]) === String(row[col])
+        )
       )
       if (isDuplicate) {
         throw new Error(`UNIQUE constraint failed: ${tableName} (${pkCols.join(', ')})`)
@@ -435,7 +452,8 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
     }
 
     // Strip ORDER BY and LIMIT clauses
-    let stripped = sql.replace(/\s+ORDER\s+BY\s+.+?(?=\s+LIMIT\s|\s*$)/is, '')
+    let stripped = sql
+      .replace(/\s+ORDER\s+BY\s+.+?(?=\s+LIMIT\s|\s*$)/is, '')
       .replace(/\s+LIMIT\s+\d+\s*$/is, '')
 
     // Extract GROUP BY clause (present before ORDER BY, after WHERE)
@@ -890,7 +908,9 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
         if (colVal === null || colVal === undefined) return false
         const pattern = likeM[2]!.replace(/''/g, "'")
         // Convert SQL LIKE pattern to regex: % → .*, _ → .
-        const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, (ch) => ch === '%' || ch === '_' ? ch : '\\' + ch)
+        const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, (ch) =>
+          ch === '%' || ch === '_' ? ch : '\\' + ch
+        )
         const regex = new RegExp('^' + escaped.replace(/%/g, '.*').replace(/_/g, '.') + '$', 's')
         if (!regex.test(String(colVal))) return false
         continue
@@ -901,7 +921,12 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
       if (inM) {
         const colVal = row[inM[1]!]
         const inValues = this._parseValueList(inM[2]!)
-        const colStr = colVal === null || colVal === undefined ? null : typeof colVal === 'number' ? colVal : String(colVal)
+        const colStr =
+          colVal === null || colVal === undefined
+            ? null
+            : typeof colVal === 'number'
+              ? colVal
+              : String(colVal)
         if (!inValues.some((v) => v === colStr || String(v) === String(colStr))) return false
         continue
       }
@@ -911,7 +936,12 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
       if (notInM) {
         const colVal = row[notInM[1]!]
         const notInValues = this._parseValueList(notInM[2]!)
-        const colStr = colVal === null || colVal === undefined ? null : typeof colVal === 'number' ? colVal : String(colVal)
+        const colStr =
+          colVal === null || colVal === undefined
+            ? null
+            : typeof colVal === 'number'
+              ? colVal
+              : String(colVal)
         if (notInValues.some((v) => v === colStr || String(v) === String(colStr))) return false
         continue
       }
@@ -1236,15 +1266,18 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
       const num = parseFloat(arithM[3]!)
       const colVal = Number(row[colName] ?? 0)
       switch (op) {
-        case '+': return colVal + num
-        case '-': return colVal - num
-        case '*': return colVal * num
-        case '/': return num !== 0 ? colVal / num : null
+        case '+':
+          return colVal + num
+        case '-':
+          return colVal - num
+        case '*':
+          return colVal * num
+        case '/':
+          return num !== 0 ? colVal / num : null
       }
     }
 
     // Plain literal
     return this._evalLiteral(trimmed)
   }
-
 }

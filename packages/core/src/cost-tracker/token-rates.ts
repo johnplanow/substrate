@@ -85,7 +85,11 @@ function resolveProvider(provider: string): string {
   return PROVIDER_ALIASES[provider.toLowerCase()] ?? provider.toLowerCase()
 }
 
-export function getTokenRate(provider: string, model: string, rateTable: TokenRates = TOKEN_RATES): ModelRates | null {
+export function getTokenRate(
+  provider: string,
+  model: string,
+  rateTable: TokenRates = TOKEN_RATES
+): ModelRates | null {
   const canonicalProvider = resolveProvider(provider)
   const providerRates = rateTable[canonicalProvider]
   if (!providerRates) return null
@@ -106,13 +110,13 @@ export function estimateCost(
   model: string,
   inputTokens: number,
   outputTokens: number,
-  rateTable: TokenRates = TOKEN_RATES,
+  rateTable: TokenRates = TOKEN_RATES
 ): number {
   const rates = getTokenRate(provider, model, rateTable)
   if (!rates) {
     throw new Error(
       `Token rates not found for provider="${provider}" model="${model}". ` +
-        `Available providers: ${Object.keys(rateTable).join(', ')}`,
+        `Available providers: ${Object.keys(rateTable).join(', ')}`
     )
   }
 
@@ -126,7 +130,7 @@ export function estimateCostSafe(
   model: string,
   inputTokens: number,
   outputTokens: number,
-  rateTable: TokenRates = TOKEN_RATES,
+  rateTable: TokenRates = TOKEN_RATES
 ): number {
   try {
     return estimateCost(provider, model, inputTokens, outputTokens, rateTable)

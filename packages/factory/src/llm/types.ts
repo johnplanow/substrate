@@ -7,13 +7,7 @@
 
 export type LLMRole = 'system' | 'user' | 'assistant' | 'tool'
 
-export type StopReason =
-  | 'stop'
-  | 'length'
-  | 'tool_calls'
-  | 'content_filter'
-  | 'error'
-  | 'other'
+export type StopReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'error' | 'other'
 
 export type ContentKind = 'text' | 'tool_call' | 'tool_result' | 'thinking' | 'image'
 
@@ -95,11 +89,7 @@ export interface LLMToolDefinition {
 // Request
 // ---------------------------------------------------------------------------
 
-export type LLMToolChoice =
-  | 'auto'
-  | 'none'
-  | 'required'
-  | { type: 'function'; name: string }
+export type LLMToolChoice = 'auto' | 'none' | 'required' | { type: 'function'; name: string }
 
 export interface LLMRequest {
   /** Target model identifier (e.g. "claude-opus-4-5", "gpt-4o"). */
@@ -177,7 +167,7 @@ export class LLMError extends Error {
   constructor(
     message: string,
     public readonly statusCode: number,
-    public readonly provider: string,
+    public readonly provider: string
   ) {
     super(message)
     this.name = 'LLMError'

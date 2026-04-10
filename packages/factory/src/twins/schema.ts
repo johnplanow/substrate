@@ -51,5 +51,7 @@ export type TwinDefinitionInput = z.input<typeof twinDefinitionSchema>
 // `T | undefined` which conflicts with exactOptionalPropertyTypes (which requires the field
 // to be absent, not explicitly undefined). The registry.ts constructor handles this mismatch
 // with a spread-based conditional assignment.
-const _schemaCompatCheck: Omit<TwinDefinition, 'sourceFile' | 'healthcheck'> =
-  {} as Omit<z.output<typeof twinDefinitionSchema>, 'healthcheck'>
+const _schemaCompatCheck: Omit<TwinDefinition, 'sourceFile' | 'healthcheck'> = {} as Omit<
+  z.output<typeof twinDefinitionSchema>,
+  'healthcheck'
+>

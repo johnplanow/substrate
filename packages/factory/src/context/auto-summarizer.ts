@@ -127,7 +127,7 @@ export class AutoSummarizer {
   shouldTrigger(iterations: IterationContext[]): boolean {
     const total = iterations.reduce(
       (sum, iter) => sum + (iter.tokenEstimate ?? estimateTokens(iter.content)),
-      0,
+      0
     )
     return total > this.threshold * this.modelTokenLimit
   }

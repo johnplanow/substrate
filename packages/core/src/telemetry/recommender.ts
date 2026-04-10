@@ -190,13 +190,13 @@ export class Recommender implements IRecommender {
 
     const grandTotal = this._totalSpanTokens(allSpans)
     const largReads = allSpans.filter(
-      (s) => s.operationName === 'file_read' && s.inputTokens > 3000,
+      (s) => s.operationName === 'file_read' && s.inputTokens > 3000
     )
 
     return largReads.map((span, index) => {
       const pct = grandTotal > 0 ? ((span.inputTokens + span.outputTokens) / grandTotal) * 100 : 0
       const severity = this._assignSeverity(pct)
-      const actionTarget = span.attributes?.['file.path'] as string | undefined ?? span.name
+      const actionTarget = (span.attributes?.['file.path'] as string | undefined) ?? span.name
       const id = this._makeId('large_file_reads', storyKey, actionTarget, index)
 
       return {
@@ -235,15 +235,14 @@ export class Recommender implements IRecommender {
           s.name === 'execute_command' ||
           (s.operationName !== undefined &&
             (s.operationName === 'bash' || s.operationName === 'execute_command'))) &&
-        s.outputTokens > 3000,
+        s.outputTokens > 3000
     )
 
     return expensiveBash.map((span, index) => {
       const pct = grandTotal > 0 ? ((span.inputTokens + span.outputTokens) / grandTotal) * 100 : 0
       const severity = this._assignSeverity(pct)
-      const actionTarget = (span.attributes?.['bash.command'] as string | undefined)
-        ?? span.name
-        ?? 'bash'
+      const actionTarget =
+        (span.attributes?.['bash.command'] as string | undefined) ?? span.name ?? 'bash'
       const id = this._makeId('expensive_bash', storyKey, actionTarget, index)
 
       return {
@@ -348,8 +347,7 @@ export class Recommender implements IRecommender {
       const pct = grandTotal > 0 ? ((turn.inputTokens + turn.outputTokens) / grandTotal) * 100 : 0
       // context_growth_spike is always at least 'warning'
       const baseSeverity = this._assignSeverity(pct)
-      const severity: RecommendationSeverity =
-        baseSeverity === 'info' ? 'warning' : baseSeverity
+      const severity: RecommendationSeverity = baseSeverity === 'info' ? 'warning' : baseSeverity
 
       // Sort child spans by token consumption, take top 3
       const topContributors = [...turn.childSpans]
@@ -398,8 +396,8 @@ export class Recommender implements IRecommender {
     const { categories, storyKey, sprintId, generatedAt } = ctx
     if (categories.length === 0) return []
 
-    const growing = categories.filter((c) =>
-      c.trend === 'growing' && !Recommender.EXPECTED_GROWTH_CATEGORIES.has(c.category),
+    const growing = categories.filter(
+      (c) => c.trend === 'growing' && !Recommender.EXPECTED_GROWTH_CATEGORIES.has(c.category)
     )
 
     return growing.map((cat, index) => {
@@ -469,7 +467,7 @@ export class Recommender implements IRecommender {
 
     this._logger.debug(
       { storyKey, cacheHitRate, potentialSavingsTokens },
-      'cache_efficiency recommendation generated',
+      'cache_efficiency recommendation generated'
     )
 
     return [

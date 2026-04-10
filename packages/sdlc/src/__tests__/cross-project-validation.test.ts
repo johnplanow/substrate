@@ -12,10 +12,7 @@ import { EventEmitter } from 'node:events'
 import { describe, it, expect } from 'vitest'
 import { createSdlcEventBridge } from '../handlers/event-bridge.js'
 import type { GraphEventEmitter } from '../handlers/event-bridge.js'
-import {
-  YNAB_FIXTURE_STORIES,
-  YNAB_PROJECT_CONFIG,
-} from './fixtures/ynab-cross-project-fixture.js'
+import { YNAB_FIXTURE_STORIES, YNAB_PROJECT_CONFIG } from './fixtures/ynab-cross-project-fixture.js'
 import type { YnabFixtureStory } from './fixtures/ynab-cross-project-fixture.js'
 import {
   buildEventCaptor,
@@ -39,9 +36,10 @@ import type { CapturedEvent } from './fixtures/event-captor.js'
  *
  * @returns Captured SDLC orchestrator events and derived completion status.
  */
-function runFixtureScenario(
-  story: YnabFixtureStory,
-): { capturedEvents: CapturedEvent[]; status: 'complete' | 'escalated' } {
+function runFixtureScenario(story: YnabFixtureStory): {
+  capturedEvents: CapturedEvent[]
+  status: 'complete' | 'escalated'
+} {
   const graphEvents = new EventEmitter()
   const { events: capturedEvents, bus: sdlcBus } = buildEventCaptor()
 
@@ -97,7 +95,7 @@ function runFixtureScenario(
 
 async function withTiming<T>(
   _label: string,
-  fn: () => Promise<T>,
+  fn: () => Promise<T>
 ): Promise<{ result: T; ms: number }> {
   const start = Date.now()
   const result = await fn()
@@ -205,7 +203,7 @@ describe('AC3: Story outcome parity across all five stories', () => {
  */
 function buildInterleavedStream(
   streamA: CapturedEvent[],
-  streamB: CapturedEvent[],
+  streamB: CapturedEvent[]
 ): CapturedEvent[] {
   const result: CapturedEvent[] = []
   const maxLen = Math.max(streamA.length, streamB.length)
@@ -234,7 +232,7 @@ function buildInterleavedStream(
 function applyConflictGroupSerialization(
   interleaved: CapturedEvent[],
   stories: YnabFixtureStory[],
-  config: { maxConcurrency: number },
+  config: { maxConcurrency: number }
 ): CapturedEvent[] {
   // No concurrency → no interleaving → no reordering needed
   if (config.maxConcurrency <= 1) return [...interleaved]
@@ -285,85 +283,82 @@ function applyConflictGroupSerialization(
 // ---------------------------------------------------------------------------
 
 describe('AC5: Conflict-group serialization parity', () => {
-  it(
-    "ynab 1-4+1-5 conflict-group: graph engine serializes pair in same order as linear",
-    () => {
-      const story14 = YNAB_FIXTURE_STORIES.find((s) => s.storyKey === '1-4')!
-      const story15 = YNAB_FIXTURE_STORIES.find((s) => s.storyKey === '1-5')!
-      // maxConcurrency: 2 — without conflict-group serialization these stories WOULD run concurrently
-      const conflictConfig = { ...YNAB_PROJECT_CONFIG, maxConcurrency: 2 }
+  it('ynab 1-4+1-5 conflict-group: graph engine serializes pair in same order as linear', () => {
+    const story14 = YNAB_FIXTURE_STORIES.find((s) => s.storyKey === '1-4')!
+    const story15 = YNAB_FIXTURE_STORIES.find((s) => s.storyKey === '1-5')!
+    // maxConcurrency: 2 — without conflict-group serialization these stories WOULD run concurrently
+    const conflictConfig = { ...YNAB_PROJECT_CONFIG, maxConcurrency: 2 }
 
-      // Run graph engine per story independently (event bridge translates fixture phases → orchestrator events)
-      const { capturedEvents: graph14 } = runFixtureScenario(story14)
-      const { capturedEvents: graph15 } = runFixtureScenario(story15)
+    // Run graph engine per story independently (event bridge translates fixture phases → orchestrator events)
+    const { capturedEvents: graph14 } = runFixtureScenario(story14)
+    const { capturedEvents: graph15 } = runFixtureScenario(story15)
 
-      // Linear reference: derive expected event sequences from fixture definition
-      const { referenceEvents: linear14 } = runLinearShim(story14)
-      const { referenceEvents: linear15 } = runLinearShim(story15)
+    // Linear reference: derive expected event sequences from fixture definition
+    const { referenceEvents: linear14 } = runLinearShim(story14)
+    const { referenceEvents: linear15 } = runLinearShim(story15)
 
-      // === BASELINE: Simulated INTERLEAVED (concurrent, unserialized) execution ===
-      // With maxConcurrency: 2 and NO conflict-group constraint, both stories would dispatch
-      // simultaneously and their events would be interleaved round-robin. The interleaved
-      // stream VIOLATES the ordering constraint ('1-5' starts before '1-4' completes).
-      const interleavedStream = buildInterleavedStream(graph14, graph15)
+    // === BASELINE: Simulated INTERLEAVED (concurrent, unserialized) execution ===
+    // With maxConcurrency: 2 and NO conflict-group constraint, both stories would dispatch
+    // simultaneously and their events would be interleaved round-robin. The interleaved
+    // stream VIOLATES the ordering constraint ('1-5' starts before '1-4' completes).
+    const interleavedStream = buildInterleavedStream(graph14, graph15)
 
-      const interleavedComplete14Idx = interleavedStream.findIndex(
-        (e) => e.storyKey === '1-4' && e.eventName === 'orchestrator:story-complete',
-      )
-      const interleavedStart15Idx = interleavedStream.findIndex(
-        (e) => e.storyKey === '1-5' && e.eventName === 'orchestrator:story-phase-start',
-      )
-      expect(interleavedStart15Idx).toBeGreaterThanOrEqual(0)
-      expect(interleavedComplete14Idx).toBeGreaterThanOrEqual(0)
-      // Confirm the interleaved stream DOES violate the serialization constraint:
-      // '1-5' starts (low idx) well before '1-4' completes (high idx)
-      expect(interleavedStart15Idx).toBeLessThan(interleavedComplete14Idx)
+    const interleavedComplete14Idx = interleavedStream.findIndex(
+      (e) => e.storyKey === '1-4' && e.eventName === 'orchestrator:story-complete'
+    )
+    const interleavedStart15Idx = interleavedStream.findIndex(
+      (e) => e.storyKey === '1-5' && e.eventName === 'orchestrator:story-phase-start'
+    )
+    expect(interleavedStart15Idx).toBeGreaterThanOrEqual(0)
+    expect(interleavedComplete14Idx).toBeGreaterThanOrEqual(0)
+    // Confirm the interleaved stream DOES violate the serialization constraint:
+    // '1-5' starts (low idx) well before '1-4' completes (high idx)
+    expect(interleavedStart15Idx).toBeLessThan(interleavedComplete14Idx)
 
-      // === GRAPH ENGINE: Conflict-group SERIALIZED execution ===
-      // applyConflictGroupSerialization reads story.conflictGroup and conflictConfig.maxConcurrency.
-      // Input: the constraint-VIOLATING interleaved stream (proven above).
-      // Because maxConcurrency: 2 means stories would otherwise run concurrently, and story14
-      // and story15 share conflictGroup 'contracts-g1', the function reorders them so that
-      // all story14 events precede story15's first event — fixing the ordering constraint.
-      const serializedMerged = applyConflictGroupSerialization(
-        interleavedStream,
-        [story14, story15],
-        conflictConfig,
-      )
-      const serializedComplete14Idx = serializedMerged.findIndex(
-        (e) => e.storyKey === '1-4' && e.eventName === 'orchestrator:story-complete',
-      )
-      const serializedStart15Idx = serializedMerged.findIndex(
-        (e) => e.storyKey === '1-5' && e.eventName === 'orchestrator:story-phase-start',
-      )
-      expect(serializedComplete14Idx).toBeGreaterThanOrEqual(0)
-      expect(serializedStart15Idx).toBeGreaterThanOrEqual(0)
-      // Non-trivial: the interleaved input violated this constraint (interleavedStart15Idx < interleavedComplete14Idx).
-      // applyConflictGroupSerialization enforces it by reading conflictGroup metadata and maxConcurrency.
-      expect(serializedStart15Idx).toBeGreaterThan(serializedComplete14Idx)
+    // === GRAPH ENGINE: Conflict-group SERIALIZED execution ===
+    // applyConflictGroupSerialization reads story.conflictGroup and conflictConfig.maxConcurrency.
+    // Input: the constraint-VIOLATING interleaved stream (proven above).
+    // Because maxConcurrency: 2 means stories would otherwise run concurrently, and story14
+    // and story15 share conflictGroup 'contracts-g1', the function reorders them so that
+    // all story14 events precede story15's first event — fixing the ordering constraint.
+    const serializedMerged = applyConflictGroupSerialization(
+      interleavedStream,
+      [story14, story15],
+      conflictConfig
+    )
+    const serializedComplete14Idx = serializedMerged.findIndex(
+      (e) => e.storyKey === '1-4' && e.eventName === 'orchestrator:story-complete'
+    )
+    const serializedStart15Idx = serializedMerged.findIndex(
+      (e) => e.storyKey === '1-5' && e.eventName === 'orchestrator:story-phase-start'
+    )
+    expect(serializedComplete14Idx).toBeGreaterThanOrEqual(0)
+    expect(serializedStart15Idx).toBeGreaterThanOrEqual(0)
+    // Non-trivial: the interleaved input violated this constraint (interleavedStart15Idx < interleavedComplete14Idx).
+    // applyConflictGroupSerialization enforces it by reading conflictGroup metadata and maxConcurrency.
+    expect(serializedStart15Idx).toBeGreaterThan(serializedComplete14Idx)
 
-      // === LINEAR REFERENCE: Same serialization constraint holds after applying the same logic ===
-      const linearInterleavedStream = buildInterleavedStream(linear14, linear15)
-      const linearMerged = applyConflictGroupSerialization(
-        linearInterleavedStream,
-        [story14, story15],
-        conflictConfig,
-      )
-      const linearComplete14Idx = linearMerged.findIndex(
-        (e) => e.storyKey === '1-4' && e.eventName === 'orchestrator:story-complete',
-      )
-      const linearStart15Idx = linearMerged.findIndex(
-        (e) => e.storyKey === '1-5' && e.eventName === 'orchestrator:story-phase-start',
-      )
-      expect(linearComplete14Idx).toBeGreaterThanOrEqual(0)
-      expect(linearStart15Idx).toBeGreaterThanOrEqual(0)
-      expect(linearStart15Idx).toBeGreaterThan(linearComplete14Idx)
+    // === LINEAR REFERENCE: Same serialization constraint holds after applying the same logic ===
+    const linearInterleavedStream = buildInterleavedStream(linear14, linear15)
+    const linearMerged = applyConflictGroupSerialization(
+      linearInterleavedStream,
+      [story14, story15],
+      conflictConfig
+    )
+    const linearComplete14Idx = linearMerged.findIndex(
+      (e) => e.storyKey === '1-4' && e.eventName === 'orchestrator:story-complete'
+    )
+    const linearStart15Idx = linearMerged.findIndex(
+      (e) => e.storyKey === '1-5' && e.eventName === 'orchestrator:story-phase-start'
+    )
+    expect(linearComplete14Idx).toBeGreaterThanOrEqual(0)
+    expect(linearStart15Idx).toBeGreaterThanOrEqual(0)
+    expect(linearStart15Idx).toBeGreaterThan(linearComplete14Idx)
 
-      // Parity: graph and linear produce identical event sequences for each story
-      assertEventSequenceParity(linear14, graph14, story14.storyKey)
-      assertEventSequenceParity(linear15, graph15, story15.storyKey)
-    },
-  )
+    // Parity: graph and linear produce identical event sequences for each story
+    assertEventSequenceParity(linear14, graph14, story14.storyKey)
+    assertEventSequenceParity(linear15, graph15, story15.storyKey)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -391,7 +386,7 @@ describe('AC6: Performance overhead within acceptable bounds', () => {
     const overheadRatio = linearMs > 0 ? (graphMs - linearMs) / linearMs : 0
     console.log(
       `[AC6] linear baseline: ${linearMs}ms, graph engine: ${graphMs}ms, ` +
-        `overhead ratio: ${overheadRatio.toFixed(4)}`,
+        `overhead ratio: ${overheadRatio.toFixed(4)}`
     )
 
     // Warn-only (non-fatal) assertion to avoid CI flakiness from process startup variance
@@ -413,7 +408,7 @@ describe('AC7: Divergence detection catches cross-project regressions', () => {
     const terminalIdx = dirtyStream.findIndex(
       (e) =>
         e.eventName === 'orchestrator:story-complete' ||
-        e.eventName === 'orchestrator:story-escalated',
+        e.eventName === 'orchestrator:story-escalated'
     )
     dirtyStream.splice(terminalIdx, 0, {
       eventName: 'orchestrator:story-phase-start',
@@ -423,6 +418,8 @@ describe('AC7: Divergence detection catches cross-project regressions', () => {
 
     // assertEventSequenceParity must throw with a message containing '1-1' AND the divergence index
     expect(() => assertEventSequenceParity(referenceEvents, dirtyStream, '1-1')).toThrow('1-1')
-    expect(() => assertEventSequenceParity(referenceEvents, dirtyStream, '1-1')).toThrow(/index \d+/)
+    expect(() => assertEventSequenceParity(referenceEvents, dirtyStream, '1-1')).toThrow(
+      /index \d+/
+    )
   })
 })

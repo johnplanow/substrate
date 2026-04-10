@@ -12,11 +12,7 @@
  * - Runs in Tier A: before BuildCheck, after PhantomReviewCheck.
  */
 
-import type {
-  VerificationCheck,
-  VerificationContext,
-  VerificationResult,
-} from '../types.js'
+import type { VerificationCheck, VerificationContext, VerificationResult } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Default threshold

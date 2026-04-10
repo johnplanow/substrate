@@ -11,7 +11,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import path from 'node:path'
 import { ZodError } from 'zod'
-import { FactoryConfigSchema, FactoryExtendedConfigSchema, loadFactoryConfig, resolveConfigPath } from '../config.js'
+import {
+  FactoryConfigSchema,
+  FactoryExtendedConfigSchema,
+  loadFactoryConfig,
+  resolveConfigPath,
+} from '../config.js'
 
 // ---------------------------------------------------------------------------
 // Module mocks (hoisted before imports in vitest)

@@ -12,7 +12,10 @@ import { createSharedTools } from '../shared.js'
 import type { ExecutionEnvironment, ShellResult, ToolDefinition } from '../types.js'
 
 // Build a mock execution environment
-function makeEnv(tmpDir: string, execFn?: (cmd: string, timeout: number) => Promise<ShellResult>): ExecutionEnvironment {
+function makeEnv(
+  tmpDir: string,
+  execFn?: (cmd: string, timeout: number) => Promise<ShellResult>
+): ExecutionEnvironment {
   return {
     workdir: tmpDir,
     exec: execFn ?? vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
@@ -20,7 +23,7 @@ function makeEnv(tmpDir: string, execFn?: (cmd: string, timeout: number) => Prom
 }
 
 function getTool<T = unknown>(tools: ToolDefinition<unknown>[], name: string): ToolDefinition<T> {
-  const tool = tools.find(t => t.name === name)
+  const tool = tools.find((t) => t.name === name)
   if (!tool) throw new Error(`Tool '${name}' not found`)
   return tool as ToolDefinition<T>
 }
@@ -39,7 +42,7 @@ describe('createSharedTools', () => {
 
   it('returns 5 tools with correct names', () => {
     const tools = createSharedTools()
-    const names = tools.map(t => t.name)
+    const names = tools.map((t) => t.name)
     expect(names).toContain('read_file')
     expect(names).toContain('write_file')
     expect(names).toContain('shell')
@@ -100,7 +103,9 @@ describe('createSharedTools', () => {
   it('shell captures command output via env.exec', async () => {
     const tools = createSharedTools()
     const tool = getTool<{ command: string }>(tools, 'shell')
-    const mockExec = vi.fn().mockResolvedValue({ stdout: 'hello from shell', stderr: '', exitCode: 0 })
+    const mockExec = vi
+      .fn()
+      .mockResolvedValue({ stdout: 'hello from shell', stderr: '', exitCode: 0 })
     const env = makeEnv(tmpDir, mockExec)
 
     const result = await tool.executor({ command: 'echo hello' }, env)
@@ -125,7 +130,9 @@ describe('createSharedTools', () => {
   it('shell throws on non-zero exit code (marked isError by registry)', async () => {
     const tools = createSharedTools()
     const tool = getTool<{ command: string }>(tools, 'shell')
-    const mockExec = vi.fn().mockResolvedValue({ stdout: '', stderr: 'command not found', exitCode: 127 })
+    const mockExec = vi
+      .fn()
+      .mockResolvedValue({ stdout: '', stderr: 'command not found', exitCode: 127 })
     const env = makeEnv(tmpDir, mockExec)
 
     await expect(tool.executor({ command: 'bad-cmd' }, env)).rejects.toThrow('command not found')

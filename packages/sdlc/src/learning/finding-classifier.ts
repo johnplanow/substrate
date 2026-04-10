@@ -31,7 +31,7 @@ import type { Finding, StoryFailureContext } from './types.js'
  */
 export async function classifyAndPersist(
   ctx: StoryFailureContext,
-  db: DatabaseAdapter | null,
+  db: DatabaseAdapter | null
 ): Promise<Finding> {
   const rootCause = classifyFailure(ctx)
   const finding = buildFinding(ctx, rootCause, ctx.runId)

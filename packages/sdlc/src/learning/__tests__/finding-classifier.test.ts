@@ -20,7 +20,16 @@ function makeMockDb(overrides?: Partial<DatabaseAdapter>): DatabaseAdapter {
     backendType: 'memory',
     query: vi.fn().mockResolvedValue([]),
     exec: vi.fn().mockResolvedValue(undefined),
-    transaction: vi.fn(async (fn) => fn({ backendType: 'memory', query: vi.fn().mockResolvedValue([]), exec: vi.fn(), transaction: vi.fn(), close: vi.fn(), queryReadyStories: vi.fn().mockResolvedValue([]) } as unknown as DatabaseAdapter)),
+    transaction: vi.fn(async (fn) =>
+      fn({
+        backendType: 'memory',
+        query: vi.fn().mockResolvedValue([]),
+        exec: vi.fn(),
+        transaction: vi.fn(),
+        close: vi.fn(),
+        queryReadyStories: vi.fn().mockResolvedValue([]),
+      } as unknown as DatabaseAdapter)
+    ),
     close: vi.fn().mockResolvedValue(undefined),
     queryReadyStories: vi.fn().mockResolvedValue([]),
     ...overrides,
@@ -45,7 +54,10 @@ describe('persistFinding', () => {
     await persistFinding(finding, mockDb)
 
     expect(mockDb.query).toHaveBeenCalled()
-    const [sql, params] = (mockDb.query as ReturnType<typeof vi.fn>).mock.calls[0] as [string, unknown[]]
+    const [sql, params] = (mockDb.query as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      unknown[],
+    ]
     expect(sql).toContain('INSERT INTO decisions')
     // params: [id, pipeline_run_id, phase, category, key, value, rationale]
     expect(params).toContain('finding') // category = LEARNING_FINDING
@@ -58,7 +70,10 @@ describe('persistFinding', () => {
 
     await persistFinding(finding, mockDb)
 
-    const [, params] = (mockDb.query as ReturnType<typeof vi.fn>).mock.calls[0] as [string, unknown[]]
+    const [, params] = (mockDb.query as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      unknown[],
+    ]
     const valueParam = params.find((p) => typeof p === 'string' && p.startsWith('{'))
     expect(valueParam).toBeDefined()
     const parsed = JSON.parse(valueParam as string) as Record<string, unknown>

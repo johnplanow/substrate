@@ -20,7 +20,8 @@ import type { Finding, RootCauseCategory, StoryFailureContext } from './types.js
  */
 export function classifyFailure(ctx: StoryFailureContext): RootCauseCategory {
   if (ctx.error?.includes('already exists')) return 'namespace-collision'
-  if (ctx.error?.includes('depends on') || ctx.error?.includes('not found')) return 'dependency-ordering'
+  if (ctx.error?.includes('depends on') || ctx.error?.includes('not found'))
+    return 'dependency-ordering'
   if ((ctx.outputTokens ?? Infinity) < 100) return 'resource-exhaustion'
   if (ctx.buildFailed === true) return 'build-failure'
   if (ctx.testsFailed === true) return 'test-failure'
@@ -40,9 +41,10 @@ const CATEGORY_DESCRIPTIONS: Record<RootCauseCategory, string> = {
   'adapter-format': 'Adapter output format was not recognized or could not be parsed',
   'build-failure': 'Build failed after story dispatch',
   'test-failure': 'Tests failed after story implementation',
-  'resource-exhaustion': 'Story produced fewer than 100 output tokens (resource exhaustion suspected)',
-  'infrastructure': 'System-level infrastructure error (OOM, disk, permissions, or SIGKILL)',
-  'unclassified': 'No error text available', // overridden in buildFinding with raw ctx.error when present
+  'resource-exhaustion':
+    'Story produced fewer than 100 output tokens (resource exhaustion suspected)',
+  infrastructure: 'System-level infrastructure error (OOM, disk, permissions, or SIGKILL)',
+  unclassified: 'No error text available', // overridden in buildFinding with raw ctx.error when present
 }
 
 // ---------------------------------------------------------------------------
@@ -59,7 +61,7 @@ const CATEGORY_DESCRIPTIONS: Record<RootCauseCategory, string> = {
 export function buildFinding(
   ctx: StoryFailureContext,
   rootCause: RootCauseCategory,
-  runId: string,
+  runId: string
 ): Finding {
   const confidence = rootCause === 'unclassified' ? 'low' : 'high'
 

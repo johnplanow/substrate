@@ -30,11 +30,7 @@ export interface SummaryEngine {
    * @param opts - Optional configuration for the summarization
    * @returns A Summary object containing the compressed content and provenance metadata
    */
-  summarize(
-    content: string,
-    targetLevel: SummaryLevel,
-    opts?: SummarizeOptions,
-  ): Promise<Summary>
+  summarize(content: string, targetLevel: SummaryLevel, opts?: SummarizeOptions): Promise<Summary>
 
   /**
    * Expand a summary back toward a higher-fidelity representation.
@@ -48,9 +44,5 @@ export interface SummaryEngine {
    * @param opts - Optional configuration including the original content
    * @returns The expanded content as a string
    */
-  expand(
-    summary: Summary,
-    targetLevel: SummaryLevel,
-    opts?: ExpandOptions,
-  ): Promise<string>
+  expand(summary: Summary, targetLevel: SummaryLevel, opts?: ExpandOptions): Promise<string>
 }

@@ -70,12 +70,14 @@ describe('classifyFailure', () => {
   // Priority tests — first matching rule wins
   it('returns namespace-collision (rule 1) over resource-exhaustion and build-failure', () => {
     expect(
-      classifyFailure({ ...base, error: 'already exists', outputTokens: 5, buildFailed: true }),
+      classifyFailure({ ...base, error: 'already exists', outputTokens: 5, buildFailed: true })
     ).toBe('namespace-collision')
   })
 
   it('returns resource-exhaustion (rule 3) over build-failure (rule 4)', () => {
-    expect(classifyFailure({ ...base, outputTokens: 5, buildFailed: true })).toBe('resource-exhaustion')
+    expect(classifyFailure({ ...base, outputTokens: 5, buildFailed: true })).toBe(
+      'resource-exhaustion'
+    )
   })
 })
 
@@ -108,9 +110,7 @@ describe('buildFinding', () => {
 
   it('produces a valid UUID for the id field', () => {
     const finding = buildFinding(ctx, 'build-failure', ctx.runId)
-    expect(finding.id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    )
+    expect(finding.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   })
 
   it('sets created_at to a valid ISO string', () => {
@@ -125,7 +125,11 @@ describe('buildFinding', () => {
   })
 
   it('sets affected_files from ctx.affectedFiles when provided', () => {
-    const finding = buildFinding({ ...ctx, affectedFiles: ['src/foo.ts'] }, 'build-failure', ctx.runId)
+    const finding = buildFinding(
+      { ...ctx, affectedFiles: ['src/foo.ts'] },
+      'build-failure',
+      ctx.runId
+    )
     expect(finding.affected_files).toEqual(['src/foo.ts'])
   })
 

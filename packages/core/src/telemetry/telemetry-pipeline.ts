@@ -182,7 +182,7 @@ export class TelemetryPipeline {
 
     this._logger.debug(
       { spans: allSpans.length, logs: allLogs.length },
-      'TelemetryPipeline: normalized batch',
+      'TelemetryPipeline: normalized batch'
     )
 
     // AC1: No early return on zero spans — only return if BOTH are empty
@@ -231,7 +231,7 @@ export class TelemetryPipeline {
         const logCount = logsByStory.get(unknownStoryKey)?.length ?? 0
         this._logger.debug(
           { spanCount, logCount },
-          'TelemetryPipeline: data without storyKey — skipping analysis',
+          'TelemetryPipeline: data without storyKey — skipping analysis'
         )
         continue
       }
@@ -253,7 +253,10 @@ export class TelemetryPipeline {
           await this._processStoryFromTurns(storyKey, mergedTurns)
         }
       } catch (err) {
-        this._logger.warn({ err, storyKey }, 'TelemetryPipeline: story processing failed — skipping')
+        this._logger.warn(
+          { err, storyKey },
+          'TelemetryPipeline: story processing failed — skipping'
+        )
       }
     }
 
@@ -304,7 +307,7 @@ export class TelemetryPipeline {
   private async _processStory(
     storyKey: string,
     spans: NormalizedSpan[],
-    mergedTurns: TurnAnalysis[],
+    mergedTurns: TurnAnalysis[]
   ): Promise<void> {
     // Step 2: Turn analysis — use pre-merged turns
     const turns = mergedTurns
@@ -333,7 +336,7 @@ export class TelemetryPipeline {
           taskType: firstTurn?.taskType,
           phase: firstTurn?.phase,
         }
-      },
+      }
     )
 
     // Step 6: Recommendations
@@ -368,7 +371,7 @@ export class TelemetryPipeline {
         recommendations: recommendations.length,
         dispatchScores: dispatchScores.length,
       },
-      'TelemetryPipeline: story analysis complete',
+      'TelemetryPipeline: story analysis complete'
     )
   }
 
@@ -403,7 +406,7 @@ export class TelemetryPipeline {
           taskType: firstTurn?.taskType,
           phase: firstTurn?.phase,
         }
-      },
+      }
     )
 
     // Recommendations via Recommender with allSpans: []
@@ -439,7 +442,7 @@ export class TelemetryPipeline {
         recommendations: recommendations.length,
         dispatchScores: dispatchScores.length,
       },
-      'TelemetryPipeline: story analysis from turns complete',
+      'TelemetryPipeline: story analysis from turns complete'
     )
   }
 
@@ -449,51 +452,71 @@ export class TelemetryPipeline {
    * failure does not abort the others.
    */
   private async _persistStoryData(storyKey: string, data: StoryPersistenceData): Promise<void> {
-    const { turns, efficiencyScore, categoryStats, consumerStats, recommendations, dispatchScores } =
-      data
+    const {
+      turns,
+      efficiencyScore,
+      categoryStats,
+      consumerStats,
+      recommendations,
+      dispatchScores,
+    } = data
 
     // Purge stale telemetry from prior runs (once per story per pipeline lifetime)
     if (!this._purgedStories.has(storyKey)) {
       this._purgedStories.add(storyKey)
-      await this._persistence.purgeStoryTelemetry(storyKey).catch((err: unknown) =>
-        this._logger.warn(
-          { err, storyKey },
-          'Failed to purge stale telemetry — continuing with persist',
-        ),
-      )
+      await this._persistence
+        .purgeStoryTelemetry(storyKey)
+        .catch((err: unknown) =>
+          this._logger.warn(
+            { err, storyKey },
+            'Failed to purge stale telemetry — continuing with persist'
+          )
+        )
     }
 
     await Promise.all([
       turns.length > 0
-        ? this._persistence.storeTurnAnalysis(storyKey, turns).catch((err: unknown) =>
-            this._logger.warn({ err, storyKey }, 'Failed to store turn analysis'),
-          )
+        ? this._persistence
+            .storeTurnAnalysis(storyKey, turns)
+            .catch((err: unknown) =>
+              this._logger.warn({ err, storyKey }, 'Failed to store turn analysis')
+            )
         : Promise.resolve(),
-      this._persistence.storeEfficiencyScore(efficiencyScore).catch((err: unknown) =>
-        this._logger.warn({ err, storyKey }, 'Failed to store efficiency score'),
-      ),
+      this._persistence
+        .storeEfficiencyScore(efficiencyScore)
+        .catch((err: unknown) =>
+          this._logger.warn({ err, storyKey }, 'Failed to store efficiency score')
+        ),
       categoryStats.length > 0
-        ? this._persistence.storeCategoryStats(storyKey, categoryStats).catch((err: unknown) =>
-            this._logger.warn({ err, storyKey }, 'Failed to store category stats'),
-          )
+        ? this._persistence
+            .storeCategoryStats(storyKey, categoryStats)
+            .catch((err: unknown) =>
+              this._logger.warn({ err, storyKey }, 'Failed to store category stats')
+            )
         : Promise.resolve(),
       consumerStats.length > 0
-        ? this._persistence.storeConsumerStats(storyKey, consumerStats).catch((err: unknown) =>
-            this._logger.warn({ err, storyKey }, 'Failed to store consumer stats'),
-          )
+        ? this._persistence
+            .storeConsumerStats(storyKey, consumerStats)
+            .catch((err: unknown) =>
+              this._logger.warn({ err, storyKey }, 'Failed to store consumer stats')
+            )
         : Promise.resolve(),
       recommendations.length > 0
-        ? this._persistence.saveRecommendations(storyKey, recommendations).catch((err: unknown) =>
-            this._logger.warn({ err, storyKey }, 'Failed to save recommendations'),
-          )
+        ? this._persistence
+            .saveRecommendations(storyKey, recommendations)
+            .catch((err: unknown) =>
+              this._logger.warn({ err, storyKey }, 'Failed to save recommendations')
+            )
         : Promise.resolve(),
       ...dispatchScores.map((ds) =>
-        this._persistence.storeEfficiencyScore(ds).catch((err: unknown) =>
-          this._logger.warn(
-            { err, storyKey, dispatchId: ds.dispatchId },
-            'Failed to store dispatch efficiency score',
-          ),
-        ),
+        this._persistence
+          .storeEfficiencyScore(ds)
+          .catch((err: unknown) =>
+            this._logger.warn(
+              { err, storyKey, dispatchId: ds.dispatchId },
+              'Failed to store dispatch efficiency score'
+            )
+          )
       ),
     ])
   }

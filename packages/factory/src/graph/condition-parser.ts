@@ -67,14 +67,14 @@ function parseClause(clauseStr: string): ConditionClause {
 
   if (trimmed === '') {
     throw new ConditionParseError(
-      `Empty clause in condition; each clause must be in the form 'key=value' or 'key!=value'`,
+      `Empty clause in condition; each clause must be in the form 'key=value' or 'key!=value'`
     )
   }
 
   // Detect double-equals (invalid operator) — check before any single-= matching
   if (trimmed.includes('==')) {
     throw new ConditionParseError(
-      `Invalid operator '==' in clause '${trimmed}'; use '=' for equality comparison`,
+      `Invalid operator '==' in clause '${trimmed}'; use '=' for equality comparison`
     )
   }
 
@@ -86,9 +86,7 @@ function parseClause(clauseStr: string): ConditionClause {
     const key = gteMatch[1]!
     const rawValue = gteMatch[2]!.trim()
     if (rawValue === '') {
-      throw new ConditionParseError(
-        `Missing value in clause '${trimmed}'; expected 'key>=value'`,
-      )
+      throw new ConditionParseError(`Missing value in clause '${trimmed}'; expected 'key>=value'`)
     }
     return { key, op: '>=', value: stripQuotes(rawValue) }
   }
@@ -99,9 +97,7 @@ function parseClause(clauseStr: string): ConditionClause {
     const key = lteMatch[1]!
     const rawValue = lteMatch[2]!.trim()
     if (rawValue === '') {
-      throw new ConditionParseError(
-        `Missing value in clause '${trimmed}'; expected 'key<=value'`,
-      )
+      throw new ConditionParseError(`Missing value in clause '${trimmed}'; expected 'key<=value'`)
     }
     return { key, op: '<=', value: stripQuotes(rawValue) }
   }
@@ -112,9 +108,7 @@ function parseClause(clauseStr: string): ConditionClause {
     const key = neqMatch[1]!
     const rawValue = neqMatch[2]!.trim()
     if (rawValue === '') {
-      throw new ConditionParseError(
-        `Missing value in clause '${trimmed}'; expected 'key!=value'`,
-      )
+      throw new ConditionParseError(`Missing value in clause '${trimmed}'; expected 'key!=value'`)
     }
     return { key, op: '!=', value: stripQuotes(rawValue) }
   }
@@ -127,9 +121,7 @@ function parseClause(clauseStr: string): ConditionClause {
     const key = gtMatch[1]!
     const rawValue = gtMatch[2]!.trim()
     if (rawValue === '') {
-      throw new ConditionParseError(
-        `Missing value in clause '${trimmed}'; expected 'key>value'`,
-      )
+      throw new ConditionParseError(`Missing value in clause '${trimmed}'; expected 'key>value'`)
     }
     return { key, op: '>', value: stripQuotes(rawValue) }
   }
@@ -140,9 +132,7 @@ function parseClause(clauseStr: string): ConditionClause {
     const key = ltMatch[1]!
     const rawValue = ltMatch[2]!.trim()
     if (rawValue === '') {
-      throw new ConditionParseError(
-        `Missing value in clause '${trimmed}'; expected 'key<value'`,
-      )
+      throw new ConditionParseError(`Missing value in clause '${trimmed}'; expected 'key<value'`)
     }
     return { key, op: '<', value: stripQuotes(rawValue) }
   }
@@ -153,15 +143,13 @@ function parseClause(clauseStr: string): ConditionClause {
     const key = eqMatch[1]!
     const rawValue = eqMatch[2]!.trim()
     if (rawValue === '') {
-      throw new ConditionParseError(
-        `Missing value in clause '${trimmed}'; expected 'key=value'`,
-      )
+      throw new ConditionParseError(`Missing value in clause '${trimmed}'; expected 'key=value'`)
     }
     return { key, op: '=', value: stripQuotes(rawValue) }
   }
 
   throw new ConditionParseError(
-    `Invalid clause syntax: '${trimmed}'; expected 'key=value', 'key!=value', or a numeric comparison`,
+    `Invalid clause syntax: '${trimmed}'; expected 'key=value', 'key!=value', or a numeric comparison`
   )
 }
 
@@ -209,10 +197,7 @@ export function parseCondition(conditionStr: string): ParsedCondition {
  * @returns `true` if all clauses evaluate to true, `false` otherwise.
  * @throws `ConditionParseError` if `conditionStr` has invalid syntax.
  */
-export function evaluateCondition(
-  conditionStr: string,
-  context: Record<string, unknown>,
-): boolean {
+export function evaluateCondition(conditionStr: string, context: Record<string, unknown>): boolean {
   const clauses = parseCondition(conditionStr)
 
   for (const clause of clauses) {

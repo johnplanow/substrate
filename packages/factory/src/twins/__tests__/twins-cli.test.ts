@@ -211,7 +211,7 @@ async function statusTwinsAction(projectDir: string): Promise<ActionResult> {
   let twins: TwinDefinition[] = []
   try {
     await (registry as unknown as ReturnType<typeof makeRegistry>).discover(
-      `${projectDir}/.substrate/twins`,
+      `${projectDir}/.substrate/twins`
     )
     twins = (registry as unknown as ReturnType<typeof makeRegistry>).list()
   } catch {
@@ -226,9 +226,7 @@ async function statusTwinsAction(projectDir: string): Promise<ActionResult> {
   for (const twin of twins) {
     const status = runningNames.has(twin.name) ? 'running' : 'stopped'
     const portsStr =
-      twin.ports.length > 0
-        ? twin.ports.map((p) => `${p.host}:${p.container}`).join(', ')
-        : '—'
+      twin.ports.length > 0 ? twin.ports.map((p) => `${p.host}:${p.container}`).join(', ') : '—'
     stdout += `  ${twin.name.padEnd(20)}  ${status.padEnd(10)}  ${portsStr}\n`
   }
 
@@ -244,7 +242,7 @@ async function listTwinsAction(projectDir: string): Promise<ActionResult> {
   let twins: TwinDefinition[] = []
   try {
     await (registry as unknown as ReturnType<typeof makeRegistry>).discover(
-      `${projectDir}/.substrate/twins`,
+      `${projectDir}/.substrate/twins`
     )
     twins = (registry as unknown as ReturnType<typeof makeRegistry>).list()
   } catch {
@@ -260,9 +258,7 @@ async function listTwinsAction(projectDir: string): Promise<ActionResult> {
     '  NAME                 IMAGE                                  PORTS           HEALTHCHECK\n'
   for (const twin of twins) {
     const ports =
-      twin.ports.length > 0
-        ? twin.ports.map((p) => `${p.host}:${p.container}`).join(', ')
-        : '—'
+      twin.ports.length > 0 ? twin.ports.map((p) => `${p.host}:${p.container}`).join(', ') : '—'
     const healthcheck = twin.healthcheck?.url ?? '—'
     stdout += `  ${twin.name.padEnd(20)}  ${twin.image.padEnd(38)}  ${ports.padEnd(16)}  ${healthcheck}\n`
   }
@@ -304,7 +300,7 @@ describe('twins start — happy path', () => {
     expect(manager.start).toHaveBeenCalledWith([twin])
     expect(writeRunState).toHaveBeenCalledWith(
       PROJECT_DIR,
-      expect.objectContaining({ twinNames: ['localstack'], composeDir: '/tmp/compose-abc' }),
+      expect.objectContaining({ twinNames: ['localstack'], composeDir: '/tmp/compose-abc' })
     )
     expect(result.stdout).toContain('Started: localstack')
     expect(result.stdout).toContain('All twins started successfully')

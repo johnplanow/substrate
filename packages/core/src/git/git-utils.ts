@@ -168,7 +168,7 @@ export async function verifyGitVersion(): Promise<void> {
   } catch (err) {
     throw new Error(
       `git is not installed or could not be executed. ` +
-        `Please install git 2.20 or newer. Details: ${String(err)}`,
+        `Please install git 2.20 or newer. Details: ${String(err)}`
     )
   }
 
@@ -177,7 +177,7 @@ export async function verifyGitVersion(): Promise<void> {
     throw new Error(
       `Git version ${major}.${minor}.${patch} is too old. ` +
         `Substrate requires git 2.20 or newer. ` +
-        `Please upgrade git: https://git-scm.com/downloads`,
+        `Please upgrade git: https://git-scm.com/downloads`
     )
   }
 }
@@ -203,19 +203,19 @@ export async function createWorktree(
   projectRoot: string,
   taskId: string,
   branchName: string,
-  baseBranch: string,
+  baseBranch: string
 ): Promise<{ worktreePath: string }> {
   const worktreePath = path.join(projectRoot, '.substrate-worktrees', taskId)
 
   // Create the worktree with a new branch based on baseBranch in one command
   const addResult = await spawnGit(
     ['worktree', 'add', worktreePath, '-b', branchName, baseBranch],
-    { cwd: projectRoot },
+    { cwd: projectRoot }
   )
 
   if (addResult.code !== 0) {
     throw new Error(
-      `git worktree add failed for task "${taskId}": ${addResult.stderr || addResult.stdout}`,
+      `git worktree add failed for task "${taskId}": ${addResult.stderr || addResult.stdout}`
     )
   }
 
@@ -239,13 +239,12 @@ export async function removeWorktree(worktreePath: string, projectRoot?: string)
   const spawnOpts: SpawnOptions = {}
   if (projectRoot !== undefined) spawnOpts.cwd = projectRoot
 
-  const result = await spawnGit(
-    ['worktree', 'remove', '--force', worktreePath],
-    spawnOpts,
-  )
+  const result = await spawnGit(['worktree', 'remove', '--force', worktreePath], spawnOpts)
 
   if (result.code !== 0) {
-    throw new Error(`git worktree remove failed for "${worktreePath}": ${result.stderr || result.stdout}`)
+    throw new Error(
+      `git worktree remove failed for "${worktreePath}": ${result.stderr || result.stdout}`
+    )
   }
 }
 
@@ -285,7 +284,10 @@ export async function removeBranch(branchName: string, projectRoot?: string): Pr
  * @param baseDirectory - Relative directory name for worktrees (default: '.substrate-worktrees')
  * @returns             - Array of absolute worktree directory paths
  */
-export async function getOrphanedWorktrees(projectRoot: string, baseDirectory = '.substrate-worktrees'): Promise<string[]> {
+export async function getOrphanedWorktrees(
+  projectRoot: string,
+  baseDirectory = '.substrate-worktrees'
+): Promise<string[]> {
   const worktreesDir = path.join(projectRoot, baseDirectory)
 
   // Check if the directory exists
@@ -325,10 +327,7 @@ export async function getOrphanedWorktrees(projectRoot: string, baseDirectory = 
  * @returns           - true if merge would be clean, false if there are conflicts
  */
 export async function simulateMerge(branchName: string, cwd: string): Promise<boolean> {
-  const result = await spawnGit(
-    ['merge', '--no-commit', '--no-ff', branchName],
-    { cwd },
-  )
+  const result = await spawnGit(['merge', '--no-commit', '--no-ff', branchName], { cwd })
 
   // Git exits with code 0 if merge is clean (but not committed due to --no-commit)
   // Git exits with non-zero code if there are conflicts
@@ -369,10 +368,7 @@ export async function abortMerge(cwd: string): Promise<void> {
  * @returns   - Array of conflicting file paths
  */
 export async function getConflictingFiles(cwd: string): Promise<string[]> {
-  const result = await spawnGit(
-    ['diff', '--name-only', '--diff-filter=U'],
-    { cwd },
-  )
+  const result = await spawnGit(['diff', '--name-only', '--diff-filter=U'], { cwd })
 
   if (result.code !== 0) {
     return []
@@ -382,7 +378,10 @@ export async function getConflictingFiles(cwd: string): Promise<string[]> {
     return []
   }
 
-  return result.stdout.trim().split('\n').filter((f) => f.trim().length > 0)
+  return result.stdout
+    .trim()
+    .split('\n')
+    .filter((f) => f.trim().length > 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -400,10 +399,7 @@ export async function getConflictingFiles(cwd: string): Promise<string[]> {
  * @returns           - true if merge succeeded, false otherwise
  */
 export async function performMerge(branchName: string, cwd: string): Promise<boolean> {
-  const result = await spawnGit(
-    ['merge', '--no-ff', branchName],
-    { cwd },
-  )
+  const result = await spawnGit(['merge', '--no-ff', branchName], { cwd })
 
   if (result.code !== 0) {
     return false
@@ -427,28 +423,28 @@ export async function performMerge(branchName: string, cwd: string): Promise<boo
  */
 export async function getMergedFiles(cwd: string): Promise<string[]> {
   // Get files changed between HEAD~1 and HEAD (the merge commit)
-  const result = await spawnGit(
-    ['diff', '--name-only', 'HEAD~1..HEAD'],
-    { cwd },
-  )
+  const result = await spawnGit(['diff', '--name-only', 'HEAD~1..HEAD'], { cwd })
 
   if (result.code !== 0) {
     // May fail if there's only one commit — try alternative approach
-    const altResult = await spawnGit(
-      ['show', '--name-only', '--format=', 'HEAD'],
-      { cwd },
-    )
+    const altResult = await spawnGit(['show', '--name-only', '--format=', 'HEAD'], { cwd })
 
     if (altResult.code !== 0) {
       return []
     }
 
-    return altResult.stdout.trim().split('\n').filter((f) => f.trim().length > 0)
+    return altResult.stdout
+      .trim()
+      .split('\n')
+      .filter((f) => f.trim().length > 0)
   }
 
   if (result.stdout.trim() === '') {
     return []
   }
 
-  return result.stdout.trim().split('\n').filter((f) => f.trim().length > 0)
+  return result.stdout
+    .trim()
+    .split('\n')
+    .filter((f) => f.trim().length > 0)
 }

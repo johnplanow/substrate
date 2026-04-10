@@ -59,7 +59,12 @@ export class CostTrackerSubscriber implements IBaseService {
     error: { message: string; code?: string; stack?: string }
   }) => void
 
-  constructor(eventBus: TypedEventBus<CoreEvents>, costTracker: CostTracker, sessionId?: string, logger?: ILogger) {
+  constructor(
+    eventBus: TypedEventBus<CoreEvents>,
+    costTracker: CostTracker,
+    sessionId?: string,
+    logger?: ILogger
+  ) {
     this._eventBus = eventBus
     this._costTracker = costTracker
     this._defaultSessionId = sessionId ?? 'default'
@@ -69,11 +74,15 @@ export class CostTrackerSubscriber implements IBaseService {
       const { taskId, decision } = payload
 
       if (decision.billingMode === 'unavailable') {
-        this._logger.debug({ taskId }, 'Billing mode is "unavailable" — skipping cost tracking for unrouted task')
+        this._logger.debug(
+          { taskId },
+          'Billing mode is "unavailable" — skipping cost tracking for unrouted task'
+        )
         return
       }
 
-      const billingMode: 'subscription' | 'api' = decision.billingMode === 'subscription' ? 'subscription' : 'api'
+      const billingMode: 'subscription' | 'api' =
+        decision.billingMode === 'subscription' ? 'subscription' : 'api'
 
       const provider = resolveProviderFromAgent(decision.agent)
       const model = decision.model ?? resolveDefaultModel(decision.agent)
@@ -86,7 +95,10 @@ export class CostTrackerSubscriber implements IBaseService {
         billingMode,
       })
 
-      this._logger.debug({ taskId, billingMode, provider, model }, 'Cached routing context for cost tracking')
+      this._logger.debug(
+        { taskId, billingMode, provider, model },
+        'Cached routing context for cost tracking'
+      )
     }
 
     this._onTaskComplete = (payload) => {
@@ -111,9 +123,12 @@ export class CostTrackerSubscriber implements IBaseService {
           routing.model,
           tokensInput,
           tokensOutput,
-          routing.billingMode,
+          routing.billingMode
         )
-        this._logger.debug({ taskId, billingMode: routing.billingMode }, 'Cost recorded on task:complete')
+        this._logger.debug(
+          { taskId, billingMode: routing.billingMode },
+          'Cost recorded on task:complete'
+        )
       } catch (err) {
         this._logger.warn({ err, taskId }, 'Failed to record cost on task:complete (non-fatal)')
       } finally {
@@ -126,7 +141,10 @@ export class CostTrackerSubscriber implements IBaseService {
       const routing = this._routingCache.get(taskId)
 
       if (!routing) {
-        this._logger.debug({ taskId }, 'No routing context cached for failed task — skipping cost recording')
+        this._logger.debug(
+          { taskId },
+          'No routing context cached for failed task — skipping cost recording'
+        )
         return
       }
 
@@ -139,7 +157,7 @@ export class CostTrackerSubscriber implements IBaseService {
           routing.model,
           0,
           0,
-          routing.billingMode,
+          routing.billingMode
         )
         this._logger.debug({ taskId }, 'Zero-cost entry recorded for failed task')
       } catch (err) {
@@ -198,6 +216,13 @@ export interface CostTrackerSubscriberOptions {
   logger?: ILogger
 }
 
-export function createCostTrackerSubscriber(options: CostTrackerSubscriberOptions): CostTrackerSubscriber {
-  return new CostTrackerSubscriber(options.eventBus, options.costTracker, options.sessionId, options.logger)
+export function createCostTrackerSubscriber(
+  options: CostTrackerSubscriberOptions
+): CostTrackerSubscriber {
+  return new CostTrackerSubscriber(
+    options.eventBus,
+    options.costTracker,
+    options.sessionId,
+    options.logger
+  )
 }

@@ -52,9 +52,7 @@ export class AdapterRegistry {
    * Return all registered adapters that support plan generation.
    */
   getPlanningCapable(): WorkerAdapter[] {
-    return this.getAll().filter(
-      (adapter) => adapter.getCapabilities().supportsPlanGeneration
-    )
+    return this.getAll().filter((adapter) => adapter.getCapabilities().supportsPlanGeneration)
   }
 
   /**

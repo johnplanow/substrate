@@ -71,8 +71,12 @@ function makeGraph(edges: GraphEdge[]): Graph {
     nodes: new Map(),
     edges,
     outgoingEdges: (nodeId: string) => edges.filter((e) => e.fromNode === nodeId),
-    startNode: () => { throw new Error('not implemented') },
-    exitNode: () => { throw new Error('not implemented') },
+    startNode: () => {
+      throw new Error('not implemented')
+    },
+    exitNode: () => {
+      throw new Error('not implemented')
+    },
   }
 }
 
@@ -214,6 +218,8 @@ describe('graph:llm-edge-evaluated payload type conformance to FactoryEvents', (
     expect(typeof payload['result']).toBe('boolean')
 
     // Verify the payload has exactly the declared fields (no missing required fields)
-    expect(Object.keys(payload)).toEqual(expect.arrayContaining(['runId', 'nodeId', 'question', 'result']))
+    expect(Object.keys(payload)).toEqual(
+      expect.arrayContaining(['runId', 'nodeId', 'question', 'result'])
+    )
   })
 })

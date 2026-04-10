@@ -95,7 +95,7 @@ function parseSelector(token: string): StylesheetSelector {
     const name = token.slice(1)
     if (!name || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
       throw new StylesheetParseError(
-        `Invalid ID selector '${token}'; expected '#' followed by an identifier matching [a-zA-Z_][a-zA-Z0-9_]*`,
+        `Invalid ID selector '${token}'; expected '#' followed by an identifier matching [a-zA-Z_][a-zA-Z0-9_]*`
       )
     }
     return { type: 'id', value: name, specificity: 3 }
@@ -105,7 +105,7 @@ function parseSelector(token: string): StylesheetSelector {
     const name = token.slice(1)
     if (!name || !/^[a-z0-9_-]+$/.test(name)) {
       throw new StylesheetParseError(
-        `Invalid class selector '${token}'; expected '.' followed by a class name matching [a-z0-9_-]+`,
+        `Invalid class selector '${token}'; expected '.' followed by a class name matching [a-z0-9_-]+`
       )
     }
     return { type: 'class', value: name, specificity: 2 }
@@ -114,7 +114,7 @@ function parseSelector(token: string): StylesheetSelector {
   // Shape selector — bare identifier
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(token)) {
     throw new StylesheetParseError(
-      `Invalid selector '${token}'; expected '*', a shape name ([a-zA-Z_][a-zA-Z0-9_]*), '#identifier', or '.classname'`,
+      `Invalid selector '${token}'; expected '*', a shape name ([a-zA-Z_][a-zA-Z0-9_]*), '#identifier', or '.classname'`
     )
   }
   return { type: 'shape', value: token, specificity: 1 }
@@ -139,7 +139,7 @@ function parseDeclarations(content: string, selector: string): StylesheetDeclara
     const colonPos = trimmed.indexOf(':')
     if (colonPos === -1) {
       throw new StylesheetParseError(
-        `Invalid declaration in selector '${selector}': missing ':' in '${trimmed}'`,
+        `Invalid declaration in selector '${selector}': missing ':' in '${trimmed}'`
       )
     }
 
@@ -149,14 +149,14 @@ function parseDeclarations(content: string, selector: string): StylesheetDeclara
     if (!VALID_PROPERTIES.has(propRaw)) {
       throw new StylesheetParseError(
         `Unknown property '${propRaw}' in selector '${selector}'; ` +
-          `expected one of: ${[...VALID_PROPERTIES].join(', ')}`,
+          `expected one of: ${[...VALID_PROPERTIES].join(', ')}`
       )
     }
 
     const value = stripValueQuotes(valueRaw)
     if (value === '') {
       throw new StylesheetParseError(
-        `Missing value for property '${propRaw}' in selector '${selector}'`,
+        `Missing value for property '${propRaw}' in selector '${selector}'`
       )
     }
 
@@ -204,7 +204,7 @@ export function parseStylesheet(source: string): ParsedStylesheet {
       const remaining = cleaned.slice(pos).trim()
       if (remaining !== '') {
         throw new StylesheetParseError(
-          `Unexpected content without opening brace '{': '${remaining}'`,
+          `Unexpected content without opening brace '{': '${remaining}'`
         )
       }
       break
@@ -219,9 +219,7 @@ export function parseStylesheet(source: string): ParsedStylesheet {
     // Find the matching closing brace
     const braceClosePos = cleaned.indexOf('}', braceOpenPos + 1)
     if (braceClosePos === -1) {
-      throw new StylesheetParseError(
-        `Missing closing brace '}' for selector '${selectorToken}'`,
-      )
+      throw new StylesheetParseError(`Missing closing brace '}' for selector '${selectorToken}'`)
     }
 
     // The block content between { and }
@@ -230,7 +228,7 @@ export function parseStylesheet(source: string): ParsedStylesheet {
     // Reject nested braces (unbalanced — inner '{' inside block)
     if (blockContent.includes('{')) {
       throw new StylesheetParseError(
-        `Unexpected '{' inside declaration block for selector '${selectorToken}'; nested rules are not supported`,
+        `Unexpected '{' inside declaration block for selector '${selectorToken}'; nested rules are not supported`
       )
     }
 

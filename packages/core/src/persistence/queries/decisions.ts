@@ -39,7 +39,10 @@ import type {
 /**
  * Insert a new decision record with a generated UUID.
  */
-export async function createDecision(adapter: DatabaseAdapter, input: CreateDecisionInput): Promise<Decision> {
+export async function createDecision(
+  adapter: DatabaseAdapter,
+  input: CreateDecisionInput
+): Promise<Decision> {
   const validated = CreateDecisionInputSchema.parse(input)
   const id = crypto.randomUUID()
 
@@ -54,7 +57,7 @@ export async function createDecision(adapter: DatabaseAdapter, input: CreateDeci
       validated.key,
       validated.value,
       validated.rationale ?? null,
-    ],
+    ]
   )
 
   const rows = await adapter.query<Decision>('SELECT * FROM decisions WHERE id = ?', [id])
@@ -66,13 +69,16 @@ export async function createDecision(adapter: DatabaseAdapter, input: CreateDeci
  * If a decision with the same pipeline_run_id, category, and key already exists,
  * update its value and rationale. Otherwise, insert a new record.
  */
-export async function upsertDecision(adapter: DatabaseAdapter, input: CreateDecisionInput): Promise<Decision> {
+export async function upsertDecision(
+  adapter: DatabaseAdapter,
+  input: CreateDecisionInput
+): Promise<Decision> {
   const validated = CreateDecisionInputSchema.parse(input)
 
   // Check for existing decision with same pipeline_run_id + category + key
   const rows = await adapter.query<Decision>(
     'SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = ? AND `key` = ? LIMIT 1',
-    [validated.pipeline_run_id ?? null, validated.category, validated.key],
+    [validated.pipeline_run_id ?? null, validated.category, validated.key]
   )
   const existing = rows[0]
 
@@ -81,7 +87,9 @@ export async function upsertDecision(adapter: DatabaseAdapter, input: CreateDeci
       value: validated.value,
       rationale: validated.rationale ?? undefined,
     })
-    const updated = await adapter.query<Decision>('SELECT * FROM decisions WHERE id = ?', [existing.id])
+    const updated = await adapter.query<Decision>('SELECT * FROM decisions WHERE id = ?', [
+      existing.id,
+    ])
     return updated[0]!
   }
 
@@ -91,10 +99,13 @@ export async function upsertDecision(adapter: DatabaseAdapter, input: CreateDeci
 /**
  * Get all decisions for a given phase, ordered by created_at ascending.
  */
-export async function getDecisionsByPhase(adapter: DatabaseAdapter, phase: string): Promise<Decision[]> {
+export async function getDecisionsByPhase(
+  adapter: DatabaseAdapter,
+  phase: string
+): Promise<Decision[]> {
   return adapter.query<Decision>(
     'SELECT * FROM decisions WHERE phase = ? ORDER BY created_at ASC',
-    [phase],
+    [phase]
   )
 }
 
@@ -105,21 +116,24 @@ export async function getDecisionsByPhase(adapter: DatabaseAdapter, phase: strin
 export async function getDecisionsByPhaseForRun(
   adapter: DatabaseAdapter,
   runId: string,
-  phase: string,
+  phase: string
 ): Promise<Decision[]> {
   return adapter.query<Decision>(
     'SELECT * FROM decisions WHERE pipeline_run_id = ? AND phase = ? ORDER BY created_at ASC',
-    [runId, phase],
+    [runId, phase]
   )
 }
 
 /**
  * Get all decisions for a given category, ordered by created_at ascending.
  */
-export async function getDecisionsByCategory(adapter: DatabaseAdapter, category: string): Promise<Decision[]> {
+export async function getDecisionsByCategory(
+  adapter: DatabaseAdapter,
+  category: string
+): Promise<Decision[]> {
   return adapter.query<Decision>(
     'SELECT * FROM decisions WHERE category = ? ORDER BY created_at ASC',
-    [category],
+    [category]
   )
 }
 
@@ -129,11 +143,11 @@ export async function getDecisionsByCategory(adapter: DatabaseAdapter, category:
 export async function getDecisionByKey(
   adapter: DatabaseAdapter,
   phase: string,
-  key: string,
+  key: string
 ): Promise<Decision | undefined> {
   const rows = await adapter.query<Decision>(
     'SELECT * FROM decisions WHERE phase = ? AND `key` = ? LIMIT 1',
-    [phase, key],
+    [phase, key]
   )
   return rows[0]
 }
@@ -144,7 +158,7 @@ export async function getDecisionByKey(
 export async function updateDecision(
   adapter: DatabaseAdapter,
   id: string,
-  updates: Partial<Pick<Decision, 'value' | 'rationale'>>,
+  updates: Partial<Pick<Decision, 'value' | 'rationale'>>
 ): Promise<void> {
   const setClauses: string[] = []
   const values: unknown[] = []
@@ -176,7 +190,7 @@ export async function updateDecision(
  */
 export async function createRequirement(
   adapter: DatabaseAdapter,
-  input: CreateRequirementInput,
+  input: CreateRequirementInput
 ): Promise<Requirement> {
   const validated = CreateRequirementInputSchema.parse(input)
   const id = crypto.randomUUID()
@@ -191,7 +205,7 @@ export async function createRequirement(
       validated.type,
       validated.description,
       validated.priority,
-    ],
+    ]
   )
 
   const rows = await adapter.query<Requirement>('SELECT * FROM requirements WHERE id = ?', [id])
@@ -203,7 +217,7 @@ export async function createRequirement(
  */
 export async function listRequirements(
   adapter: DatabaseAdapter,
-  filters?: { type?: string; priority?: string; status?: string },
+  filters?: { type?: string; priority?: string; status?: string }
 ): Promise<Requirement[]> {
   const conditions: string[] = []
   const values: unknown[] = []
@@ -224,7 +238,7 @@ export async function listRequirements(
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
   return adapter.query<Requirement>(
     `SELECT * FROM requirements ${where} ORDER BY created_at ASC`,
-    values,
+    values
   )
 }
 
@@ -234,7 +248,7 @@ export async function listRequirements(
 export async function updateRequirementStatus(
   adapter: DatabaseAdapter,
   id: string,
-  status: string,
+  status: string
 ): Promise<void> {
   await adapter.query('UPDATE requirements SET status = ? WHERE id = ?', [status, id])
 }
@@ -248,7 +262,7 @@ export async function updateRequirementStatus(
  */
 export async function createConstraint(
   adapter: DatabaseAdapter,
-  input: CreateConstraintInput,
+  input: CreateConstraintInput
 ): Promise<Constraint> {
   const validated = CreateConstraintInputSchema.parse(input)
   const id = crypto.randomUUID()
@@ -262,7 +276,7 @@ export async function createConstraint(
       validated.category,
       validated.description,
       validated.source,
-    ],
+    ]
   )
 
   const rows = await adapter.query<Constraint>('SELECT * FROM constraints WHERE id = ?', [id])
@@ -274,12 +288,12 @@ export async function createConstraint(
  */
 export async function listConstraints(
   adapter: DatabaseAdapter,
-  filters?: { category?: string },
+  filters?: { category?: string }
 ): Promise<Constraint[]> {
   if (filters?.category !== undefined) {
     return adapter.query<Constraint>(
       'SELECT * FROM constraints WHERE category = ? ORDER BY created_at ASC',
-      [filters.category],
+      [filters.category]
     )
   }
   return adapter.query<Constraint>('SELECT * FROM constraints ORDER BY created_at ASC')
@@ -294,7 +308,7 @@ export async function listConstraints(
  */
 export async function registerArtifact(
   adapter: DatabaseAdapter,
-  input: RegisterArtifactInput,
+  input: RegisterArtifactInput
 ): Promise<Artifact> {
   const validated = RegisterArtifactInputSchema.parse(input)
   const id = crypto.randomUUID()
@@ -310,7 +324,7 @@ export async function registerArtifact(
       validated.path,
       validated.content_hash ?? null,
       validated.summary ?? null,
-    ],
+    ]
   )
 
   const rows = await adapter.query<Artifact>('SELECT * FROM artifacts WHERE id = ?', [id])
@@ -320,10 +334,13 @@ export async function registerArtifact(
 /**
  * Get all artifacts for a given phase, ordered by created_at ascending.
  */
-export async function getArtifactsByPhase(adapter: DatabaseAdapter, phase: string): Promise<Artifact[]> {
+export async function getArtifactsByPhase(
+  adapter: DatabaseAdapter,
+  phase: string
+): Promise<Artifact[]> {
   return adapter.query<Artifact>(
     'SELECT * FROM artifacts WHERE phase = ? ORDER BY created_at ASC',
-    [phase],
+    [phase]
   )
 }
 
@@ -334,11 +351,11 @@ export async function getArtifactsByPhase(adapter: DatabaseAdapter, phase: strin
 export async function getArtifactByType(
   adapter: DatabaseAdapter,
   phase: string,
-  type: string,
+  type: string
 ): Promise<Artifact | undefined> {
   const rows = await adapter.query<Artifact>(
     'SELECT * FROM artifacts WHERE phase = ? AND type = ? ORDER BY created_at DESC, id DESC LIMIT 1',
-    [phase, type],
+    [phase, type]
   )
   return rows[0]
 }
@@ -352,11 +369,11 @@ export async function getArtifactByTypeForRun(
   adapter: DatabaseAdapter,
   runId: string,
   phase: string,
-  type: string,
+  type: string
 ): Promise<Artifact | undefined> {
   const rows = await adapter.query<Artifact>(
     'SELECT * FROM artifacts WHERE pipeline_run_id = ? AND phase = ? AND type = ? ORDER BY created_at DESC, id DESC LIMIT 1',
-    [runId, phase, type],
+    [runId, phase, type]
   )
   return rows[0]
 }
@@ -364,10 +381,13 @@ export async function getArtifactByTypeForRun(
 /**
  * Get all artifacts registered for a specific pipeline run, ordered by created_at ascending.
  */
-export async function getArtifactsByRun(adapter: DatabaseAdapter, runId: string): Promise<Artifact[]> {
+export async function getArtifactsByRun(
+  adapter: DatabaseAdapter,
+  runId: string
+): Promise<Artifact[]> {
   return adapter.query<Artifact>(
     'SELECT * FROM artifacts WHERE pipeline_run_id = ? ORDER BY created_at ASC',
-    [runId],
+    [runId]
   )
 }
 
@@ -376,7 +396,7 @@ export async function getArtifactsByRun(adapter: DatabaseAdapter, runId: string)
  */
 export async function getPipelineRunById(
   adapter: DatabaseAdapter,
-  id: string,
+  id: string
 ): Promise<PipelineRun | undefined> {
   const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [id])
   return rows[0]
@@ -388,12 +408,13 @@ export async function getPipelineRunById(
 export async function updatePipelineRunConfig(
   adapter: DatabaseAdapter,
   id: string,
-  configJson: string,
+  configJson: string
 ): Promise<void> {
-  await adapter.query(
-    'UPDATE pipeline_runs SET config_json = ?, updated_at = ? WHERE id = ?',
-    [configJson, new Date().toISOString(), id],
-  )
+  await adapter.query('UPDATE pipeline_runs SET config_json = ?, updated_at = ? WHERE id = ?', [
+    configJson,
+    new Date().toISOString(),
+    id,
+  ])
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +426,7 @@ export async function updatePipelineRunConfig(
  */
 export async function createPipelineRun(
   adapter: DatabaseAdapter,
-  input: CreatePipelineRunInput,
+  input: CreatePipelineRunInput
 ): Promise<PipelineRun> {
   const validated = CreatePipelineRunInputSchema.parse(input)
   const id = crypto.randomUUID()
@@ -425,7 +446,7 @@ export async function createPipelineRun(
       validated.config_json ?? null,
       nowUtc,
       nowUtc,
-    ],
+    ]
   )
 
   const rows = await adapter.query<PipelineRun>('SELECT * FROM pipeline_runs WHERE id = ?', [id])
@@ -438,7 +459,7 @@ export async function createPipelineRun(
 export async function updatePipelineRun(
   adapter: DatabaseAdapter,
   id: string,
-  updates: Partial<Pick<PipelineRun, 'current_phase' | 'status' | 'token_usage_json'>>,
+  updates: Partial<Pick<PipelineRun, 'current_phase' | 'status' | 'token_usage_json'>>
 ): Promise<void> {
   const setClauses: string[] = []
   const values: unknown[] = []
@@ -477,7 +498,7 @@ export async function getRunningPipelineRuns(adapter: DatabaseAdapter): Promise<
  */
 export async function getLatestRun(adapter: DatabaseAdapter): Promise<PipelineRun | undefined> {
   const rows = await adapter.query<PipelineRun>(
-    'SELECT * FROM pipeline_runs ORDER BY created_at DESC, id DESC LIMIT 1',
+    'SELECT * FROM pipeline_runs ORDER BY created_at DESC, id DESC LIMIT 1'
   )
   return rows[0]
 }
@@ -492,7 +513,7 @@ export async function getLatestRun(adapter: DatabaseAdapter): Promise<PipelineRu
 export async function addTokenUsage(
   adapter: DatabaseAdapter,
   runId: string,
-  usage: AddTokenUsageInput,
+  usage: AddTokenUsageInput
 ): Promise<void> {
   const validated = AddTokenUsageInputSchema.parse(usage)
 
@@ -507,7 +528,7 @@ export async function addTokenUsage(
       validated.output_tokens,
       validated.cost_usd,
       validated.metadata ?? null,
-    ],
+    ]
   )
 }
 
@@ -528,7 +549,7 @@ export interface TokenUsageSummary {
  */
 export async function getTokenUsageSummary(
   adapter: DatabaseAdapter,
-  runId: string,
+  runId: string
 ): Promise<TokenUsageSummary[]> {
   return adapter.query<TokenUsageSummary>(
     `SELECT
@@ -541,6 +562,6 @@ export async function getTokenUsageSummary(
     WHERE pipeline_run_id = ?
     GROUP BY phase, agent
     ORDER BY phase ASC, agent ASC`,
-    [runId],
+    [runId]
   )
 }

@@ -79,7 +79,7 @@ export interface TwinRunSummary extends TwinRunRow {
  */
 export async function insertTwinRun(
   adapter: DatabaseAdapter,
-  input: TwinRunInput,
+  input: TwinRunInput
 ): Promise<string> {
   const id = input.id ?? randomUUID()
   const startedAt = input.started_at ?? new Date().toISOString()
@@ -87,7 +87,7 @@ export async function insertTwinRun(
 
   await adapter.query(
     'INSERT INTO twin_runs (id, run_id, twin_name, started_at, status, ports_json) VALUES (?, ?, ?, ?, ?, ?)',
-    [id, input.run_id ?? null, input.twin_name, startedAt, 'running', portsJson],
+    [id, input.run_id ?? null, input.twin_name, startedAt, 'running', portsJson]
   )
 
   return id
@@ -103,12 +103,13 @@ export async function insertTwinRun(
 export async function updateTwinRun(
   adapter: DatabaseAdapter,
   id: string,
-  patch: { status: string; stopped_at: string },
+  patch: { status: string; stopped_at: string }
 ): Promise<void> {
-  await adapter.query(
-    'UPDATE twin_runs SET status = ?, stopped_at = ? WHERE id = ?',
-    [patch.status, patch.stopped_at, id],
-  )
+  await adapter.query('UPDATE twin_runs SET status = ?, stopped_at = ? WHERE id = ?', [
+    patch.status,
+    patch.stopped_at,
+    id,
+  ])
 }
 
 // ---------------------------------------------------------------------------
@@ -120,13 +121,13 @@ export async function updateTwinRun(
  */
 export async function recordTwinHealthFailure(
   adapter: DatabaseAdapter,
-  input: TwinHealthFailureInput,
+  input: TwinHealthFailureInput
 ): Promise<void> {
   const checkedAt = input.checked_at ?? new Date().toISOString()
 
   await adapter.query(
     'INSERT INTO twin_health_failures (twin_name, run_id, checked_at, error_message) VALUES (?, ?, ?, ?)',
-    [input.twin_name, input.run_id ?? null, checkedAt, input.error_message],
+    [input.twin_name, input.run_id ?? null, checkedAt, input.error_message]
   )
 }
 
@@ -143,18 +144,15 @@ export async function recordTwinHealthFailure(
  */
 export async function getTwinRunsForRun(
   adapter: DatabaseAdapter,
-  runId: string,
+  runId: string
 ): Promise<TwinRunSummary[]> {
   // Query 1: fetch twin run rows for this run
-  const rows = await adapter.query<TwinRunRow>(
-    'SELECT * FROM twin_runs WHERE run_id = ?',
-    [runId],
-  )
+  const rows = await adapter.query<TwinRunRow>('SELECT * FROM twin_runs WHERE run_id = ?', [runId])
 
   // Query 2: fetch health failure counts per twin for this run
   const failureCounts = await adapter.query<{ twin_name: string; cnt: number }>(
     'SELECT twin_name, COUNT(*) as cnt FROM twin_health_failures WHERE run_id = ? GROUP BY twin_name',
-    [runId],
+    [runId]
   )
   const failureMap = new Map(failureCounts.map((r) => [r.twin_name, r.cnt]))
 
@@ -180,7 +178,7 @@ export class TwinPersistenceCoordinator {
 
   constructor(
     private readonly _adapter: DatabaseAdapter,
-    eventBus: TypedEventBus<FactoryEvents>,
+    eventBus: TypedEventBus<FactoryEvents>
   ) {
     eventBus.on('twin:started', (e) => {
       void insertTwinRun(this._adapter, {
@@ -223,7 +221,7 @@ export class TwinPersistenceCoordinator {
  */
 export function createTwinPersistenceCoordinator(
   adapter: DatabaseAdapter,
-  eventBus: TypedEventBus<FactoryEvents>,
+  eventBus: TypedEventBus<FactoryEvents>
 ): TwinPersistenceCoordinator {
   return new TwinPersistenceCoordinator(adapter, eventBus)
 }

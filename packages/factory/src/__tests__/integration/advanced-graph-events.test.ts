@@ -70,29 +70,66 @@ function makeParentGraphWithSg(graphFile = '/test/child.dot'): { graph: Graph; s
 
 function makeNode(id: string, type = 'codergen'): GraphNode {
   return {
-    id, label: '', shape: 'box', type, prompt: '', maxRetries: 0, goalGate: false,
-    retryTarget: '', fallbackRetryTarget: '', fidelity: '', threadId: '', class: '',
-    timeout: 0, llmModel: '', llmProvider: '', reasoningEffort: '', autoStatus: false,
-    allowPartial: false, toolCommand: '', backend: '',
+    id,
+    label: '',
+    shape: 'box',
+    type,
+    prompt: '',
+    maxRetries: 0,
+    goalGate: false,
+    retryTarget: '',
+    fallbackRetryTarget: '',
+    fidelity: '',
+    threadId: '',
+    class: '',
+    timeout: 0,
+    llmModel: '',
+    llmProvider: '',
+    reasoningEffort: '',
+    autoStatus: false,
+    allowPartial: false,
+    toolCommand: '',
+    backend: '',
   }
 }
 
-function makeEdge(fromNode: string, toNode: string, opts?: { condition?: string; label?: string }): GraphEdge {
+function makeEdge(
+  fromNode: string,
+  toNode: string,
+  opts?: { condition?: string; label?: string }
+): GraphEdge {
   return {
-    fromNode, toNode, label: opts?.label ?? '', condition: opts?.condition ?? '',
-    weight: 0, fidelity: '', threadId: '', loopRestart: false,
+    fromNode,
+    toNode,
+    label: opts?.label ?? '',
+    condition: opts?.condition ?? '',
+    weight: 0,
+    fidelity: '',
+    threadId: '',
+    loopRestart: false,
   }
 }
 
 function makeGraph(nodes: GraphNode[], edges: GraphEdge[]): Graph {
   const nodeMap = new Map<string, GraphNode>(nodes.map((n) => [n.id, n]))
   return {
-    id: 'test', goal: '', label: '', modelStylesheet: '', defaultMaxRetries: 0,
-    retryTarget: '', fallbackRetryTarget: '', defaultFidelity: '',
-    nodes: nodeMap, edges,
+    id: 'test',
+    goal: '',
+    label: '',
+    modelStylesheet: '',
+    defaultMaxRetries: 0,
+    retryTarget: '',
+    fallbackRetryTarget: '',
+    defaultFidelity: '',
+    nodes: nodeMap,
+    edges,
     outgoingEdges: (nodeId: string) => edges.filter((e) => e.fromNode === nodeId),
-    startNode: () => { throw new Error('not needed') },
-    exitNode: () => { throw new Error('not needed') },
+    startNode: () => {
+      throw new Error('not needed')
+    },
+    exitNode: () => {
+      throw new Error('not needed')
+    },
   } as Graph
 }
 
@@ -122,7 +159,12 @@ describe('advanced graph events — subgraph event payload details', () => {
     await handler(sgNode, context, graph)
 
     const started = events.find((e) => e.event === 'graph:subgraph-started')
-    const p = started!.payload as { nodeId: string; graphFile: string; depth: number; runId: string }
+    const p = started!.payload as {
+      nodeId: string
+      graphFile: string
+      depth: number
+      runId: string
+    }
     expect(p.nodeId).toBe('sg_node')
     expect(p.graphFile).toBe('/test/child.dot')
     expect(p.depth).toBe(0)
@@ -145,7 +187,12 @@ describe('advanced graph events — subgraph event payload details', () => {
     await handler(sgNode, context, graph)
 
     const completed = events.find((e) => e.event === 'graph:subgraph-completed')
-    const p = completed!.payload as { status: string; durationMs: number; graphFile: string; depth: number }
+    const p = completed!.payload as {
+      status: string
+      durationMs: number
+      graphFile: string
+      depth: number
+    }
     expect(p.status).toBe('SUCCESS')
     expect(typeof p.durationMs).toBe('number')
     expect(p.durationMs).toBeGreaterThanOrEqual(0)
@@ -320,7 +367,9 @@ describe('advanced graph events — cross-feature event coexistence', () => {
 
     // All events in this stream should have the same runId
     const advancedEvents = events.filter((e) =>
-      ['graph:llm-edge-evaluated', 'graph:subgraph-started', 'graph:subgraph-completed'].includes(e.event),
+      ['graph:llm-edge-evaluated', 'graph:subgraph-started', 'graph:subgraph-completed'].includes(
+        e.event
+      )
     )
     expect(advancedEvents.length).toBeGreaterThan(0)
     for (const evt of advancedEvents) {

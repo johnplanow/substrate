@@ -33,7 +33,9 @@ export function createReadManyFilesTool(): ToolDefinition<{ paths: string[] }> {
         try {
           const content = await readFile(filePath, 'utf-8')
           const lines = content.split('\n')
-          const numbered = lines.map((line, i) => `${String(i + 1).padStart(3)}\t${line}`).join('\n')
+          const numbered = lines
+            .map((line, i) => `${String(i + 1).padStart(3)}\t${line}`)
+            .join('\n')
           parts.push(`=== ${filePath} ===\n${numbered}`)
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
@@ -52,7 +54,8 @@ export function createReadManyFilesTool(): ToolDefinition<{ paths: string[] }> {
 export function createListDirTool(): ToolDefinition<{ path: string }> {
   return {
     name: 'list_dir',
-    description: 'List directory contents with entry types ([DIR] or [FILE]), sorted dirs first then alphabetically.',
+    description:
+      'List directory contents with entry types ([DIR] or [FILE]), sorted dirs first then alphabetically.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -63,12 +66,12 @@ export function createListDirTool(): ToolDefinition<{ path: string }> {
     async executor(args, _env: ExecutionEnvironment) {
       const entries = await readdir(args.path, { withFileTypes: true })
       const dirs = entries
-        .filter(e => e.isDirectory())
-        .map(e => `[DIR] ${e.name}`)
+        .filter((e) => e.isDirectory())
+        .map((e) => `[DIR] ${e.name}`)
         .sort()
       const files = entries
-        .filter(e => !e.isDirectory())
-        .map(e => `[FILE] ${e.name}`)
+        .filter((e) => !e.isDirectory())
+        .map((e) => `[FILE] ${e.name}`)
         .sort()
       return [...dirs, ...files].join('\n')
     },
@@ -79,7 +82,11 @@ export function createListDirTool(): ToolDefinition<{ path: string }> {
  * Creates the Gemini variant of edit_file.
  * Uses file_path (instead of path) as the parameter name to match gemini-cli conventions.
  */
-export function createGeminiEditFileTool(): ToolDefinition<{ file_path: string; old_string: string; new_string: string }> {
+export function createGeminiEditFileTool(): ToolDefinition<{
+  file_path: string
+  old_string: string
+  new_string: string
+}> {
   return {
     name: 'edit_file',
     description:
@@ -88,7 +95,10 @@ export function createGeminiEditFileTool(): ToolDefinition<{ file_path: string; 
       type: 'object',
       properties: {
         file_path: { type: 'string', description: 'Path to the file to edit' },
-        old_string: { type: 'string', description: 'Exact string to search for (must be unique in the file)' },
+        old_string: {
+          type: 'string',
+          description: 'Exact string to search for (must be unique in the file)',
+        },
         new_string: { type: 'string', description: 'String to replace old_string with' },
       },
       required: ['file_path', 'old_string', 'new_string'],

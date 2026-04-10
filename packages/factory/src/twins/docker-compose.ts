@@ -106,7 +106,7 @@ function generateComposeYaml(twins: TwinDefinition[]): string {
 async function pollTwinHealth(
   twin: TwinDefinition,
   maxAttempts: number,
-  healthIntervalMs: number,
+  healthIntervalMs: number
 ): Promise<void> {
   if (!twin.healthcheck?.url) return
 
@@ -130,9 +130,7 @@ async function pollTwinHealth(
     }
   }
 
-  throw new TwinError(
-    `Twin '${twin.name}' failed health check after ${maxAttempts} attempts`,
-  )
+  throw new TwinError(`Twin '${twin.name}' failed health check after ${maxAttempts} attempts`)
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +148,7 @@ async function pollTwinHealth(
  */
 export function createTwinManager(
   eventBus: TypedEventBus<FactoryEvents>,
-  options?: TwinManagerOptions,
+  options?: TwinManagerOptions
 ): TwinManager {
   const maxHealthAttempts = options?.maxHealthAttempts ?? 30
   const healthIntervalMs = options?.healthIntervalMs ?? 1000

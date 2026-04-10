@@ -35,7 +35,7 @@ function makeMockDb(rows: Array<{ value: string }> = []): DatabaseAdapter {
         transaction: vi.fn(),
         close: vi.fn(),
         queryReadyStories: vi.fn().mockResolvedValue([]),
-      } as unknown as DatabaseAdapter),
+      } as unknown as DatabaseAdapter)
     ),
     close: vi.fn().mockResolvedValue(undefined),
     queryReadyStories: vi.fn().mockResolvedValue([]),
@@ -110,7 +110,7 @@ describe('FindingsInjector.inject', () => {
       affected_files: ['packages/sdlc/src/foo.ts'],
     })
     const db = makeMockDb([
-      { value: 'not-valid-json{{{{' },   // malformed — skipped
+      { value: 'not-valid-json{{{{' }, // malformed — skipped
       findingRow(validFinding),
     ])
     const result = await FindingsInjector.inject(db, SCORING_CONTEXT)
@@ -187,7 +187,7 @@ describe('FindingsInjector.inject', () => {
         affected_files: [`packages/sdlc/src/high${i}.ts`],
         description: `High score finding ${i + 1}`,
         confidence: 'high',
-      }),
+      })
     )
 
     // 2 findings with score 0.3 (packageMatch=1.0, rootCauseMatch=0.0, jaccard=0)
@@ -200,7 +200,7 @@ describe('FindingsInjector.inject', () => {
         affected_files: [`packages/sdlc/src/low${i}.ts`],
         description: `Low score finding ${i + 1}`,
         confidence: 'high',
-      }),
+      })
     )
 
     const allRows = [...highScoreFindings, ...lowScoreFindings].map(findingRow)
@@ -253,7 +253,7 @@ describe('FindingsInjector.inject', () => {
       confidence: 'high',
     })
     const db = makeMockDb([findingRow(finding)])
-    const config: FindingsInjectorConfig = { threshold: 0.2 }  // lower threshold
+    const config: FindingsInjectorConfig = { threshold: 0.2 } // lower threshold
     // With BASE_CONTEXT: score = 0.25 ≥ 0.2 → included
     const result = await FindingsInjector.inject(db, BASE_CONTEXT, config)
     expect(result).toContain('Low threshold finding')
@@ -268,7 +268,7 @@ describe('FindingsInjector.inject', () => {
         affected_files: [`packages/sdlc/src/h${i}.ts`],
         description: `High ${i + 1}`,
         confidence: 'high',
-      }),
+      })
     )
     // 1 low-score finding (score=0.3)
     const lowScore = makeFinding({

@@ -83,8 +83,26 @@ function makeParentGraph(modelStylesheet: string): Graph {
   nodeMap.set('exit', makeNode({ id: 'exit', shape: 'Msquare' }))
   nodeMap.set('sg-node', makeSubgraphNode('sub.dot'))
   const edges: GraphEdge[] = [
-    { fromNode: 'start', toNode: 'sg-node', label: '', condition: '', weight: 1, fidelity: '', threadId: '', loopRestart: false },
-    { fromNode: 'sg-node', toNode: 'exit', label: '', condition: '', weight: 1, fidelity: '', threadId: '', loopRestart: false },
+    {
+      fromNode: 'start',
+      toNode: 'sg-node',
+      label: '',
+      condition: '',
+      weight: 1,
+      fidelity: '',
+      threadId: '',
+      loopRestart: false,
+    },
+    {
+      fromNode: 'sg-node',
+      toNode: 'exit',
+      label: '',
+      condition: '',
+      weight: 1,
+      fidelity: '',
+      threadId: '',
+      loopRestart: false,
+    },
   ]
   return {
     id: 'parent',
@@ -97,9 +115,15 @@ function makeParentGraph(modelStylesheet: string): Graph {
     defaultFidelity: '',
     nodes: nodeMap,
     edges,
-    outgoingEdges(nodeId: string) { return edges.filter((e) => e.fromNode === nodeId) },
-    startNode() { return nodeMap.get('start')! },
-    exitNode() { return nodeMap.get('exit')! },
+    outgoingEdges(nodeId: string) {
+      return edges.filter((e) => e.fromNode === nodeId)
+    },
+    startNode() {
+      return nodeMap.get('start')!
+    },
+    exitNode() {
+      return nodeMap.get('exit')!
+    },
   }
 }
 
@@ -178,16 +202,22 @@ describe('subgraph stylesheet inheritance (AC6)', () => {
       id: 'sub',
       goal: '',
       label: '',
-      modelStylesheet: '',  // no local stylesheet
+      modelStylesheet: '', // no local stylesheet
       defaultMaxRetries: 0,
       retryTarget: '',
       fallbackRetryTarget: '',
       defaultFidelity: '',
       nodes: subNodeMap,
       edges: [],
-      outgoingEdges() { return [] },
-      startNode() { return subNode },
-      exitNode() { return subNode },
+      outgoingEdges() {
+        return []
+      },
+      startNode() {
+        return subNode
+      },
+      exitNode() {
+        return subNode
+      },
     }
 
     const inheritedStylesheet = parseStylesheet('* { llm_model: parent-model; }')
@@ -210,16 +240,22 @@ describe('subgraph own stylesheet overrides parent (AC7)', () => {
       id: 'sub',
       goal: '',
       label: '',
-      modelStylesheet: '* { llm_model: child-model; }',  // subgraph has its own rules
+      modelStylesheet: '* { llm_model: child-model; }', // subgraph has its own rules
       defaultMaxRetries: 0,
       retryTarget: '',
       fallbackRetryTarget: '',
       defaultFidelity: '',
       nodes: subNodeMap,
       edges: [],
-      outgoingEdges() { return [] },
-      startNode() { return subNode },
-      exitNode() { return subNode },
+      outgoingEdges() {
+        return []
+      },
+      startNode() {
+        return subNode
+      },
+      exitNode() {
+        return subNode
+      },
     }
 
     const inheritedStylesheet = parseStylesheet('* { llm_model: parent-model; }')
@@ -291,9 +327,15 @@ describe('applyStylesheet with empty local stylesheet and non-empty inheritedSty
       defaultFidelity: '',
       nodes: nodeMap,
       edges: [],
-      outgoingEdges() { return [] },
-      startNode() { return node },
-      exitNode() { return node },
+      outgoingEdges() {
+        return []
+      },
+      startNode() {
+        return node
+      },
+      exitNode() {
+        return node
+      },
     }
 
     const inherited = parseStylesheet('* { llm_model: inherited-model; llm_provider: openai; }')

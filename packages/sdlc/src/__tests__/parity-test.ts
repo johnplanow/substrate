@@ -148,7 +148,7 @@ function buildReferenceEvents(scenario: PariityScenario): ParityEvent[] {
  */
 async function runGraphScenario(
   scenario: PariityScenario,
-  _opts: { maxReviewCycles?: number } = {},
+  _opts: { maxReviewCycles?: number } = {}
 ): Promise<ParityCapture> {
   const capturedEvents: ParityEvent[] = []
   const sdlcBus: SdlcEventBus = {
@@ -227,14 +227,14 @@ function assertParity(linear: ParityEvent[], graph: ParityEvent[]): void {
 
   expect(
     graphNames,
-    `Event sequence mismatch — linear has ${linear.length} events, graph has ${graph.length} events`,
+    `Event sequence mismatch — linear has ${linear.length} events, graph has ${graph.length} events`
   ).toEqual(linearNames)
 
   for (const [i, linearEvent] of linear.entries()) {
     const graphEvent = graph[i]!
     expect(
       graphEvent.payload,
-      `Payload mismatch at index ${i} (event: ${linearEvent.name})`,
+      `Payload mismatch at index ${i} (event: ${linearEvent.name})`
     ).toMatchObject(linearEvent.payload)
   }
 }
@@ -304,7 +304,7 @@ describe('AC5: phase event payload shape matches linear contract', () => {
     const scenario: PariityScenario = { storyKey: 'test-shape', phases: happyPathPhases }
     const capture = await runGraphScenario(scenario)
     const phaseStartEvents = capture.events.filter(
-      (e) => e.name === 'orchestrator:story-phase-start',
+      (e) => e.name === 'orchestrator:story-phase-start'
     )
 
     expect(phaseStartEvents.length).toBeGreaterThan(0)
@@ -321,7 +321,7 @@ describe('AC5: phase event payload shape matches linear contract', () => {
     const scenario: PariityScenario = { storyKey: 'test-shape', phases: happyPathPhases }
     const capture = await runGraphScenario(scenario)
     const phaseCompleteEvents = capture.events.filter(
-      (e) => e.name === 'orchestrator:story-phase-complete',
+      (e) => e.name === 'orchestrator:story-phase-complete'
     )
 
     expect(phaseCompleteEvents.length).toBeGreaterThan(0)
@@ -348,13 +348,13 @@ describe('AC2: rework-cycle parity — review retry event sequence matches', () 
 
     // AC2: two orchestrator:story-phase-start events for the 'dev' phase
     const devStarts = capture.events.filter(
-      (e) => e.name === 'orchestrator:story-phase-start' && e.payload['phase'] === 'dev',
+      (e) => e.name === 'orchestrator:story-phase-start' && e.payload['phase'] === 'dev'
     )
     expect(devStarts).toHaveLength(2)
 
     // AC2: two orchestrator:story-phase-start events for the 'review' phase
     const reviewStarts = capture.events.filter(
-      (e) => e.name === 'orchestrator:story-phase-start' && e.payload['phase'] === 'review',
+      (e) => e.name === 'orchestrator:story-phase-start' && e.payload['phase'] === 'review'
     )
     expect(reviewStarts).toHaveLength(2)
 

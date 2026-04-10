@@ -116,8 +116,16 @@ describe('PerStoryState schema (AC1, AC7)', () => {
 
   it('AC1: PerStoryStatusSchema accepts all known literals', () => {
     const knownStatuses = [
-      'pending', 'dispatched', 'in-review', 'complete', 'failed',
-      'escalated', 'recovered', 'verification-failed', 'gated', 'skipped',
+      'pending',
+      'dispatched',
+      'in-review',
+      'complete',
+      'failed',
+      'escalated',
+      'recovered',
+      'verification-failed',
+      'gated',
+      'skipped',
     ]
     for (const status of knownStatuses) {
       const result = PerStoryStatusSchema.safeParse(status)
@@ -248,7 +256,7 @@ describe('RunManifest.patchStoryState (AC3)', () => {
         cost_accumulation: { per_story: {}, run_total: 0 },
         pending_proposals: [],
       },
-      tempDir,
+      tempDir
     )
 
     await manifest.patchStoryState('52-4', {
@@ -289,7 +297,7 @@ describe('RunManifest.patchStoryState (AC3)', () => {
         cost_accumulation: { per_story: {}, run_total: 0 },
         pending_proposals: [],
       },
-      tempDir,
+      tempDir
     )
 
     // Patch only the status and completed_at — started_at should remain unchanged
@@ -329,7 +337,7 @@ describe('RunManifest.patchStoryState (AC3)', () => {
         cost_accumulation: { per_story: {}, run_total: 0 },
         pending_proposals: [],
       },
-      tempDir,
+      tempDir
     )
 
     await manifest.patchStoryState('52-4', {

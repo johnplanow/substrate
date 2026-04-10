@@ -11,7 +11,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { parseGraph } from '../../graph/parser.js'
 import { createValidator } from '../../graph/validator.js'
 import { createGraphExecutor } from '../../graph/executor.js'
-import { makeTmpDir, cleanDir, makeMockRegistry, makeEventSpy, getNodeStartedIds, countCheckpointSaved } from './helpers.js'
+import {
+  makeTmpDir,
+  cleanDir,
+  makeMockRegistry,
+  makeEventSpy,
+  getNodeStartedIds,
+  countCheckpointSaved,
+} from './helpers.js'
 import { FIVE_NODE_CONDITIONAL_DOT } from './graphs.js'
 
 describe('AC1: 5-node conditional pipeline — parse, validate, execute end-to-end', () => {

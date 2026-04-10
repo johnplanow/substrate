@@ -38,7 +38,7 @@ export interface QualityThresholds {
 export class QualityBelowThresholdError extends Error {
   constructor(
     public readonly report: QualityReport,
-    public readonly failures: string[],
+    public readonly failures: string[]
   ) {
     super(`Summary quality below threshold: ${failures.join(', ')}`)
     this.name = 'QualityBelowThresholdError'
@@ -112,7 +112,7 @@ export function computeKeyFactRetentionRate(original: string, summarized: string
     return 1.0
   }
 
-  const preserved = [...originalFacts].filter(f => summarizedFacts.has(f)).length
+  const preserved = [...originalFacts].filter((f) => summarizedFacts.has(f)).length
   return preserved / originalFacts.size
 }
 
@@ -124,7 +124,12 @@ export function computeKeyFactRetentionRate(original: string, summarized: string
  */
 export function computeRoundTripScore(original: string, expanded: string): number {
   const words = (s: string): Set<string> =>
-    new Set(s.toLowerCase().split(/\W+/).filter(w => w.length > 0))
+    new Set(
+      s
+        .toLowerCase()
+        .split(/\W+/)
+        .filter((w) => w.length > 0)
+    )
 
   const wordsA = words(original)
   const wordsB = words(expanded)
@@ -133,7 +138,7 @@ export function computeRoundTripScore(original: string, expanded: string): numbe
     return 1.0
   }
 
-  const intersection = [...wordsA].filter(w => wordsB.has(w)).length
+  const intersection = [...wordsA].filter((w) => wordsB.has(w)).length
   const union = new Set([...wordsA, ...wordsB]).size
   return intersection / union
 }
@@ -144,8 +149,7 @@ export class SummaryQualityAnalyzer {
   analyze(original: string, summary: Summary, expanded?: string): QualityReport {
     const compressionRatio = computeCompressionRatio(summary)
     const keyFactRetentionRate = computeKeyFactRetentionRate(original, summary.content)
-    const roundTripScore =
-      expanded !== undefined ? computeRoundTripScore(original, expanded) : null
+    const roundTripScore = expanded !== undefined ? computeRoundTripScore(original, expanded) : null
     const overallScore =
       roundTripScore !== null
         ? keyFactRetentionRate * 0.6 + roundTripScore * 0.4
@@ -170,7 +174,7 @@ export class SummaryQualityAnalyzer {
       report.keyFactRetentionRate < thresholds.minKeyFactRetentionRate
     ) {
       failures.push(
-        `keyFactRetentionRate ${report.keyFactRetentionRate.toFixed(3)} < ${thresholds.minKeyFactRetentionRate}`,
+        `keyFactRetentionRate ${report.keyFactRetentionRate.toFixed(3)} < ${thresholds.minKeyFactRetentionRate}`
       )
     }
 
@@ -180,7 +184,7 @@ export class SummaryQualityAnalyzer {
       report.roundTripScore < thresholds.minRoundTripScore
     ) {
       failures.push(
-        `roundTripScore ${report.roundTripScore.toFixed(3)} < ${thresholds.minRoundTripScore}`,
+        `roundTripScore ${report.roundTripScore.toFixed(3)} < ${thresholds.minRoundTripScore}`
       )
     }
 
@@ -189,7 +193,7 @@ export class SummaryQualityAnalyzer {
       report.overallScore < thresholds.minOverallScore
     ) {
       failures.push(
-        `overallScore ${report.overallScore.toFixed(3)} < ${thresholds.minOverallScore}`,
+        `overallScore ${report.overallScore.toFixed(3)} < ${thresholds.minOverallScore}`
       )
     }
 
@@ -220,10 +224,14 @@ export class QualityMetricsPersistence {
       const raw = await readFile(this.metricsPath(), 'utf-8')
       return raw
         .split('\n')
-        .filter(line => line.length > 0)
-        .map(line => JSON.parse(line) as PersistedQualityEntry)
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as PersistedQualityEntry)
     } catch (err: unknown) {
-      if (typeof err === 'object' && err !== null && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      if (
+        typeof err === 'object' &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === 'ENOENT'
+      ) {
         return []
       }
       throw err

@@ -82,7 +82,7 @@ describe('AC5: graph:node-started and graph:node-completed emitted for validate 
   it('AC5a: graph:node-started emitted before graph:node-completed for validate', async () => {
     const result1 = buildScenarioRunResult(3, 3) // pass first time to terminate
     mockSpawn.mockImplementationOnce(() =>
-      createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 }),
+      createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 })
     )
 
     // Use real TypedEventBusImpl with on() listeners
@@ -113,7 +113,7 @@ describe('AC5: graph:node-started and graph:node-completed emitted for validate 
 
   it('AC5b: graph:node-started for validate has nodeId === "validate"', async () => {
     mockSpawn.mockImplementationOnce(() =>
-      createMockSpawnProcess({ stdout: JSON.stringify(buildScenarioRunResult(3, 3)), exitCode: 0 }),
+      createMockSpawnProcess({ stdout: JSON.stringify(buildScenarioRunResult(3, 3)), exitCode: 0 })
     )
 
     const eventBus = new TypedEventBusImpl<FactoryEvents>()
@@ -136,7 +136,7 @@ describe('AC5: graph:node-started and graph:node-completed emitted for validate 
 
   it('AC5c: graph:node-completed for validate has status === "SUCCESS"', async () => {
     mockSpawn.mockImplementationOnce(() =>
-      createMockSpawnProcess({ stdout: JSON.stringify(buildScenarioRunResult(3, 3)), exitCode: 0 }),
+      createMockSpawnProcess({ stdout: JSON.stringify(buildScenarioRunResult(3, 3)), exitCode: 0 })
     )
 
     const eventBus = new TypedEventBusImpl<FactoryEvents>()
@@ -162,7 +162,7 @@ describe('AC5: graph:node-started and graph:node-completed emitted for validate 
 
   it('AC5d: graph:node-started and graph:node-completed for validate share the same runId', async () => {
     mockSpawn.mockImplementationOnce(() =>
-      createMockSpawnProcess({ stdout: JSON.stringify(buildScenarioRunResult(3, 3)), exitCode: 0 }),
+      createMockSpawnProcess({ stdout: JSON.stringify(buildScenarioRunResult(3, 3)), exitCode: 0 })
     )
 
     const testRunId = 'test-ac5d-run'

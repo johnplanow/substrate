@@ -55,8 +55,8 @@ describe('createGraphOrchestrator', () => {
   it('AC6: throws GraphOrchestratorInitError when graph.nodes is null', () => {
     expect(() =>
       createGraphOrchestrator(
-        makeBaseConfig({ graph: { nodes: null as unknown as GraphShape['nodes'], edges: [] } }),
-      ),
+        makeBaseConfig({ graph: { nodes: null as unknown as GraphShape['nodes'], edges: [] } })
+      )
     ).toThrow(GraphOrchestratorInitError)
   })
 
@@ -68,16 +68,16 @@ describe('createGraphOrchestrator', () => {
             nodes: [{ id: 'a', type: 'sdlc.phase', label: 'a', prompt: '' }],
             edges: undefined as unknown as GraphShape['edges'],
           },
-        }),
-      ),
+        })
+      )
     ).toThrow(GraphOrchestratorInitError)
   })
 
   it('AC6: error message describes the problem', () => {
     expect(() =>
       createGraphOrchestrator(
-        makeBaseConfig({ graph: { nodes: null as unknown as GraphShape['nodes'], edges: [] } }),
-      ),
+        makeBaseConfig({ graph: { nodes: null as unknown as GraphShape['nodes'], edges: [] } })
+      )
     ).toThrow('Invalid graph: missing nodes or edges arrays')
   })
 
@@ -98,7 +98,7 @@ describe('createGraphOrchestrator', () => {
       run: vi.fn().mockImplementation(async () => outcomes[callIndex++]),
     }
     const orch = createGraphOrchestrator(
-      makeBaseConfig({ executor, maxConcurrency: 3, gcPauseMs: 0 }),
+      makeBaseConfig({ executor, maxConcurrency: 3, gcPauseMs: 0 })
     )
     const summary = await orch.run(['s1', 's2', 's3'])
     expect(summary.successCount).toBe(2)
@@ -118,7 +118,7 @@ describe('createGraphOrchestrator', () => {
       run: vi.fn().mockImplementation(async () => outcomes[i++]),
     }
     const orch = createGraphOrchestrator(
-      makeBaseConfig({ executor, maxConcurrency: 4, gcPauseMs: 0 }),
+      makeBaseConfig({ executor, maxConcurrency: 4, gcPauseMs: 0 })
     )
     const summary = await orch.run(['s1', 's2', 's3', 's4'])
     expect(summary.successCount).toBe(0)
@@ -143,7 +143,7 @@ describe('createGraphOrchestrator', () => {
     }
 
     const orch = createGraphOrchestrator(
-      makeBaseConfig({ executor, maxConcurrency: 2, gcPauseMs: 0 }),
+      makeBaseConfig({ executor, maxConcurrency: 2, gcPauseMs: 0 })
     )
     await orch.run(['s1', 's2', 's3'])
 
@@ -163,7 +163,7 @@ describe('createGraphOrchestrator', () => {
     }
 
     const orch = createGraphOrchestrator(
-      makeBaseConfig({ executor, maxConcurrency: 2, gcPauseMs: 0 }),
+      makeBaseConfig({ executor, maxConcurrency: 2, gcPauseMs: 0 })
     )
     const summary = await orch.run(['s1', 's2', 's3'])
 
@@ -189,7 +189,7 @@ describe('createGraphOrchestrator', () => {
         projectRoot: '/my/project',
         methodologyPack: 'agile-v2',
         gcPauseMs: 0,
-      }),
+      })
     )
     await orch.run(['story-1', 'story-2'])
 
@@ -216,7 +216,7 @@ describe('createGraphOrchestrator', () => {
     }
 
     const orch = createGraphOrchestrator(
-      makeBaseConfig({ executor, runId: 'run-42', gcPauseMs: 0 }),
+      makeBaseConfig({ executor, runId: 'run-42', gcPauseMs: 0 })
     )
     await orch.run(['story-1'])
 
@@ -247,7 +247,7 @@ describe('createGraphOrchestrator', () => {
     const conflictGrouper: ConflictGrouperFn = () => [[['storyA', 'storyB']]]
 
     const orch = createGraphOrchestrator(
-      makeBaseConfig({ executor, conflictGrouper, maxConcurrency: 2, gcPauseMs: 0 }),
+      makeBaseConfig({ executor, conflictGrouper, maxConcurrency: 2, gcPauseMs: 0 })
     )
 
     const runPromise = orch.run(['storyA', 'storyB'])
@@ -287,7 +287,7 @@ describe('createGraphOrchestrator', () => {
     const conflictGrouper: ConflictGrouperFn = () => [[['storyA']], [['storyB']]]
 
     const orch = createGraphOrchestrator(
-      makeBaseConfig({ executor, conflictGrouper, maxConcurrency: 2, gcPauseMs: 0 }),
+      makeBaseConfig({ executor, conflictGrouper, maxConcurrency: 2, gcPauseMs: 0 })
     )
     await orch.run(['storyA', 'storyB'])
 
@@ -329,7 +329,7 @@ describe('applyConfigToGraph — Story 43-8', () => {
   it('throws when graph has no dev_story node', () => {
     const graph = { nodes: new Map<string, { maxRetries?: number }>([['start', {}]]) }
     expect(() => applyConfigToGraph(graph, { maxReviewCycles: 3 })).toThrow(
-      "applyConfigToGraph: graph does not contain a 'dev_story' node",
+      "applyConfigToGraph: graph does not contain a 'dev_story' node"
     )
   })
 

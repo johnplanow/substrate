@@ -28,7 +28,11 @@ export function createExecutionEnvironment(workdir: string): ExecutionEnvironmen
       } catch (err: unknown) {
         const e = err as { stdout?: string; stderr?: string; code?: number; killed?: boolean }
         if (e.killed) {
-          return { stdout: e.stdout ?? '', stderr: `Process killed after ${timeoutMs}ms timeout`, exitCode: 137 }
+          return {
+            stdout: e.stdout ?? '',
+            stderr: `Process killed after ${timeoutMs}ms timeout`,
+            exitCode: 137,
+          }
         }
         return { stdout: e.stdout ?? '', stderr: e.stderr ?? '', exitCode: e.code ?? 1 }
       }

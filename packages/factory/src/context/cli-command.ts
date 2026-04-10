@@ -82,7 +82,7 @@ interface FoundSummaryRecord {
  */
 async function findSummaryForIteration(
   summariesDir: string,
-  iteration: number,
+  iteration: number
 ): Promise<FoundSummaryRecord | null> {
   let allFiles: string[]
   try {
@@ -149,7 +149,7 @@ export async function summarizeAction(
   output: { stdout: NodeJS.WritableStream; stderr: NodeJS.WritableStream } = {
     stdout: process.stdout,
     stderr: process.stderr,
-  },
+  }
 ): Promise<number> {
   const { stdout, stderr } = output
 
@@ -192,7 +192,7 @@ export async function summarizeAction(
   const originalContent = await cache.getOriginal(found.hash)
   if (originalContent === null) {
     stderr.write(
-      `Error: Original content (.orig) not found for hash ${found.hash.slice(0, 8)} in run ${opts.run}\n`,
+      `Error: Original content (.orig) not found for hash ${found.hash.slice(0, 8)} in run ${opts.run}\n`
     )
     return 1
   }
@@ -219,12 +219,12 @@ export async function summarizeAction(
       originalTokenCount: summary.originalTokenCount,
     }
     stdout.write(
-      JSON.stringify(buildJsonOutput('factory context summarize', data, deps.version)) + '\n',
+      JSON.stringify(buildJsonOutput('factory context summarize', data, deps.version)) + '\n'
     )
   } else {
     const ratioStr = compressionRatio >= 0 ? compressionRatio.toFixed(2) : 'n/a'
     stdout.write(
-      `Summarized iteration ${iteration} → level ${level} | hash: ${summary.originalHash.slice(0, 8)} | compression: ${ratioStr}\n`,
+      `Summarized iteration ${iteration} → level ${level} | hash: ${summary.originalHash.slice(0, 8)} | compression: ${ratioStr}\n`
     )
   }
 
@@ -261,7 +261,7 @@ export async function expandAction(
   output: { stdout: NodeJS.WritableStream; stderr: NodeJS.WritableStream } = {
     stdout: process.stdout,
     stderr: process.stderr,
-  },
+  }
 ): Promise<number> {
   const { stdout, stderr } = output
 
@@ -305,7 +305,7 @@ export async function expandAction(
       content: expandedContent,
     }
     stdout.write(
-      JSON.stringify(buildJsonOutput('factory context expand', data, deps.version)) + '\n',
+      JSON.stringify(buildJsonOutput('factory context expand', data, deps.version)) + '\n'
     )
   } else {
     stdout.write(expandedContent + '\n')
@@ -350,7 +350,7 @@ export async function statsAction(
   output: { stdout: NodeJS.WritableStream; stderr: NodeJS.WritableStream } = {
     stdout: process.stdout,
     stderr: process.stderr,
-  },
+  }
 ): Promise<number> {
   const { stdout, stderr } = output
 
@@ -410,7 +410,7 @@ export async function statsAction(
 
   if (opts.outputFormat === 'json') {
     stdout.write(
-      JSON.stringify(buildJsonOutput('factory context stats', rows, deps.version)) + '\n',
+      JSON.stringify(buildJsonOutput('factory context stats', rows, deps.version)) + '\n'
     )
     return 0
   }
@@ -476,7 +476,7 @@ export function registerContextCommand(
   factoryCmd: Command,
   version: string,
   storageDir?: string,
-  engineFactory?: () => SummaryEngine,
+  engineFactory?: () => SummaryEngine
 ): void {
   const resolvedStorageDir = storageDir ?? join(process.cwd(), '.substrate')
 
@@ -500,7 +500,7 @@ export function registerContextCommand(
           ...(engineFactory !== undefined ? { engineFactory } : {}),
         })
         if (code !== 0) process.exit(code)
-      },
+      }
     )
 
   // ---- expand ----

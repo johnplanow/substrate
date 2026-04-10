@@ -150,16 +150,12 @@ describe('SupervisorLock', () => {
       await lock.acquire(PID, SESSION_ID)
 
       // mkdir called to ensure directory exists
-      expect(mkdirMock).toHaveBeenCalledWith(
-        expect.stringContaining('.substrate/runs'),
-        { recursive: true },
-      )
+      expect(mkdirMock).toHaveBeenCalledWith(expect.stringContaining('.substrate/runs'), {
+        recursive: true,
+      })
 
       // open called with lock path and 'wx' flag
-      expect(openMock).toHaveBeenCalledWith(
-        expect.stringContaining(`${RUN_ID}.lock`),
-        'wx',
-      )
+      expect(openMock).toHaveBeenCalledWith(expect.stringContaining(`${RUN_ID}.lock`), 'wx')
 
       // PID written to lock file for diagnostics
       expect(fh.write).toHaveBeenCalledWith(String(PID), 0, 'utf-8')
@@ -198,15 +194,13 @@ describe('SupervisorLock', () => {
       await lock.acquire(PID, SESSION_ID)
 
       // Warn logged about flock unavailability
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('ENOSYS'),
-      )
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('ENOSYS'))
 
       // PID-file written
       expect(writeFileMock).toHaveBeenCalledWith(
         expect.stringContaining(`${RUN_ID}.pid`),
         String(PID),
-        { flag: 'w' },
+        { flag: 'w' }
       )
 
       // manifest.update called
@@ -225,13 +219,11 @@ describe('SupervisorLock', () => {
 
       await lock.acquire(PID, SESSION_ID)
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('EOPNOTSUPP'),
-      )
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('EOPNOTSUPP'))
       expect(writeFileMock).toHaveBeenCalledWith(
         expect.stringContaining(`${RUN_ID}.pid`),
         String(PID),
-        { flag: 'w' },
+        { flag: 'w' }
       )
     })
   })
@@ -248,7 +240,7 @@ describe('SupervisorLock', () => {
       // process.kill(EXISTING_PID, 0) → process is alive (default mock does not throw)
 
       await expect(lock.acquire(PID, SESSION_ID)).rejects.toThrow(
-        `Run ${RUN_ID} is already supervised by PID ${EXISTING_PID}. Use --force to take over.`,
+        `Run ${RUN_ID} is already supervised by PID ${EXISTING_PID}. Use --force to take over.`
       )
 
       // manifest.update should NOT be called
@@ -260,12 +252,12 @@ describe('SupervisorLock', () => {
       openMock.mockRejectedValueOnce(makeErrnoError('EEXIST'))
       // Manifest reports an existing supervisor
       vi.mocked(manifest.read).mockResolvedValueOnce(
-        makeManifestData({ supervisor_pid: EXISTING_PID }),
+        makeManifestData({ supervisor_pid: EXISTING_PID })
       )
       // process.kill(EXISTING_PID, 0) → alive (mock does not throw)
 
       await expect(lock.acquire(PID, SESSION_ID)).rejects.toThrow(
-        `Run ${RUN_ID} is already supervised by PID ${EXISTING_PID}. Use --force to take over.`,
+        `Run ${RUN_ID} is already supervised by PID ${EXISTING_PID}. Use --force to take over.`
       )
 
       expect(manifest.update).not.toHaveBeenCalled()
@@ -317,7 +309,7 @@ describe('SupervisorLock', () => {
       openMock.mockRejectedValueOnce(makeErrnoError('EEXIST'))
       // Manifest reports EXISTING_PID as holder
       vi.mocked(manifest.read).mockResolvedValueOnce(
-        makeManifestData({ supervisor_pid: EXISTING_PID }),
+        makeManifestData({ supervisor_pid: EXISTING_PID })
       )
 
       // After force kill, open succeeds
@@ -373,7 +365,7 @@ describe('SupervisorLock', () => {
       expect(writeFileMock).toHaveBeenCalledWith(
         expect.stringContaining(`${RUN_ID}.pid`),
         String(PID),
-        { flag: 'w' },
+        { flag: 'w' }
       )
 
       // Manifest updated
@@ -401,9 +393,7 @@ describe('SupervisorLock', () => {
       await lock.release()
 
       // Lock file unlinked
-      expect(unlinkMock).toHaveBeenCalledWith(
-        expect.stringContaining(`${RUN_ID}.lock`),
-      )
+      expect(unlinkMock).toHaveBeenCalledWith(expect.stringContaining(`${RUN_ID}.lock`))
 
       // File handle closed
       expect(fh.close).toHaveBeenCalled()
@@ -430,9 +420,7 @@ describe('SupervisorLock', () => {
       await lock.release()
 
       // PID-file unlinked
-      expect(unlinkMock).toHaveBeenCalledWith(
-        expect.stringContaining(`${RUN_ID}.pid`),
-      )
+      expect(unlinkMock).toHaveBeenCalledWith(expect.stringContaining(`${RUN_ID}.pid`))
 
       // Manifest cleared
       expect(manifest.update).toHaveBeenCalledWith({
@@ -462,9 +450,7 @@ describe('SupervisorLock', () => {
       // First open attempt: EEXIST (stale lock file)
       openMock.mockRejectedValueOnce(makeErrnoError('EEXIST'))
       // Manifest has no supervisor PID
-      vi.mocked(manifest.read).mockResolvedValueOnce(
-        makeManifestData({ supervisor_pid: null }),
-      )
+      vi.mocked(manifest.read).mockResolvedValueOnce(makeManifestData({ supervisor_pid: null }))
       // Unlink stale lock, then open succeeds
       const fh = makeMockFileHandle()
       openMock.mockResolvedValueOnce(fh)
@@ -472,9 +458,7 @@ describe('SupervisorLock', () => {
       await lock.acquire(PID, SESSION_ID)
 
       // Lock file was unlinked (stale cleanup)
-      expect(unlinkMock).toHaveBeenCalledWith(
-        expect.stringContaining(`${RUN_ID}.lock`),
-      )
+      expect(unlinkMock).toHaveBeenCalledWith(expect.stringContaining(`${RUN_ID}.lock`))
 
       // manifest.update called with ownership
       expect(manifest.update).toHaveBeenCalledWith({

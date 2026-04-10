@@ -46,7 +46,7 @@ export function createRetryMiddleware(options?: RetryOptions): MiddlewareFn {
         lastError = err
         if (!isRetryable(err) || attempt === maxRetries) throw err
         await new Promise<void>((resolve) =>
-          setTimeout(resolve, baseDelayMs * Math.pow(factor, attempt)),
+          setTimeout(resolve, baseDelayMs * Math.pow(factor, attempt))
         )
       }
     }

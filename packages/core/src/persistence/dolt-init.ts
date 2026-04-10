@@ -42,7 +42,7 @@ export interface DoltInitConfig {
 export class DoltNotInstalled extends Error {
   constructor() {
     super(
-      'Dolt CLI not found in PATH. Install Dolt from https://docs.dolthub.com/introduction/installation',
+      'Dolt CLI not found in PATH. Install Dolt from https://docs.dolthub.com/introduction/installation'
     )
     this.name = 'DoltNotInstalled'
   }
@@ -54,7 +54,7 @@ export class DoltNotInstalled extends Error {
 export class DoltInitError extends Error {
   constructor(args: string[], exitCode: number, stderr: string) {
     super(
-      `Dolt command "dolt ${args.join(' ')}" failed with exit code ${exitCode}${stderr ? `: ${stderr}` : ''}`,
+      `Dolt command "dolt ${args.join(' ')}" failed with exit code ${exitCode}${stderr ? `: ${stderr}` : ''}`
     )
     this.name = 'DoltInitError'
   }
@@ -202,8 +202,7 @@ async function runDoltConfigSet(key: string, value: string): Promise<void> {
  */
 export async function initializeDolt(config: DoltInitConfig): Promise<void> {
   // Resolve paths
-  const statePath =
-    config.statePath ?? join(config.projectRoot, '.substrate', 'state')
+  const statePath = config.statePath ?? join(config.projectRoot, '.substrate', 'state')
   const schemaPath = config.schemaPath
 
   // 1. Verify Dolt is installed
@@ -247,10 +246,7 @@ export async function initializeDolt(config: DoltInitConfig): Promise<void> {
 
   if (!hasCommits) {
     await runDoltCommand(['add', '-A'], statePath)
-    await runDoltCommand(
-      ['commit', '-m', 'Initialize substrate state schema v1'],
-      statePath,
-    )
+    await runDoltCommand(['commit', '-m', 'Initialize substrate state schema v1'], statePath)
   }
 }
 

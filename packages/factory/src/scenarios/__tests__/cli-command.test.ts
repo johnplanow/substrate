@@ -51,7 +51,14 @@ const SCENARIO_MANIFEST = {
 const SCENARIO_RUN_RESULT: ScenarioRunResult = {
   scenarios: [
     { name: 'scenario-a.sh', status: 'pass', exitCode: 0, stdout: '', stderr: '', durationMs: 12 },
-    { name: 'scenario-b.sh', status: 'fail', exitCode: 1, stdout: '', stderr: 'err', durationMs: 8 },
+    {
+      name: 'scenario-b.sh',
+      status: 'fail',
+      exitCode: 1,
+      stdout: '',
+      stderr: 'err',
+      durationMs: 8,
+    },
   ],
   summary: { total: 2, passed: 1, failed: 1 },
   durationMs: 20,

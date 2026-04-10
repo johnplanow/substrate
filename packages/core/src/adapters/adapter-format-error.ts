@@ -38,7 +38,7 @@ export class AdapterFormatError extends Error {
   }) {
     super(
       `AdapterFormatError [${opts.adapter_id}]: exhausted all normalization strategies. ` +
-        `Tried: ${opts.tried_strategies.join(', ')}. Last error: ${opts.extraction_error}`,
+        `Tried: ${opts.tried_strategies.join(', ')}. Last error: ${opts.extraction_error}`
     )
     this.name = 'AdapterFormatError'
     this.adapter_id = opts.adapter_id

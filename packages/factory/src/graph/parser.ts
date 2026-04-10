@@ -114,7 +114,7 @@ function buildGraphNode(
   id: string,
   attrs: AttrMap,
   subgraphClass: string,
-  defaultMaxRetries: number,
+  defaultMaxRetries: number
 ): GraphNode {
   // class: explicit attr wins over subgraph derivation
   const classAttr = Object.prototype.hasOwnProperty.call(attrs, 'class')
@@ -210,7 +210,7 @@ function traverseStatements(
   nodes: Map<string, GraphNode>,
   edges: GraphEdge[],
   subgraphClass: string,
-  defaultMaxRetries: number,
+  defaultMaxRetries: number
 ): void {
   for (const stmt of stmts) {
     switch (stmt.type) {
@@ -262,10 +262,16 @@ function traverseStatements(
           const to = getEdgeTargetId(targets[i + 1]!)
           if (from && to) {
             if (!nodes.has(from)) {
-              nodes.set(from, buildGraphNode(from, { ...nodeDefaults }, subgraphClass, defaultMaxRetries))
+              nodes.set(
+                from,
+                buildGraphNode(from, { ...nodeDefaults }, subgraphClass, defaultMaxRetries)
+              )
             }
             if (!nodes.has(to)) {
-              nodes.set(to, buildGraphNode(to, { ...nodeDefaults }, subgraphClass, defaultMaxRetries))
+              nodes.set(
+                to,
+                buildGraphNode(to, { ...nodeDefaults }, subgraphClass, defaultMaxRetries)
+              )
             }
             edges.push(buildGraphEdge(from, to, merged))
           }
@@ -300,7 +306,7 @@ function traverseStatements(
           nodes,
           edges,
           derivedClass,
-          defaultMaxRetries,
+          defaultMaxRetries
         )
         break
       }
@@ -441,7 +447,7 @@ export function parseGraph(dotSource: string): Graph {
       nodes,
       edges,
       '', // no enclosing subgraph class at top level
-      defaultMaxRetries,
+      defaultMaxRetries
     )
   }
 

@@ -18,7 +18,7 @@ import { SUMMARY_BUDGET } from './summary-types.js'
 function buildSummarizePrompt(
   content: string,
   targetTokenCount: number,
-  opts: SummarizeOptions,
+  opts: SummarizeOptions
 ): string {
   const preserveCodeBlocks = opts.preserveCodeBlocks ?? true
   const preserveFilePaths = opts.preserveFilePaths ?? true
@@ -69,13 +69,13 @@ export class LLMSummaryEngine implements SummaryEngine {
 
   constructor(
     private readonly llmClient: LLMClient,
-    private readonly modelName: string = 'claude-opus-4-5',
+    private readonly modelName: string = 'claude-opus-4-5'
   ) {}
 
   async summarize(
     content: string,
     targetLevel: SummaryLevel,
-    opts?: SummarizeOptions,
+    opts?: SummarizeOptions
   ): Promise<Summary> {
     const originalHash = createHash('sha256').update(content).digest('hex')
 
@@ -108,11 +108,7 @@ export class LLMSummaryEngine implements SummaryEngine {
     }
   }
 
-  async expand(
-    summary: Summary,
-    targetLevel: SummaryLevel,
-    opts?: ExpandOptions,
-  ): Promise<string> {
+  async expand(summary: Summary, targetLevel: SummaryLevel, opts?: ExpandOptions): Promise<string> {
     if (opts?.originalContent) {
       return opts.originalContent
     }

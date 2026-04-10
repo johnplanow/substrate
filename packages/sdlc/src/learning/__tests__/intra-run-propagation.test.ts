@@ -52,8 +52,8 @@ function makeMockDbWithFindings(findings: Finding[]): DatabaseAdapter {
     backendType: 'memory',
     query: vi
       .fn()
-      .mockResolvedValueOnce(rows)          // getDecisionsByCategory → finding rows
-      .mockResolvedValue([{ cnt: 0 }]),     // countRunsSinceCreation → 0 runs (not expired)
+      .mockResolvedValueOnce(rows) // getDecisionsByCategory → finding rows
+      .mockResolvedValue([{ cnt: 0 }]), // countRunsSinceCreation → 0 runs (not expired)
     exec: vi.fn().mockResolvedValue(undefined),
     transaction: vi.fn(async (fn: (db: DatabaseAdapter) => Promise<unknown>) =>
       fn({
@@ -63,7 +63,7 @@ function makeMockDbWithFindings(findings: Finding[]): DatabaseAdapter {
         transaction: vi.fn(),
         close: vi.fn(),
         queryReadyStories: vi.fn().mockResolvedValue([]),
-      } as unknown as DatabaseAdapter),
+      } as unknown as DatabaseAdapter)
     ),
     close: vi.fn().mockResolvedValue(undefined),
     queryReadyStories: vi.fn().mockResolvedValue([]),

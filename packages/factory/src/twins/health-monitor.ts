@@ -56,7 +56,7 @@ interface TwinState {
  */
 export function createTwinHealthMonitor(
   eventBus: TypedEventBus<FactoryEvents>,
-  options?: TwinHealthMonitorOptions,
+  options?: TwinHealthMonitorOptions
 ): TwinHealthMonitor {
   const monitorIntervalMs = options?.monitorIntervalMs ?? 30000
   const maxConsecutiveFailures = options?.maxConsecutiveFailures ?? 3

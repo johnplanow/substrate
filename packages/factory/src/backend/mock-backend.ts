@@ -102,8 +102,6 @@ export class MockCodergenBackend implements ICodergenBackend {
  * @param config - Optional mock configuration (responses, failOnCall, delay).
  * @returns A fresh `MockCodergenBackend` instance.
  */
-export function createMockCodergenBackend(
-  config?: MockCodergenBackendConfig
-): MockCodergenBackend {
+export function createMockCodergenBackend(config?: MockCodergenBackendConfig): MockCodergenBackend {
   return new MockCodergenBackend(config)
 }

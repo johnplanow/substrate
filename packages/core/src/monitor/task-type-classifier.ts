@@ -10,7 +10,18 @@ import type { ILogger } from '../dispatch/types.js'
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_TAXONOMY: Record<string, string[]> = {
-  testing: ['test', 'tests', 'spec', 'assert', 'verify', 'validate', 'coverage', 'e2e', 'unit', 'integration'],
+  testing: [
+    'test',
+    'tests',
+    'spec',
+    'assert',
+    'verify',
+    'validate',
+    'coverage',
+    'e2e',
+    'unit',
+    'integration',
+  ],
   debugging: ['fix', 'debug', 'resolve', 'patch', 'hotfix', 'bug', 'crash', 'error', 'issue'],
   refactoring: ['refactor', 'restructure', 'reorganize', 'cleanup', 'optimize', 'clean', 'improve'],
   docs: ['document', 'readme', 'jsdoc', 'comment', 'guide', 'tutorial', 'wiki', 'docstring'],
@@ -78,7 +89,7 @@ export class TaskTypeClassifier {
 
 export function createTaskTypeClassifier(
   customTaxonomy?: Record<string, string[]>,
-  logger?: ILogger,
+  logger?: ILogger
 ): TaskTypeClassifier {
   return new TaskTypeClassifier(customTaxonomy, logger)
 }

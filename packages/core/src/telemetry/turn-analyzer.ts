@@ -84,7 +84,7 @@ export class TurnAnalyzer implements ITurnAnalyzer {
           inputTokens: child.inputTokens,
           outputTokens: child.outputTokens,
           durationMs: child.durationMs,
-        }),
+        })
       )
 
       return {

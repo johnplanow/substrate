@@ -78,7 +78,7 @@ export function createSatisfactionScorer(threshold = 0.8): SatisfactionScorer {
       }
 
       // Resolve weights and compute totalWeight in a single pass
-      const resolved = scenarios.map(s => ({
+      const resolved = scenarios.map((s) => ({
         scenario: s,
         weight: (weights?.[s.name] ?? 1.0) as number,
       }))
@@ -89,9 +89,9 @@ export function createSatisfactionScorer(threshold = 0.8): SatisfactionScorer {
       }
 
       // Build breakdown and compute score
-      const breakdown: ScenarioScoreDetail[] = resolved.map(r => {
+      const breakdown: ScenarioScoreDetail[] = resolved.map((r) => {
         const passed = r.scenario.status === 'pass'
-        const contribution = r.weight * (passed ? 1 : 0) / totalWeight
+        const contribution = (r.weight * (passed ? 1 : 0)) / totalWeight
         return { name: r.scenario.name, passed, weight: r.weight, contribution }
       })
 
@@ -118,12 +118,12 @@ export function createSatisfactionScorer(threshold = 0.8): SatisfactionScorer {
  */
 export function computeSatisfactionScore(
   result: ScenarioRunResult,
-  threshold = 0.8,
+  threshold = 0.8
 ): SatisfactionScore {
   const scenarios = result.scenarios
   const totalWeight = scenarios.length
 
-  const breakdown: ScenarioScoreDetail[] = scenarios.map(s => {
+  const breakdown: ScenarioScoreDetail[] = scenarios.map((s) => {
     const passed = s.status === 'pass'
     const contribution = totalWeight > 0 ? (passed ? 1.0 / totalWeight : 0) : 0
     return { name: s.name, passed, weight: 1.0, contribution }

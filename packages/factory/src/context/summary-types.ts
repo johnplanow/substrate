@@ -21,7 +21,7 @@ export type SummaryLevel = 'full' | 'high' | 'medium' | 'low'
 export const SUMMARY_BUDGET: Record<SummaryLevel, number> = {
   full: 1.0,
   high: 0.75,
-  medium: 0.50,
+  medium: 0.5,
   low: 0.25,
 }
 

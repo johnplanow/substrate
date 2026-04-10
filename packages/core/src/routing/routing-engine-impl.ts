@@ -23,7 +23,11 @@ import type { CoreEvents } from '../events/core-events.js'
 import type { IAdapterRegistry, ILogger } from '../dispatch/types.js'
 import { loadRoutingPolicy, type RoutingPolicy, type ProviderPolicy } from './routing-policy.js'
 import { ProviderStatusTracker, type ProviderStatus } from './provider-status.js'
-import { makeRoutingDecision, type RoutingDecision, type MonitorRecommendation } from './routing-decision.js'
+import {
+  makeRoutingDecision,
+  type RoutingDecision,
+  type MonitorRecommendation,
+} from './routing-decision.js'
 import type { RoutingEngine, RoutingTask } from './routing-engine.js'
 import type { IConfigSystem, IMonitorAgent } from './types.js'
 
@@ -51,14 +55,20 @@ export class RoutingEngineImpl implements RoutingEngine {
 
   /** Bound references for event listener management */
   private readonly _onTaskReady: (payload: { taskId: string; taskType?: string }) => void
-  private readonly _onTaskComplete: (payload: { taskId: string; result: { tokensUsed?: number } }) => void
-  private readonly _onConfigReloaded: (payload: { changedKeys: string[]; newConfig: Record<string, unknown> }) => void
+  private readonly _onTaskComplete: (payload: {
+    taskId: string
+    result: { tokensUsed?: number }
+  }) => void
+  private readonly _onConfigReloaded: (payload: {
+    changedKeys: string[]
+    newConfig: Record<string, unknown>
+  }) => void
 
   constructor(
     eventBus: TypedEventBus<CoreEvents>,
     configSystem?: IConfigSystem | null,
     adapterRegistry?: IAdapterRegistry | null,
-    logger?: ILogger,
+    logger?: ILogger
   ) {
     this._eventBus = eventBus
     this._configSystem = configSystem ?? null
@@ -69,11 +79,20 @@ export class RoutingEngineImpl implements RoutingEngine {
       this._handleTaskReady(taskId, taskType)
     }
 
-    this._onTaskComplete = ({ taskId, result }: { taskId: string; result: { tokensUsed?: number } }) => {
+    this._onTaskComplete = ({
+      taskId,
+      result,
+    }: {
+      taskId: string
+      result: { tokensUsed?: number }
+    }) => {
       this._handleTaskComplete(taskId, result)
     }
 
-    this._onConfigReloaded = (payload: { changedKeys: string[]; newConfig: Record<string, unknown> }) => {
+    this._onConfigReloaded = (payload: {
+      changedKeys: string[]
+      newConfig: Record<string, unknown>
+    }) => {
       this._handleConfigReloaded(payload.changedKeys, payload.newConfig)
     }
   }
@@ -100,21 +119,30 @@ export class RoutingEngineImpl implements RoutingEngine {
       this._logger.info({ policyPath: this._policyPath }, 'Routing policy loaded successfully')
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      this._logger.debug({ policyPath: this._policyPath, err: message }, 'Routing policy not loaded — routing will use fallback behavior')
+      this._logger.debug(
+        { policyPath: this._policyPath, err: message },
+        'Routing policy not loaded — routing will use fallback behavior'
+      )
       this._policy = null
     }
 
     // Subscribe to events
     this._eventBus.on('task:ready', this._onTaskReady)
     this._eventBus.on('task:complete', this._onTaskComplete)
-    this._eventBus.on('config:reloaded', this._onConfigReloaded as Parameters<typeof this._eventBus.on>[1])
+    this._eventBus.on(
+      'config:reloaded',
+      this._onConfigReloaded as Parameters<typeof this._eventBus.on>[1]
+    )
   }
 
   async shutdown(): Promise<void> {
     this._logger.info('RoutingEngine.shutdown()')
     this._eventBus.off('task:ready', this._onTaskReady)
     this._eventBus.off('task:complete', this._onTaskComplete)
-    this._eventBus.off('config:reloaded', this._onConfigReloaded as Parameters<typeof this._eventBus.off>[1])
+    this._eventBus.off(
+      'config:reloaded',
+      this._onConfigReloaded as Parameters<typeof this._eventBus.off>[1]
+    )
   }
 
   // ---------------------------------------------------------------------------
@@ -158,7 +186,8 @@ export class RoutingEngineImpl implements RoutingEngine {
 
     // Get preferred agents based on task type (falls back to default)
     const taskTypePolicy = taskType.length > 0 ? this._policy.task_types?.[taskType] : undefined
-    const preferredAgents = taskTypePolicy?.preferred_agents ?? this._policy.default.preferred_agents
+    const preferredAgents =
+      taskTypePolicy?.preferred_agents ?? this._policy.default.preferred_agents
     const modelPreferences = taskTypePolicy?.model_preferences ?? {}
 
     // Collect the fallback chain for auditing
@@ -175,7 +204,9 @@ export class RoutingEngineImpl implements RoutingEngine {
           const builder = makeRoutingDecision(taskId)
             .withAgent(decision.agent, decision.billingMode)
             .withModel(decision.model ?? '')
-            .withRationale(`Explicit agent assignment: ${explicitAgent} via ${decision.billingMode}`)
+            .withRationale(
+              `Explicit agent assignment: ${explicitAgent} via ${decision.billingMode}`
+            )
             .withFallbackChain([explicitAgent])
           this._attachMonitorRecommendation(builder, taskType, decision.agent)
           return builder.build()
@@ -183,7 +214,10 @@ export class RoutingEngineImpl implements RoutingEngine {
       }
 
       // Explicit agent unavailable — fall through to policy routing
-      this._logger.debug({ taskId, explicitAgent }, 'Explicit agent unavailable, falling back to policy')
+      this._logger.debug(
+        { taskId, explicitAgent },
+        'Explicit agent unavailable, falling back to policy'
+      )
     }
 
     // Evaluate each preferred agent in order
@@ -287,18 +321,24 @@ export class RoutingEngineImpl implements RoutingEngine {
     // We need to know which provider was used — this requires tracking from task:routed
     // For now, we can't easily reverse-map taskId→provider without additional state.
     // The full integration with billing/cost tracking happens in Story 4.2.
-    this._logger.debug({ taskId, tokensUsed: result.tokensUsed }, 'task:complete received — rate limit tracking deferred to cost tracker')
+    this._logger.debug(
+      { taskId, tokensUsed: result.tokensUsed },
+      'task:complete received — rate limit tracking deferred to cost tracker'
+    )
   }
 
   private _handleConfigReloaded(changedKeys: string[], newConfig: Record<string, unknown>): void {
     // Use provider configuration from newConfig directly when available (AC4)
     // Already-dispatched tasks are NOT re-routed; routing is determined at dispatch time.
     const hasRoutingChanges = changedKeys.some(
-      (k) => k.startsWith('providers.') || k.startsWith('routing') || k === 'routing_policy_path',
+      (k) => k.startsWith('providers.') || k.startsWith('routing') || k === 'routing_policy_path'
     )
 
     if (!hasRoutingChanges) {
-      this._logger.debug({ changedKeys }, 'Config reloaded but no routing-relevant changes — skipping policy reload')
+      this._logger.debug(
+        { changedKeys },
+        'Config reloaded but no routing-relevant changes — skipping policy reload'
+      )
       return
     }
 
@@ -309,12 +349,14 @@ export class RoutingEngineImpl implements RoutingEngine {
     }
 
     // Reload routing policy from its dedicated file (routing policy is separate from main config)
-    this.reloadPolicy().then(() => {
-      this._logger.info({ changedKeys }, 'Routing policy updated from config reload')
-    }).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err)
-      this._logger.warn({ err: message }, 'Failed to reload routing policy after config reload')
-    })
+    this.reloadPolicy()
+      .then(() => {
+        this._logger.info({ changedKeys }, 'Routing policy updated from config reload')
+      })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err)
+        this._logger.warn({ err: message }, 'Failed to reload routing policy after config reload')
+      })
   }
 
   // ---------------------------------------------------------------------------
@@ -329,24 +371,32 @@ export class RoutingEngineImpl implements RoutingEngine {
     taskId: string,
     agentName: string,
     provider: ProviderPolicy,
-    modelPreferences: Record<string, string>,
+    modelPreferences: Record<string, string>
   ): { agent: string; billingMode: 'subscription' | 'api'; model?: string } | null {
     const model = modelPreferences[agentName]
     const status = this._statusTracker.getStatus(agentName)
 
     // Check subscription path first (ADR-008: subscription-first is mandatory)
     if (provider.subscription_routing) {
-      const rateLimitOk = status !== null
-        ? this._statusTracker.checkRateLimit(agentName, 1) // pass 1 to detect fully-exhausted window
-        : true // No tracking = assume available
+      const rateLimitOk =
+        status !== null
+          ? this._statusTracker.checkRateLimit(agentName, 1) // pass 1 to detect fully-exhausted window
+          : true // No tracking = assume available
 
       if (rateLimitOk) {
         this._logger.debug({ taskId, agentName }, 'Subscription routing selected')
-        return { agent: agentName, billingMode: 'subscription' as const, ...(model !== undefined ? { model } : {}) }
+        return {
+          agent: agentName,
+          billingMode: 'subscription' as const,
+          ...(model !== undefined ? { model } : {}),
+        }
       }
 
       // Rate limit exceeded — log and try API fallback
-      this._logger.debug({ taskId, agentName }, 'Subscription rate limit exceeded, trying API billing')
+      this._logger.debug(
+        { taskId, agentName },
+        'Subscription rate limit exceeded, trying API billing'
+      )
 
       // Emit provider:unavailable for rate limit
       const resetTime = this._statusTracker.getRateLimitResetTime(agentName)
@@ -364,11 +414,19 @@ export class RoutingEngineImpl implements RoutingEngine {
       const apiKeyEnv = apiBillingConfig.api_key_env
       if (apiKeyEnv !== undefined && process.env[apiKeyEnv] !== undefined) {
         this._logger.debug({ taskId, agentName }, 'API billing selected')
-        return { agent: agentName, billingMode: 'api' as const, ...(model !== undefined ? { model } : {}) }
+        return {
+          agent: agentName,
+          billingMode: 'api' as const,
+          ...(model !== undefined ? { model } : {}),
+        }
       } else if (apiKeyEnv === undefined) {
         // API key env not required — assume configured
         this._logger.debug({ taskId, agentName }, 'API billing selected (no key env required)')
-        return { agent: agentName, billingMode: 'api' as const, ...(model !== undefined ? { model } : {}) }
+        return {
+          agent: agentName,
+          billingMode: 'api' as const,
+          ...(model !== undefined ? { model } : {}),
+        }
       }
 
       this._logger.debug({ taskId, agentName, apiKeyEnv }, 'API key not configured, skipping agent')
@@ -384,12 +442,13 @@ export class RoutingEngineImpl implements RoutingEngine {
     _taskId: string,
     agent: string,
     billingMode: 'subscription' | 'api',
-    taskType: string,
+    taskType: string
   ): string {
     const status = this._statusTracker.getStatus(agent)
-    const tokensInfo = status !== null && status.rateLimit.tokensPerWindow > 0
-      ? `, tokens ${status.tokensUsedInWindow}/${status.rateLimit.tokensPerWindow}`
-      : ''
+    const tokensInfo =
+      status !== null && status.rateLimit.tokensPerWindow > 0
+        ? `, tokens ${status.tokensUsedInWindow}/${status.rateLimit.tokensPerWindow}`
+        : ''
 
     if (billingMode === 'subscription') {
       if (taskType.length > 0) {
@@ -462,7 +521,7 @@ export class RoutingEngineImpl implements RoutingEngine {
   private _attachMonitorRecommendation(
     builder: import('./routing-decision.js').RoutingDecisionBuilder,
     taskType: string,
-    selectedAgent = '',
+    selectedAgent = ''
   ): void {
     if (!this._useMonitorRecommendations || this._monitorAgent === null) return
 
@@ -476,8 +535,12 @@ export class RoutingEngineImpl implements RoutingEngine {
       if (recommendation !== null && recommendation.confidence !== 'low') {
         builder.withMonitorRecommendation(recommendation as MonitorRecommendation)
         this._logger.debug(
-          { taskType, confidence: recommendation.confidence, improvement: recommendation.improvement_percentage },
-          'Monitor recommendation attached to routing decision',
+          {
+            taskType,
+            confidence: recommendation.confidence,
+            improvement: recommendation.improvement_percentage,
+          },
+          'Monitor recommendation attached to routing decision'
         )
 
         // AC7: Log when routing policy overrides the monitor recommendation
@@ -490,13 +553,16 @@ export class RoutingEngineImpl implements RoutingEngine {
               confidence: recommendation.confidence,
               improvement: recommendation.improvement_percentage,
             },
-            'Routing policy overrides monitor recommendation',
+            'Routing policy overrides monitor recommendation'
           )
         }
       }
     } catch (err) {
       // Never let advisory monitor errors affect routing
-      this._logger.warn({ err, taskType }, 'Failed to get monitor recommendation — continuing without it')
+      this._logger.warn(
+        { err, taskType },
+        'Failed to get monitor recommendation — continuing without it'
+      )
       // AC5: monitor consultation failed, so the monitor did not influence this decision.
       // Set monitorInfluenced to false since no useful recommendation was obtained.
       builder.withMonitorInfluenced(false)
@@ -516,11 +582,20 @@ export class RoutingEngineImpl implements RoutingEngine {
     for (const [name, provider] of Object.entries(this._policy.providers)) {
       const apiBillingEnabled = provider.api_billing?.enabled === true
 
-      const rateLimit = provider.rate_limit !== undefined
-        ? { tokensPerWindow: provider.rate_limit.tokens_per_window, windowSeconds: provider.rate_limit.window_seconds }
-        : undefined
+      const rateLimit =
+        provider.rate_limit !== undefined
+          ? {
+              tokensPerWindow: provider.rate_limit.tokens_per_window,
+              windowSeconds: provider.rate_limit.window_seconds,
+            }
+          : undefined
 
-      this._statusTracker.initProvider(name, provider.subscription_routing, apiBillingEnabled, rateLimit)
+      this._statusTracker.initProvider(
+        name,
+        provider.subscription_routing,
+        apiBillingEnabled,
+        rateLimit
+      )
 
       this._logger.debug(
         { provider: name, subscriptionRouting: provider.subscription_routing, apiBillingEnabled },
@@ -551,7 +626,7 @@ export function createRoutingEngineImpl(options: RoutingEngineImplOptions): Rout
     options.eventBus,
     options.configSystem ?? null,
     options.adapterRegistry ?? null,
-    options.logger,
+    options.logger
   )
 
   if (options.monitorAgent != null && options.useMonitorRecommendations === true) {

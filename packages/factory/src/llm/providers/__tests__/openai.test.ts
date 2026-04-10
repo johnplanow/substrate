@@ -18,13 +18,15 @@ function makeMockResponse(body: unknown, status = 200): Response {
   } as unknown as Response
 }
 
-function makeSuccessResponse(overrides: Partial<{
-  id: string
-  model: string
-  status: string
-  output: unknown[]
-  usage: unknown
-}> = {}): unknown {
+function makeSuccessResponse(
+  overrides: Partial<{
+    id: string
+    model: string
+    status: string
+    output: unknown[]
+    usage: unknown
+  }> = {}
+): unknown {
   return {
     id: 'resp_test_1',
     model: 'gpt-5.2',
@@ -147,14 +149,17 @@ describe('OpenAIAdapter', () => {
       const body = JSON.parse(callArgs![1]!.body as string) as Record<string, unknown>
       expect(body['instructions']).toBe('You are a helpful assistant.')
       const input = body['input'] as Array<{ role?: string }>
-      expect(input.every(item => item.role !== 'system')).toBe(true)
+      expect(input.every((item) => item.role !== 'system')).toBe(true)
     })
 
     it('does not set instructions when systemPrompt is absent', async () => {
       vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse()))
       const adapter = new OpenAIAdapter()
       await adapter.complete(makeMinimalRequest())
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       expect(Object.prototype.hasOwnProperty.call(body, 'instructions')).toBe(false)
     })
   })
@@ -171,7 +176,10 @@ describe('OpenAIAdapter', () => {
         model: 'gpt-5.2',
         messages: [{ role: 'user', content: [{ kind: 'text', text: 'Hello world' }] }],
       })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       const input = body['input'] as Array<Record<string, unknown>>
       expect(input).toHaveLength(1)
       expect(input[0]).toMatchObject({ type: 'message', role: 'user' })
@@ -192,7 +200,10 @@ describe('OpenAIAdapter', () => {
           },
         ],
       })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       const input = body['input'] as Array<Record<string, unknown>>
       expect(input[0]).toMatchObject({
         type: 'function_call_output',
@@ -212,13 +223,20 @@ describe('OpenAIAdapter', () => {
             content: [
               {
                 kind: 'tool_result',
-                toolResult: { toolCallId: 'call_from_part', content: 'tool output', isError: false },
+                toolResult: {
+                  toolCallId: 'call_from_part',
+                  content: 'tool output',
+                  isError: false,
+                },
               },
             ],
           },
         ],
       })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       const input = body['input'] as Array<Record<string, unknown>>
       expect(input[0]).toMatchObject({
         type: 'function_call_output',
@@ -237,7 +255,10 @@ describe('OpenAIAdapter', () => {
           { role: 'assistant', content: [{ kind: 'text', text: 'Answer' }] },
         ],
       })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       const input = body['input'] as Array<Record<string, unknown>>
       expect(input[1]).toMatchObject({ type: 'message', role: 'assistant' })
       const content = input[1]!['content'] as Array<{ type: string; text: string }>
@@ -254,9 +275,12 @@ describe('OpenAIAdapter', () => {
           { role: 'user', content: [{ kind: 'text', text: 'Hello' }] },
         ],
       })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       const input = body['input'] as Array<{ role?: string }>
-      expect(input.every(item => item.role !== 'system')).toBe(true)
+      expect(input.every((item) => item.role !== 'system')).toBe(true)
       expect(input).toHaveLength(1)
     })
   })
@@ -281,7 +305,10 @@ describe('OpenAIAdapter', () => {
         ],
         toolChoice: 'required',
       })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       const tools = body['tools'] as Array<Record<string, unknown>>
       expect(tools[0]).toMatchObject({
         type: 'function',
@@ -302,7 +329,10 @@ describe('OpenAIAdapter', () => {
         tools: [{ name: 'my_tool', description: 'A tool', parameters: {} }],
         toolChoice: { type: 'function', name: 'my_tool' },
       })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       expect(body['tool_choice']).toEqual({ type: 'function', function: { name: 'my_tool' } })
     })
 
@@ -310,7 +340,10 @@ describe('OpenAIAdapter', () => {
       vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse()))
       const adapter = new OpenAIAdapter()
       await adapter.complete(makeMinimalRequest())
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       expect(Object.prototype.hasOwnProperty.call(body, 'tool_choice')).toBe(false)
     })
 
@@ -318,7 +351,10 @@ describe('OpenAIAdapter', () => {
       vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse()))
       const adapter = new OpenAIAdapter()
       await adapter.complete({ ...makeMinimalRequest(), toolChoice: 'auto' })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       expect(body['tool_choice']).toBe('auto')
     })
   })
@@ -329,18 +365,22 @@ describe('OpenAIAdapter', () => {
 
   describe('AC5: complete() returns normalized LLMResponse', () => {
     it('returns correct content, model, and stopReason for a text response', async () => {
-      vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse({
-        model: 'gpt-5.2',
-        status: 'completed',
-        output: [
-          {
-            type: 'message',
-            role: 'assistant',
-            content: [{ type: 'output_text', text: 'Hello there!' }],
-          },
-        ],
-        usage: { input_tokens: 10, output_tokens: 5 },
-      })))
+      vi.mocked(fetch).mockResolvedValue(
+        makeMockResponse(
+          makeSuccessResponse({
+            model: 'gpt-5.2',
+            status: 'completed',
+            output: [
+              {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'Hello there!' }],
+              },
+            ],
+            usage: { input_tokens: 10, output_tokens: 5 },
+          })
+        )
+      )
       const adapter = new OpenAIAdapter()
       const response = await adapter.complete(makeMinimalRequest())
       expect(response.content).toBe('Hello there!')
@@ -350,18 +390,22 @@ describe('OpenAIAdapter', () => {
     })
 
     it('parses function_call output items into toolCalls with id, name, arguments', async () => {
-      vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse({
-        status: 'completed',
-        output: [
-          {
-            type: 'function_call',
-            call_id: 'call_xyz_789',
-            name: 'get_weather',
-            arguments: '{"location":"Paris","unit":"celsius"}',
-          },
-        ],
-        usage: { input_tokens: 15, output_tokens: 10 },
-      })))
+      vi.mocked(fetch).mockResolvedValue(
+        makeMockResponse(
+          makeSuccessResponse({
+            status: 'completed',
+            output: [
+              {
+                type: 'function_call',
+                call_id: 'call_xyz_789',
+                name: 'get_weather',
+                arguments: '{"location":"Paris","unit":"celsius"}',
+              },
+            ],
+            usage: { input_tokens: 15, output_tokens: 10 },
+          })
+        )
+      )
       const adapter = new OpenAIAdapter()
       const response = await adapter.complete(makeMinimalRequest())
       expect(response.toolCalls).toHaveLength(1)
@@ -374,11 +418,15 @@ describe('OpenAIAdapter', () => {
     })
 
     it('maps incomplete status with max_output_tokens to "length" stopReason', async () => {
-      vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse({
-        status: 'incomplete',
-        output: [],
-        usage: { input_tokens: 5, output_tokens: 100 },
-      })))
+      vi.mocked(fetch).mockResolvedValue(
+        makeMockResponse(
+          makeSuccessResponse({
+            status: 'incomplete',
+            output: [],
+            usage: { input_tokens: 5, output_tokens: 100 },
+          })
+        )
+      )
       // We need incomplete_details in the response
       const incompleteBody = {
         id: 'resp_test',
@@ -395,32 +443,33 @@ describe('OpenAIAdapter', () => {
     })
 
     it('concatenates text from multiple output_text items', async () => {
-      vi.mocked(fetch).mockResolvedValue(makeMockResponse({
-        id: 'resp_multi',
-        model: 'gpt-5.2',
-        status: 'completed',
-        output: [
-          {
-            type: 'message',
-            role: 'assistant',
-            content: [
-              { type: 'output_text', text: 'Hello ' },
-              { type: 'output_text', text: 'world!' },
-            ],
-          },
-        ],
-        usage: { input_tokens: 5, output_tokens: 3 },
-      }))
+      vi.mocked(fetch).mockResolvedValue(
+        makeMockResponse({
+          id: 'resp_multi',
+          model: 'gpt-5.2',
+          status: 'completed',
+          output: [
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [
+                { type: 'output_text', text: 'Hello ' },
+                { type: 'output_text', text: 'world!' },
+              ],
+            },
+          ],
+          usage: { input_tokens: 5, output_tokens: 3 },
+        })
+      )
       const adapter = new OpenAIAdapter()
       const response = await adapter.complete(makeMinimalRequest())
       expect(response.content).toBe('Hello world!')
     })
 
     it('throws on non-2xx HTTP status', async () => {
-      vi.mocked(fetch).mockResolvedValue(makeMockResponse(
-        { error: { message: 'Invalid API key' } },
-        401
-      ))
+      vi.mocked(fetch).mockResolvedValue(
+        makeMockResponse({ error: { message: 'Invalid API key' } }, 401)
+      )
       const adapter = new OpenAIAdapter()
       await expect(adapter.complete(makeMinimalRequest())).rejects.toThrow()
     })
@@ -432,9 +481,13 @@ describe('OpenAIAdapter', () => {
 
   describe('AC6: Usage token extraction', () => {
     it('correctly maps inputTokens, outputTokens, and totalTokens', async () => {
-      vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse({
-        usage: { input_tokens: 100, output_tokens: 50 },
-      })))
+      vi.mocked(fetch).mockResolvedValue(
+        makeMockResponse(
+          makeSuccessResponse({
+            usage: { input_tokens: 100, output_tokens: 50 },
+          })
+        )
+      )
       const adapter = new OpenAIAdapter()
       const response = await adapter.complete(makeMinimalRequest())
       expect(response.usage.inputTokens).toBe(100)
@@ -443,53 +496,73 @@ describe('OpenAIAdapter', () => {
     })
 
     it('extracts reasoningTokens from output_tokens_details', async () => {
-      vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse({
-        usage: {
-          input_tokens: 200,
-          output_tokens: 80,
-          output_tokens_details: { reasoning_tokens: 500 },
-        },
-      })))
+      vi.mocked(fetch).mockResolvedValue(
+        makeMockResponse(
+          makeSuccessResponse({
+            usage: {
+              input_tokens: 200,
+              output_tokens: 80,
+              output_tokens_details: { reasoning_tokens: 500 },
+            },
+          })
+        )
+      )
       const adapter = new OpenAIAdapter()
       const response = await adapter.complete(makeMinimalRequest())
       expect(response.usage.reasoningTokens).toBe(500)
     })
 
     it('omits reasoningTokens when output_tokens_details is absent', async () => {
-      vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse({
-        usage: { input_tokens: 50, output_tokens: 20 },
-      })))
+      vi.mocked(fetch).mockResolvedValue(
+        makeMockResponse(
+          makeSuccessResponse({
+            usage: { input_tokens: 50, output_tokens: 20 },
+          })
+        )
+      )
       const adapter = new OpenAIAdapter()
       const response = await adapter.complete(makeMinimalRequest())
       expect(Object.prototype.hasOwnProperty.call(response.usage, 'reasoningTokens')).toBe(false)
     })
 
     it('extracts cacheReadTokens from input_tokens_details.cached_tokens', async () => {
-      vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse({
-        usage: {
-          input_tokens: 300,
-          output_tokens: 60,
-          input_tokens_details: { cached_tokens: 150 },
-        },
-      })))
+      vi.mocked(fetch).mockResolvedValue(
+        makeMockResponse(
+          makeSuccessResponse({
+            usage: {
+              input_tokens: 300,
+              output_tokens: 60,
+              input_tokens_details: { cached_tokens: 150 },
+            },
+          })
+        )
+      )
       const adapter = new OpenAIAdapter()
       const response = await adapter.complete(makeMinimalRequest())
       expect(response.usage.cacheReadTokens).toBe(150)
     })
 
     it('omits cacheReadTokens when input_tokens_details is absent', async () => {
-      vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse({
-        usage: { input_tokens: 50, output_tokens: 20 },
-      })))
+      vi.mocked(fetch).mockResolvedValue(
+        makeMockResponse(
+          makeSuccessResponse({
+            usage: { input_tokens: 50, output_tokens: 20 },
+          })
+        )
+      )
       const adapter = new OpenAIAdapter()
       const response = await adapter.complete(makeMinimalRequest())
       expect(Object.prototype.hasOwnProperty.call(response.usage, 'cacheReadTokens')).toBe(false)
     })
 
     it('omits cacheWriteTokens (OpenAI uses automatic server-side caching)', async () => {
-      vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse({
-        usage: { input_tokens: 100, output_tokens: 40 },
-      })))
+      vi.mocked(fetch).mockResolvedValue(
+        makeMockResponse(
+          makeSuccessResponse({
+            usage: { input_tokens: 100, output_tokens: 40 },
+          })
+        )
+      )
       const adapter = new OpenAIAdapter()
       const response = await adapter.complete(makeMinimalRequest())
       expect(Object.prototype.hasOwnProperty.call(response.usage, 'cacheWriteTokens')).toBe(false)
@@ -505,7 +578,10 @@ describe('OpenAIAdapter', () => {
       vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse()))
       const adapter = new OpenAIAdapter()
       await adapter.complete({ ...makeMinimalRequest(), reasoningEffort: 'high' })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       expect(body['reasoning']).toEqual({ effort: 'high' })
     })
 
@@ -513,7 +589,10 @@ describe('OpenAIAdapter', () => {
       vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse()))
       const adapter = new OpenAIAdapter()
       await adapter.complete(makeMinimalRequest()) // no reasoningEffort
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       expect(Object.prototype.hasOwnProperty.call(body, 'reasoning')).toBe(false)
     })
 
@@ -521,7 +600,10 @@ describe('OpenAIAdapter', () => {
       vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse()))
       const adapter = new OpenAIAdapter()
       await adapter.complete({ ...makeMinimalRequest(), reasoningEffort: 'low' })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       expect(body['reasoning']).toEqual({ effort: 'low' })
     })
 
@@ -529,7 +611,10 @@ describe('OpenAIAdapter', () => {
       vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse()))
       const adapter = new OpenAIAdapter()
       await adapter.complete({ ...makeMinimalRequest(), reasoningEffort: 'medium' })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       expect(body['reasoning']).toEqual({ effort: 'medium' })
     })
   })
@@ -543,7 +628,10 @@ describe('OpenAIAdapter', () => {
       vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse()))
       const adapter = new OpenAIAdapter()
       await adapter.complete({ ...makeMinimalRequest(), maxTokens: 2048 })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       expect(body['max_output_tokens']).toBe(2048)
     })
 
@@ -551,15 +639,24 @@ describe('OpenAIAdapter', () => {
       vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse()))
       const adapter = new OpenAIAdapter()
       await adapter.complete({ ...makeMinimalRequest(), temperature: 0.7 })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       expect(body['temperature']).toBe(0.7)
     })
 
     it('merges provider-namespaced extra.openai fields into request body', async () => {
       vi.mocked(fetch).mockResolvedValue(makeMockResponse(makeSuccessResponse()))
       const adapter = new OpenAIAdapter()
-      await adapter.complete({ ...makeMinimalRequest(), extra: { openai: { custom_field: 'custom_value' } } })
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<string, unknown>
+      await adapter.complete({
+        ...makeMinimalRequest(),
+        extra: { openai: { custom_field: 'custom_value' } },
+      })
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as Record<
+        string,
+        unknown
+      >
       expect(body['custom_field']).toBe('custom_value')
     })
 
@@ -588,20 +685,22 @@ describe('OpenAIAdapter', () => {
 
   describe('Defensive parsing', () => {
     it('sets arguments to {} when tool call arguments are invalid JSON', async () => {
-      vi.mocked(fetch).mockResolvedValue(makeMockResponse({
-        id: 'resp_test',
-        model: 'gpt-5.2',
-        status: 'completed',
-        output: [
-          {
-            type: 'function_call',
-            call_id: 'call_bad',
-            name: 'bad_tool',
-            arguments: 'not valid json',
-          },
-        ],
-        usage: { input_tokens: 5, output_tokens: 3 },
-      }))
+      vi.mocked(fetch).mockResolvedValue(
+        makeMockResponse({
+          id: 'resp_test',
+          model: 'gpt-5.2',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              call_id: 'call_bad',
+              name: 'bad_tool',
+              arguments: 'not valid json',
+            },
+          ],
+          usage: { input_tokens: 5, output_tokens: 3 },
+        })
+      )
       const adapter = new OpenAIAdapter()
       const response = await adapter.complete(makeMinimalRequest())
       expect(response.toolCalls[0]!.arguments).toEqual({})

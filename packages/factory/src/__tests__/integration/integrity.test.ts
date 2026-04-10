@@ -204,7 +204,7 @@ describe('AC3-executor: graph executor halts before validate node when integrity
       const validateStarted = events.filter(
         (e) =>
           e.event === 'graph:node-started' &&
-          (e.payload as Record<string, unknown>)['nodeId'] === 'validate',
+          (e.payload as Record<string, unknown>)['nodeId'] === 'validate'
       )
       expect(validateStarted).toHaveLength(0)
     } finally {
@@ -240,7 +240,7 @@ describe('AC3-executor: graph executor halts before validate node when integrity
       expect(integrityFailedEvents).toHaveLength(1)
       const payload = integrityFailedEvents[0]?.payload as Record<string, unknown>
       expect(Array.isArray(payload['tampered'])).toBe(true)
-      expect((payload['tampered'] as string[])).toContain('scenario-pass.sh')
+      expect(payload['tampered'] as string[]).toContain('scenario-pass.sh')
     } finally {
       await cleanDir(logsRoot)
     }

@@ -39,7 +39,7 @@ export function parseFidelityLevel(fidelity: string): SummaryLevel | null {
 export function resolveFidelity(
   node: GraphNode,
   incomingEdge: GraphEdge | undefined,
-  graph: Graph,
+  graph: Graph
 ): string {
   if (incomingEdge?.fidelity) return incomingEdge.fidelity
   if (node.fidelity) return node.fidelity

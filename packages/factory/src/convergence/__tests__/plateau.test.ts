@@ -73,9 +73,9 @@ describe('createPlateauDetector', () => {
 
   it('AC5: strict threshold boundary — equal delta is NOT a plateau (delta === threshold)', () => {
     const detector = createPlateauDetector() // threshold=0.05
-    detector.recordScore(1, 0.60)
+    detector.recordScore(1, 0.6)
     detector.recordScore(2, 0.65)
-    detector.recordScore(3, 0.60)
+    detector.recordScore(3, 0.6)
     // max−min = 0.65 − 0.60 = 0.05 === threshold → strict < fails → not a plateau
     expect(detector.isPlateaued()).toBe(false)
   })
@@ -85,7 +85,7 @@ describe('createPlateauDetector', () => {
     // Need 5 scores; 4 scores → false
     detector.recordScore(1, 0.5)
     detector.recordScore(2, 0.51)
-    detector.recordScore(3, 0.50)
+    detector.recordScore(3, 0.5)
     detector.recordScore(4, 0.51)
     expect(detector.isPlateaued()).toBe(false)
     // Now add 5th tight score → window is full
@@ -180,7 +180,7 @@ describe('checkPlateauAndEmit', () => {
     detector.recordScore(3, 0.59)
 
     expect(() =>
-      checkPlateauAndEmit(detector, { runId: 'run-1', nodeId: 'score-node' }),
+      checkPlateauAndEmit(detector, { runId: 'run-1', nodeId: 'score-node' })
     ).not.toThrow()
 
     const result = checkPlateauAndEmit(detector, { runId: 'run-1', nodeId: 'score-node' })

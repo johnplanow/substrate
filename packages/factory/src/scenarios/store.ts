@@ -60,7 +60,7 @@ export class ScenarioStore {
         const content = await readFile(filePath)
         const checksum = sha256(content)
         return { name, path: filePath, checksum }
-      }),
+      })
     )
 
     return { scenarios, capturedAt: Date.now() }
@@ -86,7 +86,7 @@ export class ScenarioStore {
    */
   async verify(
     manifest: ScenarioManifest,
-    _projectRoot?: string,
+    _projectRoot?: string
   ): Promise<ScenarioStoreVerifyResult> {
     const tampered: string[] = []
 
@@ -102,7 +102,7 @@ export class ScenarioStore {
           // File no longer exists or cannot be read — treat as tampered
           tampered.push(entry.name)
         }
-      }),
+      })
     )
 
     return { valid: tampered.length === 0, tampered }

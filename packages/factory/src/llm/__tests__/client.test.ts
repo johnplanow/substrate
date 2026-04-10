@@ -17,7 +17,7 @@ function makeMockAdapter(name: string): ProviderAdapter {
     stream: vi.fn().mockReturnValue(
       (async function* () {
         yield { type: 'text_delta', delta: 'hello' }
-      })(),
+      })()
     ),
   }
 }
@@ -179,10 +179,12 @@ describe('LLMClient', () => {
       const req = { ...BASE_REQUEST, model: 'claude-sonnet-4-5' }
 
       const observedModels: string[] = []
-      const mw = vi.fn(async (request: LLMRequest, next: (r: LLMRequest) => Promise<LLMResponse>) => {
-        observedModels.push(request.model)
-        return next(request)
-      })
+      const mw = vi.fn(
+        async (request: LLMRequest, next: (r: LLMRequest) => Promise<LLMResponse>) => {
+          observedModels.push(request.model)
+          return next(request)
+        }
+      )
 
       client.use(mw)
       const result = await client.complete(req)
@@ -194,7 +196,9 @@ describe('LLMClient', () => {
 
     it('use() returns this for chaining', () => {
       const client = new LLMClient()
-      const mw = vi.fn(async (_req: LLMRequest, next: (r: LLMRequest) => Promise<LLMResponse>) => next(_req))
+      const mw = vi.fn(async (_req: LLMRequest, next: (r: LLMRequest) => Promise<LLMResponse>) =>
+        next(_req)
+      )
       const returned = client.use(mw)
       expect(returned).toBe(client)
     })
@@ -205,18 +209,22 @@ describe('LLMClient', () => {
       const req = { ...BASE_REQUEST, model: 'claude-sonnet-4-5' }
 
       const order: string[] = []
-      const outerMw = vi.fn(async (request: LLMRequest, next: (r: LLMRequest) => Promise<LLMResponse>) => {
-        order.push('outer-before')
-        const res = await next(request)
-        order.push('outer-after')
-        return res
-      })
-      const innerMw = vi.fn(async (request: LLMRequest, next: (r: LLMRequest) => Promise<LLMResponse>) => {
-        order.push('inner-before')
-        const res = await next(request)
-        order.push('inner-after')
-        return res
-      })
+      const outerMw = vi.fn(
+        async (request: LLMRequest, next: (r: LLMRequest) => Promise<LLMResponse>) => {
+          order.push('outer-before')
+          const res = await next(request)
+          order.push('outer-after')
+          return res
+        }
+      )
+      const innerMw = vi.fn(
+        async (request: LLMRequest, next: (r: LLMRequest) => Promise<LLMResponse>) => {
+          order.push('inner-before')
+          const res = await next(request)
+          order.push('inner-after')
+          return res
+        }
+      )
 
       client.use(outerMw).use(innerMw)
       await client.complete(req)

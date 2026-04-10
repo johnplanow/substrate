@@ -194,7 +194,8 @@ export function createFanInHandler(options?: FanInHandlerOptions): NodeHandler {
     if (!rawResults || !Array.isArray(rawResults) || rawResults.length === 0) {
       return {
         status: 'FAILURE',
-        failureReason: 'fan-in: no parallel results found in context (parallel.results is absent or empty)',
+        failureReason:
+          'fan-in: no parallel results found in context (parallel.results is absent or empty)',
       }
     }
 

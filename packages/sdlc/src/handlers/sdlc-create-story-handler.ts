@@ -48,7 +48,11 @@ interface Outcome {
 }
 
 /** NodeHandler function signature — matches @substrate-ai/factory NodeHandler type. */
-export type NodeHandler = (node: GraphNode, context: IGraphContext, graph: Graph) => Promise<Outcome>
+export type NodeHandler = (
+  node: GraphNode,
+  context: IGraphContext,
+  graph: Graph
+) => Promise<Outcome>
 
 // ---------------------------------------------------------------------------
 // CreateStory workflow types (local minimal definitions)
@@ -74,7 +78,10 @@ export interface CreateStoryResult {
 }
 
 /** Injectable function type for the runCreateStory workflow. */
-export type RunCreateStoryFn = (deps: unknown, params: CreateStoryParams) => Promise<CreateStoryResult>
+export type RunCreateStoryFn = (
+  deps: unknown,
+  params: CreateStoryParams
+) => Promise<CreateStoryResult>
 
 // ---------------------------------------------------------------------------
 // Handler options
@@ -134,9 +141,10 @@ export function createSdlcCreateStoryHandler(options: SdlcCreateStoryHandlerOpti
     // AC1: Extract optional pipelineRunId — build params without explicit undefined
     // (exactOptionalPropertyTypes requires optional fields to be absent, not undefined)
     const pipelineRunIdRaw = context.getString('pipelineRunId', '')
-    const createStoryParams: CreateStoryParams = pipelineRunIdRaw !== ''
-      ? { epicId, storyKey, pipelineRunId: pipelineRunIdRaw }
-      : { epicId, storyKey }
+    const createStoryParams: CreateStoryParams =
+      pipelineRunIdRaw !== ''
+        ? { epicId, storyKey, pipelineRunId: pipelineRunIdRaw }
+        : { epicId, storyKey }
 
     // AC4: Emit phase-start telemetry before calling runCreateStory
     options.eventBus.emit('orchestrator:story-phase-start', { storyKey, phase: 'create-story' })

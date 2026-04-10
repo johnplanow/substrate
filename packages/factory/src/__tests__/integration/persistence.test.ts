@@ -105,7 +105,7 @@ describe('scenario_results persistence (AC4)', () => {
 
     const rows = await adapter.query<{ iteration: number }>(
       'SELECT iteration FROM scenario_results WHERE run_id = ? ORDER BY iteration',
-      ['test-run-1'],
+      ['test-run-1']
     )
 
     expect(rows).toHaveLength(2)
@@ -126,7 +126,7 @@ describe('scenario_results persistence (AC4)', () => {
 
     const rows = await adapter.query<{ node_id: string }>(
       'SELECT node_id FROM scenario_results WHERE run_id = ?',
-      ['test-run-1'],
+      ['test-run-1']
     )
 
     expect(rows[0]?.node_id).toBe('validate')
@@ -143,7 +143,7 @@ describe('scenario_results persistence (AC4)', () => {
 
     const rows = await adapter.query<{ threshold: number }>(
       'SELECT threshold FROM scenario_results WHERE run_id = ?',
-      ['test-run-1'],
+      ['test-run-1']
     )
 
     expect(rows[0]?.threshold).toBe(0.8)
@@ -162,7 +162,7 @@ describe('scenario_results persistence (AC4)', () => {
 
     const rows = await adapter.query<{ details: string | null }>(
       'SELECT details FROM scenario_results WHERE run_id = ?',
-      ['test-run-1'],
+      ['test-run-1']
     )
 
     // details should be null when omitted
@@ -181,7 +181,7 @@ describe('scenario_results persistence (AC4)', () => {
 
     const rows = await adapter.query<{ details: string }>(
       'SELECT details FROM scenario_results WHERE run_id = ?',
-      ['test-run-1'],
+      ['test-run-1']
     )
 
     expect(rows[0]?.details).toBe(detailsJson)

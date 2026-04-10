@@ -56,8 +56,12 @@ function makeGraph(nodes: Map<string, GraphNode> = new Map()): Graph {
     nodes,
     edges: [],
     outgoingEdges: () => [],
-    startNode: () => { throw new Error('not used') },
-    exitNode: () => { throw new Error('not used') },
+    startNode: () => {
+      throw new Error('not used')
+    },
+    exitNode: () => {
+      throw new Error('not used')
+    },
   }
 }
 
@@ -286,9 +290,7 @@ describe('AC4: resume() restores context and returns completed-node skip list', 
 
 describe('AC5: resume() degrades fidelity for full-fidelity last node', () => {
   it('returns "summary:high" when last node fidelity is "full"', () => {
-    const nodes = new Map([
-      ['node2', { ...minimalNode, id: 'node2', fidelity: 'full' }],
-    ])
+    const nodes = new Map([['node2', { ...minimalNode, id: 'node2', fidelity: 'full' }]])
     const graph = makeGraph(nodes)
     const checkpoint: Checkpoint = {
       timestamp: Date.now(),
@@ -305,9 +307,7 @@ describe('AC5: resume() degrades fidelity for full-fidelity last node', () => {
   })
 
   it('returns "" when last node fidelity is not "full"', () => {
-    const nodes = new Map([
-      ['node2', { ...minimalNode, id: 'node2', fidelity: 'compact' }],
-    ])
+    const nodes = new Map([['node2', { ...minimalNode, id: 'node2', fidelity: 'compact' }]])
     const graph = makeGraph(nodes)
     const checkpoint: Checkpoint = {
       timestamp: Date.now(),
@@ -340,9 +340,7 @@ describe('AC5: resume() degrades fidelity for full-fidelity last node', () => {
   })
 
   it('returns "" when last node fidelity is empty string', () => {
-    const nodes = new Map([
-      ['planNode', { ...minimalNode, id: 'planNode', fidelity: '' }],
-    ])
+    const nodes = new Map([['planNode', { ...minimalNode, id: 'planNode', fidelity: '' }]])
     const graph = makeGraph(nodes)
     const checkpoint: Checkpoint = {
       timestamp: Date.now(),

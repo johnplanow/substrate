@@ -64,7 +64,7 @@ function makeMockDb(rows: Array<{ value: string }> = []): DatabaseAdapter {
         transaction: vi.fn(),
         close: vi.fn(),
         queryReadyStories: vi.fn().mockResolvedValue([]),
-      } as unknown as DatabaseAdapter),
+      } as unknown as DatabaseAdapter)
     ),
     close: vi.fn().mockResolvedValue(undefined),
     queryReadyStories: vi.fn().mockResolvedValue([]),
@@ -108,7 +108,7 @@ describe('FindingLifecycleManager.validateFiles', () => {
   it('returns confidence: low when some (but not all) files are missing', () => {
     // First file exists, second file is missing
     vi.mocked(fsModule.existsSync)
-      .mockReturnValueOnce(true)  // foo.ts exists
+      .mockReturnValueOnce(true) // foo.ts exists
       .mockReturnValueOnce(false) // bar.ts missing
 
     const finding = makeFinding({
@@ -351,7 +351,7 @@ describe('FindingLifecycleManager.countRunsSinceCreation', () => {
 
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining('COUNT(DISTINCT pipeline_run_id)'),
-      ['2026-04-01T00:00:00.000Z', 'my-run'],
+      ['2026-04-01T00:00:00.000Z', 'my-run']
     )
   })
 })
@@ -413,7 +413,8 @@ describe('FindingsInjector.inject — lifecycle integration', () => {
     // - Second query (countRunsSinceCreation): returns 0 runs (not expired)
     const db = {
       backendType: 'memory' as const,
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce([{ value: JSON.stringify(validFinding) }]) // getDecisionsByCategory
         .mockResolvedValueOnce([{ cnt: '0' }]), // countRunsSinceCreation
       exec: vi.fn().mockResolvedValue(undefined),

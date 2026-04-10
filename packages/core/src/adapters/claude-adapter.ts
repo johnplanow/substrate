@@ -46,7 +46,11 @@ const BASE_SYSTEM_PROMPT =
 
 /** Strip markdown code fences from LLM output (e.g. ```json ... ```) */
 function stripCodeFences(raw: string): string {
-  return raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
+  return raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/, '')
+    .trim()
 }
 
 interface ClaudeJsonOutput {
@@ -142,12 +146,7 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
     //
     // --system-prompt: replaces CLAUDE.md and auto-memory context so the subprocess
     // does not re-read the orchestrator's own CLAUDE.md instructions.
-    const args = [
-      '-p',
-      '--model',
-      model,
-      '--dangerously-skip-permissions',
-    ]
+    const args = ['-p', '--model', model, '--dangerously-skip-permissions']
 
     if (options.maxTurns !== undefined) {
       args.push('--max-turns', String(options.maxTurns))
@@ -229,12 +228,7 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
     const planningPrompt = this._buildPlanningPrompt(request)
 
     // Prompt delivered via stdin (not CLI args) to avoid E2BIG on large prompts.
-    const args = [
-      '-p',
-      '--model',
-      model,
-      '--dangerously-skip-permissions',
-    ]
+    const args = ['-p', '--model', model, '--dangerously-skip-permissions']
 
     if (options.additionalFlags && options.additionalFlags.length > 0) {
       args.push(...options.additionalFlags)
@@ -315,11 +309,7 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
   /**
    * Parse Claude plan generation output.
    */
-  parsePlanOutput(
-    stdout: string,
-    stderr: string,
-    exitCode: number
-  ): PlanParseResult {
+  parsePlanOutput(stdout: string, stderr: string, exitCode: number): PlanParseResult {
     if (exitCode !== 0) {
       return {
         success: false,
@@ -396,15 +386,7 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       supportsApiBilling: true,
       supportsPlanGeneration: true,
       maxContextTokens: 200_000,
-      supportedTaskTypes: [
-        'code',
-        'refactor',
-        'test',
-        'review',
-        'debug',
-        'document',
-        'analyze',
-      ],
+      supportedTaskTypes: ['code', 'refactor', 'test', 'review', 'debug', 'document', 'analyze'],
       supportedLanguages: ['*'],
       supportsSystemPrompt: true,
       supportsOtlpExport: true,
@@ -445,9 +427,7 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
 
   private _buildPlanningPrompt(request: PlanRequest): string {
     const maxTasks = request.maxTasks ?? 10
-    const contextSection = request.context
-      ? `\n\nAdditional context:\n${request.context}`
-      : ''
+    const contextSection = request.context ? `\n\nAdditional context:\n${request.context}` : ''
 
     return (
       `Generate a detailed task plan for the following goal:\n${request.goal}${contextSection}\n\n` +

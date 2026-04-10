@@ -112,5 +112,5 @@ export const TASK_TYPE_PHASE_MAP: Record<string, 'explore' | 'generate' | 'revie
   'create-story': 'generate',
   'dev-story': 'generate',
   'code-review': 'review',
-  'explore': 'explore',
+  explore: 'explore',
 }

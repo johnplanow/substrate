@@ -39,7 +39,10 @@ const OUTPUT_RATIO = 0.5
  * LLMs often wrap JSON in ```json ... ``` despite being told not to.
  */
 function stripCodeFences(raw: string): string {
-  const stripped = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+  const stripped = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/, '')
   return stripped.trim()
 }
 
@@ -158,11 +161,7 @@ export class GeminiCLIAdapter implements WorkerAdapter {
     // `gemini <prompt> --model <model>` outputs plain text to stdout.
     // `--output-format json` wraps the response in a {session_id,response,stats}
     // envelope which breaks JSON parsing of the plan output.
-    const args = [
-      planningPrompt,
-      '--model',
-      model,
-    ]
+    const args = [planningPrompt, '--model', model]
 
     if (options.additionalFlags && options.additionalFlags.length > 0) {
       args.push(...options.additionalFlags)
@@ -207,17 +206,13 @@ export class GeminiCLIAdapter implements WorkerAdapter {
 
     try {
       const parsed = JSON.parse(stdout.trim()) as GeminiJsonOutput
-      const success =
-        parsed.status === 'completed' || parsed.status === undefined
+      const success = parsed.status === 'completed' || parsed.status === undefined
 
       // Support both Substrate-standard token field and Gemini's native usageMetadata
       const usageMeta = parsed.metadata?.usageMetadata
-      const inputTokens =
-        parsed.metadata?.tokensUsed?.input ?? usageMeta?.promptTokenCount ?? 0
+      const inputTokens = parsed.metadata?.tokensUsed?.input ?? usageMeta?.promptTokenCount ?? 0
       const outputTokens =
-        parsed.metadata?.tokensUsed?.output ??
-        usageMeta?.candidatesTokenCount ??
-        0
+        parsed.metadata?.tokensUsed?.output ?? usageMeta?.candidatesTokenCount ?? 0
 
       const hasTokens = inputTokens > 0 || outputTokens > 0
       const tokensUsed = hasTokens
@@ -252,11 +247,7 @@ export class GeminiCLIAdapter implements WorkerAdapter {
   /**
    * Parse Gemini plan generation output.
    */
-  parsePlanOutput(
-    stdout: string,
-    stderr: string,
-    exitCode: number
-  ): PlanParseResult {
+  parsePlanOutput(stdout: string, stderr: string, exitCode: number): PlanParseResult {
     if (exitCode !== 0) {
       return {
         success: false,
@@ -333,15 +324,7 @@ export class GeminiCLIAdapter implements WorkerAdapter {
       supportsApiBilling: true,
       supportsPlanGeneration: true,
       maxContextTokens: 1_000_000,
-      supportedTaskTypes: [
-        'code',
-        'refactor',
-        'test',
-        'review',
-        'debug',
-        'document',
-        'analyze',
-      ],
+      supportedTaskTypes: ['code', 'refactor', 'test', 'review', 'debug', 'document', 'analyze'],
       supportedLanguages: ['*'],
       supportsSystemPrompt: false,
       supportsOtlpExport: false,
@@ -382,9 +365,7 @@ export class GeminiCLIAdapter implements WorkerAdapter {
 
   private _buildPlanningPrompt(request: PlanRequest): string {
     const maxTasks = request.maxTasks ?? 10
-    const contextSection = request.context
-      ? `\n\nAdditional context:\n${request.context}`
-      : ''
+    const contextSection = request.context ? `\n\nAdditional context:\n${request.context}` : ''
 
     return (
       `Generate a detailed task plan for the following goal:\n${request.goal}${contextSection}\n\n` +

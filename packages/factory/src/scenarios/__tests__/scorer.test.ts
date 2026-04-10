@@ -24,10 +24,12 @@ function makeResult(total: number, passed: number): ScenarioRunResult {
   }
 }
 
-function makeNamedResult(scenarios: Array<{ name: string; status: 'pass' | 'fail' }>): ScenarioRunResult {
-  const passed = scenarios.filter(s => s.status === 'pass').length
+function makeNamedResult(
+  scenarios: Array<{ name: string; status: 'pass' | 'fail' }>
+): ScenarioRunResult {
+  const passed = scenarios.filter((s) => s.status === 'pass').length
   return {
-    scenarios: scenarios.map(s => ({
+    scenarios: scenarios.map((s) => ({
       name: s.name,
       status: s.status,
       exitCode: s.status === 'pass' ? 0 : 1,
@@ -113,7 +115,7 @@ describe('createSatisfactionScorer', () => {
     expect(score.score).toBeCloseTo(0.6)
     expect(score.passes).toBe(false)
     expect(score.breakdown).toHaveLength(5)
-    expect(score.breakdown.every(d => d.weight === 1.0)).toBe(true)
+    expect(score.breakdown.every((d) => d.weight === 1.0)).toBe(true)
   })
 
   // AC2: Weighted Score — Unequal Weights
@@ -165,9 +167,9 @@ describe('createSatisfactionScorer', () => {
       { name: 'profile', status: 'fail' },
     ])
     const score = scorer.compute(result, { login: 3.0, checkout: 1.0, profile: 1.0 })
-    const loginEntry = score.breakdown.find(d => d.name === 'login')!
-    const checkoutEntry = score.breakdown.find(d => d.name === 'checkout')!
-    const profileEntry = score.breakdown.find(d => d.name === 'profile')!
+    const loginEntry = score.breakdown.find((d) => d.name === 'login')!
+    const checkoutEntry = score.breakdown.find((d) => d.name === 'checkout')!
+    const profileEntry = score.breakdown.find((d) => d.name === 'profile')!
 
     expect(loginEntry.contribution).toBeCloseTo(0.6)
     expect(checkoutEntry.contribution).toBe(0.0)
@@ -186,8 +188,8 @@ describe('createSatisfactionScorer', () => {
       { name: 'checkout', status: 'fail' },
     ])
     const score = scorer.compute(result)
-    const first = score.breakdown.find(d => d.name === 'login')!
-    const second = score.breakdown.find(d => d.name === 'checkout')!
+    const first = score.breakdown.find((d) => d.name === 'login')!
+    const second = score.breakdown.find((d) => d.name === 'checkout')!
     expect(first.passed).toBe(true)
     expect(second.passed).toBe(false)
   })
@@ -201,7 +203,7 @@ describe('createSatisfactionScorer', () => {
     ])
     const score = computeSatisfactionScore(result)
     expect(score.breakdown).toHaveLength(3)
-    expect(score.breakdown.every(d => d.weight === 1.0)).toBe(true)
+    expect(score.breakdown.every((d) => d.weight === 1.0)).toBe(true)
     expect(score.score).toBeCloseTo(1 / 3)
   })
 

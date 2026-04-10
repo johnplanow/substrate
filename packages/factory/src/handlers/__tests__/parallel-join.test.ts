@@ -78,8 +78,12 @@ function makeGraph(parallelNodeId: string, branchNodeIds: string[]): Graph {
     nodes,
     edges,
     outgoingEdges: (nodeId: string) => edges.filter((e) => e.fromNode === nodeId),
-    startNode: () => { throw new Error('not implemented') },
-    exitNode: () => { throw new Error('not implemented') },
+    startNode: () => {
+      throw new Error('not implemented')
+    },
+    exitNode: () => {
+      throw new Error('not implemented')
+    },
   } as Graph
 }
 
@@ -140,9 +144,9 @@ function makeMockRegistry(
 describe('AC1 — wait_all join policy', () => {
   it('waits for all 3 branches and stores 3 BranchResult entries in context', async () => {
     const registry = makeMockRegistry({
-      'b1': { status: 'SUCCESS', delayMs: 5 },
-      'b2': { status: 'FAILURE', delayMs: 10, failureReason: 'test error' },
-      'b3': { status: 'SUCCESS', delayMs: 5 },
+      b1: { status: 'SUCCESS', delayMs: 5 },
+      b2: { status: 'FAILURE', delayMs: 10, failureReason: 'test error' },
+      b3: { status: 'SUCCESS', delayMs: 5 },
     })
 
     const node = makeParallelNode({
@@ -161,8 +165,8 @@ describe('AC1 — wait_all join policy', () => {
     expect(results).toHaveLength(3)
 
     // 2 successes and 1 failure
-    const successes = results.filter(r => r.outcome === 'SUCCESS')
-    const failures = results.filter(r => r.outcome === 'FAIL')
+    const successes = results.filter((r) => r.outcome === 'SUCCESS')
+    const failures = results.filter((r) => r.outcome === 'FAIL')
     expect(successes).toHaveLength(2)
     expect(failures).toHaveLength(1)
     expect(failures[0]!.error).toBe('test error')
@@ -176,16 +180,16 @@ describe('AC1 — wait_all join policy', () => {
 describe('AC2 — first_success join policy', () => {
   it('resolves early when branch-0 succeeds; sets winner_index; branches 1-2 are CANCELLED', async () => {
     const registry = makeMockRegistry({
-      'b0': { status: 'SUCCESS', delayMs: 10 },
-      'b1': { status: 'SUCCESS', delayMs: 500 },
-      'b2': { status: 'SUCCESS', delayMs: 500 },
+      b0: { status: 'SUCCESS', delayMs: 10 },
+      b1: { status: 'SUCCESS', delayMs: 500 },
+      b2: { status: 'SUCCESS', delayMs: 500 },
     })
 
     const node = makeParallelNode({
       id: 'p1',
       attrs: {
         join_policy: 'first_success',
-        cancel_drain_timeout_ms: '50',  // small drain window for test speed
+        cancel_drain_timeout_ms: '50', // small drain window for test speed
       },
     })
     const graph = makeGraph('p1', ['b0', 'b1', 'b2'])
@@ -207,15 +211,15 @@ describe('AC2 — first_success join policy', () => {
     // Results should contain CANCELLED entries for branches 1 and 2
     const results = context.get('parallel.results') as BranchResult[]
     expect(results).toBeDefined()
-    const cancelledEntries = results.filter(r => r.outcome === 'CANCELLED')
+    const cancelledEntries = results.filter((r) => r.outcome === 'CANCELLED')
     expect(cancelledEntries.length).toBeGreaterThanOrEqual(2)
   })
 
   it('falls back gracefully when all branches fail', async () => {
     const registry = makeMockRegistry({
-      'b0': { status: 'FAILURE', delayMs: 5, failureReason: 'err0' },
-      'b1': { status: 'FAILURE', delayMs: 5, failureReason: 'err1' },
-      'b2': { status: 'FAILURE', delayMs: 5, failureReason: 'err2' },
+      b0: { status: 'FAILURE', delayMs: 5, failureReason: 'err0' },
+      b1: { status: 'FAILURE', delayMs: 5, failureReason: 'err1' },
+      b2: { status: 'FAILURE', delayMs: 5, failureReason: 'err2' },
     })
 
     const node = makeParallelNode({
@@ -241,10 +245,10 @@ describe('AC2 — first_success join policy', () => {
 describe('AC3 — quorum join policy', () => {
   it('resolves after 2 successes; quorum_reached=2; 2 remaining branches CANCELLED', async () => {
     const registry = makeMockRegistry({
-      'b0': { status: 'SUCCESS', delayMs: 5 },
-      'b1': { status: 'SUCCESS', delayMs: 10 },
-      'b2': { status: 'SUCCESS', delayMs: 500 },
-      'b3': { status: 'SUCCESS', delayMs: 500 },
+      b0: { status: 'SUCCESS', delayMs: 5 },
+      b1: { status: 'SUCCESS', delayMs: 10 },
+      b2: { status: 'SUCCESS', delayMs: 500 },
+      b3: { status: 'SUCCESS', delayMs: 500 },
     })
 
     const node = makeParallelNode({
@@ -275,7 +279,7 @@ describe('AC3 — quorum join policy', () => {
     // Results should contain at least some CANCELLED entries
     const results = context.get('parallel.results') as BranchResult[]
     expect(results).toBeDefined()
-    const cancelledEntries = results.filter(r => r.outcome === 'CANCELLED')
+    const cancelledEntries = results.filter((r) => r.outcome === 'CANCELLED')
     expect(cancelledEntries.length).toBeGreaterThanOrEqual(1)
   })
 })
@@ -287,9 +291,9 @@ describe('AC3 — quorum join policy', () => {
 describe('AC5 — quorum unreachable when branches fail', () => {
   it('sets parallel.join_error when quorum cannot be reached', async () => {
     const registry = makeMockRegistry({
-      'b0': { status: 'FAILURE', delayMs: 5, failureReason: 'fail0' },
-      'b1': { status: 'FAILURE', delayMs: 5, failureReason: 'fail1' },
-      'b2': { status: 'FAILURE', delayMs: 5, failureReason: 'fail2' },
+      b0: { status: 'FAILURE', delayMs: 5, failureReason: 'fail0' },
+      b1: { status: 'FAILURE', delayMs: 5, failureReason: 'fail1' },
+      b2: { status: 'FAILURE', delayMs: 5, failureReason: 'fail2' },
     })
 
     const node = makeParallelNode({

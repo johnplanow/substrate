@@ -68,7 +68,11 @@ export interface DualSignalCoordinatorOptions {
  * Evaluates the dual signal on each story iteration and emits telemetry.
  */
 export interface DualSignalCoordinator {
-  evaluate(codeReviewVerdict: DualSignalVerdict, scenarioScore: number, runId: string): DualSignalResult
+  evaluate(
+    codeReviewVerdict: DualSignalVerdict,
+    scenarioScore: number,
+    runId: string
+  ): DualSignalResult
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +88,7 @@ export interface DualSignalCoordinator {
 export function evaluateDualSignal(
   verdict: DualSignalVerdict,
   score: number,
-  threshold: number,
+  threshold: number
 ): DualSignalResult {
   const codeReviewPassed = verdict === 'SHIP_IT' || verdict === 'LGTM_WITH_NOTES'
   const scenarioPassed = score >= threshold
@@ -112,7 +116,9 @@ export function evaluateDualSignal(
  * `scenario:advisory-computed` with the code review verdict as advisory info.
  * Story 46-6.
  */
-export function createDualSignalCoordinator(options: DualSignalCoordinatorOptions): DualSignalCoordinator {
+export function createDualSignalCoordinator(
+  options: DualSignalCoordinatorOptions
+): DualSignalCoordinator {
   return {
     evaluate(verdict: DualSignalVerdict, score: number, runId: string): DualSignalResult {
       const result = evaluateDualSignal(verdict, score, options.threshold)

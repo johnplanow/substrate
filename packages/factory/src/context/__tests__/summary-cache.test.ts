@@ -17,7 +17,11 @@ class MockSummaryEngine implements SummaryEngine {
   invokeCount = 0
   expandCount = 0
 
-  async summarize(content: string, targetLevel: SummaryLevel, _opts?: SummarizeOptions): Promise<Summary> {
+  async summarize(
+    content: string,
+    targetLevel: SummaryLevel,
+    _opts?: SummarizeOptions
+  ): Promise<Summary> {
     this.invokeCount++
     const originalHash = createHash('sha256').update(content).digest('hex')
     return {
@@ -28,7 +32,11 @@ class MockSummaryEngine implements SummaryEngine {
     }
   }
 
-  async expand(summary: Summary, _targetLevel: SummaryLevel, opts?: ExpandOptions): Promise<string> {
+  async expand(
+    summary: Summary,
+    _targetLevel: SummaryLevel,
+    opts?: ExpandOptions
+  ): Promise<string> {
     this.expandCount++
     return opts?.originalContent ?? summary.content
   }
@@ -142,7 +150,11 @@ describe('SummaryCache storeOriginals: false', () => {
   })
 
   it('does NOT write .orig file when storeOriginals is false', async () => {
-    const config: SummaryCacheConfig = { runId: 'run-002', storageDir: tmpDir, storeOriginals: false }
+    const config: SummaryCacheConfig = {
+      runId: 'run-002',
+      storageDir: tmpDir,
+      storeOriginals: false,
+    }
     const cache = new SummaryCache(config)
     const originalText = 'original content that should not be persisted'
     const summary: Summary = {

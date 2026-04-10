@@ -87,8 +87,8 @@ describe('ToolRegistry', () => {
 
     const defs = registry.getDefinitions()
     expect(defs).toHaveLength(2)
-    expect(defs.map(d => d.name)).toContain('tool_a')
-    expect(defs.map(d => d.name)).toContain('tool_b')
+    expect(defs.map((d) => d.name)).toContain('tool_a')
+    expect(defs.map((d) => d.name)).toContain('tool_b')
   })
 
   it('get returns tool by name or undefined', () => {
@@ -101,7 +101,10 @@ describe('ToolRegistry', () => {
 
   it('register overwrites duplicate tool name', async () => {
     const original = makeTool({ name: 'dup', executor: vi.fn().mockResolvedValue('original') })
-    const replacement = makeTool({ name: 'dup', executor: vi.fn().mockResolvedValue('replacement') })
+    const replacement = makeTool({
+      name: 'dup',
+      executor: vi.fn().mockResolvedValue('replacement'),
+    })
     registry.register(original as unknown as ToolDefinition<unknown>)
     registry.register(replacement as unknown as ToolDefinition<unknown>)
 

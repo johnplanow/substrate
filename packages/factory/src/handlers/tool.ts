@@ -33,10 +33,7 @@ function isScenarioRunResult(parsed: unknown): parsed is ScenarioRunResult {
   if (typeof parsed !== 'object' || parsed === null) return false
   const p = parsed as Record<string, unknown>
   const summary = p['summary'] as Record<string, unknown> | undefined
-  return (
-    typeof summary?.['total'] === 'number' &&
-    typeof summary?.['passed'] === 'number'
-  )
+  return typeof summary?.['total'] === 'number' && typeof summary?.['passed'] === 'number'
 }
 
 // ---------------------------------------------------------------------------

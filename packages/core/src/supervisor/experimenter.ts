@@ -44,7 +44,11 @@ interface LocalSpawnOptions {
 /**
  * Injectable function type for spawning arbitrary processes (e.g., `gh pr create`).
  */
-export type SpawnFn = (cmd: string, args: string[], opts?: LocalSpawnOptions) => Promise<SpawnResult>
+export type SpawnFn = (
+  cmd: string,
+  args: string[],
+  opts?: LocalSpawnOptions
+) => Promise<SpawnResult>
 
 /**
  * Default spawn implementation used when no `spawn` dep is injected.
@@ -58,10 +62,18 @@ function spawnCommand(cmd: string, args: string[], opts?: LocalSpawnOptions): Pr
     })
     let stdout = ''
     let stderr = ''
-    proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
-    proc.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
-    proc.on('close', (code) => { resolve({ stdout: stdout.trim(), stderr: stderr.trim(), code: code ?? 1 }) })
-    proc.on('error', (err) => { resolve({ stdout: '', stderr: err.message, code: 1 }) })
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString()
+    })
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString()
+    })
+    proc.on('close', (code) => {
+      resolve({ stdout: stdout.trim(), stderr: stderr.trim(), code: code ?? 1 })
+    })
+    proc.on('error', (err) => {
+      resolve({ stdout: '', stderr: err.message, code: 1 })
+    })
   })
 }
 
@@ -153,7 +165,9 @@ export interface ExperimentRunOptions {
   pack: string
 }
 
-export type RunStoryFn = (opts: ExperimentRunOptions) => Promise<{ runId: string; exitCode: number }>
+export type RunStoryFn = (
+  opts: ExperimentRunOptions
+) => Promise<{ runId: string; exitCode: number }>
 
 /**
  * Injectable dependencies for the Experimenter.
@@ -176,7 +190,7 @@ export interface Experimenter {
   runExperiments(
     db: DatabaseAdapter,
     recommendations: SupervisorRecommendation[],
-    baselineRunId: string,
+    baselineRunId: string
   ): Promise<ExperimentResult[]>
 }
 
@@ -196,7 +210,11 @@ export function buildBranchName(runId: string, shortDesc: string): string {
   return `supervisor/experiment/${runIdShort}-${safe}`
 }
 
-export function buildWorktreePath(projectRoot: string, baselineRunId: string, shortDesc: string): string {
+export function buildWorktreePath(
+  projectRoot: string,
+  baselineRunId: string,
+  shortDesc: string
+): string {
   const safe = shortDesc
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, '-')
@@ -216,7 +234,7 @@ const PHASE_TO_PROMPT_FILE: Record<string, string> = {
   'create-story': 'create-story.md',
   'dev-story': 'dev-story.md',
   'code-review': 'code-review.md',
-  'fix': 'fix-story.md',
+  fix: 'fix-story.md',
 }
 
 export function buildModificationDirective(rec: SupervisorRecommendation): string {
@@ -249,7 +267,7 @@ export function buildModificationDirective(rec: SupervisorRecommendation): strin
 export function resolvePromptFile(
   rec: SupervisorRecommendation,
   projectRoot: string,
-  pack: string,
+  pack: string
 ): string {
   const filename = PHASE_TO_PROMPT_FILE[rec.phase] ?? `${rec.phase}.md`
   return join(projectRoot, 'packs', pack, 'prompts', filename)
@@ -263,7 +281,7 @@ const REGRESSION_THRESHOLD_PCT = 20
 
 export function determineVerdict(
   rec: SupervisorRecommendation,
-  deltas: ExperimentMetricDeltas,
+  deltas: ExperimentMetricDeltas
 ): ExperimentVerdict {
   const targetImproved = isTargetMetricImproved(rec, deltas)
   const hasRegression = hasNonTargetRegression(rec, deltas)
@@ -275,7 +293,7 @@ export function determineVerdict(
 
 function isTargetMetricImproved(
   rec: SupervisorRecommendation,
-  deltas: ExperimentMetricDeltas,
+  deltas: ExperimentMetricDeltas
 ): boolean {
   switch (rec.type) {
     case 'token_regression':
@@ -289,7 +307,7 @@ function isTargetMetricImproved(
 
 function hasNonTargetRegression(
   rec: SupervisorRecommendation,
-  deltas: ExperimentMetricDeltas,
+  deltas: ExperimentMetricDeltas
 ): boolean {
   if (
     rec.type !== 'token_regression' &&
@@ -314,7 +332,7 @@ function hasNonTargetRegression(
 
 function computeDeltas(
   baselineMetrics: RunMetricsRow,
-  experimentMetrics: RunMetricsRow,
+  experimentMetrics: RunMetricsRow
 ): ExperimentMetricDeltas {
   const pct = (base: number, exp: number): number | null =>
     base === 0 ? null : Math.round(((exp - base) / base) * 100 * 10) / 10
@@ -329,11 +347,11 @@ function computeDeltas(
     cost_pct: pct(baselineMetrics.total_cost_usd ?? 0, experimentMetrics.total_cost_usd ?? 0),
     review_cycles_pct: pct(
       baselineMetrics.total_review_cycles ?? 0,
-      experimentMetrics.total_review_cycles ?? 0,
+      experimentMetrics.total_review_cycles ?? 0
     ),
     wall_clock_pct: pct(
       baselineMetrics.wall_clock_seconds ?? 0,
-      experimentMetrics.wall_clock_seconds ?? 0,
+      experimentMetrics.wall_clock_seconds ?? 0
     ),
   }
 }
@@ -348,7 +366,14 @@ function fmtPct(pct: number | null): string {
 }
 
 export function buildPRBody(result: ExperimentResult): string {
-  const { recommendation: rec, verdict, deltas, baselineRunId, experimentRunId, branchName } = result
+  const {
+    recommendation: rec,
+    verdict,
+    deltas,
+    baselineRunId,
+    experimentRunId,
+    branchName,
+  } = result
   return [
     `## Experiment Results`,
     ``,
@@ -378,7 +403,7 @@ export function buildPRBody(result: ExperimentResult): string {
 
 export function buildAuditLogEntry(
   result: ExperimentResult,
-  timestamp: string = new Date().toISOString(),
+  timestamp: string = new Date().toISOString()
 ): string {
   const { recommendation: rec, verdict, deltas, error, prLink } = result
   const lines: string[] = [
@@ -412,13 +437,23 @@ export function buildAuditLogEntry(
 
 export function createExperimenter(
   config: ExperimentConfig,
-  deps?: Partial<ExperimenterDeps>,
+  deps?: Partial<ExperimenterDeps>
 ): Experimenter {
   const resolvedDeps: ExperimenterDeps = {
     // git must be provided by caller; spawnGit is not in core (migrates in story 41-8)
-    git: deps?.git ?? (() => { throw new Error('git dependency must be provided to createExperimenter (spawnGit is not available in @substrate-ai/core)') }),
+    git:
+      deps?.git ??
+      (() => {
+        throw new Error(
+          'git dependency must be provided to createExperimenter (spawnGit is not available in @substrate-ai/core)'
+        )
+      }),
     spawn: deps?.spawn ?? spawnCommand,
-    runStory: deps?.runStory ?? (async () => { throw new Error('runStory dependency not provided') }),
+    runStory:
+      deps?.runStory ??
+      (async () => {
+        throw new Error('runStory dependency not provided')
+      }),
     getRunMetrics: deps?.getRunMetrics ?? getRunMetrics,
     getStoryMetrics: deps?.getStoryMetrics ?? getStoryMetricsForRun,
     readFile: deps?.readFile ?? ((p) => readFile(p, 'utf-8')),
@@ -427,7 +462,17 @@ export function createExperimenter(
     log: deps?.log ?? ((msg) => process.stdout.write(msg + '\n')),
   }
 
-  const { git, spawn: sp, runStory, getRunMetrics: getRun, getStoryMetrics: getStory, readFile: rf, writeFile: wf, mkdir: md, log } = resolvedDeps
+  const {
+    git,
+    spawn: sp,
+    runStory,
+    getRunMetrics: getRun,
+    getStoryMetrics: getStory,
+    readFile: rf,
+    writeFile: wf,
+    mkdir: md,
+    log,
+  } = resolvedDeps
 
   // ---------------------------------------------------------------------------
   // Git helpers
@@ -439,14 +484,18 @@ export function createExperimenter(
   }
 
   async function createWorktree(worktreePath: string, branchName: string): Promise<void> {
-    const result = await git(['worktree', 'add', worktreePath, '-b', branchName], { cwd: config.projectRoot })
+    const result = await git(['worktree', 'add', worktreePath, '-b', branchName], {
+      cwd: config.projectRoot,
+    })
     if (result.code !== 0) {
       throw new Error(`Failed to create worktree ${worktreePath}: ${result.stderr}`)
     }
   }
 
   async function removeWorktree(worktreePath: string): Promise<void> {
-    const result = await git(['worktree', 'remove', worktreePath, '--force'], { cwd: config.projectRoot })
+    const result = await git(['worktree', 'remove', worktreePath, '--force'], {
+      cwd: config.projectRoot,
+    })
     if (result.code !== 0) {
       log(`[experimenter] Warning: could not remove worktree ${worktreePath}: ${result.stderr}`)
     } else {
@@ -457,7 +506,7 @@ export function createExperimenter(
   async function commitModification(
     rec: SupervisorRecommendation,
     filePath: string,
-    cwd: string,
+    cwd: string
   ): Promise<void> {
     await git(['add', filePath], { cwd })
     const message =
@@ -490,14 +539,20 @@ export function createExperimenter(
     const ghResult = await sp(
       'gh',
       [
-        'pr', 'create',
-        '--title', title,
-        '--body', body,
-        '--label', 'supervisor',
-        '--label', 'automated-experiment',
-        '--head', branchName,
+        'pr',
+        'create',
+        '--title',
+        title,
+        '--body',
+        body,
+        '--label',
+        'supervisor',
+        '--label',
+        'automated-experiment',
+        '--head',
+        branchName,
       ],
-      { cwd: config.projectRoot },
+      { cwd: config.projectRoot }
     )
 
     if (ghResult.code !== 0) {
@@ -515,9 +570,7 @@ export function createExperimenter(
   // Audit trail
   // ---------------------------------------------------------------------------
 
-  async function appendExperimentLog(
-    result: ExperimentResult,
-  ): Promise<void> {
+  async function appendExperimentLog(result: ExperimentResult): Promise<void> {
     const { baselineRunId } = result
     const reportDir = join(config.projectRoot, '_bmad-output', 'supervisor-reports')
     const logPath = join(reportDir, `${baselineRunId}-experiments.md`)
@@ -536,7 +589,9 @@ export function createExperimenter(
       await wf(logPath, existing + entry)
       log(`[experimenter] Audit log updated: ${logPath}`)
     } catch (err) {
-      log(`[experimenter] Warning: could not write audit log: ${err instanceof Error ? err.message : String(err)}`)
+      log(
+        `[experimenter] Warning: could not write audit log: ${err instanceof Error ? err.message : String(err)}`
+      )
     }
   }
 
@@ -548,7 +603,7 @@ export function createExperimenter(
     db: DatabaseAdapter,
     storyKey: string,
     baselineRunId: string,
-    experimentRunId: string,
+    experimentRunId: string
   ): Promise<boolean> {
     try {
       const baselineStories = await getStory(db, baselineRunId)
@@ -560,7 +615,8 @@ export function createExperimenter(
       if (!baselineStory || !experimentStory) return true
 
       const baselineTokens = (baselineStory.input_tokens ?? 0) + (baselineStory.output_tokens ?? 0)
-      const experimentTokens = (experimentStory.input_tokens ?? 0) + (experimentStory.output_tokens ?? 0)
+      const experimentTokens =
+        (experimentStory.input_tokens ?? 0) + (experimentStory.output_tokens ?? 0)
 
       if (baselineTokens === 0) return true
 
@@ -569,7 +625,7 @@ export function createExperimenter(
       if (!withinBudget) {
         log(
           `[experimenter] Token budget exceeded: experiment used ${experimentTokens} tokens,` +
-          ` cap is ${cap} (${config.tokenBudgetMultiplier}x baseline of ${baselineTokens})`,
+            ` cap is ${cap} (${config.tokenBudgetMultiplier}x baseline of ${baselineTokens})`
         )
       }
       return withinBudget
@@ -585,14 +641,19 @@ export function createExperimenter(
   async function runOneExperiment(
     db: DatabaseAdapter,
     rec: SupervisorRecommendation,
-    baselineRunId: string,
+    baselineRunId: string
   ): Promise<ExperimentResult> {
     const branchName = buildBranchName(baselineRunId, rec.short_desc)
     const worktreePath = buildWorktreePath(config.projectRoot, baselineRunId, rec.short_desc)
     let experimentRunId: string | null = null
     let currentPhase: ExperimentPhase = 'SELECTING'
     let verdict: ExperimentVerdict = 'REGRESSED'
-    let deltas: ExperimentMetricDeltas = { tokens_pct: null, cost_pct: null, review_cycles_pct: null, wall_clock_pct: null }
+    let deltas: ExperimentMetricDeltas = {
+      tokens_pct: null,
+      cost_pct: null,
+      review_cycles_pct: null,
+      wall_clock_pct: null,
+    }
     let caughtError: string | undefined
     let worktreeCreated = false
 
@@ -643,7 +704,9 @@ export function createExperimenter(
 
       currentPhase = 'REPORTING'
       log(`[experimenter] Verdict for ${rec.story_key}/${rec.type}: ${verdict}`)
-      log(`[experimenter] Deltas: tokens=${deltas.tokens_pct}% cost=${deltas.cost_pct}% cycles=${deltas.review_cycles_pct}% clock=${deltas.wall_clock_pct}%`)
+      log(
+        `[experimenter] Deltas: tokens=${deltas.tokens_pct}% cost=${deltas.cost_pct}% cycles=${deltas.review_cycles_pct}% clock=${deltas.wall_clock_pct}%`
+      )
     } catch (err) {
       caughtError = err instanceof Error ? err.message : String(err)
       verdict = 'REGRESSED'
@@ -699,10 +762,16 @@ export function createExperimenter(
             : (rec.timing_seconds ?? 0)
       const afterValue =
         rec.type === 'token_regression'
-          ? (deltas.tokens_pct !== null ? Math.round(targetMetricValue * (1 + deltas.tokens_pct / 100)) : targetMetricValue)
+          ? deltas.tokens_pct !== null
+            ? Math.round(targetMetricValue * (1 + deltas.tokens_pct / 100))
+            : targetMetricValue
           : rec.type === 'review_cycles'
-            ? (deltas.review_cycles_pct !== null ? Math.round(targetMetricValue * (1 + deltas.review_cycles_pct / 100)) : targetMetricValue)
-            : (deltas.wall_clock_pct !== null ? Math.round(targetMetricValue * (1 + deltas.wall_clock_pct / 100)) : targetMetricValue)
+            ? deltas.review_cycles_pct !== null
+              ? Math.round(targetMetricValue * (1 + deltas.review_cycles_pct / 100))
+              : targetMetricValue
+            : deltas.wall_clock_pct !== null
+              ? Math.round(targetMetricValue * (1 + deltas.wall_clock_pct / 100))
+              : targetMetricValue
 
       await createDecision(db, {
         pipeline_run_id: baselineRunId,
@@ -714,7 +783,7 @@ export function createExperimenter(
           before: targetMetricValue,
           after: afterValue,
           verdict,
-          branch_name: (verdict === 'IMPROVED' || verdict === 'MIXED') ? branchName : null,
+          branch_name: verdict === 'IMPROVED' || verdict === 'MIXED' ? branchName : null,
         }),
         rationale: `Experiment for ${rec.story_key}/${rec.phase}: ${rec.description}. Verdict: ${verdict}.`,
       })
@@ -733,7 +802,7 @@ export function createExperimenter(
     async runExperiments(
       db: DatabaseAdapter,
       recommendations: SupervisorRecommendation[],
-      baselineRunId: string,
+      baselineRunId: string
     ): Promise<ExperimentResult[]> {
       if (recommendations.length === 0) return []
 
@@ -741,18 +810,24 @@ export function createExperimenter(
       const results: ExperimentResult[] = []
       const limit = Math.min(recommendations.length, config.maxExperiments)
 
-      log(`[experimenter] Starting experiment cycle: ${limit} of ${recommendations.length} recommendations`)
+      log(
+        `[experimenter] Starting experiment cycle: ${limit} of ${recommendations.length} recommendations`
+      )
       log(`[experimenter] Current branch: ${currentBranch} (worktrees will not affect this)`)
 
       for (let i = 0; i < limit; i++) {
         const rec = recommendations[i]!
-        log(`[experimenter] Experiment ${i + 1}/${limit}: ${rec.type} for ${rec.story_key}/${rec.phase}`)
+        log(
+          `[experimenter] Experiment ${i + 1}/${limit}: ${rec.type} for ${rec.story_key}/${rec.phase}`
+        )
 
         const result = await runOneExperiment(db, rec, baselineRunId)
         results.push(result)
       }
 
-      log(`[experimenter] Experiment cycle complete: ${results.filter(r => r.verdict === 'IMPROVED').length} improved, ${results.filter(r => r.verdict === 'MIXED').length} mixed, ${results.filter(r => r.verdict === 'REGRESSED').length} regressed`)
+      log(
+        `[experimenter] Experiment cycle complete: ${results.filter((r) => r.verdict === 'IMPROVED').length} improved, ${results.filter((r) => r.verdict === 'MIXED').length} mixed, ${results.filter((r) => r.verdict === 'REGRESSED').length} regressed`
+      )
 
       return results
     },

@@ -211,9 +211,7 @@ describe('substrate factory run command', () => {
   it('AC6: no --graph and no factory.graph in config prints error and exits with 1', async () => {
     const { readFile } = await import('node:fs/promises')
     // Make pipeline.dot auto-detect fail too
-    vi.mocked(readFile).mockRejectedValue(
-      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
-    )
+    vi.mocked(readFile).mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
 
     await expect(runCmd([])).rejects.toThrow('process.exit called')
 
@@ -243,8 +241,9 @@ describe('substrate factory run command', () => {
     await runCmd(['--graph', 'pipeline.dot', '--events'])
 
     // Find JSON lines written to stdout
-    const jsonLines = vi.mocked(process.stdout.write).mock.calls
-      .map((args) => String(args[0]))
+    const jsonLines = vi
+      .mocked(process.stdout.write)
+      .mock.calls.map((args) => String(args[0]))
       .filter((line) => {
         try {
           JSON.parse(line)
@@ -526,8 +525,9 @@ describe('substrate factory run command', () => {
     await runCmd(['--graph', 'pipeline.dot'])
 
     // Only non-JSON lines should be written (start confirmation message)
-    const jsonLines = vi.mocked(process.stdout.write).mock.calls
-      .map((args) => String(args[0]))
+    const jsonLines = vi
+      .mocked(process.stdout.write)
+      .mock.calls.map((args) => String(args[0]))
       .filter((line) => {
         try {
           JSON.parse(line)

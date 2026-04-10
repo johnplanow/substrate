@@ -126,7 +126,7 @@ describe('GeminiAdapter — AC2: System Prompt to systemInstruction', () => {
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string) as {
       contents: Array<{ role: string }>
     }
-    expect(body.contents.every(c => c.role !== 'system')).toBe(true)
+    expect(body.contents.every((c) => c.role !== 'system')).toBe(true)
   })
 
   it('omits systemInstruction when systemPrompt is not set', async () => {
@@ -474,10 +474,7 @@ describe('GeminiAdapter — AC5: complete() Stop Reason and Content', () => {
         {
           content: {
             role: 'model',
-            parts: [
-              { text: 'Thinking...', thought: true },
-              { text: 'Visible answer.' },
-            ],
+            parts: [{ text: 'Thinking...', thought: true }, { text: 'Visible answer.' }],
           },
           finishReason: 'STOP',
         },

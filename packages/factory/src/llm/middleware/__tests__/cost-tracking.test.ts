@@ -15,7 +15,11 @@ function makeRequest(model = 'claude-opus-4-6'): LLMRequest {
   }
 }
 
-function makeResponse(inputTokens = 100, outputTokens = 50, model = 'claude-opus-4-6'): LLMResponse {
+function makeResponse(
+  inputTokens = 100,
+  outputTokens = 50,
+  model = 'claude-opus-4-6'
+): LLMResponse {
   return {
     content: 'test response',
     toolCalls: [],
@@ -34,7 +38,9 @@ describe('createCostTrackingMiddleware', () => {
   it('AC3: onCost is called with correct model, provider, tokens, costUsd', async () => {
     const records: CostRecord[] = []
     const mw = createCostTrackingMiddleware({
-      onCost: (r) => { records.push(r) },
+      onCost: (r) => {
+        records.push(r)
+      },
     })
 
     await mw(makeRequest('claude-opus-4-6'), async () => makeResponse(100, 50))
@@ -53,11 +59,23 @@ describe('createCostTrackingMiddleware', () => {
     const knownRecords: CostRecord[] = []
     const unknownRecords: CostRecord[] = []
 
-    const knownMw = createCostTrackingMiddleware({ onCost: (r) => { knownRecords.push(r) } })
-    const unknownMw = createCostTrackingMiddleware({ onCost: (r) => { unknownRecords.push(r) } })
+    const knownMw = createCostTrackingMiddleware({
+      onCost: (r) => {
+        knownRecords.push(r)
+      },
+    })
+    const unknownMw = createCostTrackingMiddleware({
+      onCost: (r) => {
+        unknownRecords.push(r)
+      },
+    })
 
-    await knownMw(makeRequest('claude-opus-4-6'), async () => makeResponse(100, 50, 'claude-opus-4-6'))
-    await unknownMw(makeRequest('unknown-llm-xyz'), async () => makeResponse(100, 50, 'unknown-llm-xyz'))
+    await knownMw(makeRequest('claude-opus-4-6'), async () =>
+      makeResponse(100, 50, 'claude-opus-4-6')
+    )
+    await unknownMw(makeRequest('unknown-llm-xyz'), async () =>
+      makeResponse(100, 50, 'unknown-llm-xyz')
+    )
 
     expect(knownRecords[0]!.costUsd).toBeGreaterThan(0)
     expect(unknownRecords[0]!.costUsd).toBe(0)
@@ -65,7 +83,9 @@ describe('createCostTrackingMiddleware', () => {
 
   it('AC3: error in onCost does NOT propagate', async () => {
     const mw = createCostTrackingMiddleware({
-      onCost: () => { throw new Error('cost callback failed') },
+      onCost: () => {
+        throw new Error('cost callback failed')
+      },
     })
 
     // Should not throw despite onCost throwing

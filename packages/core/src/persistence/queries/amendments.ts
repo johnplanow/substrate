@@ -21,8 +21,8 @@ import type { Decision, PipelineRun } from '../schemas/decisions.js'
 // ---------------------------------------------------------------------------
 
 export interface CreateAmendmentRunInput {
-  id: string           // UUID for the new run
-  parentRunId: string  // Must reference a completed pipeline_run
+  id: string // UUID for the new run
+  parentRunId: string // Must reference a completed pipeline_run
   methodology: string
   configJson?: string
 }
@@ -37,7 +37,7 @@ export interface ActiveDecisionsFilter {
 export interface SupersessionEvent {
   originalDecisionId: string
   supersedingDecisionId: string
-  supersededAt: string  // ISO 8601 timestamp
+  supersededAt: string // ISO 8601 timestamp
 }
 
 export interface AmendmentChainEntry {
@@ -45,7 +45,7 @@ export interface AmendmentChainEntry {
   parentRunId: string | null
   status: string
   createdAt: string
-  depth: number  // 0 = root, 1 = first amendment, etc.
+  depth: number // 0 = root, 1 = first amendment, etc.
 }
 
 // ---------------------------------------------------------------------------
@@ -59,11 +59,14 @@ export interface AmendmentChainEntry {
  * Throws if the parent run is not found or not completed.
  * Returns the new run's ID on success.
  */
-export async function createAmendmentRun(adapter: DatabaseAdapter, input: CreateAmendmentRunInput): Promise<string> {
+export async function createAmendmentRun(
+  adapter: DatabaseAdapter,
+  input: CreateAmendmentRunInput
+): Promise<string> {
   // Validate parent run exists and is completed
   const rows = await adapter.query<{ id: string; status: string }>(
     'SELECT id, status FROM pipeline_runs WHERE id = ?',
-    [input.parentRunId],
+    [input.parentRunId]
   )
   const parentRun = rows[0]
 
@@ -73,7 +76,7 @@ export async function createAmendmentRun(adapter: DatabaseAdapter, input: Create
 
   if (parentRun.status !== 'completed') {
     throw new Error(
-      `Parent run is not completed (status: ${parentRun.status}). Only completed runs can be amended.`,
+      `Parent run is not completed (status: ${parentRun.status}). Only completed runs can be amended.`
     )
   }
 
@@ -88,7 +91,7 @@ export async function createAmendmentRun(adapter: DatabaseAdapter, input: Create
       input.parentRunId,
       new Date().toISOString(),
       new Date().toISOString(),
-    ],
+    ]
   )
 
   return input.id
@@ -104,12 +107,15 @@ export async function createAmendmentRun(adapter: DatabaseAdapter, input: Create
  * Returns decisions WHERE superseded_by IS NULL for the specified run,
  * ordered by created_at ASC.
  */
-export async function loadParentRunDecisions(adapter: DatabaseAdapter, parentRunId: string): Promise<Decision[]> {
+export async function loadParentRunDecisions(
+  adapter: DatabaseAdapter,
+  parentRunId: string
+): Promise<Decision[]> {
   return adapter.query<Decision>(
     `SELECT * FROM decisions
      WHERE pipeline_run_id = ? AND superseded_by IS NULL
      ORDER BY created_at ASC`,
-    [parentRunId],
+    [parentRunId]
   )
 }
 
@@ -130,12 +136,12 @@ export async function loadParentRunDecisions(adapter: DatabaseAdapter, parentRun
 export async function supersedeDecision(
   adapter: DatabaseAdapter,
   originalDecisionId: string,
-  supersedingDecisionId: string,
+  supersedingDecisionId: string
 ): Promise<void> {
   // Check original decision exists
   const origRows = await adapter.query<{ id: string; superseded_by: string | null }>(
     'SELECT id, superseded_by FROM decisions WHERE id = ?',
-    [originalDecisionId],
+    [originalDecisionId]
   )
   const original = origRows[0]
 
@@ -144,10 +150,9 @@ export async function supersedeDecision(
   }
 
   // Check superseding decision exists
-  const superRows = await adapter.query<{ id: string }>(
-    'SELECT id FROM decisions WHERE id = ?',
-    [supersedingDecisionId],
-  )
+  const superRows = await adapter.query<{ id: string }>('SELECT id FROM decisions WHERE id = ?', [
+    supersedingDecisionId,
+  ])
   const superseding = superRows[0]
 
   if (!superseding) {
@@ -160,10 +165,11 @@ export async function supersedeDecision(
   }
 
   // Perform the update
-  await adapter.query(
-    'UPDATE decisions SET superseded_by = ?, updated_at = ? WHERE id = ?',
-    [supersedingDecisionId, new Date().toISOString(), originalDecisionId],
-  )
+  await adapter.query('UPDATE decisions SET superseded_by = ?, updated_at = ? WHERE id = ?', [
+    supersedingDecisionId,
+    new Date().toISOString(),
+    originalDecisionId,
+  ])
 }
 
 // ---------------------------------------------------------------------------
@@ -177,7 +183,10 @@ export async function supersedeDecision(
  * If no filter is provided, returns all active decisions across all runs.
  * Results are ordered by created_at ASC.
  */
-export async function getActiveDecisions(adapter: DatabaseAdapter, filter?: ActiveDecisionsFilter): Promise<Decision[]> {
+export async function getActiveDecisions(
+  adapter: DatabaseAdapter,
+  filter?: ActiveDecisionsFilter
+): Promise<Decision[]> {
   const conditions: string[] = ['superseded_by IS NULL']
   const values: unknown[] = []
 
@@ -199,10 +208,7 @@ export async function getActiveDecisions(adapter: DatabaseAdapter, filter?: Acti
   }
 
   const where = `WHERE ${conditions.join(' AND ')}`
-  return adapter.query<Decision>(
-    `SELECT * FROM decisions ${where} ORDER BY created_at ASC`,
-    values,
-  )
+  return adapter.query<Decision>(`SELECT * FROM decisions ${where} ORDER BY created_at ASC`, values)
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +228,7 @@ export async function getActiveDecisions(adapter: DatabaseAdapter, filter?: Acti
 export async function getAmendmentRunChain(
   adapter: DatabaseAdapter,
   runId: string,
-  maxDepth: number = 10,
+  maxDepth: number = 10
 ): Promise<AmendmentChainEntry[]> {
   const chain: AmendmentChainEntry[] = []
   let currentId: string | null = runId
@@ -231,20 +237,22 @@ export async function getAmendmentRunChain(
   while (currentId !== null) {
     if (depth > maxDepth) {
       throw new Error(
-        `Amendment chain depth exceeded maxDepth (${maxDepth}). Possible circular reference.`,
+        `Amendment chain depth exceeded maxDepth (${maxDepth}). Possible circular reference.`
       )
     }
 
-    const rows: { id: string; parent_run_id: string | null; status: string; created_at: string }[] = await adapter.query<{
-      id: string
-      parent_run_id: string | null
-      status: string
-      created_at: string
-    }>(
-      'SELECT id, parent_run_id, status, created_at FROM pipeline_runs WHERE id = ?',
-      [currentId],
-    )
-    const row: { id: string; parent_run_id: string | null; status: string; created_at: string } | undefined = rows[0]
+    const rows: { id: string; parent_run_id: string | null; status: string; created_at: string }[] =
+      await adapter.query<{
+        id: string
+        parent_run_id: string | null
+        status: string
+        created_at: string
+      }>('SELECT id, parent_run_id, status, created_at FROM pipeline_runs WHERE id = ?', [
+        currentId,
+      ])
+    const row:
+      | { id: string; parent_run_id: string | null; status: string; created_at: string }
+      | undefined = rows[0]
 
     if (!row) break
 
@@ -280,12 +288,14 @@ export async function getAmendmentRunChain(
  * Get the most recently created pipeline run with status = 'completed'.
  * Returns undefined if no completed run exists.
  */
-export async function getLatestCompletedRun(adapter: DatabaseAdapter): Promise<PipelineRun | undefined> {
+export async function getLatestCompletedRun(
+  adapter: DatabaseAdapter
+): Promise<PipelineRun | undefined> {
   const rows = await adapter.query<PipelineRun>(
     `SELECT * FROM pipeline_runs
      WHERE status = 'completed'
      ORDER BY created_at DESC, id DESC
-     LIMIT 1`,
+     LIMIT 1`
   )
   return rows[0]
 }

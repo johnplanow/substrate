@@ -350,10 +350,16 @@ describe('createFanInHandler — LLM mode (with prompt)', () => {
       makeBranch({ branch_id: 2, status: 'SUCCESS' }),
     ]
     const ctx = makeContext({ 'parallel.results': results })
-    const outcome = await handler(makeNode({ prompt: 'Pick the best implementation' }), ctx, stubGraph)
+    const outcome = await handler(
+      makeNode({ prompt: 'Pick the best implementation' }),
+      ctx,
+      stubGraph
+    )
     expect(outcome.status).toBe('SUCCESS')
     expect(mockLlmCall).toHaveBeenCalledOnce()
-    expect(mockLlmCall).toHaveBeenCalledWith(expect.stringContaining('Pick the best implementation'))
+    expect(mockLlmCall).toHaveBeenCalledWith(
+      expect.stringContaining('Pick the best implementation')
+    )
     expect(ctx.get('parallel.fan_in.best_id')).toBe(2)
   })
 

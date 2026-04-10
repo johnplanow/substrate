@@ -101,10 +101,10 @@ export type JoinDecision =
 export function evaluateJoinPolicy(
   config: JoinPolicyConfig,
   completed: BranchResult[],
-  total: number,
+  total: number
 ): JoinDecision {
-  const successes = completed.filter(r => r.outcome === 'SUCCESS')
-  const failures  = completed.filter(r => r.outcome === 'FAIL')
+  const successes = completed.filter((r) => r.outcome === 'SUCCESS')
+  const failures = completed.filter((r) => r.outcome === 'FAIL')
 
   switch (config.policy) {
     case 'wait_all': {
@@ -138,8 +138,7 @@ export function evaluateJoinPolicy(
       if (successes.length + remaining < needed) {
         return {
           action: 'fail',
-          reason:
-            `quorum unreachable: ${failures.length} failed, needed ${needed} of ${total}`,
+          reason: `quorum unreachable: ${failures.length} failed, needed ${needed} of ${total}`,
         }
       }
       return { action: 'wait' }
@@ -183,7 +182,9 @@ export class BranchCancellationManager {
   getSignal(index: number): AbortSignal {
     const ctrl = this.controllers[index]
     if (ctrl === undefined) {
-      throw new RangeError(`Branch index ${index} is out of range (branchCount=${this.controllers.length})`)
+      throw new RangeError(
+        `Branch index ${index} is out of range (branchCount=${this.controllers.length})`
+      )
     }
     return ctrl.signal
   }
@@ -209,6 +210,6 @@ export class BranchCancellationManager {
    * @param timeoutMs - Drain window in milliseconds (default 5000).
    */
   async drainAsync(timeoutMs: number): Promise<void> {
-    await new Promise<void>(resolve => setTimeout(resolve, timeoutMs))
+    await new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))
   }
 }

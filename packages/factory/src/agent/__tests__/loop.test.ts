@@ -39,7 +39,7 @@ function makeTextResponse(content = 'Done!'): LLMResponse {
 function makeToolCallResponse(
   toolName: string,
   callId = 'call1',
-  args: Record<string, unknown> = {},
+  args: Record<string, unknown> = {}
 ): LLMResponse {
   return {
     content: '',
@@ -52,7 +52,10 @@ function makeToolCallResponse(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeToolDefinition(name: string, executor?: (args: any, env: ExecutionEnvironment) => Promise<string>): ToolDefinition {
+function makeToolDefinition(
+  name: string,
+  executor?: (args: any, env: ExecutionEnvironment) => Promise<string>
+): ToolDefinition {
   return {
     name,
     description: `Mock ${name} tool`,
@@ -62,7 +65,10 @@ function makeToolDefinition(name: string, executor?: (args: any, env: ExecutionE
   }
 }
 
-function makeProfile(tools: ToolDefinition[] = [], overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+function makeProfile(
+  tools: ToolDefinition[] = [],
+  overrides: Partial<ProviderProfile> = {}
+): ProviderProfile {
   return {
     id: 'test',
     model: 'test-model',
@@ -100,7 +106,7 @@ function makeConfig(overrides: Partial<SessionConfig> = {}): Partial<SessionConf
 function collectEvents(session: CodingAgentSession, ...kinds: EventKind[]): SessionEvent[] {
   const events: SessionEvent[] = []
   for (const kind of kinds) {
-    session.on(kind, e => events.push(e))
+    session.on(kind, (e) => events.push(e))
   }
   return events
 }
@@ -109,7 +115,7 @@ function collectEvents(session: CodingAgentSession, ...kinds: EventKind[]): Sess
 function collectAllEvents(session: CodingAgentSession): SessionEvent[] {
   const events: SessionEvent[] = []
   for (const kind of Object.values(EventKind)) {
-    session.on(kind as EventKind, e => events.push(e))
+    session.on(kind as EventKind, (e) => events.push(e))
   }
   return events
 }
@@ -129,7 +135,7 @@ describe('createSession', () => {
     expect(session).toBeInstanceOf(CodingAgentSession)
     expect(session.state).toBe(SessionState.IDLE)
     expect(session.id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     )
   })
 
@@ -143,7 +149,7 @@ describe('createSession', () => {
       executionEnv: makeEnv(),
     })
 
-    const startCall = emitSpy.mock.calls.find(args => args[0] === EventKind.SESSION_START)
+    const startCall = emitSpy.mock.calls.find((args) => args[0] === EventKind.SESSION_START)
     expect(startCall).toBeDefined()
     if (startCall) {
       const event = startCall[1] as SessionEvent
@@ -177,7 +183,7 @@ describe('session.close()', () => {
     })
 
     const events: SessionEvent[] = []
-    session.on(EventKind.SESSION_END, e => events.push(e))
+    session.on(EventKind.SESSION_END, (e) => events.push(e))
 
     session.close()
 
@@ -205,7 +211,7 @@ describe('processInput — natural completion (no tool calls)', () => {
 
     await session.processInput('hi')
 
-    const kinds = events.map(e => e.kind)
+    const kinds = events.map((e) => e.kind)
     expect(kinds).toContain(EventKind.USER_INPUT)
     expect(kinds).toContain(EventKind.ASSISTANT_TEXT_END)
     expect(kinds).toContain(EventKind.PROCESSING_END)
@@ -286,7 +292,7 @@ describe('processInput — one tool call then natural completion', () => {
 
     await session.processInput('run my tool')
 
-    const kinds = events.map(e => e.kind)
+    const kinds = events.map((e) => e.kind)
     expect(kinds).toContain(EventKind.TOOL_CALL_START)
     expect(kinds).toContain(EventKind.TOOL_CALL_END)
     expect(kinds).toContain(EventKind.PROCESSING_END)
@@ -336,9 +342,9 @@ describe('max_tool_rounds_per_input enforcement', () => {
     })
 
     const turnLimitEvents: SessionEvent[] = []
-    session.on(EventKind.TURN_LIMIT, e => turnLimitEvents.push(e))
+    session.on(EventKind.TURN_LIMIT, (e) => turnLimitEvents.push(e))
     const processingEndEvents: SessionEvent[] = []
-    session.on(EventKind.PROCESSING_END, e => processingEndEvents.push(e))
+    session.on(EventKind.PROCESSING_END, (e) => processingEndEvents.push(e))
 
     await session.processInput('loop me')
 
@@ -367,7 +373,7 @@ describe('max_turns enforcement', () => {
     })
 
     const turnLimitEvents: SessionEvent[] = []
-    session.on(EventKind.TURN_LIMIT, e => turnLimitEvents.push(e))
+    session.on(EventKind.TURN_LIMIT, (e) => turnLimitEvents.push(e))
 
     await session.processInput('test')
 
@@ -386,7 +392,7 @@ describe('max_turns enforcement', () => {
     })
 
     const turnLimitEvents: SessionEvent[] = []
-    session.on(EventKind.TURN_LIMIT, e => turnLimitEvents.push(e))
+    session.on(EventKind.TURN_LIMIT, (e) => turnLimitEvents.push(e))
 
     await session.processInput('test')
     expect(turnLimitEvents).toHaveLength(0)
@@ -412,7 +418,7 @@ describe('unknown tool handling', () => {
     })
 
     const toolEndEvents: SessionEvent[] = []
-    session.on(EventKind.TOOL_CALL_END, e => toolEndEvents.push(e))
+    session.on(EventKind.TOOL_CALL_END, (e) => toolEndEvents.push(e))
 
     // Should NOT throw
     await expect(session.processInput('call unknown')).resolves.toBeUndefined()
@@ -436,7 +442,7 @@ describe('unknown tool handling', () => {
 
     await session.processInput('call ghost')
 
-    const toolResultsTurn = session.history.find(t => t.type === 'tool_results')
+    const toolResultsTurn = session.history.find((t) => t.type === 'tool_results')
     expect(toolResultsTurn).toBeDefined()
     if (toolResultsTurn?.type === 'tool_results') {
       expect(toolResultsTurn.results[0]!.is_error).toBe(true)
@@ -470,7 +476,7 @@ describe('TOOL_CALL_END full output in event', () => {
     })
 
     const toolEndEvents: SessionEvent[] = []
-    session.on(EventKind.TOOL_CALL_END, e => toolEndEvents.push(e))
+    session.on(EventKind.TOOL_CALL_END, (e) => toolEndEvents.push(e))
 
     await session.processInput('run shell')
 
@@ -480,7 +486,7 @@ describe('TOOL_CALL_END full output in event', () => {
     expect((toolEndEvents[0]!.data.output as string).length).toBe(35_000)
 
     // History ToolResultsTurn content should be truncated
-    const toolResultsTurn = session.history.find(t => t.type === 'tool_results')
+    const toolResultsTurn = session.history.find((t) => t.type === 'tool_results')
     expect(toolResultsTurn).toBeDefined()
     if (toolResultsTurn?.type === 'tool_results') {
       expect(toolResultsTurn.results[0]!.content).toContain('characters truncated from middle.')
@@ -503,7 +509,7 @@ describe('parallel tool call dispatch', () => {
       vi.fn().mockImplementation(async () => {
         activeCount++
         maxActiveCount = Math.max(maxActiveCount, activeCount)
-        await new Promise(r => setTimeout(r, 15))
+        await new Promise((r) => setTimeout(r, 15))
         activeCount--
         return 'output'
       })
@@ -543,10 +549,12 @@ describe('parallel tool call dispatch', () => {
     const callOrder: string[] = []
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const makeSeqExecutor = (name: string): ((args: any, env: ExecutionEnvironment) => Promise<string>) =>
+    const makeSeqExecutor = (
+      name: string
+    ): ((args: any, env: ExecutionEnvironment) => Promise<string>) =>
       vi.fn().mockImplementation(async () => {
         callOrder.push(`start_${name}`)
-        await new Promise(r => setTimeout(r, 10))
+        await new Promise((r) => setTimeout(r, 10))
         callOrder.push(`end_${name}`)
         return 'output'
       })
@@ -611,11 +619,13 @@ describe('convertHistoryToMessages', () => {
   })
 
   it('converts ToolResultsTurn to user role with tool_result content parts', () => {
-    const history = [{
-      type: 'tool_results' as const,
-      results: [{ tool_call_id: 'c1', content: 'result', is_error: false }],
-      timestamp: new Date(),
-    }]
+    const history = [
+      {
+        type: 'tool_results' as const,
+        results: [{ tool_call_id: 'c1', content: 'result', is_error: false }],
+        timestamp: new Date(),
+      },
+    ]
     const messages = convertHistoryToMessages(history)
     expect(messages).toHaveLength(1)
     expect(messages[0]!.role).toBe('user')
@@ -626,21 +636,23 @@ describe('convertHistoryToMessages', () => {
   })
 
   it('converts AssistantTurn with tool calls to assistant role with tool_call parts', () => {
-    const history = [{
-      type: 'assistant' as const,
-      content: 'Using tool',
-      tool_calls: [{ id: 'tc1', name: 'my_tool', arguments: { x: 1 } }],
-      reasoning: null,
-      usage: makeUsage(),
-      response_id: null,
-      timestamp: new Date(),
-    }]
+    const history = [
+      {
+        type: 'assistant' as const,
+        content: 'Using tool',
+        tool_calls: [{ id: 'tc1', name: 'my_tool', arguments: { x: 1 } }],
+        reasoning: null,
+        usage: makeUsage(),
+        response_id: null,
+        timestamp: new Date(),
+      },
+    ]
     const messages = convertHistoryToMessages(history)
     expect(messages).toHaveLength(1)
     expect(messages[0]!.role).toBe('assistant')
     const parts = messages[0]!.content
-    expect(parts.some(p => p.kind === 'text')).toBe(true)
-    expect(parts.some(p => p.kind === 'tool_call')).toBe(true)
+    expect(parts.some((p) => p.kind === 'text')).toBe(true)
+    expect(parts.some((p) => p.kind === 'tool_call')).toBe(true)
   })
 })
 
@@ -658,7 +670,7 @@ describe('error handling', () => {
     })
 
     const errorEvents: SessionEvent[] = []
-    session.on(EventKind.ERROR, e => errorEvents.push(e))
+    session.on(EventKind.ERROR, (e) => errorEvents.push(e))
 
     await expect(session.processInput('test')).rejects.toThrow('LLM unavailable')
 
@@ -692,7 +704,7 @@ describe('steer() — steering injection', () => {
     await session.processInput('do something')
 
     // SteeringTurn should appear in history
-    const steeringTurns = session.history.filter(t => t.type === 'steering')
+    const steeringTurns = session.history.filter((t) => t.type === 'steering')
     expect(steeringTurns.length).toBeGreaterThanOrEqual(1)
     const turn = steeringTurns[0]
     expect(turn?.type).toBe('steering')
@@ -711,7 +723,7 @@ describe('steer() — steering injection', () => {
     })
 
     const steeringEvents: SessionEvent[] = []
-    session.on(EventKind.STEERING_INJECTED, e => steeringEvents.push(e))
+    session.on(EventKind.STEERING_INJECTED, (e) => steeringEvents.push(e))
 
     session.steer('redirect now')
     await session.processInput('hello')
@@ -728,9 +740,7 @@ describe('steer() — steering injection', () => {
 
     const complete = vi.fn().mockImplementation(() => {
       // Capture the types of turns in history at call time
-      historySnapshotsAtLLMCall.push(
-        session.history.map(t => t.type)
-      )
+      historySnapshotsAtLLMCall.push(session.history.map((t) => t.type))
       if (complete.mock.calls.length === 1) {
         return Promise.resolve(makeToolCallResponse('my_tool'))
       }
@@ -767,7 +777,7 @@ describe('steer() — steering injection', () => {
     expect(session._steeringQueue).toHaveLength(1)
 
     const steeringEvents: SessionEvent[] = []
-    session.on(EventKind.STEERING_INJECTED, e => steeringEvents.push(e))
+    session.on(EventKind.STEERING_INJECTED, (e) => steeringEvents.push(e))
 
     await session.processInput('now process')
 
@@ -791,7 +801,7 @@ describe('steer() — steering injection', () => {
     session.steer('third')
 
     const steeringEvents: SessionEvent[] = []
-    session.on(EventKind.STEERING_INJECTED, e => steeringEvents.push(e))
+    session.on(EventKind.STEERING_INJECTED, (e) => steeringEvents.push(e))
 
     await session.processInput('go')
 
@@ -816,7 +826,7 @@ describe('_drainSteering()', () => {
     })
 
     const steeringEvents: SessionEvent[] = []
-    session.on(EventKind.STEERING_INJECTED, e => steeringEvents.push(e))
+    session.on(EventKind.STEERING_INJECTED, (e) => steeringEvents.push(e))
 
     session._steeringQueue.push('msg1', 'msg2', 'msg3')
     session._drainSteering()
@@ -826,7 +836,7 @@ describe('_drainSteering()', () => {
 
     // SteeringTurns appended to history
     expect(session.history).toHaveLength(3)
-    expect(session.history.every(t => t.type === 'steering')).toBe(true)
+    expect(session.history.every((t) => t.type === 'steering')).toBe(true)
     expect((session.history[0] as import('../types.js').SteeringTurn).content).toBe('msg1')
     expect((session.history[1] as import('../types.js').SteeringTurn).content).toBe('msg2')
     expect((session.history[2] as import('../types.js').SteeringTurn).content).toBe('msg3')
@@ -846,7 +856,7 @@ describe('_drainSteering()', () => {
     })
 
     const steeringEvents: SessionEvent[] = []
-    session.on(EventKind.STEERING_INJECTED, e => steeringEvents.push(e))
+    session.on(EventKind.STEERING_INJECTED, (e) => steeringEvents.push(e))
 
     session._drainSteering()
 
@@ -892,10 +902,10 @@ describe('follow_up() — follow-up queue', () => {
     session.follow_up('follow-up message')
 
     const userInputEvents: SessionEvent[] = []
-    session.on(EventKind.USER_INPUT, e => userInputEvents.push(e))
+    session.on(EventKind.USER_INPUT, (e) => userInputEvents.push(e))
 
     const processingEndEvents: SessionEvent[] = []
-    session.on(EventKind.PROCESSING_END, e => processingEndEvents.push(e))
+    session.on(EventKind.PROCESSING_END, (e) => processingEndEvents.push(e))
 
     await session.processInput('initial message')
 
@@ -928,7 +938,7 @@ describe('follow_up() — follow-up queue', () => {
     session.follow_up('follow-up-2')
 
     const processingEndEvents: SessionEvent[] = []
-    session.on(EventKind.PROCESSING_END, e => processingEndEvents.push(e))
+    session.on(EventKind.PROCESSING_END, (e) => processingEndEvents.push(e))
 
     await session.processInput('initial')
 
@@ -937,7 +947,8 @@ describe('follow_up() — follow-up queue', () => {
   })
 
   it('follow-up messages are processed FIFO', async () => {
-    const complete = vi.fn()
+    const complete = vi
+      .fn()
       .mockResolvedValueOnce(makeTextResponse('R1'))
       .mockResolvedValueOnce(makeTextResponse('R2'))
       .mockResolvedValueOnce(makeTextResponse('R3'))
@@ -952,7 +963,7 @@ describe('follow_up() — follow-up queue', () => {
     session.follow_up('fu-second')
 
     const inputEvents: SessionEvent[] = []
-    session.on(EventKind.USER_INPUT, e => inputEvents.push(e))
+    session.on(EventKind.USER_INPUT, (e) => inputEvents.push(e))
 
     await session.processInput('initial')
 
@@ -987,7 +998,7 @@ describe('loop detection integration', () => {
     })
 
     const loopEvents: SessionEvent[] = []
-    session.on(EventKind.LOOP_DETECTION, e => loopEvents.push(e))
+    session.on(EventKind.LOOP_DETECTION, (e) => loopEvents.push(e))
 
     await session.processInput('run loop')
 
@@ -1015,9 +1026,9 @@ describe('loop detection integration', () => {
 
     await session.processInput('run')
 
-    const steeringTurns = session.history.filter(t => t.type === 'steering')
-    const loopWarning = steeringTurns.find(t =>
-      t.type === 'steering' && t.content.includes('Loop detected')
+    const steeringTurns = session.history.filter((t) => t.type === 'steering')
+    const loopWarning = steeringTurns.find(
+      (t) => t.type === 'steering' && t.content.includes('Loop detected')
     )
     expect(loopWarning).toBeDefined()
     if (loopWarning?.type === 'steering') {
@@ -1046,7 +1057,7 @@ describe('loop detection integration', () => {
     })
 
     const loopEvents: SessionEvent[] = []
-    session.on(EventKind.LOOP_DETECTION, e => loopEvents.push(e))
+    session.on(EventKind.LOOP_DETECTION, (e) => loopEvents.push(e))
 
     await session.processInput('run no detection')
 
@@ -1071,7 +1082,7 @@ describe('loop detection integration', () => {
     })
 
     const loopEvents: SessionEvent[] = []
-    session.on(EventKind.LOOP_DETECTION, e => loopEvents.push(e))
+    session.on(EventKind.LOOP_DETECTION, (e) => loopEvents.push(e))
 
     await session.processInput('run')
 

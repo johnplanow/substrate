@@ -55,7 +55,11 @@ describe('createApplyPatchTool', () => {
 describe('all tool definitions schema validation', () => {
   it('apply_patch has required inputSchema fields', () => {
     const tool = createApplyPatchTool()
-    const schema = tool.inputSchema as { type: string; properties: Record<string, unknown>; required: string[] }
+    const schema = tool.inputSchema as {
+      type: string
+      properties: Record<string, unknown>
+      required: string[]
+    }
     expect(schema.type).toBe('object')
     expect(schema.properties).toHaveProperty('patch')
     expect(schema.required).toContain('patch')

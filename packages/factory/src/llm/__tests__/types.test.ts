@@ -236,7 +236,9 @@ describe('LLMMessage and LLMRole types (AC5)', () => {
   it('constructs a tool role message with toolCallId', () => {
     const msg: LLMMessage = {
       role: 'tool',
-      content: [{ kind: 'tool_result', toolResult: { toolCallId: 'c1', content: 'done', isError: false } }],
+      content: [
+        { kind: 'tool_result', toolResult: { toolCallId: 'c1', content: 'done', isError: false } },
+      ],
       toolCallId: 'c1',
     }
     expect(msg.role).toBe('tool')

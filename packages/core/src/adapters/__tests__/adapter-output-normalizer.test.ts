@@ -89,12 +89,7 @@ describe('AdapterOutputNormalizer', () => {
     it('strips blockquote prefixes and extracts YAML', () => {
       // Blockquote-wrapped YAML — standard extractYamlBlock won't find it
       // because the `> ` prefix breaks anchor detection
-      const output = [
-        '> ```yaml',
-        '> verdict: SHIP_IT',
-        '> score: 88',
-        '> ```',
-      ].join('\n')
+      const output = ['> ```yaml', '> verdict: SHIP_IT', '> score: 88', '> ```'].join('\n')
 
       const normalizer = new AdapterOutputNormalizer(silentLogger)
       const result = normalizer.normalize(output, 'gemini')
@@ -150,14 +145,7 @@ describe('AdapterOutputNormalizer', () => {
     })
 
     it('ignores JSON without anchor keys', () => {
-      const output = [
-        'Some text.',
-        '{',
-        '"status": "ok",',
-        '"count": 42',
-        '}',
-        'End.',
-      ].join('\n')
+      const output = ['Some text.', '{', '"status": "ok",', '"count": 42', '}', 'End.'].join('\n')
 
       const normalizer = new AdapterOutputNormalizer(silentLogger)
       const result = normalizer.normalize(output, 'codex')
@@ -180,7 +168,12 @@ describe('AdapterOutputNormalizer', () => {
       expect(result).toBeInstanceOf(AdapterFormatError)
       const err = result as AdapterFormatError
       expect(err.adapter_id).toBe('claude-code')
-      expect(err.tried_strategies).toEqual(['standard', 'strip-prose', 'strip-markdown', 'json-fallback'])
+      expect(err.tried_strategies).toEqual([
+        'standard',
+        'strip-prose',
+        'strip-markdown',
+        'json-fallback',
+      ])
       expect(err.raw_output_snippet).toBe(output)
       expect(err.extraction_error).toContain('json-fallback')
       expect(err.rootCause).toBe('adapter-format')
@@ -208,7 +201,7 @@ describe('AdapterOutputNormalizer', () => {
           adapter_id: 'test-adapter',
           tried_strategies: ['standard', 'strip-prose', 'strip-markdown', 'json-fallback'],
         }),
-        expect.stringContaining('exhausted all strategies'),
+        expect.stringContaining('exhausted all strategies')
       )
     })
   })

@@ -65,7 +65,10 @@ export class DispatchGate {
             if (finding.contradicted_by !== undefined) continue
 
             // Check file overlap between finding's affected_files and pending files
-            const overlap = ConflictDetector.findOverlappingFiles(pendingFiles, finding.affected_files)
+            const overlap = ConflictDetector.findOverlappingFiles(
+              pendingFiles,
+              finding.affected_files
+            )
             if (overlap.length === 0) continue
 
             // Pre-emptive block via auto-resolution
@@ -109,7 +112,7 @@ export class DispatchGate {
       for (const completed of completedStories) {
         const overlappingFiles = ConflictDetector.findOverlappingFiles(
           pendingFiles,
-          completed.modifiedFiles,
+          completed.modifiedFiles
         )
 
         if (overlappingFiles.length === 0) continue
@@ -134,7 +137,7 @@ export class DispatchGate {
             collision = await ConflictDetector.detectNamespaceCollision(
               symbol,
               overlappingFiles,
-              projectRoot,
+              projectRoot
             )
           } catch {
             // Non-fatal: file-read error — skip this symbol (AC7)

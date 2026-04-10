@@ -82,7 +82,9 @@ vi.mock('../../convergence/index.js', () => ({
     fixScope: '',
   }),
   injectRemediationContext: vi.fn(),
-  computeBackoffDelay: vi.fn().mockImplementation((attempt: number) => Math.min(1000 * 2 ** attempt, 30000)),
+  computeBackoffDelay: vi
+    .fn()
+    .mockImplementation((attempt: number) => Math.min(1000 * 2 ** attempt, 30000)),
   createDualSignalCoordinator: vi.fn().mockReturnValue({ evaluate: vi.fn() }),
   CONTEXT_KEY_CODE_REVIEW_VERDICT: 'code_review_verdict',
 }))
@@ -170,14 +172,14 @@ function makeEdge(fromNode: string, toNode: string, overrides?: Partial<GraphEdg
  * Build a minimal 3-node Graph: start → mid → exit
  * mid has fidelity: 'medium' by default.
  */
-function makeThreeNodeGraph(midFidelity = 'medium', graphDefaultFidelity: '' | 'high' | 'medium' | 'low' | 'draft' = ''): Graph {
+function makeThreeNodeGraph(
+  midFidelity = 'medium',
+  graphDefaultFidelity: '' | 'high' | 'medium' | 'low' | 'draft' = ''
+): Graph {
   const startNode = makeNode('start')
   const midNode = makeNode('mid', { fidelity: midFidelity })
   const exitNode = makeNode('exit')
-  const edgeList: GraphEdge[] = [
-    makeEdge('start', 'mid'),
-    makeEdge('mid', 'exit'),
-  ]
+  const edgeList: GraphEdge[] = [makeEdge('start', 'mid'), makeEdge('mid', 'exit')]
   const nodeMap = new Map([
     ['start', startNode],
     ['mid', midNode],
@@ -221,7 +223,7 @@ function makeEventBus(): { bus: TypedEventBus<FactoryEvents>; emit: ReturnType<t
 
 function makeConfig(
   registry: IHandlerRegistry,
-  overrides?: Partial<GraphExecutorConfig>,
+  overrides?: Partial<GraphExecutorConfig>
 ): GraphExecutorConfig {
   return {
     runId: 'fidelity-test-run',
@@ -265,7 +267,7 @@ describe('executor fidelity-based context summarization (story 49-5)', () => {
       makeConfig(registry, {
         summaryEngine: mockEngine,
         initialContext: { 'factory.nodeContext': nodeContextValue },
-      }),
+      })
     )
 
     expect(outcome.status).toBe('SUCCESS')
@@ -277,7 +279,9 @@ describe('executor fidelity-based context summarization (story 49-5)', () => {
     // factory.compressedNodeContext set in context before handler executes
     expect(midCtx.getString('factory.compressedNodeContext', '')).not.toBe('')
     // factory.nodeContext is replaced with compressed content so handlers use it
-    expect(midCtx.getString('factory.nodeContext', '')).toBe(midCtx.getString('factory.compressedNodeContext', ''))
+    expect(midCtx.getString('factory.nodeContext', '')).toBe(
+      midCtx.getString('factory.compressedNodeContext', '')
+    )
   })
 
   it('AC4 no-op: summarization skipped when factory.nodeContext is empty', async () => {
@@ -289,10 +293,7 @@ describe('executor fidelity-based context summarization (story 49-5)', () => {
 
     const executor = createGraphExecutor()
     // No factory.nodeContext in initialContext
-    const outcome = await executor.run(
-      graph,
-      makeConfig(registry, { summaryEngine: mockEngine }),
-    )
+    const outcome = await executor.run(graph, makeConfig(registry, { summaryEngine: mockEngine }))
 
     expect(outcome.status).toBe('SUCCESS')
     expect(mockEngine.summarizeCallCount).toBe(0)
@@ -315,7 +316,7 @@ describe('executor fidelity-based context summarization (story 49-5)', () => {
       graph,
       makeConfig(registry, {
         initialContext: { 'factory.nodeContext': nodeContextValue },
-      }),
+      })
     )
 
     expect(outcome.status).toBe('SUCCESS')
@@ -340,13 +341,24 @@ describe('executor fidelity-based context summarization (story 49-5)', () => {
         eventBus: bus,
         summaryEngine: mockEngine,
         initialContext: { 'factory.nodeContext': nodeContextValue },
-      }),
+      })
     )
 
-    const summarizedEvents = emit.mock.calls.filter(([event]) => event === 'graph:context-summarized')
+    const summarizedEvents = emit.mock.calls.filter(
+      ([event]) => event === 'graph:context-summarized'
+    )
     expect(summarizedEvents).toHaveLength(1)
 
-    const [, payload] = summarizedEvents[0] as [string, { runId: string; nodeId: string; level: string; originalTokenCount: number; summaryTokenCount: number }]
+    const [, payload] = summarizedEvents[0] as [
+      string,
+      {
+        runId: string
+        nodeId: string
+        level: string
+        originalTokenCount: number
+        summaryTokenCount: number
+      },
+    ]
     expect(payload.runId).toBe('fidelity-test-run')
     expect(payload.nodeId).toBe('mid')
     expect(payload.level).toBe('medium')
@@ -394,7 +406,7 @@ describe('executor fidelity-based context summarization (story 49-5)', () => {
       makeConfig(registry, {
         summaryEngine: mockEngine,
         checkpointPath: '/fake/checkpoint.json',
-      }),
+      })
     )
 
     expect(outcome.status).toBe('SUCCESS')

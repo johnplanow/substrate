@@ -62,7 +62,7 @@ const TOKEN_PATTERNS = {
  * @returns Partial token counts (only fields found in attributes)
  */
 export function extractTokensFromAttributes(
-  attributes: OtlpAttribute[] | undefined | null,
+  attributes: OtlpAttribute[] | undefined | null
 ): Partial<TokenCounts> {
   if (!Array.isArray(attributes) || attributes.length === 0) {
     return {}
@@ -144,7 +144,7 @@ export function extractTokensFromBody(body: string | undefined | null): Partial<
  */
 export function mergeTokenCounts(
   fromAttributes: Partial<TokenCounts>,
-  fromBody: Partial<TokenCounts>,
+  fromBody: Partial<TokenCounts>
 ): TokenCounts {
   return {
     input: fromAttributes.input ?? fromBody.input ?? 0,

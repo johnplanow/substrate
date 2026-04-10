@@ -87,9 +87,7 @@ export class HandlerRegistry implements IHandlerRegistry {
       return this._default
     }
 
-    throw new Error(
-      `No handler for node "${node.id}" (type="${node.type}", shape="${node.shape}")`
-    )
+    throw new Error(`No handler for node "${node.id}" (type="${node.type}", shape="${node.shape}")`)
   }
 }
 
@@ -130,11 +128,14 @@ export function createDefaultRegistry(options?: DefaultRegistryOptions): Handler
 
   // Register parallel handler first — safe because resolve() is only called at
   // invocation time, not at registration time (story 50-1 Dev Notes).
-  registry.register('parallel', createParallelHandler({
-    handlerRegistry: registry,
-    ...(options?.eventBus !== undefined ? { eventBus: options.eventBus } : {}),
-    ...(options?.runId !== undefined ? { runId: options.runId } : {}),
-  }))
+  registry.register(
+    'parallel',
+    createParallelHandler({
+      handlerRegistry: registry,
+      ...(options?.eventBus !== undefined ? { eventBus: options.eventBus } : {}),
+      ...(options?.runId !== undefined ? { runId: options.runId } : {}),
+    })
+  )
   registry.registerShape('component', 'parallel')
 
   // Register built-in type handlers
@@ -146,18 +147,24 @@ export function createDefaultRegistry(options?: DefaultRegistryOptions): Handler
   registry.register('wait.human', createWaitHumanHandler())
   registry.register('parallel.fan_in', createFanInHandler())
   // Story 50-5: subgraph handler registration
-  registry.register('subgraph', createSubgraphHandler({
-    handlerRegistry: registry,
-    baseDir: options?.baseDir ?? process.cwd(),
-    ...(options?.eventBus !== undefined ? { eventBus: options.eventBus } : {}),
-    ...(options?.runId !== undefined ? { runId: options.runId } : {}),
-  }))
+  registry.register(
+    'subgraph',
+    createSubgraphHandler({
+      handlerRegistry: registry,
+      baseDir: options?.baseDir ?? process.cwd(),
+      ...(options?.eventBus !== undefined ? { eventBus: options.eventBus } : {}),
+      ...(options?.runId !== undefined ? { runId: options.runId } : {}),
+    })
+  )
   // Story 50-8: manager loop handler
-  registry.register('stack.manager_loop', createManagerLoopHandler({
-    handlerRegistry: registry,
-    baseDir: options?.baseDir ?? process.cwd(),
-    ...(options?.llmCall !== undefined ? { llmCall: options.llmCall } : {}),
-  }))
+  registry.register(
+    'stack.manager_loop',
+    createManagerLoopHandler({
+      handlerRegistry: registry,
+      baseDir: options?.baseDir ?? process.cwd(),
+      ...(options?.llmCall !== undefined ? { llmCall: options.llmCall } : {}),
+    })
+  )
 
   // Register DOT shape → canonical type mappings
   registry.registerShape('Mdiamond', 'start')

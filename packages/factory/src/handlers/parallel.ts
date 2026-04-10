@@ -22,10 +22,7 @@
 
 import type { Graph, GraphEdge, GraphNode, IGraphContext, Outcome } from '../graph/types.js'
 import type { NodeHandler, ParallelHandlerOptions, FanInBranchResult } from './types.js'
-import {
-  evaluateJoinPolicy,
-  BranchCancellationManager,
-} from './join-policy.js'
+import { evaluateJoinPolicy, BranchCancellationManager } from './join-policy.js'
 import type { BranchResult, JoinPolicyConfig, JoinPolicy } from './join-policy.js'
 import type { StageStatus } from '../events.js'
 
@@ -88,7 +85,7 @@ function toBridgeBranchResult(result: BranchResult): FanInBranchResult {
  */
 async function runWithConcurrencyLimit<T>(
   tasks: Array<() => Promise<T>>,
-  limit: number,
+  limit: number
 ): Promise<T[]> {
   const results: T[] = new Array(tasks.length)
   const executing = new Set<Promise<void>>()
@@ -118,12 +115,10 @@ function parseJoinPolicyConfig(node: GraphNode): JoinPolicyConfig {
     policyRaw === 'first_success' || policyRaw === 'quorum' ? policyRaw : 'wait_all'
 
   const quorumSizeRaw = node.attrs?.['quorum_size']
-  const quorum_size =
-    quorumSizeRaw !== undefined ? parseInt(quorumSizeRaw, 10) : undefined
+  const quorum_size = quorumSizeRaw !== undefined ? parseInt(quorumSizeRaw, 10) : undefined
 
   const drainRaw = node.attrs?.['cancel_drain_timeout_ms']
-  const cancel_drain_timeout_ms =
-    drainRaw !== undefined ? parseInt(drainRaw, 10) : undefined
+  const cancel_drain_timeout_ms = drainRaw !== undefined ? parseInt(drainRaw, 10) : undefined
 
   return {
     policy,
@@ -146,7 +141,7 @@ function makeBranchTask(
   signal: AbortSignal,
   context: IGraphContext,
   graph: Graph,
-  options: ParallelHandlerOptions,
+  options: ParallelHandlerOptions
 ): () => Promise<BranchResult> {
   return async (): Promise<BranchResult> => {
     if (signal.aborted) {
@@ -247,7 +242,12 @@ export function createParallelHandler(options: ParallelHandlerOptions): NodeHand
     if (config.policy === 'wait_all') {
       const tasks = branchEdges.map((edge, index) => {
         const baseTask = makeBranchTask(
-          edge, index, cancellationManager.getSignal(index), context, graph, options
+          edge,
+          index,
+          cancellationManager.getSignal(index),
+          context,
+          graph,
+          options
         )
         // Wrap with event emission (story 50-9 AC1)
         return async (): Promise<BranchResult> => {
@@ -277,8 +277,8 @@ export function createParallelHandler(options: ParallelHandlerOptions): NodeHand
 
       context.set('parallel.results', results.map(toBridgeBranchResult))
 
-      const completedCount = results.filter(r => r.outcome === 'SUCCESS').length
-      const cancelledCount = results.filter(r => r.outcome === 'CANCELLED').length
+      const completedCount = results.filter((r) => r.outcome === 'SUCCESS').length
+      const cancelledCount = results.filter((r) => r.outcome === 'CANCELLED').length
       options.eventBus?.emit('graph:parallel-completed', {
         runId,
         nodeId: node.id,
@@ -311,7 +311,7 @@ export function createParallelHandler(options: ParallelHandlerOptions): NodeHand
     }
 
     function waitForNext(): Promise<CompletionEvent> {
-      return new Promise(resolve => {
+      return new Promise((resolve) => {
         const e = pendingEvents.shift()
         if (e !== undefined) {
           resolve(e)
@@ -325,7 +325,12 @@ export function createParallelHandler(options: ParallelHandlerOptions): NodeHand
     const branchStarts = new Map<number, number>()
     const activeTasks: Promise<void>[] = branchEdges.map((edge, index) => {
       const task = makeBranchTask(
-        edge, index, cancellationManager.getSignal(index), context, graph, options
+        edge,
+        index,
+        cancellationManager.getSignal(index),
+        context,
+        graph,
+        options
       )
       options.eventBus?.emit('graph:parallel-branch-started', {
         runId,
@@ -333,7 +338,7 @@ export function createParallelHandler(options: ParallelHandlerOptions): NodeHand
         branchIndex: index,
       })
       branchStarts.set(index, Date.now())
-      return task().then(result => {
+      return task().then((result) => {
         const branchStart = branchStarts.get(index) ?? Date.now()
         const durationMs = Date.now() - branchStart
         options.eventBus?.emit('graph:parallel-branch-completed', {
@@ -393,13 +398,13 @@ export function createParallelHandler(options: ParallelHandlerOptions): NodeHand
 
       if (decision.action === 'continue') {
         if (config.policy === 'first_success') {
-          const winner = completed.find(r => r.outcome === 'SUCCESS')
+          const winner = completed.find((r) => r.outcome === 'SUCCESS')
           if (winner !== undefined) {
             context.set('parallel.winner_index', winner.index)
           }
         }
         if (config.policy === 'quorum') {
-          const successCount = completed.filter(r => r.outcome === 'SUCCESS').length
+          const successCount = completed.filter((r) => r.outcome === 'SUCCESS').length
           context.set('parallel.quorum_reached', successCount)
         }
       } else {
@@ -417,8 +422,8 @@ export function createParallelHandler(options: ParallelHandlerOptions): NodeHand
     }
 
     // Emit graph:parallel-completed with final branch counts (story 50-9 AC1)
-    const finalCompletedCount = completed.filter(r => r.outcome === 'SUCCESS').length
-    const finalCancelledCount = completed.filter(r => r.outcome === 'CANCELLED').length
+    const finalCompletedCount = completed.filter((r) => r.outcome === 'SUCCESS').length
+    const finalCancelledCount = completed.filter((r) => r.outcome === 'CANCELLED').length
     options.eventBus?.emit('graph:parallel-completed', {
       runId,
       nodeId: node.id,

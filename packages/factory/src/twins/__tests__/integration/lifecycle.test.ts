@@ -137,10 +137,7 @@ describe('twin lifecycle integration', () => {
     const scriptPath = path.join(extraTmpDir, 'scenario-env.sh')
     fs.writeFileSync(scriptPath, '#!/bin/sh\nprintf \'{"v":"%s"}\' "$TWIN_TEST_PORT"\n')
     fs.chmodSync(scriptPath, 0o755)
-    const checksum = crypto
-      .createHash('sha256')
-      .update(fs.readFileSync(scriptPath))
-      .digest('hex')
+    const checksum = crypto.createHash('sha256').update(fs.readFileSync(scriptPath)).digest('hex')
 
     const manifest: ScenarioManifest = {
       scenarios: [{ name: 'scenario-env.sh', path: scriptPath, checksum }],

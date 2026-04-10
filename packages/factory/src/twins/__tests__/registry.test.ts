@@ -56,7 +56,7 @@ healthcheck:
   url: "http://localhost:12111/v1/charges"
   interval_ms: 500
   timeout_ms: 10000
-`,
+`
     )
 
     const registry = createTwinRegistry()
@@ -142,7 +142,7 @@ describe('AC3: malformed YAML and unknown field detection', () => {
     await writeTwin(
       testDir,
       'unknown-field.yaml',
-      `name: test\nimage: test:latest\nunknownField: oops\n`,
+      `name: test\nimage: test:latest\nunknownField: oops\n`
     )
 
     const registry = createTwinRegistry()
@@ -206,7 +206,7 @@ describe('AC5: port mapping parsing', () => {
     await writeTwin(
       testDir,
       'postgres.yaml',
-      `name: postgres\nimage: postgres:16\nports:\n  - "5432:5432"\n`,
+      `name: postgres\nimage: postgres:16\nports:\n  - "5432:5432"\n`
     )
 
     const registry = createTwinRegistry()
@@ -220,7 +220,7 @@ describe('AC5: port mapping parsing', () => {
     await writeTwin(
       testDir,
       'postgres.yaml',
-      `name: postgres\nimage: postgres:16\nports:\n  - "5432:5432"\n  - "5433:5433"\n`,
+      `name: postgres\nimage: postgres:16\nports:\n  - "5432:5432"\n  - "5433:5433"\n`
     )
 
     const registry = createTwinRegistry()

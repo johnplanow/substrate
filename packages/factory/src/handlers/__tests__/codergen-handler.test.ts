@@ -118,9 +118,7 @@ describe('codergen handler – prompt source (AC1)', () => {
     const ctx = new GraphContext({})
     const handler = createCodergenHandler()
     await handler(node, ctx, stubGraph)
-    expect(mockCallLLM).toHaveBeenCalledWith(
-      expect.objectContaining({ prompt: 'from prompt' })
-    )
+    expect(mockCallLLM).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'from prompt' }))
   })
 
   it('falls back to node.label when prompt is empty', async () => {
@@ -129,9 +127,7 @@ describe('codergen handler – prompt source (AC1)', () => {
     const ctx = new GraphContext({})
     const handler = createCodergenHandler()
     await handler(node, ctx, stubGraph)
-    expect(mockCallLLM).toHaveBeenCalledWith(
-      expect.objectContaining({ prompt: 'from label' })
-    )
+    expect(mockCallLLM).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'from label' }))
   })
 
   it('sends empty string when both prompt and label are empty', async () => {
@@ -140,9 +136,7 @@ describe('codergen handler – prompt source (AC1)', () => {
     const ctx = new GraphContext({})
     const handler = createCodergenHandler()
     await handler(node, ctx, stubGraph)
-    expect(mockCallLLM).toHaveBeenCalledWith(
-      expect.objectContaining({ prompt: '' })
-    )
+    expect(mockCallLLM).toHaveBeenCalledWith(expect.objectContaining({ prompt: '' }))
   })
 
   it('interpolates context variables in the prompt before calling the LLM', async () => {
@@ -295,9 +289,7 @@ describe('codergen handler – success path (AC3, AC4)', () => {
     ]
     const handler = createCodergenHandler({ stylesheet })
     await handler(node, ctx, stubGraph)
-    expect(mockCallLLM).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'custom-model' })
-    )
+    expect(mockCallLLM).toHaveBeenCalledWith(expect.objectContaining({ model: 'custom-model' }))
   })
 })
 

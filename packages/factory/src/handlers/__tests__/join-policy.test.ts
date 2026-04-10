@@ -7,10 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import {
-  evaluateJoinPolicy,
-  BranchCancellationManager,
-} from '../join-policy.js'
+import { evaluateJoinPolicy, BranchCancellationManager } from '../join-policy.js'
 import type { BranchResult, JoinPolicyConfig } from '../join-policy.js'
 
 // ---------------------------------------------------------------------------
@@ -18,7 +15,7 @@ import type { BranchResult, JoinPolicyConfig } from '../join-policy.js'
 // ---------------------------------------------------------------------------
 
 const success = (index: number): BranchResult => ({ index, outcome: 'SUCCESS' })
-const fail    = (index: number): BranchResult => ({ index, outcome: 'FAIL' })
+const fail = (index: number): BranchResult => ({ index, outcome: 'FAIL' })
 const cancelled = (index: number): BranchResult => ({ index, outcome: 'CANCELLED' })
 
 // ---------------------------------------------------------------------------
@@ -49,7 +46,7 @@ describe('evaluateJoinPolicy — wait_all', () => {
     expect(result.action).toBe('continue')
     if (result.action === 'continue') {
       expect(result.results).toHaveLength(3)
-      expect(result.results.find(r => r.outcome === 'FAIL')).toBeDefined()
+      expect(result.results.find((r) => r.outcome === 'FAIL')).toBeDefined()
     }
   })
 
@@ -151,8 +148,8 @@ describe('evaluateJoinPolicy — quorum', () => {
     expect(result.action).toBe('fail')
     if (result.action === 'fail') {
       // Reason should mention failure counts and what was needed
-      expect(result.reason).toContain('3')  // failed count
-      expect(result.reason).toContain('4')  // total
+      expect(result.reason).toContain('3') // failed count
+      expect(result.reason).toContain('4') // total
     }
   })
 
@@ -194,14 +191,14 @@ describe('BranchCancellationManager', () => {
     const mgr = new BranchCancellationManager(3)
     // Branch 0 is "completed"; branches 1 and 2 should be cancelled
     mgr.cancelRemaining(new Set([0]))
-    expect(mgr.getSignal(0).aborted).toBe(false)  // completed — not cancelled
+    expect(mgr.getSignal(0).aborted).toBe(false) // completed — not cancelled
     expect(mgr.getSignal(1).aborted).toBe(true)
     expect(mgr.getSignal(2).aborted).toBe(true)
   })
 
   it('signal for a completed branch is NOT aborted after cancelRemaining', () => {
     const mgr = new BranchCancellationManager(4)
-    mgr.cancelRemaining(new Set([1, 3]))  // completedIndices: branches 1 and 3 finished
+    mgr.cancelRemaining(new Set([1, 3])) // completedIndices: branches 1 and 3 finished
     // cancelRemaining cancels branches NOT in the set (0 and 2)
     expect(mgr.getSignal(0).aborted).toBe(true)
     expect(mgr.getSignal(1).aborted).toBe(false)
@@ -214,7 +211,7 @@ describe('BranchCancellationManager', () => {
     const start = Date.now()
     await mgr.drainAsync(20)
     const elapsed = Date.now() - start
-    expect(elapsed).toBeGreaterThanOrEqual(15)  // allow minor timing variance
+    expect(elapsed).toBeGreaterThanOrEqual(15) // allow minor timing variance
   })
 })
 

@@ -66,8 +66,26 @@ function makeValidGraph(overrides?: {
   }
 
   const edges: GraphEdge[] = [
-    { fromNode: 'start', toNode: 'work', label: '', condition: '', weight: 1, fidelity: '', threadId: '', loopRestart: false },
-    { fromNode: 'work', toNode: 'exit', label: '', condition: '', weight: 1, fidelity: '', threadId: '', loopRestart: false },
+    {
+      fromNode: 'start',
+      toNode: 'work',
+      label: '',
+      condition: '',
+      weight: 1,
+      fidelity: '',
+      threadId: '',
+      loopRestart: false,
+    },
+    {
+      fromNode: 'work',
+      toNode: 'exit',
+      label: '',
+      condition: '',
+      weight: 1,
+      fidelity: '',
+      threadId: '',
+      loopRestart: false,
+    },
   ]
 
   return {
@@ -107,7 +125,9 @@ describe('type_known rule', () => {
 
   it('node with type=codergen (known) → no warning', () => {
     const graph = makeValidGraph({
-      extraNodes: [makeNode({ id: 'coder1', type: 'codergen', label: 'coder', prompt: 'generate code' })],
+      extraNodes: [
+        makeNode({ id: 'coder1', type: 'codergen', label: 'coder', prompt: 'generate code' }),
+      ],
     })
     // Also add an edge so reachability passes
     const coder1 = graph.nodes.get('coder1')!
@@ -120,16 +140,47 @@ describe('type_known rule', () => {
       ['exit', makeNode({ id: 'exit', shape: 'Msquare', label: 'exit' })],
     ])
     const edges: GraphEdge[] = [
-      { fromNode: 'start', toNode: 'coder1', label: '', condition: '', weight: 1, fidelity: '', threadId: '', loopRestart: false },
-      { fromNode: 'coder1', toNode: 'exit', label: '', condition: '', weight: 1, fidelity: '', threadId: '', loopRestart: false },
+      {
+        fromNode: 'start',
+        toNode: 'coder1',
+        label: '',
+        condition: '',
+        weight: 1,
+        fidelity: '',
+        threadId: '',
+        loopRestart: false,
+      },
+      {
+        fromNode: 'coder1',
+        toNode: 'exit',
+        label: '',
+        condition: '',
+        weight: 1,
+        fidelity: '',
+        threadId: '',
+        loopRestart: false,
+      },
     ]
     const g: Graph = {
-      id: 'test', goal: '', label: '', modelStylesheet: '', defaultMaxRetries: 0,
-      retryTarget: '', fallbackRetryTarget: '', defaultFidelity: '',
-      nodes: nodeMap, edges,
-      outgoingEdges(nodeId: string) { return edges.filter((e) => e.fromNode === nodeId) },
-      startNode() { return nodeMap.get('start')! },
-      exitNode() { return nodeMap.get('exit')! },
+      id: 'test',
+      goal: '',
+      label: '',
+      modelStylesheet: '',
+      defaultMaxRetries: 0,
+      retryTarget: '',
+      fallbackRetryTarget: '',
+      defaultFidelity: '',
+      nodes: nodeMap,
+      edges,
+      outgoingEdges(nodeId: string) {
+        return edges.filter((e) => e.fromNode === nodeId)
+      },
+      startNode() {
+        return nodeMap.get('start')!
+      },
+      exitNode() {
+        return nodeMap.get('exit')!
+      },
     }
     const validator = createValidator()
     const diags = validator.validate(g).filter((d) => d.ruleId === 'type_known')
@@ -331,16 +382,47 @@ describe('prompt_on_llm_nodes rule', () => {
       ['exit', makeNode({ id: 'exit', shape: 'Msquare', label: 'exit' })],
     ])
     const edges: GraphEdge[] = [
-      { fromNode: 'start', toNode: 'diamond_node', label: '', condition: '', weight: 1, fidelity: '', threadId: '', loopRestart: false },
-      { fromNode: 'diamond_node', toNode: 'exit', label: '', condition: '', weight: 1, fidelity: '', threadId: '', loopRestart: false },
+      {
+        fromNode: 'start',
+        toNode: 'diamond_node',
+        label: '',
+        condition: '',
+        weight: 1,
+        fidelity: '',
+        threadId: '',
+        loopRestart: false,
+      },
+      {
+        fromNode: 'diamond_node',
+        toNode: 'exit',
+        label: '',
+        condition: '',
+        weight: 1,
+        fidelity: '',
+        threadId: '',
+        loopRestart: false,
+      },
     ]
     const g: Graph = {
-      id: 'test', goal: '', label: '', modelStylesheet: '', defaultMaxRetries: 0,
-      retryTarget: '', fallbackRetryTarget: '', defaultFidelity: '',
-      nodes: nodeMap, edges,
-      outgoingEdges(nodeId: string) { return edges.filter((e) => e.fromNode === nodeId) },
-      startNode() { return nodeMap.get('start')! },
-      exitNode() { return nodeMap.get('exit')! },
+      id: 'test',
+      goal: '',
+      label: '',
+      modelStylesheet: '',
+      defaultMaxRetries: 0,
+      retryTarget: '',
+      fallbackRetryTarget: '',
+      defaultFidelity: '',
+      nodes: nodeMap,
+      edges,
+      outgoingEdges(nodeId: string) {
+        return edges.filter((e) => e.fromNode === nodeId)
+      },
+      startNode() {
+        return nodeMap.get('start')!
+      },
+      exitNode() {
+        return nodeMap.get('exit')!
+      },
     }
     const validator = createValidator()
     const diags = validator.validate(g).filter((d) => d.ruleId === 'prompt_on_llm_nodes')

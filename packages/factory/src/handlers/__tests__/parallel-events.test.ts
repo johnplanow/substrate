@@ -105,8 +105,12 @@ function makeGraph(parallelNodeId: string, branchNodeIds: string[]): Graph {
     nodes,
     edges,
     outgoingEdges: (nodeId: string) => edges.filter((e) => e.fromNode === nodeId),
-    startNode: () => { throw new Error('not implemented') },
-    exitNode: () => { throw new Error('not implemented') },
+    startNode: () => {
+      throw new Error('not implemented')
+    },
+    exitNode: () => {
+      throw new Error('not implemented')
+    },
   } as Graph
 }
 
@@ -141,7 +145,12 @@ describe('graph:parallel-started', () => {
   it('is emitted once before branches launch with branchCount and policy', async () => {
     const handlerA = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
     const handlerB = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
-    const registry = makeRegistry(new Map([['branch-a', handlerA], ['branch-b', handlerB]]))
+    const registry = makeRegistry(
+      new Map([
+        ['branch-a', handlerA],
+        ['branch-b', handlerB],
+      ])
+    )
     const mockBus = makeMockEventBus()
 
     const handler = createParallelHandler({
@@ -149,7 +158,11 @@ describe('graph:parallel-started', () => {
       eventBus: mockBus as unknown as TypedEventBus<FactoryEvents>,
     })
 
-    await handler(makeParallelNode({ id: 'p1' }), makeContext(), makeGraph('p1', ['branch-a', 'branch-b']))
+    await handler(
+      makeParallelNode({ id: 'p1' }),
+      makeContext(),
+      makeGraph('p1', ['branch-a', 'branch-b'])
+    )
 
     const startedCalls = (mockBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
       (c: unknown[]) => c[0] === 'graph:parallel-started'
@@ -168,7 +181,12 @@ describe('graph:parallel-branch-started', () => {
   it('is emitted once per branch (2 branches → 2 events)', async () => {
     const handlerA = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
     const handlerB = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
-    const registry = makeRegistry(new Map([['branch-a', handlerA], ['branch-b', handlerB]]))
+    const registry = makeRegistry(
+      new Map([
+        ['branch-a', handlerA],
+        ['branch-b', handlerB],
+      ])
+    )
     const mockBus = makeMockEventBus()
 
     const handler = createParallelHandler({
@@ -176,13 +194,19 @@ describe('graph:parallel-branch-started', () => {
       eventBus: mockBus as unknown as TypedEventBus<FactoryEvents>,
     })
 
-    await handler(makeParallelNode({ id: 'p1' }), makeContext(), makeGraph('p1', ['branch-a', 'branch-b']))
+    await handler(
+      makeParallelNode({ id: 'p1' }),
+      makeContext(),
+      makeGraph('p1', ['branch-a', 'branch-b'])
+    )
 
     const branchStartedCalls = (mockBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
       (c: unknown[]) => c[0] === 'graph:parallel-branch-started'
     )
     expect(branchStartedCalls).toHaveLength(2)
-    const indices = branchStartedCalls.map((c: unknown[]) => (c[1] as { branchIndex: number }).branchIndex)
+    const indices = branchStartedCalls.map(
+      (c: unknown[]) => (c[1] as { branchIndex: number }).branchIndex
+    )
     expect(indices).toContain(0)
     expect(indices).toContain(1)
   })
@@ -192,7 +216,12 @@ describe('graph:parallel-branch-completed', () => {
   it('is emitted once per branch with durationMs >= 0', async () => {
     const handlerA = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
     const handlerB = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
-    const registry = makeRegistry(new Map([['branch-a', handlerA], ['branch-b', handlerB]]))
+    const registry = makeRegistry(
+      new Map([
+        ['branch-a', handlerA],
+        ['branch-b', handlerB],
+      ])
+    )
     const mockBus = makeMockEventBus()
 
     const handler = createParallelHandler({
@@ -200,7 +229,11 @@ describe('graph:parallel-branch-completed', () => {
       eventBus: mockBus as unknown as TypedEventBus<FactoryEvents>,
     })
 
-    await handler(makeParallelNode({ id: 'p1' }), makeContext(), makeGraph('p1', ['branch-a', 'branch-b']))
+    await handler(
+      makeParallelNode({ id: 'p1' }),
+      makeContext(),
+      makeGraph('p1', ['branch-a', 'branch-b'])
+    )
 
     const branchCompletedCalls = (mockBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
       (c: unknown[]) => c[0] === 'graph:parallel-branch-completed'
@@ -218,7 +251,12 @@ describe('graph:parallel-completed', () => {
   it('is emitted once with completedCount=2 and cancelledCount=0 for wait_all policy', async () => {
     const handlerA = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
     const handlerB = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
-    const registry = makeRegistry(new Map([['branch-a', handlerA], ['branch-b', handlerB]]))
+    const registry = makeRegistry(
+      new Map([
+        ['branch-a', handlerA],
+        ['branch-b', handlerB],
+      ])
+    )
     const mockBus = makeMockEventBus()
 
     const handler = createParallelHandler({
@@ -226,7 +264,11 @@ describe('graph:parallel-completed', () => {
       eventBus: mockBus as unknown as TypedEventBus<FactoryEvents>,
     })
 
-    await handler(makeParallelNode({ id: 'p1' }), makeContext(), makeGraph('p1', ['branch-a', 'branch-b']))
+    await handler(
+      makeParallelNode({ id: 'p1' }),
+      makeContext(),
+      makeGraph('p1', ['branch-a', 'branch-b'])
+    )
 
     const completedCalls = (mockBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
       (c: unknown[]) => c[0] === 'graph:parallel-completed'
@@ -246,7 +288,12 @@ describe('parallel handler without eventBus', () => {
   it('executes successfully without TypeError when eventBus is absent', async () => {
     const handlerA = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
     const handlerB = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
-    const registry = makeRegistry(new Map([['branch-a', handlerA], ['branch-b', handlerB]]))
+    const registry = makeRegistry(
+      new Map([
+        ['branch-a', handlerA],
+        ['branch-b', handlerB],
+      ])
+    )
 
     // No eventBus provided
     const handler = createParallelHandler({ handlerRegistry: registry })
@@ -264,7 +311,12 @@ describe('parallel event payload type conformance to FactoryEvents', () => {
   it('all emitted parallel event payloads have field types matching FactoryEvents declarations', async () => {
     const handlerA = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
     const handlerB = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
-    const registry = makeRegistry(new Map([['branch-a', handlerA], ['branch-b', handlerB]]))
+    const registry = makeRegistry(
+      new Map([
+        ['branch-a', handlerA],
+        ['branch-b', handlerB],
+      ])
+    )
     const mockBus = makeMockEventBus()
 
     const handler = createParallelHandler({
@@ -272,12 +324,18 @@ describe('parallel event payload type conformance to FactoryEvents', () => {
       eventBus: mockBus as unknown as TypedEventBus<FactoryEvents>,
     })
 
-    await handler(makeParallelNode({ id: 'p1' }), makeContext(), makeGraph('p1', ['branch-a', 'branch-b']))
+    await handler(
+      makeParallelNode({ id: 'p1' }),
+      makeContext(),
+      makeGraph('p1', ['branch-a', 'branch-b'])
+    )
 
     const calls = (mockBus.emit as ReturnType<typeof vi.fn>).mock.calls
 
     // graph:parallel-started payload: { runId: string; nodeId: string; branchCount: number; maxParallel: number; policy: string }
-    const startedPayload = calls.find((c: unknown[]) => c[0] === 'graph:parallel-started')?.[1] as Record<string, unknown>
+    const startedPayload = calls.find(
+      (c: unknown[]) => c[0] === 'graph:parallel-started'
+    )?.[1] as Record<string, unknown>
     expect(typeof startedPayload['runId']).toBe('string')
     expect(typeof startedPayload['nodeId']).toBe('string')
     expect(typeof startedPayload['branchCount']).toBe('number')
@@ -285,7 +343,9 @@ describe('parallel event payload type conformance to FactoryEvents', () => {
     expect(typeof startedPayload['policy']).toBe('string')
 
     // graph:parallel-branch-completed payload: { runId: string; nodeId: string; branchIndex: number; status: StageStatus; durationMs: number }
-    const branchCompletedPayload = calls.find((c: unknown[]) => c[0] === 'graph:parallel-branch-completed')?.[1] as Record<string, unknown>
+    const branchCompletedPayload = calls.find(
+      (c: unknown[]) => c[0] === 'graph:parallel-branch-completed'
+    )?.[1] as Record<string, unknown>
     expect(typeof branchCompletedPayload['runId']).toBe('string')
     expect(typeof branchCompletedPayload['nodeId']).toBe('string')
     expect(typeof branchCompletedPayload['branchIndex']).toBe('number')
@@ -293,7 +353,9 @@ describe('parallel event payload type conformance to FactoryEvents', () => {
     expect(typeof branchCompletedPayload['durationMs']).toBe('number')
 
     // graph:parallel-completed payload: { runId: string; nodeId: string; completedCount: number; cancelledCount: number; policy: string }
-    const completedPayload = calls.find((c: unknown[]) => c[0] === 'graph:parallel-completed')?.[1] as Record<string, unknown>
+    const completedPayload = calls.find(
+      (c: unknown[]) => c[0] === 'graph:parallel-completed'
+    )?.[1] as Record<string, unknown>
     expect(typeof completedPayload['runId']).toBe('string')
     expect(typeof completedPayload['nodeId']).toBe('string')
     expect(typeof completedPayload['completedCount']).toBe('number')

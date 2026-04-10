@@ -36,7 +36,13 @@ interface AnthropicCacheControl {
 
 type AnthropicContentBlock =
   | { type: 'text'; text: string; cache_control?: AnthropicCacheControl }
-  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown>; cache_control?: AnthropicCacheControl }
+  | {
+      type: 'tool_use'
+      id: string
+      name: string
+      input: Record<string, unknown>
+      cache_control?: AnthropicCacheControl
+    }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error: boolean }
   | { type: 'thinking'; thinking: string; signature: string }
   | { type: 'redacted_thinking'; data: string }
@@ -53,10 +59,7 @@ interface AnthropicTool {
   cache_control?: AnthropicCacheControl
 }
 
-type AnthropicToolChoice =
-  | { type: 'auto' }
-  | { type: 'any' }
-  | { type: 'tool'; name: string }
+type AnthropicToolChoice = { type: 'auto' } | { type: 'any' } | { type: 'tool'; name: string }
 
 interface AnthropicThinking {
   type: 'enabled'
@@ -171,23 +174,32 @@ export class AnthropicAdapter implements ProviderAdapter {
 
       if (response.status === 429) {
         if (attempt === MAX_RETRIES) {
-          throw new LLMError(`[anthropic] Rate limit exceeded after ${MAX_RETRIES} retries`, 429, 'anthropic')
+          throw new LLMError(
+            `[anthropic] Rate limit exceeded after ${MAX_RETRIES} retries`,
+            429,
+            'anthropic'
+          )
         }
         const retryAfterStr = response.headers.get('Retry-After')
         const retryAfter = retryAfterStr !== null ? parseInt(retryAfterStr, 10) * 1000 : 0
         const backoff = Math.max(retryAfter, BASE_DELAY_MS * 2 ** attempt)
-        await new Promise(resolve => setTimeout(resolve, backoff))
+        await new Promise((resolve) => setTimeout(resolve, backoff))
         continue
       }
 
       if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({})) as Record<string, unknown>
+        const errorBody = (await response.json().catch(() => ({}))) as Record<string, unknown>
         const errorObj = errorBody?.error as Record<string, unknown> | undefined
-        const message = typeof errorObj?.message === 'string' ? errorObj.message : response.statusText
-        throw new LLMError(`[anthropic] ${response.status}: ${message}`, response.status, 'anthropic')
+        const message =
+          typeof errorObj?.message === 'string' ? errorObj.message : response.statusText
+        throw new LLMError(
+          `[anthropic] ${response.status}: ${message}`,
+          response.status,
+          'anthropic'
+        )
       }
 
-      const raw = await response.json() as AnthropicRawResponse
+      const raw = (await response.json()) as AnthropicRawResponse
       return this.parseResponse(raw, request.model)
     }
 
@@ -205,9 +217,13 @@ export class AnthropicAdapter implements ProviderAdapter {
   // Request building
   // -------------------------------------------------------------------------
 
-  private buildRequestBody(request: LLMRequest): { body: AnthropicRequestBody; betaHeaders: string[] } {
+  private buildRequestBody(request: LLMRequest): {
+    body: AnthropicRequestBody
+    betaHeaders: string[]
+  } {
     const betaHeaders: string[] = []
-    const anthropicExtra = (request.extra as Record<string, Record<string, unknown>> | undefined)?.anthropic
+    const anthropicExtra = (request.extra as Record<string, Record<string, unknown>> | undefined)
+      ?.anthropic
     const autoCache = anthropicExtra !== undefined ? anthropicExtra['auto_cache'] !== false : true
 
     // Extract extra beta headers from request
@@ -246,7 +262,9 @@ export class AnthropicAdapter implements ProviderAdapter {
       if (systemBlocks && systemBlocks.length > 0) {
         const lastBlock = systemBlocks[systemBlocks.length - 1]
         if (lastBlock && !('cache_control' in lastBlock && lastBlock.cache_control)) {
-          ;(lastBlock as { cache_control?: AnthropicCacheControl }).cache_control = { type: 'ephemeral' }
+          ;(lastBlock as { cache_control?: AnthropicCacheControl }).cache_control = {
+            type: 'ephemeral',
+          }
           cachingInjected = true
         }
       }
@@ -316,13 +334,13 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   private translateMessages(messages: LLMMessage[]): AnthropicMessage[] {
     // Filter system messages (handled via system param)
-    const filtered = messages.filter(m => m.role !== 'system')
+    const filtered = messages.filter((m) => m.role !== 'system')
 
     // Translate each message to Anthropic format
-    const translated: AnthropicMessage[] = filtered.map(msg => {
+    const translated: AnthropicMessage[] = filtered.map((msg) => {
       if (msg.role === 'tool') {
         // Tool result messages → user role with tool_result content blocks
-        const content: AnthropicContentBlock[] = msg.content.map(part => {
+        const content: AnthropicContentBlock[] = msg.content.map((part) => {
           if (part.toolResult) {
             return {
               type: 'tool_result',
@@ -338,7 +356,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       }
 
       const role = msg.role as 'user' | 'assistant'
-      const content: AnthropicContentBlock[] = msg.content.map(part => {
+      const content: AnthropicContentBlock[] = msg.content.map((part) => {
         if (part.kind === 'text') {
           return { type: 'text', text: part.text ?? '' } as AnthropicContentBlock
         }
@@ -384,7 +402,7 @@ export class AnthropicAdapter implements ProviderAdapter {
   // -------------------------------------------------------------------------
 
   private translateTools(tools: LLMToolDefinition[]): AnthropicTool[] {
-    return tools.map(tool => ({
+    return tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
       input_schema: tool.parameters,

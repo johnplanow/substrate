@@ -73,7 +73,8 @@ describe('createRetryMiddleware', () => {
 
   it('AC4: retries twice on 429 then returns success', async () => {
     const mw = createRetryMiddleware({ maxRetries: 2, baseDelayMs: 1000, factor: 2 })
-    const next = vi.fn()
+    const next = vi
+      .fn()
       .mockRejectedValueOnce(makeHttpError(429))
       .mockRejectedValueOnce(makeHttpError(429))
       .mockResolvedValueOnce(makeResponse())
@@ -95,7 +96,9 @@ describe('createRetryMiddleware', () => {
 
     // Attach catch handler immediately to avoid unhandled rejection warning
     let caughtError: unknown
-    const promise = mw(makeRequest(), next).catch((e) => { caughtError = e })
+    const promise = mw(makeRequest(), next).catch((e) => {
+      caughtError = e
+    })
     await vi.runAllTimersAsync()
     await promise
 
@@ -125,7 +128,8 @@ describe('createRetryMiddleware', () => {
   it('AC4: delay between retries uses exponential backoff', async () => {
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
     const mw = createRetryMiddleware({ maxRetries: 2, baseDelayMs: 1000, factor: 2 })
-    const next = vi.fn()
+    const next = vi
+      .fn()
       .mockRejectedValueOnce(makeHttpError(500))
       .mockRejectedValueOnce(makeHttpError(500))
       .mockResolvedValueOnce(makeResponse())

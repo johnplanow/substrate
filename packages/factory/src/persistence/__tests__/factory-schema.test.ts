@@ -25,9 +25,7 @@ beforeEach(async () => {
 
 describe('graph_runs table', () => {
   it('exists after factorySchema is called', async () => {
-    await expect(
-      adapter.query('SELECT * FROM graph_runs LIMIT 0'),
-    ).resolves.toBeDefined()
+    await expect(adapter.query('SELECT * FROM graph_runs LIMIT 0')).resolves.toBeDefined()
   })
 
   it('accepts a full row insert with all documented columns', async () => {
@@ -35,7 +33,9 @@ describe('graph_runs table', () => {
       INSERT INTO graph_runs (id, graph_file, graph_goal, status, started_at, total_cost_usd, node_count, final_outcome, checkpoint_path)
       VALUES ('r1', 'pipeline.dot', 'Build feature X', 'running', CURRENT_TIMESTAMP, 0.0, 0, NULL, NULL)
     `)
-    const rows = await adapter.query<{ id: string }>('SELECT id FROM graph_runs WHERE id = ?', ['r1'])
+    const rows = await adapter.query<{ id: string }>('SELECT id FROM graph_runs WHERE id = ?', [
+      'r1',
+    ])
     expect(rows[0]?.id).toBe('r1')
   })
 })
@@ -46,9 +46,7 @@ describe('graph_runs table', () => {
 
 describe('graph_node_results table', () => {
   it('exists after factorySchema is called', async () => {
-    await expect(
-      adapter.query('SELECT * FROM graph_node_results LIMIT 0'),
-    ).resolves.toBeDefined()
+    await expect(adapter.query('SELECT * FROM graph_node_results LIMIT 0')).resolves.toBeDefined()
   })
 })
 
@@ -58,9 +56,7 @@ describe('graph_node_results table', () => {
 
 describe('scenario_results table', () => {
   it('exists after factorySchema is called', async () => {
-    await expect(
-      adapter.query('SELECT * FROM scenario_results LIMIT 0'),
-    ).resolves.toBeDefined()
+    await expect(adapter.query('SELECT * FROM scenario_results LIMIT 0')).resolves.toBeDefined()
   })
 
   it('accepts a row insert with all documented columns including satisfaction_score, threshold, passes, details', async () => {
@@ -75,7 +71,7 @@ describe('scenario_results table', () => {
     `)
     const rows = await adapter.query<{ run_id: string; satisfaction_score: number }>(
       'SELECT run_id, satisfaction_score FROM scenario_results WHERE run_id = ?',
-      ['r2'],
+      ['r2']
     )
     expect(rows[0]?.run_id).toBe('r2')
     expect(rows[0]?.satisfaction_score).toBe(0.9)
@@ -100,7 +96,7 @@ describe('indexes', () => {
     `)
     const rows = await adapter.query<{ node_id: string }>(
       'SELECT node_id FROM graph_node_results WHERE run_id = ?',
-      ['r3'],
+      ['r3']
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]?.node_id).toBe('node-1')
@@ -119,7 +115,7 @@ describe('indexes', () => {
     `)
     const rows = await adapter.query<{ node_id: string }>(
       'SELECT node_id FROM scenario_results WHERE run_id = ?',
-      ['r4'],
+      ['r4']
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]?.node_id).toBe('node-2')

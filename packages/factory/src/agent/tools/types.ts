@@ -62,4 +62,3 @@ export interface IToolRegistry {
   get(name: string): ToolDefinition | undefined
   getDefinitions(): ToolDefinition[]
 }
-

@@ -46,7 +46,9 @@ describe('Phase 1 — head_tail character truncation', () => {
 
     expect(result.startsWith('A'.repeat(half))).toBe(true)
     expect(result.endsWith('A'.repeat(half))).toBe(true)
-    expect(result).toContain(`[... ${removed} characters truncated from middle. Full output available in event stream.]`)
+    expect(result).toContain(
+      `[... ${removed} characters truncated from middle. Full output available in event stream.]`
+    )
     // Total chars ≈ limit + marker length
     expect(result.length).toBeGreaterThan(10_000)
     expect(result.length).toBeLessThan(10_000 + 200) // marker is under 150 chars

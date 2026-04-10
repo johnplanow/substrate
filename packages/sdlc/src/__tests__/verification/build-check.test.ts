@@ -125,9 +125,7 @@ describe('BuildCheck', () => {
   // -------------------------------------------------------------------------
 
   it('returns pass when build command exits with code 0', async () => {
-    mockExistsSync.mockImplementation((p: unknown) =>
-      String(p).endsWith('package.json'),
-    )
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package.json'))
     mockSpawn.mockReturnValue(makeMockChild(0))
 
     const check = new BuildCheck()
@@ -142,9 +140,7 @@ describe('BuildCheck', () => {
   // -------------------------------------------------------------------------
 
   it('returns fail with output details when build command exits with non-zero code', async () => {
-    mockExistsSync.mockImplementation((p: unknown) =>
-      String(p).endsWith('package.json'),
-    )
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package.json'))
     mockSpawn.mockReturnValue(makeMockChild(1, '', 'error TS2322: Type mismatch'))
 
     const check = new BuildCheck()
@@ -157,9 +153,7 @@ describe('BuildCheck', () => {
   })
 
   it('truncates build output exceeding 2000 chars and appends "... (truncated)"', async () => {
-    mockExistsSync.mockImplementation((p: unknown) =>
-      String(p).endsWith('package.json'),
-    )
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package.json'))
     // Create output longer than MAX_OUTPUT_CHARS (2000)
     const longOutput = 'a'.repeat(2500)
     mockSpawn.mockReturnValue(makeMockChild(1, longOutput))
@@ -183,9 +177,7 @@ describe('BuildCheck', () => {
   it('returns fail with build-timeout message and kills process group on timeout', async () => {
     vi.useFakeTimers()
 
-    mockExistsSync.mockImplementation((p: unknown) =>
-      String(p).endsWith('package.json'),
-    )
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package.json'))
     mockSpawn.mockReturnValue(makeHangingChild())
 
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true)
@@ -244,7 +236,7 @@ describe('BuildCheck', () => {
     expect(mockSpawn).toHaveBeenCalledWith(
       'make release',
       [],
-      expect.objectContaining({ cwd: '/tmp/test-project', shell: true }),
+      expect.objectContaining({ cwd: '/tmp/test-project', shell: true })
     )
   })
 
@@ -263,9 +255,7 @@ describe('BuildCheck', () => {
 
   it('includes a non-negative number duration_ms in all result types', async () => {
     // Pass case
-    mockExistsSync.mockImplementation((p: unknown) =>
-      String(p).endsWith('package.json'),
-    )
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package.json'))
     mockSpawn.mockReturnValue(makeMockChild(0))
     const check = new BuildCheck()
 
@@ -292,30 +282,22 @@ describe('detectBuildCommand', () => {
   })
 
   it('returns "turbo build" when turbo.json is present (priority 1)', () => {
-    mockExistsSync.mockImplementation((p: unknown) =>
-      String(p).endsWith('turbo.json'),
-    )
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('turbo.json'))
     expect(detectBuildCommand('/project')).toBe('turbo build')
   })
 
   it('returns "pnpm run build" when pnpm-lock.yaml is present (priority 2)', () => {
-    mockExistsSync.mockImplementation((p: unknown) =>
-      String(p).endsWith('pnpm-lock.yaml'),
-    )
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('pnpm-lock.yaml'))
     expect(detectBuildCommand('/project')).toBe('pnpm run build')
   })
 
   it('returns "npm run build" when only package.json is present (priority 5)', () => {
-    mockExistsSync.mockImplementation((p: unknown) =>
-      String(p).endsWith('package.json'),
-    )
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package.json'))
     expect(detectBuildCommand('/project')).toBe('npm run build')
   })
 
   it('returns empty string when pyproject.toml is present (non-Node marker)', () => {
-    mockExistsSync.mockImplementation((p: unknown) =>
-      String(p).endsWith('pyproject.toml'),
-    )
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('pyproject.toml'))
     expect(detectBuildCommand('/project')).toBe('')
   })
 

@@ -240,7 +240,7 @@ export class TelemetryNormalizer {
   private _normalizeOneSpan(
     span: OtlpSpan,
     resourceAttrs: OtlpAttr[] | undefined,
-    source: string,
+    source: string
   ): NormalizedSpan {
     const spanId = span.spanId ?? ''
     const traceId = span.traceId ?? ''
@@ -257,7 +257,7 @@ export class TelemetryNormalizer {
 
     // Token extraction
     const fromAttrs = extractTokensFromAttributes(
-      span.attributes as Parameters<typeof extractTokensFromAttributes>[0],
+      span.attributes as Parameters<typeof extractTokensFromAttributes>[0]
     )
     const bodyStr =
       getAttrString(span.attributes, 'llm.response.body') ??
@@ -367,7 +367,7 @@ export class TelemetryNormalizer {
   private _normalizeOneLog(
     record: OtlpLogRecord,
     resourceAttrs: OtlpAttr[] | undefined,
-    dispatchContext?: DispatchContext,
+    dispatchContext?: DispatchContext
   ): NormalizedLog {
     const logId = record.logRecordId ?? generateLogId()
     const timestamp = normalizeTimestamp(record.timeUnixNano)
@@ -376,7 +376,7 @@ export class TelemetryNormalizer {
 
     // Extract from attributes
     const fromAttrs = extractTokensFromAttributes(
-      record.attributes as Parameters<typeof extractTokensFromAttributes>[0],
+      record.attributes as Parameters<typeof extractTokensFromAttributes>[0]
     )
     const fromBody = extractTokensFromBody(bodyStr)
     const tokens = mergeTokenCounts(fromAttrs, fromBody)

@@ -5,11 +5,7 @@
  *   global config → project config → environment variables → CLI flags
  */
 
-import type {
-  SubstrateConfig,
-  ProviderConfig,
-  GlobalSettings,
-} from './types.js'
+import type { SubstrateConfig, ProviderConfig, GlobalSettings } from './types.js'
 
 // ---------------------------------------------------------------------------
 // Per-provider defaults

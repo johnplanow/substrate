@@ -24,8 +24,7 @@ vi.mock('../../graph/executor.js', () => ({
 }))
 vi.mock('../../graph/validator.js', () => ({
   createValidator: vi.fn(),
-})
-)
+}))
 
 import { parseGraph } from '../../graph/parser.js'
 import { createGraphExecutor } from '../../graph/executor.js'
@@ -188,7 +187,10 @@ describe('createSubgraphHandler — context updates merged (AC3)', () => {
     expect(ctx.get('subgraph.result')).toBe('done')
     expect(ctx.get('artifact.path')).toBe('/tmp/foo')
     // contextUpdates also returned in outcome
-    expect(result.contextUpdates).toEqual({ 'subgraph.result': 'done', 'artifact.path': '/tmp/foo' })
+    expect(result.contextUpdates).toEqual({
+      'subgraph.result': 'done',
+      'artifact.path': '/tmp/foo',
+    })
   })
 
   it('does not modify parent context when subgraph has no contextUpdates', async () => {

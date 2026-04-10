@@ -99,7 +99,12 @@ function resolveZodTypeName(fieldDef: unknown): string {
   const typeName = (d?._def?.typeName ?? d?._def?.type) as string | undefined
 
   // Unwrap wrappers: optional, default, preprocess
-  if (typeName === 'ZodOptional' || typeName === 'optional' || typeName === 'ZodDefault' || typeName === 'default') {
+  if (
+    typeName === 'ZodOptional' ||
+    typeName === 'optional' ||
+    typeName === 'ZodDefault' ||
+    typeName === 'default'
+  ) {
     return d._def?.innerType != null ? resolveZodTypeName(d._def.innerType) : '<value>'
   }
   if (typeName === 'ZodEffects') {
@@ -130,9 +135,10 @@ function resolveZodTypeName(fieldDef: unknown): string {
 /** Exported for testing. */
 export function buildYamlOutputSuffix(outputSchema?: unknown): string {
   const fields = outputSchema != null ? extractSchemaFields(outputSchema) : []
-  const fieldLines = fields.length > 0
-    ? fields.map((f) => `  ${f}`).join('\n')
-    : '  result: success\n  # ... additional fields as specified in the task above'
+  const fieldLines =
+    fields.length > 0
+      ? fields.map((f) => `  ${f}`).join('\n')
+      : '  result: success\n  # ... additional fields as specified in the task above'
 
   return `
 
@@ -210,7 +216,7 @@ function getAvailableMemory(logger: ILogger): number {
           timeout: 1000,
           encoding: 'utf-8',
         }).trim(),
-        10,
+        10
       )
       _lastKnownPressureLevel = pressureLevel
       if (pressureLevel >= 4) {
@@ -235,7 +241,10 @@ function getAvailableMemory(logger: ILogger): number {
       // stalls on 24GB machines during single-story runs.
       // Only level 4 (critical) hard-gates to 0 (handled above).
       if (pressureLevel >= 2) {
-        logger.debug({ pressureLevel, available }, 'macOS kernel reports memory pressure level 2 (warn) — using raw estimate')
+        logger.debug(
+          { pressureLevel, available },
+          'macOS kernel reports memory pressure level 2 (warn) — using raw estimate'
+        )
       }
       return available
     } catch {
@@ -287,11 +296,7 @@ class MutableDispatchHandle implements DispatchHandle {
 
   private _cancelFn: () => Promise<void>
 
-  constructor(
-    id: string,
-    initialStatus: 'queued' | 'running',
-    cancelFn: () => Promise<void>
-  ) {
+  constructor(id: string, initialStatus: 'queued' | 'running', cancelFn: () => Promise<void>) {
     this.id = id
     this.status = initialStatus
     this._cancelFn = cancelFn
@@ -349,7 +354,7 @@ export class DispatcherImpl implements Dispatcher {
     adapterRegistry: IAdapterRegistry,
     config: DispatchConfig,
     logger: ILogger = console,
-    normalizer: AdapterOutputNormalizer = new AdapterOutputNormalizer(),
+    normalizer: AdapterOutputNormalizer = new AdapterOutputNormalizer()
   ) {
     this._eventBus = eventBus
     this._adapterRegistry = adapterRegistry
@@ -362,7 +367,9 @@ export class DispatcherImpl implements Dispatcher {
   // Dispatcher interface
   // ---------------------------------------------------------------------------
 
-  dispatch<T>(request: DispatchRequest<T>): DispatchHandle & { result: Promise<DispatchResult<T>> } {
+  dispatch<T>(
+    request: DispatchRequest<T>
+  ): DispatchHandle & { result: Promise<DispatchResult<T>> } {
     if (this._shuttingDown) {
       const handle = new MutableDispatchHandle(randomUUID(), 'queued', async () => {})
       handle.status = 'failed'
@@ -381,12 +388,14 @@ export class DispatcherImpl implements Dispatcher {
         // This ensures getRunning() returns the correct count immediately
         this._reserveSlot(id)
         // Start the actual dispatch asynchronously
-        this._startDispatch(id, request as DispatchRequest<unknown>, typedResolve).catch((err: unknown) => {
-          // If _startDispatch throws unexpectedly, clean up the slot and drain the queue
-          this._running.delete(id)
-          this._drainQueue()
-          reject(err as Error)
-        })
+        this._startDispatch(id, request as DispatchRequest<unknown>, typedResolve).catch(
+          (err: unknown) => {
+            // If _startDispatch throws unexpectedly, clean up the slot and drain the queue
+            this._running.delete(id)
+            this._drainQueue()
+            reject(err as Error)
+          }
+        )
       } else {
         // Queue it
         const queueHandle = new MutableDispatchHandle(id, 'queued', async () => {
@@ -419,7 +428,7 @@ export class DispatcherImpl implements Dispatcher {
     // running map (via _reserveSlot) or in the queue.  Reading both maps
     // directly avoids any reliance on side-effect ordering from the async
     // _startDispatch call above.
-    const initialStatus = this._running.has(id) ? 'running' as const : 'queued' as const
+    const initialStatus = this._running.has(id) ? ('running' as const) : ('queued' as const)
     const cancelFn = async (): Promise<void> => {
       // If queued, remove from queue and reject the pending promise so the caller is not left hanging
       const queueIdx = this._queue.findIndex((q) => q.id === id)
@@ -455,7 +464,10 @@ export class DispatcherImpl implements Dispatcher {
     this._shuttingDown = true
     this._stopMemoryPressureTimer()
 
-    this._logger.info({ running: this._running.size, queued: this._queue.length }, 'Dispatcher shutting down')
+    this._logger.info(
+      { running: this._running.size, queued: this._queue.length },
+      'Dispatcher shutting down'
+    )
 
     // Reject all queued dispatches
     const queued = this._queue.splice(0, this._queue.length)
@@ -531,7 +543,20 @@ export class DispatcherImpl implements Dispatcher {
     request: DispatchRequest<unknown>,
     resolve: (result: DispatchResult<unknown>) => void
   ): Promise<void> {
-    const { prompt, agent, taskType, timeout, outputSchema, workingDirectory, model, maxTurns, maxContextTokens, otlpEndpoint, storyKey, optimizationDirectives } = request
+    const {
+      prompt,
+      agent,
+      taskType,
+      timeout,
+      outputSchema,
+      workingDirectory,
+      model,
+      maxTurns,
+      maxContextTokens,
+      otlpEndpoint,
+      storyKey,
+      optimizationDirectives,
+    } = request
 
     // Resolve effective model: explicit request.model wins; then routing resolver; then undefined (adapter default)
     let effectiveModel: string | undefined = model
@@ -541,16 +566,25 @@ export class DispatcherImpl implements Dispatcher {
       if (resolution !== null) {
         effectiveModel = resolution.model
         // Emit routing:model-selected before agent:spawned
-        this._eventBus.emit('routing:model-selected' as never, {
-          dispatchId: id,
-          taskType,
-          model: resolution.model,
-          phase: resolution.phase,
-          source: resolution.source,
-        } as never)
-        this._logger.debug({ id, taskType, model: resolution.model, routingSource: resolution.source }, 'Routing resolved model')
+        this._eventBus.emit(
+          'routing:model-selected' as never,
+          {
+            dispatchId: id,
+            taskType,
+            model: resolution.model,
+            phase: resolution.phase,
+            source: resolution.source,
+          } as never
+        )
+        this._logger.debug(
+          { id, taskType, model: resolution.model, routingSource: resolution.source },
+          'Routing resolved model'
+        )
       } else {
-        this._logger.debug({ id, taskType, routingSource: 'fallback' }, 'Routing returned null — using adapter default')
+        this._logger.debug(
+          { id, taskType, routingSource: 'fallback' },
+          'Routing returned null — using adapter default'
+        )
       }
     }
 
@@ -584,9 +618,10 @@ export class DispatcherImpl implements Dispatcher {
     // format reminder to the prompt. Claude Code follows methodology pack format
     // instructions reliably; other agents need an explicit final nudge.
     const capabilities = adapter.getCapabilities()
-    const effectivePrompt = capabilities.requiresYamlSuffix === true
-      ? prompt + buildYamlOutputSuffix(outputSchema)
-      : prompt
+    const effectivePrompt =
+      capabilities.requiresYamlSuffix === true
+        ? prompt + buildYamlOutputSuffix(outputSchema)
+        : prompt
 
     const cmd = adapter.buildCommand(effectivePrompt, {
       worktreePath,
@@ -605,15 +640,12 @@ export class DispatcherImpl implements Dispatcher {
     // Agents that are slower (e.g., Codex) declare timeoutMultiplier > 1.0
     // so all timeouts scale automatically without per-project config overrides.
     const baseTimeoutMs =
-      timeout ??
-      this._config.defaultTimeouts[taskType] ??
-      DEFAULT_TIMEOUTS[taskType] ??
-      300_000
+      timeout ?? this._config.defaultTimeouts[taskType] ?? DEFAULT_TIMEOUTS[taskType] ?? 300_000
     const timeoutMultiplier = capabilities.timeoutMultiplier ?? 1.0
     const timeoutMs = Math.round(baseTimeoutMs * timeoutMultiplier)
 
     // Spawn the process
-    const env: Record<string, string> = { ...process.env as Record<string, string> }
+    const env: Record<string, string> = { ...(process.env as Record<string, string>) }
 
     // Cap Node.js heap per spawned agent to prevent memory exhaustion when
     // multiple agents run vitest concurrently (each vitest fork inherits this).
@@ -669,10 +701,13 @@ export class DispatcherImpl implements Dispatcher {
       proc.stdout.on('data', (chunk: Buffer) => {
         stdoutChunks.push(chunk)
         const dataStr = chunk.toString('utf-8')
-        this._eventBus.emit('agent:output' as never, {
-          dispatchId: id,
-          data: dataStr,
-        } as never)
+        this._eventBus.emit(
+          'agent:output' as never,
+          {
+            dispatchId: id,
+            data: dataStr,
+          } as never
+        )
       })
     }
 
@@ -700,11 +735,14 @@ export class DispatcherImpl implements Dispatcher {
     this._running.set(id, activeDispatch)
 
     // Emit spawned event
-    this._eventBus.emit('agent:spawned' as never, {
-      dispatchId: id,
-      agent,
-      taskType,
-    } as never)
+    this._eventBus.emit(
+      'agent:spawned' as never,
+      {
+        dispatchId: id,
+        agent,
+        taskType,
+      } as never
+    )
 
     this._logger.debug({ id, agent, taskType, timeoutMs }, 'Agent dispatched')
 
@@ -718,10 +756,13 @@ export class DispatcherImpl implements Dispatcher {
       const inputTokens = Math.ceil(prompt.length / CHARS_PER_TOKEN)
       const outputTokens = Math.ceil(output.length / CHARS_PER_TOKEN)
 
-      this._eventBus.emit('agent:timeout' as never, {
-        dispatchId: id,
-        timeoutMs,
-      } as never)
+      this._eventBus.emit(
+        'agent:timeout' as never,
+        {
+          dispatchId: id,
+          timeoutMs,
+        } as never
+      )
 
       this._logger.warn({ id, agent, taskType, timeoutMs }, 'Agent timed out')
 
@@ -786,20 +827,29 @@ export class DispatcherImpl implements Dispatcher {
           // Estimate output quality for observability (especially non-Claude backends)
           const quality = estimateOutputQuality(stdout)
 
-          this._eventBus.emit('agent:completed' as never, {
-            dispatchId: id,
-            exitCode: code,
-            output: stdout,
-            inputTokens,
-            outputTokens: Math.ceil(stdout.length / CHARS_PER_TOKEN),
-            qualityScore: quality.qualityScore,
-            agent,
-            ...(effectiveModel !== undefined && { model: effectiveModel }),
-          } as never)
+          this._eventBus.emit(
+            'agent:completed' as never,
+            {
+              dispatchId: id,
+              exitCode: code,
+              output: stdout,
+              inputTokens,
+              outputTokens: Math.ceil(stdout.length / CHARS_PER_TOKEN),
+              qualityScore: quality.qualityScore,
+              agent,
+              ...(effectiveModel !== undefined && { model: effectiveModel }),
+            } as never
+          )
 
           this._logger.warn(
-            { id, agent, taskType, adapterError: true, snippet: normalizeResult.raw_output_snippet },
-            'Adapter format error — all normalization strategies exhausted',
+            {
+              id,
+              agent,
+              taskType,
+              adapterError: true,
+              snippet: normalizeResult.raw_output_snippet,
+            },
+            'Adapter format error — all normalization strategies exhausted'
           )
 
           resolve({
@@ -813,7 +863,10 @@ export class DispatcherImpl implements Dispatcher {
             verdict: 'error',
             errorMessage: errMsg,
             durationMs,
-            tokenEstimate: { input: inputTokens, output: Math.ceil(stdout.length / CHARS_PER_TOKEN) },
+            tokenEstimate: {
+              input: inputTokens,
+              output: Math.ceil(stdout.length / CHARS_PER_TOKEN),
+            },
           })
           return
         }
@@ -827,23 +880,35 @@ export class DispatcherImpl implements Dispatcher {
         const quality = estimateOutputQuality(stdout)
         if (quality.hedgingCount > 0 || quality.qualityScore < 40) {
           this._logger.warn(
-            { id, agent, taskType, qualityScore: quality.qualityScore, hedging: quality.hedgingPhrases },
-            'Low output quality detected',
+            {
+              id,
+              agent,
+              taskType,
+              qualityScore: quality.qualityScore,
+              hedging: quality.hedgingPhrases,
+            },
+            'Low output quality detected'
           )
         }
 
-        this._eventBus.emit('agent:completed' as never, {
-          dispatchId: id,
-          exitCode: code,
-          output: stdout,
-          inputTokens,
-          outputTokens: Math.ceil(stdout.length / CHARS_PER_TOKEN),
-          qualityScore: quality.qualityScore,
-          agent,
-          ...(effectiveModel !== undefined && { model: effectiveModel }),
-        } as never)
+        this._eventBus.emit(
+          'agent:completed' as never,
+          {
+            dispatchId: id,
+            exitCode: code,
+            output: stdout,
+            inputTokens,
+            outputTokens: Math.ceil(stdout.length / CHARS_PER_TOKEN),
+            qualityScore: quality.qualityScore,
+            agent,
+            ...(effectiveModel !== undefined && { model: effectiveModel }),
+          } as never
+        )
 
-        this._logger.debug({ id, agent, taskType, durationMs, qualityScore: quality.qualityScore }, 'Agent completed')
+        this._logger.debug(
+          { id, agent, taskType, durationMs, qualityScore: quality.qualityScore },
+          'Agent completed'
+        )
 
         resolve({
           id,
@@ -858,15 +923,18 @@ export class DispatcherImpl implements Dispatcher {
       } else {
         const stderr = Buffer.concat(stderrChunks).toString('utf-8')
 
-        this._eventBus.emit('agent:failed' as never, {
-          dispatchId: id,
-          error: stderr || `Process exited with code ${String(code)}`,
-          exitCode: code,
-        } as never)
+        this._eventBus.emit(
+          'agent:failed' as never,
+          {
+            dispatchId: id,
+            error: stderr || `Process exited with code ${String(code)}`,
+            exitCode: code,
+          } as never
+        )
 
         this._logger.warn(
           { id, agent, taskType, exitCode: code, durationMs, stderr: stderr.slice(0, 500) },
-          'Agent failed',
+          'Agent failed'
         )
 
         // Combine stdout and stderr so callers have full context for failures
@@ -880,7 +948,10 @@ export class DispatcherImpl implements Dispatcher {
           parsed: null,
           parseError: `Agent exited with code ${String(code)}`,
           durationMs,
-          tokenEstimate: { input: inputTokens, output: Math.ceil(combinedOutput.length / CHARS_PER_TOKEN) },
+          tokenEstimate: {
+            input: inputTokens,
+            output: Math.ceil(combinedOutput.length / CHARS_PER_TOKEN),
+          },
         })
       }
     })
@@ -971,7 +1042,7 @@ export class DispatcherImpl implements Dispatcher {
             pressureLevel: _lastKnownPressureLevel,
             holdDurationMs,
           },
-          'Memory pressure hold exceeded max duration — forcing dispatch',
+          'Memory pressure hold exceeded max duration — forcing dispatch'
         )
         this._memoryPressureHoldStart = null
         return false
@@ -984,7 +1055,7 @@ export class DispatcherImpl implements Dispatcher {
           pressureLevel: _lastKnownPressureLevel,
           holdDurationMs,
         },
-        'Memory pressure detected — holding dispatch queue',
+        'Memory pressure detected — holding dispatch queue'
       )
       return true
     }
@@ -1041,6 +1112,6 @@ export function createDispatcher(options: CreateDispatcherOptions): Dispatcher {
     options.adapterRegistry,
     options.config,
     options.logger ?? console,
-    options.normalizer ?? new AdapterOutputNormalizer(),
+    options.normalizer ?? new AdapterOutputNormalizer()
   )
 }

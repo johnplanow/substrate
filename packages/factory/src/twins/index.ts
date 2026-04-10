@@ -6,12 +6,7 @@
  */
 
 export { createTwinRegistry, TwinRegistry } from './registry.js'
-export type {
-  TwinDefinition,
-  PortMapping,
-  TwinHealthcheck,
-  HealthPollResult,
-} from './types.js'
+export type { TwinDefinition, PortMapping, TwinHealthcheck, HealthPollResult } from './types.js'
 export { TwinDefinitionError, TwinRegistryError } from './types.js'
 export { TwinDefinitionSchema } from './schema.js'
 export type { TwinDefinitionInput } from './schema.js'
@@ -30,7 +25,11 @@ export type { TwinRunState } from './run-state.js'
 
 // Twin health monitoring (story 47-6)
 export { createTwinHealthMonitor } from './health-monitor.js'
-export type { TwinHealthMonitor, TwinHealthStatus, TwinHealthMonitorOptions } from './health-monitor.js'
+export type {
+  TwinHealthMonitor,
+  TwinHealthStatus,
+  TwinHealthMonitorOptions,
+} from './health-monitor.js'
 
 // Twin persistence — twin run state and health failure tracking (story 47-7)
 export type {

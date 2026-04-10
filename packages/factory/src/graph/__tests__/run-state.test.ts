@@ -101,7 +101,7 @@ describe('RunStateManager', () => {
       const statusPath = path.join(tmpDir, 'n1', 'status.json')
       expect(await fileExists(statusPath)).toBe(true)
 
-      const status = await readJson(statusPath) as Record<string, unknown>
+      const status = (await readJson(statusPath)) as Record<string, unknown>
       expect(status.nodeId).toBe('n1')
       expect(status.nodeType).toBe('codergen')
       expect(status.status).toBe('SUCCESS')

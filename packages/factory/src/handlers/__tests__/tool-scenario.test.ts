@@ -64,11 +64,7 @@ const stubGraph = {} as Graph
  * Create a mock child process that emits stdout/stderr and closes with exitCode.
  * Events fire asynchronously via setImmediate (matching the story test spec).
  */
-function createMockProcess(options: {
-  stdout?: string
-  stderr?: string
-  exitCode?: number
-}) {
+function createMockProcess(options: { stdout?: string; stderr?: string; exitCode?: number }) {
   const stdoutEmitter = new EventEmitter()
   const stderrEmitter = new EventEmitter()
   const procEmitter = new EventEmitter()
@@ -121,7 +117,7 @@ describe('tool handler — scenario JSON detection (AC2, AC3)', () => {
   it('writes satisfaction_score to context when stdout is valid ScenarioRunResult JSON', async () => {
     const resultJson = JSON.stringify(makeScenarioRunResult(4, 3))
     mockSpawn.mockReturnValueOnce(
-      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>,
+      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>
     )
     const handler = createToolHandler()
     const ctx = new GraphContext()
@@ -134,7 +130,7 @@ describe('tool handler — scenario JSON detection (AC2, AC3)', () => {
   it('does NOT set {node.id}.output when scenario JSON is detected (AC3)', async () => {
     const resultJson = JSON.stringify(makeScenarioRunResult(4, 3))
     mockSpawn.mockReturnValueOnce(
-      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>,
+      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>
     )
     const handler = createToolHandler()
     const ctx = new GraphContext()
@@ -146,7 +142,7 @@ describe('tool handler — scenario JSON detection (AC2, AC3)', () => {
   it('writes satisfaction_score 0.0 when 0 of 2 scenarios pass (AC4)', async () => {
     const resultJson = JSON.stringify(makeScenarioRunResult(2, 0))
     mockSpawn.mockReturnValueOnce(
-      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>,
+      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>
     )
     const handler = createToolHandler()
     const ctx = new GraphContext()
@@ -159,7 +155,7 @@ describe('tool handler — scenario JSON detection (AC2, AC3)', () => {
   it('status is SUCCESS even when satisfaction_score is 0.0 (AC4 — downstream conditional routes)', async () => {
     const resultJson = JSON.stringify(makeScenarioRunResult(2, 0))
     mockSpawn.mockReturnValueOnce(
-      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>,
+      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>
     )
     const handler = createToolHandler()
     const ctx = new GraphContext()
@@ -177,7 +173,7 @@ describe('tool handler — scenario JSON detection (AC2, AC3)', () => {
 describe('tool handler — non-scenario stdout falls through to default path', () => {
   it('stores plain text stdout as {node.id}.output when not ScenarioRunResult JSON', async () => {
     mockSpawn.mockReturnValueOnce(
-      createMockProcess({ stdout: 'deployment done\n', exitCode: 0 }) as ReturnType<typeof spawn>,
+      createMockProcess({ stdout: 'deployment done\n', exitCode: 0 }) as ReturnType<typeof spawn>
     )
     const handler = createToolHandler()
     const ctx = new GraphContext()
@@ -191,7 +187,7 @@ describe('tool handler — non-scenario stdout falls through to default path', (
   it('stores non-ScenarioRunResult JSON as {node.id}.output', async () => {
     const otherJson = JSON.stringify({ result: 'ok', count: 5 })
     mockSpawn.mockReturnValueOnce(
-      createMockProcess({ stdout: otherJson, exitCode: 0 }) as ReturnType<typeof spawn>,
+      createMockProcess({ stdout: otherJson, exitCode: 0 }) as ReturnType<typeof spawn>
     )
     const handler = createToolHandler()
     const ctx = new GraphContext()
@@ -210,7 +206,7 @@ describe('tool handler — non-scenario stdout falls through to default path', (
 describe('tool handler — non-zero exit code → FAILURE (existing behavior)', () => {
   it('returns FAILURE with stderr as failureReason on non-zero exit code', async () => {
     mockSpawn.mockReturnValueOnce(
-      createMockProcess({ stderr: 'command not found', exitCode: 1 }) as ReturnType<typeof spawn>,
+      createMockProcess({ stderr: 'command not found', exitCode: 1 }) as ReturnType<typeof spawn>
     )
     const handler = createToolHandler()
     const ctx = new GraphContext()
@@ -222,7 +218,7 @@ describe('tool handler — non-zero exit code → FAILURE (existing behavior)', 
 
   it('does not set contextUpdates on non-zero exit code', async () => {
     mockSpawn.mockReturnValueOnce(
-      createMockProcess({ stderr: 'error', exitCode: 2 }) as ReturnType<typeof spawn>,
+      createMockProcess({ stderr: 'error', exitCode: 2 }) as ReturnType<typeof spawn>
     )
     const handler = createToolHandler()
     const ctx = new GraphContext()
@@ -242,7 +238,7 @@ describe('ToolHandlerOptions.satisfactionThreshold (story 46-2)', () => {
     const result = makeScenarioRunResult(5, 3)
     const resultJson = JSON.stringify(result)
     mockSpawn.mockReturnValueOnce(
-      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>,
+      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>
     )
     const handler = createToolHandler({ satisfactionThreshold: 0.5 })
     const ctx = new GraphContext()
@@ -261,7 +257,7 @@ describe('ToolHandlerOptions.satisfactionThreshold (story 46-2)', () => {
     const result = makeScenarioRunResult(5, 3)
     const resultJson = JSON.stringify(result)
     mockSpawn.mockReturnValueOnce(
-      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>,
+      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>
     )
     const handler = createToolHandler({ satisfactionThreshold: 0.8 })
     const ctx = new GraphContext()
@@ -278,7 +274,7 @@ describe('ToolHandlerOptions.satisfactionThreshold (story 46-2)', () => {
   it('AC5c: no satisfactionThreshold in options → same behavior as existing tests (default 0.8, satisfaction_score written)', async () => {
     const resultJson = JSON.stringify(makeScenarioRunResult(5, 3))
     mockSpawn.mockReturnValueOnce(
-      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>,
+      createMockProcess({ stdout: resultJson, exitCode: 0 }) as ReturnType<typeof spawn>
     )
     const handler = createToolHandler()
     const ctx = new GraphContext()

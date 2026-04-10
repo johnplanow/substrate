@@ -28,7 +28,10 @@ describe('ConflictDetector.findOverlappingFiles', () => {
   it('returns the intersection of two non-empty arrays', () => {
     const pending = ['src/a.ts', 'src/b.ts', 'src/c.ts']
     const completed = ['src/b.ts', 'src/c.ts', 'src/d.ts']
-    expect(ConflictDetector.findOverlappingFiles(pending, completed)).toEqual(['src/b.ts', 'src/c.ts'])
+    expect(ConflictDetector.findOverlappingFiles(pending, completed)).toEqual([
+      'src/b.ts',
+      'src/c.ts',
+    ])
   })
 
   it('returns empty array when there is no overlap', () => {
@@ -143,7 +146,7 @@ describe('ConflictDetector.detectNamespaceCollision', () => {
     const result = await ConflictDetector.detectNamespaceCollision(
       'FooService',
       ['src/foo.ts'],
-      projectRoot,
+      projectRoot
     )
 
     expect(result).not.toBeNull()
@@ -157,7 +160,7 @@ describe('ConflictDetector.detectNamespaceCollision', () => {
     const result = await ConflictDetector.detectNamespaceCollision(
       'FooOptions',
       ['src/options.ts'],
-      projectRoot,
+      projectRoot
     )
 
     expect(result).not.toBeNull()
@@ -170,7 +173,7 @@ describe('ConflictDetector.detectNamespaceCollision', () => {
     const result = await ConflictDetector.detectNamespaceCollision(
       'FOO',
       ['src/constants.ts'],
-      projectRoot,
+      projectRoot
     )
 
     expect(result).not.toBeNull()
@@ -183,7 +186,7 @@ describe('ConflictDetector.detectNamespaceCollision', () => {
     const result = await ConflictDetector.detectNamespaceCollision(
       'MyClass',
       ['src/my-class.ts'],
-      projectRoot,
+      projectRoot
     )
 
     expect(result).not.toBeNull()
@@ -196,7 +199,7 @@ describe('ConflictDetector.detectNamespaceCollision', () => {
     const result = await ConflictDetector.detectNamespaceCollision(
       'FooService',
       ['src/other.ts'],
-      projectRoot,
+      projectRoot
     )
 
     expect(result).toBeNull()
@@ -213,7 +216,7 @@ describe('ConflictDetector.detectNamespaceCollision', () => {
     const result = await ConflictDetector.detectNamespaceCollision(
       'FooService',
       ['src/missing.ts'],
-      projectRoot,
+      projectRoot
     )
 
     expect(result).toBeNull()
@@ -227,7 +230,7 @@ describe('ConflictDetector.detectNamespaceCollision', () => {
     const result = await ConflictDetector.detectNamespaceCollision(
       'FooService',
       ['src/missing.ts', 'src/found.ts'],
-      projectRoot,
+      projectRoot
     )
 
     expect(result).not.toBeNull()
@@ -242,7 +245,7 @@ describe('ConflictDetector.detectNamespaceCollision', () => {
     const result = await ConflictDetector.detectNamespaceCollision(
       'FooService',
       ['src/first.ts', 'src/second.ts'],
-      projectRoot,
+      projectRoot
     )
 
     expect(result?.file).toBe('src/first.ts')

@@ -35,7 +35,12 @@ export class DirectCodergenBackend implements ICodergenBackend {
 
   async run(node: GraphNode, prompt: string, _context: IGraphContext): Promise<Outcome> {
     const { llmClient, providerProfile, executionEnv, config, onEvent } = this.options
-    const sessionOptions: { llmClient: LLMClient; providerProfile: ProviderProfile; executionEnv: ExecutionEnvironment; config?: Partial<SessionConfig> } = {
+    const sessionOptions: {
+      llmClient: LLMClient
+      providerProfile: ProviderProfile
+      executionEnv: ExecutionEnvironment
+      config?: Partial<SessionConfig>
+    } = {
       llmClient,
       providerProfile,
       executionEnv,
@@ -77,9 +82,7 @@ export class DirectCodergenBackend implements ICodergenBackend {
     }
 
     // Extract final assistant text from history by scanning in reverse.
-    const finalAssistantTurn = [...session.history]
-      .reverse()
-      .find(t => t.type === 'assistant')
+    const finalAssistantTurn = [...session.history].reverse().find((t) => t.type === 'assistant')
 
     if (!finalAssistantTurn || finalAssistantTurn.type !== 'assistant') {
       return { status: 'SUCCESS' }

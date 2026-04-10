@@ -334,8 +334,27 @@ export function parseYamlResult<T>(
  * Any backslash followed by a character NOT in this set is invalid.
  */
 const VALID_YAML_ESCAPES = new Set([
-  '0', 'a', 'b', 't', '\t', 'n', 'v', 'f', 'r', 'e', ' ', '"', '/',
-  '\\', 'N', '_', 'L', 'P', 'x', 'u', 'U',
+  '0',
+  'a',
+  'b',
+  't',
+  '\t',
+  'n',
+  'v',
+  'f',
+  'r',
+  'e',
+  ' ',
+  '"',
+  '/',
+  '\\',
+  'N',
+  '_',
+  'L',
+  'P',
+  'x',
+  'u',
+  'U',
 ])
 
 /**
@@ -352,8 +371,8 @@ function sanitizeYamlEscapes(yamlText: string): string {
   // Process each line — only fix invalid escapes inside double-quoted segments
   return yamlText.replace(/"(?:[^"\\]|\\.)*"/g, (match) => {
     return match.replace(/\\(.)/g, (esc, ch: string) => {
-      if (VALID_YAML_ESCAPES.has(ch)) return esc  // valid escape, keep it
-      return ch  // invalid escape like \$ → just the character
+      if (VALID_YAML_ESCAPES.has(ch)) return esc // valid escape, keep it
+      return ch // invalid escape like \$ → just the character
     })
   })
 }

@@ -59,7 +59,7 @@ describe('upsertGraphRun', () => {
 
     const rows = await adapter.query<{ id: string; status: string }>(
       'SELECT id, status FROM graph_runs WHERE id = ?',
-      ['run-1'],
+      ['run-1']
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]!.id).toBe('run-1')
@@ -195,7 +195,7 @@ describe('insertScenarioResult', () => {
 
     const rows = await adapter.query<{ details: string }>(
       'SELECT details FROM scenario_results WHERE run_id = ?',
-      ['run-s2'],
+      ['run-s2']
     )
     expect(rows).toHaveLength(1)
     expect(JSON.parse(rows[0]!.details)).toEqual(breakdown)
@@ -346,7 +346,7 @@ describe('insertGraphNodeResult', () => {
 
     const rows = await adapter.query<{ node_id: string; attempt: number }>(
       'SELECT node_id, attempt FROM graph_node_results WHERE run_id = ? ORDER BY node_id',
-      ['run-n2'],
+      ['run-n2']
     )
 
     expect(rows).toHaveLength(2)
@@ -370,7 +370,7 @@ describe('insertGraphNodeResult', () => {
 
     const rows = await adapter.query<{ failure_reason: string }>(
       'SELECT failure_reason FROM graph_node_results WHERE run_id = ?',
-      ['run-n3'],
+      ['run-n3']
     )
     expect(rows[0]!.failure_reason).toBe('Timeout exceeded')
   })
@@ -406,7 +406,7 @@ describe('listGraphRuns', () => {
 
     expect(rows.length).toBeGreaterThanOrEqual(3)
     // First row should be the most recent (run-l2 = 2026-01-03)
-    const ids = rows.map(r => r.id)
+    const ids = rows.map((r) => r.id)
     expect(ids[0]).toBe('run-l2')
     expect(ids[1]).toBe('run-l3')
     expect(ids[2]).toBe('run-l1')

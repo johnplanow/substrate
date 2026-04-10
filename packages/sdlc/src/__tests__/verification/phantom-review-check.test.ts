@@ -46,7 +46,9 @@ describe('PhantomReviewCheck', () => {
   // AC6 — run returns a Promise
   it('has a run method that returns a Promise', async () => {
     const check = new PhantomReviewCheck()
-    const result = check.run(makeContext({ dispatchFailed: false, rawOutput: 'verdict: SHIP_IT\n...' }))
+    const result = check.run(
+      makeContext({ dispatchFailed: false, rawOutput: 'verdict: SHIP_IT\n...' })
+    )
     expect(result).toBeInstanceOf(Promise)
     await result
   })
@@ -54,9 +56,7 @@ describe('PhantomReviewCheck', () => {
   // AC1 — dispatch failed (non-zero exit code)
   it('returns fail when dispatch failed with non-zero exit code', async () => {
     const check = new PhantomReviewCheck()
-    const result = await check.run(
-      makeContext({ dispatchFailed: true, error: 'Exit code: 1' }),
-    )
+    const result = await check.run(makeContext({ dispatchFailed: true, error: 'Exit code: 1' }))
     expect(result.status).toBe('fail')
     expect(result.details).toContain('dispatch failed')
     expect(result.details).toContain('Exit code: 1')
@@ -66,7 +66,7 @@ describe('PhantomReviewCheck', () => {
   it('returns fail when dispatch timed out', async () => {
     const check = new PhantomReviewCheck()
     const result = await check.run(
-      makeContext({ dispatchFailed: true, error: 'Dispatch status: timeout after 300s' }),
+      makeContext({ dispatchFailed: true, error: 'Dispatch status: timeout after 300s' })
     )
     expect(result.status).toBe('fail')
     expect(result.details).toContain('dispatch failed')
@@ -76,7 +76,7 @@ describe('PhantomReviewCheck', () => {
   it('returns fail with "schema validation failed" when error is schema_validation_failed', async () => {
     const check = new PhantomReviewCheck()
     const result = await check.run(
-      makeContext({ dispatchFailed: true, error: 'schema_validation_failed' }),
+      makeContext({ dispatchFailed: true, error: 'schema_validation_failed' })
     )
     expect(result.status).toBe('fail')
     expect(result.details).toContain('schema validation failed')
@@ -85,9 +85,7 @@ describe('PhantomReviewCheck', () => {
   // AC2 — empty rawOutput (empty string)
   it('returns fail when rawOutput is empty string', async () => {
     const check = new PhantomReviewCheck()
-    const result = await check.run(
-      makeContext({ dispatchFailed: false, rawOutput: '' }),
-    )
+    const result = await check.run(makeContext({ dispatchFailed: false, rawOutput: '' }))
     expect(result.status).toBe('fail')
     expect(result.details).toContain('empty review output')
   })
@@ -95,9 +93,7 @@ describe('PhantomReviewCheck', () => {
   // AC2 — empty rawOutput (whitespace only)
   it('returns fail when rawOutput is whitespace-only', async () => {
     const check = new PhantomReviewCheck()
-    const result = await check.run(
-      makeContext({ dispatchFailed: false, rawOutput: '   \n  ' }),
-    )
+    const result = await check.run(makeContext({ dispatchFailed: false, rawOutput: '   \n  ' }))
     expect(result.status).toBe('fail')
     expect(result.details).toContain('empty review output')
   })
@@ -105,9 +101,7 @@ describe('PhantomReviewCheck', () => {
   // AC2 — undefined rawOutput means dispatch result didn't capture output (not phantom)
   it('returns pass when rawOutput is undefined (output not captured)', async () => {
     const check = new PhantomReviewCheck()
-    const result = await check.run(
-      makeContext({ dispatchFailed: false, rawOutput: undefined }),
-    )
+    const result = await check.run(makeContext({ dispatchFailed: false, rawOutput: undefined }))
     expect(result.status).toBe('pass')
   })
 
@@ -118,7 +112,7 @@ describe('PhantomReviewCheck', () => {
       makeContext({
         dispatchFailed: false,
         rawOutput: 'verdict: SHIP_IT\nissues: 0\nissue_list: []',
-      }),
+      })
     )
     expect(result.status).toBe('pass')
     expect(result.details).toContain('review output is valid')
@@ -131,7 +125,7 @@ describe('PhantomReviewCheck', () => {
       makeContext({
         dispatchFailed: false,
         rawOutput: 'verdict: NEEDS_MINOR_FIXES\nissues: 1\nissue_list:\n  - minor issue',
-      }),
+      })
     )
     expect(result.status).toBe('pass')
     expect(result.details).toContain('review output is valid')
@@ -155,18 +149,14 @@ describe('PhantomReviewCheck', () => {
   // AC7 — duration_ms is non-negative on all result types
   it('includes a non-negative duration_ms on fail result (dispatch failed)', async () => {
     const check = new PhantomReviewCheck()
-    const result = await check.run(
-      makeContext({ dispatchFailed: true, error: 'Exit code: 1' }),
-    )
+    const result = await check.run(makeContext({ dispatchFailed: true, error: 'Exit code: 1' }))
     expect(typeof result.duration_ms).toBe('number')
     expect(result.duration_ms).toBeGreaterThanOrEqual(0)
   })
 
   it('includes a non-negative duration_ms on fail result (empty output)', async () => {
     const check = new PhantomReviewCheck()
-    const result = await check.run(
-      makeContext({ dispatchFailed: false, rawOutput: '' }),
-    )
+    const result = await check.run(makeContext({ dispatchFailed: false, rawOutput: '' }))
     expect(typeof result.duration_ms).toBe('number')
     expect(result.duration_ms).toBeGreaterThanOrEqual(0)
   })
@@ -174,7 +164,7 @@ describe('PhantomReviewCheck', () => {
   it('includes a non-negative duration_ms on pass result (valid review)', async () => {
     const check = new PhantomReviewCheck()
     const result = await check.run(
-      makeContext({ dispatchFailed: false, rawOutput: 'verdict: LGTM_WITH_NOTES\n...' }),
+      makeContext({ dispatchFailed: false, rawOutput: 'verdict: LGTM_WITH_NOTES\n...' })
     )
     expect(typeof result.duration_ms).toBe('number')
     expect(result.duration_ms).toBeGreaterThanOrEqual(0)

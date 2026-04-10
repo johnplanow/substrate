@@ -34,7 +34,7 @@ const stubGraph = {}
 /** Create a mock IGraphContext from plain objects for string and list values. */
 function makeContext(
   stringValues: Record<string, string | undefined>,
-  listValues: Record<string, string[] | undefined> = {},
+  listValues: Record<string, string[] | undefined> = {}
 ) {
   return {
     getString: vi.fn().mockImplementation((key: string, defaultValue?: string): string => {
@@ -113,7 +113,7 @@ describe('createSdlcDevStoryHandler — success path (AC1, AC2)', () => {
         storyKey: '43-4',
         storyFilePath: '/stories/43-4.md',
         pipelineRunId: 'run-001',
-      }),
+      })
     )
   })
 
@@ -142,7 +142,10 @@ describe('createSdlcDevStoryHandler — success path (AC1, AC2)', () => {
     const handler = createSdlcDevStoryHandler(options)
     const result = await handler(stubNode, context, stubGraph)
 
-    expect(result.contextUpdates?.devStoryFilesModified).toEqual(['/path/to/foo.ts', '/path/to/bar.ts'])
+    expect(result.contextUpdates?.devStoryFilesModified).toEqual([
+      '/path/to/foo.ts',
+      '/path/to/bar.ts',
+    ])
   })
 
   it('does not return FAILURE on success path (AC2)', async () => {
@@ -261,7 +264,7 @@ describe('createSdlcDevStoryHandler — retry remediation context (AC4)', () => 
 
     const context = makeContext(
       { storyKey: '43-4', storyFilePath: '/stories/43-4.md' },
-      { devStoryFilesModified: ['/path/to/foo.ts', '/path/to/bar.ts'] },
+      { devStoryFilesModified: ['/path/to/foo.ts', '/path/to/bar.ts'] }
     )
     const handler = createSdlcDevStoryHandler(options)
     await handler(stubNode, context, stubGraph)
@@ -281,7 +284,7 @@ describe('createSdlcDevStoryHandler — retry remediation context (AC4)', () => 
 
     const context = makeContext(
       { storyKey: '43-4', storyFilePath: '/stories/43-4.md' },
-      { devStoryAcFailures: ['AC2', 'AC3'] },
+      { devStoryAcFailures: ['AC2', 'AC3'] }
     )
     const handler = createSdlcDevStoryHandler(options)
     await handler(stubNode, context, stubGraph)
@@ -476,7 +479,9 @@ describe('createSdlcDevStoryHandler — telemetry (AC5)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseStartCall = emitMock.mock.calls.find(([event]) => event === 'orchestrator:story-phase-start')
+    const phaseStartCall = emitMock.mock.calls.find(
+      ([event]) => event === 'orchestrator:story-phase-start'
+    )
     expect(phaseStartCall).toBeDefined()
     expect(phaseStartCall?.[1]).toEqual({ storyKey: '43-4', phase: 'dev-story' })
   })
@@ -495,7 +500,9 @@ describe('createSdlcDevStoryHandler — telemetry (AC5)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseCompleteCall = emitMock.mock.calls.find(([event]) => event === 'orchestrator:story-phase-complete')
+    const phaseCompleteCall = emitMock.mock.calls.find(
+      ([event]) => event === 'orchestrator:story-phase-complete'
+    )
     expect(phaseCompleteCall).toBeDefined()
     expect(phaseCompleteCall?.[1]).toMatchObject({
       storyKey: '43-4',
@@ -518,8 +525,12 @@ describe('createSdlcDevStoryHandler — telemetry (AC5)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseStartCalls = emitMock.mock.calls.filter(([e]) => e === 'orchestrator:story-phase-start')
-    const phaseCompleteCalls = emitMock.mock.calls.filter(([e]) => e === 'orchestrator:story-phase-complete')
+    const phaseStartCalls = emitMock.mock.calls.filter(
+      ([e]) => e === 'orchestrator:story-phase-start'
+    )
+    const phaseCompleteCalls = emitMock.mock.calls.filter(
+      ([e]) => e === 'orchestrator:story-phase-complete'
+    )
 
     expect(phaseStartCalls).toHaveLength(1)
     expect(phaseCompleteCalls).toHaveLength(1)
@@ -539,7 +550,9 @@ describe('createSdlcDevStoryHandler — telemetry (AC5)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseCompleteCall = emitMock.mock.calls.find(([e]) => e === 'orchestrator:story-phase-complete')
+    const phaseCompleteCall = emitMock.mock.calls.find(
+      ([e]) => e === 'orchestrator:story-phase-complete'
+    )
     expect(phaseCompleteCall?.[1]).toMatchObject({ result: { status: 'FAILURE' } })
   })
 
@@ -557,7 +570,9 @@ describe('createSdlcDevStoryHandler — telemetry (AC5)', () => {
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseCompleteCalls = emitMock.mock.calls.filter(([e]) => e === 'orchestrator:story-phase-complete')
+    const phaseCompleteCalls = emitMock.mock.calls.filter(
+      ([e]) => e === 'orchestrator:story-phase-complete'
+    )
     expect(phaseCompleteCalls).toHaveLength(1)
   })
 
@@ -570,13 +585,21 @@ describe('createSdlcDevStoryHandler — telemetry (AC5)', () => {
       runDevStory: mockRunDevStory,
     }
 
-    const context = makeContext({ storyKey: '43-4', storyFilePath: '/stories/43-4.md', pipelineRunId: 'run-abc' })
+    const context = makeContext({
+      storyKey: '43-4',
+      storyFilePath: '/stories/43-4.md',
+      pipelineRunId: 'run-abc',
+    })
     const handler = createSdlcDevStoryHandler(options)
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
     const phaseStartCall = emitMock.mock.calls.find(([e]) => e === 'orchestrator:story-phase-start')
-    expect(phaseStartCall?.[1]).toMatchObject({ storyKey: '43-4', phase: 'dev-story', pipelineRunId: 'run-abc' })
+    expect(phaseStartCall?.[1]).toMatchObject({
+      storyKey: '43-4',
+      phase: 'dev-story',
+      pipelineRunId: 'run-abc',
+    })
   })
 
   it('includes pipelineRunId in phase-complete payload when present in context (AC5)', async () => {
@@ -588,13 +611,23 @@ describe('createSdlcDevStoryHandler — telemetry (AC5)', () => {
       runDevStory: mockRunDevStory,
     }
 
-    const context = makeContext({ storyKey: '43-4', storyFilePath: '/stories/43-4.md', pipelineRunId: 'run-abc' })
+    const context = makeContext({
+      storyKey: '43-4',
+      storyFilePath: '/stories/43-4.md',
+      pipelineRunId: 'run-abc',
+    })
     const handler = createSdlcDevStoryHandler(options)
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseCompleteCall = emitMock.mock.calls.find(([e]) => e === 'orchestrator:story-phase-complete')
-    expect(phaseCompleteCall?.[1]).toMatchObject({ storyKey: '43-4', phase: 'dev-story', pipelineRunId: 'run-abc' })
+    const phaseCompleteCall = emitMock.mock.calls.find(
+      ([e]) => e === 'orchestrator:story-phase-complete'
+    )
+    expect(phaseCompleteCall?.[1]).toMatchObject({
+      storyKey: '43-4',
+      phase: 'dev-story',
+      pipelineRunId: 'run-abc',
+    })
   })
 
   it('omits pipelineRunId from phase-start and phase-complete payloads when not in context (AC5)', async () => {
@@ -612,7 +645,9 @@ describe('createSdlcDevStoryHandler — telemetry (AC5)', () => {
 
     const emitMock = vi.mocked(mockEventBus.emit)
     const phaseStartCall = emitMock.mock.calls.find(([e]) => e === 'orchestrator:story-phase-start')
-    const phaseCompleteCall = emitMock.mock.calls.find(([e]) => e === 'orchestrator:story-phase-complete')
+    const phaseCompleteCall = emitMock.mock.calls.find(
+      ([e]) => e === 'orchestrator:story-phase-complete'
+    )
     expect('pipelineRunId' in (phaseStartCall?.[1] ?? {})).toBe(false)
     expect('pipelineRunId' in (phaseCompleteCall?.[1] ?? {})).toBe(false)
   })
@@ -625,7 +660,9 @@ describe('createSdlcDevStoryHandler — telemetry (AC5)', () => {
 describe('createSdlcDevStoryHandler — build verification gate', () => {
   it('returns FAILURE when buildVerifier reports failed after successful dev-story', async () => {
     const mockRunDevStory = vi.fn<RunDevStoryFn>().mockResolvedValue(successResult)
-    const mockBuildVerifier = vi.fn().mockReturnValue({ status: 'failed', output: 'tsc error: missing export' })
+    const mockBuildVerifier = vi
+      .fn()
+      .mockReturnValue({ status: 'failed', output: 'tsc error: missing export' })
     const mockEventBus = makeEventBus()
     const options: SdlcDevStoryHandlerOptions = {
       deps: {},
@@ -634,7 +671,11 @@ describe('createSdlcDevStoryHandler — build verification gate', () => {
       buildVerifier: mockBuildVerifier,
     }
 
-    const context = makeContext({ storyKey: '43-4', storyFilePath: '/stories/43-4.md', projectRoot: '/test' })
+    const context = makeContext({
+      storyKey: '43-4',
+      storyFilePath: '/stories/43-4.md',
+      projectRoot: '/test',
+    })
     const handler = createSdlcDevStoryHandler(options)
     const result = await handler(stubNode, context, stubGraph)
 
@@ -654,7 +695,11 @@ describe('createSdlcDevStoryHandler — build verification gate', () => {
       buildVerifier: mockBuildVerifier,
     }
 
-    const context = makeContext({ storyKey: '43-4', storyFilePath: '/stories/43-4.md', projectRoot: '/test' })
+    const context = makeContext({
+      storyKey: '43-4',
+      storyFilePath: '/stories/43-4.md',
+      projectRoot: '/test',
+    })
     const handler = createSdlcDevStoryHandler(options)
     const result = await handler(stubNode, context, stubGraph)
 
@@ -671,7 +716,11 @@ describe('createSdlcDevStoryHandler — build verification gate', () => {
       // no buildVerifier
     }
 
-    const context = makeContext({ storyKey: '43-4', storyFilePath: '/stories/43-4.md', projectRoot: '/test' })
+    const context = makeContext({
+      storyKey: '43-4',
+      storyFilePath: '/stories/43-4.md',
+      projectRoot: '/test',
+    })
     const handler = createSdlcDevStoryHandler(options)
     const result = await handler(stubNode, context, stubGraph)
 
@@ -689,12 +738,18 @@ describe('createSdlcDevStoryHandler — build verification gate', () => {
       buildVerifier: mockBuildVerifier,
     }
 
-    const context = makeContext({ storyKey: '43-4', storyFilePath: '/stories/43-4.md', projectRoot: '/test' })
+    const context = makeContext({
+      storyKey: '43-4',
+      storyFilePath: '/stories/43-4.md',
+      projectRoot: '/test',
+    })
     const handler = createSdlcDevStoryHandler(options)
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const phaseCompleteCalls = emitMock.mock.calls.filter(([e]) => e === 'orchestrator:story-phase-complete')
+    const phaseCompleteCalls = emitMock.mock.calls.filter(
+      ([e]) => e === 'orchestrator:story-phase-complete'
+    )
     expect(phaseCompleteCalls).toHaveLength(1)
   })
 })

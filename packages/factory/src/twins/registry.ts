@@ -26,14 +26,10 @@ export class TwinRegistry {
     try {
       entries = await readdir(dir)
     } catch (err) {
-      throw new TwinDefinitionError(
-        `Failed to read directory: ${dir} — ${(err as Error).message}`,
-      )
+      throw new TwinDefinitionError(`Failed to read directory: ${dir} — ${(err as Error).message}`)
     }
 
-    const yamlFiles = entries.filter(
-      (f) => f.endsWith('.yaml') || f.endsWith('.yml'),
-    )
+    const yamlFiles = entries.filter((f) => f.endsWith('.yaml') || f.endsWith('.yml'))
 
     // Collect per-file validation errors so that valid siblings are still discovered (AC3).
     // TwinRegistryError (duplicate names) is still thrown immediately as a consistency error.
@@ -49,8 +45,8 @@ export class TwinRegistry {
         perFileErrors.push(
           new TwinDefinitionError(
             `Failed to read file: ${filePath} — ${(err as Error).message}`,
-            filePath,
-          ),
+            filePath
+          )
         )
         continue
       }
@@ -63,8 +59,8 @@ export class TwinRegistry {
         perFileErrors.push(
           new TwinDefinitionError(
             `Twin definition at ${filePath} contains invalid YAML: ${(err as Error).message}`,
-            filePath,
-          ),
+            filePath
+          )
         )
         continue
       }
@@ -123,7 +119,7 @@ export class TwinRegistry {
       if (this._twins.has(twin.name)) {
         const existing = this._twins.get(twin.name)!
         throw new TwinRegistryError(
-          `Duplicate twin name "${twin.name}" found in: ${existing.sourceFile} and ${filePath}`,
+          `Duplicate twin name "${twin.name}" found in: ${existing.sourceFile} and ${filePath}`
         )
       }
 
@@ -160,7 +156,7 @@ export class TwinRegistry {
    */
   async pollHealth(
     twin: TwinDefinition,
-    options?: { fetch?: typeof fetch },
+    options?: { fetch?: typeof fetch }
   ): Promise<HealthPollResult> {
     const { healthcheck } = twin
 

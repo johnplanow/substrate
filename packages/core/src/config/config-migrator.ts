@@ -154,11 +154,7 @@ export class ConfigMigrator {
       const after = JSON.stringify(current)
 
       // Detect changed keys by comparing against previous-step output (not original config)
-      if (
-        current !== null &&
-        typeof current === 'object' &&
-        !Array.isArray(current)
-      ) {
+      if (current !== null && typeof current === 'object' && !Array.isArray(current)) {
         const beforeObj = JSON.parse(before) as Record<string, unknown>
         const afterObj = JSON.parse(after) as Record<string, unknown>
         for (const k of Object.keys(afterObj)) {

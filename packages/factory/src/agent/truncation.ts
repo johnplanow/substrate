@@ -79,7 +79,7 @@ function truncateByLines(output: string, maxLines: number, mode: 'head_tail' | '
 export function truncateToolOutput(
   output: string,
   toolName: string,
-  config: SessionConfig,
+  config: SessionConfig
 ): string {
   const charLimit =
     config.tool_output_limits.get(toolName) ??

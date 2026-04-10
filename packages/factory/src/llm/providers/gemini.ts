@@ -84,7 +84,13 @@ interface GeminiCandidate {
     role: 'model'
     parts: GeminiPart[]
   }
-  finishReason?: 'STOP' | 'MAX_TOKENS' | 'SAFETY' | 'RECITATION' | 'OTHER' | 'FINISH_REASON_UNSPECIFIED'
+  finishReason?:
+    | 'STOP'
+    | 'MAX_TOKENS'
+    | 'SAFETY'
+    | 'RECITATION'
+    | 'OTHER'
+    | 'FINISH_REASON_UNSPECIFIED'
   safetyRatings?: unknown[]
 }
 
@@ -106,10 +112,7 @@ export class GeminiAdapter implements ProviderAdapter {
   private readonly timeout: number
 
   constructor(options: GeminiAdapterOptions = {}) {
-    const apiKey =
-      options.apiKey ??
-      process.env['GEMINI_API_KEY'] ??
-      process.env['GOOGLE_API_KEY']
+    const apiKey = options.apiKey ?? process.env['GEMINI_API_KEY'] ?? process.env['GOOGLE_API_KEY']
 
     if (!apiKey) {
       throw new Error('GEMINI_API_KEY is required')
@@ -241,8 +244,8 @@ export class GeminiAdapter implements ProviderAdapter {
           const callId = msg.toolCallId ?? ''
           const functionName = idToName.get(callId) ?? callId
           const textContent = msg.content
-            .filter(p => p.kind === 'text')
-            .map(p => p.text ?? '')
+            .filter((p) => p.kind === 'text')
+            .map((p) => p.text ?? '')
             .join('')
           toolResultParts.push({
             functionResponse: {
@@ -267,7 +270,7 @@ export class GeminiAdapter implements ProviderAdapter {
     if (request.tools && request.tools.length > 0) {
       body.tools = [
         {
-          functionDeclarations: request.tools.map(t => ({
+          functionDeclarations: request.tools.map((t) => ({
             name: t.name,
             description: t.description,
             parameters: t.parameters,
@@ -439,7 +442,9 @@ export class GeminiAdapter implements ProviderAdapter {
     }
 
     const stopReason = this._mapStopReason(candidate?.finishReason, toolCalls.length > 0)
-    const usage = this._parseUsage(data.usageMetadata ?? { promptTokenCount: 0, candidatesTokenCount: 0 })
+    const usage = this._parseUsage(
+      data.usageMetadata ?? { promptTokenCount: 0, candidatesTokenCount: 0 }
+    )
 
     return {
       content,
@@ -524,7 +529,9 @@ export class GeminiAdapter implements ProviderAdapter {
         const dataStr = trimmed.slice(6).trim()
         if (dataStr === '[DONE]') break
 
-        let chunk: GeminiResponse & { candidates?: Array<{ content?: { parts?: GeminiPart[] }; finishReason?: string }> }
+        let chunk: GeminiResponse & {
+          candidates?: Array<{ content?: { parts?: GeminiPart[] }; finishReason?: string }>
+        }
         try {
           chunk = JSON.parse(dataStr) as typeof chunk
         } catch {
@@ -558,8 +565,10 @@ export class GeminiAdapter implements ProviderAdapter {
 
         // Final chunk with usageMetadata
         if (chunk.usageMetadata) {
-          const finishReason = chunk.candidates?.[0]?.finishReason as GeminiCandidate['finishReason'] | undefined
-          const hasToolCalls = (candidateParts).some(p => 'functionCall' in p)
+          const finishReason = chunk.candidates?.[0]?.finishReason as
+            | GeminiCandidate['finishReason']
+            | undefined
+          const hasToolCalls = candidateParts.some((p) => 'functionCall' in p)
           const stopReason = this._mapStopReason(finishReason, hasToolCalls)
           yield {
             type: 'message_stop',

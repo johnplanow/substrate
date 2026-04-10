@@ -54,10 +54,12 @@ describe('extractSchemaFields', () => {
   })
 
   it('handles preprocess/transform (ZodEffects) on object', () => {
-    const schema = z.object({
-      result: z.preprocess((val) => val, z.string()),
-      verdict: z.enum(['SHIP_IT', 'NEEDS_MINOR_FIXES']),
-    }).transform((data) => ({ ...data, extra: true }))
+    const schema = z
+      .object({
+        result: z.preprocess((val) => val, z.string()),
+        verdict: z.enum(['SHIP_IT', 'NEEDS_MINOR_FIXES']),
+      })
+      .transform((data) => ({ ...data, extra: true }))
     const fields = extractSchemaFields(schema)
     expect(fields).toContain('result: <string>')
     expect(fields).toContain('verdict: SHIP_IT | NEEDS_MINOR_FIXES')

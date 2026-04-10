@@ -6,10 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import {
-  createSatisfactionScorer,
-  computeSatisfactionScore,
-} from '../scorer.js'
+import { createSatisfactionScorer, computeSatisfactionScore } from '../scorer.js'
 import type { ScenarioRunResult, ScenarioWeights, SatisfactionScore } from '../scorer.js'
 
 // ---------------------------------------------------------------------------
@@ -17,11 +14,11 @@ import type { ScenarioRunResult, ScenarioWeights, SatisfactionScore } from '../s
 // ---------------------------------------------------------------------------
 
 function makeRunResult(
-  scenarios: Array<{ name: string; status: 'pass' | 'fail' }>,
+  scenarios: Array<{ name: string; status: 'pass' | 'fail' }>
 ): ScenarioRunResult {
-  const passedCount = scenarios.filter(s => s.status === 'pass').length
+  const passedCount = scenarios.filter((s) => s.status === 'pass').length
   return {
-    scenarios: scenarios.map(s => ({
+    scenarios: scenarios.map((s) => ({
       name: s.name,
       status: s.status,
       exitCode: s.status === 'pass' ? 0 : 1,
@@ -29,7 +26,11 @@ function makeRunResult(
       stderr: s.status === 'fail' ? 'assertion failed' : '',
       durationMs: 100,
     })),
-    summary: { total: scenarios.length, passed: passedCount, failed: scenarios.length - passedCount },
+    summary: {
+      total: scenarios.length,
+      passed: passedCount,
+      failed: scenarios.length - passedCount,
+    },
     durationMs: 300,
   }
 }
@@ -52,7 +53,7 @@ describe('Weighted scoring accuracy', () => {
     ])
     const result = scorer08.compute(runResult, weights)
 
-    expect(Math.abs(result.score - 0.80)).toBeLessThan(1e-10)
+    expect(Math.abs(result.score - 0.8)).toBeLessThan(1e-10)
     expect(result.passes).toBe(true)
     expect(result.breakdown).toHaveLength(3)
   })
@@ -65,17 +66,17 @@ describe('Weighted scoring accuracy', () => {
     ])
     const result = scorer08.compute(runResult, weights)
 
-    const critical = result.breakdown.find(b => b.name === 'critical')!
-    const std1 = result.breakdown.find(b => b.name === 'standard-1')!
-    const std2 = result.breakdown.find(b => b.name === 'standard-2')!
+    const critical = result.breakdown.find((b) => b.name === 'critical')!
+    const std1 = result.breakdown.find((b) => b.name === 'standard-1')!
+    const std2 = result.breakdown.find((b) => b.name === 'standard-2')!
 
     expect(critical).toBeDefined()
     expect(std1).toBeDefined()
     expect(std2).toBeDefined()
 
-    expect(critical.contribution).toBeCloseTo(0.60, 10)
-    expect(std1.contribution).toBeCloseTo(0.20, 10)
-    expect(std2.contribution).toBeCloseTo(0.00, 10)
+    expect(critical.contribution).toBeCloseTo(0.6, 10)
+    expect(std1.contribution).toBeCloseTo(0.2, 10)
+    expect(std2.contribution).toBeCloseTo(0.0, 10)
   })
 
   it('returns score=2/5=0.40 and passes=false when critical fails', () => {
@@ -86,7 +87,7 @@ describe('Weighted scoring accuracy', () => {
     ])
     const result = scorer08.compute(runResult, weights)
 
-    expect(result.score).toBeCloseTo(0.40, 10)
+    expect(result.score).toBeCloseTo(0.4, 10)
     expect(result.passes).toBe(false)
   })
 
@@ -115,9 +116,7 @@ describe('Weighted scoring accuracy', () => {
   })
 
   it('returns { score: 0, passes: false, breakdown: [] } when totalWeight === 0', () => {
-    const runResult = makeRunResult([
-      { name: 'critical', status: 'pass' },
-    ])
+    const runResult = makeRunResult([{ name: 'critical', status: 'pass' }])
     // All weights explicitly set to 0
     const zeroWeights: ScenarioWeights = { critical: 0 }
     const result = scorer08.compute(runResult, zeroWeights)
@@ -148,7 +147,7 @@ describe('Weighted scoring accuracy', () => {
     ])
     // totalWeight = 5.0, passed = 4, score = 4/5 = 0.80 exactly
     const result = scorer08.compute(runResult)
-    expect(result.score).toBeCloseTo(0.80, 10)
+    expect(result.score).toBeCloseTo(0.8, 10)
     expect(result.passes).toBe(true)
   })
 

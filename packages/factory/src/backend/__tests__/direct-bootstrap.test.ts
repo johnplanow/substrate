@@ -136,12 +136,14 @@ describe('bootstrapDirectBackend', () => {
     delete process.env['ANTHROPIC_API_KEY']
 
     try {
-      expect(() => bootstrapDirectBackend({
-        provider: 'anthropic',
-        model: 'claude-3-5-sonnet-20241022',
-        maxTurns: 20,
-        projectDir: '/tmp/test',
-      })).toThrow('ANTHROPIC_API_KEY')
+      expect(() =>
+        bootstrapDirectBackend({
+          provider: 'anthropic',
+          model: 'claude-3-5-sonnet-20241022',
+          maxTurns: 20,
+          projectDir: '/tmp/test',
+        })
+      ).toThrow('ANTHROPIC_API_KEY')
     } finally {
       if (savedKey !== undefined) {
         process.env['ANTHROPIC_API_KEY'] = savedKey
@@ -156,12 +158,14 @@ describe('bootstrapDirectBackend', () => {
     const { bootstrapDirectBackend } = await import('../direct-bootstrap.js')
 
     try {
-      expect(() => bootstrapDirectBackend({
-        provider: 'openai',
-        model: 'gpt-4o',
-        maxTurns: 10,
-        projectDir: '/tmp/test',
-      })).toThrow('OPENAI_API_KEY')
+      expect(() =>
+        bootstrapDirectBackend({
+          provider: 'openai',
+          model: 'gpt-4o',
+          maxTurns: 10,
+          projectDir: '/tmp/test',
+        })
+      ).toThrow('OPENAI_API_KEY')
     } finally {
       if (savedKey !== undefined) {
         process.env['OPENAI_API_KEY'] = savedKey
@@ -172,12 +176,14 @@ describe('bootstrapDirectBackend', () => {
   it('unknown provider string → throws Error containing "Unknown direct backend provider"', async () => {
     const { bootstrapDirectBackend } = await import('../direct-bootstrap.js')
 
-    expect(() => bootstrapDirectBackend({
-      provider: 'unknown-provider',
-      model: 'some-model',
-      maxTurns: 5,
-      projectDir: '/tmp/test',
-    })).toThrow('Unknown direct backend provider')
+    expect(() =>
+      bootstrapDirectBackend({
+        provider: 'unknown-provider',
+        model: 'some-model',
+        maxTurns: 5,
+        projectDir: '/tmp/test',
+      })
+    ).toThrow('Unknown direct backend provider')
   })
 
   it('maxTurns is forwarded to createDirectCodergenBackend config', async () => {

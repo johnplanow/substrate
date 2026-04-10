@@ -167,7 +167,7 @@ export class IngestionServer {
         if (nodeErr.code === 'EADDRINUSE' && attempt < maxRetries) {
           this._logger.warn(
             { port, attempt: attempt + 1 },
-            `Port ${port} in use — trying ${port + 1}`,
+            `Port ${port} in use — trying ${port + 1}`
           )
           lastErr = nodeErr
           continue
@@ -193,7 +193,7 @@ export class IngestionServer {
         const addr = server.address() as AddressInfo
         this._logger.info(
           { port: addr.port, requestedPort: this._port },
-          'IngestionServer listening',
+          'IngestionServer listening'
         )
 
         // Start the batch buffer timer (if pipeline is wired)
@@ -246,7 +246,7 @@ export class IngestionServer {
     if (addr === null || addr === undefined || typeof addr === 'string') {
       throw new TelemetryError(
         'ERR_TELEMETRY_NOT_STARTED',
-        'IngestionServer is not started — call start() before getOtlpEnvVars()',
+        'IngestionServer is not started — call start() before getOtlpEnvVars()'
       )
     }
     const endpoint = `http://localhost:${(addr as AddressInfo).port}`

@@ -21,7 +21,7 @@ import type { DatabaseAdapter } from './types.js'
 export interface DoltClientLike {
   query<T>(sql: string, params?: unknown[]): Promise<T[]>
   transact<T>(
-    fn: (query: <R>(sql: string, params?: unknown[]) => Promise<R[]>) => Promise<T>,
+    fn: (query: <R>(sql: string, params?: unknown[]) => Promise<R[]>) => Promise<T>
   ): Promise<T>
   close(): Promise<void>
 }
@@ -115,7 +115,7 @@ export class DoltDatabaseAdapter implements DatabaseAdapter {
     try {
       const rows = await this._client.query<{ key: string }>(
         'SELECT `key` FROM ready_stories ORDER BY `key` ASC',
-        undefined,
+        undefined
       )
       return rows.map((r) => r.key)
     } catch {

@@ -228,7 +228,7 @@ export class OpenAIAdapter implements ProviderAdapter {
 
   private _translateTools(request: LLMRequest, body: ResponsesAPIRequest): void {
     if (request.tools && request.tools.length > 0) {
-      body.tools = request.tools.map(t => ({
+      body.tools = request.tools.map((t) => ({
         type: 'function' as const,
         function: {
           name: t.name,
@@ -324,7 +324,9 @@ export class OpenAIAdapter implements ProviderAdapter {
     }
 
     const controller = new AbortController()
-    const timer = setTimeout(() => { controller.abort() }, this.timeout)
+    const timer = setTimeout(() => {
+      controller.abort()
+    }, this.timeout)
 
     let rawResponse: Response
     try {
@@ -422,7 +424,9 @@ export class OpenAIAdapter implements ProviderAdapter {
     }
 
     const controller = new AbortController()
-    const timer = setTimeout(() => { controller.abort() }, this.timeout)
+    const timer = setTimeout(() => {
+      controller.abort()
+    }, this.timeout)
 
     let rawResponse: Response
     try {
@@ -518,12 +522,10 @@ export class OpenAIAdapter implements ProviderAdapter {
             currentEventName === 'response.created'
           ) {
             if (currentEventName === 'response.completed') {
-              const completedResponse = (
-                eventData['response'] ?? eventData
-              ) as ResponsesAPIResponse
+              const completedResponse = (eventData['response'] ?? eventData) as ResponsesAPIResponse
               const hasToolCalls =
                 Array.isArray(completedResponse.output) &&
-                completedResponse.output.some(o => o.type === 'function_call')
+                completedResponse.output.some((o) => o.type === 'function_call')
               const stopReason = this._mapStopReason(completedResponse, hasToolCalls)
               yield {
                 type: 'message_stop',

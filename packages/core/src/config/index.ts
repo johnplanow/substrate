@@ -91,11 +91,7 @@ export type { MigrationResult } from './config-migrator.js'
 // ConfigWatcher
 // -----------------------------------------------------------------------
 
-export {
-  createConfigWatcher,
-  flattenObject,
-  computeChangedKeys,
-} from './config-watcher.js'
+export { createConfigWatcher, flattenObject, computeChangedKeys } from './config-watcher.js'
 export type { ConfigWatcher, ConfigWatcherOptions } from './config-watcher.js'
 
 // -----------------------------------------------------------------------

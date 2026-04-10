@@ -50,7 +50,10 @@ describe('sdlc-pipeline.dot', () => {
     if (diagnostics.length > 0) {
       console.error('Validation diagnostics:', JSON.stringify(diagnostics, null, 2))
     }
-    expect(diagnostics.length, `expected zero diagnostics but got: ${JSON.stringify(diagnostics)}`).toBe(0)
+    expect(
+      diagnostics.length,
+      `expected zero diagnostics but got: ${JSON.stringify(diagnostics)}`
+    ).toBe(0)
   })
 
   // ── AC3: dev_story Node Has Required Attributes ────────────────────────────

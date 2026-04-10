@@ -31,7 +31,7 @@ const { mockGetOriginal, mockPut, mockGet, mockEngineSummarize, mockEngineExpand
     mockGet: vi.fn(),
     mockEngineSummarize: vi.fn(),
     mockEngineExpand: vi.fn(),
-  }),
+  })
 )
 
 vi.mock('../summary-cache.js', () => ({
@@ -70,7 +70,7 @@ function makeSummaryRecord(
   iterationIndex: number,
   level = 'medium',
   hash = TEST_HASH,
-  cachedAt = '2025-01-01T00:00:00.000Z',
+  cachedAt = '2025-01-01T00:00:00.000Z'
 ): string {
   return JSON.stringify({
     summary: {
@@ -95,8 +95,18 @@ function makeOutput(): TestOutput {
   const stdoutChunks: string[] = []
   const stderrChunks: string[] = []
   return {
-    stdout: { write: (s: string) => { stdoutChunks.push(s); return true } } as NodeJS.WritableStream,
-    stderr: { write: (s: string) => { stderrChunks.push(s); return true } } as NodeJS.WritableStream,
+    stdout: {
+      write: (s: string) => {
+        stdoutChunks.push(s)
+        return true
+      },
+    } as NodeJS.WritableStream,
+    stderr: {
+      write: (s: string) => {
+        stderrChunks.push(s)
+        return true
+      },
+    } as NodeJS.WritableStream,
     getStdout: () => stdoutChunks.join(''),
     getStderr: () => stderrChunks.join(''),
   }
@@ -131,7 +141,7 @@ describe('summarizeAction', () => {
     const code = await summarizeAction(
       { run: TEST_RUN, iteration: '1', level: 'medium', outputFormat: 'text' },
       TEST_DEPS,
-      out,
+      out
     )
 
     expect(code).toBe(0)
@@ -158,7 +168,7 @@ describe('summarizeAction', () => {
     await summarizeAction(
       { run: TEST_RUN, iteration: '1', level: 'medium', outputFormat: 'text' },
       TEST_DEPS,
-      out,
+      out
     )
 
     expect(mockPut).toHaveBeenCalledWith(mockSummary, 'original content')
@@ -169,7 +179,7 @@ describe('summarizeAction', () => {
     const code = await summarizeAction(
       { run: TEST_RUN, iteration: '1', level: 'invalid', outputFormat: 'text' },
       TEST_DEPS,
-      out,
+      out
     )
 
     expect(code).toBe(1)
@@ -187,7 +197,7 @@ describe('summarizeAction', () => {
     const code = await summarizeAction(
       { run: TEST_RUN, iteration: '1', level: 'medium', outputFormat: 'text' },
       TEST_DEPS,
-      out,
+      out
     )
 
     expect(code).toBe(1)
@@ -201,7 +211,7 @@ describe('summarizeAction', () => {
     const code = await summarizeAction(
       { run: TEST_RUN, iteration: '1', level: 'medium', outputFormat: 'text' },
       TEST_DEPS,
-      out,
+      out
     )
 
     expect(code).toBe(1)
@@ -225,7 +235,7 @@ describe('summarizeAction', () => {
     const code = await summarizeAction(
       { run: TEST_RUN, iteration: '1', level: 'medium', outputFormat: 'json' },
       TEST_DEPS,
-      out,
+      out
     )
 
     expect(code).toBe(0)
@@ -243,7 +253,7 @@ describe('summarizeAction', () => {
     const code = await summarizeAction(
       { run: TEST_RUN, iteration: 'abc', level: 'medium', outputFormat: 'text' },
       TEST_DEPS,
-      out,
+      out
     )
 
     expect(code).toBe(1)
@@ -270,13 +280,13 @@ describe('expandAction', () => {
     const code = await expandAction(
       { run: TEST_RUN, iteration: '2', outputFormat: 'text' },
       TEST_DEPS,
-      out,
+      out
     )
 
     expect(code).toBe(0)
     expect(mockEngineExpand).toHaveBeenCalledWith(
       expect.objectContaining({ originalHash: TEST_HASH }),
-      'full',
+      'full'
     )
     expect(out.getStdout()).toContain('expanded content')
   })
@@ -291,7 +301,7 @@ describe('expandAction', () => {
     const code = await expandAction(
       { run: TEST_RUN, iteration: '2', outputFormat: 'text' },
       TEST_DEPS,
-      out,
+      out
     )
 
     expect(code).toBe(1)
@@ -308,7 +318,7 @@ describe('expandAction', () => {
     const code = await expandAction(
       { run: TEST_RUN, iteration: '3', outputFormat: 'json' },
       TEST_DEPS,
-      out,
+      out
     )
 
     expect(code).toBe(0)
@@ -330,7 +340,7 @@ describe('expandAction', () => {
     const code = await expandAction(
       { run: TEST_RUN, iteration: '1.5', outputFormat: 'text' },
       TEST_DEPS,
-      out,
+      out
     )
 
     expect(code).toBe(1)
@@ -354,11 +364,11 @@ describe('statsAction', () => {
     mockReadFile.mockImplementation((filePath: string) => {
       if ((filePath as string).endsWith('.json')) {
         if ((filePath as string).includes('file1')) {
-          return Promise.resolve(makeSummaryRecord(1, 'medium', TEST_HASH, '2025-01-01T00:00:00.000Z'))
+          return Promise.resolve(
+            makeSummaryRecord(1, 'medium', TEST_HASH, '2025-01-01T00:00:00.000Z')
+          )
         }
-        return Promise.resolve(
-          makeSummaryRecord(2, 'low', TEST_HASH_2, '2025-01-02T00:00:00.000Z'),
-        )
+        return Promise.resolve(makeSummaryRecord(2, 'low', TEST_HASH_2, '2025-01-02T00:00:00.000Z'))
       }
       // .orig file — throw ENOENT
       return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
@@ -453,11 +463,11 @@ describe('statsAction', () => {
       if ((filePath as string).endsWith('.json')) {
         if ((filePath as string).includes('later')) {
           return Promise.resolve(
-            makeSummaryRecord(2, 'medium', TEST_HASH_2, '2025-02-01T00:00:00.000Z'),
+            makeSummaryRecord(2, 'medium', TEST_HASH_2, '2025-02-01T00:00:00.000Z')
           )
         }
         return Promise.resolve(
-          makeSummaryRecord(1, 'medium', TEST_HASH, '2025-01-01T00:00:00.000Z'),
+          makeSummaryRecord(1, 'medium', TEST_HASH, '2025-01-01T00:00:00.000Z')
         )
       }
       return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))

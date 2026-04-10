@@ -65,7 +65,7 @@ class MockSummaryEngine implements SummaryEngine {
   async summarize(
     content: string,
     targetLevel: SummaryLevel,
-    _opts?: SummarizeOptions,
+    _opts?: SummarizeOptions
   ): Promise<Summary> {
     this.callCount++
     return {
@@ -81,7 +81,7 @@ class MockSummaryEngine implements SummaryEngine {
   async expand(
     summary: Summary,
     _targetLevel: SummaryLevel,
-    opts?: ExpandOptions,
+    opts?: ExpandOptions
   ): Promise<string> {
     return opts?.originalContent ?? summary.content
   }
@@ -89,7 +89,7 @@ class MockSummaryEngine implements SummaryEngine {
 
 // Type narrowing helper
 function isCompressed(
-  ctx: IterationContext | CompressedIterationContext,
+  ctx: IterationContext | CompressedIterationContext
 ): ctx is CompressedIterationContext {
   return 'compressed' in ctx
 }
@@ -475,9 +475,7 @@ describe('shouldTrigger boundary conditions', () => {
 
   it('total === 40 (well below threshold) returns false', () => {
     const summarizer = new AutoSummarizer(mockEngine, 100, { threshold: 0.8 })
-    const iterations: IterationContext[] = [
-      { index: 0, content: '', tokenEstimate: 40 },
-    ]
+    const iterations: IterationContext[] = [{ index: 0, content: '', tokenEstimate: 40 }]
     expect(summarizer.shouldTrigger(iterations)).toBe(false)
   })
 
@@ -494,41 +492,31 @@ describe('shouldTrigger boundary conditions', () => {
   it('explicit tokenEstimate=90 overrides content-based estimate and triggers (90 > 80)', () => {
     const summarizer = new AutoSummarizer(mockEngine, 100, { threshold: 0.8 })
     // content is 'a' (1 char → estimateTokens=1), but tokenEstimate=90 overrides
-    const iterations: IterationContext[] = [
-      { index: 0, content: 'a', tokenEstimate: 90 },
-    ]
+    const iterations: IterationContext[] = [{ index: 0, content: 'a', tokenEstimate: 90 }]
     expect(summarizer.shouldTrigger(iterations)).toBe(true)
   })
 
   it('threshold=0.5: trigger fires at total > 50 (51 tokens → true)', () => {
     const summarizer = new AutoSummarizer(mockEngine, 100, { threshold: 0.5 })
-    const iterations: IterationContext[] = [
-      { index: 0, content: '', tokenEstimate: 51 },
-    ]
+    const iterations: IterationContext[] = [{ index: 0, content: '', tokenEstimate: 51 }]
     expect(summarizer.shouldTrigger(iterations)).toBe(true)
   })
 
   it('threshold=0.5: does not fire at exactly 50 tokens', () => {
     const summarizer = new AutoSummarizer(mockEngine, 100, { threshold: 0.5 })
-    const iterations: IterationContext[] = [
-      { index: 0, content: '', tokenEstimate: 50 },
-    ]
+    const iterations: IterationContext[] = [{ index: 0, content: '', tokenEstimate: 50 }]
     expect(summarizer.shouldTrigger(iterations)).toBe(false)
   })
 
   it('threshold=0.95: does not fire at 94 tokens (94 is not > 95)', () => {
     const summarizer = new AutoSummarizer(mockEngine, 100, { threshold: 0.95 })
-    const iterations: IterationContext[] = [
-      { index: 0, content: '', tokenEstimate: 94 },
-    ]
+    const iterations: IterationContext[] = [{ index: 0, content: '', tokenEstimate: 94 }]
     expect(summarizer.shouldTrigger(iterations)).toBe(false)
   })
 
   it('threshold=0.95: fires at 96 tokens (96 > 95)', () => {
     const summarizer = new AutoSummarizer(mockEngine, 100, { threshold: 0.95 })
-    const iterations: IterationContext[] = [
-      { index: 0, content: '', tokenEstimate: 96 },
-    ]
+    const iterations: IterationContext[] = [{ index: 0, content: '', tokenEstimate: 96 }]
     expect(summarizer.shouldTrigger(iterations)).toBe(true)
   })
 })

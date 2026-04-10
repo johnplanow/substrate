@@ -20,13 +20,15 @@ import { DoltClient } from './dolt-client.js'
 function makeMockClient(overrides: Partial<DoltClientLike> = {}): DoltClientLike {
   return {
     query: vi.fn().mockResolvedValue([]),
-    transact: vi.fn().mockImplementation(
-      async (fn: (q: <R>(sql: string, p?: unknown[]) => Promise<R[]>) => Promise<unknown>) => {
-        const txQuery = <R>(_sql: string, _params?: unknown[]): Promise<R[]> =>
-          Promise.resolve([] as R[])
-        return fn(txQuery)
-      },
-    ),
+    transact: vi
+      .fn()
+      .mockImplementation(
+        async (fn: (q: <R>(sql: string, p?: unknown[]) => Promise<R[]>) => Promise<unknown>) => {
+          const txQuery = <R>(_sql: string, _params?: unknown[]): Promise<R[]> =>
+            Promise.resolve([] as R[])
+          return fn(txQuery)
+        }
+      ),
     close: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
@@ -96,7 +98,7 @@ describe('DoltClient.transact() — pool mode (AC1)', () => {
     await expect(
       client.transact(async () => {
         throw new Error('forced failure')
-      }),
+      })
     ).rejects.toThrow('forced failure')
 
     expect(executedSql).toContain('ROLLBACK')
@@ -210,8 +212,8 @@ describe('DoltClient.transact() — CLI mode (AC2)', () => {
     client._withCliLock = lockStub
 
     await client.transact(async (txQuery) => {
-      await txQuery("INSERT INTO foo (id) VALUES (1)")
-      await txQuery("INSERT INTO foo (id) VALUES (2)")
+      await txQuery('INSERT INTO foo (id) VALUES (1)')
+      await txQuery('INSERT INTO foo (id) VALUES (2)')
     })
 
     // Single batch invocation regardless of statement count
@@ -219,7 +221,7 @@ describe('DoltClient.transact() — CLI mode (AC2)', () => {
 
     // The batch SQL must wrap all statements with BEGIN and COMMIT in order
     expect(capturedBatchSql).toBe(
-      "BEGIN; INSERT INTO foo (id) VALUES (1); INSERT INTO foo (id) VALUES (2); COMMIT"
+      'BEGIN; INSERT INTO foo (id) VALUES (1); INSERT INTO foo (id) VALUES (2); COMMIT'
     )
   })
 
@@ -250,8 +252,8 @@ describe('DoltClient.transact() — CLI mode (AC2)', () => {
     // Should reject (no real dolt binary available)
     await expect(
       client.transact(async (txQuery) => {
-        await txQuery("INSERT INTO foo VALUES (1)")
-      }),
+        await txQuery('INSERT INTO foo VALUES (1)')
+      })
     ).rejects.toBeDefined()
   })
 })
@@ -269,31 +271,31 @@ describe('DoltClient._resolveParams() — parameter interpolation (AC2)', () => 
 
   it('substitutes numeric params without quoting', () => {
     expect(resolveParams('SELECT * FROM t WHERE id = ?', [42])).toBe(
-      'SELECT * FROM t WHERE id = 42',
+      'SELECT * FROM t WHERE id = 42'
     )
   })
 
   it('substitutes string params with single-quote escaping', () => {
-    expect(resolveParams("INSERT INTO t VALUES (?)", ['hello'])).toBe(
-      "INSERT INTO t VALUES ('hello')",
+    expect(resolveParams('INSERT INTO t VALUES (?)', ['hello'])).toBe(
+      "INSERT INTO t VALUES ('hello')"
     )
   })
 
   it('escapes single quotes inside string values', () => {
-    expect(resolveParams("INSERT INTO t VALUES (?)", ["it's fine"])).toBe(
-      "INSERT INTO t VALUES ('it''s fine')",
+    expect(resolveParams('INSERT INTO t VALUES (?)', ["it's fine"])).toBe(
+      "INSERT INTO t VALUES ('it''s fine')"
     )
   })
 
   it('substitutes null/undefined as NULL', () => {
-    expect(resolveParams("INSERT INTO t VALUES (?, ?)", [null, undefined])).toBe(
-      "INSERT INTO t VALUES (NULL, NULL)",
+    expect(resolveParams('INSERT INTO t VALUES (?, ?)', [null, undefined])).toBe(
+      'INSERT INTO t VALUES (NULL, NULL)'
     )
   })
 
   it('handles multiple params in order', () => {
-    expect(resolveParams("INSERT INTO t (a, b) VALUES (?, ?)", ['hello', null])).toBe(
-      "INSERT INTO t (a, b) VALUES ('hello', NULL)",
+    expect(resolveParams('INSERT INTO t (a, b) VALUES (?, ?)', ['hello', null])).toBe(
+      "INSERT INTO t (a, b) VALUES ('hello', NULL)"
     )
   })
 
@@ -309,18 +311,20 @@ describe('DoltClient._resolveParams() — parameter interpolation (AC2)', () => 
 
 describe('DoltDatabaseAdapter.transaction() — delegates to client.transact()', () => {
   it('calls client.transact() — does NOT issue BEGIN/COMMIT via query()', async () => {
-    const transactMock = vi.fn().mockImplementation(
-      async (fn: (q: <R>(sql: string, p?: unknown[]) => Promise<R[]>) => Promise<unknown>) => {
-        const txQuery = <R>(_sql: string, _params?: unknown[]): Promise<R[]> =>
-          Promise.resolve([] as R[])
-        return fn(txQuery)
-      },
-    )
+    const transactMock = vi
+      .fn()
+      .mockImplementation(
+        async (fn: (q: <R>(sql: string, p?: unknown[]) => Promise<R[]>) => Promise<unknown>) => {
+          const txQuery = <R>(_sql: string, _params?: unknown[]): Promise<R[]> =>
+            Promise.resolve([] as R[])
+          return fn(txQuery)
+        }
+      )
     const client = makeMockClient({ transact: transactMock })
     const adapter = new DoltDatabaseAdapter(client)
 
     const result = await adapter.transaction(async (tx) => {
-      await tx.exec("INSERT INTO t VALUES (1)")
+      await tx.exec('INSERT INTO t VALUES (1)')
       return 'done'
     })
 
@@ -345,13 +349,15 @@ describe('DoltDatabaseAdapter.transaction() — delegates to client.transact()',
 
   it('nested transaction() on txAdapter is a pass-through — no second transact() call', async () => {
     let innerCallCount = 0
-    const transactMock = vi.fn().mockImplementation(
-      async (fn: (q: <R>(sql: string, p?: unknown[]) => Promise<R[]>) => Promise<unknown>) => {
-        const txQuery = <R>(_sql: string, _params?: unknown[]): Promise<R[]> =>
-          Promise.resolve([] as R[])
-        return fn(txQuery)
-      },
-    )
+    const transactMock = vi
+      .fn()
+      .mockImplementation(
+        async (fn: (q: <R>(sql: string, p?: unknown[]) => Promise<R[]>) => Promise<unknown>) => {
+          const txQuery = <R>(_sql: string, _params?: unknown[]): Promise<R[]> =>
+            Promise.resolve([] as R[])
+          return fn(txQuery)
+        }
+      )
     const client = makeMockClient({ transact: transactMock })
     const adapter = new DoltDatabaseAdapter(client)
 
@@ -374,7 +380,7 @@ describe('DoltDatabaseAdapter.transaction() — delegates to client.transact()',
     await expect(
       adapter.transaction(async () => {
         throw new Error('tx failed')
-      }),
+      })
     ).rejects.toThrow('tx failed')
   })
 
@@ -382,16 +388,18 @@ describe('DoltDatabaseAdapter.transaction() — delegates to client.transact()',
     let capturedSql: string | undefined
     let capturedParams: unknown[] | undefined
 
-    const transactMock = vi.fn().mockImplementation(
-      async (fn: (q: <R>(sql: string, p?: unknown[]) => Promise<R[]>) => Promise<unknown>) => {
-        const txQuery = <R>(sql: string, params?: unknown[]): Promise<R[]> => {
-          capturedSql = sql
-          capturedParams = params
-          return Promise.resolve([] as R[])
+    const transactMock = vi
+      .fn()
+      .mockImplementation(
+        async (fn: (q: <R>(sql: string, p?: unknown[]) => Promise<R[]>) => Promise<unknown>) => {
+          const txQuery = <R>(sql: string, params?: unknown[]): Promise<R[]> => {
+            capturedSql = sql
+            capturedParams = params
+            return Promise.resolve([] as R[])
+          }
+          return fn(txQuery)
         }
-        return fn(txQuery)
-      },
-    )
+      )
     const client = makeMockClient({ transact: transactMock })
     const adapter = new DoltDatabaseAdapter(client)
 
@@ -432,9 +440,13 @@ describe('DoltClient.transact() — integration (AC3, skipped by default)', () =
         await execFileAsync('dolt', ['init'], { cwd: tmpDir })
 
         // Create a test table via Dolt CLI
-        await execFileAsync('dolt', ['sql', '-q', 'CREATE TABLE tx_test (id INT PRIMARY KEY, val TEXT)'], {
-          cwd: tmpDir,
-        })
+        await execFileAsync(
+          'dolt',
+          ['sql', '-q', 'CREATE TABLE tx_test (id INT PRIMARY KEY, val TEXT)'],
+          {
+            cwd: tmpDir,
+          }
+        )
 
         // Import the real DoltClient
         const { DoltClient: DoltClientReal } = await import('./dolt-client.js')
@@ -453,13 +465,13 @@ describe('DoltClient.transact() — integration (AC3, skipped by default)', () =
         const { stdout } = await execFileAsync(
           'dolt',
           ['sql', '-q', 'SELECT COUNT(*) AS cnt FROM tx_test', '--result-format', 'json'],
-          { cwd: tmpDir },
+          { cwd: tmpDir }
         )
         const parsed = JSON.parse(stdout) as { rows: { cnt: number }[] }
         expect(parsed.rows[0]!.cnt).toBe(2)
       } finally {
         await rm(tmpDir, { recursive: true, force: true })
       }
-    },
+    }
   )
 })

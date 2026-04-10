@@ -79,7 +79,9 @@ export function bootstrapDirectBackend(opts: DirectBootstrapOptions): DirectCode
   if (provider === 'anthropic') {
     const apiKey = process.env['ANTHROPIC_API_KEY']
     if (!apiKey) {
-      throw new Error('ANTHROPIC_API_KEY environment variable is required for direct backend with anthropic provider')
+      throw new Error(
+        'ANTHROPIC_API_KEY environment variable is required for direct backend with anthropic provider'
+      )
     }
     const adapter = new AnthropicAdapter({ apiKey })
     client.registerProvider('anthropic', adapter)
@@ -97,7 +99,9 @@ export function bootstrapDirectBackend(opts: DirectBootstrapOptions): DirectCode
   if (provider === 'openai') {
     const apiKey = process.env['OPENAI_API_KEY']
     if (!apiKey) {
-      throw new Error('OPENAI_API_KEY environment variable is required for direct backend with openai provider')
+      throw new Error(
+        'OPENAI_API_KEY environment variable is required for direct backend with openai provider'
+      )
     }
     const adapter = new OpenAIAdapter({ apiKey })
     client.registerProvider('openai', adapter)
@@ -115,7 +119,9 @@ export function bootstrapDirectBackend(opts: DirectBootstrapOptions): DirectCode
   if (provider === 'gemini') {
     const apiKey = process.env['GEMINI_API_KEY']
     if (!apiKey) {
-      throw new Error('GEMINI_API_KEY environment variable is required for direct backend with gemini provider')
+      throw new Error(
+        'GEMINI_API_KEY environment variable is required for direct backend with gemini provider'
+      )
     }
     const adapter = new GeminiAdapter({ apiKey })
     client.registerProvider('gemini', adapter)

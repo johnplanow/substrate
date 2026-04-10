@@ -100,10 +100,7 @@ export class ConsumerAnalyzer implements IConsumerAnalyzer {
       })
     }
 
-    this._logger.debug(
-      { consumers: results.length, grandTotal },
-      'Computed consumer stats',
-    )
+    this._logger.debug({ consumers: results.length, grandTotal }, 'Computed consumer stats')
 
     return results.sort((a, b) => b.totalTokens - a.totalTokens)
   }
@@ -177,7 +174,7 @@ export class ConsumerAnalyzer implements IConsumerAnalyzer {
 
     this._logger.debug(
       { consumers: results.length, grandTotal },
-      'Computed consumer stats from turns',
+      'Computed consumer stats from turns'
     )
 
     return results.sort((a, b) => b.totalTokens - a.totalTokens)

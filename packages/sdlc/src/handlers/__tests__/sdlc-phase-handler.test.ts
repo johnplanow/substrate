@@ -11,7 +11,12 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { createSdlcPhaseHandler } from '../sdlc-phase-handler.js'
-import type { SdlcPhaseHandlerDeps, PhaseOrchestrator, PhaseRunners, EntryGateResult } from '../types.js'
+import type {
+  SdlcPhaseHandlerDeps,
+  PhaseOrchestrator,
+  PhaseRunners,
+  EntryGateResult,
+} from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,7 +67,9 @@ function makePhaseRunners(): PhaseRunners {
 }
 
 /** Create a default PhaseOrchestrator mock that reports success. */
-function makeOrchestrator(overrides?: Partial<{ advanced: boolean; phase: string }>): PhaseOrchestrator {
+function makeOrchestrator(
+  overrides?: Partial<{ advanced: boolean; phase: string }>
+): PhaseOrchestrator {
   const result = { advanced: true, phase: 'planning', ...overrides }
   return {
     advancePhase: vi.fn().mockResolvedValue(result),
@@ -78,7 +85,7 @@ function makeDeps(
     phaseDeps: unknown
     advanceAfterRun: boolean
     phases: Partial<PhaseRunners>
-  }> = {},
+  }> = {}
 ): SdlcPhaseHandlerDeps {
   const phases = { ...makePhaseRunners(), ...overrides.phases } as PhaseRunners
   const base: SdlcPhaseHandlerDeps = {
@@ -109,10 +116,10 @@ describe('AC1: analysis phase delegation', () => {
 
     expect(outcome.status).toBe('SUCCESS')
     expect(deps.phases.analysis).toHaveBeenCalledOnce()
-    expect(deps.phases.analysis).toHaveBeenCalledWith(
-      deps.phaseDeps,
-      { runId: DEFAULT_RUN_ID, concept: DEFAULT_CONCEPT },
-    )
+    expect(deps.phases.analysis).toHaveBeenCalledWith(deps.phaseDeps, {
+      runId: DEFAULT_RUN_ID,
+      concept: DEFAULT_CONCEPT,
+    })
     // Phase output is spread into contextUpdates
     expect(outcome.contextUpdates).toMatchObject({ analysisResult: { result: 'success' } })
   })
@@ -133,10 +140,7 @@ describe('AC2: planning phase delegation', () => {
 
     expect(outcome.status).toBe('SUCCESS')
     expect(deps.phases.planning).toHaveBeenCalledOnce()
-    expect(deps.phases.planning).toHaveBeenCalledWith(
-      deps.phaseDeps,
-      { runId: DEFAULT_RUN_ID },
-    )
+    expect(deps.phases.planning).toHaveBeenCalledWith(deps.phaseDeps, { runId: DEFAULT_RUN_ID })
     expect(outcome.contextUpdates).toMatchObject({ planningResult: { result: 'success' } })
   })
 })
@@ -149,7 +153,7 @@ describe('AC3: runner error returns FAILURE without re-throwing', () => {
   it('returns FAILURE with error message when runner throws', async () => {
     const failingPhases = makePhaseRunners()
     ;(failingPhases.solutioning as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('dispatch failed'),
+      new Error('dispatch failed')
     )
     const deps = makeDeps({ phases: failingPhases })
     const handler = createSdlcPhaseHandler(deps)
@@ -336,9 +340,7 @@ describe('AC7: unknown phase returns FAILURE without throwing', () => {
     const outcome = await handler(node, context, stubGraph)
 
     expect(outcome.status).toBe('FAILURE')
-    expect(outcome.failureReason).toBe(
-      'No phase runner registered for phase: unsupported-phase',
-    )
+    expect(outcome.failureReason).toBe('No phase runner registered for phase: unsupported-phase')
   })
 
   it('does not call any phase runner for unknown phase', async () => {
@@ -650,7 +652,7 @@ describe('Story 43-13 AC3: exit gate and runner error prefix guard', () => {
   it('runner dispatch error has NO prefix (raw message preserved)', async () => {
     const failingPhases = makePhaseRunners()
     ;(failingPhases.analysis as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('runner dispatch failed'),
+      new Error('runner dispatch failed')
     )
     const deps = makeDeps({ phases: failingPhases })
     const handler = createSdlcPhaseHandler(deps)
@@ -796,11 +798,16 @@ describe('Story-key skip: explicit story dispatch skips pre-implementation phase
 describe('Phase-skip artifact registration for current pipeline run', () => {
   it('registers artifact for current run when pipelineRunId is in context', async () => {
     const mockDb = {
-      query: vi.fn()
+      query: vi
+        .fn()
         // First call: check if artifact exists globally → yes
-        .mockResolvedValueOnce([{ id: 'a1', path: '/brief.md', content_hash: 'abc', summary: 'brief' }])
+        .mockResolvedValueOnce([
+          { id: 'a1', path: '/brief.md', content_hash: 'abc', summary: 'brief' },
+        ])
         // Second call: check if already registered for current run → no
-        .mockResolvedValueOnce([{ id: 'a1', path: '/brief.md', content_hash: 'abc', summary: 'brief' }])
+        .mockResolvedValueOnce([
+          { id: 'a1', path: '/brief.md', content_hash: 'abc', summary: 'brief' },
+        ])
         // Third call: check alreadyRegistered → empty
         .mockResolvedValueOnce([])
         // Fourth call: INSERT
@@ -816,7 +823,7 @@ describe('Phase-skip artifact registration for current pipeline run', () => {
     expect(outcome.notes).toContain('already complete')
     // Should have called INSERT with pipelineRunId
     const insertCall = mockDb.query.mock.calls.find(
-      (call) => typeof call[0] === 'string' && (call[0] as string).includes('INSERT'),
+      (call) => typeof call[0] === 'string' && (call[0] as string).includes('INSERT')
     )
     expect(insertCall).toBeDefined()
     expect(insertCall![1]).toContain('run-xyz')
@@ -824,8 +831,7 @@ describe('Phase-skip artifact registration for current pipeline run', () => {
 
   it('does NOT attempt INSERT when pipelineRunId is absent', async () => {
     const mockDb = {
-      query: vi.fn()
-        .mockResolvedValueOnce([{ id: 'a1' }]), // artifact exists globally
+      query: vi.fn().mockResolvedValueOnce([{ id: 'a1' }]), // artifact exists globally
     }
     const deps = makeDeps({ phaseDeps: { db: mockDb } })
     const handler = createSdlcPhaseHandler(deps)
@@ -835,7 +841,7 @@ describe('Phase-skip artifact registration for current pipeline run', () => {
 
     expect(outcome.status).toBe('SUCCESS')
     const insertCall = mockDb.query.mock.calls.find(
-      (call) => typeof call[0] === 'string' && (call[0] as string).includes('INSERT'),
+      (call) => typeof call[0] === 'string' && (call[0] as string).includes('INSERT')
     )
     expect(insertCall).toBeUndefined()
   })

@@ -11,11 +11,7 @@
  * - Runs first in Tier A (before TrivialOutputCheck, before BuildCheck).
  */
 
-import type {
-  VerificationCheck,
-  VerificationContext,
-  VerificationResult,
-} from '../types.js'
+import type { VerificationCheck, VerificationContext, VerificationResult } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // PhantomReviewCheck

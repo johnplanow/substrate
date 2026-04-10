@@ -111,9 +111,7 @@ describe('AC2: 10-node multi-type graph — all node types execute with mock han
   it('all 10 nodes are reachable from start (zero reachability errors)', () => {
     const graph = parseGraph(TEN_NODE_MULTI_TYPE_DOT)
     const validator = createValidator()
-    const reachabilityErrors = validator
-      .validate(graph)
-      .filter((d) => d.ruleId === 'reachability')
+    const reachabilityErrors = validator.validate(graph).filter((d) => d.ruleId === 'reachability')
     expect(reachabilityErrors).toHaveLength(0)
   })
 })

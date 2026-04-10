@@ -38,10 +38,10 @@ import type { ICategorizer } from './telemetry-pipeline.js'
  */
 const TASK_TYPE_CATEGORY_MAP = new Map<string, SemanticCategory>([
   ['create-story', 'system_prompts'],
-  ['dev-story',    'tool_outputs'],
-  ['code-review',  'conversation_history'],
-  ['test-plan',    'system_prompts'],
-  ['minor-fixes',  'tool_outputs'],
+  ['dev-story', 'tool_outputs'],
+  ['code-review', 'conversation_history'],
+  ['test-plan', 'system_prompts'],
+  ['minor-fixes', 'tool_outputs'],
 ])
 
 const EXACT_CATEGORY_MAP = new Map<string, SemanticCategory>([
@@ -299,7 +299,7 @@ export class Categorizer implements ICategorizer {
 
     this._logger.debug(
       { categories: results.length, grandTotal },
-      'Computed category stats from turns',
+      'Computed category stats from turns'
     )
 
     return results.sort((a, b) => b.totalTokens - a.totalTokens)
@@ -344,10 +344,7 @@ export class Categorizer implements ICategorizer {
       return { category, totalTokens, percentage, eventCount, avgTokensPerEvent, trend }
     })
 
-    this._logger.debug(
-      { categories: results.length, grandTotal },
-      'Computed category stats',
-    )
+    this._logger.debug({ categories: results.length, grandTotal }, 'Computed category stats')
 
     return results.sort((a, b) => b.totalTokens - a.totalTokens)
   }

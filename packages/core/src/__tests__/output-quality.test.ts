@@ -48,7 +48,8 @@ describe('estimateOutputQuality', () => {
     })
 
     it('multiple hedging phrases reduce score', () => {
-      const output = "I couldn't run the tests. I was unable to find the config. I skipped the integration tests."
+      const output =
+        "I couldn't run the tests. I was unable to find the config. I skipped the integration tests."
       const result = estimateOutputQuality(output)
       expect(result.hedgingCount).toBeGreaterThanOrEqual(2)
       expect(result.qualityScore).toBeLessThan(30)
@@ -106,7 +107,9 @@ describe('estimateOutputQuality', () => {
 
   describe('YAML block detection', () => {
     it('boosts score significantly when YAML block is present', () => {
-      const withYaml = estimateOutputQuality('Done.\n\n```yaml\nresult: success\nac_met:\n  - AC1\n```')
+      const withYaml = estimateOutputQuality(
+        'Done.\n\n```yaml\nresult: success\nac_met:\n  - AC1\n```'
+      )
       const without = estimateOutputQuality('Done. I implemented everything successfully.')
       expect(withYaml.qualityScore).toBeGreaterThan(without.qualityScore + 10)
     })
@@ -130,7 +133,8 @@ describe('estimateOutputQuality', () => {
 
   describe('file modification detection', () => {
     it('counts file modification mentions', () => {
-      const output = 'Created file src/specs/payment.tla\nModified file package.json\nUpdated src/index.ts'
+      const output =
+        'Created file src/specs/payment.tla\nModified file package.json\nUpdated src/index.ts'
       const result = estimateOutputQuality(output)
       expect(result.fileModificationMentions).toBeGreaterThanOrEqual(2)
     })
@@ -176,7 +180,8 @@ describe('estimateOutputQuality', () => {
     })
 
     it('bad output (hedging + no YAML + errors) scores low', () => {
-      const output = "I couldn't implement the spec. TypeError: module not found. I was unable to run the tests."
+      const output =
+        "I couldn't implement the spec. TypeError: module not found. I was unable to run the tests."
       const result = estimateOutputQuality(output)
       expect(result.qualityScore).toBeLessThanOrEqual(20)
     })

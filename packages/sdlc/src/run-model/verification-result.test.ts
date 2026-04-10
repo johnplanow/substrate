@@ -13,7 +13,10 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { StoredVerificationCheckResultSchema, StoredVerificationSummarySchema } from './verification-result.js'
+import {
+  StoredVerificationCheckResultSchema,
+  StoredVerificationSummarySchema,
+} from './verification-result.js'
 import { PerStoryStateSchema } from './per-story-state.js'
 import { RunManifest } from './run-manifest.js'
 import type { StoredVerificationSummary } from './verification-result.js'
@@ -37,7 +40,7 @@ function makeCheckResult(status: 'pass' | 'warn' | 'fail' = 'pass') {
 
 function makeSummary(
   storyKey: string,
-  status: 'pass' | 'warn' | 'fail' = 'pass',
+  status: 'pass' | 'warn' | 'fail' = 'pass'
 ): StoredVerificationSummary {
   return {
     storyKey,
@@ -271,7 +274,7 @@ describe('patchStoryState verification_result round-trip (AC5, AC7)', () => {
         cost_accumulation: { per_story: {}, run_total: 0 },
         pending_proposals: [],
       },
-      tempDir,
+      tempDir
     )
 
     const summary = makeSummary('52-7', 'pass')
@@ -315,7 +318,7 @@ describe('patchStoryState verification_result round-trip (AC5, AC7)', () => {
         cost_accumulation: { per_story: {}, run_total: 0 },
         pending_proposals: [],
       },
-      tempDir,
+      tempDir
     )
 
     // Write verification result (simulates post-verification persistence)

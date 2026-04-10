@@ -44,10 +44,7 @@ export function applyStylesheet(graph: Graph, inheritedStylesheet?: ParsedStyles
   // Merge: parent rules first, child local rules second.
   // Because resolveNodeStyles uses source-order tie-breaking (later rule wins at
   // equal specificity), placing parent rules first ensures that local rules win.
-  const effectiveStylesheet: ParsedStylesheet = [
-    ...(inheritedStylesheet ?? []),
-    ...localRules,
-  ]
+  const effectiveStylesheet: ParsedStylesheet = [...(inheritedStylesheet ?? []), ...localRules]
 
   // Early exit if there are no rules to apply
   if (effectiveStylesheet.length === 0) {

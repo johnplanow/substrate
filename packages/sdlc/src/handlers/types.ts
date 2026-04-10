@@ -44,7 +44,7 @@ export interface SdlcOutcome {
 export type SdlcNodeHandler = (
   node: { id: string; label: string; prompt: string },
   context: { getString(key: string, defaultValue?: string): string },
-  graph: unknown,
+  graph: unknown
 ) => Promise<SdlcOutcome>
 
 // ---------------------------------------------------------------------------
@@ -97,7 +97,7 @@ export interface PhaseOrchestrator {
  */
 export type PhaseRunnerFn = (
   deps: unknown,
-  params: Record<string, unknown>,
+  params: Record<string, unknown>
 ) => Promise<Record<string, unknown>>
 
 /**

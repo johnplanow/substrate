@@ -83,19 +83,19 @@ export interface TokenAggregate {
  */
 export async function writeRunMetrics(
   adapter: DatabaseAdapter,
-  input: RunMetricsInput,
+  input: RunMetricsInput
 ): Promise<void> {
   await adapter.transaction(async (tx) => {
     // Read existing row to preserve restarts and is_baseline
     const existing = await tx.query<{ restarts: number; is_baseline: number }>(
       'SELECT restarts, is_baseline FROM run_metrics WHERE run_id = ?',
-      [input.run_id],
+      [input.run_id]
     )
     if (existing.length > 0) {
       await tx.query('DELETE FROM run_metrics WHERE run_id = ?', [input.run_id])
     }
-    const restarts = existing[0]?.restarts ?? (input.restarts ?? 0)
-    const isBaseline = existing[0]?.is_baseline ?? (input.is_baseline ?? 0)
+    const restarts = existing[0]?.restarts ?? input.restarts ?? 0
+    const isBaseline = existing[0]?.is_baseline ?? input.is_baseline ?? 0
 
     await tx.query(
       `INSERT INTO run_metrics (
@@ -125,7 +125,7 @@ export async function writeRunMetrics(
         input.max_concurrent_actual ?? 1,
         restarts,
         isBaseline,
-      ],
+      ]
     )
   })
 }
@@ -135,12 +135,11 @@ export async function writeRunMetrics(
  */
 export async function getRunMetrics(
   adapter: DatabaseAdapter,
-  runId: string,
+  runId: string
 ): Promise<RunMetricsRow | undefined> {
-  const rows = await adapter.query<RunMetricsRow>(
-    'SELECT * FROM run_metrics WHERE run_id = ?',
-    [runId],
-  )
+  const rows = await adapter.query<RunMetricsRow>('SELECT * FROM run_metrics WHERE run_id = ?', [
+    runId,
+  ])
   return rows[0]
 }
 
@@ -149,21 +148,18 @@ export async function getRunMetrics(
  */
 export async function listRunMetrics(
   adapter: DatabaseAdapter,
-  limit = 10,
+  limit = 10
 ): Promise<RunMetricsRow[]> {
   return adapter.query<RunMetricsRow>(
     'SELECT * FROM run_metrics ORDER BY started_at DESC LIMIT ?',
-    [limit],
+    [limit]
   )
 }
 
 /**
  * Tag a run as the baseline (clears any existing baseline first).
  */
-export async function tagRunAsBaseline(
-  adapter: DatabaseAdapter,
-  runId: string,
-): Promise<void> {
+export async function tagRunAsBaseline(adapter: DatabaseAdapter, runId: string): Promise<void> {
   await adapter.transaction(async (tx) => {
     await tx.query('UPDATE run_metrics SET is_baseline = 0')
     await tx.query('UPDATE run_metrics SET is_baseline = 1 WHERE run_id = ?', [runId])
@@ -174,10 +170,10 @@ export async function tagRunAsBaseline(
  * Get the current baseline run metrics (if any).
  */
 export async function getBaselineRunMetrics(
-  adapter: DatabaseAdapter,
+  adapter: DatabaseAdapter
 ): Promise<RunMetricsRow | undefined> {
   const rows = await adapter.query<RunMetricsRow>(
-    'SELECT * FROM run_metrics WHERE is_baseline = 1 LIMIT 1',
+    'SELECT * FROM run_metrics WHERE is_baseline = 1 LIMIT 1'
   )
   return rows[0]
 }
@@ -192,25 +188,22 @@ export async function getBaselineRunMetrics(
  * Uses a portable select-then-update/insert pattern inside a transaction to
  * work on both SQLite/WASM and Dolt/MySQL.
  */
-export async function incrementRunRestarts(
-  adapter: DatabaseAdapter,
-  runId: string,
-): Promise<void> {
+export async function incrementRunRestarts(adapter: DatabaseAdapter, runId: string): Promise<void> {
   await adapter.transaction(async (tx) => {
     const existing = await tx.query<{ restarts: number }>(
       'SELECT restarts FROM run_metrics WHERE run_id = ?',
-      [runId],
+      [runId]
     )
     if (existing.length > 0) {
-      await tx.query(
-        'UPDATE run_metrics SET restarts = ? WHERE run_id = ?',
-        [existing[0]!.restarts + 1, runId],
-      )
+      await tx.query('UPDATE run_metrics SET restarts = ? WHERE run_id = ?', [
+        existing[0]!.restarts + 1,
+        runId,
+      ])
     } else {
       await tx.query(
         `INSERT INTO run_metrics (run_id, methodology, status, started_at, restarts)
          VALUES (?, 'unknown', 'running', ?, 1)`,
-        [runId, new Date().toISOString()],
+        [runId, new Date().toISOString()]
       )
     }
   })
@@ -229,19 +222,19 @@ export async function incrementRunRestarts(
  */
 export async function writeStoryMetrics(
   adapter: DatabaseAdapter,
-  input: StoryMetricsInput,
+  input: StoryMetricsInput
 ): Promise<void> {
   await adapter.transaction(async (tx) => {
     // Read existing row to preserve started_at when new value is null
     const existing = await tx.query<{ started_at: string | null }>(
       'SELECT started_at FROM story_metrics WHERE run_id = ? AND story_key = ?',
-      [input.run_id, input.story_key],
+      [input.run_id, input.story_key]
     )
     if (existing.length > 0) {
-      await tx.query(
-        'DELETE FROM story_metrics WHERE run_id = ? AND story_key = ?',
-        [input.run_id, input.story_key],
-      )
+      await tx.query('DELETE FROM story_metrics WHERE run_id = ? AND story_key = ?', [
+        input.run_id,
+        input.story_key,
+      ])
     }
     const startedAt = input.started_at ?? existing[0]?.started_at ?? null
 
@@ -267,7 +260,7 @@ export async function writeStoryMetrics(
         input.primary_agent_id ?? null,
         input.primary_model ?? null,
         input.dispatch_agents_json ?? null,
-      ],
+      ]
     )
   })
 }
@@ -277,11 +270,11 @@ export async function writeStoryMetrics(
  */
 export async function getStoryMetricsForRun(
   adapter: DatabaseAdapter,
-  runId: string,
+  runId: string
 ): Promise<StoryMetricsRow[]> {
   return adapter.query<StoryMetricsRow>(
     'SELECT * FROM story_metrics WHERE run_id = ? ORDER BY id ASC',
-    [runId],
+    [runId]
   )
 }
 
@@ -317,7 +310,7 @@ export interface RunMetricsDelta {
 export async function compareRunMetrics(
   adapter: DatabaseAdapter,
   runIdA: string,
-  runIdB: string,
+  runIdB: string
 ): Promise<RunMetricsDelta | null> {
   const a = await getRunMetrics(adapter, runIdA)
   const b = await getRunMetrics(adapter, runIdB)
@@ -366,7 +359,7 @@ export interface RunSummaryForSupervisor {
  */
 export async function getRunSummaryForSupervisor(
   adapter: DatabaseAdapter,
-  runId: string,
+  runId: string
 ): Promise<RunSummaryForSupervisor | null> {
   const run = await getRunMetrics(adapter, runId)
   if (!run) return null
@@ -382,11 +375,11 @@ export async function getRunSummaryForSupervisor(
       base === 0 ? 0 : Math.round(((val - base) / base) * 100 * 10) / 10
     token_vs_baseline_pct = pct(
       (baseline.total_input_tokens ?? 0) + (baseline.total_output_tokens ?? 0),
-      (run.total_input_tokens ?? 0) + (run.total_output_tokens ?? 0),
+      (run.total_input_tokens ?? 0) + (run.total_output_tokens ?? 0)
     )
     review_cycles_vs_baseline_pct = pct(
       baseline.total_review_cycles ?? 0,
-      run.total_review_cycles ?? 0,
+      run.total_review_cycles ?? 0
     )
   }
 
@@ -402,7 +395,7 @@ export async function getRunSummaryForSupervisor(
  */
 export async function aggregateTokenUsageForRun(
   adapter: DatabaseAdapter,
-  runId: string,
+  runId: string
 ): Promise<TokenAggregate> {
   const rows = await adapter.query<TokenAggregate>(
     `SELECT
@@ -411,7 +404,7 @@ export async function aggregateTokenUsageForRun(
       COALESCE(SUM(cost_usd), 0) as cost
     FROM token_usage
     WHERE pipeline_run_id = ?`,
-    [runId],
+    [runId]
   )
   return rows[0] ?? { input: 0, output: 0, cost: 0 }
 }
@@ -423,7 +416,7 @@ export async function aggregateTokenUsageForRun(
 export async function aggregateTokenUsageForStory(
   adapter: DatabaseAdapter,
   runId: string,
-  storyKey: string,
+  storyKey: string
 ): Promise<TokenAggregate> {
   const rows = await adapter.query<TokenAggregate>(
     `SELECT
@@ -434,7 +427,7 @@ export async function aggregateTokenUsageForStory(
     WHERE pipeline_run_id = ?
       AND metadata IS NOT NULL
       AND metadata LIKE ?`,
-    [runId, `%"storyKey":"${storyKey}"%`],
+    [runId, `%"storyKey":"${storyKey}"%`]
   )
   return rows[0] ?? { input: 0, output: 0, cost: 0 }
 }

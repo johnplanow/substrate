@@ -46,7 +46,7 @@ export type HealthPollResult =
 export class TwinDefinitionError extends Error {
   constructor(
     message: string,
-    public readonly sourceFile?: string,
+    public readonly sourceFile?: string
   ) {
     super(message)
     this.name = 'TwinDefinitionError'

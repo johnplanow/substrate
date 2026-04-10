@@ -15,7 +15,10 @@ import type { TypedEventBus, DatabaseAdapter } from '@substrate-ai/core'
 import type { SdlcEvents } from '../events.js'
 import { classifyAndPersist } from '../learning/finding-classifier.js'
 import type { StoryFailureContext } from '../learning/types.js'
-import { FindingsInjector, extractTargetFilesFromStoryContent } from '../learning/findings-injector.js'
+import {
+  FindingsInjector,
+  extractTargetFilesFromStoryContent,
+} from '../learning/findings-injector.js'
 import type { InjectionContext } from '../learning/relevance-scorer.js'
 import { FindingLifecycleManager } from '../learning/finding-lifecycle.js'
 import type { SuccessContext } from '../learning/finding-lifecycle.js'
@@ -163,10 +166,9 @@ export function createSdlcDevStoryHandler(options: SdlcDevStoryHandlerOptions): 
     const storyFilePath = context.getString('storyFilePath', '')
 
     if (!storyKey || !storyFilePath) {
-      const missingFields = [
-        !storyKey && 'storyKey',
-        !storyFilePath && 'storyFilePath',
-      ].filter(Boolean)
+      const missingFields = [!storyKey && 'storyKey', !storyFilePath && 'storyFilePath'].filter(
+        Boolean
+      )
       return {
         status: 'FAILURE',
         failureReason: `Missing required context: ${missingFields.join(', ')}`,
@@ -211,7 +213,9 @@ export function createSdlcDevStoryHandler(options: SdlcDevStoryHandlerOptions): 
         findingsPrompt = await FindingsInjector.inject(options.db, injectionCtx)
       } catch {
         // AC5: Non-fatal — DB errors must never block dispatch
-        console.warn('[sdlc-dev-story-handler] FindingsInjector.inject failed; proceeding without findings')
+        console.warn(
+          '[sdlc-dev-story-handler] FindingsInjector.inject failed; proceeding without findings'
+        )
         findingsPrompt = ''
       }
     }
@@ -240,7 +244,11 @@ export function createSdlcDevStoryHandler(options: SdlcDevStoryHandlerOptions): 
 
         const gateResult = await DispatchGate.check(gateOptions)
 
-        if (gateResult.decision === 'warn' && gateResult.overlappingFiles !== undefined && gateResult.completedStoryKey !== undefined) {
+        if (
+          gateResult.decision === 'warn' &&
+          gateResult.overlappingFiles !== undefined &&
+          gateResult.completedStoryKey !== undefined
+        ) {
           // AC2: emit warning event; dispatch proceeds normally
           options.eventBus.emit('pipeline:dispatch-warn', {
             storyKey,
@@ -253,9 +261,8 @@ export function createSdlcDevStoryHandler(options: SdlcDevStoryHandlerOptions): 
           // modifiedPrompt = storyContent + '\n\n' + extensionNote
           const extensionNote = gateResult.modifiedPrompt.slice(storyContent.length).trim()
           if (extensionNote.length > 0) {
-            findingsPrompt = findingsPrompt !== ''
-              ? `${findingsPrompt}\n\n${extensionNote}`
-              : extensionNote
+            findingsPrompt =
+              findingsPrompt !== '' ? `${findingsPrompt}\n\n${extensionNote}` : extensionNote
           }
         } else if (gateResult.decision === 'gated') {
           // AC5: non-resolvable conflict; place story in gated phase
@@ -270,12 +277,15 @@ export function createSdlcDevStoryHandler(options: SdlcDevStoryHandlerOptions): 
           // Return early without dispatching — story stays in gated phase
           return {
             status: 'FAILURE',
-            failureReason: gateResult.reason ?? 'dispatch gate: story gated — operator review required',
+            failureReason:
+              gateResult.reason ?? 'dispatch gate: story gated — operator review required',
           }
         }
       } catch {
         // AC7: gate error must never block dispatch
-        console.debug('[sdlc-dev-story-handler] DispatchGate.check failed; proceeding with original dispatch')
+        console.debug(
+          '[sdlc-dev-story-handler] DispatchGate.check failed; proceeding with original dispatch'
+        )
       }
     }
 
@@ -302,7 +312,10 @@ export function createSdlcDevStoryHandler(options: SdlcDevStoryHandlerOptions): 
     })
 
     // Initialize outcome to a default so finally block always has a valid status
-    let outcome: Outcome = { status: 'FAILURE', failureReason: 'unexpected error in dev-story handler' }
+    let outcome: Outcome = {
+      status: 'FAILURE',
+      failureReason: 'unexpected error in dev-story handler',
+    }
 
     try {
       // AC1: Delegate to runDevStory

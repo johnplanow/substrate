@@ -40,7 +40,7 @@ export class FindingsInjector {
   static async inject(
     db: DatabaseAdapter,
     context: InjectionContext,
-    config?: FindingsInjectorConfig,
+    config?: FindingsInjectorConfig
   ): Promise<string> {
     // Resolve config defaults
     const threshold = config?.threshold ?? 0.3

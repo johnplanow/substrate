@@ -91,10 +91,7 @@ export function resolveModel(
   const stylesheetResolved = stylesheet ? resolveNodeStyles(node, stylesheet) : {}
 
   const llm_model =
-    node.llmModel ||
-    stylesheetResolved.llmModel ||
-    options?.defaultModel ||
-    DEFAULT_MODEL
+    node.llmModel || stylesheetResolved.llmModel || options?.defaultModel || DEFAULT_MODEL
 
   const llm_provider =
     node.llmProvider ||
@@ -129,8 +126,7 @@ export function isTransientError(error: unknown): boolean {
 
   // Check HTTP-style status codes
   const status =
-    (error as Record<string, unknown>).status ??
-    (error as Record<string, unknown>).statusCode
+    (error as Record<string, unknown>).status ?? (error as Record<string, unknown>).statusCode
   if (status === 429) return true
 
   // Check message patterns for transient network / timeout errors

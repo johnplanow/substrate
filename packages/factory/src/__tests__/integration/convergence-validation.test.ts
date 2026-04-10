@@ -32,7 +32,13 @@ import { startHandler } from '../../handlers/start.js'
 import { exitHandler } from '../../handlers/exit.js'
 import { conditionalHandler } from '../../handlers/conditional.js'
 import { createToolHandler } from '../../handlers/tool.js'
-import type { Graph, GraphNode, GraphEdge, IGraphContext, Outcome as GraphOutcome } from '../../graph/types.js'
+import type {
+  Graph,
+  GraphNode,
+  GraphEdge,
+  IGraphContext,
+  Outcome as GraphOutcome,
+} from '../../graph/types.js'
 import type { Outcome } from '../../events.js'
 import {
   makeTmpDir,
@@ -53,9 +59,7 @@ const mockSpawn = vi.mocked(spawn)
  * - Real handlers for start, exit, conditional, tool (validate).
  * - Spy for codergen (shape=box → implement node).
  */
-function createTrycycleRegistry(
-  implementSpy: ReturnType<typeof vi.fn>,
-): HandlerRegistry {
+function createTrycycleRegistry(implementSpy: ReturnType<typeof vi.fn>): HandlerRegistry {
   const registry = new HandlerRegistry()
   registry.register('start', startHandler)
   registry.register('exit', exitHandler)
@@ -121,7 +125,7 @@ function makeMiniGraph(
   edgeList: GraphEdge[],
   startNodeId: string,
   exitNodeId: string,
-  graphRetryTarget?: string,
+  graphRetryTarget?: string
 ): Graph {
   const nodeMap = new Map(nodeList.map((n) => [n.id, n]))
   return {
@@ -221,10 +225,10 @@ describe('AC3: two-iteration convergence via conditional routing', () => {
     const result2 = buildScenarioRunResult(3, 3)
     mockSpawn
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 })
       )
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 })
       )
 
     const graph = parseGraph(readNamedFixtureDot('trycycle.dot'))
@@ -247,10 +251,10 @@ describe('AC3: two-iteration convergence via conditional routing', () => {
     const result2 = buildScenarioRunResult(3, 3)
     mockSpawn
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 })
       )
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 })
       )
 
     const graph = parseGraph(readNamedFixtureDot('trycycle.dot'))
@@ -274,10 +278,10 @@ describe('AC3: two-iteration convergence via conditional routing', () => {
     const result2 = buildScenarioRunResult(3, 3)
     mockSpawn
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result1), exitCode: 0 })
       )
       .mockImplementationOnce(() =>
-        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 }),
+        createMockSpawnProcess({ stdout: JSON.stringify(result2), exitCode: 0 })
       )
 
     const graph = parseGraph(readNamedFixtureDot('trycycle.dot'))
@@ -306,7 +310,7 @@ describe('AC4: pipeline budget cap halts convergence loop', () => {
     // validate always returns score=0 so conditional routes back to implement
     const result0 = buildScenarioRunResult(0, 3)
     mockSpawn.mockImplementation(() =>
-      createMockSpawnProcess({ stdout: JSON.stringify(result0), exitCode: 0 }),
+      createMockSpawnProcess({ stdout: JSON.stringify(result0), exitCode: 0 })
     )
 
     const graph = parseGraph(readNamedFixtureDot('trycycle.dot'))
@@ -331,7 +335,7 @@ describe('AC4: pipeline budget cap halts convergence loop', () => {
   it('AC4b: implement handler called at most twice before budget halts', async () => {
     const result0 = buildScenarioRunResult(0, 3)
     mockSpawn.mockImplementation(() =>
-      createMockSpawnProcess({ stdout: JSON.stringify(result0), exitCode: 0 }),
+      createMockSpawnProcess({ stdout: JSON.stringify(result0), exitCode: 0 })
     )
 
     const graph = parseGraph(readNamedFixtureDot('trycycle.dot'))
@@ -385,13 +389,10 @@ describe('AC5: plateau detection via goal-gate failure path (mini-graph)', () =>
 
     const graph = makeMiniGraph(
       [makeNode('start'), goalGateNode, makeNode('implement'), makeNode('exit')],
-      [
-        makeEdge('start', 'exit'),
-        makeEdge('implement', 'exit'),
-      ],
+      [makeEdge('start', 'exit'), makeEdge('implement', 'exit')],
       'start',
       'exit',
-      'implement', // graph.retryTarget
+      'implement' // graph.retryTarget
     )
 
     const result = await createGraphExecutor().run(graph, {
@@ -415,13 +416,10 @@ describe('AC5: plateau detection via goal-gate failure path (mini-graph)', () =>
 
     const graph = makeMiniGraph(
       [makeNode('start'), goalGateNode, makeNode('implement'), makeNode('exit')],
-      [
-        makeEdge('start', 'exit'),
-        makeEdge('implement', 'exit'),
-      ],
+      [makeEdge('start', 'exit'), makeEdge('implement', 'exit')],
       'start',
       'exit',
-      'implement',
+      'implement'
     )
 
     const result = await createGraphExecutor().run(graph, {
@@ -458,13 +456,10 @@ describe('AC5: plateau detection via goal-gate failure path (mini-graph)', () =>
 
     const graph = makeMiniGraph(
       [makeNode('start'), goalGateNode, makeNode('implement'), makeNode('exit')],
-      [
-        makeEdge('start', 'exit'),
-        makeEdge('implement', 'exit'),
-      ],
+      [makeEdge('start', 'exit'), makeEdge('implement', 'exit')],
       'start',
       'exit',
-      'implement',
+      'implement'
     )
 
     const result = await createGraphExecutor().run(graph, {
@@ -508,11 +503,13 @@ describe('AC6: remediation context injected on goal-gate retry dispatch', () => 
 
     let capturedContextOnRetry: IGraphContext | undefined
 
-    const implementH = vi.fn().mockImplementation(async (_node: GraphNode, context: IGraphContext) => {
-      // Capture context on the first (and only) dispatch — this is the retry dispatch
-      capturedContextOnRetry = context
-      return { status: 'SUCCESS' } as Outcome
-    })
+    const implementH = vi
+      .fn()
+      .mockImplementation(async (_node: GraphNode, context: IGraphContext) => {
+        // Capture context on the first (and only) dispatch — this is the retry dispatch
+        capturedContextOnRetry = context
+        return { status: 'SUCCESS' } as Outcome
+      })
 
     const startH = vi.fn().mockResolvedValue({ status: 'SUCCESS' } as Outcome)
 
@@ -520,13 +517,10 @@ describe('AC6: remediation context injected on goal-gate retry dispatch', () => 
 
     const graph = makeMiniGraph(
       [makeNode('start'), implementGoalGate, makeNode('exit')],
-      [
-        makeEdge('start', 'exit'),
-        makeEdge('implement', 'exit'),
-      ],
+      [makeEdge('start', 'exit'), makeEdge('implement', 'exit')],
       'start',
       'exit',
-      'implement', // graph.retryTarget — routes to implement on goal gate failure
+      'implement' // graph.retryTarget — routes to implement on goal gate failure
     )
 
     const result = await createGraphExecutor().run(graph, {
@@ -555,10 +549,12 @@ describe('AC6: remediation context injected on goal-gate retry dispatch', () => 
 
     let capturedContextOnRetry: IGraphContext | undefined
 
-    const implementH = vi.fn().mockImplementation(async (_node: GraphNode, context: IGraphContext) => {
-      capturedContextOnRetry = context
-      return { status: 'SUCCESS' } as Outcome
-    })
+    const implementH = vi
+      .fn()
+      .mockImplementation(async (_node: GraphNode, context: IGraphContext) => {
+        capturedContextOnRetry = context
+        return { status: 'SUCCESS' } as Outcome
+      })
 
     const startH = vi.fn().mockResolvedValue({ status: 'SUCCESS' } as Outcome)
 
@@ -566,13 +562,10 @@ describe('AC6: remediation context injected on goal-gate retry dispatch', () => 
 
     const graph = makeMiniGraph(
       [makeNode('start'), implementGoalGate, makeNode('exit')],
-      [
-        makeEdge('start', 'exit'),
-        makeEdge('implement', 'exit'),
-      ],
+      [makeEdge('start', 'exit'), makeEdge('implement', 'exit')],
       'start',
       'exit',
-      'implement',
+      'implement'
     )
 
     await createGraphExecutor().run(graph, {

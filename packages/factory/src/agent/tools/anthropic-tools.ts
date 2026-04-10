@@ -10,7 +10,11 @@ import type { ToolDefinition, ExecutionEnvironment } from './types.js'
  * Creates the edit_file tool used by Anthropic (Claude) models.
  * Performs exact string search-and-replace on file contents.
  */
-export function createEditFileTool(): ToolDefinition<{ path: string; old_string: string; new_string: string }> {
+export function createEditFileTool(): ToolDefinition<{
+  path: string
+  old_string: string
+  new_string: string
+}> {
   return {
     name: 'edit_file',
     description:
@@ -20,7 +24,10 @@ export function createEditFileTool(): ToolDefinition<{ path: string; old_string:
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Path to the file to edit' },
-        old_string: { type: 'string', description: 'Exact string to search for (must be unique in the file)' },
+        old_string: {
+          type: 'string',
+          description: 'Exact string to search for (must be unique in the file)',
+        },
         new_string: { type: 'string', description: 'String to replace old_string with' },
       },
       required: ['path', 'old_string', 'new_string'],

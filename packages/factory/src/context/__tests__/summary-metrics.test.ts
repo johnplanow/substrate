@@ -56,7 +56,7 @@ describe('extractKeyFacts', () => {
     const content = 'Some text\n```\nconst x = 1;\n```\nMore text'
     const facts = extractKeyFacts(content)
     const entries = [...facts]
-    expect(entries.some(e => e.includes('const x = 1'))).toBe(true)
+    expect(entries.some((e) => e.includes('const x = 1'))).toBe(true)
   })
 
   it('detects file-path tokens', () => {

@@ -48,8 +48,4 @@ export type {
 
 // Story 43-9: SDLC event bridge
 export { createSdlcEventBridge } from './event-bridge.js'
-export type {
-  SdlcEventBridgeOptions,
-  GraphEventEmitter,
-  SdlcEventBus,
-} from './event-bridge.js'
+export type { SdlcEventBridgeOptions, GraphEventEmitter, SdlcEventBus } from './event-bridge.js'

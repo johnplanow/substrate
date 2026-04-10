@@ -128,7 +128,7 @@ export class SupervisorLock {
         // Filesystem does not support exclusive file creation → PID-file fallback
         this.logger.warn(
           `[SupervisorLock] flock not available on this filesystem (${e.code}). ` +
-            `Falling back to PID-file for run ${this.runId}.`,
+            `Falling back to PID-file for run ${this.runId}.`
         )
         await this.acquireViaPidFile(pid, sessionId, opts)
         return
@@ -171,7 +171,7 @@ export class SupervisorLock {
         }
 
         throw new Error(
-          `Run ${this.runId} is already supervised by PID ${existingPid}. Use --force to take over.`,
+          `Run ${this.runId} is already supervised by PID ${existingPid}. Use --force to take over.`
         )
       }
 
@@ -192,7 +192,11 @@ export class SupervisorLock {
     } catch (postOpenErr: unknown) {
       // Cleanup: close handle and remove the lock file so we don't leave
       // a stale exclusive file behind on partial failure.
-      try { await fh.close() } catch { /* ignore close error */ }
+      try {
+        await fh.close()
+      } catch {
+        /* ignore close error */
+      }
       this.lockHandle = null
       this.mode = null
       await unlink(this.lockPath).catch(() => undefined)
@@ -249,7 +253,7 @@ export class SupervisorLock {
   private async acquireViaPidFile(
     pid: number,
     sessionId: string,
-    opts?: SupervisorLockOptions,
+    opts?: SupervisorLockOptions
   ): Promise<void> {
     const force = opts?.force ?? false
     let existingPid: number | null = null
@@ -280,7 +284,7 @@ export class SupervisorLock {
       } else {
         // AC3: live supervisor, no force → reject
         throw new Error(
-          `Run ${this.runId} is already supervised by PID ${existingPid}. Use --force to take over.`,
+          `Run ${this.runId} is already supervised by PID ${existingPid}. Use --force to take over.`
         )
       }
     }
@@ -314,7 +318,7 @@ export class SupervisorLock {
     const stillAlive = this.isPidAlive(existingPid)
     if (stillAlive) {
       throw new Error(
-        `Existing supervisor PID ${existingPid} did not exit after SIGTERM. Kill manually and retry.`,
+        `Existing supervisor PID ${existingPid} did not exit after SIGTERM. Kill manually and retry.`
       )
     }
   }

@@ -85,7 +85,7 @@ export function buildEventCaptor(underlyingBus?: CapturableBus): {
 export function assertEventSequenceParity(
   referenceEvents: CapturedEvent[],
   graphEvents: CapturedEvent[],
-  storyKey: string,
+  storyKey: string
 ): void {
   const refNames = referenceEvents.map((e) => e.eventName)
   const graphNames = graphEvents.map((e) => e.eventName)
@@ -95,7 +95,7 @@ export function assertEventSequenceParity(
     if (refNames[i] !== graphNames[i]) {
       throw new Error(
         `assertEventSequenceParity: event sequence divergence for story '${storyKey}' at index ${i}. ` +
-          `Expected '${refNames[i]}', got '${graphNames[i]}'.`,
+          `Expected '${refNames[i]}', got '${graphNames[i]}'.`
       )
     }
   }
@@ -104,7 +104,7 @@ export function assertEventSequenceParity(
     throw new Error(
       `assertEventSequenceParity: event sequence length mismatch for story '${storyKey}'. ` +
         `Expected ${refNames.length} events, got ${graphNames.length}. ` +
-        `First divergence at index ${minLen}.`,
+        `First divergence at index ${minLen}.`
     )
   }
 }

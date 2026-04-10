@@ -86,7 +86,9 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id)')
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)')
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent)')
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_tasks_session_status ON tasks(session_id, status)')
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_tasks_session_status ON tasks(session_id, status)'
+  )
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS task_dependencies (
@@ -96,7 +98,9 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
       CHECK (task_id != depends_on)
     )
   `)
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_deps_depends_on ON task_dependencies(depends_on)')
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_deps_depends_on ON task_dependencies(depends_on)'
+  )
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS execution_log (
@@ -139,9 +143,15 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_cost_session ON cost_entries(session_id)')
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_cost_task ON cost_entries(task_id)')
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_cost_category ON cost_entries(category)')
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_cost_entries_session_task ON cost_entries(session_id, task_id)')
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_cost_entries_provider ON cost_entries(provider)')
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_cost_session_agent ON cost_entries(session_id, agent)')
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_cost_entries_session_task ON cost_entries(session_id, task_id)'
+  )
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_cost_entries_provider ON cost_entries(provider)'
+  )
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_cost_session_agent ON cost_entries(session_id, agent)'
+  )
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_cost_agent ON cost_entries(agent)')
 
   // -- Session signals (migration 004) --------------------------------------
@@ -184,7 +194,9 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
       PRIMARY KEY (plan_id, version)
     )
   `)
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_plan_versions_plan_id ON plan_versions(plan_id)')
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_plan_versions_plan_id ON plan_versions(plan_id)'
+  )
 
   // -- Pipeline runs + decisions (migration 007 + 008 final shapes) ---------
   await adapter.exec(`
@@ -202,7 +214,9 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
     )
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status)')
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_pipeline_runs_parent_run_id ON pipeline_runs(parent_run_id)')
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_pipeline_runs_parent_run_id ON pipeline_runs(parent_run_id)'
+  )
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS decisions (
@@ -220,7 +234,9 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_decisions_phase ON decisions(phase)')
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_decisions_key ON decisions(phase, `key`)')
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_decisions_superseded_by ON decisions(superseded_by)')
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_decisions_superseded_by ON decisions(superseded_by)'
+  )
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS requirements (
@@ -275,7 +291,9 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
       created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_token_usage_run ON token_usage(pipeline_run_id)')
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_token_usage_run ON token_usage(pipeline_run_id)'
+  )
 
   // -- Run metrics (migration 010) ------------------------------------------
   await adapter.exec(`
@@ -324,8 +342,16 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   `)
 
   // -- story_metrics agent/model columns (mesh telemetry enrichment) ---------
-  for (const col of ['primary_agent_id VARCHAR(64)', 'primary_model VARCHAR(128)', 'dispatch_agents_json TEXT']) {
-    try { await adapter.exec(`ALTER TABLE story_metrics ADD COLUMN ${col}`) } catch { /* column already exists */ }
+  for (const col of [
+    'primary_agent_id VARCHAR(64)',
+    'primary_model VARCHAR(128)',
+    'dispatch_agents_json TEXT',
+  ]) {
+    try {
+      await adapter.exec(`ALTER TABLE story_metrics ADD COLUMN ${col}`)
+    } catch {
+      /* column already exists */
+    }
   }
 
   // -- Monitor tables (from 001-monitor-schema) -----------------------------
@@ -350,7 +376,9 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_tm_agent ON task_metrics(agent)')
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_tm_task_type ON task_metrics(task_type)')
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_tm_recorded_at ON task_metrics(recorded_at)')
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_tm_agent_type ON task_metrics(agent, task_type)')
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_tm_agent_type ON task_metrics(agent, task_type)'
+  )
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS performance_aggregates (
@@ -411,11 +439,17 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
       PRIMARY KEY (story_key, span_id)
     )
   `)
-  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_turn_analysis_story ON turn_analysis (story_key, turn_number)')
+  await adapter.exec(
+    'CREATE INDEX IF NOT EXISTS idx_turn_analysis_story ON turn_analysis (story_key, turn_number)'
+  )
 
   // Migration: add dispatch context columns for existing repos (Story 30-1)
   for (const col of ['task_type', 'phase', 'dispatch_id']) {
-    try { await adapter.exec(`ALTER TABLE turn_analysis ADD COLUMN ${col} VARCHAR(64)`) } catch { /* column already exists */ }
+    try {
+      await adapter.exec(`ALTER TABLE turn_analysis ADD COLUMN ${col} VARCHAR(64)`)
+    } catch {
+      /* column already exists */
+    }
   }
 
   await adapter.exec(`
@@ -441,7 +475,11 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
 
   // Migration: add dispatch context columns for existing repos (Story 30-3)
   for (const col of ['dispatch_id', 'task_type', 'phase']) {
-    try { await adapter.exec(`ALTER TABLE efficiency_scores ADD COLUMN ${col} TEXT`) } catch { /* column already exists */ }
+    try {
+      await adapter.exec(`ALTER TABLE efficiency_scores ADD COLUMN ${col} TEXT`)
+    } catch {
+      /* column already exists */
+    }
   }
 
   await adapter.exec(`

@@ -106,10 +106,7 @@ describe('writeRunState', () => {
     const state = makeState()
     await writeRunState(PROJECT_DIR, state)
 
-    expect(mkdir).toHaveBeenCalledWith(
-      expect.stringContaining('.substrate'),
-      { recursive: true },
-    )
+    expect(mkdir).toHaveBeenCalledWith(expect.stringContaining('.substrate'), { recursive: true })
   })
 
   it('calls writeFile with the correct JSON content and path', async () => {

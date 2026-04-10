@@ -122,21 +122,14 @@ export const PlanParseResultSchema = z.object({
  * @param label   Human-readable label for error messages
  * @returns Parsed and typed data
  */
-export function validateWithSchema<T>(
-  schema: z.ZodType<T>,
-  data: unknown,
-  label: string
-): T {
+export function validateWithSchema<T>(schema: z.ZodType<T>, data: unknown, label: string): T {
   const result = schema.safeParse(data)
   if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `${i.path.join('.')}: ${i.message}`)
-      .join('; ')
-    throw new AdtError(
-      `Validation failed for ${label}: ${issues}`,
-      'VALIDATION_ERROR',
-      { label, issues: result.error.issues }
-    )
+    const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+    throw new AdtError(`Validation failed for ${label}: ${issues}`, 'VALIDATION_ERROR', {
+      label,
+      issues: result.error.issues,
+    })
   }
   return result.data
 }
@@ -151,21 +144,17 @@ export function validateSpawnCommand(data: unknown): z.infer<typeof SpawnCommand
 /**
  * Validate AdapterCapabilities, throwing AdtError on failure.
  */
-export function validateAdapterCapabilities(data: unknown): z.infer<typeof AdapterCapabilitiesSchema> {
-  return validateWithSchema(
-    AdapterCapabilitiesSchema,
-    data,
-    'AdapterCapabilities'
-  )
+export function validateAdapterCapabilities(
+  data: unknown
+): z.infer<typeof AdapterCapabilitiesSchema> {
+  return validateWithSchema(AdapterCapabilitiesSchema, data, 'AdapterCapabilities')
 }
 
 /**
  * Validate AdapterHealthResult, throwing AdtError on failure.
  */
-export function validateAdapterHealthResult(data: unknown): z.infer<typeof AdapterHealthResultSchema> {
-  return validateWithSchema(
-    AdapterHealthResultSchema,
-    data,
-    'AdapterHealthResult'
-  )
+export function validateAdapterHealthResult(
+  data: unknown
+): z.infer<typeof AdapterHealthResultSchema> {
+  return validateWithSchema(AdapterHealthResultSchema, data, 'AdapterHealthResult')
 }

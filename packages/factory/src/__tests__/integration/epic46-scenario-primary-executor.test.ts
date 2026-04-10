@@ -66,7 +66,7 @@ function makeMiniGraph(
   nodeList: GraphNode[],
   edgeList: GraphEdge[],
   startNodeId: string,
-  exitNodeId: string,
+  exitNodeId: string
 ): Graph {
   const nodeMap = new Map(nodeList.map((n) => [n.id, n]))
   return {
@@ -145,7 +145,7 @@ function makeScenarioPrimaryGraph(params: {
     [makeNode('start'), goalGateNode, makeNode('exit')],
     [makeEdge('start', 'exit')],
     'start',
-    'exit',
+    'exit'
   )
 
   return { graph, registry }
@@ -191,7 +191,7 @@ describe('AC2: scenario-primary — score passes, code review fails → executor
       satisfactionThreshold: 0.8,
     })
 
-    const gateEvents = events.filter(e => e.event === 'graph:goal-gate-checked')
+    const gateEvents = events.filter((e) => e.event === 'graph:goal-gate-checked')
     expect(gateEvents).toHaveLength(1)
     const payload = gateEvents[0]!.payload as { satisfied: boolean; score: number }
     expect(payload.satisfied).toBe(true)
@@ -233,7 +233,7 @@ describe('AC2: scenario-primary — score passes, code review fails → executor
     })
 
     // Advisory event must be present (code review verdict was in context)
-    const advisoryEvents = events.filter(e => e.event === 'scenario:advisory-computed')
+    const advisoryEvents = events.filter((e) => e.event === 'scenario:advisory-computed')
     expect(advisoryEvents).toHaveLength(1)
     const advisory = advisoryEvents[0]!.payload as {
       verdict: string
@@ -290,7 +290,7 @@ describe('AC3: scenario-primary — score fails, code review passes → executor
       satisfactionThreshold: 0.8,
     })
 
-    const gateEvents = events.filter(e => e.event === 'graph:goal-gate-checked')
+    const gateEvents = events.filter((e) => e.event === 'graph:goal-gate-checked')
     expect(gateEvents).toHaveLength(1)
     const payload = gateEvents[0]!.payload as { satisfied: boolean; score: number }
     expect(payload.satisfied).toBe(false)
@@ -332,7 +332,7 @@ describe('AC3: scenario-primary — score fails, code review passes → executor
     })
 
     // Advisory event emitted before the gate result is acted upon
-    const advisoryEvents = events.filter(e => e.event === 'scenario:advisory-computed')
+    const advisoryEvents = events.filter((e) => e.event === 'scenario:advisory-computed')
     expect(advisoryEvents).toHaveLength(1)
     const advisory = advisoryEvents[0]!.payload as {
       verdict: string

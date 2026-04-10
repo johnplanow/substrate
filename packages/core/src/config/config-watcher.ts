@@ -55,15 +55,18 @@ export interface ConfigWatcher {
  * Arrays are treated as leaf values (not recursed into).
  */
 export function flattenObject(obj: Record<string, unknown>, prefix = ''): Record<string, unknown> {
-  return Object.entries(obj).reduce((acc, [key, val]) => {
-    const fullKey = prefix ? `${prefix}.${key}` : key
-    if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
-      Object.assign(acc, flattenObject(val as Record<string, unknown>, fullKey))
-    } else {
-      acc[fullKey] = val
-    }
-    return acc
-  }, {} as Record<string, unknown>)
+  return Object.entries(obj).reduce(
+    (acc, [key, val]) => {
+      const fullKey = prefix ? `${prefix}.${key}` : key
+      if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
+        Object.assign(acc, flattenObject(val as Record<string, unknown>, fullKey))
+      } else {
+        acc[fullKey] = val
+      }
+      return acc
+    },
+    {} as Record<string, unknown>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -125,15 +128,23 @@ export function createConfigWatcher(options: ConfigWatcherOptions): ConfigWatche
             const message = result.error.issues
               .map((e) => `${e.path.join('.')}: ${e.message}`)
               .join('; ')
-            const err = new Error(`Config validation failed: ${message}. Continuing with previous config.`)
-            logger.error({ configPath, details: message }, 'Config reload failed: schema validation error. Continuing with previous config.')
+            const err = new Error(
+              `Config validation failed: ${message}. Continuing with previous config.`
+            )
+            logger.error(
+              { configPath, details: message },
+              'Config reload failed: schema validation error. Continuing with previous config.'
+            )
             onError(err)
             return
           }
           onReload(result.data)
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err))
-          logger.error({ err: error, configPath }, 'Config reload failed: YAML parse error. Continuing with previous config.')
+          logger.error(
+            { err: error, configPath },
+            'Config reload failed: YAML parse error. Continuing with previous config.'
+          )
           onError(error)
         }
       })

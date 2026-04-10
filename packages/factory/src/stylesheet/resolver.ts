@@ -21,7 +21,12 @@
  * Story 42-7.
  */
 
-import type { GraphNode, ParsedStylesheet, ResolvedNodeStyles, StylesheetSelector } from '../graph/types.js'
+import type {
+  GraphNode,
+  ParsedStylesheet,
+  ResolvedNodeStyles,
+  StylesheetSelector,
+} from '../graph/types.js'
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -76,7 +81,10 @@ function matchesNode(node: GraphNode, selector: StylesheetSelector): boolean {
  * Callers must give explicit node attributes (`node.llmModel`, etc.) priority
  * over the values returned here.
  */
-export function resolveNodeStyles(node: GraphNode, stylesheet: ParsedStylesheet): ResolvedNodeStyles {
+export function resolveNodeStyles(
+  node: GraphNode,
+  stylesheet: ParsedStylesheet
+): ResolvedNodeStyles {
   // 1. Filter to rules whose selector matches this node
   const matchingRules = stylesheet.filter((rule) => matchesNode(node, rule.selector))
 

@@ -17,7 +17,11 @@ function makeRequest(model = 'claude-opus-4-6'): LLMRequest {
   }
 }
 
-function makeResponse(inputTokens = 100, outputTokens = 50, model = 'claude-opus-4-6'): LLMResponse {
+function makeResponse(
+  inputTokens = 100,
+  outputTokens = 50,
+  model = 'claude-opus-4-6'
+): LLMResponse {
   return {
     content: 'test response',
     toolCalls: [],
@@ -43,7 +47,10 @@ describe('createLoggingMiddleware', () => {
   let logFile: string
 
   beforeEach(async () => {
-    logsRoot = join(tmpdir(), `logging-mw-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    logsRoot = join(
+      tmpdir(),
+      `logging-mw-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    )
     logFile = join(logsRoot, 'llm-calls.ndjson')
     // Do NOT pre-create the directory — the middleware must handle it
   })
@@ -81,7 +88,7 @@ describe('createLoggingMiddleware', () => {
     await expect(
       mw(request, async () => {
         throw err
-      }),
+      })
     ).rejects.toThrow('test error')
 
     const content = await readFile(logFile, 'utf8')
@@ -105,7 +112,7 @@ describe('createLoggingMiddleware', () => {
     await expect(
       mw(request, async () => {
         throw new Error('boom')
-      }),
+      })
     ).rejects.toThrow()
 
     const content = await readFile(logFile, 'utf8')
@@ -144,7 +151,9 @@ describe('createLoggingMiddleware', () => {
     const mw = createLoggingMiddleware({ logsRoot })
 
     // Unknown model
-    await mw(makeRequest('unknown-model-xyz'), async () => makeResponse(100, 50, 'unknown-model-xyz'))
+    await mw(makeRequest('unknown-model-xyz'), async () =>
+      makeResponse(100, 50, 'unknown-model-xyz')
+    )
 
     // Known model
     await mw(makeRequest('claude-opus-4-6'), async () => makeResponse(100, 50, 'claude-opus-4-6'))

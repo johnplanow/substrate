@@ -83,7 +83,7 @@ export class ConflictDetector {
   static async detectNamespaceCollision(
     symbol: string,
     files: string[],
-    projectRoot: string,
+    projectRoot: string
   ): Promise<{ file: string; symbol: string } | null> {
     // Patterns that indicate the symbol is declared in the file
     const patterns = [

@@ -84,7 +84,7 @@ async function tryReadFile(filePath: string): Promise<RunManifestData | null> {
  */
 async function reconstructFromDolt(
   runId: string,
-  adapter: IDoltAdapter,
+  adapter: IDoltAdapter
 ): Promise<RunManifestData | null> {
   try {
     const rows = await adapter.query<{
@@ -151,7 +151,11 @@ export class RunManifest {
   /** Optional Dolt adapter for degraded-mode fallback on read. */
   private doltAdapter: IDoltAdapter | null
 
-  constructor(runId: string, baseDir: string = defaultBaseDir(), doltAdapter: IDoltAdapter | null = null) {
+  constructor(
+    runId: string,
+    baseDir: string = defaultBaseDir(),
+    doltAdapter: IDoltAdapter | null = null
+  ) {
     this.runId = runId
     this.baseDir = baseDir
     this.doltAdapter = doltAdapter
@@ -205,7 +209,9 @@ export class RunManifest {
    *
    * @throws ManifestReadError if the current manifest cannot be read
    */
-  async update(partial: Partial<Omit<RunManifestData, 'generation' | 'updated_at'>>): Promise<void> {
+  async update(
+    partial: Partial<Omit<RunManifestData, 'generation' | 'updated_at'>>
+  ): Promise<void> {
     const current = await this.read()
     const merged: Omit<RunManifestData, 'generation' | 'updated_at'> = {
       ...current,
@@ -289,7 +295,7 @@ export class RunManifest {
   static open(
     runId: string,
     baseDir: string = defaultBaseDir(),
-    doltAdapter: IDoltAdapter | null = null,
+    doltAdapter: IDoltAdapter | null = null
   ): RunManifest {
     return new RunManifest(runId, baseDir, doltAdapter)
   }
@@ -478,7 +484,7 @@ export class RunManifest {
     runId: string,
     initialData: Omit<RunManifestData, 'generation' | 'updated_at' | 'created_at'>,
     baseDir: string = defaultBaseDir(),
-    doltAdapter: IDoltAdapter | null = null,
+    doltAdapter: IDoltAdapter | null = null
   ): Promise<RunManifest> {
     const instance = new RunManifest(runId, baseDir, doltAdapter)
 
@@ -513,7 +519,7 @@ export class RunManifest {
   static async read(
     runId: string,
     baseDir: string = defaultBaseDir(),
-    doltAdapter: IDoltAdapter | null = null,
+    doltAdapter: IDoltAdapter | null = null
   ): Promise<RunManifestData> {
     const attempted: string[] = []
     const primary = primaryPath(baseDir, runId)
@@ -561,7 +567,7 @@ export class RunManifest {
         // Log degraded mode warning
         console.warn(
           `[RunManifest] Degraded mode: reconstructed run ${runId} from Dolt pipeline_runs. ` +
-            `per_story_state and recovery_history are empty.`,
+            `per_story_state and recovery_history are empty.`
         )
         return doltData
       }
@@ -569,7 +575,7 @@ export class RunManifest {
 
     throw new ManifestReadError(
       `Failed to read manifest for run ${runId}: all sources exhausted`,
-      attempted,
+      attempted
     )
   }
 }

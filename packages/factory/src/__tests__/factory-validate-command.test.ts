@@ -226,7 +226,7 @@ describe('substrate factory validate command', () => {
     })
 
     await expect(runValidateCmd('pipeline.dot', ['--output-format', 'json'])).rejects.toThrow(
-      'process.exit called',
+      'process.exit called'
     )
 
     const output = vi
@@ -276,7 +276,7 @@ describe('substrate factory validate command', () => {
   it('AC5: file not found prints error to stderr and exits with code 2', async () => {
     const { readFile } = await import('node:fs/promises')
     vi.mocked(readFile).mockRejectedValue(
-      Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' }),
+      Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
     )
 
     await expect(runValidateCmd('missing.dot')).rejects.toThrow('process.exit called')

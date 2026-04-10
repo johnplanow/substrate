@@ -77,7 +77,7 @@ export function detectInterfaceChanges(options: {
 
     // Step 1: Filter to non-test .ts source files
     const tsSourceFiles = filesModified.filter(
-      (f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && !f.endsWith('.spec.ts'),
+      (f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && !f.endsWith('.spec.ts')
     )
 
     if (tsSourceFiles.length === 0) {
@@ -97,7 +97,10 @@ export function detectInterfaceChanges(options: {
         sourceDirs.push(dirname(relPath))
       } catch {
         // File not readable (e.g., deleted, permissions) — skip and continue
-        console.debug('Could not read modified file for interface extraction', { absPath, storyKey })
+        console.debug('Could not read modified file for interface extraction', {
+          absPath,
+          storyKey,
+        })
       }
     }
 
@@ -118,7 +121,7 @@ export function detectInterfaceChanges(options: {
             encoding: 'utf-8',
             timeout: 10_000,
             stdio: ['ignore', 'pipe', 'pipe'],
-          },
+          }
         )
       } catch (grepErr) {
         // grep exits with code 1 when no matches found — that is expected and fine.
@@ -145,7 +148,7 @@ export function detectInterfaceChanges(options: {
         // starts with the source file's directory (covers __tests__ subdirs).
         const tfDir = dirname(tf)
         const isSameModule = sourceDirs.some(
-          (srcDir) => tfDir === srcDir || tfDir.startsWith(srcDir + '/'),
+          (srcDir) => tfDir === srcDir || tfDir.startsWith(srcDir + '/')
         )
         if (!isSameModule) {
           affectedTests.add(tf)
@@ -160,7 +163,10 @@ export function detectInterfaceChanges(options: {
   } catch (err) {
     // AC5: outer catch — graceful degradation for unexpected errors.
     // Log but never block the pipeline.
-    console.warn('Interface change detection failed — skipping', { err, storyKey: options.storyKey })
+    console.warn('Interface change detection failed — skipping', {
+      err,
+      storyKey: options.storyKey,
+    })
     return { modifiedInterfaces: [], potentiallyAffectedTests: [] }
   }
 }

@@ -7,7 +7,11 @@ import type { LLMRequest } from '../../types.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeMockFetch(response: object, status = 200, headers: Record<string, string> = {}): typeof globalThis.fetch {
+function makeMockFetch(
+  response: object,
+  status = 200,
+  headers: Record<string, string> = {}
+): typeof globalThis.fetch {
   return vi.fn().mockResolvedValue({
     ok: status >= 200 && status < 300,
     status,
@@ -163,11 +167,12 @@ describe('AC4: 429 retry with exponential backoff', () => {
   })
 
   it('retries on 429 and returns successful response', async () => {
-    const mockFetch = vi.fn()
+    const mockFetch = vi
+      .fn()
       .mockResolvedValueOnce({
         ok: false,
         status: 429,
-        headers: { get: (k: string) => k.toLowerCase() === 'retry-after' ? '0' : null },
+        headers: { get: (k: string) => (k.toLowerCase() === 'retry-after' ? '0' : null) },
         json: () => Promise.resolve({}),
       } as unknown as Response)
       .mockResolvedValueOnce({
@@ -192,7 +197,7 @@ describe('AC4: 429 retry with exponential backoff', () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 429,
-      headers: { get: (k: string) => k.toLowerCase() === 'retry-after' ? '0' : null },
+      headers: { get: (k: string) => (k.toLowerCase() === 'retry-after' ? '0' : null) },
       json: () => Promise.resolve({}),
     } as unknown as Response)
 
@@ -200,7 +205,9 @@ describe('AC4: 429 retry with exponential backoff', () => {
 
     const completePromise = adapter.complete(MINIMAL_REQUEST)
     // Attach rejection handler BEFORE running timers to avoid unhandled rejection warning
-    const assertion = expect(completePromise).rejects.toThrow('[anthropic] Rate limit exceeded after 3 retries')
+    const assertion = expect(completePromise).rejects.toThrow(
+      '[anthropic] Rate limit exceeded after 3 retries'
+    )
     await vi.runAllTimersAsync()
     await assertion
     // 4 calls total: initial + 3 retries
@@ -297,7 +304,10 @@ describe('AC6: tool definition translation and toolChoice handling', () => {
     expect(callBody.tools).toHaveLength(1)
     expect(callBody.tools[0].name).toBe('search')
     expect(callBody.tools[0].description).toBe('Search the web')
-    expect(callBody.tools[0].input_schema).toEqual({ type: 'object', properties: { query: { type: 'string' } } })
+    expect(callBody.tools[0].input_schema).toEqual({
+      type: 'object',
+      properties: { query: { type: 'string' } },
+    })
   })
 
   it('omits tools from request body when toolChoice is "none"', async () => {
@@ -306,9 +316,7 @@ describe('AC6: tool definition translation and toolChoice handling', () => {
 
     await adapter.complete({
       ...MINIMAL_REQUEST,
-      tools: [
-        { name: 'search', description: 'Search', parameters: {} },
-      ],
+      tools: [{ name: 'search', description: 'Search', parameters: {} }],
       toolChoice: 'none',
     })
 
@@ -428,9 +436,7 @@ describe('AnthropicAdapter additional behavior', () => {
     const responseWithToolUse = {
       ...MOCK_RESPONSE,
       stop_reason: 'tool_use',
-      content: [
-        { type: 'tool_use', id: 'tc_001', name: 'calculator', input: { expr: '2+2' } },
-      ],
+      content: [{ type: 'tool_use', id: 'tc_001', name: 'calculator', input: { expr: '2+2' } }],
     }
     const mockFetch = makeMockFetch(responseWithToolUse)
     const adapter = new AnthropicAdapter({ apiKey: 'test-key', fetch: mockFetch })
@@ -454,7 +460,9 @@ describe('AnthropicAdapter additional behavior', () => {
     } as unknown as Response)
 
     const adapter = new AnthropicAdapter({ apiKey: 'test-key', fetch: mockFetch })
-    await expect(adapter.complete(MINIMAL_REQUEST)).rejects.toThrow('[anthropic] 400: invalid model')
+    await expect(adapter.complete(MINIMAL_REQUEST)).rejects.toThrow(
+      '[anthropic] 400: invalid model'
+    )
   })
 
   it('filters system messages from messages array (handled via system param)', async () => {

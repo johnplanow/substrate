@@ -23,11 +23,7 @@ import type { Graph, GraphEdge, GraphNode, LintRule } from '../types.js'
 type MinimalNode = { id: string; shape?: string; type?: string }
 type MinimalEdge = { fromNode: string; toNode: string; condition?: string }
 
-function makeGraph(
-  nodes: MinimalNode[],
-  edges: MinimalEdge[],
-  modelStylesheet?: string,
-): Graph {
+function makeGraph(nodes: MinimalNode[], edges: MinimalEdge[], modelStylesheet?: string): Graph {
   const nodeMap = new Map<string, GraphNode>()
   for (const n of nodes) {
     nodeMap.set(n.id, {
@@ -105,7 +101,7 @@ function makeValidGraph(): Graph {
     [
       { fromNode: 'start', toNode: 'work' },
       { fromNode: 'work', toNode: 'exit' },
-    ],
+    ]
   )
 }
 
@@ -159,7 +155,7 @@ describe('start_node rule', () => {
         { id: 'work', shape: 'box' },
         { id: 'exit', shape: 'Msquare' },
       ],
-      [{ fromNode: 'work', toNode: 'exit' }],
+      [{ fromNode: 'work', toNode: 'exit' }]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'start_node')
@@ -178,7 +174,7 @@ describe('start_node rule', () => {
       [
         { fromNode: 'start1', toNode: 'exit' },
         { fromNode: 'start2', toNode: 'exit' },
-      ],
+      ]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'start_node')
@@ -193,7 +189,7 @@ describe('start_node rule', () => {
         { id: 'start', shape: 'box' },
         { id: 'exit', shape: 'Msquare' },
       ],
-      [{ fromNode: 'start', toNode: 'exit' }],
+      [{ fromNode: 'start', toNode: 'exit' }]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'start_node')
@@ -219,7 +215,7 @@ describe('terminal_node rule', () => {
         { id: 'start', shape: 'Mdiamond' },
         { id: 'work', shape: 'box' },
       ],
-      [{ fromNode: 'start', toNode: 'work' }],
+      [{ fromNode: 'start', toNode: 'work' }]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'terminal_node')
@@ -238,7 +234,7 @@ describe('terminal_node rule', () => {
       [
         { fromNode: 'start', toNode: 'exit1' },
         { fromNode: 'start', toNode: 'exit2' },
-      ],
+      ]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'terminal_node')
@@ -253,7 +249,7 @@ describe('terminal_node rule', () => {
         { id: 'start', shape: 'Mdiamond' },
         { id: 'end', shape: 'box' },
       ],
-      [{ fromNode: 'start', toNode: 'end' }],
+      [{ fromNode: 'start', toNode: 'end' }]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'terminal_node')
@@ -284,7 +280,7 @@ describe('start_no_incoming rule', () => {
         { fromNode: 'start', toNode: 'work' },
         { fromNode: 'work', toNode: 'exit' },
         { fromNode: 'work', toNode: 'start' }, // incoming to start — violates rule
-      ],
+      ]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'start_no_incoming')
@@ -317,7 +313,7 @@ describe('exit_no_outgoing rule', () => {
         { fromNode: 'start', toNode: 'work' },
         { fromNode: 'exit', toNode: 'work' }, // outgoing from exit — violates rule
         { fromNode: 'work', toNode: 'exit' },
-      ],
+      ]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'exit_no_outgoing')
@@ -388,8 +384,26 @@ describe('edge_target_exists rule', () => {
     })
 
     const edges: GraphEdge[] = [
-      { fromNode: 'start', toNode: 'ghost', label: '', condition: '', weight: 1, fidelity: '', threadId: '', loopRestart: false },
-      { fromNode: 'start', toNode: 'exit', label: '', condition: '', weight: 1, fidelity: '', threadId: '', loopRestart: false },
+      {
+        fromNode: 'start',
+        toNode: 'ghost',
+        label: '',
+        condition: '',
+        weight: 1,
+        fidelity: '',
+        threadId: '',
+        loopRestart: false,
+      },
+      {
+        fromNode: 'start',
+        toNode: 'exit',
+        label: '',
+        condition: '',
+        weight: 1,
+        fidelity: '',
+        threadId: '',
+        loopRestart: false,
+      },
     ]
 
     const graph: Graph = {
@@ -403,9 +417,15 @@ describe('edge_target_exists rule', () => {
       defaultFidelity: '',
       nodes: nodeMap,
       edges,
-      outgoingEdges(nodeId: string) { return edges.filter((e) => e.fromNode === nodeId) },
-      startNode() { return nodeMap.get('start')! },
-      exitNode() { return nodeMap.get('exit')! },
+      outgoingEdges(nodeId: string) {
+        return edges.filter((e) => e.fromNode === nodeId)
+      },
+      startNode() {
+        return nodeMap.get('start')!
+      },
+      exitNode() {
+        return nodeMap.get('exit')!
+      },
     }
 
     const validator = createValidator()
@@ -441,7 +461,7 @@ describe('reachability rule', () => {
         { fromNode: 'start', toNode: 'work' },
         { fromNode: 'work', toNode: 'exit' },
         // orphan has no incoming edges from start chain
-      ],
+      ]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'reachability')
@@ -463,7 +483,7 @@ describe('reachability rule', () => {
       [
         { fromNode: 'start', toNode: 'work' },
         { fromNode: 'work', toNode: 'exit' },
-      ],
+      ]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'reachability')
@@ -485,7 +505,7 @@ describe('condition_syntax rule', () => {
         { id: 'start', shape: 'Mdiamond' },
         { id: 'exit', shape: 'Msquare' },
       ],
-      [{ fromNode: 'start', toNode: 'exit', condition: 'outcome=success' }],
+      [{ fromNode: 'start', toNode: 'exit', condition: 'outcome=success' }]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'condition_syntax')
@@ -498,7 +518,7 @@ describe('condition_syntax rule', () => {
         { id: 'start', shape: 'Mdiamond' },
         { id: 'exit', shape: 'Msquare' },
       ],
-      [{ fromNode: 'start', toNode: 'exit', condition: 'outcome!=fail' }],
+      [{ fromNode: 'start', toNode: 'exit', condition: 'outcome!=fail' }]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'condition_syntax')
@@ -511,7 +531,7 @@ describe('condition_syntax rule', () => {
         { id: 'start', shape: 'Mdiamond' },
         { id: 'exit', shape: 'Msquare' },
       ],
-      [{ fromNode: 'start', toNode: 'exit', condition: 'outcome=success && iteration!=0' }],
+      [{ fromNode: 'start', toNode: 'exit', condition: 'outcome=success && iteration!=0' }]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'condition_syntax')
@@ -528,7 +548,7 @@ describe('condition_syntax rule', () => {
       [
         { fromNode: 'start', toNode: 'work', condition: '' }, // index 0, no condition
         { fromNode: 'work', toNode: 'exit', condition: 'outcome==success' }, // index 1, bad condition
-      ],
+      ]
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'condition_syntax')
@@ -558,7 +578,7 @@ describe('stylesheet_syntax rule', () => {
         { id: 'exit', shape: 'Msquare' },
       ],
       [{ fromNode: 'start', toNode: 'exit' }],
-      '', // empty stylesheet
+      '' // empty stylesheet
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'stylesheet_syntax')
@@ -572,7 +592,7 @@ describe('stylesheet_syntax rule', () => {
         { id: 'exit', shape: 'Msquare' },
       ],
       [{ fromNode: 'start', toNode: 'exit' }],
-      'box { llm_model: claude-3-5-sonnet; }',
+      'box { llm_model: claude-3-5-sonnet; }'
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'stylesheet_syntax')
@@ -586,7 +606,7 @@ describe('stylesheet_syntax rule', () => {
         { id: 'exit', shape: 'Msquare' },
       ],
       [{ fromNode: 'start', toNode: 'exit' }],
-      'box llm_model: claude;', // missing braces
+      'box llm_model: claude;' // missing braces
     )
     const validator = createValidator()
     const diags = validator.validate(graph).filter((d) => d.ruleId === 'stylesheet_syntax')
@@ -608,7 +628,7 @@ describe('validateOrRaise', () => {
         { id: 'work', shape: 'box' },
         { id: 'exit', shape: 'Msquare' },
       ],
-      [{ fromNode: 'work', toNode: 'exit' }],
+      [{ fromNode: 'work', toNode: 'exit' }]
     )
     const validator = createValidator()
     expect(() => validator.validateOrRaise(graph)).toThrow(/start_node/)

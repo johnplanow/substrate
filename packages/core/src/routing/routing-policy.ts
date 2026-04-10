@@ -71,7 +71,9 @@ export type TaskTypePolicy = z.infer<typeof TaskTypePolicySchema>
  */
 export const DefaultRoutingPolicySchema = z.object({
   preferred_agents: z.array(z.string()).min(1),
-  billing_preference: z.enum(['subscription_first', 'api_only', 'subscription_only']).default('subscription_first'),
+  billing_preference: z
+    .enum(['subscription_first', 'api_only', 'subscription_only'])
+    .default('subscription_first'),
   use_monitor_recommendations: z.boolean().default(false),
 })
 
@@ -94,11 +96,15 @@ export type GlobalRoutingSettings = z.infer<typeof GlobalRoutingSettingsSchema>
 export const RoutingPolicySchema = z.object({
   default: DefaultRoutingPolicySchema,
   task_types: z.record(z.string(), TaskTypePolicySchema).optional().default({}),
-  providers: z.record(z.string(), ProviderPolicySchema).refine(
-    (providers) => Object.keys(providers).length > 0,
-    { message: 'Routing policy must have at least one provider configured' }
-  ),
-  global: GlobalRoutingSettingsSchema.optional().default({ max_concurrent_workers: 5, fallback_enabled: true }),
+  providers: z
+    .record(z.string(), ProviderPolicySchema)
+    .refine((providers) => Object.keys(providers).length > 0, {
+      message: 'Routing policy must have at least one provider configured',
+    }),
+  global: GlobalRoutingSettingsSchema.optional().default({
+    max_concurrent_workers: 5,
+    fallback_enabled: true,
+  }),
 })
 
 export type RoutingPolicy = z.infer<typeof RoutingPolicySchema>
@@ -113,7 +119,10 @@ export type RoutingPolicy = z.infer<typeof RoutingPolicySchema>
  * Extends plain Error (not SubstrateError) to keep core package free of monolith imports.
  */
 export class RoutingPolicyValidationError extends Error {
-  constructor(message: string, public readonly details?: string) {
+  constructor(
+    message: string,
+    public readonly details?: string
+  ) {
     super(message)
     this.name = 'RoutingPolicyValidationError'
     Object.setPrototypeOf(this, new.target.prototype)
@@ -167,10 +176,11 @@ export function loadRoutingPolicy(filePath: string): RoutingPolicy {
   const result = RoutingPolicySchema.safeParse(rawObject)
   if (!result.success) {
     // Zod v4 uses `.issues` instead of deprecated `.errors`
-    const issues = result.error.issues ?? (result.error as unknown as { errors?: { path: PropertyKey[]; message: string }[] }).errors ?? []
-    const details = issues
-      .map((e) => `  - ${e.path.join('.')}: ${e.message}`)
-      .join('\n')
+    const issues =
+      result.error.issues ??
+      (result.error as unknown as { errors?: { path: PropertyKey[]; message: string }[] }).errors ??
+      []
+    const details = issues.map((e) => `  - ${e.path.join('.')}: ${e.message}`).join('\n')
     throw new RoutingPolicyValidationError(
       `Routing policy validation failed for "${filePath}":\n${details}`,
       details

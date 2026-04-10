@@ -32,12 +32,12 @@ export interface RunStateManagerOptions {
 export interface NodeArtifacts {
   nodeId: string
   nodeType: string
-  status: string          // StageStatus string value
-  startedAt: number       // Date.now() before dispatch
-  completedAt: number     // Date.now() after dispatch
+  status: string // StageStatus string value
+  startedAt: number // Date.now() before dispatch
+  completedAt: number // Date.now() after dispatch
   durationMs: number
-  prompt?: string         // Raw prompt template (codergen nodes)
-  response?: string       // outcome.notes (codergen nodes)
+  prompt?: string // Raw prompt template (codergen nodes)
+  response?: string // outcome.notes (codergen nodes)
 }
 
 export interface ScenarioIterationArtifacts {
@@ -86,10 +86,7 @@ export class RunStateManager {
       completedAt: artifacts.completedAt,
       durationMs: artifacts.durationMs,
     }
-    await writeFile(
-      path.join(nodeDir, 'status.json'),
-      JSON.stringify(statusPayload, null, 2),
-    )
+    await writeFile(path.join(nodeDir, 'status.json'), JSON.stringify(statusPayload, null, 2))
 
     // Conditionally write prompt.md
     if (artifacts.prompt) {
@@ -114,13 +111,13 @@ export class RunStateManager {
 
     await writeFile(
       path.join(iterDir, 'manifest.json'),
-      JSON.stringify(artifacts.manifest, null, 2),
+      JSON.stringify(artifacts.manifest, null, 2)
     )
 
     if (artifacts.results) {
       await writeFile(
         path.join(iterDir, 'results.json'),
-        JSON.stringify(artifacts.results, null, 2),
+        JSON.stringify(artifacts.results, null, 2)
       )
     }
   }

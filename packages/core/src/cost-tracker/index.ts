@@ -8,12 +8,7 @@ export { CostTrackerImpl, createCostTracker } from './cost-tracker-impl.js'
 export { CostTrackerSubscriber, createCostTrackerSubscriber } from './cost-tracker-subscriber.js'
 export type { CostTrackerSubscriberOptions } from './cost-tracker-subscriber.js'
 
-export type {
-  CostEntry,
-  TaskCostSummary,
-  SessionCostSummary,
-  AgentCostBreakdown,
-} from './types.js'
+export type { CostEntry, TaskCostSummary, SessionCostSummary, AgentCostBreakdown } from './types.js'
 
 export type { TokenRates, ModelRates } from './token-rates.js'
 export {

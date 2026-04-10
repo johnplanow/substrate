@@ -34,7 +34,11 @@ const OUTPUT_RATIO = 0.5
 
 /** Strip markdown code fences from LLM output (e.g. ```json ... ```) */
 function stripCodeFences(raw: string): string {
-  return raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
+  return raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/, '')
+    .trim()
 }
 
 /** Codex default billing modes — subscription via `codex login`, or API key */
@@ -202,11 +206,7 @@ export class CodexCLIAdapter implements WorkerAdapter {
   /**
    * Parse Codex plan generation output.
    */
-  parsePlanOutput(
-    stdout: string,
-    stderr: string,
-    exitCode: number
-  ): PlanParseResult {
+  parsePlanOutput(stdout: string, stderr: string, exitCode: number): PlanParseResult {
     if (exitCode !== 0) {
       return {
         success: false,
@@ -300,13 +300,7 @@ export class CodexCLIAdapter implements WorkerAdapter {
       supportsApiBilling: true,
       supportsPlanGeneration: true,
       maxContextTokens: 128_000,
-      supportedTaskTypes: [
-        'code',
-        'refactor',
-        'test',
-        'debug',
-        'analyze',
-      ],
+      supportedTaskTypes: ['code', 'refactor', 'test', 'debug', 'analyze'],
       supportedLanguages: ['*'],
       timeoutMultiplier: 3.0,
       supportsSystemPrompt: false,
@@ -322,9 +316,7 @@ export class CodexCLIAdapter implements WorkerAdapter {
 
   private _buildPlanningPrompt(request: PlanRequest): string {
     const maxTasks = request.maxTasks ?? 10
-    const contextSection = request.context
-      ? `\n\nAdditional context:\n${request.context}`
-      : ''
+    const contextSection = request.context ? `\n\nAdditional context:\n${request.context}` : ''
 
     return (
       `Generate a detailed task plan for the following goal:\n${request.goal}${contextSection}\n\n` +

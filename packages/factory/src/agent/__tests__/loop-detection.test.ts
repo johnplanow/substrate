@@ -17,7 +17,7 @@ function recordN(
   detector: LoopDetector,
   n: number,
   toolName = 'tool',
-  args: Record<string, unknown> = {},
+  args: Record<string, unknown> = {}
 ): boolean[] {
   const results: boolean[] = []
   for (let i = 0; i < n; i++) {
@@ -39,7 +39,7 @@ describe('LoopDetector — construction', () => {
   it('returns false for any call count below windowSize', () => {
     const d = makeDetector(10)
     const results = recordN(d, 9, 'tool_a', {})
-    expect(results.every(r => r === false)).toBe(true)
+    expect(results.every((r) => r === false)).toBe(true)
   })
 })
 
@@ -52,7 +52,7 @@ describe('LoopDetector — pattern length 1', () => {
     const d = makeDetector(10)
     const results = recordN(d, 10, 'tool_a', {})
     // First 9 must be false; 10th triggers detection
-    expect(results.slice(0, 9).every(r => r === false)).toBe(true)
+    expect(results.slice(0, 9).every((r) => r === false)).toBe(true)
     expect(results[9]).toBe(true)
   })
 
@@ -82,7 +82,7 @@ describe('LoopDetector — pattern length 2', () => {
       }
     }
     // First 9 false, 10th true
-    expect(results.slice(0, 9).every(r => r === false)).toBe(true)
+    expect(results.slice(0, 9).every((r) => r === false)).toBe(true)
     expect(results[9]).toBe(true)
   })
 })
@@ -95,8 +95,8 @@ describe('LoopDetector — pattern length 3', () => {
   it('returns true on 6th call for A-B-C-A-B-C pattern (windowSize=6)', () => {
     const d = makeDetector(6)
     const tools = ['tool_a', 'tool_b', 'tool_c', 'tool_a', 'tool_b', 'tool_c']
-    const results = tools.map(t => d.record(t, {}))
-    expect(results.slice(0, 5).every(r => r === false)).toBe(true)
+    const results = tools.map((t) => d.record(t, {}))
+    expect(results.slice(0, 5).every((r) => r === false)).toBe(true)
     expect(results[5]).toBe(true)
   })
 
@@ -152,13 +152,13 @@ describe('LoopDetector — enabled: false', () => {
   it('always returns false when enabled=false, even with repeating patterns', () => {
     const d = makeDetector(10, false)
     const results = recordN(d, 10, 'tool_a', {})
-    expect(results.every(r => r === false)).toBe(true)
+    expect(results.every((r) => r === false)).toBe(true)
   })
 
   it('returns false even after 100 identical calls when disabled', () => {
     const d = makeDetector(10, false)
     const results = recordN(d, 100, 'tool_a', {})
-    expect(results.every(r => r === false)).toBe(true)
+    expect(results.every((r) => r === false)).toBe(true)
   })
 })
 

@@ -4,18 +4,23 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
-import { AnthropicProfile, OpenAIProfile, GeminiProfile, type ProviderProfile } from '../profiles.js'
+import {
+  AnthropicProfile,
+  OpenAIProfile,
+  GeminiProfile,
+  type ProviderProfile,
+} from '../profiles.js'
 
 describe('AnthropicProfile', () => {
   const profile = new AnthropicProfile('claude-opus-4-5')
 
   it('tools() includes edit_file', () => {
-    const names = profile.tools().map(t => t.name)
+    const names = profile.tools().map((t) => t.name)
     expect(names).toContain('edit_file')
   })
 
   it('tools() includes all 5 shared tools', () => {
-    const names = profile.tools().map(t => t.name)
+    const names = profile.tools().map((t) => t.name)
     expect(names).toContain('read_file')
     expect(names).toContain('write_file')
     expect(names).toContain('shell')
@@ -24,7 +29,7 @@ describe('AnthropicProfile', () => {
   })
 
   it('shell timeout is 120,000ms', async () => {
-    const shellTool = profile.tools().find(t => t.name === 'shell')
+    const shellTool = profile.tools().find((t) => t.name === 'shell')
     expect(shellTool).toBeDefined()
     // Verify timeout by executing the shell tool and capturing the timeout arg
     const mockEnv = {
@@ -53,17 +58,17 @@ describe('OpenAIProfile', () => {
   const profile = new OpenAIProfile('gpt-4o')
 
   it('tools() includes apply_patch', () => {
-    const names = profile.tools().map(t => t.name)
+    const names = profile.tools().map((t) => t.name)
     expect(names).toContain('apply_patch')
   })
 
   it('tools() does NOT include edit_file', () => {
-    const names = profile.tools().map(t => t.name)
+    const names = profile.tools().map((t) => t.name)
     expect(names).not.toContain('edit_file')
   })
 
   it('tools() includes all shared tools plus apply_patch', () => {
-    const names = profile.tools().map(t => t.name)
+    const names = profile.tools().map((t) => t.name)
     expect(names).toContain('read_file')
     expect(names).toContain('shell')
     expect(names).toContain('grep')
@@ -80,22 +85,22 @@ describe('GeminiProfile', () => {
   const profile = new GeminiProfile('gemini-2.0-flash')
 
   it('tools() includes read_many_files', () => {
-    const names = profile.tools().map(t => t.name)
+    const names = profile.tools().map((t) => t.name)
     expect(names).toContain('read_many_files')
   })
 
   it('tools() includes list_dir', () => {
-    const names = profile.tools().map(t => t.name)
+    const names = profile.tools().map((t) => t.name)
     expect(names).toContain('list_dir')
   })
 
   it('tools() includes edit_file', () => {
-    const names = profile.tools().map(t => t.name)
+    const names = profile.tools().map((t) => t.name)
     expect(names).toContain('edit_file')
   })
 
   it('tools() includes all 5 shared tools', () => {
-    const names = profile.tools().map(t => t.name)
+    const names = profile.tools().map((t) => t.name)
     expect(names).toContain('read_file')
     expect(names).toContain('write_file')
     expect(names).toContain('shell')
@@ -138,7 +143,7 @@ describe('ProviderProfile interface conformance', () => {
     const profile = new AnthropicProfile('claude-opus-4-5')
     const tools = profile.tools()
     // Anthropic uses 120_000ms timeout. The edit_file tool should be last
-    const editFileTool = tools.find(t => t.name === 'edit_file')
+    const editFileTool = tools.find((t) => t.name === 'edit_file')
     expect(editFileTool).toBeDefined()
     // Anthropic has 6 tools (5 shared + edit_file)
     expect(tools).toHaveLength(6)

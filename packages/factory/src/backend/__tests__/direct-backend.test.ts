@@ -96,7 +96,9 @@ function makeContext(): IGraphContext {
   const store = new Map<string, unknown>()
   return {
     get: (key: string) => store.get(key),
-    set: (key: string, value: unknown) => { store.set(key, value) },
+    set: (key: string, value: unknown) => {
+      store.set(key, value)
+    },
     getString: (key: string, defaultValue = '') => {
       const v = store.get(key)
       return v !== undefined ? String(v) : defaultValue
@@ -161,7 +163,9 @@ beforeEach(() => {
     }),
     processInput: mockProcessInput,
     close: mockClose,
-    get history() { return mockHistory },
+    get history() {
+      return mockHistory
+    },
   }
 
   vi.mocked(createSession).mockReturnValue(mockSession as never)
@@ -207,9 +211,7 @@ describe('AC1 – session creation and processInput', () => {
       config,
     })
     await backend.run(makeNode(), 'prompt', makeContext())
-    expect(createSession).toHaveBeenCalledWith(
-      expect.objectContaining({ config })
-    )
+    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({ config }))
   })
 })
 
@@ -351,7 +353,9 @@ describe('AC4 – onEvent callback receives session events', () => {
     await backend.run(makeNode(), 'prompt', makeContext())
 
     // session.on should have been called for every EventKind value
-    const registeredKinds = (mockSession.on.mock.calls as Array<[EventKind, unknown]>).map(([k]) => k)
+    const registeredKinds = (mockSession.on.mock.calls as Array<[EventKind, unknown]>).map(
+      ([k]) => k
+    )
     for (const kind of Object.values(EventKind)) {
       expect(registeredKinds).toContain(kind)
     }
@@ -366,7 +370,9 @@ describe('AC4 – onEvent callback receives session events', () => {
     })
     await backend.run(makeNode(), 'prompt', makeContext())
 
-    const registeredKinds = (mockSession.on.mock.calls as Array<[EventKind, unknown]>).map(([k]) => k)
+    const registeredKinds = (mockSession.on.mock.calls as Array<[EventKind, unknown]>).map(
+      ([k]) => k
+    )
     // Only TURN_LIMIT handler should be registered
     expect(registeredKinds).toEqual([EventKind.TURN_LIMIT])
   })

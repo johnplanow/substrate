@@ -118,7 +118,7 @@ describe('RunManifest — read path and fallback', () => {
     // Write invalid primary (schema-invalid JSON object)
     await writeFile(
       primaryPath(tempDir, runId),
-      JSON.stringify({ invalid_field: true, run_id: runId }),
+      JSON.stringify({ invalid_field: true, run_id: runId })
     )
     const bakData = makeValidManifest(runId, 5)
     await writeFile(bakPath(tempDir, runId), JSON.stringify(bakData))
@@ -169,10 +169,7 @@ describe('RunManifest — read path and fallback', () => {
     expect(result.cli_flags).toEqual({ stories: ['52-1'] })
 
     // Query should have been called with the run ID
-    expect(mockDolt.query).toHaveBeenCalledWith(
-      expect.stringContaining('pipeline_runs'),
-      [runId],
-    )
+    expect(mockDolt.query).toHaveBeenCalledWith(expect.stringContaining('pipeline_runs'), [runId])
   })
 
   // -------------------------------------------------------------------------
@@ -181,7 +178,7 @@ describe('RunManifest — read path and fallback', () => {
 
   it('AC4: read() prefers .bak over primary when .bak has higher generation', async () => {
     const primaryData = makeValidManifest(runId, 3) // older
-    const bakData = makeValidManifest(runId, 4)     // newer (survived mid-rename crash)
+    const bakData = makeValidManifest(runId, 4) // newer (survived mid-rename crash)
 
     await writeFile(primaryPath(tempDir, runId), JSON.stringify(primaryData))
     await writeFile(bakPath(tempDir, runId), JSON.stringify(bakData))
@@ -248,7 +245,7 @@ describe('RunManifest — read path and fallback', () => {
         run_id: runId,
         // missing generation, created_at, updated_at, etc.
         some_field: 'garbage',
-      }),
+      })
     )
 
     // Bak has valid data

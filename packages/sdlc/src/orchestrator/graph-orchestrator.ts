@@ -57,7 +57,7 @@ export function resolveGraphPath(): string {
   }
 
   throw new Error(
-    `Cannot locate sdlc-pipeline.dot. Searched:\n${candidates.map((c) => `  ${c}`).join('\n')}`,
+    `Cannot locate sdlc-pipeline.dot. Searched:\n${candidates.map((c) => `  ${c}`).join('\n')}`
   )
 }
 
@@ -241,7 +241,7 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
 
   async function runStoryGraph(
     storyKey: string,
-    summary: { s: number; f: number; stories: Record<string, GraphStoryOutcome> },
+    summary: { s: number; f: number; stories: Record<string, GraphStoryOutcome> }
   ): Promise<void> {
     // Derive epicId from story key (e.g. "48-1" → "48")
     const epicId = storyKey.split('-')[0] ?? ''
@@ -251,7 +251,9 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
       epicId,
       projectRoot: config.projectRoot,
       methodologyPack: config.methodologyPack,
-      ...(config.pipelineRunId !== undefined ? { runId: config.pipelineRunId, pipelineRunId: config.pipelineRunId } : {}),
+      ...(config.pipelineRunId !== undefined
+        ? { runId: config.pipelineRunId, pipelineRunId: config.pipelineRunId }
+        : {}),
     }
 
     // Create a per-story factory event bus so each story's graph events are scoped
@@ -275,7 +277,9 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
 
     // Track whether the executor escalated this story (goal gate unsatisfied after max retries)
     let escalated = false
-    factoryBus.on('graph:goal-gate-unsatisfied', () => { escalated = true })
+    factoryBus.on('graph:goal-gate-unsatisfied', () => {
+      escalated = true
+    })
 
     let result: GraphRunResult | undefined
     try {
@@ -318,7 +322,7 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
 
   async function runGroup(
     group: string[],
-    summary: { s: number; f: number; stories: Record<string, GraphStoryOutcome> },
+    summary: { s: number; f: number; stories: Record<string, GraphStoryOutcome> }
   ): Promise<void> {
     for (const storyKey of group) {
       await runStoryGraph(storyKey, summary)
@@ -328,7 +332,7 @@ export function createGraphOrchestrator(config: GraphOrchestratorConfig): GraphO
 
   async function runBatch(
     groups: string[][],
-    summary: { s: number; f: number; stories: Record<string, GraphStoryOutcome> },
+    summary: { s: number; f: number; stories: Record<string, GraphStoryOutcome> }
   ): Promise<void> {
     const queue = [...groups]
     const active: Promise<void>[] = []

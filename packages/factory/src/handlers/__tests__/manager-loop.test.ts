@@ -136,7 +136,7 @@ describe('createManagerLoopHandler — single cycle (AC1)', () => {
     const result = await handler(
       makeNode({ graph_file: 'body.dot', max_cycles: '1' }),
       ctx,
-      STUB_GRAPH,
+      STUB_GRAPH
     )
 
     expect(result.status).toBe('SUCCESS')
@@ -159,7 +159,7 @@ describe('createManagerLoopHandler — max_cycles enforcement (AC2)', () => {
     const result = await handler(
       makeNode({ graph_file: 'body.dot', max_cycles: '3' }),
       ctx,
-      STUB_GRAPH,
+      STUB_GRAPH
     )
 
     expect(result.status).toBe('SUCCESS')
@@ -210,7 +210,7 @@ describe('createManagerLoopHandler — stop_condition context key (AC3)', () => 
     const result = await handler(
       makeNode({ graph_file: 'body.dot', max_cycles: '5', stop_condition: 'done' }),
       ctx,
-      STUB_GRAPH,
+      STUB_GRAPH
     )
 
     expect(result.status).toBe('SUCCESS')
@@ -227,7 +227,7 @@ describe('createManagerLoopHandler — stop_condition context key (AC3)', () => 
     await handler(
       makeNode({ graph_file: 'body.dot', max_cycles: '3', stop_condition: 'done' }),
       ctx,
-      STUB_GRAPH,
+      STUB_GRAPH
     )
 
     expect(mockRun).toHaveBeenCalledTimes(3)
@@ -246,13 +246,13 @@ describe('createManagerLoopHandler — stop_condition llm: prefix (AC4)', () => 
 
     const llmCall = vi.fn().mockResolvedValue('yes')
     const handler = createManagerLoopHandler(
-      makeOptions({ llmCall, graphFileLoader: vi.fn().mockResolvedValue(VALID_DOT) }),
+      makeOptions({ llmCall, graphFileLoader: vi.fn().mockResolvedValue(VALID_DOT) })
     )
     const ctx = makeCtx()
     const result = await handler(
       makeNode({ graph_file: 'body.dot', max_cycles: '5', stop_condition: 'llm: Is done?' }),
       ctx,
-      STUB_GRAPH,
+      STUB_GRAPH
     )
 
     expect(result.status).toBe('SUCCESS')
@@ -267,13 +267,13 @@ describe('createManagerLoopHandler — stop_condition llm: prefix (AC4)', () => 
 
     const llmCall = vi.fn().mockResolvedValue('no')
     const handler = createManagerLoopHandler(
-      makeOptions({ llmCall, graphFileLoader: vi.fn().mockResolvedValue(VALID_DOT) }),
+      makeOptions({ llmCall, graphFileLoader: vi.fn().mockResolvedValue(VALID_DOT) })
     )
     const ctx = makeCtx()
     await handler(
       makeNode({ graph_file: 'body.dot', max_cycles: '3', stop_condition: 'llm: Is done?' }),
       ctx,
-      STUB_GRAPH,
+      STUB_GRAPH
     )
 
     expect(mockRun).toHaveBeenCalledTimes(3)
@@ -286,13 +286,13 @@ describe('createManagerLoopHandler — stop_condition llm: prefix (AC4)', () => 
 
     // No llmCall in options — omit the field entirely (exactOptionalPropertyTypes: true)
     const handler = createManagerLoopHandler(
-      makeOptions({ graphFileLoader: vi.fn().mockResolvedValue(VALID_DOT) }),
+      makeOptions({ graphFileLoader: vi.fn().mockResolvedValue(VALID_DOT) })
     )
     const ctx = makeCtx()
     await handler(
       makeNode({ graph_file: 'body.dot', max_cycles: '3', stop_condition: 'llm: Is done?' }),
       ctx,
-      STUB_GRAPH,
+      STUB_GRAPH
     )
 
     expect(mockRun).toHaveBeenCalledTimes(3)
@@ -316,11 +316,7 @@ describe('createManagerLoopHandler — cycle telemetry (AC5)', () => {
 
     const handler = createManagerLoopHandler(makeOptions())
     const ctx = makeCtx()
-    await handler(
-      makeNode({ graph_file: 'body.dot', max_cycles: '2' }),
-      ctx,
-      STUB_GRAPH,
-    )
+    await handler(makeNode({ graph_file: 'body.dot', max_cycles: '2' }), ctx, STUB_GRAPH)
 
     // After 2 cycles
     expect(ctx.get('manager_loop.cycle')).toBe(2)
@@ -339,14 +335,10 @@ describe('createManagerLoopHandler — stall detection (AC6)', () => {
     mockCreateGraphExecutor.mockReturnValue({ run: mockRun })
 
     const handler = createManagerLoopHandler(
-      makeOptions({ maxStallCycles: 2, graphFileLoader: vi.fn().mockResolvedValue(VALID_DOT) }),
+      makeOptions({ maxStallCycles: 2, graphFileLoader: vi.fn().mockResolvedValue(VALID_DOT) })
     )
     const ctx = makeCtx()
-    await handler(
-      makeNode({ graph_file: 'body.dot', max_cycles: '3' }),
-      ctx,
-      STUB_GRAPH,
-    )
+    await handler(makeNode({ graph_file: 'body.dot', max_cycles: '3' }), ctx, STUB_GRAPH)
 
     expect(ctx.get('manager_loop.steering.mode')).toBe('recovery')
     const hints = ctx.get('manager_loop.steering.hints') as string[]
@@ -364,14 +356,10 @@ describe('createManagerLoopHandler — stall detection (AC6)', () => {
     mockCreateGraphExecutor.mockReturnValue({ run: mockRun })
 
     const handler = createManagerLoopHandler(
-      makeOptions({ maxStallCycles: 2, graphFileLoader: vi.fn().mockResolvedValue(VALID_DOT) }),
+      makeOptions({ maxStallCycles: 2, graphFileLoader: vi.fn().mockResolvedValue(VALID_DOT) })
     )
     const ctx = makeCtx()
-    await handler(
-      makeNode({ graph_file: 'body.dot', max_cycles: '3' }),
-      ctx,
-      STUB_GRAPH,
-    )
+    await handler(makeNode({ graph_file: 'body.dot', max_cycles: '3' }), ctx, STUB_GRAPH)
 
     expect(ctx.get('manager_loop.steering.mode')).toBe('normal')
     expect(ctx.get('manager_loop.steering.hints')).toEqual([])
@@ -422,7 +410,7 @@ describe('createManagerLoopHandler — non-SUCCESS body outcome (AC5 complement)
     const result = await handler(
       makeNode({ graph_file: 'body.dot', max_cycles: '3' }),
       ctx,
-      STUB_GRAPH,
+      STUB_GRAPH
     )
 
     expect(result.status).toBe('SUCCESS')

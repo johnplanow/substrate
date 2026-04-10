@@ -65,7 +65,10 @@ export class AdapterOutputNormalizer {
    * @param adapterId  - Adapter identifier for error diagnostics and logging
    * @returns `{ yaml: string; strategy: string }` on success, or `AdapterFormatError` on exhaustion
    */
-  normalize(rawOutput: string, adapterId: string): { yaml: string; strategy: string } | AdapterFormatError {
+  normalize(
+    rawOutput: string,
+    adapterId: string
+  ): { yaml: string; strategy: string } | AdapterFormatError {
     const tried: string[] = []
     let lastError = 'no_yaml_block'
 
@@ -140,7 +143,7 @@ export class AdapterOutputNormalizer {
         tried_strategies: tried,
         snippet: rawOutput.slice(0, 500),
       },
-      'AdapterOutputNormalizer exhausted all strategies — adapter format unrecognized',
+      'AdapterOutputNormalizer exhausted all strategies — adapter format unrecognized'
     )
 
     return new AdapterFormatError({
@@ -246,8 +249,8 @@ function extractJsonAsYaml(text: string): string | null {
     const candidate = match[0]
 
     // Quick check: must contain at least one anchor key (bare, without colon)
-    const hasAnchorKey = YAML_ANCHOR_KEYS_BARE.some((key) =>
-      candidate.includes(`"${key}"`) || candidate.includes(`'${key}'`),
+    const hasAnchorKey = YAML_ANCHOR_KEYS_BARE.some(
+      (key) => candidate.includes(`"${key}"`) || candidate.includes(`'${key}'`)
     )
     if (!hasAnchorKey) continue
 

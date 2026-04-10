@@ -14,10 +14,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { TypedEventBus } from '@substrate-ai/core'
 import type { FactoryEvents } from '../../events.js'
-import {
-  evaluateDualSignal,
-  createDualSignalCoordinator,
-} from '../dual-signal.js'
+import { evaluateDualSignal, createDualSignalCoordinator } from '../dual-signal.js'
 import type { DualSignalVerdict, DualSignalResult } from '../dual-signal.js'
 
 // ---------------------------------------------------------------------------
@@ -150,7 +147,7 @@ describe('createDualSignalCoordinator', () => {
 
     expect(mockBus.emit).toHaveBeenCalledWith(
       'scenario:score-computed',
-      expect.objectContaining({ runId: 'run-42' }),
+      expect.objectContaining({ runId: 'run-42' })
     )
   })
 })

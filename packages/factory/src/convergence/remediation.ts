@@ -127,9 +127,7 @@ export function deriveFixScope(results: ScenarioRunResult): string {
  * Stores `satisfactionScoreHistory` as a defensive copy (`[...params.satisfactionScoreHistory]`)
  * so external mutation of the caller's array does not corrupt the stored history.
  */
-export function buildRemediationContext(
-  params: BuildRemediationContextParams,
-): RemediationContext {
+export function buildRemediationContext(params: BuildRemediationContextParams): RemediationContext {
   const scenarioDiff = params.scenarioResults
     ? formatScenarioDiff(params.scenarioResults)
     : 'No scenario results available'
@@ -157,7 +155,7 @@ export function buildRemediationContext(
  */
 export function injectRemediationContext(
   context: IGraphContext,
-  remediation: RemediationContext,
+  remediation: RemediationContext
 ): void {
   context.set(REMEDIATION_CONTEXT_KEY, remediation)
 }

@@ -14,7 +14,9 @@
 // ---------------------------------------------------------------------------
 
 vi.mock('node:fs', () => ({
-  readFileSync: vi.fn().mockReturnValue('# Story 53-8\n\n## Target files\n\nsrc/foo.ts\npackages/sdlc/src/bar.ts'),
+  readFileSync: vi
+    .fn()
+    .mockReturnValue('# Story 53-8\n\n## Target files\n\nsrc/foo.ts\npackages/sdlc/src/bar.ts'),
 }))
 
 // ---------------------------------------------------------------------------
@@ -29,7 +31,9 @@ vi.mock('../../learning/findings-injector.js', () => ({
   FindingsInjector: {
     inject: vi.fn(),
   },
-  extractTargetFilesFromStoryContent: vi.fn().mockReturnValue(['src/foo.ts', 'packages/sdlc/src/bar.ts']),
+  extractTargetFilesFromStoryContent: vi
+    .fn()
+    .mockReturnValue(['src/foo.ts', 'packages/sdlc/src/bar.ts']),
 }))
 
 vi.mock('../../learning/finding-lifecycle.js', () => ({
@@ -60,7 +64,7 @@ const stubGraph = {}
 
 function makeContext(
   stringValues: Record<string, string | undefined>,
-  listValues: Record<string, string[] | undefined> = {},
+  listValues: Record<string, string[] | undefined> = {}
 ) {
   return {
     getString: vi.fn().mockImplementation((key: string, defaultValue?: string): string => {
@@ -97,7 +101,7 @@ function makeMockDb(): DatabaseAdapter {
         transaction: vi.fn(),
         close: vi.fn(),
         queryReadyStories: vi.fn().mockResolvedValue([]),
-      } as unknown as DatabaseAdapter),
+      } as unknown as DatabaseAdapter)
     ),
     close: vi.fn().mockResolvedValue(undefined),
     queryReadyStories: vi.fn().mockResolvedValue([]),
@@ -293,7 +297,9 @@ describe('createSdlcDevStoryHandler — pipeline:finding-captured event (AC6)', 
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const findingCapturedCalls = emitMock.mock.calls.filter(([e]) => e === 'pipeline:finding-captured')
+    const findingCapturedCalls = emitMock.mock.calls.filter(
+      ([e]) => e === 'pipeline:finding-captured'
+    )
     expect(findingCapturedCalls).toHaveLength(0)
   })
 
@@ -310,7 +316,9 @@ describe('createSdlcDevStoryHandler — pipeline:finding-captured event (AC6)', 
     await handler(stubNode, context, stubGraph)
 
     const emitMock = vi.mocked(mockEventBus.emit)
-    const findingCapturedCalls = emitMock.mock.calls.filter(([e]) => e === 'pipeline:finding-captured')
+    const findingCapturedCalls = emitMock.mock.calls.filter(
+      ([e]) => e === 'pipeline:finding-captured'
+    )
     expect(findingCapturedCalls).toHaveLength(0)
   })
 })
@@ -350,7 +358,8 @@ describe('createSdlcDevStoryHandler — retireContradictedFindings on success (A
     await handler(stubNode, context, stubGraph)
 
     expect(FindingLifecycleManager.retireContradictedFindings).toHaveBeenCalledOnce()
-    const [successCtx, db] = vi.mocked(FindingLifecycleManager.retireContradictedFindings).mock.calls[0]!
+    const [successCtx, db] = vi.mocked(FindingLifecycleManager.retireContradictedFindings).mock
+      .calls[0]!
     expect(successCtx.modifiedFiles).toEqual(['src/foo.ts', 'src/bar.ts'])
     expect(successCtx.runId).toBe('run-001')
     expect(db).toBe(mockDb)
@@ -358,7 +367,7 @@ describe('createSdlcDevStoryHandler — retireContradictedFindings on success (A
 
   it('still returns SUCCESS even when retireContradictedFindings throws (AC5)', async () => {
     vi.mocked(FindingLifecycleManager.retireContradictedFindings).mockRejectedValue(
-      new Error('DB write failed'),
+      new Error('DB write failed')
     )
 
     const context = makeContext({
@@ -446,7 +455,11 @@ describe('createSdlcDevStoryHandler — FindingsInjector.inject pre-dispatch (AC
       return successResult
     })
 
-    const context = makeContext({ storyKey: '53-8', storyFilePath: '/stories/53-8.md', pipelineRunId: 'run-001' })
+    const context = makeContext({
+      storyKey: '53-8',
+      storyFilePath: '/stories/53-8.md',
+      pipelineRunId: 'run-001',
+    })
     const handler = createSdlcDevStoryHandler(options)
     await handler(stubNode, context, stubGraph)
 
@@ -456,10 +469,14 @@ describe('createSdlcDevStoryHandler — FindingsInjector.inject pre-dispatch (AC
 
   it('prepends non-empty findingsPrompt to devStoryParams (AC2)', async () => {
     vi.mocked(FindingsInjector.inject).mockResolvedValue(
-      'Prior run findings (most relevant first):\n\n[build-failure] Directive: Build failed after story dispatch',
+      'Prior run findings (most relevant first):\n\n[build-failure] Directive: Build failed after story dispatch'
     )
 
-    const context = makeContext({ storyKey: '53-8', storyFilePath: '/stories/53-8.md', pipelineRunId: 'run-001' })
+    const context = makeContext({
+      storyKey: '53-8',
+      storyFilePath: '/stories/53-8.md',
+      pipelineRunId: 'run-001',
+    })
     const handler = createSdlcDevStoryHandler(options)
     await handler(stubNode, context, stubGraph)
 
@@ -470,7 +487,11 @@ describe('createSdlcDevStoryHandler — FindingsInjector.inject pre-dispatch (AC
   it('omits findingsPrompt when inject returns empty string (AC2)', async () => {
     vi.mocked(FindingsInjector.inject).mockResolvedValue('')
 
-    const context = makeContext({ storyKey: '53-8', storyFilePath: '/stories/53-8.md', pipelineRunId: 'run-001' })
+    const context = makeContext({
+      storyKey: '53-8',
+      storyFilePath: '/stories/53-8.md',
+      pipelineRunId: 'run-001',
+    })
     const handler = createSdlcDevStoryHandler(options)
     await handler(stubNode, context, stubGraph)
 
@@ -481,7 +502,11 @@ describe('createSdlcDevStoryHandler — FindingsInjector.inject pre-dispatch (AC
   it('still dispatches when FindingsInjector.inject throws (AC5)', async () => {
     vi.mocked(FindingsInjector.inject).mockRejectedValue(new Error('DB error'))
 
-    const context = makeContext({ storyKey: '53-8', storyFilePath: '/stories/53-8.md', pipelineRunId: 'run-001' })
+    const context = makeContext({
+      storyKey: '53-8',
+      storyFilePath: '/stories/53-8.md',
+      pipelineRunId: 'run-001',
+    })
     const handler = createSdlcDevStoryHandler(options)
     const result = await handler(stubNode, context, stubGraph)
 

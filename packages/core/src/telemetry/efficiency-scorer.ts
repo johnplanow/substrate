@@ -92,26 +92,26 @@ export class EfficiencyScorer implements IEfficiencyScorer {
     const contextManagementSubScore = this._computeContextManagementSubScore(scoringTurns)
     const tokenDensitySubScore = this._computeTokenDensitySubScore(
       scoringTurns,
-      baseline.expectedOutputPerTurn,
+      baseline.expectedOutputPerTurn
     )
 
     const compositeScore = Math.round(
       cacheHitSubScore * W_CACHE +
-      ioRatioSubScore * W_IO_RATIO +
-      contextManagementSubScore * W_CONTEXT +
-      tokenDensitySubScore * W_TOKEN_DENSITY,
+        ioRatioSubScore * W_IO_RATIO +
+        contextManagementSubScore * W_CONTEXT +
+        tokenDensitySubScore * W_TOKEN_DENSITY
     )
 
     const perModelBreakdown = this._buildPerModelBreakdown(scoringTurns)
     const perSourceBreakdown = this._buildPerSourceBreakdown(
       scoringTurns,
       baseline.targetIoRatio,
-      baseline.expectedOutputPerTurn,
+      baseline.expectedOutputPerTurn
     )
 
     this._logger.info(
       { storyKey, compositeScore, contextSpikeCount, coldStartTurnsExcluded: coldStartIds.size },
-      'Computed efficiency score',
+      'Computed efficiency score'
     )
 
     return {
@@ -147,7 +147,11 @@ export class EfficiencyScorer implements IEfficiencyScorer {
 
     // Turns are in chronological order (by turnNumber); first seen per dispatch is cold-start
     for (const turn of turns) {
-      if (turn.dispatchId !== undefined && turn.dispatchId !== '' && !seenDispatches.has(turn.dispatchId)) {
+      if (
+        turn.dispatchId !== undefined &&
+        turn.dispatchId !== '' &&
+        !seenDispatches.has(turn.dispatchId)
+      ) {
         seenDispatches.add(turn.dispatchId)
         coldStarts.add(turn.spanId)
       }
@@ -201,10 +205,11 @@ export class EfficiencyScorer implements IEfficiencyScorer {
    */
   private _computeIoRatioSubScore(turns: TurnAnalysis[], targetRatio: number): number {
     if (turns.length === 0) return 0
-    const avg = turns.reduce((acc, t) => {
-      const freshInput = Math.max(t.inputTokens, 1) // fresh tokens only, not cached
-      return acc + t.outputTokens / freshInput
-    }, 0) / turns.length
+    const avg =
+      turns.reduce((acc, t) => {
+        const freshInput = Math.max(t.inputTokens, 1) // fresh tokens only, not cached
+        return acc + t.outputTokens / freshInput
+      }, 0) / turns.length
 
     if (avg <= 0) return 0
     const logTarget = Math.log10(Math.max(targetRatio, 2)) // guard against degenerate target
@@ -234,7 +239,10 @@ export class EfficiencyScorer implements IEfficiencyScorer {
    * Below-baseline dispatches get proportionally lower scores.
    * At-or-above-baseline dispatches score 100.
    */
-  private _computeTokenDensitySubScore(turns: TurnAnalysis[], expectedOutputPerTurn: number): number {
+  private _computeTokenDensitySubScore(
+    turns: TurnAnalysis[],
+    expectedOutputPerTurn: number
+  ): number {
     if (turns.length === 0) return 0
     const avgOutput = turns.reduce((acc, t) => acc + t.outputTokens, 0) / turns.length
     const ratio = avgOutput / Math.max(expectedOutputPerTurn, 1)
@@ -276,7 +284,7 @@ export class EfficiencyScorer implements IEfficiencyScorer {
     const groups = new Map<string, TurnAnalysis[]>()
 
     for (const turn of turns) {
-      const key = (turn.model != null && turn.model !== '') ? turn.model : 'unknown'
+      const key = turn.model != null && turn.model !== '' ? turn.model : 'unknown'
       const existing = groups.get(key)
       if (existing !== undefined) {
         existing.push(turn)
@@ -299,8 +307,7 @@ export class EfficiencyScorer implements IEfficiencyScorer {
 
       const totalCostUsd = groupTurns.reduce((acc, t) => acc + t.costUsd, 0)
       const totalOutputTokens = groupTurns.reduce((acc, t) => acc + t.outputTokens, 0)
-      const costPer1KOutputTokens =
-        (totalCostUsd / Math.max(totalOutputTokens, 1)) * 1000
+      const costPer1KOutputTokens = (totalCostUsd / Math.max(totalOutputTokens, 1)) * 1000
 
       result.push({ model, cacheHitRate, avgIoRatio, costPer1KOutputTokens })
     }
@@ -319,7 +326,7 @@ export class EfficiencyScorer implements IEfficiencyScorer {
   private _buildPerSourceBreakdown(
     turns: TurnAnalysis[],
     targetIoRatio: number,
-    expectedOutputPerTurn: number,
+    expectedOutputPerTurn: number
   ): SourceEfficiency[] {
     const groups = new Map<string, TurnAnalysis[]>()
 
@@ -345,9 +352,9 @@ export class EfficiencyScorer implements IEfficiencyScorer {
 
       const compositeScore = Math.round(
         cacheHitSub * W_CACHE +
-        ioRatioSub * W_IO_RATIO +
-        contextSub * W_CONTEXT +
-        tokenDensitySub * W_TOKEN_DENSITY,
+          ioRatioSub * W_IO_RATIO +
+          contextSub * W_CONTEXT +
+          tokenDensitySub * W_TOKEN_DENSITY
       )
 
       result.push({ source, compositeScore, turnCount: groupTurns.length })

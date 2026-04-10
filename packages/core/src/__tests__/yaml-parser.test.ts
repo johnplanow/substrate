@@ -63,14 +63,7 @@ describe('extractYamlBlock', () => {
     })
 
     it('extracts from ``` fence without yaml tag', () => {
-      const output = [
-        'Done.',
-        '',
-        '```',
-        'result: success',
-        'files_changed: 3',
-        '```',
-      ].join('\n')
+      const output = ['Done.', '', '```', 'result: success', 'files_changed: 3', '```'].join('\n')
 
       const result = extractYamlBlock(output)
 
@@ -114,12 +107,7 @@ describe('extractYamlBlock', () => {
     })
 
     it('returns null when fenced block contains no anchor keys', () => {
-      const output = [
-        '```yaml',
-        'name: test',
-        'value: 123',
-        '```',
-      ].join('\n')
+      const output = ['```yaml', 'name: test', 'value: 123', '```'].join('\n')
 
       // No anchor key (result:, verdict:, story_file:, expansion_priority:)
       expect(extractYamlBlock(output)).toBeNull()
@@ -165,12 +153,7 @@ describe('extractYamlBlock', () => {
     })
 
     it('extracts unfenced YAML starting with result: anchor', () => {
-      const output = [
-        'Processing complete.',
-        '',
-        'result: success',
-        'files_modified: 5',
-      ].join('\n')
+      const output = ['Processing complete.', '', 'result: success', 'files_modified: 5'].join('\n')
 
       const result = extractYamlBlock(output)
 
@@ -224,12 +207,7 @@ describe('extractYamlBlock', () => {
       // This is a case where the YAML is wrapped in fences but the
       // fenced extraction might not match (e.g., fence without anchor key
       // in the regex path). The stripTrailingFence handles it.
-      const output = [
-        '```yaml',
-        'verdict: pass',
-        'notes: all good',
-        '```',
-      ].join('\n')
+      const output = ['```yaml', 'verdict: pass', 'notes: all good', '```'].join('\n')
 
       const result = extractYamlBlock(output)
 
@@ -372,9 +350,11 @@ describe('parseYamlResult', () => {
     })
 
     it('strips unknown fields when schema is strict', () => {
-      const StrictSchema = z.object({
-        verdict: z.string(),
-      }).strict()
+      const StrictSchema = z
+        .object({
+          verdict: z.string(),
+        })
+        .strict()
 
       const yamlText = 'verdict: pass\nextra_field: surprise'
 
@@ -464,10 +444,14 @@ describe('parseYamlResult', () => {
 
       const schema = z.object({
         result: z.enum(['success', 'failed']),
-        non_functional_requirements: z.array(z.object({
-          description: z.string(),
-          category: z.string(),
-        })).min(2),
+        non_functional_requirements: z
+          .array(
+            z.object({
+              description: z.string(),
+              category: z.string(),
+            })
+          )
+          .min(2),
         tech_stack: z.record(z.string(), z.string()),
       })
 
@@ -540,7 +524,8 @@ describe('parseYamlResult', () => {
 
   describe('JSON fallback extraction', () => {
     it('extracts JSON object containing anchor key and converts to YAML', () => {
-      const output = 'Some narrative...\n{\n"result": "success",\n"files_modified": ["src/foo.ts"]\n}\nDone.'
+      const output =
+        'Some narrative...\n{\n"result": "success",\n"files_modified": ["src/foo.ts"]\n}\nDone.'
       const block = extractYamlBlock(output)
       expect(block).not.toBeNull()
       expect(block).toContain('result: success')

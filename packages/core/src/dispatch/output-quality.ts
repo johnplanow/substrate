@@ -142,7 +142,10 @@ export function estimateOutputQuality(output: string): OutputQualitySignals {
   const hasYamlBlock = /```yaml[\s\S]*?```/.test(output) || /^result:\s/m.test(output)
 
   // Detect completion language
-  const mentionsCompletion = /(?:all tasks? (?:complete|done|finished)|implementation complete|AC\d? met|story complete)/i.test(output)
+  const mentionsCompletion =
+    /(?:all tasks? (?:complete|done|finished)|implementation complete|AC\d? met|story complete)/i.test(
+      output
+    )
 
   // Compute quality score (0-100)
   // Start pessimistic (30) — agent must demonstrate quality through positive signals

@@ -15,10 +15,7 @@ import { UpdateChecker } from './update-checker.js'
 import { VersionCache } from './version-cache.js'
 import type { MigrationResult } from '../config/index.js'
 import { defaultConfigMigrator } from '../config/index.js'
-import {
-  SUPPORTED_CONFIG_FORMAT_VERSIONS,
-  SUPPORTED_TASK_GRAPH_VERSIONS,
-} from '../config/index.js'
+import { SUPPORTED_CONFIG_FORMAT_VERSIONS, SUPPORTED_TASK_GRAPH_VERSIONS } from '../config/index.js'
 
 // ---------------------------------------------------------------------------
 // Dependencies interface
@@ -66,16 +63,20 @@ export class VersionManagerImpl implements VersionManager {
     try {
       const __dirname = dirname(fileURLToPath(import.meta.url))
       const candidates = [
-        resolve(__dirname, '../package.json'),       // dist/chunk.js → repo root
-        resolve(__dirname, '../../package.json'),     // dist/cli/index.js → repo root
-        resolve(__dirname, '../../../package.json'),  // src/modules/version-manager/ → repo root
+        resolve(__dirname, '../package.json'), // dist/chunk.js → repo root
+        resolve(__dirname, '../../package.json'), // dist/cli/index.js → repo root
+        resolve(__dirname, '../../../package.json'), // src/modules/version-manager/ → repo root
         resolve(__dirname, '../../../../package.json'), // packages/core/src/version-manager/ → core root
       ]
       for (const candidate of candidates) {
         try {
           const raw = readFileSync(candidate, 'utf-8')
           const pkg = JSON.parse(raw) as { version?: string; name?: string }
-          if (pkg.name === 'substrate-ai' && typeof pkg.version === 'string' && pkg.version.length > 0) {
+          if (
+            pkg.name === 'substrate-ai' &&
+            typeof pkg.version === 'string' &&
+            pkg.version.length > 0
+          ) {
             return pkg.version
           }
         } catch {
@@ -187,10 +188,10 @@ export class VersionManagerImpl implements VersionManager {
         ? [`Major version bump from v${fromVersion} to v${targetVersion}`]
         : [],
       migrationSteps: [this.updateChecker.getChangelog(targetVersion)],
-      automaticMigrations: breaking ? ['Run defaultConfigMigrator.migrate() if config changed'] : [],
-      manualStepsRequired: breaking
-        ? ['Review breaking changes at the changelog URL above']
+      automaticMigrations: breaking
+        ? ['Run defaultConfigMigrator.migrate() if config changed']
         : [],
+      manualStepsRequired: breaking ? ['Review breaking changes at the changelog URL above'] : [],
     }
   }
 
@@ -225,7 +226,11 @@ export class VersionManagerImpl implements VersionManager {
    * Migrate a task graph file from one format version to another.
    * Delegates to the shared defaultConfigMigrator singleton.
    */
-  migrateTaskGraphFormat(fromVersion: string, toVersion: string, filePath: string): MigrationResult {
+  migrateTaskGraphFormat(
+    fromVersion: string,
+    toVersion: string,
+    filePath: string
+  ): MigrationResult {
     const { result } = defaultConfigMigrator.migrate({}, fromVersion, toVersion, filePath)
     return result
   }

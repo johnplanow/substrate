@@ -4,7 +4,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createReadManyFilesTool, createListDirTool, createGeminiEditFileTool } from '../gemini-tools.js'
+import {
+  createReadManyFilesTool,
+  createListDirTool,
+  createGeminiEditFileTool,
+} from '../gemini-tools.js'
 import { mkdtemp, writeFile, readFile, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -27,7 +31,10 @@ describe('createReadManyFilesTool — executor', () => {
     await writeFile(join(tmpDir, 'b.ts'), 'hello\n', 'utf-8')
 
     const tool = createReadManyFilesTool()
-    const result = await tool.executor({ paths: [join(tmpDir, 'a.ts'), join(tmpDir, 'b.ts')] }, mockEnv)
+    const result = await tool.executor(
+      { paths: [join(tmpDir, 'a.ts'), join(tmpDir, 'b.ts')] },
+      mockEnv
+    )
 
     expect(result).toContain('=== ' + join(tmpDir, 'a.ts') + ' ===')
     expect(result).toContain('=== ' + join(tmpDir, 'b.ts') + ' ===')
@@ -91,7 +98,10 @@ describe('createGeminiEditFileTool — executor', () => {
     const tool = createGeminiEditFileTool()
     expect(tool.inputSchema.required).toContain('file_path')
 
-    const result = await tool.executor({ file_path: filePath, old_string: 'const x = 1;', new_string: 'const x = 42;' }, mockEnv)
+    const result = await tool.executor(
+      { file_path: filePath, old_string: 'const x = 1;', new_string: 'const x = 42;' },
+      mockEnv
+    )
 
     expect(result).toContain('Edited')
     const updated = await readFile(filePath, 'utf-8')
@@ -107,11 +117,7 @@ describe('createGeminiEditFileTool — executor', () => {
 })
 
 describe('all tool definitions have valid schema and description', () => {
-  const allTools = [
-    createReadManyFilesTool(),
-    createListDirTool(),
-    createGeminiEditFileTool(),
-  ]
+  const allTools = [createReadManyFilesTool(), createListDirTool(), createGeminiEditFileTool()]
 
   for (const tool of allTools) {
     it(`${tool.name} has non-empty description and valid inputSchema`, () => {

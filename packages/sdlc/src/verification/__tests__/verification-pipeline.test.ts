@@ -13,11 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { VerificationPipeline } from '../verification-pipeline.js'
-import type {
-  VerificationCheck,
-  VerificationContext,
-  VerificationResult,
-} from '../types.js'
+import type { VerificationCheck, VerificationContext, VerificationResult } from '../types.js'
 import type { TypedEventBus } from '@substrate-ai/core'
 import type { SdlcEvents } from '../../events.js'
 
@@ -40,7 +36,7 @@ function makeContext(overrides?: Partial<VerificationContext>): VerificationCont
 function makeCheck(
   name: string,
   tier: 'A' | 'B',
-  result: VerificationResult,
+  result: VerificationResult
 ): VerificationCheck & { run: ReturnType<typeof vi.fn> } {
   return {
     name,
@@ -123,7 +119,11 @@ describe('VerificationPipeline', () => {
 
   it('includes each check result in the summary with correct checkName, status, details, duration_ms', async () => {
     const check1 = makeCheck('lint', 'A', { status: 'pass', details: 'all good', duration_ms: 10 })
-    const check2 = makeCheck('types', 'A', { status: 'warn', details: 'possible issue', duration_ms: 20 })
+    const check2 = makeCheck('types', 'A', {
+      status: 'warn',
+      details: 'possible issue',
+      duration_ms: 20,
+    })
 
     const pipeline = new VerificationPipeline(bus, [check1, check2])
     const summary = await pipeline.run(ctx, 'A')
@@ -256,7 +256,7 @@ describe('VerificationPipeline', () => {
     await pipeline.run(makeContext({ storyKey: 'ev-test' }), 'A')
 
     const checkCompleteEmits = (bus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([event]: [string]) => event === 'verification:check-complete',
+      ([event]: [string]) => event === 'verification:check-complete'
     )
 
     expect(checkCompleteEmits).toHaveLength(1)
@@ -280,7 +280,7 @@ describe('VerificationPipeline', () => {
     await pipeline.run(ctx, 'A')
 
     const checkCompleteEmits = (bus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([event]: [string]) => event === 'verification:check-complete',
+      ([event]: [string]) => event === 'verification:check-complete'
     )
     expect(checkCompleteEmits).toHaveLength(3)
     expect((checkCompleteEmits[0]![1] as { checkName: string }).checkName).toBe('c1')
@@ -295,7 +295,7 @@ describe('VerificationPipeline', () => {
     const summary = await pipeline.run(makeContext({ storyKey: 'story-key' }), 'A')
 
     const storyCompleteEmits = (bus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([event]: [string]) => event === 'verification:story-complete',
+      ([event]: [string]) => event === 'verification:story-complete'
     )
     expect(storyCompleteEmits).toHaveLength(1)
     const [, payload] = storyCompleteEmits[0] as [string, unknown]
@@ -308,7 +308,11 @@ describe('VerificationPipeline', () => {
 
   it('skips Tier B checks when running with tier:A', async () => {
     const tierA = makeCheck('tier-a', 'A', { status: 'pass', details: '', duration_ms: 0 })
-    const tierB = makeCheck('tier-b', 'B', { status: 'fail', details: 'should not run', duration_ms: 0 })
+    const tierB = makeCheck('tier-b', 'B', {
+      status: 'fail',
+      details: 'should not run',
+      duration_ms: 0,
+    })
 
     const pipeline = new VerificationPipeline(bus, [tierA, tierB])
     const summary = await pipeline.run(ctx, 'A')
@@ -319,7 +323,11 @@ describe('VerificationPipeline', () => {
   })
 
   it('skips Tier A checks when running with tier:B', async () => {
-    const tierA = makeCheck('tier-a', 'A', { status: 'fail', details: 'should not run', duration_ms: 0 })
+    const tierA = makeCheck('tier-a', 'A', {
+      status: 'fail',
+      details: 'should not run',
+      duration_ms: 0,
+    })
     const tierB = makeCheck('tier-b', 'B', { status: 'pass', details: '', duration_ms: 0 })
 
     const pipeline = new VerificationPipeline(bus, [tierA, tierB])
@@ -347,7 +355,11 @@ describe('VerificationPipeline', () => {
   // -------------------------------------------------------------------------
 
   it('accepts initial checks in constructor and runs them', async () => {
-    const check = makeCheck('pre-reg', 'A', { status: 'pass', details: 'constructed', duration_ms: 1 })
+    const check = makeCheck('pre-reg', 'A', {
+      status: 'pass',
+      details: 'constructed',
+      duration_ms: 1,
+    })
     const pipeline = new VerificationPipeline(bus, [check])
     const summary = await pipeline.run(ctx, 'A')
     expect(summary.checks).toHaveLength(1)

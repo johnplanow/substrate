@@ -163,13 +163,12 @@ export interface ScenarioResultRow {
  */
 export async function upsertGraphRun(
   adapter: DatabaseAdapter,
-  input: GraphRunInput,
+  input: GraphRunInput
 ): Promise<void> {
   await adapter.transaction(async (tx) => {
-    const existing = await tx.query<{ id: string }>(
-      'SELECT id FROM graph_runs WHERE id = ?',
-      [input.id],
-    )
+    const existing = await tx.query<{ id: string }>('SELECT id FROM graph_runs WHERE id = ?', [
+      input.id,
+    ])
     if (existing.length > 0) {
       await tx.query('DELETE FROM graph_runs WHERE id = ?', [input.id])
     }
@@ -189,7 +188,7 @@ export async function upsertGraphRun(
         input.node_count ?? 0,
         input.final_outcome ?? null,
         input.checkpoint_path ?? null,
-      ],
+      ]
     )
   })
 }
@@ -206,7 +205,7 @@ export async function upsertGraphRun(
  */
 export async function insertGraphNodeResult(
   adapter: DatabaseAdapter,
-  input: GraphNodeResultInput,
+  input: GraphNodeResultInput
 ): Promise<void> {
   await adapter.transaction(async (tx) => {
     await tx.query(
@@ -225,7 +224,7 @@ export async function insertGraphNodeResult(
         input.cost_usd ?? 0,
         input.failure_reason ?? null,
         input.context_snapshot ?? null,
-      ],
+      ]
     )
   })
 }
@@ -242,7 +241,7 @@ export async function insertGraphNodeResult(
  */
 export async function insertScenarioResult(
   adapter: DatabaseAdapter,
-  input: ScenarioResultInput,
+  input: ScenarioResultInput
 ): Promise<void> {
   await adapter.transaction(async (tx) => {
     await tx.query(
@@ -262,7 +261,7 @@ export async function insertScenarioResult(
         input.passes ? 1 : 0,
         input.details ?? null,
         input.executed_at ?? new Date().toISOString(),
-      ],
+      ]
     )
   })
 }
@@ -278,11 +277,11 @@ export async function insertScenarioResult(
  */
 export async function getScenarioResultsForRun(
   adapter: DatabaseAdapter,
-  runId: string,
+  runId: string
 ): Promise<ScenarioResultRow[]> {
   const rows = await adapter.query<ScenarioResultRow>(
     'SELECT * FROM scenario_results WHERE run_id = ? ORDER BY iteration ASC',
-    [runId],
+    [runId]
   )
   // Coerce `passes` from integer (0/1) to boolean — adapters store it as an
   // integer for portability, so `row.passes` may be 0 or 1 on read.
@@ -298,14 +297,10 @@ export async function getScenarioResultsForRun(
  *
  * @param limit - Maximum number of rows to return (default 20).
  */
-export async function listGraphRuns(
-  adapter: DatabaseAdapter,
-  limit = 20,
-): Promise<GraphRunRow[]> {
-  return adapter.query<GraphRunRow>(
-    'SELECT * FROM graph_runs ORDER BY started_at DESC LIMIT ?',
-    [limit],
-  )
+export async function listGraphRuns(adapter: DatabaseAdapter, limit = 20): Promise<GraphRunRow[]> {
+  return adapter.query<GraphRunRow>('SELECT * FROM graph_runs ORDER BY started_at DESC LIMIT ?', [
+    limit,
+  ])
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +350,7 @@ export interface FactoryRunSummary {
  */
 export async function getFactoryRunSummaries(
   adapter: DatabaseAdapter,
-  limit = 20,
+  limit = 20
 ): Promise<FactoryRunSummary[]> {
   // Query 1: fetch run list
   const runs = await adapter.query<{
@@ -364,7 +359,10 @@ export async function getFactoryRunSummaries(
     completed_at: string | null
     total_cost_usd: number
     final_outcome: string | null
-  }>('SELECT id, started_at, completed_at, total_cost_usd, final_outcome FROM graph_runs ORDER BY started_at DESC LIMIT ?', [limit])
+  }>(
+    'SELECT id, started_at, completed_at, total_cost_usd, final_outcome FROM graph_runs ORDER BY started_at DESC LIMIT ?',
+    [limit]
+  )
 
   if (runs.length === 0) {
     return []
@@ -377,7 +375,7 @@ export async function getFactoryRunSummaries(
     satisfaction_score: number
   }>(
     'SELECT run_id, COUNT(*) as iterations, MAX(satisfaction_score) as satisfaction_score FROM scenario_results GROUP BY run_id',
-    [],
+    []
   )
 
   // Query 3: get the passes value from the latest iteration for each run_id.
@@ -389,7 +387,7 @@ export async function getFactoryRunSummaries(
     passes: number
   }>(
     'SELECT s.run_id, s.passes FROM scenario_results s INNER JOIN (SELECT run_id, MAX(iteration) AS max_iter FROM scenario_results GROUP BY run_id) latest ON s.run_id = latest.run_id AND s.iteration = latest.max_iter',
-    [],
+    []
   )
 
   // Build a lookup map from run_id → scenario aggregation

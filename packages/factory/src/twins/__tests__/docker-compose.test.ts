@@ -77,10 +77,7 @@ beforeEach(() => {
   vi.mocked(writeFileSync).mockReturnValue(undefined)
   vi.mocked(rmSync).mockReturnValue(undefined)
   // Default: fetch returns 200
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({ ok: true, status: 200 } as Response),
-  )
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 } as Response))
 })
 
 // ---------------------------------------------------------------------------
@@ -102,12 +99,12 @@ describe('TwinManager — Docker Compose orchestration', () => {
     expect(writeFileSync).toHaveBeenCalledWith(
       expect.stringContaining('docker-compose.yml'),
       expect.stringContaining('localstack'),
-      'utf-8',
+      'utf-8'
     )
     // docker compose up -d
     expect(execSync).toHaveBeenCalledWith(
       'docker compose up -d',
-      expect.objectContaining({ stdio: 'pipe' }),
+      expect.objectContaining({ stdio: 'pipe' })
     )
   })
 
@@ -157,11 +154,9 @@ describe('TwinManager — Docker Compose orchestration', () => {
     const twin = makeHealthyTwin()
 
     // Single call — capture error and assert type + message in one block
-    const error = await manager.start([twin]).catch((e: unknown) => e) as Error
+    const error = (await manager.start([twin]).catch((e: unknown) => e)) as Error
     expect(error).toBeInstanceOf(TwinError)
-    expect(error.message).toBe(
-      "Twin 'localstack' failed health check after 3 attempts",
-    )
+    expect(error.message).toBe("Twin 'localstack' failed health check after 3 attempts")
   })
 
   // AC4: Docker not installed → throws descriptive TwinError
@@ -175,7 +170,7 @@ describe('TwinManager — Docker Compose orchestration', () => {
     const manager = createTwinManager(eventBus)
 
     // Single call — capture error and assert type + message in one block
-    const error = await manager.start([makeTwin()]).catch((e: unknown) => e) as Error
+    const error = (await manager.start([makeTwin()]).catch((e: unknown) => e)) as Error
     expect(error).toBeInstanceOf(TwinError)
     expect(error.message).toBe('Docker not found — twins require Docker')
   })
@@ -200,13 +195,23 @@ describe('TwinManager — Docker Compose orchestration', () => {
     const eventBus = makeEventBus()
     const manager = createTwinManager(eventBus)
     const twin1 = makeTwin({ name: 'localstack', image: 'localstack/localstack' })
-    const twin2 = makeTwin({ name: 'redis', image: 'redis:7', ports: [{ host: 6379, container: 6379 }] })
+    const twin2 = makeTwin({
+      name: 'redis',
+      image: 'redis:7',
+      ports: [{ host: 6379, container: 6379 }],
+    })
 
     await manager.start([twin1, twin2])
 
     expect(eventBus.emit).toHaveBeenCalledTimes(2)
-    expect(eventBus.emit).toHaveBeenCalledWith('twin:started', expect.objectContaining({ twinName: 'localstack' }))
-    expect(eventBus.emit).toHaveBeenCalledWith('twin:started', expect.objectContaining({ twinName: 'redis' }))
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      'twin:started',
+      expect.objectContaining({ twinName: 'localstack' })
+    )
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      'twin:started',
+      expect.objectContaining({ twinName: 'redis' })
+    )
   })
 
   // AC6: stop() executes docker compose down --remove-orphans
@@ -221,7 +226,7 @@ describe('TwinManager — Docker Compose orchestration', () => {
 
     expect(execSync).toHaveBeenCalledWith(
       'docker compose down --remove-orphans',
-      expect.objectContaining({ stdio: 'pipe' }),
+      expect.objectContaining({ stdio: 'pipe' })
     )
   })
 

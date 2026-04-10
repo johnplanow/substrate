@@ -54,7 +54,7 @@ export const SessionState = {
   AWAITING_INPUT: 'AWAITING_INPUT',
   CLOSED: 'CLOSED',
 } as const
-export type SessionState = typeof SessionState[keyof typeof SessionState]
+export type SessionState = (typeof SessionState)[keyof typeof SessionState]
 
 // ---------------------------------------------------------------------------
 // Turn types
@@ -123,7 +123,7 @@ export const EventKind = {
   WARNING: 'WARNING',
   ERROR: 'ERROR',
 } as const
-export type EventKind = typeof EventKind[keyof typeof EventKind]
+export type EventKind = (typeof EventKind)[keyof typeof EventKind]
 
 // ---------------------------------------------------------------------------
 // Session Event
@@ -135,4 +135,3 @@ export interface SessionEvent<T extends Record<string, unknown> = Record<string,
   session_id: string
   data: T
 }
-

@@ -27,20 +27,24 @@ function isDoltAvailable(basePath: string): boolean {
 
   // Dolt directory exists but binary failed — retry once after 1s
   // (handles lock contention from concurrent processes)
-  console.warn('[persistence:adapter] Dolt directory found but dolt binary unavailable — retrying once...')
+  console.warn(
+    '[persistence:adapter] Dolt directory found but dolt binary unavailable — retrying once...'
+  )
   spawnSync('sleep', ['1'], { stdio: 'ignore' })
 
   if (isDoltBinaryAvailable()) {
     return true
   }
 
-  console.warn('[persistence:adapter] Dolt still unavailable after retry — falling back to InMemoryDatabaseAdapter. Telemetry and cost data will NOT persist.')
+  console.warn(
+    '[persistence:adapter] Dolt still unavailable after retry — falling back to InMemoryDatabaseAdapter. Telemetry and cost data will NOT persist.'
+  )
   return false
 }
 
 export function createDatabaseAdapter(
   config: DatabaseAdapterConfig = { backend: 'auto' },
-  doltClientFactory?: (repoPath: string) => DoltClientLike,
+  doltClientFactory?: (repoPath: string) => DoltClientLike
 ): DatabaseAdapter {
   const backend = config.backend ?? 'auto'
   const basePath = config.basePath ?? process.cwd()
@@ -48,7 +52,9 @@ export function createDatabaseAdapter(
 
   if (backend === 'dolt') {
     if (!doltClientFactory) {
-      console.debug('[persistence:adapter] dolt backend requested but no doltClientFactory provided; falling back to memory')
+      console.debug(
+        '[persistence:adapter] dolt backend requested but no doltClientFactory provided; falling back to memory'
+      )
       return new InMemoryDatabaseAdapter()
     }
     console.debug('[persistence:adapter] Using DoltDatabaseAdapter (explicit config)')
@@ -66,6 +72,8 @@ export function createDatabaseAdapter(
     return new DoltDatabaseAdapter(doltClientFactory(doltRepoPath))
   }
 
-  console.debug('[persistence:adapter] Dolt not available or no factory, using InMemoryDatabaseAdapter')
+  console.debug(
+    '[persistence:adapter] Dolt not available or no factory, using InMemoryDatabaseAdapter'
+  )
   return new InMemoryDatabaseAdapter()
 }

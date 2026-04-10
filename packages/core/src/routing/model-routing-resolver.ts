@@ -64,7 +64,7 @@ export class RoutingResolver {
       }
       this.logger.debug(
         { taskType, phase: resolution.phase, model: resolution.model, source: 'override' },
-        'Resolved model',
+        'Resolved model'
       )
       return resolution
     }
@@ -85,7 +85,7 @@ export class RoutingResolver {
     }
     this.logger.debug(
       { taskType, phase, model: resolution.model, source: 'phase' },
-      'Resolved model',
+      'Resolved model'
     )
     return resolution
   }
@@ -108,7 +108,7 @@ export class RoutingResolver {
       if (err instanceof RoutingConfigError && err.code === 'CONFIG_NOT_FOUND') {
         logger.debug(
           { configPath: filePath, component: 'routing', reason: 'config not found' },
-          `Model routing config not found at "${filePath}"; using fallback mode (all resolveModel calls will return null)`,
+          `Model routing config not found at "${filePath}"; using fallback mode (all resolveModel calls will return null)`
         )
         // Construct a sentinel config with empty phases so resolveModel always returns null
         const fallbackConfig: ModelRoutingConfig = {

@@ -5,7 +5,12 @@
 
 import type { ILogger } from '../dispatch/types.js'
 import type { MonitorDatabase } from '../persistence/monitor-database.js'
-import type { Recommendation, ConfidenceLevel, RecommendationFilters, RecommendationExport } from './recommendation-types.js'
+import type {
+  Recommendation,
+  ConfidenceLevel,
+  RecommendationFilters,
+  RecommendationExport,
+} from './recommendation-types.js'
 
 // ---------------------------------------------------------------------------
 // MonitorRecommendationConfig
@@ -40,7 +45,11 @@ export class RecommendationEngine {
   private readonly _historyDays: number
   private readonly _logger: ILogger
 
-  constructor(monitorDb: MonitorDatabase, config: MonitorRecommendationConfig = {}, logger?: ILogger) {
+  constructor(
+    monitorDb: MonitorDatabase,
+    config: MonitorRecommendationConfig = {},
+    logger?: ILogger
+  ) {
     this._monitorDb = monitorDb
     this._filters = {
       threshold_percentage: config.recommendation_threshold_percentage ?? 5.0,
@@ -51,9 +60,7 @@ export class RecommendationEngine {
   }
 
   generateRecommendations(): Recommendation[] {
-    const sinceDate = new Date(
-      Date.now() - this._historyDays * 24 * 60 * 60 * 1000,
-    ).toISOString()
+    const sinceDate = new Date(Date.now() - this._historyDays * 24 * 60 * 60 * 1000).toISOString()
     const aggregates = this._monitorDb.getAggregates({ sinceDate })
 
     if (aggregates.length === 0) {
@@ -64,12 +71,9 @@ export class RecommendationEngine {
     const byTaskType = new Map<string, AgentStats[]>()
 
     for (const agg of aggregates) {
-      const successRate = agg.totalTasks > 0
-        ? (agg.successfulTasks / agg.totalTasks) * 100
-        : 0
-      const avgTokens = agg.totalTasks > 0
-        ? (agg.totalInputTokens + agg.totalOutputTokens) / agg.totalTasks
-        : 0
+      const successRate = agg.totalTasks > 0 ? (agg.successfulTasks / agg.totalTasks) * 100 : 0
+      const avgTokens =
+        agg.totalTasks > 0 ? (agg.totalInputTokens + agg.totalOutputTokens) / agg.totalTasks : 0
 
       const stats: AgentStats = {
         agent: agg.agent,
@@ -158,7 +162,10 @@ export class RecommendationEngine {
     }
   }
 
-  private _calculateConfidence(sampleSizeCurrent: number, sampleSizeRecommended: number): ConfidenceLevel {
+  private _calculateConfidence(
+    sampleSizeCurrent: number,
+    sampleSizeRecommended: number
+  ): ConfidenceLevel {
     const minBoth = Math.min(sampleSizeCurrent, sampleSizeRecommended)
     const highThreshold = Math.max(50, this._filters.min_sample_size)
     const mediumThreshold = Math.max(20, this._filters.min_sample_size)
@@ -196,7 +203,7 @@ export class RecommendationEngine {
 export function createRecommendationEngine(
   monitorDb: MonitorDatabase,
   config?: MonitorRecommendationConfig,
-  logger?: ILogger,
+  logger?: ILogger
 ): RecommendationEngine {
   return new RecommendationEngine(monitorDb, config, logger)
 }

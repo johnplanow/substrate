@@ -34,10 +34,7 @@ import type { Graph } from '../../graph/types.js'
 import type { TypedEventBus } from '@substrate-ai/core'
 import type { FactoryEvents } from '../../events.js'
 
-import {
-  SUBGRAPH_PARENT_DOT,
-  CHILD_GRAPH_DOT,
-} from '../fixtures/subgraph-parent.dot.js'
+import { SUBGRAPH_PARENT_DOT, CHILD_GRAPH_DOT } from '../fixtures/subgraph-parent.dot.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -201,7 +198,10 @@ describe('subgraph execution — depth guard', () => {
     expect(successOutcome.status).toBe('SUCCESS')
 
     // depth=2 >= maxDepth=2 → should fail
-    const contextFail = new GraphContext({ __runId: 'test-custom-depth-fail', 'subgraph._depth': 2 })
+    const contextFail = new GraphContext({
+      __runId: 'test-custom-depth-fail',
+      'subgraph._depth': 2,
+    })
     const failOutcome = await handler(sgNode, contextFail, graph)
     expect(failOutcome.status).toBe('FAILURE')
     expect(failOutcome.failureReason).toContain('depth limit exceeded')

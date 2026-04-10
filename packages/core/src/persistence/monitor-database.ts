@@ -9,7 +9,10 @@
 import type { DatabaseAdapter, SyncAdapter } from './types.js'
 import { isSyncAdapter } from './types.js'
 import type { ILogger } from '../dispatch/types.js'
-import type { AgentPerformanceMetrics, TaskTypeBreakdownResult } from '../monitor/performance-aggregates.js'
+import type {
+  AgentPerformanceMetrics,
+  TaskTypeBreakdownResult,
+} from '../monitor/performance-aggregates.js'
 
 const _logger: ILogger = console
 
@@ -82,7 +85,11 @@ export interface MonitorDatabase {
     }
   ): void
 
-  getAggregates(filter?: { agent?: string; taskType?: string; sinceDate?: string }): AggregateStats[]
+  getAggregates(filter?: {
+    agent?: string
+    taskType?: string
+    sinceDate?: string
+  }): AggregateStats[]
 
   getAgentPerformance(agent: string): AgentPerformanceMetrics | null
 
@@ -112,7 +119,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
     if (typeof databasePathOrAdapter === 'string') {
       throw new Error(
         'MonitorDatabaseImpl: string path constructor is no longer supported. ' +
-        'Pass a DatabaseAdapter directly: new MonitorDatabaseImpl(new InMemoryDatabaseAdapter())',
+          'Pass a DatabaseAdapter directly: new MonitorDatabaseImpl(new InMemoryDatabaseAdapter())'
       )
     } else {
       this._path = '<adapter>'
@@ -124,7 +131,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
     if (this._syncAdapter === null) {
       throw new Error(
         'MonitorDatabaseImpl: adapter must implement SyncAdapter (querySync/execSync). ' +
-        'Use InMemoryDatabaseAdapter or another SyncAdapter-compatible adapter.'
+          'Use InMemoryDatabaseAdapter or another SyncAdapter-compatible adapter.'
       )
     }
 
@@ -141,7 +148,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
       )
     `)
     const existing = this._syncAdapter.querySync<{ version_id: number }>(
-      'SELECT version_id FROM _schema_version WHERE version_id = 1',
+      'SELECT version_id FROM _schema_version WHERE version_id = 1'
     )
     if (existing.length === 0) {
       this._syncAdapter.querySync('INSERT INTO _schema_version (version_id) VALUES (1)')
@@ -164,10 +171,18 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
         PRIMARY KEY (task_id, recorded_at)
       )
     `)
-    this._syncAdapter.execSync(`CREATE INDEX IF NOT EXISTS idx_tm_agent       ON task_metrics(agent)`)
-    this._syncAdapter.execSync(`CREATE INDEX IF NOT EXISTS idx_tm_task_type   ON task_metrics(task_type)`)
-    this._syncAdapter.execSync(`CREATE INDEX IF NOT EXISTS idx_tm_recorded_at ON task_metrics(recorded_at)`)
-    this._syncAdapter.execSync(`CREATE INDEX IF NOT EXISTS idx_tm_agent_type  ON task_metrics(agent, task_type)`)
+    this._syncAdapter.execSync(
+      `CREATE INDEX IF NOT EXISTS idx_tm_agent       ON task_metrics(agent)`
+    )
+    this._syncAdapter.execSync(
+      `CREATE INDEX IF NOT EXISTS idx_tm_task_type   ON task_metrics(task_type)`
+    )
+    this._syncAdapter.execSync(
+      `CREATE INDEX IF NOT EXISTS idx_tm_recorded_at ON task_metrics(recorded_at)`
+    )
+    this._syncAdapter.execSync(
+      `CREATE INDEX IF NOT EXISTS idx_tm_agent_type  ON task_metrics(agent, task_type)`
+    )
     this._syncAdapter.execSync(`
       CREATE TABLE IF NOT EXISTS performance_aggregates (
         agent              VARCHAR(255) NOT NULL,
@@ -219,7 +234,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
   insertTaskMetrics(row: TaskMetricsRow): void {
     const dup = this._querySync<{ task_id: string }>(
       'SELECT task_id FROM task_metrics WHERE task_id = ? AND recorded_at = ?',
-      [row.taskId, row.recordedAt],
+      [row.taskId, row.recordedAt]
     )
     if (dup.length > 0) return
 
@@ -246,7 +261,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
         row.estimatedCost,
         row.billingMode,
         row.recordedAt,
-      ],
+      ]
     )
   }
 
@@ -269,7 +284,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
 
     const existing = this._querySync<{ agent: string }>(
       `SELECT agent FROM performance_aggregates WHERE agent = ? AND task_type = ?`,
-      [agent, taskType],
+      [agent, taskType]
     )
 
     if (existing.length === 0) {
@@ -279,9 +294,18 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
           total_input_tokens, total_output_tokens, total_duration_ms, total_cost, total_retries, last_updated
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          agent, taskType, 1, successfulTasks, failedTasks,
-          delta.inputTokens, delta.outputTokens, delta.durationMs, delta.cost, retries, now,
-        ],
+          agent,
+          taskType,
+          1,
+          successfulTasks,
+          failedTasks,
+          delta.inputTokens,
+          delta.outputTokens,
+          delta.durationMs,
+          delta.cost,
+          retries,
+          now,
+        ]
       )
     } else {
       this._mutateSync(
@@ -297,9 +321,17 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
           last_updated = ?
         WHERE agent = ? AND task_type = ?`,
         [
-          successfulTasks, failedTasks, delta.inputTokens, delta.outputTokens,
-          delta.durationMs, delta.cost, retries, now, agent, taskType,
-        ],
+          successfulTasks,
+          failedTasks,
+          delta.inputTokens,
+          delta.outputTokens,
+          delta.durationMs,
+          delta.cost,
+          retries,
+          now,
+          agent,
+          taskType,
+        ]
       )
     }
   }
@@ -319,7 +351,11 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
     this.updateAggregates(agent, taskType, delta)
   }
 
-  getAggregates(filter?: { agent?: string; taskType?: string; sinceDate?: string }): AggregateStats[] {
+  getAggregates(filter?: {
+    agent?: string
+    taskType?: string
+    sinceDate?: string
+  }): AggregateStats[] {
     let sql = `
       SELECT agent, task_type, total_tasks, successful_tasks, failed_tasks,
              total_input_tokens, total_output_tokens, total_duration_ms, total_cost, last_updated
@@ -396,7 +432,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
         MAX(last_updated)        AS last_updated
       FROM performance_aggregates
       WHERE agent = ?`,
-      [agent],
+      [agent]
     )
 
     const row = rows[0]
@@ -443,7 +479,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
       FROM performance_aggregates
       WHERE task_type = ?
       ORDER BY (CAST(successful_tasks AS DOUBLE) / NULLIF(total_tasks, 0)) DESC`,
-      [taskType],
+      [taskType]
     )
 
     if (rows.length === 0) {
@@ -456,7 +492,8 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
         agent: r.agent,
         total_tasks: r.total_tasks,
         success_rate: r.total_tasks > 0 ? (r.successful_tasks / r.total_tasks) * 100 : 0,
-        average_tokens: r.total_tasks > 0 ? (r.total_input_tokens + r.total_output_tokens) / r.total_tasks : 0,
+        average_tokens:
+          r.total_tasks > 0 ? (r.total_input_tokens + r.total_output_tokens) / r.total_tasks : 0,
         average_duration: r.total_tasks > 0 ? r.total_duration_ms / r.total_tasks : 0,
         sample_size: r.total_tasks,
       })),
@@ -468,7 +505,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
 
     const countRows = this._querySync<{ cnt: number }>(
       `SELECT COUNT(*) AS cnt FROM task_metrics WHERE recorded_at < ?`,
-      [cutoff],
+      [cutoff]
     )
     const count = countRows[0]?.cnt ?? 0
 
@@ -509,7 +546,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
           SUM(cost) AS total_cost,
           COALESCE(SUM(retries), 0) AS total_retries
         FROM task_metrics
-        GROUP BY agent, task_type`,
+        GROUP BY agent, task_type`
       )
 
       const now = new Date().toISOString()
@@ -522,18 +559,29 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
             last_updated
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            r.agent, r.task_type,
-            r.total_tasks, r.successful_tasks, r.failed_tasks,
-            r.total_input_tokens, r.total_output_tokens, r.total_duration_ms, r.total_cost, r.total_retries,
+            r.agent,
+            r.task_type,
+            r.total_tasks,
+            r.successful_tasks,
+            r.failed_tasks,
+            r.total_input_tokens,
+            r.total_output_tokens,
+            r.total_duration_ms,
+            r.total_cost,
+            r.total_retries,
             now,
-          ],
+          ]
         )
       }
 
       adapter.execSync(`COMMIT`)
       _logger.info('Rebuilt performance_aggregates from task_metrics')
     } catch (err) {
-      try { adapter.execSync(`ROLLBACK`) } catch { /* already rolled back */ }
+      try {
+        adapter.execSync(`ROLLBACK`)
+      } catch {
+        /* already rolled back */
+      }
       throw err
     }
   }
@@ -546,7 +594,7 @@ export class MonitorDatabaseImpl implements MonitorDatabase {
 
   getTaskMetricsDateRange(): { earliest: string | null; latest: string | null } {
     const rows = this._querySync<{ earliest: string | null; latest: string | null }>(
-      `SELECT MIN(recorded_at) AS earliest, MAX(recorded_at) AS latest FROM task_metrics`,
+      `SELECT MIN(recorded_at) AS earliest, MAX(recorded_at) AS latest FROM task_metrics`
     )
     return { earliest: rows[0]?.earliest ?? null, latest: rows[0]?.latest ?? null }
   }

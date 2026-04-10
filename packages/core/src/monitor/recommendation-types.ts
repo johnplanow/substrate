@@ -57,7 +57,7 @@ export function createRecommendation(data: unknown): Recommendation {
   const confidence = d['confidence']
   if (confidence !== 'low' && confidence !== 'medium' && confidence !== 'high') {
     throw new Error(
-      `createRecommendation: confidence must be "low", "medium", or "high", got "${String(confidence)}"`,
+      `createRecommendation: confidence must be "low", "medium", or "high", got "${String(confidence)}"`
     )
   }
 
