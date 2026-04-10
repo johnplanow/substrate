@@ -108,6 +108,8 @@ substrate supervisor --output-format json
 | `substrate status --output-format json` | Poll current pipeline state |
 | `substrate health --output-format json` | Check process health and stall detection |
 | `substrate metrics --output-format json` | View historical run metrics |
+| `substrate eval --report json` | Evaluate LLM output quality with LLM-as-judge (standard tier) |
+| `substrate eval --depth deep` | Deep eval with golden examples, cross-phase coherence, and rubrics |
 | `substrate resume` | Resume an interrupted pipeline run |
 | `substrate run --help-agent` | Full agent instruction reference (487 lines) |
 | `substrate diff <story>` | Show row-level state changes for a story (requires Dolt) |
