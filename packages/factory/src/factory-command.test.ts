@@ -188,10 +188,13 @@ describe('factory run --backend direct', () => {
     vi.mocked(createDefaultRegistry).mockReturnValue({} as never)
 
     const { RunStateManager } = await import('./graph/run-state.js')
-    vi.mocked(RunStateManager).mockImplementation(() => ({
-      runDir: '',
-      initRun: vi.fn().mockResolvedValue(undefined),
-    }) as never)
+    vi.mocked(RunStateManager).mockImplementation(
+      () =>
+        ({
+          runDir: '',
+          initRun: vi.fn().mockResolvedValue(undefined),
+        }) as never
+    )
 
     // Set up executor mock to capture eventBus
     mockDirectBackendRun = vi.fn().mockResolvedValue({ status: 'SUCCESS' })
@@ -333,7 +336,11 @@ describe('factory run --backend direct', () => {
 
     const agentEvents = capturedLines
       .map((line) => {
-        try { return JSON.parse(line) } catch { return null }
+        try {
+          return JSON.parse(line)
+        } catch {
+          return null
+        }
       })
       .filter((obj) => obj !== null && obj.type === 'agent:tool-call')
 
@@ -345,13 +352,18 @@ describe('factory run --backend direct', () => {
     // Make bootstrapDirectBackend throw to simulate missing API key
     const { bootstrapDirectBackend } = await import('./backend/direct-bootstrap.js')
     vi.mocked(bootstrapDirectBackend).mockImplementationOnce(() => {
-      throw new Error('ANTHROPIC_API_KEY environment variable is required for direct backend with anthropic provider')
+      throw new Error(
+        'ANTHROPIC_API_KEY environment variable is required for direct backend with anthropic provider'
+      )
     })
 
-    await expect(runCmd(['--graph', 'pipeline.dot', '--backend', 'direct'])).rejects.toThrow('process.exit called')
+    await expect(runCmd(['--graph', 'pipeline.dot', '--backend', 'direct'])).rejects.toThrow(
+      'process.exit called'
+    )
 
-    const stderrOutput = vi.mocked(process.stderr.write).mock.calls
-      .map((args) => String(args[0]))
+    const stderrOutput = vi
+      .mocked(process.stderr.write)
+      .mock.calls.map((args) => String(args[0]))
       .join('')
 
     expect(stderrOutput).toContain('ANTHROPIC_API_KEY')

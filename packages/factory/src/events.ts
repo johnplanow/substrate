@@ -89,7 +89,12 @@ export type FactoryEvents = CoreEvents & {
   'graph:started': { runId: string; graphFile: string; goal: string; nodeCount: number }
 
   /** Factory graph execution has completed with a final outcome */
-  'graph:completed': { runId: string; finalOutcome: Outcome; totalCostUsd: number; durationMs: number }
+  'graph:completed': {
+    runId: string
+    finalOutcome: Outcome
+    totalCostUsd: number
+    durationMs: number
+  }
 
   /** Factory graph execution has failed */
   'graph:failed': { runId: string; failureReason: string; lastNodeId: string }
@@ -105,7 +110,13 @@ export type FactoryEvents = CoreEvents & {
   'graph:node-completed': { runId: string; nodeId: string; outcome: Outcome }
 
   /** A graph node is being retried after a failure */
-  'graph:node-retried': { runId: string; nodeId: string; attempt: number; maxAttempts: number; delayMs: number }
+  'graph:node-retried': {
+    runId: string
+    nodeId: string
+    attempt: number
+    maxAttempts: number
+    delayMs: number
+  }
 
   /** A graph node has failed */
   'graph:node-failed': { runId: string; nodeId: string; failureReason: string }
@@ -115,7 +126,13 @@ export type FactoryEvents = CoreEvents & {
   // -------------------------------------------------------------------------
 
   /** An edge was selected during graph traversal */
-  'graph:edge-selected': { runId: string; fromNode: string; toNode: string; step: number; edgeLabel?: string }
+  'graph:edge-selected': {
+    runId: string
+    fromNode: string
+    toNode: string
+    step: number
+    edgeLabel?: string
+  }
 
   /** A graph execution checkpoint has been saved to disk */
   'graph:checkpoint-saved': { runId: string; nodeId: string; checkpointPath: string }
@@ -147,23 +164,54 @@ export type FactoryEvents = CoreEvents & {
   'scenario:integrity-failed': { runId: string; nodeId: string; tampered: string[] }
 
   /** Dual-signal score computed — code review verdict compared against scenario score — story 46-5 */
-  'scenario:score-computed': { runId: string; score: number; threshold: number; passes: boolean; agreement: 'AGREE' | 'DISAGREE'; codeReviewPassed: boolean; scenarioPassed: boolean; authoritativeDecision: string }
+  'scenario:score-computed': {
+    runId: string
+    score: number
+    threshold: number
+    passes: boolean
+    agreement: 'AGREE' | 'DISAGREE'
+    codeReviewPassed: boolean
+    scenarioPassed: boolean
+    authoritativeDecision: string
+  }
 
   /** Code review verdict logged as advisory when scenario is the authoritative decision-maker — story 46-6 */
-  'scenario:advisory-computed': { runId: string; verdict: string; codeReviewPassed: boolean; score: number; threshold: number; agreement: 'AGREE' | 'DISAGREE' }
+  'scenario:advisory-computed': {
+    runId: string
+    verdict: string
+    codeReviewPassed: boolean
+    score: number
+    threshold: number
+    agreement: 'AGREE' | 'DISAGREE'
+  }
 
   // -------------------------------------------------------------------------
   // Convergence events
   // -------------------------------------------------------------------------
 
   /** A convergence iteration has completed */
-  'convergence:iteration': { runId: string; iteration: number; score: number; threshold: number; passed: boolean }
+  'convergence:iteration': {
+    runId: string
+    iteration: number
+    score: number
+    threshold: number
+    passed: boolean
+  }
 
   /** A convergence plateau has been detected — score is not improving */
-  'convergence:plateau-detected': { runId: string; nodeId: string; scores: number[]; window: number }
+  'convergence:plateau-detected': {
+    runId: string
+    nodeId: string
+    scores: number[]
+    window: number
+  }
 
   /** Convergence budget has been exhausted at the given level */
-  'convergence:budget-exhausted': { runId: string; level: 'node' | 'pipeline' | 'session'; reason: string }
+  'convergence:budget-exhausted': {
+    runId: string
+    level: 'node' | 'pipeline' | 'session'
+    reason: string
+  }
 
   // -------------------------------------------------------------------------
   // Twin lifecycle events (story 47-2)

@@ -5,7 +5,12 @@ export type { ScenarioResult, ScenarioRunResult, FactoryEvents } from './events.
 export * from './graph/types.js'
 export { parseGraph } from './graph/parser.js'
 export { createValidator, isStartNode, isExitNode } from './graph/validator.js'
-export { selectEdge, normalizeLabel, bestByWeightThenLexical, applyStylesheet } from './graph/index.js'
+export {
+  selectEdge,
+  normalizeLabel,
+  bestByWeightThenLexical,
+  applyStylesheet,
+} from './graph/index.js'
 // Backend module (story 42-18)
 export * from './backend/index.js'
 // Handler registry — exported for CLI composition root (story 43-6)
@@ -23,7 +28,12 @@ export { registerFactoryCommand } from './factory-command.js'
 export type { FactoryCommandOptions } from './factory-command.js'
 
 // Factory config schema (story 44-9)
-export { FactoryConfigSchema, FactoryExtendedConfigSchema, loadFactoryConfig, resolveConfigPath } from './config.js'
+export {
+  FactoryConfigSchema,
+  FactoryExtendedConfigSchema,
+  loadFactoryConfig,
+  resolveConfigPath,
+} from './config.js'
 export type { FactoryConfig, FactoryExtendedConfig } from './config.js'
 
 // Convergence subsystem — ConvergenceController + per-node budget (stories 42-16, 45-3)

@@ -76,7 +76,12 @@ export type {
   AgentCostBreakdown,
 } from './cost-tracker/index.js'
 export type { TokenRates, ModelRates } from './cost-tracker/index.js'
-export { TOKEN_RATES, PROVIDER_ALIASES, getTokenRate, estimateCostSafe } from './cost-tracker/index.js'
+export {
+  TOKEN_RATES,
+  PROVIDER_ALIASES,
+  getTokenRate,
+  estimateCostSafe,
+} from './cost-tracker/index.js'
 
 // Monitor: MonitorAgent, RecommendationEngine, ReportGenerator, TaskTypeClassifier
 // Recommendation conflict resolved above (telemetry version is canonical at root API).

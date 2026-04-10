@@ -70,7 +70,7 @@ import type { ValidationDiagnostic } from './graph/types.js'
  */
 async function resolveGraphPath(
   opts: { graph?: string; config?: string },
-  projectDir: string,
+  projectDir: string
 ): Promise<string | null> {
   // 1. --graph CLI flag takes priority
   if (opts.graph) {
@@ -172,10 +172,14 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
           eventBus.on('graph:node-completed', (e) => emit({ type: 'graph:node-completed', ...e }))
           eventBus.on('graph:started', (e) => emit({ type: 'graph:started', ...e }))
           eventBus.on('graph:completed', (e) => emit({ type: 'graph:completed', ...e }))
-          eventBus.on('factory:config-reloaded', (e) => emit({ type: 'factory:config-reloaded', ...e }))
+          eventBus.on('factory:config-reloaded', (e) =>
+            emit({ type: 'factory:config-reloaded', ...e })
+          )
           eventBus.on('agent:tool-call', (e) => emit({ type: 'agent:tool-call', ...e }))
           eventBus.on('agent:loop-detected', (e) => emit({ type: 'agent:loop-detected', ...e }))
-          eventBus.on('agent:steering-injected', (e) => emit({ type: 'agent:steering-injected', ...e }))
+          eventBus.on('agent:steering-injected', (e) =>
+            emit({ type: 'agent:steering-injected', ...e })
+          )
         }
 
         // Print start confirmation
@@ -197,7 +201,9 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
         const factoryConfig = await loadFactoryConfig(projectDir, opts.config)
 
         // Resolve effective backend: CLI flag > config > 'cli' default (story 48-12 AC1)
-        const effectiveBackend = (opts.backend ?? factoryConfig.factory?.backend ?? 'cli') as 'cli' | 'direct'
+        const effectiveBackend = (opts.backend ?? factoryConfig.factory?.backend ?? 'cli') as
+          | 'cli'
+          | 'direct'
 
         // Story 48-12 AC2, AC3, AC4: Bootstrap direct backend if requested
         let directBackend: DirectCodergenBackend | undefined
@@ -205,7 +211,9 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
         if (effectiveBackend === 'direct') {
           // Track current node for event correlation
           let currentNodeId = ''
-          eventBus.on('graph:node-started', (e) => { currentNodeId = e.nodeId })
+          eventBus.on('graph:node-started', (e) => {
+            currentNodeId = e.nodeId
+          })
 
           // Build the event forwarding callback
           const toolCallNameMap = new Map<string, string>() // call_id → tool_name
@@ -297,27 +305,27 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
         if (configPath) {
           try {
             watchFile(configPath, { interval: 2000 }, async () => {
-            try {
-              const updated = await loadFactoryConfig(projectDir, opts.config)
-              const newThreshold = updated.factory?.satisfaction_threshold ?? 0.8
-              if (newThreshold !== executorConfig.satisfactionThreshold) {
-                const oldThreshold = executorConfig.satisfactionThreshold
-                executorConfig.satisfactionThreshold = newThreshold
-                process.stderr.write(
-                  `[hot-reload] satisfaction_threshold changed: ${oldThreshold} → ${newThreshold}\n`,
-                )
-                // Emit as a factory event for NDJSON consumers
-                eventBus.emit('factory:config-reloaded', {
-                  key: 'satisfaction_threshold',
-                  oldValue: oldThreshold,
-                  newValue: newThreshold,
-                })
+              try {
+                const updated = await loadFactoryConfig(projectDir, opts.config)
+                const newThreshold = updated.factory?.satisfaction_threshold ?? 0.8
+                if (newThreshold !== executorConfig.satisfactionThreshold) {
+                  const oldThreshold = executorConfig.satisfactionThreshold
+                  executorConfig.satisfactionThreshold = newThreshold
+                  process.stderr.write(
+                    `[hot-reload] satisfaction_threshold changed: ${oldThreshold} → ${newThreshold}\n`
+                  )
+                  // Emit as a factory event for NDJSON consumers
+                  eventBus.emit('factory:config-reloaded', {
+                    key: 'satisfaction_threshold',
+                    oldValue: oldThreshold,
+                    newValue: newThreshold,
+                  })
+                }
+              } catch {
+                // Ignore parse errors during hot-reload — keep the previous threshold
               }
-            } catch {
-              // Ignore parse errors during hot-reload — keep the previous threshold
-            }
-          })
-          watchingConfig = true
+            })
+            watchingConfig = true
           } catch {
             // watchFile may fail if path doesn't exist — skip hot-reload
           }
@@ -329,7 +337,11 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
         } finally {
           // Always stop watching regardless of success/failure
           if (watchingConfig && configPath) {
-            try { unwatchFile(configPath) } catch { /* ignore */ }
+            try {
+              unwatchFile(configPath)
+            } catch {
+              /* ignore */
+            }
           }
         }
 
@@ -356,8 +368,7 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
       try {
         source = await readFile(graphFile, 'utf-8')
       } catch (err: unknown) {
-        const isEnoent =
-          err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT'
+        const isEnoent = err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT'
         if (isEnoent) {
           process.stderr.write(`Error: file not found: ${graphFile}\n`)
         } else {
@@ -401,7 +412,7 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
           const nodeStr = d.nodeId ? ` [node: ${d.nodeId}]` : ''
           const edgeStr = d.edgeIndex !== undefined ? ` [edge: ${d.edgeIndex}]` : ''
           process.stdout.write(
-            `  ${d.severity.padEnd(7)}  ${d.ruleId.padEnd(24)}  ${d.message}${nodeStr}${edgeStr}\n`,
+            `  ${d.severity.padEnd(7)}  ${d.ruleId.padEnd(24)}  ${d.message}${nodeStr}${edgeStr}\n`
           )
         }
         process.stdout.write('\n')
@@ -411,11 +422,11 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
       const warnLabel = warnings.length !== 1 ? 'warnings' : 'warning'
       if (diagnostics.length === 0) {
         process.stdout.write(
-          `✓ ${TOTAL_RULE_COUNT}/${TOTAL_RULE_COUNT} rules passed, 0 errors, 0 warnings\n`,
+          `✓ ${TOTAL_RULE_COUNT}/${TOTAL_RULE_COUNT} rules passed, 0 errors, 0 warnings\n`
         )
       } else {
         process.stdout.write(
-          `✗ ${passedCount}/${TOTAL_RULE_COUNT} rules passed, ${errors.length} ${errLabel}, ${warnings.length} ${warnLabel}\n`,
+          `✗ ${passedCount}/${TOTAL_RULE_COUNT} rules passed, ${errors.length} ${errLabel}, ${warnings.length} ${warnLabel}\n`
         )
       }
 
@@ -429,9 +440,7 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
   registerContextCommand(factoryCmd, '0.0.0')
 
   // Story 47-4: factory twins
-  const twinsCmd = factoryCmd
-    .command('twins')
-    .description('Digital twin template management')
+  const twinsCmd = factoryCmd.command('twins').description('Digital twin template management')
 
   twinsCmd
     .command('templates')
@@ -456,25 +465,20 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
             .map((t) => t.name)
             .join(', ')
           process.stderr.write(
-            `Error: Unknown template '${opts.template}'. Available: ${available}\n`,
+            `Error: Unknown template '${opts.template}'. Available: ${available}\n`
           )
           process.exit(1)
           return
         }
 
-        const targetPath = path.join(
-          process.cwd(),
-          '.substrate',
-          'twins',
-          `${opts.template}.yaml`,
-        )
+        const targetPath = path.join(process.cwd(), '.substrate', 'twins', `${opts.template}.yaml`)
 
         if (!opts.force) {
           try {
             await access(targetPath)
             // File exists — error without --force
             process.stderr.write(
-              `Error: File already exists: ${targetPath} — use --force to overwrite\n`,
+              `Error: File already exists: ${targetPath} — use --force to overwrite\n`
             )
             process.exit(1)
             return
@@ -615,9 +619,7 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
             twin.ports.length > 0
               ? twin.ports.map((p) => `${p.host}:${p.container}`).join(', ')
               : '—'
-          process.stdout.write(
-            `  ${twin.name.padEnd(20)}  ${status.padEnd(10)}  ${portsStr}\n`,
-          )
+          process.stdout.write(`  ${twin.name.padEnd(20)}  ${status.padEnd(10)}  ${portsStr}\n`)
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -649,7 +651,7 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
         }
 
         process.stdout.write(
-          '  NAME                 IMAGE                                  PORTS           HEALTHCHECK\n',
+          '  NAME                 IMAGE                                  PORTS           HEALTHCHECK\n'
         )
         for (const twin of twins) {
           const ports =
@@ -658,7 +660,7 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
               : '—'
           const healthcheck = twin.healthcheck?.url ?? '—'
           process.stdout.write(
-            `  ${twin.name.padEnd(20)}  ${twin.image.padEnd(38)}  ${ports.padEnd(16)}  ${healthcheck}\n`,
+            `  ${twin.name.padEnd(20)}  ${twin.image.padEnd(38)}  ${ports.padEnd(16)}  ${healthcheck}\n`
           )
         }
       } catch (err: unknown) {
@@ -695,7 +697,7 @@ export function registerFactoryCommand(program: Command, options?: FactoryComman
           .map((t) => t.name)
           .join(', ')
         process.stderr.write(
-          `Error: Unknown template '${opts.template}'. Available: ${available}\n`,
+          `Error: Unknown template '${opts.template}'. Available: ${available}\n`
         )
         process.exit(1)
         return
