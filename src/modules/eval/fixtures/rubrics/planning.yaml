@@ -1,0 +1,13 @@
+dimensions:
+  - name: requirement_measurability
+    weight: 0.3
+    prompt: "Are functional requirements specific enough to write acceptance tests against?"
+  - name: nfr_coverage
+    weight: 0.2
+    prompt: "Are non-functional requirements concrete with thresholds, not vague aspirations?"
+  - name: tech_stack_justification
+    weight: 0.2
+    prompt: "Is the tech stack justified with rationale, or just listed without reasoning?"
+  - name: scope_boundaries
+    weight: 0.3
+    prompt: "Is the out-of-scope section explicit about what was deliberately excluded and why?"
