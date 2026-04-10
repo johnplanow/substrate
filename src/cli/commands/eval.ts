@@ -31,6 +31,14 @@ import type { EvalDepth, EvalPhase, ReportFormat, PhaseData, Rubric } from '../.
 
 const logger = createLogger('eval-cmd')
 
+/** Maps eval phase names to prompt template keys in the methodology pack */
+const PHASE_TO_PROMPT_KEY: Record<EvalPhase, string> = {
+  analysis: 'analysis',
+  planning: 'planning',
+  solutioning: 'architecture',
+  implementation: 'dev-story',
+}
+
 const EVAL_PHASES: EvalPhase[] = ['analysis', 'planning', 'solutioning', 'implementation']
 
 export interface EvalCommandOptions {
@@ -104,11 +112,14 @@ export async function runEvalAction(options: EvalCommandOptions): Promise<number
 
       // Load prompt template
       let promptTemplate = ''
+      const taskType = PHASE_TO_PROMPT_KEY[phase]
       try {
-        const taskType = phase === 'implementation' ? 'dev-story' : phase
         promptTemplate = await pack.getPrompt(taskType)
-      } catch {
-        logger.debug({ phase }, 'No prompt template found for phase')
+      } catch (err) {
+        logger.warn(
+          { phase, taskType, err: err instanceof Error ? err.message : String(err) },
+          'Could not load prompt template — prompt-compliance layer will be skipped for this phase',
+        )
       }
 
       // Build context from upstream decisions
