@@ -9,7 +9,9 @@ export { initSchema } from './schema.js'
 export * from './cost-types.js'
 export * from './schemas/decisions.js'
 export * from './schemas/operational.js'
+export * from './schemas/phase-outputs.js'
 export * from './queries/amendments.js'
+export * from './queries/phase-outputs.js'
 // Export decisions query functions explicitly; Decision/Requirement/etc. types come from schemas/decisions.js above
 export {
   createDecision,

@@ -25,6 +25,7 @@ import {
   getPipelineRunById,
   getDecisionsByPhaseForRun,
 } from '../../persistence/queries/decisions.js'
+import { getRawOutputsByPhaseForRun } from '../../persistence/queries/phase-outputs.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createLogger } from '../../utils/logger.js'
 import { EvalEngine, PromptfooAdapter, EvalReporter } from '../../modules/eval/index.js'
@@ -125,12 +126,26 @@ export async function runEvalAction(options: EvalCommandOptions): Promise<number
 
     // Build phase data from decisions
     const phaseDataList: PhaseData[] = []
+    const phasesUsingRaw: EvalPhase[] = []
+    const phasesUsingFallback: EvalPhase[] = []
     for (const phase of phases) {
       const decisions = await getDecisionsByPhaseForRun(adapter, run.id, phase)
       if (decisions.length === 0) continue
 
-      // Reconstruct output from decisions
-      const output = decisions.map((d) => `${d.key}: ${d.value}`).join('\n')
+      // Prefer raw LLM output captured at dispatch time (deferred-work G2).
+      // Falls back to the legacy key:value synthesis for runs predating
+      // phase_outputs capture — see docs/eval-system.md for the rationale.
+      // Separator uses an HTML comment (not `---`, which collides with LLM-
+      // produced markdown horizontal rules and YAML front-matter delimiters).
+      const rawOutputs = await getRawOutputsByPhaseForRun(adapter, run.id, phase)
+      let output: string
+      if (rawOutputs.length > 0) {
+        output = rawOutputs.map((r) => r.raw_output).join('\n\n<!-- step-boundary -->\n\n')
+        phasesUsingRaw.push(phase)
+      } else {
+        output = decisions.map((d) => `${d.key}: ${d.value}`).join('\n')
+        phasesUsingFallback.push(phase)
+      }
 
       // Load prompt template
       let promptTemplate = ''
@@ -170,6 +185,20 @@ export async function runEvalAction(options: EvalCommandOptions): Promise<number
     if (phaseDataList.length === 0) {
       process.stderr.write('Error: No phase data found for evaluation.\n')
       return 1
+    }
+
+    // Warn on mixed coverage — a run with some phases captured (raw) and others
+    // falling back to decision synthesis means the judge is comparing
+    // structurally different artifacts across phases. Cross-phase scores
+    // should be interpreted with care.
+    if (phasesUsingRaw.length > 0 && phasesUsingFallback.length > 0) {
+      logger.warn(
+        {
+          rawPhases: phasesUsingRaw,
+          fallbackPhases: phasesUsingFallback,
+        },
+        'Mixed raw/fallback coverage — this run has captured raw output for some phases but not others; cross-phase scores may compare structurally different artifacts',
+      )
     }
 
     // Resolve fixtures directory (co-located with the eval module)

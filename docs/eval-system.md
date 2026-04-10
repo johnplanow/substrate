@@ -369,7 +369,9 @@ Exit code 0 iff every phase meets the margin threshold.
 
 Currently the test file covers one fixture pair per phase. To run multiple pairs, parametrize the `for` loop in `src/modules/eval/__tests__/meta-eval.test.ts` over `(phase, fixturePairName)` tuples.
 
-**Reconstructed-output caveat.** Today the eval harness scores a `key: value\n`-joined synthesis of decision rows rather than the raw LLM output the pipeline produced (see `src/cli/commands/eval.ts:133`). The meta-eval fixtures are shaped to match this synthesis because it's what the judge actually sees in production. When the output-fidelity fix ships (tracked as G2 in deferred work), existing fixtures will need to be regenerated against the new real-output format. Update this note when that lands.
+**Raw-output capture (G2 — landed).** The eval CLI reads raw LLM text from the `phase_outputs` table, which is written per dispatch step by `src/modules/phase-orchestrator/step-runner.ts` on parse success. Multi-step phases are joined with `\n\n---\n\n` as a clear separator for the judge. For runs that predate this capture (no `phase_outputs` rows), the CLI falls back transparently to the previous `key: value\n` synthesis reconstructed from decisions, so old runs still eval without error.
+
+The meta-eval fixtures in this repo were hand-authored against the legacy synthesis shape and therefore don't yet reflect what the judge sees for new runs. Regenerating them against real captured raw output is tracked as deferred-work G8.
 
 ## Iterating Over Time
 
@@ -519,5 +521,12 @@ src/modules/eval/
     ├── cross-phase-analyzer.test.ts
     └── rubric-scorer.test.ts
 
-src/cli/commands/eval.ts                  # CLI command, loads artifacts from decision store
+src/cli/commands/eval.ts                  # CLI command, reads phase_outputs (raw) with decision fallback
+
+packages/core/src/persistence/
+├── schema.ts                             # phase_outputs CREATE TABLE (G2)
+├── schemas/phase-outputs.ts              # Zod schemas for the row shape
+└── queries/phase-outputs.ts              # upsertPhaseOutput + getRawOutputsByPhaseForRun
+
+src/modules/phase-orchestrator/step-runner.ts   # Capture point: writes raw_output after parse success
 ```

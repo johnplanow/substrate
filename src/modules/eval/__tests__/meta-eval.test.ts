@@ -16,11 +16,14 @@
 // Invoke via `npm run test:meta-eval` (which sets META_EVAL=1). Requires an API
 // key in env (OPENAI_API_KEY or ANTHROPIC_API_KEY) for promptfoo's default grader.
 //
-// CAVEAT: Until the "output reconstruction fidelity" fix (deferred work item G2)
-// lands, the eval harness scores a `key: value\n`-joined synthesis of decision
-// rows, not raw LLM output (see src/cli/commands/eval.ts:133). The fixtures in
-// this suite are shaped to match that synthesis. When G2 lands, regenerate
-// fixtures against the new real-output format.
+// G2 STATUS: The output-fidelity fix has landed. The eval CLI now reads raw
+// LLM text from the `phase_outputs` table (captured per dispatch step in
+// src/modules/phase-orchestrator/step-runner.ts) and falls back to the
+// legacy `key: value\n` synthesis only for runs predating the capture.
+// The fixtures in this suite are still hand-authored to match the legacy
+// synthesized shape and should be regenerated against real raw output
+// when there is a captured run available. That regeneration is tracked as
+// deferred work G8.
 
 import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync } from 'node:fs'

@@ -19,6 +19,7 @@ import {
   getDecisionsByPhaseForRun,
   registerArtifact,
 } from '../../persistence/queries/decisions.js'
+import { upsertPhaseOutput } from '../../persistence/queries/phase-outputs.js'
 import { calculateDynamicBudget, summarizeDecisions } from './budget-utils.js'
 import { createLogger } from '../../utils/logger.js'
 import type { PhaseDeps } from './phases/types.js'
@@ -431,6 +432,30 @@ export async function runSteps(
 
       // 7. Store output in step outputs map for subsequent steps
       stepOutputs.set(step.name, parsed)
+
+      // 7.5 Capture raw LLM output for eval fidelity (deferred-work G2).
+      // Writes one phase_outputs row per successful dispatch so the eval CLI
+      // can judge the actual artifact rather than reconstructing from parsed
+      // decisions. Idempotent via composite key — safe on resume/retry.
+      // Wrapped in try/catch: raw-output capture is diagnostic; a DB hiccup
+      // here must NOT fail decision persistence on the happy path.
+      try {
+        await upsertPhaseOutput(deps.db, {
+          pipeline_run_id: runId,
+          phase,
+          step_name: step.name,
+          raw_output: dispatchResult.output,
+        })
+      } catch (captureErr) {
+        logger.warn(
+          {
+            step: step.name,
+            phase,
+            err: captureErr instanceof Error ? captureErr.message : String(captureErr),
+          },
+          'phase_outputs capture failed — continuing without raw-output record for this step',
+        )
+      }
 
       // 8. Persist output fields to decision store
       for (const mapping of step.persist) {

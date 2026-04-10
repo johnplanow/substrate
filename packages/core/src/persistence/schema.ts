@@ -222,6 +222,22 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_decisions_key ON decisions(phase, `key`)')
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_decisions_superseded_by ON decisions(superseded_by)')
 
+  // -- phase_outputs (raw LLM text captured per dispatch step — deferred-work G2) --
+  // Consumers (currently the eval CLI) read these rows to judge the actual
+  // artifact the LLM produced, rather than reconstructing from parsed decisions.
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS phase_outputs (
+      id              VARCHAR(255) PRIMARY KEY,
+      pipeline_run_id VARCHAR(255),
+      phase           VARCHAR(64) NOT NULL,
+      step_name       VARCHAR(255) NOT NULL,
+      raw_output      TEXT NOT NULL,
+      created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_phase_outputs_run_phase ON phase_outputs(pipeline_run_id, phase)')
+
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS requirements (
       id              VARCHAR(255) PRIMARY KEY,
