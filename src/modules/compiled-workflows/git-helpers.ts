@@ -73,6 +73,39 @@ export async function getGitDiffStatSummary(workingDirectory: string = process.c
 }
 
 // ---------------------------------------------------------------------------
+// getGitDiffBetweenCommits
+// ---------------------------------------------------------------------------
+
+/**
+ * Capture the diff between two commits (e.g., baseline..HEAD).
+ * Used when the dev-story agent committed its work, making `git diff HEAD`
+ * empty. This shows what was actually changed.
+ *
+ * @param baseCommit - Starting commit SHA
+ * @param endCommit - Ending commit SHA (defaults to 'HEAD')
+ * @param workingDirectory - Directory to run git in
+ * @returns The diff string, or '' on error
+ */
+export async function getGitDiffBetweenCommits(
+  baseCommit: string,
+  endCommit: string = 'HEAD',
+  workingDirectory: string = process.cwd(),
+): Promise<string> {
+  return runGitCommand(['diff', `${baseCommit}..${endCommit}`], workingDirectory, 'git-diff-commits')
+}
+
+/**
+ * Capture the stat-only diff between two commits.
+ */
+export async function getGitDiffStatBetweenCommits(
+  baseCommit: string,
+  endCommit: string = 'HEAD',
+  workingDirectory: string = process.cwd(),
+): Promise<string> {
+  return runGitCommand(['diff', '--stat', `${baseCommit}..${endCommit}`], workingDirectory, 'git-diff-stat-commits')
+}
+
+// ---------------------------------------------------------------------------
 // getGitDiffForFiles
 // ---------------------------------------------------------------------------
 

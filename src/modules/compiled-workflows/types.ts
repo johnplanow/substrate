@@ -190,6 +190,9 @@ export interface CodeReviewParams {
   previousIssues?: Array<{ severity?: string; description?: string; file?: string; line?: number }>
   /** Whether pre-review build verification passed — signals the reviewer to focus on logic/style, not compilation */
   buildPassed?: boolean
+  /** Git SHA of HEAD before dev-story dispatch. When provided and working tree is clean,
+   *  diff is computed as `git diff <baselineCommit>..HEAD` to capture committed changes. */
+  baselineCommit?: string
 }
 
 /**
