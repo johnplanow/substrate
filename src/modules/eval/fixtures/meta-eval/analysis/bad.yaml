@@ -1,0 +1,13 @@
+name: analysis-bad-cli-task-tracker
+description: Degraded analysis output — vague, generic, untraced, kitchen-sink
+phase: analysis
+notes: |
+  Hand-built degraded variant. Should score low on all four analysis rubric dimensions:
+  problem_clarity (vague, not grounded), user_specificity (generic), feature_justification
+  (no trace), scope_discipline (kitchen sink). Deliberately weak.
+output: |
+  problem-statement: Developers need better tools to manage their tasks. Current solutions are not great and it would be nice to have something better. Productivity is important and we should help people be more productive.
+  target-users: Developers. Anyone who uses a computer for work. People who have tasks to manage. Teams. Individuals. Basically anyone who wants to be more organized.
+  proposed-features: Dashboard with charts and graphs. Notifications via email, SMS, push, and in-app. Integration with GitHub, GitLab, Bitbucket, Slack, Teams, Discord, Jira, Linear, Asana, and Trello. AI-powered task suggestions. Voice input. Mobile app for iOS and Android. Web app. Desktop app. Calendar integration. Time tracking. Pomodoro timer. Team collaboration features. Shared task lists. Permissions and roles. Reporting. Analytics. Search. Tags. Subtasks. Recurring tasks. Dependencies. Gantt charts. Kanban boards. Templates. Export to PDF, CSV, and JSON. Dark mode. Keyboard shortcuts. Widgets. Browser extension.
+  success-metrics: Users will love it. It should be fast. Easy to use. Reliable. Scalable. Secure. Accessible.
+  out-of-scope: TBD. We'll figure this out later based on user feedback and market research.

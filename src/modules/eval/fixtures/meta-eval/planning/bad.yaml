@@ -1,0 +1,12 @@
+name: planning-bad-cli-task-tracker
+description: Degraded PRD output — unmeasurable FRs, vague NFRs, bare tech stack, no scope
+phase: planning
+notes: |
+  Hand-built degraded variant. Should score low on all four planning rubric dimensions:
+  FRs are unmeasurable, NFRs are aspirational and vague, tech stack is a list with no
+  rationale, out-of-scope is missing.
+output: |
+  functional-requirements: The app should let users manage their tasks. Users should be able to add tasks, view tasks, and mark them as done. The interface should be user-friendly and intuitive. The system should handle errors gracefully. Tasks should be saved so users don't lose their work. The search should be good. Filtering should work well. The CLI should be easy to use.
+  non-functional-requirements: The application should be fast and responsive. It should be reliable and not crash. The UI should be modern and clean. Security is important. Scalability should be considered. It should work on all platforms. The code should be maintainable. Performance should be optimized. It should be accessible.
+  tech-stack: Python, Node.js, JavaScript, TypeScript, Go, Rust, SQLite, PostgreSQL, Redis, React, Vue, Express, FastAPI, Docker, Kubernetes.
+  out-of-scope: (not specified)

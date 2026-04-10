@@ -1,0 +1,14 @@
+name: analysis-good-cli-task-tracker
+description: Strong analysis output — concrete problem, specific users, traced features, scoped
+phase: analysis
+notes: |
+  Hand-built reference for a high-quality analysis output. Should score high on all four
+  analysis rubric dimensions: problem_clarity, user_specificity, feature_justification,
+  scope_discipline. Shaped as reconstructed `key: value\n` to match what eval.ts:133 feeds
+  to the judge today.
+output: |
+  problem-statement: Developers who live in the terminal still context-switch to a browser or GUI app to manage their personal task list. Surveyed 47 terminal-first engineers at a 2025 devtools meetup; 38 reported losing 10-20 minutes per day to this context switch, and 31 reported abandoning personal task tools within two weeks because the friction of leaving the terminal broke their flow. The pain is measurable (minutes lost), grounded in observed behavior (tool abandonment), and specific to a narrow workflow (personal task tracking, not project management).
+  target-users: Primary — terminal-first software engineers who already use CLI tools for version control, file navigation, and search (not occasional CLI users). Secondary — DevOps engineers maintaining runbooks whose work is already terminal-bound. Explicitly excluded — non-technical users, team task management, and anyone who prefers a GUI. The primary segment is estimated at ~200k users based on GitHub CLI monthly active users as a proxy.
+  proposed-features: Add/complete/delete/list tasks via subcommands — traces to the "can't leave the terminal" pain. Priority levels with color-coded output — traces to the "quick visual scan" behavior reported by 24 of 47 interviewees. Due dates with overdue highlighting — traces to the "I forget what's due" complaint (29 of 47). Filter by priority and full-text search — traces to "my list grows past 20 items" (17 of 47). Local JSON storage with no server and no network — traces to "I don't want another account" (31 of 47 refused cloud tools).
+  success-metrics: Task operations complete in under 50ms for lists up to 1000 tasks (measurable latency target). Single static binary, no runtime deps beyond libc (measurable packaging constraint). JSON storage file is human-readable and manually editable (testable file format).
+  out-of-scope: Team/shared lists (violates "personal task tracking" scope). Mobile or web UI (violates "terminal-first" target). Notifications or reminders requiring a daemon (adds operational burden that contradicts zero-dependency constraint). Sync across machines (introduces the server dependency we explicitly refused).

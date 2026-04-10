@@ -325,7 +325,51 @@ These tests verify that:
 
 ### Meta-eval tests (LLM calls, on-demand)
 
-There are currently no meta-eval tests — tests that actually call real LLMs to verify the judge scores known-good and known-bad fixtures in the right direction. Adding these is a natural next step. See "Roadmap" below.
+The meta-eval suite answers the only question the rest of the test suite can't: **does the LLM judge actually distinguish good phase output from bad?** It loads hand-built good/bad fixture pairs for each pipeline phase, runs both through the real `PromptfooAdapter` + `RubricScorer`, and asserts `score(good) - score(bad) >= MARGIN_THRESHOLD` (currently 0.15) per phase.
+
+Real LLM calls cost money, so the suite is gated two ways:
+
+1. Filename pattern `**/*meta-eval*` is excluded from `npm test`, `npm run test:fast`, and `npm run test:changed` — vitest never discovers it in normal runs.
+2. The test file's `describe` block is wrapped in `process.env.META_EVAL === '1' ? describe : describe.skip` — if someone runs `vitest` directly with an explicit `--include`, the block still short-circuits unless the env var is set.
+
+**Running it:**
+
+```bash
+# Requires an API key in env for promptfoo's default llm-rubric grader
+export OPENAI_API_KEY=sk-...
+# or
+export ANTHROPIC_API_KEY=sk-ant-...
+
+npm run test:meta-eval
+```
+
+Four tests run (one per phase). Each prints a margin line whose shape looks like this (values shown are **illustrative** — your real margins will differ, and calibrating them is the point):
+
+```
+[meta-eval] analysis: good=<w1>, bad=<w2>, margin=<w1-w2>
+[meta-eval] planning: good=<w1>, bad=<w2>, margin=<w1-w2>
+[meta-eval] solutioning: good=<w1>, bad=<w2>, margin=<w1-w2>
+[meta-eval] implementation: good=<w1>, bad=<w2>, margin=<w1-w2>
+```
+
+Exit code 0 iff every phase meets the margin threshold.
+
+**Triaging a margin failure.** When a phase fails, work through the hypotheses in order:
+
+1. **Fixture too subtle.** Re-read the good and bad YAML in `src/modules/eval/fixtures/meta-eval/<phase>/`. If the bad variant isn't obviously worse on the rubric's dimensions, rewrite it to be more degraded. Target: good above ~0.75, bad below ~0.5 on every dimension.
+2. **Rubric too loose or too strict.** If the judge's scores are reasonable but both variants cluster near the same value, the rubric dimensions may not be discriminating. Tune the prompts in `src/modules/eval/fixtures/rubrics/<phase>.yaml`, and double-check the dimension `weight` values — a high-impact dimension with a small weight can flatten the signal.
+3. **Judge drift.** If fixtures and rubric look fine but the score has collapsed over time, the upstream grader model may have changed. See the [promptfoo model-graded metrics docs](https://www.promptfoo.dev/docs/configuration/expected-outputs/model-graded/) for how to override the grader provider and model.
+
+**Adding a new fixture pair.** To add a pair for a new concept or to catch a specific regression:
+
+1. Create `src/modules/eval/fixtures/meta-eval/<phase>/<good|bad>.yaml` with fields `name`, `description`, `phase`, `output`, and optional `notes`. The `output` field must be a multi-line string shaped as reconstructed `key: value\n` phase output (see caveat below).
+2. The `phase` field must match the directory name.
+3. Each variant should exercise every dimension in that phase's rubric. Review `fixtures/rubrics/<phase>.yaml` and make sure the good output clearly satisfies each dimension; make sure the bad output clearly fails each dimension.
+4. Re-run `npm run test:meta-eval` and check the margin.
+
+Currently the test file covers one fixture pair per phase. To run multiple pairs, parametrize the `for` loop in `src/modules/eval/__tests__/meta-eval.test.ts` over `(phase, fixturePairName)` tuples.
+
+**Reconstructed-output caveat.** Today the eval harness scores a `key: value\n`-joined synthesis of decision rows rather than the raw LLM output the pipeline produced (see `src/cli/commands/eval.ts:133`). The meta-eval fixtures are shaped to match this synthesis because it's what the judge actually sees in production. When the output-fidelity fix ships (tracked as G2 in deferred work), existing fixtures will need to be regenerated against the new real-output format. Update this note when that lands.
 
 ## Iterating Over Time
 
@@ -429,10 +473,6 @@ What's not built:
 ### Historical trend tracking
 
 `substrate eval --compare <run-a> <run-b>` is on the roadmap. The JSON history files already contain everything needed.
-
-### Meta-eval test suite
-
-A small set of fixture pairs (`good` + `bad` variants of known phase outputs) that actually call the LLM judge to verify ordering consistency. Needed to detect judge drift over time.
 
 ### Story-spec loading for the implementation verifier
 

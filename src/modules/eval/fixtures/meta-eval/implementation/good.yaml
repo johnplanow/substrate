@@ -1,0 +1,14 @@
+name: implementation-good-cli-task-tracker
+description: Strong implementation output — AC coverage, test description, architecture adherence
+phase: implementation
+notes: |
+  Hand-built reference for a high-quality implementation (dev-story) output. Should score
+  high on all four implementation rubric dimensions: code_correctness (description matches
+  the story), acceptance_coverage, test_quality, architecture_adherence.
+output: |
+  story-reference: S2 from solutioning — Implement `tt add` with title, priority, and due-date flags.
+  files-created: src/cli/add.rs — the `add` subcommand handler. src/store/mod.rs — shared JSON store load/save helpers used by all mutating commands. tests/add.rs — integration tests using assert_cmd.
+  implementation-summary: Added a `Add` variant to the `Command` enum in src/cli/mod.rs and wired it to cli::add::run. The `run` function parses the CLI args via clap derive (title: String, priority: Option<Priority>, due: Option<NaiveDate>), loads the existing store via store::load(), appends a new Task with a ULID-generated id and current timestamp, writes the store atomically via a tmpfile-then-rename pattern, and prints the new id to stdout. Exit code 0 on success. Invalid date strings cause clap to reject at parse time with exit 2, satisfying the acceptance criterion without a custom validator. Priority defaults to medium when unspecified, matching the planning spec.
+  acceptance-criteria-coverage: AC1 (adds to store, exit 0) — covered by tests/add.rs::adds_task_returns_zero which asserts both the exit code and that a subsequent load contains the task. AC2 (invalid date returns exit 2) — covered by tests/add.rs::invalid_date_returns_two which passes `--due 2025-13-45` and asserts exit code 2 and a non-empty stderr. AC3 (100 tasks in under 5 seconds) — covered by tests/add.rs::bulk_add_latency which runs 100 add invocations in a loop and asserts wall-clock under 5 seconds. All three acceptance criteria from the story are addressed.
+  test-plan: Unit tests for Task construction and priority defaulting in src/store/mod.rs (tests behavior in isolation, no I/O). Integration tests in tests/add.rs cover the three acceptance criteria above plus an edge case (adding a task when the store file does not yet exist — should create parent dirs and initialize an empty store). Integration tests use assert_cmd::Command to drive the real binary, matching the project convention.
+  architecture-adherence: Used the atomic tmpfile-then-rename write pattern mandated by AD1 (single-file JSON store). Did not introduce a long-lived process or a daemon (respects AD2). Used clap derive (AD3). Stored dates as ISO-8601 strings via NaiveDate's Display impl (AD4). No deviations from the architecture decisions.

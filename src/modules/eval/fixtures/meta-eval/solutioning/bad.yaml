@@ -1,0 +1,12 @@
+name: solutioning-bad-cli-task-tracker
+description: Degraded architecture + stories — no rationale, oversized stories, FR gaps, forward refs
+phase: solutioning
+notes: |
+  Hand-built degraded variant. Should score low on all four solutioning rubric dimensions:
+  architecture decisions lack rationale, stories are oversized and vague, FR coverage is
+  incomplete, dependencies are forward-referenced.
+output: |
+  architecture-decisions: Use JSON. Use Rust. Use clap. Use a standard directory. Keep it simple.
+  stories: S1 — Build the whole CLI tool. Implement all commands, storage, filtering, search, and tests. Make it work. Acceptance: it works. S2 — Add any missing features that come up during S1. Acceptance: nothing is missing. S3 — Polish and ship. Acceptance: it looks good.
+  functional-requirement-mapping: FR1 → S1. FR2 → S1. (FR3 and FR4 not mapped.)
+  story-dependencies: S1 depends on S3 being done first so we know what to build. S2 depends on the final version being ready. S3 is the starting point.
