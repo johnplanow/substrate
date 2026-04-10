@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Hoist mock functions so they are available when vi.mock factories execute
 // ---------------------------------------------------------------------------
 
-const { mockReadFile, mockGetGitDiffSummary, mockGetGitDiffStatSummary, mockGetGitDiffStatForFiles, mockGetGitDiffForFiles, mockStageIntentToAdd, mockGetGitChangedFiles, mockLogger } = vi.hoisted(() => ({
+const { mockReadFile, mockGetGitDiffSummary, mockGetGitDiffStatSummary, mockGetGitDiffStatForFiles, mockGetGitDiffForFiles, mockStageIntentToAdd, mockGetGitChangedFiles, mockGetGitDiffBetweenCommits, mockGetGitDiffStatBetweenCommits, mockLogger } = vi.hoisted(() => ({
   mockReadFile: vi.fn(),
   mockGetGitDiffSummary: vi.fn(),
   mockGetGitDiffStatSummary: vi.fn(),
@@ -19,6 +19,8 @@ const { mockReadFile, mockGetGitDiffSummary, mockGetGitDiffStatSummary, mockGetG
   mockGetGitDiffForFiles: vi.fn(),
   mockStageIntentToAdd: vi.fn(),
   mockGetGitChangedFiles: vi.fn(),
+  mockGetGitDiffBetweenCommits: vi.fn(),
+  mockGetGitDiffStatBetweenCommits: vi.fn(),
   mockLogger: {
     debug: vi.fn(),
     info: vi.fn(),
@@ -42,6 +44,8 @@ vi.mock('../git-helpers.js', () => ({
   getGitDiffForFiles: mockGetGitDiffForFiles,
   stageIntentToAdd: mockStageIntentToAdd,
   getGitChangedFiles: mockGetGitChangedFiles,
+  getGitDiffBetweenCommits: mockGetGitDiffBetweenCommits,
+  getGitDiffStatBetweenCommits: mockGetGitDiffStatBetweenCommits,
 }))
 
 vi.mock('../../../utils/logger.js', () => ({
@@ -166,6 +170,8 @@ describe('runCodeReview', () => {
     mockGetGitDiffForFiles.mockResolvedValue('diff --git a/src/foo.ts b/src/foo.ts\n+scoped line\n')
     mockStageIntentToAdd.mockResolvedValue(undefined)
     mockGetGitChangedFiles.mockResolvedValue([])
+    mockGetGitDiffBetweenCommits.mockResolvedValue('')
+    mockGetGitDiffStatBetweenCommits.mockResolvedValue('')
   })
 
   // -------------------------------------------------------------------------
@@ -1137,5 +1143,105 @@ describe('CodeReviewResultSchema — ac_checklist', () => {
     expect(result.verdict).toBe('SHIP_IT')
     expect(result.issues).toBe(0)
     expect(result.issue_list).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Baseline commit diff fallback (v0.19.51 — committed work detection)
+// ---------------------------------------------------------------------------
+
+describe('runCodeReview — baseline commit diff fallback', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockReadFile.mockResolvedValue('## Story\nAs a developer...\n\n## Acceptance Criteria\n### AC1: ...')
+    mockGetGitDiffSummary.mockResolvedValue('')  // Working tree empty (agent committed)
+    mockGetGitDiffStatSummary.mockResolvedValue('')
+    mockGetGitDiffStatForFiles.mockResolvedValue('')
+    mockGetGitDiffForFiles.mockResolvedValue('')
+    mockStageIntentToAdd.mockResolvedValue(undefined)
+    mockGetGitChangedFiles.mockResolvedValue([])
+    mockGetGitDiffBetweenCommits.mockResolvedValue('')
+    mockGetGitDiffStatBetweenCommits.mockResolvedValue('')
+  })
+
+  it('uses baseline..HEAD diff when working tree diff is empty and baselineCommit is provided', async () => {
+    // baseline..HEAD shows the committed changes
+    mockGetGitDiffBetweenCommits.mockResolvedValue('diff --git a/src/Foo.java\n+committed line\n')
+
+    const deps = makeMockDeps() // uses default dispatch that returns SHIP_IT
+    const result = await runCodeReview(deps, {
+      ...DEFAULT_PARAMS,
+      baselineCommit: 'abc123',
+    })
+
+    // Should dispatch to review agent (not short-circuit)
+    expect(result.verdict).toBe('SHIP_IT')
+    expect(result.notes).not.toBe('no_changes_to_review')
+    // Verify baseline diff was requested
+    expect(mockGetGitDiffBetweenCommits).toHaveBeenCalledWith('abc123', 'HEAD', '/repo')
+  })
+
+  it('still short-circuits with SHIP_IT when both working tree AND baseline diffs are empty', async () => {
+    mockGetGitDiffSummary.mockResolvedValue('')
+    mockGetGitDiffBetweenCommits.mockResolvedValue('')
+
+    const dispatchFn = vi.fn()
+    const deps = makeMockDeps({ dispatch: dispatchFn })
+    const result = await runCodeReview(deps, {
+      ...DEFAULT_PARAMS,
+      baselineCommit: 'abc123',
+    })
+
+    expect(result.verdict).toBe('SHIP_IT')
+    expect(result.notes).toBe('no_changes_to_review')
+    expect(dispatchFn).not.toHaveBeenCalled()
+  })
+
+  it('short-circuits without baselineCommit when working tree diff is empty', async () => {
+    mockGetGitDiffSummary.mockResolvedValue('')
+
+    const dispatchFn = vi.fn()
+    const deps = makeMockDeps({ dispatch: dispatchFn })
+    const result = await runCodeReview(deps, DEFAULT_PARAMS) // no baselineCommit
+
+    expect(result.verdict).toBe('SHIP_IT')
+    expect(result.notes).toBe('no_changes_to_review')
+    expect(dispatchFn).not.toHaveBeenCalled()
+    // Should NOT attempt baseline diff without a commit SHA
+    expect(mockGetGitDiffBetweenCommits).not.toHaveBeenCalled()
+  })
+
+  it('falls back to stat-only when baseline..HEAD diff exceeds token ceiling', async () => {
+    // Large baseline diff that exceeds ceiling
+    mockGetGitDiffBetweenCommits.mockResolvedValue('x'.repeat(2_200_000))
+    mockGetGitDiffStatBetweenCommits.mockResolvedValue('src/Foo.java | 500 +++\n1 file changed\n')
+
+    const deps = makeMockDeps() // default dispatch returns SHIP_IT
+    const result = await runCodeReview(deps, {
+      ...DEFAULT_PARAMS,
+      baselineCommit: 'abc123',
+    })
+
+    // Should still dispatch (with stat-only diff)
+    expect(result.notes).not.toBe('no_changes_to_review')
+    expect(mockGetGitDiffStatBetweenCommits).toHaveBeenCalledWith('abc123', 'HEAD', '/repo')
+  })
+
+  it('handles invalid baselineCommit gracefully (git returns empty)', async () => {
+    mockGetGitDiffSummary.mockResolvedValue('')
+    // Invalid SHA causes git to return empty
+    mockGetGitDiffBetweenCommits.mockResolvedValue('')
+
+    const dispatchFn = vi.fn()
+    const deps = makeMockDeps({ dispatch: dispatchFn })
+    const result = await runCodeReview(deps, {
+      ...DEFAULT_PARAMS,
+      baselineCommit: 'invalid-sha',
+    })
+
+    // Graceful degradation: SHIP_IT (same as no changes)
+    expect(result.verdict).toBe('SHIP_IT')
+    expect(result.notes).toBe('no_changes_to_review')
+    expect(dispatchFn).not.toHaveBeenCalled()
   })
 })

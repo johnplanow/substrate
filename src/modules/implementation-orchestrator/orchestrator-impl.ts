@@ -2725,6 +2725,7 @@ export function createImplementationOrchestrator(
                 pipelineRunId: config.pipelineRunId,
                 filesModified: group.files,
                 buildPassed: _buildPassed,
+                ...(baselineHeadSha ? { baselineCommit: baselineHeadSha } : {}),
               },
             )
 
