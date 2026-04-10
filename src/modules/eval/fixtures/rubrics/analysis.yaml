@@ -1,0 +1,14 @@
+# src/modules/eval/fixtures/rubrics/analysis.yaml
+dimensions:
+  - name: problem_clarity
+    weight: 0.3
+    prompt: "Is the problem statement specific, falsifiable, and grounded in real user pain?"
+  - name: user_specificity
+    weight: 0.3
+    prompt: "Are target users described as concrete segments, not generic personas?"
+  - name: feature_justification
+    weight: 0.2
+    prompt: "Does each feature trace back to a stated user need?"
+  - name: scope_discipline
+    weight: 0.2
+    prompt: "Is the scope tight, or does it include kitchen-sink features?"
