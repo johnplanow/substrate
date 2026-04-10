@@ -11,6 +11,10 @@ import { DEFAULT_PASS_THRESHOLD } from './types.js'
 import { PromptComplianceLayer } from './layers/prompt-compliance.js'
 import { ImplVerifier } from './layers/impl-verifier.js'
 import type { StorySpec } from './layers/impl-verifier.js'
+import { GoldenComparator } from './layers/golden-comparator.js'
+import { CrossPhaseAnalyzer } from './layers/cross-phase-analyzer.js'
+import { RubricScorer } from './layers/rubric-scorer.js'
+import type { Rubric } from './layers/rubric-scorer.js'
 
 export interface PhaseData {
   phase: EvalPhase
@@ -19,12 +23,23 @@ export interface PhaseData {
   context: Record<string, string>
   /** Only for implementation phase */
   storySpec?: StorySpec
+  /** Deep tier: golden example for this phase */
+  goldenExample?: string
+  /** Deep tier: scoring rubric for this phase */
+  rubric?: Rubric
+  /** Deep tier: upstream phase output for coherence check */
+  upstreamOutput?: string
+  /** Deep tier: upstream phase name */
+  upstreamPhase?: EvalPhase | string
 }
 
 export class EvalEngine {
   private adapter: EvalAdapter
   private promptCompliance = new PromptComplianceLayer()
   private implVerifier = new ImplVerifier()
+  private goldenComparator = new GoldenComparator()
+  private crossPhaseAnalyzer = new CrossPhaseAnalyzer()
+  private rubricScorer = new RubricScorer()
 
   constructor(adapter: EvalAdapter) {
     this.adapter = adapter
@@ -64,7 +79,52 @@ export class EvalEngine {
       }
     }
 
-    // Deep tier layers will be added in Task 11
+    // Deep tier: golden example comparison
+    if (depth === 'deep' && phaseData.goldenExample) {
+      const goldenAssertions = this.goldenComparator.buildAssertions(
+        phaseData.goldenExample,
+        phaseData.phase,
+      )
+      if (goldenAssertions.length > 0) {
+        const result = await this.adapter.runAssertions(
+          phaseData.output,
+          goldenAssertions,
+          'golden-comparison',
+        )
+        layers.push(result)
+      }
+    }
+
+    // Deep tier: cross-phase coherence
+    if (depth === 'deep' && phaseData.upstreamOutput && phaseData.upstreamPhase) {
+      const coherenceAssertions = this.crossPhaseAnalyzer.buildAssertions(
+        phaseData.upstreamOutput,
+        phaseData.output,
+        phaseData.upstreamPhase,
+        phaseData.phase,
+      )
+      if (coherenceAssertions.length > 0) {
+        const result = await this.adapter.runAssertions(
+          phaseData.output,
+          coherenceAssertions,
+          'cross-phase-coherence',
+        )
+        layers.push(result)
+      }
+    }
+
+    // Deep tier: rubric scoring
+    if (depth === 'deep' && phaseData.rubric) {
+      const rubricAssertions = this.rubricScorer.buildAssertions(phaseData.rubric)
+      if (rubricAssertions.length > 0) {
+        const result = await this.adapter.runAssertions(
+          phaseData.output,
+          rubricAssertions,
+          'rubric',
+        )
+        layers.push(result)
+      }
+    }
 
     // Aggregate
     const avgScore =
