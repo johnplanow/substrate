@@ -13,5 +13,5 @@ export default defineConfig({
   treeshake: true,
   platform: 'node',
   outDir: 'dist',
-  external: ['pino', 'commander', 'tree-sitter', 'tree-sitter-typescript', 'tree-sitter-javascript', 'tree-sitter-python'],
+  external: ['pino', 'commander', 'promptfoo', 'tree-sitter', 'tree-sitter-typescript', 'tree-sitter-javascript', 'tree-sitter-python'],
 })
