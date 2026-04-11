@@ -40,13 +40,26 @@ export class PromptfooAdapter implements EvalAdapter {
         throw importErr
       }
 
+      // Inline echo provider as a bare async function. promptfoo's
+      // `loadApiProviders` has three branches for array entries:
+      // (1) string path, (2) bare function (auto-wrapped into `{ id: () =>
+      // 'custom-function-<idx>', callApi: fn }`), (3) object with `id`.
+      // Branch (3) requires `id` to be a STRING (it's passed as providerPath
+      // to `loadApiProvider`, which calls `.startsWith(...)` on it). An
+      // object with a function `id` hits the "providerPath.startsWith is not
+      // a function" TypeError. So we use branch (2) — a bare function —
+      // and let promptfoo wrap it. The function echoes the rendered prompt
+      // back as output, so the llm-rubric assertions grade the pre-captured
+      // phase output without promptfoo issuing a real model call. Grading
+      // still uses promptfoo's default grading provider (needs
+      // OPENAI_API_KEY or ANTHROPIC_API_KEY in env).
+      const echoCallApi = async (prompt: string) => {
+        return { output: prompt }
+      }
+
       const testSuite = {
         prompts: ['{{output}}'],
-        providers: [
-          {
-            id: () => Promise.resolve({ output }),
-          },
-        ],
+        providers: [echoCallApi],
         tests: [
           {
             vars: { output },

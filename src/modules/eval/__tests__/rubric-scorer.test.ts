@@ -11,7 +11,7 @@ describe('RubricScorer', () => {
         {
           name: 'problem_clarity',
           weight: 0.3,
-          prompt: 'Is the problem statement specific, falsifiable, and grounded in real user pain?',
+          prompt: 'Does the problem statement name a measurable user impact (counts, percentages, frequencies, or named scenarios) rather than a vague hardship?',
         },
         {
           name: 'user_specificity',
@@ -26,7 +26,7 @@ describe('RubricScorer', () => {
         {
           name: 'scope_discipline',
           weight: 0.2,
-          prompt: 'Is the scope tight, or does it include kitchen-sink features?',
+          prompt: 'Does the output include an explicit out-of-scope section that names what is excluded, rather than only listing what is included?',
         },
       ],
     }
@@ -36,7 +36,7 @@ describe('RubricScorer', () => {
     expect(assertions).toHaveLength(4)
     expect(assertions[0].label).toBe('rubric:problem_clarity')
     expect(assertions[0].type).toBe('llm-rubric')
-    expect(assertions[0].value).toContain('specific, falsifiable')
+    expect(assertions[0].value).toContain('measurable user impact')
     expect(assertions[1].label).toBe('rubric:user_specificity')
   })
 

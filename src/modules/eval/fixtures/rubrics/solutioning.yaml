@@ -4,7 +4,7 @@ dimensions:
     prompt: "Does each architecture decision include a rationale, not just a value?"
   - name: story_decomposition
     weight: 0.3
-    prompt: "Are stories small enough to implement in a single session, with clear acceptance criteria?"
+    prompt: "Does each story include both an explicit acceptance-criteria list and a reference to at least one named module, file, or interface it touches?"
   - name: fr_coverage
     weight: 0.2
     prompt: "Do the stories collectively cover all functional requirements from the PRD?"

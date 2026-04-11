@@ -1,13 +1,13 @@
 dimensions:
   - name: code_correctness
     weight: 0.3
-    prompt: "Does the code compile and appear functionally correct based on the story spec?"
+    prompt: "Does the diff show complete function bodies (no placeholder TODOs, ellipses, or unfinished stubs) for every module the story spec listed?"
   - name: acceptance_coverage
     weight: 0.3
     prompt: "Are all acceptance criteria from the story addressed in the implementation?"
   - name: test_quality
     weight: 0.2
-    prompt: "Do tests cover the main behaviors and edge cases described in the story?"
+    prompt: "Does each test name explicitly reference an acceptance criterion or scenario from the story, rather than naming only a function or module?"
   - name: architecture_adherence
     weight: 0.2
     prompt: "Does the implementation follow the architecture decisions from the solutioning phase?"
