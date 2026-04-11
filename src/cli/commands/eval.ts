@@ -42,6 +42,48 @@ const PHASE_TO_PROMPT_KEY: Record<EvalPhase, string> = {
   implementation: 'dev-story',
 }
 
+/**
+ * Load the prompt template for a phase, throwing a clear diagnostic error
+ * if the pack cannot resolve it (G7 — make degraded runs loud).
+ *
+ * The pre-G7 code path caught the error, logged a warning, and continued
+ * with an empty template. PromptComplianceLayer would then run against
+ * nothing and produce a meaningless score, polluting the aggregate phase
+ * score with no visible marker that something was wrong.
+ *
+ * Now we refuse to proceed. The outer try/catch in runEvalAction surfaces
+ * the thrown message on stderr and returns exit 1, so the user sees the
+ * failure immediately and knows which pack file to fix (or which phase to
+ * exclude via --phase).
+ *
+ * @param pack - Anything with a getPrompt(taskType) method; keeps this
+ *               helper trivially mockable in unit tests.
+ * @param phase - eval phase name; mapped to a pack task type via
+ *                PHASE_TO_PROMPT_KEY.
+ * @throws Error with a message naming the phase, the task type key, and
+ *         the underlying pack error, so the user can act on it without
+ *         re-running.
+ */
+export async function loadPromptTemplateStrict(
+  pack: { getPrompt(taskType: string): Promise<string> },
+  phase: EvalPhase,
+): Promise<string> {
+  const taskType = PHASE_TO_PROMPT_KEY[phase]
+  try {
+    return await pack.getPrompt(taskType)
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err)
+    throw new Error(
+      `Prompt template for phase '${phase}' (pack task type '${taskType}') ` +
+        `could not be loaded: ${cause}. ` +
+        `Eval cannot proceed without a prompt template — prompt-compliance ` +
+        `would otherwise score against an empty string and silently pollute ` +
+        `the phase score. Fix: ensure the methodology pack defines a prompt ` +
+        `for '${taskType}', or re-run with --phase to exclude '${phase}'.`,
+    )
+  }
+}
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
@@ -148,17 +190,13 @@ export async function runEvalAction(options: EvalCommandOptions): Promise<number
         phasesUsingFallback.push(phase)
       }
 
-      // Load prompt template
-      let promptTemplate = ''
-      const taskType = PHASE_TO_PROMPT_KEY[phase]
-      try {
-        promptTemplate = await pack.getPrompt(taskType)
-      } catch (err) {
-        logger.warn(
-          { phase, taskType, err: err instanceof Error ? err.message : String(err) },
-          'Could not load prompt template — prompt-compliance layer will be skipped for this phase',
-        )
-      }
+      // Load prompt template — hard failure on missing template (G7).
+      // See loadPromptTemplateStrict for the rationale: running the
+      // prompt-compliance layer against an empty template produces a
+      // meaningless score and silently pollutes the phase aggregate.
+      // The thrown error bubbles to the outer try/catch, which surfaces
+      // it on stderr and returns exit 1.
+      const promptTemplate = await loadPromptTemplateStrict(pack, phase)
 
       // Build context from upstream decisions
       const context: Record<string, string> = {}
