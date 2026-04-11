@@ -67,6 +67,24 @@ interface MetaEvalFixture {
   phase: EvalPhase
   output: string
   notes?: string
+  /**
+   * G9: pre-formatted reference material (story spec, acceptance criteria,
+   * architecture decisions) that the judge should evaluate the output
+   * AGAINST. Injected into every rubric assertion prompt via
+   * `RubricScorer.buildAssertions({ referenceContext })` so the grader has
+   * the reference in the same call as the rubric question.
+   *
+   * Used for the implementation phase where grading requires knowing which
+   * story is being implemented. Optional — analysis/planning/solutioning
+   * phases evaluate outputs on self-contained quality rubrics and do not
+   * need external reference material.
+   *
+   * Good and bad variants for the same phase should carry the SAME
+   * reference_context (they are evaluating the same simulated story from
+   * two different implementation quality levels), so the judge is asked
+   * to distinguish implementation quality, not reference fidelity.
+   */
+  reference_context?: string
 }
 
 function loadFixture(phase: EvalPhase, variant: 'good' | 'bad'): MetaEvalFixture {
@@ -153,7 +171,23 @@ describeMetaEval('Meta-eval: LLM judge discrimination', () => {
         expect(bad.phase).toBe(phase)
         expect(rubric.dimensions.length).toBeGreaterThan(0)
 
-        const assertions = scorer.buildAssertions(rubric)
+        // G9: Sanity-check that good and bad carry the same reference
+        // context when either provides one, so the judge is asked to
+        // distinguish implementation quality against a shared reference
+        // rather than accidentally grading "who has a better story spec".
+        if (good.reference_context || bad.reference_context) {
+          expect(
+            bad.reference_context,
+            `meta-eval fixture mismatch: ${phase} good has reference_context but bad does not (or vice versa)`,
+          ).toBe(good.reference_context)
+        }
+
+        // Use the good fixture's reference_context for both dispatches —
+        // they must match per the guard above. Falls back to undefined
+        // when neither fixture provides one (analysis/planning/solutioning).
+        const referenceContext = good.reference_context
+
+        const assertions = scorer.buildAssertions(rubric, { referenceContext })
 
         // Run sequentially rather than in parallel. Parallelism only saves ~50%
         // wall-clock but doubles peak concurrent grader calls, making rate-limit

@@ -5,6 +5,37 @@ notes: |
   Hand-built degraded variant. Should score low on all four implementation rubric
   dimensions: implementation description is vague/incorrect, acceptance criteria are
   not all covered, tests are missing or superficial, architecture decisions are ignored.
+
+  G9: MUST carry the same reference_context as good.yaml — the judge is evaluating
+  two implementations of the SAME story, not two different stories. meta-eval.test.ts
+  asserts this match at load time.
+reference_context: |
+  Story S2 — Implement `tt add` command
+    As a terminal user, I want to add a task with a title, an optional priority
+    level, and an optional due date via a single CLI invocation, so that I can
+    capture work without leaving my terminal.
+
+  Acceptance criteria:
+    - AC1: Running `tt add "wash dishes"` writes the new task to the store and
+      exits with code 0. A subsequent `tt list` shows the task.
+    - AC2: Running `tt add "x" --due 2025-13-45` (invalid date) rejects the
+      input, prints an error to stderr, and exits with code 2.
+    - AC3: Adding 100 tasks in sequence completes in under 5 seconds on a
+      standard developer machine (2020+ laptop), measured wall-clock.
+
+  Architecture decisions the implementation must follow:
+    - AD1: Store writes use the atomic tmpfile-then-rename pattern on the
+      single JSON file. Direct in-place writes are forbidden.
+    - AD2: No long-lived process, no daemon, no background thread. Every
+      invocation exits after doing its work.
+    - AD3: CLI arg parsing uses clap derive. No hand-rolled argv walkers.
+    - AD4: Dates are stored as ISO-8601 strings via NaiveDate, not binary
+      blobs or platform-specific date types.
+
+  Expected modules / files (not exhaustive, but should be touched):
+    - src/cli/add.rs (or equivalent) — the add subcommand handler
+    - src/store/ — shared JSON store load/save/atomic-write helpers
+    - tests/add.rs (or equivalent) — integration tests using assert_cmd
 output: |
   story-reference: Some story about adding tasks.
   files-created: main.py — the main file with all the code.

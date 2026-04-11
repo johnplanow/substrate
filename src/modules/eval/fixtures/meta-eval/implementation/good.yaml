@@ -5,6 +5,40 @@ notes: |
   Hand-built reference for a high-quality implementation (dev-story) output. Should score
   high on all four implementation rubric dimensions: code_correctness (description matches
   the story), acceptance_coverage, test_quality, architecture_adherence.
+
+  G9: reference_context carries the story spec and architecture decisions the judge
+  evaluates this output AGAINST. bad.yaml MUST carry the same reference_context — the
+  judge is distinguishing implementation quality against a shared story reference, not
+  grading whose story spec is clearer. When the impl phase is later regenerated against
+  real captured output (see G8.a still-open impl fixture), the reference_context here
+  should be replaced with a real StorySpec extracted from the captured run.
+reference_context: |
+  Story S2 — Implement `tt add` command
+    As a terminal user, I want to add a task with a title, an optional priority
+    level, and an optional due date via a single CLI invocation, so that I can
+    capture work without leaving my terminal.
+
+  Acceptance criteria:
+    - AC1: Running `tt add "wash dishes"` writes the new task to the store and
+      exits with code 0. A subsequent `tt list` shows the task.
+    - AC2: Running `tt add "x" --due 2025-13-45` (invalid date) rejects the
+      input, prints an error to stderr, and exits with code 2.
+    - AC3: Adding 100 tasks in sequence completes in under 5 seconds on a
+      standard developer machine (2020+ laptop), measured wall-clock.
+
+  Architecture decisions the implementation must follow:
+    - AD1: Store writes use the atomic tmpfile-then-rename pattern on the
+      single JSON file. Direct in-place writes are forbidden.
+    - AD2: No long-lived process, no daemon, no background thread. Every
+      invocation exits after doing its work.
+    - AD3: CLI arg parsing uses clap derive. No hand-rolled argv walkers.
+    - AD4: Dates are stored as ISO-8601 strings via NaiveDate, not binary
+      blobs or platform-specific date types.
+
+  Expected modules / files (not exhaustive, but should be touched):
+    - src/cli/add.rs (or equivalent) — the add subcommand handler
+    - src/store/ — shared JSON store load/save/atomic-write helpers
+    - tests/add.rs (or equivalent) — integration tests using assert_cmd
 output: |
   story-reference: S2 from solutioning — Implement `tt add` with title, priority, and due-date flags.
   files-created: src/cli/add.rs — the `add` subcommand handler. src/store/mod.rs — shared JSON store load/save helpers used by all mutating commands. tests/add.rs — integration tests using assert_cmd.

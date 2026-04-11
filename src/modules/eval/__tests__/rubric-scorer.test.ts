@@ -46,6 +46,56 @@ describe('RubricScorer', () => {
     expect(assertions).toEqual([])
   })
 
+  it('includes referenceContext in each assertion prompt when provided (G9)', () => {
+    // The implementation-phase rubric prompts reference "the story" ("every
+    // module the story spec listed", "all acceptance criteria from the
+    // story"). Without a reference context, the judge has to guess what
+    // story is being implemented. G9 extends buildAssertions to optionally
+    // inject a reference context block into every assertion so the grader
+    // has the AC list and module list alongside the rubric question.
+    const scorer = new RubricScorer()
+    const rubric = {
+      dimensions: [
+        { name: 'acceptance_coverage', weight: 0.5, prompt: 'Are all acceptance criteria addressed?' },
+        { name: 'code_correctness', weight: 0.5, prompt: 'Does the diff show complete function bodies?' },
+      ],
+    }
+
+    const referenceContext = [
+      'Story: 1-2 (Task domain model)',
+      'Acceptance criteria:',
+      '  - ValidateTitle rejects empty string',
+      '  - ValidatePriority is case-insensitive',
+      'Expected files: internal/task/task.go, internal/task/validate.go',
+    ].join('\n')
+
+    const assertions = scorer.buildAssertions(rubric, { referenceContext })
+
+    expect(assertions).toHaveLength(2)
+    for (const a of assertions) {
+      // Every dimension's prompt should now include the reference context
+      // so the judge sees the AC and modules alongside the rubric question.
+      expect(a.value).toContain('Reference context')
+      expect(a.value).toContain('ValidateTitle rejects empty string')
+      expect(a.value).toContain('internal/task/task.go')
+      // The dimension-specific question is still present.
+      expect(a.value).toContain('Score on a 0-1 scale')
+    }
+    // Dimension-specific prompt text is preserved.
+    expect(assertions[0].value).toContain('acceptance criteria')
+    expect(assertions[1].value).toContain('function bodies')
+  })
+
+  it('omits referenceContext section when not provided (backward compat)', () => {
+    const scorer = new RubricScorer()
+    const rubric = {
+      dimensions: [{ name: 'x', weight: 1.0, prompt: 'test question' }],
+    }
+    const assertions = scorer.buildAssertions(rubric)
+    expect(assertions[0].value).not.toContain('Reference context')
+    expect(assertions[0].value).toContain('test question')
+  })
+
   it('calculates weighted score from dimension results', () => {
     const scorer = new RubricScorer()
 
