@@ -16,6 +16,35 @@ import { CrossPhaseAnalyzer } from './layers/cross-phase-analyzer.js'
 import { RubricScorer } from './layers/rubric-scorer.js'
 import type { Rubric } from './layers/rubric-scorer.js'
 
+/**
+ * Per-layer weights for phase-score aggregation (G5).
+ *
+ * Rationale: before G5 the phase score was an unweighted mean across layers,
+ * which meant a deterministic file-existence check counted the same as a
+ * subjective LLM rubric, so the phase score was dragged toward whichever
+ * layer was noisiest. Weights prioritize layers whose signal we trust more.
+ *
+ * - `rubric` (0.4): highest weight — scores per-dimension against a
+ *   hand-authored rubric; most direct quality signal for the phase contract.
+ * - `prompt-compliance` / `impl-verifier` (0.3): structural/deterministic
+ *   checks that should pull the score toward concrete contract adherence.
+ * - `golden-comparison` (0.2): useful but degrades with fixture drift.
+ * - `cross-phase-coherence` (0.1): noisiest; lowest weight.
+ *
+ * Aggregation is `sum(weight·score) / sum(weight)` over layers that
+ * actually ran for the phase, so weights do not need to sum to 1.
+ */
+const LAYER_WEIGHTS: Record<string, number> = {
+  rubric: 0.4,
+  'prompt-compliance': 0.3,
+  'impl-verifier': 0.3,
+  'golden-comparison': 0.2,
+  'cross-phase-coherence': 0.1,
+}
+
+/** Weight applied to any layer whose name is not in LAYER_WEIGHTS. */
+const DEFAULT_LAYER_WEIGHT = 0.2
+
 export interface PhaseData {
   phase: EvalPhase
   output: string
@@ -148,11 +177,19 @@ export class EvalEngine {
       }
     }
 
-    // Aggregate
-    const avgScore =
-      layers.length > 0
-        ? layers.reduce((sum, l) => sum + l.score, 0) / layers.length
-        : 0
+    // Aggregate: weighted mean across the layers that actually ran
+    // (G5 — see LAYER_WEIGHTS above for rationale).
+    let avgScore = 0
+    if (layers.length > 0) {
+      let weightedSum = 0
+      let weightTotal = 0
+      for (const l of layers) {
+        const w = LAYER_WEIGHTS[l.layer] ?? DEFAULT_LAYER_WEIGHT
+        weightedSum += w * l.score
+        weightTotal += w
+      }
+      avgScore = weightTotal > 0 ? weightedSum / weightTotal : 0
+    }
     const pass = avgScore >= DEFAULT_PASS_THRESHOLD
     const issues = layers
       .flatMap((l) => l.assertions.filter((a) => !a.pass))

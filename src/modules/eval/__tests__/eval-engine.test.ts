@@ -165,6 +165,64 @@ describe('EvalEngine deep tier', () => {
     expect(rubricLayer!.score).toBeCloseTo(0.84, 2)
   })
 
+  it('applies layer weights when aggregating phase score (G5)', async () => {
+    // Layers present on analysis in this setup:
+    //   prompt-compliance → 1.0 (weight 0.3)
+    //   golden-comparison → 0.0 (weight 0.2)
+    //   rubric            → 1.0 (weight 0.4)
+    //
+    // Unweighted mean:     (1.0 + 0.0 + 1.0) / 3          = 0.6667 → fails 0.7
+    // Weighted aggregate:  (0.3·1.0 + 0.2·0.0 + 0.4·1.0) / (0.3+0.2+0.4)
+    //                    = 0.70 / 0.9 ≈ 0.7778 → passes 0.7
+    //
+    // The high-weight rubric and prompt-compliance layers should pull the
+    // phase above threshold despite the zero golden score. Under the old
+    // unweighted mean, the phase would fail.
+    const adapter = mockAdapterDeep({
+      'prompt-compliance': {
+        layer: 'prompt-compliance',
+        score: 1.0,
+        pass: true,
+        assertions: [{ name: 'compliance', score: 1.0, pass: true, reason: 'good' }],
+      },
+      'golden-comparison': {
+        layer: 'golden-comparison',
+        score: 0.0,
+        pass: false,
+        assertions: [{ name: 'golden:coverage', score: 0.0, pass: false, reason: 'divergent' }],
+      },
+      'rubric': {
+        layer: 'rubric',
+        score: 1.0,
+        pass: true,
+        assertions: [{ name: 'rubric:problem_clarity', score: 1.0, pass: true, reason: 'clear' }],
+      },
+    })
+
+    const engine = new EvalEngine(adapter)
+
+    const phases: PhaseData[] = [
+      {
+        phase: 'analysis',
+        output: 'analysis output',
+        promptTemplate: '## Mission\nAnalyze.',
+        context: {},
+        goldenExample: 'golden analysis output',
+        rubric: {
+          dimensions: [
+            { name: 'problem_clarity', weight: 1.0, prompt: 'Is the problem clear?' },
+          ],
+        },
+      },
+    ]
+
+    const report = await engine.evaluate(phases, 'deep', 'run-g5')
+
+    expect(report.phases[0].layers).toHaveLength(3)
+    expect(report.phases[0].score).toBeCloseTo(0.7778, 3)
+    expect(report.phases[0].pass).toBe(true)
+  })
+
   it('runs golden comparison and cross-phase analysis in deep mode', async () => {
     const adapter = mockAdapterDeep({
       'prompt-compliance': {
