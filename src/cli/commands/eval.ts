@@ -30,6 +30,7 @@ import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createLogger } from '../../utils/logger.js'
 import { EvalEngine, PromptfooAdapter, EvalReporter } from '../../modules/eval/index.js'
 import type { EvalDepth, EvalPhase, ReportFormat, PhaseData, Rubric } from '../../modules/eval/index.js'
+import { loadStorySpecsForRun } from '../../modules/eval/story-spec-loader.js'
 
 const logger = createLogger('eval-cmd')
 
@@ -174,12 +175,33 @@ export async function runEvalAction(options: EvalCommandOptions): Promise<number
         }
       }
 
-      phaseDataList.push({
+      const phaseData: PhaseData = {
         phase,
         output,
         promptTemplate,
         context,
-      })
+      }
+
+      // For the implementation phase, load story specs (files + acceptance
+      // criteria) from on-disk story files for every story that ran in this
+      // run. ImplVerifier uses these for deterministic checks (file
+      // existence, compile, AC rubric). Empty result simply skips the layer.
+      // Closes deferred-work G4 — see _bmad-output/implementation-artifacts/deferred-work.md.
+      if (phase === 'implementation') {
+        try {
+          const storySpec = await loadStorySpecsForRun(adapter, run.id, dbRoot)
+          if (storySpec.files.length > 0 || storySpec.acceptanceCriteria.length > 0) {
+            phaseData.storySpec = storySpec
+          }
+        } catch (err) {
+          logger.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            'Failed to load story specs for implementation phase — impl-verifier layer will be skipped',
+          )
+        }
+      }
+
+      phaseDataList.push(phaseData)
     }
 
     if (phaseDataList.length === 0) {
