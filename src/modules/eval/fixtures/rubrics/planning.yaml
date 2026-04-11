@@ -7,7 +7,21 @@ dimensions:
     prompt: "Are non-functional requirements concrete with thresholds, not vague aspirations?"
   - name: tech_stack_justification
     weight: 0.2
-    prompt: "Is the tech stack justified with rationale, or just listed without reasoning?"
+    # G13 rewrite (2026-04-11): pre-G13 this asked for tech-stack
+    # justification. The planning phase does not produce a tech stack
+    # section — that lives in the solutioning/architecture phase. The
+    # planning phase DOES produce `project_type` in the classification
+    # step. Rewrite to ask about classification specificity, which is
+    # what planning actually produces and is still a meaningful
+    # discriminator of quality (concrete shape vs generic category).
+    # Dimension name is preserved to keep rubric-scorer tests stable.
+    prompt: "Does the project_type classification name a specific implementation shape (e.g., 'TypeScript CLI tool for personal task management') rather than a generic category (e.g., 'CLI tool' or 'web app')?"
   - name: scope_boundaries
     weight: 0.3
-    prompt: "Is the out-of-scope section explicit about what was deliberately excluded and why?"
+    # G13 rewrite (2026-04-11): pre-G13 this asked for an explicit
+    # `out_of_scope` section. The planning phase does not produce that
+    # field. It DOES produce `key_goals` in the classification step —
+    # the scope is implicitly bounded by which goals made the cut.
+    # Rewrite to ask about goal specificity and measurability, which
+    # planning actually produces. Dimension name preserved.
+    prompt: "Does the key_goals list name concrete, measurable objectives (with verifiable targets like timing thresholds, feature counts, or acceptance criteria), rather than open-ended aspirations like 'easy to use' or 'high quality'?"

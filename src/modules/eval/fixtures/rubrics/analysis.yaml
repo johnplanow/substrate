@@ -11,4 +11,13 @@ dimensions:
     prompt: "Does each feature trace back to a stated user need?"
   - name: scope_discipline
     weight: 0.2
-    prompt: "Does the output include an explicit out-of-scope section that names what is excluded, rather than only listing what is included?"
+    # G13 rewrite (2026-04-11): pre-G13 this asked for an explicit
+    # `out_of_scope` section. The analysis phase prompt contract
+    # (packs/bmad/prompts/analysis-step-2-scope.md) does not prescribe
+    # that field — the real analysis output has `constraints` and
+    # `technology_constraints` sections instead. The pre-G13 prompt
+    # would score 0 on real pipeline output, capping the analysis phase
+    # at ~0.8 regardless of quality. Rewritten to ask about the
+    # scope-bounding structure that IS produced. The dimension name
+    # stays as `scope_discipline` to keep rubric-scorer tests stable.
+    prompt: "Does the output explicitly name constraints or technology constraints that bound the solution space (e.g., 'no server', 'offline-only', 'single binary', 'zero network calls'), rather than only listing positive features?"
