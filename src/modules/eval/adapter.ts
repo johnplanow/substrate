@@ -17,7 +17,28 @@ export class PromptfooAdapter implements EvalAdapter {
     layerName: string,
   ): Promise<LayerResult> {
     try {
-      const promptfoo = (await import('promptfoo')).default
+      // promptfoo is intentionally NOT listed in package.json dependencies
+      // because its ~800-package transitive tree balloons CI install time
+      // and pushes timing-sensitive tests over their timeouts. Users who
+      // run `substrate eval` install promptfoo separately via
+      // `npm install promptfoo`. The dynamic import below catches the
+      // missing-module case and surfaces an actionable error.
+      let promptfoo: any
+      try {
+        // @ts-expect-error — not in deps, resolved at runtime only
+        promptfoo = (await import('promptfoo')).default
+      } catch (importErr) {
+        const msg = importErr instanceof Error ? importErr.message : String(importErr)
+        if (
+          msg.includes('promptfoo') &&
+          (msg.includes('Cannot find') || msg.includes('ERR_MODULE_NOT_FOUND'))
+        ) {
+          throw new Error(
+            'promptfoo is not installed. Run `npm install promptfoo` to enable `substrate eval`.',
+          )
+        }
+        throw importErr
+      }
 
       const testSuite = {
         prompts: ['{{output}}'],
