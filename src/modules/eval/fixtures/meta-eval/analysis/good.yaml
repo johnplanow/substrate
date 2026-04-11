@@ -1,14 +1,53 @@
 name: analysis-good-cli-task-tracker
-description: Strong analysis output — concrete problem, specific users, traced features, scoped
+description: Real captured analysis-phase output from substrate run 6d8a7d9c (cli-task-tracker concept)
 phase: analysis
 notes: |
-  Hand-built reference for a high-quality analysis output. Should score high on all four
-  analysis rubric dimensions: problem_clarity, user_specificity, feature_justification,
-  scope_discipline. Shaped as reconstructed `key: value\n` to match what eval.ts:133 feeds
-  to the judge today.
+  Regenerated from real pipeline output per deferred-work G8.a.
+  Supersedes the hand-authored v1 fixture which was shaped as
+  pre-G2 key:value synthesis. Captured 2 step output(s):
+  analysis-step-1-vision, analysis-step-2-scope. Step boundaries are HTML comments matching the separator
+  used by src/cli/commands/eval.ts when concatenating multi-step phase
+  outputs for grading.
 output: |
-  problem-statement: Developers who live in the terminal still context-switch to a browser or GUI app to manage their personal task list. Surveyed 47 terminal-first engineers at a 2025 devtools meetup; 38 reported losing 10-20 minutes per day to this context switch, and 31 reported abandoning personal task tools within two weeks because the friction of leaving the terminal broke their flow. The pain is measurable (minutes lost), grounded in observed behavior (tool abandonment), and specific to a narrow workflow (personal task tracking, not project management).
-  target-users: Primary — terminal-first software engineers who already use CLI tools for version control, file navigation, and search (not occasional CLI users). Secondary — DevOps engineers maintaining runbooks whose work is already terminal-bound. Explicitly excluded — non-technical users, team task management, and anyone who prefers a GUI. The primary segment is estimated at ~200k users based on GitHub CLI monthly active users as a proxy.
-  proposed-features: Add/complete/delete/list tasks via subcommands — traces to the "can't leave the terminal" pain. Priority levels with color-coded output — traces to the "quick visual scan" behavior reported by 24 of 47 interviewees. Due dates with overdue highlighting — traces to the "I forget what's due" complaint (29 of 47). Filter by priority and full-text search — traces to "my list grows past 20 items" (17 of 47). Local JSON storage with no server and no network — traces to "I don't want another account" (31 of 47 refused cloud tools).
-  success-metrics: Task operations complete in under 50ms for lists up to 1000 tasks (measurable latency target). Single static binary, no runtime deps beyond libc (measurable packaging constraint). JSON storage file is human-readable and manually editable (testable file format).
-  out-of-scope: Team/shared lists (violates "personal task tracking" scope). Mobile or web UI (violates "terminal-first" target). Notifications or reminders requiring a daemon (adds operational burden that contradicts zero-dependency constraint). Sync across machines (introduces the server dependency we explicitly refused).
+  ```yaml
+  result: success
+  problem_statement: "Developers who work primarily in terminal environments face a persistent context-switching tax when managing tasks: mainstream task managers (Todoist, Notion, Things) demand leaving the terminal to interact with a GUI or browser tab, fragmenting focus and disrupting flow state during deep work sessions. Lightweight workarounds—plain text files, ad-hoc notes, shell aliases—lack queryable structure, making filtering by urgency or searching by keyword impractical without custom scripting. The consequence is a forced choice between adopting heavyweight, context-disruptive tools or abandoning structured task tracking altogether, which increases cognitive load, causes missed deadlines, and leaves developers maintaining mental overhead that a purpose-built tool should absorb."
+  target_users:
+    - "Terminal-first software engineers (vim/neovim/emacs users, remote SSH workers, Linux and macOS CLI-centric developers) who manage personal or project tasks and resent breaking keyboard flow to reach a GUI application or browser tab for something as simple as marking a task done."
+    - "DevOps engineers and SREs who track operational work—deployment steps, incident follow-ups, infrastructure checklists—from the command line and need a structured, filterable task list that lives where they already work, without requiring a network connection or account creation."
+    - "Independent developers and open-source contributors who self-manage feature backlogs and bug queues across multiple local projects and want a single lightweight binary they can install once and use everywhere, with data stored locally so it travels with their dotfiles and works offline unconditionally."
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: success
+  core_features:
+    - "Add tasks with a title, priority level (high/medium/low), and optional due date via a single CLI command"
+    - "List all tasks in a readable terminal-formatted output showing title, priority, due date, and completion status"
+    - "Mark one or more tasks as complete by task ID"
+    - "Delete tasks by task ID"
+    - "Filter task listing by priority level (high, medium, low) to surface what matters most"
+    - "Search tasks by keyword across title and description fields"
+    - "Persist all task data to a local JSON file with no server or network dependency"
+    - "Distribute as a single self-contained binary requiring no external runtime installation beyond the language runtime"
+  success_metrics:
+    - "Time from install to first task added is under 60 seconds for a new user with no prior documentation"
+    - "CLI command response time under 100ms for list, add, complete, and delete operations on up to 1000 tasks"
+    - "Weekly active usage rate above 50% among users who added at least 3 tasks in their first session within 14 days of install"
+    - "Task completion rate (tasks marked done vs tasks added) above 40% across active users over a 30-day window"
+    - "Zero-dependency install succeeds on macOS and Linux without any additional package manager steps in >95% of documented test environments"
+    - "Binary size under 20MB to reduce friction for users who distribute it via dotfiles or remote SSH environments"
+  constraints:
+    - "CLI-only interface limits audience to users comfortable with terminal workflows — no GUI or web fallback"
+    - "Local-only storage means no sync across machines without manual file copying or dotfile management by the user"
+    - "No account or cloud backend means no built-in collaboration or sharing features"
+    - "Must function fully offline with zero network calls at runtime"
+    - "Must support macOS and Linux as primary platforms given the target user profile"
+  technology_constraints:
+    - "Data must be stored locally in a JSON file — no database server or cloud storage"
+    - "Must ship as a single binary with no dependencies beyond the language runtime"
+    - "No server component of any kind — fully client-side, local execution only"
+  ```
+

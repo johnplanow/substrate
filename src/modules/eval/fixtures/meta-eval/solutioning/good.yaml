@@ -1,12 +1,482 @@
 name: solutioning-good-cli-task-tracker
-description: Strong architecture + story decomposition — rationale, small stories, full FR coverage
+description: Real captured solutioning-phase output from substrate run 6d8a7d9c (cli-task-tracker concept)
 phase: solutioning
 notes: |
-  Hand-built reference for a high-quality solutioning output. Should score high on all
-  four solutioning rubric dimensions: architecture_rationale, story_decomposition,
-  fr_coverage, dependency_ordering.
+  Regenerated from real pipeline output per deferred-work G8.a.
+  Supersedes the hand-authored v1 fixture which was shaped as
+  pre-G2 key:value synthesis. Captured 5 step output(s):
+  architecture-step-1-context, architecture-step-2-decisions, architecture-step-3-patterns, stories-step-1-epics, stories-step-2-stories. Step boundaries are HTML comments matching the separator
+  used by src/cli/commands/eval.ts when concatenating multi-step phase
+  outputs for grading.
 output: |
-  architecture-decisions: AD1 — Use a single-file JSON store keyed by task id. Rationale: fits NFR3 (no network), NFR4 (small memory), and the single-binary packaging constraint. Alternative considered: embedded SQLite; rejected because it adds 1.5 MB to the binary (violates NFR2) and introduces a concurrency model we don't need for a single-user CLI. AD2 — Load the entire file on each invocation rather than keeping a long-lived daemon. Rationale: aligns with the "no daemon" out-of-scope decision; trades a small cold-start cost for zero running-process overhead. Measured: 1000-task load in ~6ms, well under the 80ms NFR1 budget. AD3 — Use clap derive for CLI parsing. Rationale: compile-time guarantees on flag combinations catch a class of runtime errors at build time; auto-generated help satisfies the "discoverable without docs" goal from planning. AD4 — Store dates as ISO-8601 strings, not epoch seconds. Rationale: supports the "human-readable and manually editable" storage requirement from FR4; the ~5% parse cost is dominated by JSON parse anyway.
-  stories: S1 — Scaffold the Rust project with clap and serde_json. Acceptance: `cargo build --release` produces a binary under 8 MB and `tt --help` prints usage. Covers no FRs directly but unblocks everything. Size: ~2 hours. S2 — Implement `tt add` with title, priority, and due-date flags. Acceptance: adds to the JSON store, returns exit 0, date validation returns exit 2. Covers FR1. Depends on S1. Size: ~3 hours. S3 — Implement `tt list` with filters and deterministic ordering. Acceptance: output sorted by priority desc then due asc; filter flags compose; identical store yields identical output. Covers FR2. Depends on S1, S2. Size: ~4 hours. S4 — Implement `tt complete` and `tt delete`. Acceptance: state mutations persist; unknown id returns exit 3. Covers FR3. Depends on S1. Size: ~2 hours. S5 — Wire XDG-compliant storage path with fallback. Acceptance: file lands at $XDG_DATA_HOME/tt/tasks.json; fallback used when unset. Covers FR4. Depends on S1. Size: ~1 hour.
-  functional-requirement-mapping: FR1 → S2. FR2 → S3. FR3 → S4. FR4 → S5. All four FRs from planning have an owning story; no story covers a requirement outside the FR list.
-  story-dependencies: S1 → (S2, S3, S4, S5). S2 → S3 (list depends on something to list). S3, S4, S5 are parallelizable after their upstream. Topological order: S1, S2, (S3 ∥ S4 ∥ S5). No forward references; no story depends on an uncreated predecessor.
+  ```yaml
+  result: success
+  architecture_decisions:
+    - category: "backend"
+      key: "system-architecture"
+      value: "Single-binary CLI application — no server, no daemon"
+      rationale: "Requirements mandate a self-contained binary with zero network calls and local-only storage. A traditional client-server or layered web architecture adds unnecessary complexity and contradicts the offline-first, single-file distribution model."
+
+    - category: "backend"
+      key: "language-runtime"
+      value: "Go (golang)"
+      rationale: "Go cross-compiles to static binaries for macOS and Linux with no runtime dependency. A typical Go CLI binary is 5–12MB, well under the 20MB NFR. The standard library covers atomic file writes, JSON marshaling, and fast I/O without third-party dependencies. Startup time is sub-millisecond, making the 100ms p99 latency target trivially achievable for up to 1000 tasks."
+
+    - category: "backend"
+      key: "cli-framework"
+      value: "cobra + pflag"
+      rationale: "Cobra is the de facto standard for Go CLIs (kubectl, gh, hugo all use it). It provides subcommand routing, flag parsing, help generation, and shell-completion scaffolding with minimal binary size overhead (~2MB). Avoids reinventing argument parsing while keeping the dependency footprint small."
+
+    - category: "backend"
+      key: "data-storage"
+      value: "Local JSON file (~/.config/tasks/tasks.json or XDG_CONFIG_HOME)"
+      rationale: "FRs explicitly require JSON file persistence with no server or network dependency. JSON is human-readable and trivially inspectable/editable by users. For 1000 tasks the file will be well under 1MB; full load-parse-write round-trip stays under 10ms. XDG base dir ensures clean cross-platform placement."
+
+    - category: "backend"
+      key: "storage-write-strategy"
+      value: "Atomic write: marshal to temp file in same directory, then os.Rename"
+      rationale: "NFR explicitly mandates atomic writes to prevent corruption on power failure or process termination. os.Rename is atomic on POSIX filesystems (Linux and macOS) when source and destination share the same mount point. Writing to a temp file in the same directory guarantees same-mount semantics. No external library needed — pure stdlib."
+
+    - category: "backend"
+      key: "data-model"
+      value: "Flat Task struct with UUID id, title, description, priority enum, dueDate (ISO-8601 string), completed bool, createdAt timestamp, stored in a JSON array"
+      rationale: "All required operations (add, list, complete, delete, filter, search, sort) operate on a single entity type. A flat array avoids joins or indexes. UUID v4 IDs are human-friendly for CLI use and avoid sequential-ID conflicts if the file is manually edited. ISO-8601 date strings are readable without deserialization and sort lexicographically."
+
+    - category: "backend"
+      key: "task-id-scheme"
+      value: "Short UUID (first 8 hex chars of UUID v4)"
+      rationale: "Full UUIDs are unwieldy to type on a CLI. Truncating to 8 chars provides 4-billion distinct values — more than sufficient for a personal task list — while remaining easy to copy-paste. Collision probability at 1000 tasks is negligible (< 1 in 200,000)."
+
+    - category: "backend"
+      key: "project-structure"
+      value: "cmd/ for cobra command definitions; internal/task/ for domain model and business logic; internal/store/ for JSON persistence; internal/format/ for terminal output formatting"
+      rationale: "Separating CLI wiring (cmd/), domain logic (internal/task/), persistence (internal/store/), and presentation (internal/format/) enforces single-responsibility and makes each layer independently testable. Go's internal/ convention prevents accidental external import of private packages."
+
+    - category: "crosscutting"
+      key: "error-handling"
+      value: "Wrap all errors with context using fmt.Errorf('%w') or errors.Join; top-level cobra RunE handlers translate to user-facing messages with corrective hints; never print raw stack traces"
+      rationale: "NFR requires user-friendly error messages that identify the failing operation and suggest correction without exposing internals. A centralized error-rendering function in cmd/root.go intercepts all RunE errors and formats them consistently (e.g., 'task not found: abc12345 — run `tasks list` to see valid IDs')."
+
+    - category: "crosscutting"
+      key: "output-formatting"
+      value: "tabwriter-based table output for list commands; single-line confirmation messages for mutations"
+      rationale: "Go's text/tabwriter aligns columns without external dependencies and respects terminal width. It produces the readable terminal-formatted output required by FR-1. Single-line confirmations (e.g., 'Added task abc12345') keep mutation output unambiguous and scriptable."
+
+    - category: "crosscutting"
+      key: "testing-strategy"
+      value: "Unit tests for internal/task/ and internal/store/ with table-driven tests; integration tests invoking cobra command runners end-to-end against a temp-dir JSON file"
+      rationale: "Business logic and persistence are the highest-risk layers and fully unit-testable without process spawning. End-to-end cobra runner tests validate the full command surface (add, list, complete, delete, filter, search) against real flag parsing and real file I/O using t.TempDir(), giving high confidence without slow binary compilation in CI."
+
+    - category: "infrastructure"
+      key: "build-and-distribution"
+      value: "go build with CGO_ENABLED=0 and GOOS/GOARCH cross-compilation targets (darwin/amd64, darwin/arm64, linux/amd64, linux/arm64); released as GitHub Release assets or Homebrew tap"
+      rationale: "CGO_ENABLED=0 produces fully static binaries with no libc dependency, enabling use in minimal Linux containers and SSH environments. Cross-compilation is native in Go toolchain with no Docker or cross-compiler required. GitHub Releases with checksums satisfies the single-binary install-without-package-manager NFR."
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: success
+  architecture_decisions:
+    - category: "crosscutting"
+      key: "authentication-authorization"
+      value: "No application-level auth — rely entirely on OS filesystem permissions"
+      rationale: "This is a single-user local CLI tool with no network surface. Authentication would add complexity with zero security benefit. Access control is delegated to the OS: tasks.json is created with mode 0600 (owner read/write only) and the config directory with 0700, ensuring other users on the same machine cannot read or modify task data."
+
+    - category: "crosscutting"
+      key: "exit-codes"
+      value: "Exit 0 for success; exit 1 for user/input errors (bad flags, task not found); exit 2 for system errors (file I/O failure, JSON corruption)"
+      rationale: "Distinct exit codes allow shell scripts and CI pipelines to distinguish recoverable user mistakes from infrastructure failures without parsing stderr. Cobra's RunE returns errors that are mapped to these codes in a single root-level PostRunE handler, keeping code mapping centralized."
+
+    - category: "crosscutting"
+      key: "stdout-stderr-separation"
+      value: "All task data output (tables, confirmations) goes to stdout; all errors, warnings, and --verbose diagnostics go to stderr"
+      rationale: "Stdout/stderr separation allows output to be piped or redirected cleanly (e.g., tasks list | grep ...) without mixing error messages into data. This is the POSIX convention and is required for the tool to compose well in shell pipelines."
+
+    - category: "crosscutting"
+      key: "logging"
+      value: "No log files; a --verbose flag on any command writes diagnostic lines (file path resolved, parse duration, write duration) to stderr at runtime"
+      rationale: "A persistent log file is unnecessary overhead for a personal CLI tool and would complicate the single-binary, zero-config distribution model. --verbose satisfies ad-hoc debugging needs without adding log rotation, file location management, or third-party logging libraries."
+
+    - category: "crosscutting"
+      key: "input-validation"
+      value: "Title: required, max 200 chars; description: optional, max 2000 chars; priority: enum validation (high|medium|low, case-insensitive); due date: ISO-8601 YYYY-MM-DD strict parse; reject ASCII control characters (0x00–0x1F except tab/newline) in all text fields"
+      rationale: "Length caps prevent pathological JSON file sizes and terminal rendering issues. Enum validation on priority at ingestion time avoids storing invalid states that would require defensive checks throughout the codebase. Rejecting control characters prevents terminal escape-sequence injection when titles are rendered in tabwriter output."
+
+    - category: "crosscutting"
+      key: "file-locking"
+      value: "Acquire an advisory exclusive flock (syscall.Flock with LOCK_EX) on the tasks.json file before each read-modify-write cycle; release after os.Rename completes"
+      rationale: "If a user opens two terminal tabs and runs concurrent mutations, both could read the same snapshot, apply diverging changes, and the last rename wins — silently losing the first mutation. flock is available on both Linux and macOS (POSIX), adds negligible latency, and is released automatically if the process dies, avoiding deadlock."
+
+    - category: "crosscutting"
+      key: "file-permissions"
+      value: "Config directory created with os.MkdirAll mode 0700; tasks.json written via os.OpenFile with mode 0600; temp file for atomic write also created with 0600"
+      rationale: "0600/0700 prevents other local users from reading task data (which may contain sensitive project or personal context). These permissions are set at creation time so they are never briefly world-readable, unlike a chmod-after-create approach."
+
+    - category: "crosscutting"
+      key: "testing-strategy-detail"
+      value: "Go's stdlib testing package with table-driven tests; 80% line coverage enforced via go test -covermode=atomic -coverprofile; benchmarks in internal/store/ validating read+write round-trip under 10ms for 1000 tasks; no external test framework"
+      rationale: "The stdlib testing package requires zero dependencies and is idiomatic Go. Table-driven tests for internal/task/ cover all priority/date/ID validation edge cases with minimal boilerplate. Store benchmarks (BenchmarkLoad1000, BenchmarkSave1000) give regression protection for the 100ms CLI latency NFR without requiring end-to-end process spawning. 80% threshold is achievable while excluding generated or thin-wrapper code."
+
+    - category: "crosscutting"
+      key: "test-isolation"
+      value: "Each test that touches the filesystem uses t.TempDir() for an isolated scratch directory; no shared global state; store path injected via constructor argument rather than read from environment"
+      rationale: "t.TempDir() is automatically cleaned up on test completion, preventing test pollution and making tests safe to run in parallel (t.Parallel()). Constructor injection of the store path (rather than a global or singleton) makes unit tests trivial to wire without environment variable manipulation."
+
+    - category: "crosscutting"
+      key: "dependency-management"
+      value: "Pin to exactly three third-party modules: github.com/spf13/cobra, github.com/spf13/pflag (cobra transitive dep), github.com/google/uuid; run go mod tidy and go mod verify in CI; no replace directives"
+      rationale: "Minimizing the dependency graph reduces binary size, attack surface, and supply-chain risk. google/uuid is the only addition beyond cobra/pflag — it provides cryptographically seeded UUID v4 generation that stdlib math/rand cannot safely replicate. go mod verify in CI detects tampered module cache entries before they reach a release build."
+
+    - category: "infrastructure"
+      key: "version-embedding"
+      value: "Embed Version, Commit (short SHA), and BuildDate strings via -ldflags '-X main.Version=... -X main.Commit=... -X main.BuildDate=...' at build time; expose via tasks version subcommand and --version flag"
+      rationale: "Users filing bug reports need a way to identify the exact binary in use. Embedding at link time avoids a separate version file that could fall out of sync. The version subcommand outputs a machine-readable line (tasks version 1.2.3 commit a1b2c3d built 2026-04-11) usable in support scripts."
+
+    - category: "security"
+      key: "json-corruption-recovery"
+      value: "On JSON unmarshal failure, emit a clear error identifying the file path and byte offset, suggest manual inspection or restoration from backup, and exit 2 without overwriting the corrupted file"
+      rationale: "Silent overwrite of a corrupted tasks.json would destroy user data. Surfacing the exact file path and a hint (e.g., 'tasks.json may be manually edited — check for trailing commas or truncation') lets users recover without data loss. Exiting without write ensures the corrupted file is preserved for inspection."
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: success
+  architecture_decisions:
+    - category: "patterns"
+      key: "package-organization"
+      value: "cmd/{add,list,complete,delete,version}.go; internal/task/{task.go,validate.go}; internal/store/{store.go,json_store.go,lock.go}; internal/format/table.go; main.go calls cmd.Execute()"
+      rationale: "One file per concern within each package keeps navigation predictable. Cobra command definitions live exclusively in cmd/; no business logic crosses into cmd/. internal/ packages are imported only by cmd/ and each other, enforcing the layered architecture."
+
+    - category: "patterns"
+      key: "store-interface"
+      value: "Define a Store interface in internal/store/store.go with Load() ([]task.Task, error) and Save([]task.Task) error; JSONStore struct implements it; cmd/ receives a Store via constructor injection"
+      rationale: "Interface-based dependency injection lets cmd/ tests substitute a fake or in-memory store without touching the filesystem. The interface is defined in internal/store/ (not cmd/) to keep the dependency direction pointing inward. All file-locking, atomic-write, and permission logic lives inside JSONStore, invisible to callers."
+
+    - category: "patterns"
+      key: "command-wiring"
+      value: "Each command file exports a NewXxxCmd(store Store) *cobra.Command factory; cmd/root.go calls AddCommand with the result of each factory; main.go calls cmd.NewRootCmd(store).Execute()"
+      rationale: "Factory functions decouple command construction from global state. Passing the store through constructors (not package-level vars) enables parallel testing of multiple commands. root.go is the sole place where the real JSONStore is instantiated, keeping instantiation logic in one place."
+
+    - category: "patterns"
+      key: "error-propagation"
+      value: "All internal functions return (value, error); wrap errors with fmt.Errorf("<operation>: %w", err); cobra RunE returns the wrapped error; root.go PersistentPostRunE maps error types to exit codes and prints user-facing messages to stderr"
+      rationale: "Wrapping with %w preserves the error chain for errors.Is/As checks and keeps diagnostic context without exposing stack traces. A single root-level error renderer ensures consistent message formatting (e.g., 'task not found: abc12345 — run `tasks list` to see valid IDs') and centralized exit-code mapping (user errors → 1, system errors → 2)."
+
+    - category: "patterns"
+      key: "sentinel-errors"
+      value: "Declare package-level sentinel errors in internal/task/ (var ErrTaskNotFound = errors.New("task not found"), ErrDuplicateID, etc.); store and cmd layers use errors.Is to branch on them"
+      rationale: "Sentinel errors provide a stable, type-safe mechanism for callers to distinguish recoverable user errors (task not found → exit 1) from unexpected system failures (I/O error → exit 2) without string matching. Defined in the domain package so all layers share the same canonical values."
+
+    - category: "patterns"
+      key: "validation-layer"
+      value: "All input validation lives in internal/task/validate.go as pure functions (ValidateTitle, ValidateDescription, ValidatePriority, ValidateDueDate) returning descriptive errors; cmd/ calls validate before mutating store"
+      rationale: "Centralizing validation in the domain package prevents duplicate checks across commands and makes validation logic independently unit-testable without cobra or file I/O. Validation functions are pure (no side effects), enabling table-driven tests with zero setup. Commands call validate before acquiring the file lock to fail fast."
+
+    - category: "patterns"
+      key: "task-mutation-pattern"
+      value: "Commands follow a strict read-validate-mutate-save sequence: (1) store.Load(), (2) validate inputs, (3) apply in-memory mutation, (4) store.Save(tasks); no partial saves or multi-step writes"
+      rationale: "The load-mutate-save pattern keeps the store interface simple (no patch or upsert methods) and guarantees the JSON file always reflects a complete consistent snapshot. Combined with atomic rename and flock, this prevents partial writes. The pattern is uniform across add, complete, and delete commands, reducing cognitive overhead."
+
+    - category: "patterns"
+      key: "file-lock-pattern"
+      value: "internal/store/lock.go provides withExclusiveLock(path string, fn func() error) error that opens the file, calls syscall.Flock(LOCK_EX), defers LOCK_UN, then invokes fn; JSONStore wraps every Load+Save pair in withExclusiveLock"
+      rationale: "Encapsulating flock in a single higher-order function prevents callers from forgetting to unlock or from holding the lock across unrelated work. The lock is acquired on the tasks.json file descriptor itself (same mount as the temp file used for atomic rename), ensuring POSIX rename atomicity is not undermined by concurrent access."
+
+    - category: "patterns"
+      key: "atomic-write-pattern"
+      value: "JSONStore.Save marshals JSON to a temp file (os.CreateTemp in same directory, mode 0600), syncs with f.Sync(), closes, then calls os.Rename(tmp, target); on any error the temp file is removed before returning"
+      rationale: "Same-directory temp file guarantees same filesystem mount, making os.Rename atomic on POSIX. f.Sync() flushes kernel buffers before rename so a crash after rename leaves a complete file. Cleanup on error prevents orphaned temp files. This implements the NFR for crash-safe atomic writes with pure stdlib."
+
+    - category: "patterns"
+      key: "naming-conventions"
+      value: "Types: PascalCase (Task, JSONStore, Priority); functions/methods: camelCase (validateTitle, newRootCmd); constants/enums: PascalCase (PriorityHigh, PriorityMedium, PriorityLow); test files: <file>_test.go in same package (white-box) or _test suffix package for integration"
+      rationale: "Standard Go idiom. Exported identifiers are PascalCase; unexported are camelCase. Priority constants as typed string enum (type Priority string; const PriorityHigh Priority = "high") allows exhaustive switch checking and JSON round-trip without a separate mapping table."
+
+    - category: "patterns"
+      key: "import-organization"
+      value: "Three import groups separated by blank lines: (1) stdlib packages, (2) third-party modules (cobra, uuid), (3) internal packages (internal/task, internal/store, internal/format); enforced by goimports"
+      rationale: "goimports grouping is the Go community standard and is enforced automatically by most editors and CI lint steps. Keeping internal imports in a distinct group makes it immediately visible when a package pulls in a new external dependency, aiding code review and dependency auditing."
+
+    - category: "patterns"
+      key: "table-driven-tests"
+      value: "All validation and domain logic tests use []struct{ name, input, wantErr string } tables with t.Run(tc.name, ...) and t.Parallel() on each sub-test; store tests use t.TempDir() for isolated scratch directories"
+      rationale: "Table-driven tests minimize boilerplate while maximizing case coverage — adding an edge case is a one-line struct literal. t.Parallel() on sub-tests maximizes CPU utilization in CI. t.TempDir() isolation prevents inter-test file system pollution and is automatically cleaned up, satisfying the test-isolation architecture decision."
+
+    - category: "patterns"
+      key: "output-formatting-pattern"
+      value: "internal/format/table.go exposes PrintTasks(w io.Writer, tasks []task.Task) using text/tabwriter with tab-separated columns (ID, TITLE, PRIORITY, DUE, STATUS); mutation commands print a single confirmation line to w io.Writer; all cmd/ code passes os.Stdout explicitly"
+      rationale: "Accepting io.Writer instead of writing directly to os.Stdout makes output testable without capturing global stdout. tabwriter alignment is computed once per Print call — no per-row formatting logic in cmd/. Single-line mutation confirmations (Added task abc12345) keep output parseable by scripts."
+
+    - category: "patterns"
+      key: "verbose-flag-pattern"
+      value: "Root command defines a --verbose persistent flag stored in a RootFlags struct; cmd/ passes a verboseWriter(verbose bool) io.Writer helper that returns os.Stderr when verbose=true and io.Discard otherwise; internal packages accept an optional io.Writer for diagnostics"
+      rationale: "A persistent root flag propagates to all subcommands automatically via cobra. The verboseWriter helper avoids scattered if verbose { fmt.Fprintln(os.Stderr, ...) } blocks. Passing io.Discard (not nil) means diagnostic write calls compile and run safely regardless of the verbose flag, with zero allocation cost."
+
+    - category: "patterns"
+      key: "version-embedding"
+      value: "main.go declares var (Version = "dev"; Commit = "none"; BuildDate = "unknown"); build Makefile passes -ldflags '-X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.BuildDate=$(DATE)'; NewRootCmd receives these as parameters and wires them to the version subcommand"
+      rationale: "Declaring vars in main.go (not a separate package) is the idiomatic Go pattern for ldflags injection. Passing them as parameters to NewRootCmd keeps cmd/ testable with fixed version strings. Default values ('dev', 'none', 'unknown') ensure `go run .` produces a meaningful output without ldflags."
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: success
+  epics:
+    - title: "Core Task Operations"
+      description: "Foundational task management that delivers immediate value: users can add tasks with full metadata, view them in a formatted list, mark them complete, and delete them. Includes local JSON persistence and the performance baseline ensuring all operations stay under 100ms for up to 1000 tasks."
+      fr_coverage:
+        - "planning-step-2-frs-0"
+        - "planning-step-2-frs-1"
+        - "planning-step-2-frs-2"
+        - "planning-step-2-frs-3"
+        - "planning-step-2-frs-6"
+        - "planning-step-2-frs-8"
+        - "planning-step-2-frs-9"
+    - title: "Task Discovery and Filtering"
+      description: "Features that help users surface the tasks most relevant to them: filtering by priority level, searching by keyword across title and description, viewing only incomplete tasks by default, and sorting the list by due date or priority."
+      fr_coverage:
+        - "planning-step-2-frs-4"
+        - "planning-step-2-frs-5"
+        - "planning-step-2-frs-11"
+        - "planning-step-2-frs-12"
+    - title: "Task Editing and Housekeeping"
+      description: "Lifecycle management for tasks over time: users can update any field on an existing task and clean up their list by archiving or bulk-deleting completed tasks, keeping the active list focused."
+      fr_coverage:
+        - "planning-step-2-frs-10"
+        - "planning-step-2-frs-13"
+    - title: "Binary Distribution and Installation"
+      description: "Packaging and release of the tool as a single self-contained static binary for macOS and Linux, enabling users to install and run the CLI without any package manager, runtime dependency, or network account."
+      fr_coverage:
+        - "planning-step-2-frs-7"
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: "success"
+  epics:
+    - title: "Core Task Operations"
+      description: "Foundational task management that delivers immediate value: users can add tasks with full metadata, view them in a formatted list, mark them complete, and delete them. Includes local JSON persistence and the performance baseline ensuring all operations stay under 100ms for up to 1000 tasks."
+      stories:
+        - key: "1-1"
+          title: "Project scaffolding and CLI framework setup"
+          description: "Initialize the Go module with exactly three approved third-party dependencies (cobra, pflag, google/uuid), establish the package structure under cmd/, internal/task/, internal/store/, and internal/format/, wire main.go to call cmd.NewRootCmd, register the --verbose persistent flag and verboseWriter helper, define the version subcommand shell, and confirm the binary compiles and prints help text. Version, Commit, and BuildDate variables must be declared in main.go with defaults of dev, none, and unknown for ldflags injection. The root command PersistentPostRunE error renderer must map user errors to exit code 1 and system errors to exit code 2, printing user-facing messages with corrective hints to stderr."
+          acceptance_criteria:
+            - "Go module initializes with exactly three third-party dependencies: cobra, pflag, and google/uuid"
+            - "Package directories cmd/, internal/task/, internal/store/, and internal/format/ exist with placeholder files"
+            - "Running the binary with no arguments prints a help message listing available subcommands"
+            - "Running the binary with the version subcommand prints Version, Commit, and BuildDate values"
+            - "Version, Commit, and BuildDate variables in main.go default to dev, none, and unknown when built without ldflags"
+            - "The --verbose persistent flag is registered on the root command and propagates to all subcommands"
+            - "A verboseWriter helper returns os.Stderr when verbose is true and io.Discard otherwise"
+            - "The root command error renderer exits with code 1 for user input errors and code 2 for IO or system errors"
+            - "The binary compiles with CGO_ENABLED=0 without errors"
+          priority: "must"
+
+        - key: "1-2"
+          title: "Task domain model and input validation"
+          description: "Define the Task struct in internal/task/task.go with fields: id (8-char hex short UUID), title, description, priority (typed string enum), dueDate (ISO-8601 string), completed bool, and createdAt timestamp. Declare Priority constants PriorityHigh, PriorityMedium, and PriorityLow. Declare sentinel errors ErrTaskNotFound and ErrDuplicateID. Implement validation functions in internal/task/validate.go as pure functions: ValidateTitle (required, max 200 chars, rejects ASCII control characters below 0x20 except tab), ValidateDescription (optional, max 2000 chars, same control character rejection), ValidatePriority (case-insensitive enum), and ValidateDueDate (strict YYYY-MM-DD parse). All validation functions return descriptive errors suitable for display to end users."
+          acceptance_criteria:
+            - "Task struct contains id, title, description, priority, dueDate, completed, and createdAt fields with correct Go types"
+            - "Priority is a typed string constant with values PriorityHigh, PriorityMedium, and PriorityLow"
+            - "ErrTaskNotFound and ErrDuplicateID are defined as package-level sentinel errors"
+            - "ValidateTitle returns an error when title is empty or exceeds 200 characters"
+            - "ValidateTitle returns an error when title contains ASCII control characters below 0x20 excluding tab"
+            - "ValidateDescription returns nil when description is empty"
+            - "ValidateDescription returns an error when description exceeds 2000 characters"
+            - "ValidatePriority accepts high, medium, and low in any letter case and rejects all other values"
+            - "ValidateDueDate accepts valid YYYY-MM-DD formatted dates and rejects non-conforming strings"
+            - "All validators have table-driven unit tests with t.Parallel on each sub-test"
+          priority: "must"
+
+        - key: "1-3"
+          title: "JSON persistence store with atomic writes and file locking"
+          description: "Define a Store interface in internal/store/store.go with Load() returning a task slice and error, and Save() accepting a task slice and returning error. Implement JSONStore in internal/store/json_store.go backed by a JSON file at XDG_CONFIG_HOME/tasks/tasks.json defaulting to the user home config directory. JSONStore must use an atomic write pattern: marshal to a temp file in the same directory with mode 0600, call f.Sync(), then os.Rename. Config directory must be created with mode 0700. JSONStore must acquire an advisory exclusive flock via internal/store/lock.go before each Load and Save cycle, releasing it after rename completes. On JSON unmarshal failure, emit a clear error identifying the file path and exit without overwriting the corrupted file. Store path is injected via constructor argument for test isolation."
+          acceptance_criteria:
+            - "Store interface in internal/store/store.go defines Load and Save methods"
+            - "JSONStore implements the Store interface and reads from and writes to the configured file path"
+            - "JSONStore creates the config directory with mode 0700 on first use"
+            - "JSONStore writes task data to a temp file with mode 0600 in the same directory then renames atomically"
+            - "JSONStore calls f.Sync before os.Rename to flush kernel buffers before rename"
+            - "JSONStore acquires an exclusive flock before reading and releases it after the atomic rename completes"
+            - "When the JSON file contains invalid JSON, JSONStore returns an error identifying the file path and does not overwrite the file"
+            - "Load returns an empty task slice without error when no data file exists yet"
+            - "Store path is injected via constructor argument so tests can use t.TempDir for isolation"
+            - "BenchmarkLoad1000 and BenchmarkSave1000 each complete in under 10ms per operation"
+            - "Unit tests for JSONStore use t.TempDir and verify round-trip load and save of multiple tasks"
+          priority: "must"
+
+        - key: "1-4"
+          title: "Add task command with description support"
+          description: "Implement cmd/add.go as NewAddCmd(store Store) returning a cobra.Command. The command accepts --title (required string flag), --priority (optional, defaults to medium), --due (optional YYYY-MM-DD), and --description (optional free-text) flags. Validates all inputs using the validation layer before touching the store, generates a short UUID (first 8 hex chars of a UUID v4), sets createdAt to current UTC time, and saves. Prints a single confirmation line to stdout containing the new task ID. This story covers FR-0 (add with title, priority, due date) and FR-9 (optional description field)."
+          acceptance_criteria:
+            - "Running add with only --title creates a task with priority defaulting to medium and prints the new task ID to stdout"
+            - "Running add with --title, --priority, --due, and --description creates a task with all fields populated"
+            - "The stored task ID is exactly 8 hexadecimal characters derived from a UUID v4"
+            - "The stored task has createdAt set to the time of creation"
+            - "The add command returns a user error when --title is omitted"
+            - "The add command returns a user error when --priority is not high, medium, or low"
+            - "The add command returns a user error when --due is not in YYYY-MM-DD format"
+            - "The add command returns a user error when --title exceeds 200 characters"
+            - "Validation is performed before acquiring the file lock to fail fast"
+            - "The store is written atomically so an interrupted add does not leave a partial file"
+          priority: "must"
+
+        - key: "1-5"
+          title: "List tasks command with tabwriter formatted output"
+          description: "Implement cmd/list.go as NewListCmd(store Store). Implement internal/format/table.go exposing PrintTasks(w io.Writer, tasks []task.Task) that uses text/tabwriter to render tab-aligned columns: ID, TITLE, PRIORITY, DUE, STATUS. STATUS shows done for completed tasks and pending for incomplete tasks. Tasks with no due date show a dash in the DUE column. All task data output goes to stdout; errors go to stderr. PrintTasks accepts an io.Writer so output is testable without capturing global stdout."
+          acceptance_criteria:
+            - "Running the list command prints a header row with columns ID, TITLE, PRIORITY, DUE, and STATUS"
+            - "Each task row is tab-aligned using text/tabwriter with consistent column spacing"
+            - "Completed tasks show done in the STATUS column and incomplete tasks show pending"
+            - "Tasks with no due date show a dash in the DUE column"
+            - "Running list with no tasks stored prints only the header row without an error"
+            - "Task data output goes to stdout and error messages go to stderr"
+            - "PrintTasks accepts an io.Writer parameter making it testable without os.Stdout"
+            - "Unit tests verify header row presence and correct column values for multiple tasks"
+          priority: "must"
+
+        - key: "1-6"
+          title: "Complete and delete task commands"
+          description: "Implement cmd/complete.go as NewCompleteCmd(store Store) and cmd/delete.go as NewDeleteCmd(store Store). Both accept one or more task IDs as positional arguments. Complete sets completed to true on each specified task; delete removes each specified task from the list. Both follow the read-validate-mutate-save pattern: load all tasks, verify each ID exists returning ErrTaskNotFound for unknowns, apply the mutation, then save. Print a confirmation line per modified task to stdout. Unknown IDs print to stderr and exit with code 1."
+          acceptance_criteria:
+            - "Running complete with a valid ID sets the task completed field to true and saves"
+            - "Running complete with multiple IDs marks all specified tasks as complete in a single save"
+            - "Running complete with an unknown ID prints an error to stderr and exits with code 1"
+            - "Running delete with a valid ID removes the task from the stored list and saves"
+            - "Running delete with multiple IDs removes all specified tasks in a single save"
+            - "Running delete with an unknown ID prints an error to stderr and exits with code 1"
+            - "Both commands print a confirmation line to stdout for each successfully modified task"
+            - "After completing or deleting, subsequent list output reflects the changes"
+            - "Unit tests cover success, not-found, and store error cases for both commands"
+          priority: "must"
+
+        - key: "1-7"
+          title: "Integration tests and performance validation"
+          description: "Write integration tests in cmd/ that invoke cobra command runners end-to-end against a t.TempDir JSON file covering add, list, complete, and delete. Verify that store benchmarks BenchmarkLoad1000 and BenchmarkSave1000 pass their sub-10ms assertions. Enforce 80 percent line coverage across all packages using go test -covermode=atomic. All tests must pass with go test ./... and no test may use a shared global store path."
+          acceptance_criteria:
+            - "Integration tests invoke add, list, complete, and delete cobra commands end-to-end using t.TempDir for file isolation"
+            - "BenchmarkLoad1000 loads a JSON file containing 1000 tasks in under 10ms per operation"
+            - "BenchmarkSave1000 writes a JSON file containing 1000 tasks in under 10ms per operation"
+            - "Test line coverage is at or above 80 percent measured with go test -covermode=atomic"
+            - "All unit and integration tests pass with go test ./..."
+            - "No test uses a shared global store path — each test uses an independent temp directory"
+            - "Sub-tests use t.Parallel to maximize CI parallelism"
+          priority: "must"
+
+    - title: "Task Discovery and Filtering"
+      description: "Features that help users surface the tasks most relevant to them: filtering by priority level, searching by keyword across title and description, viewing only incomplete tasks by default, and sorting the list by due date or priority."
+      stories:
+        - key: "2-1"
+          title: "Default incomplete view and show-all flag"
+          description: "Modify the list command to show only incomplete tasks by default. Add a --all flag that when provided includes completed tasks in the output. The filtering is applied in memory after loading the full task list from the store, before any other filtering or sorting."
+          acceptance_criteria:
+            - "Running list without flags shows only incomplete tasks"
+            - "Running list with --all shows both complete and incomplete tasks"
+            - "Completed tasks are excluded from the default list output even when they exist in the store"
+            - "The --all flag description appears in the list command help text"
+            - "Integration tests verify both the default incomplete behavior and the --all override with a mix of task states"
+          priority: "should"
+
+        - key: "2-2"
+          title: "Priority filtering on the list command"
+          description: "Add a --priority flag to the list command that accepts high, medium, or low (case-insensitive) and limits displayed tasks to those matching the specified priority. The flag is optional; omitting it shows tasks of all priorities subject to other active filters. Reuses the existing ValidatePriority function for validation."
+          acceptance_criteria:
+            - "Running list --priority high shows only high-priority tasks"
+            - "Running list --priority medium shows only medium-priority tasks"
+            - "Running list --priority low shows only low-priority tasks"
+            - "Providing an invalid value to --priority returns a user error message and exits with code 1"
+            - "Omitting --priority shows tasks of all priority levels"
+            - "Priority filtering composes with --all so list --priority high --all shows all high-priority tasks including completed ones"
+            - "Unit tests cover each valid priority, an invalid value, and empty result sets"
+          priority: "must"
+
+        - key: "2-3"
+          title: "Keyword search across title and description"
+          description: "Add a --search flag to the list command that accepts a keyword string and filters displayed tasks to those whose title or description contains the keyword using case-insensitive substring matching. No index or external library is needed. The search filter composes with --priority and --all."
+          acceptance_criteria:
+            - "Running list --search with a keyword shows only tasks whose title or description contains the keyword"
+            - "Keyword matching is case-insensitive"
+            - "Running list --search with a keyword that matches no tasks shows only the header row without an error"
+            - "Search applies to the description field even when some tasks have an empty description"
+            - "The --search flag composes with --priority and --all flags"
+            - "Unit tests cover title match, description match, case-insensitive match, no match, and combined filter scenarios"
+          priority: "must"
+
+        - key: "2-4"
+          title: "Sort list by due date or priority"
+          description: "Add a --sort flag to the list command accepting due or priority as sort keys. When --sort due is specified, tasks are ordered by due date ascending with tasks missing a due date appearing last. When --sort priority is specified, tasks are ordered high then medium then low. Without --sort the default order is insertion order. Sorting is applied after all filtering."
+          acceptance_criteria:
+            - "Running list --sort due orders tasks by due date ascending"
+            - "Tasks with no due date appear at the end of the list when sorting by due date"
+            - "Running list --sort priority orders tasks with high priority first, then medium, then low"
+            - "Providing an unrecognized sort key returns a user error and exits with code 1"
+            - "Omitting --sort preserves the original insertion order from the JSON file"
+            - "The --sort flag composes with --priority, --search, and --all flags"
+            - "Unit tests cover both sort keys, mixed due-date presence, composability with filters, and an invalid key"
+          priority: "could"
+
+    - title: "Task Editing and Housekeeping"
+      description: "Lifecycle management for tasks over time: users can update any field on an existing task and clean up their list by archiving or bulk-deleting completed tasks, keeping the active list focused."
+      stories:
+        - key: "3-1"
+          title: "Update task command"
+          description: "Implement cmd/update.go as NewUpdateCmd(store Store) accepting a task ID as a positional argument plus optional flags --title, --description, --priority, and --due. Only flags explicitly provided on the command line overwrite their corresponding fields; omitted flags leave existing values unchanged. Follow the read-validate-mutate-save pattern: load tasks, find by ID returning ErrTaskNotFound if missing, validate provided values using existing validators, apply only provided changes, then save."
+          acceptance_criteria:
+            - "Running update with a valid ID and --title changes only the title and leaves all other fields unchanged"
+            - "Running update with multiple flags changes all specified fields simultaneously"
+            - "Fields not provided on the command line retain their original values after the update"
+            - "Running update with an unknown task ID exits with code 1 and prints an error to stderr"
+            - "Running update with no field flags prints a usage error and exits with code 1"
+            - "Updated values are validated using the same validators as the add command"
+            - "A single confirmation line is printed to stdout after a successful update"
+            - "Unit tests cover single-field update, multi-field update, no-flag error, not-found error, and validation failure"
+          priority: "should"
+
+        - key: "3-2"
+          title: "Bulk-delete completed tasks"
+          description: "Implement cmd/clean.go as NewCleanCmd(store Store) that removes all tasks where completed is true from the store in a single atomic operation. Add an optional --dry-run flag that prints the IDs and titles of tasks that would be removed without modifying the store. Print the count of removed tasks to stdout on a real run."
+          acceptance_criteria:
+            - "Running clean removes all completed tasks from the store and prints the count removed to stdout"
+            - "Running clean when there are no completed tasks exits cleanly with a message indicating nothing was removed"
+            - "Running clean with --dry-run lists the IDs and titles of tasks that would be removed without modifying the store"
+            - "After running clean, a subsequent list command with --all shows no completed tasks"
+            - "Clean uses the atomic write pattern so a crash during the operation does not corrupt the store"
+            - "Unit tests cover a mix of complete and incomplete tasks, an empty completed set, and the dry-run mode"
+          priority: "could"
+
+    - title: "Binary Distribution and Installation"
+      description: "Packaging and release of the tool as a single self-contained static binary for macOS and Linux, enabling users to install and run the CLI without any package manager, runtime dependency, or network account."
+      stories:
+        - key: "4-1"
+          title: "Makefile and cross-compilation build system"
+          description: "Create a Makefile with targets for building fully static binaries for darwin/amd64, darwin/arm64, linux/amd64, and linux/arm64 using CGO_ENABLED=0. Each build target must inject Version from git describe, Commit from the short git SHA, and BuildDate from the current date via ldflags. Add a make test target that runs go test ./... and a make checksums target that generates SHA-256 checksum files alongside each binary. Add a size-check step that fails loudly if any binary exceeds 20MB."
+          acceptance_criteria:
+            - "A single make build command produces binaries for all four target platforms"
+            - "All produced binaries are fully statically linked with CGO_ENABLED=0"
+            - "Running the produced binary with the version subcommand shows Version, Commit, and BuildDate injected at link time"
+            - "Running make test executes go test for all packages and reports pass or failure"
+            - "Running make checksums generates SHA-256 checksum files alongside each platform binary"
+            - "The build step fails with a clear error if any binary exceeds 20MB"
+          priority: "must"
+
+        - key: "4-2"
+          title: "GitHub Actions release workflow"
+          description: "Create a GitHub Actions workflow at .github/workflows/release.yml that triggers on version tag pushes matching the v-star pattern. The workflow must run the full test suite, then build the cross-platform binaries using the Makefile, generate checksums, and upload all binaries and checksum files as GitHub Release assets. The release is gated on passing tests — a test failure must prevent the release from being published."
+          acceptance_criteria:
+            - "The workflow file exists at .github/workflows/release.yml and is valid YAML"
+            - "The workflow triggers on push events matching version tag patterns starting with v"
+            - "The workflow runs the full test suite before building release binaries"
+            - "A test failure prevents the workflow from publishing a release"
+            - "The workflow builds binaries for all four supported platforms using CGO_ENABLED=0"
+            - "The workflow uploads one binary and one SHA-256 checksum file per platform as GitHub Release assets"
+          priority: "must"
+  ```
+

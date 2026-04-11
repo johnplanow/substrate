@@ -1,12 +1,124 @@
 name: planning-good-cli-task-tracker
-description: Strong PRD output — measurable FRs, concrete NFRs, justified tech, explicit scope
+description: Real captured planning-phase output from substrate run 6d8a7d9c (cli-task-tracker concept)
 phase: planning
 notes: |
-  Hand-built reference for a high-quality planning (PRD) output. Should score high on all
-  four planning rubric dimensions: requirement_measurability, nfr_coverage,
-  tech_stack_justification, scope_boundaries.
+  Regenerated from real pipeline output per deferred-work G8.a.
+  Supersedes the hand-authored v1 fixture which was shaped as
+  pre-G2 key:value synthesis. Captured 3 step output(s):
+  planning-step-1-classification, planning-step-2-frs, planning-step-3-nfrs. Step boundaries are HTML comments matching the separator
+  used by src/cli/commands/eval.ts when concatenating multi-step phase
+  outputs for grading.
 output: |
-  functional-requirements: FR1 — The CLI must support `tt add "<title>" [--priority p] [--due YYYY-MM-DD]` and return exit code 0 on success, exit 2 on invalid date format. Acceptance: a test harness can add 100 tasks in under 5 seconds and reread them back identically. FR2 — `tt list [--status open|done] [--priority h|m|l] [--search <term>]` returns a deterministically ordered list sorted by priority desc, then due date asc. Acceptance: identical stored data produces identical list output across runs. FR3 — `tt complete <id>` and `tt delete <id>` mutate state and return exit 0; exit 3 if id not found. Acceptance: after a mutation, the next `tt list` reflects the change without a manual reload step. FR4 — Data is persisted to `$XDG_DATA_HOME/tt/tasks.json` (or `~/.local/share/tt/tasks.json` fallback). Acceptance: the file is valid UTF-8 JSON parseable by `jq` without warnings.
-  non-functional-requirements: NFR1 — Cold-start latency from command invocation to first output must not exceed 80ms at the 95th percentile on an M1 MacBook Air with 1000 tasks in the store. Measurement: hyperfine over 200 runs. NFR2 — Binary size must not exceed 8 MB stripped. Measurement: `ls -l` on the release artifact in CI. NFR3 — No network syscalls at runtime. Measurement: verified via `strace -e trace=network` on Linux CI. NFR4 — Memory residency under 15 MB RSS at peak during a 1000-task list operation. Measurement: `/usr/bin/time -v`.
-  tech-stack: Language — Rust 1.75+. Justification: zero-runtime, sub-10ms startup when statically linked, strong stdlib for JSON and filesystem, single-binary distribution fits NFR2. Serialization — serde_json. Justification: mature, no-alloc options for small payloads, aligns with NFR1 cold-start target. CLI parsing — clap v4 with derive. Justification: compile-time validation of flag combinations, auto-generated help fits "discoverable without docs" design goal. Testing — cargo test plus integration tests in `tests/` using assert_cmd for binary-level assertions. Justification: matches the acceptance approach (exit codes, output equality) without a separate test harness.
-  out-of-scope: Network sync, shared task lists, web UI, iOS/Android apps, reminder daemons, plugin architecture, theming. Each was considered and excluded: sync and shared lists contradict the zero-network constraint; UI layers contradict the terminal-first target; daemons violate the single-binary NFR; plugins add attack surface disproportionate to the user base for v1. Revisit list maintained at docs/revisit.md with trigger conditions.
+  ```yaml
+  result: success
+  project_type: "TypeScript CLI tool for personal task management"
+  vision: "A zero-friction, terminal-native task manager that lets developers capture, organize, and complete work without ever leaving the command line — shipping as a single binary with local-first storage so it works offline, travels with dotfiles, and responds in milliseconds, eliminating the context-switching tax that heavyweight GUI tools impose on keyboard-centric workflows."
+  key_goals:
+    - "Deliver a fully functional CRUD task CLI (add, list, complete, delete) with priority and due-date support that responds under 100ms on up to 1000 tasks"
+    - "Persist all data to a local JSON file with zero network calls, zero account requirements, and zero external runtime dependencies beyond the language runtime"
+    - "Distribute as a single self-contained binary installable on macOS and Linux in under 60 seconds with no additional package manager steps"
+    - "Support priority-based filtering and keyword search across task title and description fields to surface relevant work instantly"
+    - "Keep binary size under 20MB to ensure frictionless distribution via dotfiles, remote SSH environments, and manual copying across machines"
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: success
+  functional_requirements:
+    - description: "Users can add a task with a title, priority level (high/medium/low), and optional due date via a single CLI command"
+      priority: must
+    - description: "Users can list all tasks in a readable terminal-formatted output showing title, priority, due date, and completion status"
+      priority: must
+    - description: "Users can mark one or more tasks as complete by specifying their task ID"
+      priority: must
+    - description: "Users can delete a task by specifying its task ID"
+      priority: must
+    - description: "Users can filter the task list by priority level (high, medium, or low) to surface the most relevant work"
+      priority: must
+    - description: "Users can search tasks by keyword matched against the title and description fields"
+      priority: must
+    - description: "All task data is persisted to a local JSON file with no server, network, or account dependency"
+      priority: must
+    - description: "The tool is distributed as a single self-contained binary that installs on macOS and Linux without additional package manager steps"
+      priority: must
+    - description: "All CLI operations (add, list, complete, delete, filter, search) complete in under 100ms for up to 1000 tasks"
+      priority: must
+    - description: "Users can add an optional free-text description to a task for additional context beyond the title"
+      priority: should
+    - description: "Users can update a task's title, description, priority, or due date after creation"
+      priority: should
+    - description: "Users can view only incomplete tasks by default, with an option to show all tasks including completed ones"
+      priority: should
+    - description: "Users can sort the task list by due date or priority to control the display order"
+      priority: could
+    - description: "Users can archive or bulk-delete all completed tasks to keep the active list clean"
+      priority: could
+  user_stories:
+    - title: "Quick Task Capture"
+      description: "As a terminal-first developer, I want to add a task with a title and priority in a single command so I can capture work items instantly without breaking my flow state"
+    - title: "Due Date Scheduling"
+      description: "As a developer managing deadlines, I want to attach an optional due date to a task so I can distinguish time-sensitive work from open-ended items"
+    - title: "Task Overview"
+      description: "As a DevOps engineer, I want to list all my tasks in a clean terminal table so I can quickly assess what work is pending without switching to a GUI"
+    - title: "Priority Filtering"
+      description: "As an independent developer with a long backlog, I want to filter my task list to show only high-priority items so I can focus on what matters most right now"
+    - title: "Keyword Search"
+      description: "As a developer tracking tasks across multiple projects, I want to search tasks by keyword so I can quickly locate a specific item without scrolling through the full list"
+    - title: "Mark Complete"
+      description: "As a terminal user, I want to mark one or more tasks as done by ID so I can record progress without leaving the command line"
+    - title: "Task Deletion"
+      description: "As a developer cleaning up my task list, I want to delete tasks by ID so I can remove items that are no longer relevant"
+    - title: "Offline-First Reliability"
+      description: "As an SSH-connected remote worker, I want all task data stored in a local JSON file so my task manager works unconditionally without network access or account credentials"
+    - title: "Zero-Friction Install"
+      description: "As a developer setting up a new machine, I want to install the tool as a single binary in under 60 seconds so I can start tracking tasks immediately without wrestling with dependencies"
+    - title: "Dotfile Portability"
+      description: "As a developer who manages machines via dotfiles, I want the binary to be under 20MB so I can include it in my dotfile repo and have it sync automatically to every environment I use"
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: success
+  non_functional_requirements:
+    - description: "All CLI operations (add, list, complete, delete, filter, search) must complete in under 100ms for datasets up to 1000 tasks on standard developer hardware (2020+ MacBook or equivalent Linux workstation)"
+      category: "performance"
+    - description: "Task data must be written atomically to the JSON file (write-to-temp-then-rename) to prevent data loss or corruption on unexpected process termination or power failure"
+      category: "reliability"
+    - description: "Compiled binary size must not exceed 20MB to support inclusion in dotfile repositories and deployment to resource-constrained SSH environments"
+      category: "scalability"
+    - description: "The tool must operate with zero network calls at runtime, guaranteeing unconditional availability in air-gapped, offline, and SSH-tunneled environments"
+      category: "reliability"
+    - description: "All user-facing error messages must clearly identify the failing operation and suggest a corrective action without exposing internal stack traces"
+      category: "accessibility"
+  tech_stack:
+    language: "TypeScript 5.x"
+    runtime: "Bun 1.x (single-binary compilation via bun build --compile)"
+    cli_framework: "Commander.js"
+    storage: "Local JSON file via Bun file I/O APIs — no database engine"
+    testing: "Vitest with @vitest/coverage-v8"
+    binary_distribution: "bun build --compile targeting bun-linux-x64 and bun-darwin-arm64/x64"
+  domain_model:
+    Task:
+      attributes: ["id", "title", "description", "priority", "due_date", "status", "created_at", "updated_at"]
+      relationships: ["contained_by: TaskStore"]
+    TaskStore:
+      attributes: ["version", "tasks"]
+      relationships: ["contains_many: Task"]
+  out_of_scope:
+    - "Web, desktop GUI, or mobile interface of any kind"
+    - "Cloud sync or multi-device data synchronization"
+    - "User accounts, authentication, or authorization"
+    - "Collaboration, task sharing, or team features"
+    - "Push notifications, reminders, or scheduled alerts"
+    - "Recurring tasks or task templates"
+    - "Project grouping, tags, or hierarchical subtasks beyond priority levels"
+    - "Integration with external calendars, issue trackers, or third-party services"
+    - "Windows platform support"
+    - "Plugin, extension, or scripting hook system"
+    - "Import or export to formats other than the native JSON storage file"
+  ```
+
