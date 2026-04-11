@@ -1,0 +1,14 @@
+name: implementation-bad-cli-task-tracker
+description: Degraded implementation — partial ACs, no tests, ignores architecture
+phase: implementation
+notes: |
+  Hand-built degraded variant. Should score low on all four implementation rubric
+  dimensions: implementation description is vague/incorrect, acceptance criteria are
+  not all covered, tests are missing or superficial, architecture decisions are ignored.
+output: |
+  story-reference: Some story about adding tasks.
+  files-created: main.py — the main file with all the code.
+  implementation-summary: Wrote a Python script that reads and writes a pickle file containing a dictionary of tasks. When you run it with add, it prompts the user interactively for a title. If the user types Ctrl-C it crashes. Priority is not supported. Due dates are stored as Python datetime objects via pickle. On startup, the script starts a background thread that watches the pickle file for changes and reloads it.
+  acceptance-criteria-coverage: AC1 — mostly works, I think.
+  test-plan: No tests yet, will add them later.
+  architecture-adherence: Used Python and pickle instead of Rust and JSON because Python was faster to write. Used a background thread so changes get picked up live. Did not use clap because Python doesn't have it.

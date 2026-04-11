@@ -1,0 +1,27 @@
+result: success
+product_brief:
+  problem_statement: >
+    Developers who work primarily in the terminal lack a lightweight,
+    zero-dependency task management tool. Existing options either require
+    a GUI, need a server, or pull in heavy dependencies. Daily task tracking
+    shouldn't require leaving the terminal or installing a complex stack.
+  target_users:
+    - "Terminal-first developers who use CLI tools for their daily workflow"
+    - "DevOps engineers managing server-side tasks and runbooks"
+    - "Open source maintainers tracking issue triage and review tasks"
+  core_features:
+    - "CRUD operations: add, complete, delete, and list tasks via subcommands"
+    - "Priority levels (high/medium/low) with color-coded terminal output"
+    - "Due date support with overdue highlighting"
+    - "Filter tasks by priority level, completion status, or due date range"
+    - "Full-text search across task titles and descriptions"
+    - "Local JSON file storage — no server, no database, no network"
+  success_metrics:
+    - "Task CRUD operations complete in under 50ms for up to 1000 tasks"
+    - "Single binary with zero runtime dependencies"
+    - "JSON storage file is human-readable and manually editable"
+  constraints:
+    - "No network access required"
+    - "Must work on macOS, Linux, and Windows"
+  technology_constraints:
+    - "Single binary distribution"

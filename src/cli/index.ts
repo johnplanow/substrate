@@ -39,6 +39,7 @@ import { registerIngestEpicCommand } from './commands/ingest-epic.js'
 import { registerEpicStatusCommand } from './commands/epic-status.js'
 import { registerScenariosCommand } from './commands/scenarios.js'
 import { registerFactoryCommand } from './commands/factory.js'
+import { registerEvalCommand } from './commands/eval.js'
 
 // Increase max listeners before any commands or transports register their handlers.
 // With CLI commands registered, pino-pretty workers and Commander exit handlers
@@ -115,6 +116,7 @@ export async function createProgram(): Promise<Command> {
   registerHealthCommand(program, version)
   registerSupervisorCommand(program, version)
   registerMetricsCommand(program, version)
+  registerEvalCommand(program, version)
 
   registerRetryEscalatedCommand(program, version, process.cwd(), registry)
   registerCancelCommand(program, process.cwd())

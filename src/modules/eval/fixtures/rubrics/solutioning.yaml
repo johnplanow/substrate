@@ -1,0 +1,13 @@
+dimensions:
+  - name: architecture_rationale
+    weight: 0.3
+    prompt: "Does each architecture decision include a rationale, not just a value?"
+  - name: story_decomposition
+    weight: 0.3
+    prompt: "Are stories small enough to implement in a single session, with clear acceptance criteria?"
+  - name: fr_coverage
+    weight: 0.2
+    prompt: "Do the stories collectively cover all functional requirements from the PRD?"
+  - name: dependency_ordering
+    weight: 0.2
+    prompt: "Are story dependencies and ordering logical — no forward references?"

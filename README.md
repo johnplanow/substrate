@@ -430,6 +430,18 @@ These commands are invoked by AI agents during pipeline operation. You typically
 | `substrate monitor status` | View agent performance metrics |
 | `substrate cost` | View cost and token usage summary |
 
+### Quality Evals
+
+| Command | Description |
+|---------|-------------|
+| `substrate eval` | Evaluate pipeline output quality with LLM-as-judge (standard tier) |
+| `substrate eval --depth deep` | Deep eval with golden-example comparison, cross-phase coherence, and weighted rubrics |
+| `substrate eval --phase <phases>` | Evaluate only specific phases (e.g. `analysis,planning`) |
+| `substrate eval --run-id <id>` | Evaluate a specific historical run |
+| `substrate eval --report json` | Machine-readable output for CI or dashboards |
+
+See [docs/eval-system.md](docs/eval-system.md) for the full developer guide, extension points, and how to add rubrics and golden examples.
+
 ### Export and Sharing
 
 | Command | Description |

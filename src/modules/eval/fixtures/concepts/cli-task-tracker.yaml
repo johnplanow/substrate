@@ -1,0 +1,9 @@
+name: cli-task-tracker
+description: A lightweight CLI tool for managing daily tasks without leaving the terminal
+concept: |
+  Build a CLI task tracker for developers who prefer to stay in the terminal.
+  Users should be able to add, complete, delete, and list tasks. Tasks should
+  support priority levels (high/medium/low) and due dates. The tool should
+  support filtering tasks by priority and searching by keyword. Data stored
+  locally in a JSON file. Single binary, no server, no dependencies beyond
+  the runtime.
