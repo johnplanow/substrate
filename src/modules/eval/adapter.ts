@@ -16,6 +16,27 @@ export class PromptfooAdapter implements EvalAdapter {
     assertions: EvalAssertion[],
     layerName: string,
   ): Promise<LayerResult> {
+    // G14: reject empty / whitespace-only output early with a clear
+    // message. Grading an empty string fools the default grader into
+    // refusing the call and surfaces as a confusing "no results" error
+    // deep inside promptfoo's response parsing. Surface the real cause.
+    if (output.trim() === '') {
+      return {
+        layer: layerName,
+        score: 0,
+        pass: false,
+        assertions: [
+          {
+            name: 'eval-error',
+            score: 0,
+            pass: false,
+            reason:
+              'Eval adapter error: output is empty or whitespace-only — cannot grade against an empty response. This usually means the phase_outputs capture for this phase/step was empty or got trimmed upstream; investigate step-runner.ts and phase_outputs fallback logic.',
+          },
+        ],
+      }
+    }
+
     try {
       // promptfoo is intentionally NOT listed in package.json dependencies
       // because its ~800-package transitive tree balloons CI install time
@@ -40,29 +61,44 @@ export class PromptfooAdapter implements EvalAdapter {
         throw importErr
       }
 
-      // Inline echo provider as a bare async function. promptfoo's
-      // `loadApiProviders` has three branches for array entries:
-      // (1) string path, (2) bare function (auto-wrapped into `{ id: () =>
-      // 'custom-function-<idx>', callApi: fn }`), (3) object with `id`.
-      // Branch (3) requires `id` to be a STRING (it's passed as providerPath
-      // to `loadApiProvider`, which calls `.startsWith(...)` on it). An
-      // object with a function `id` hits the "providerPath.startsWith is not
-      // a function" TypeError. So we use branch (2) — a bare function —
-      // and let promptfoo wrap it. The function echoes the rendered prompt
-      // back as output, so the llm-rubric assertions grade the pre-captured
-      // phase output without promptfoo issuing a real model call. Grading
-      // still uses promptfoo's default grading provider (needs
-      // OPENAI_API_KEY or ANTHROPIC_API_KEY in env).
-      const echoCallApi = async (prompt: string) => {
-        return { output: prompt }
-      }
+      // G14: capture the output in a provider closure so it NEVER flows
+      // through promptfoo's nunjucks renderer. Pre-G14 we used
+      // `prompts: ['{{output}}']` with `vars: { output }`, which had
+      // three known hazards:
+      //
+      //   1. Output starting with `file://` → nunjucks attempted a disk
+      //      read, either leaking file content into the grader or
+      //      tanking the eval into a confusing I/O error.
+      //   2. Output containing `{{ var }}` or `{% tag %}` → nunjucks
+      //      tried to expand them (sometimes recursively against other
+      //      known vars), silently mutating grader input.
+      //   3. Whitespace-trimming by the renderer could produce an empty
+      //      prompt, which the default grader refuses.
+      //
+      // The closure pattern eliminates all three: the prompt template is
+      // a literal string with no variable references, promptfoo renders
+      // it to a constant, the provider ignores whatever promptfoo passes
+      // and returns our captured output verbatim. No nunjucks sees the
+      // phase output.
+      //
+      // promptfoo's `loadApiProviders` accepts a bare function and
+      // auto-wraps it into `{ id: () => 'custom-function-<idx>', callApi
+      // }`. We use that branch (2) — string-ID providerPath branches
+      // trip the `.startsWith is not a function` TypeError inside
+      // promptfoo's dispatcher.
+      const capturedOutput = output
+      const echoCallApi = async () => ({ output: capturedOutput })
 
       const testSuite = {
-        prompts: ['{{output}}'],
+        // Literal, non-templated prompt. Never references `output`.
+        // The provider closure doesn't even look at what promptfoo
+        // passes here — it returns `capturedOutput` directly.
+        prompts: ['eval-stub'],
         providers: [echoCallApi],
         tests: [
           {
-            vars: { output },
+            // No `vars.output` — pre-G14 this was how the output flowed
+            // into nunjucks. Intentionally omitted.
             assert: assertions.map((a) => ({
               type: a.type,
               value: a.value,
