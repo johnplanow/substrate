@@ -209,9 +209,10 @@ export async function runEvalAction(options: EvalCommandOptions): Promise<number
   const { depth, phases, runId, concept, report, projectRoot } = options
 
   const dbRoot = await resolveMainRepoRoot(projectRoot)
-  const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+  const sqlitePath = join(dbRoot, '.substrate', 'substrate.db')
+  const doltPath = join(dbRoot, '.substrate', 'state', '.dolt')
 
-  if (!existsSync(dbPath)) {
+  if (!existsSync(sqlitePath) && !existsSync(doltPath)) {
     process.stderr.write('Error: No pipeline database found. Run a pipeline first.\n')
     return 1
   }
@@ -470,9 +471,10 @@ export async function runCompareAction(options: CompareCommandOptions): Promise<
   const [runIdA, runIdB] = parts
 
   const dbRoot = await resolveMainRepoRoot(projectRoot)
-  const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+  const sqlitePath = join(dbRoot, '.substrate', 'substrate.db')
+  const doltPath = join(dbRoot, '.substrate', 'state', '.dolt')
 
-  if (!existsSync(dbPath)) {
+  if (!existsSync(sqlitePath) && !existsSync(doltPath)) {
     process.stderr.write('Error: No pipeline database found. Run a pipeline first.\n')
     return 1
   }

@@ -56,6 +56,10 @@
     "test": "vitest run --coverage --exclude '**/*meta-eval*'",
     "test:fast": "vitest run --exclude 'src/__tests__/e2e/**' --exclude '**/*integration*' --exclude '**/*e2e*' --exclude '**/*meta-eval*'",
     "test:meta-eval": "META_EVAL=1 vitest run src/modules/eval/__tests__/meta-eval.test.ts --no-coverage",
+    "eval": "node dist/cli/index.mjs eval",
+    "eval:deep": "node dist/cli/index.mjs eval --depth deep",
+    "eval:compare": "node dist/cli/index.mjs eval --compare",
+    "eval:ui": "node dist/cli/index.mjs eval --promptfoo-ui && npx promptfoo view",
     "test:changed": "vitest run --changed --exclude '**/*meta-eval*'",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
@@ -74,6 +78,7 @@
     "js-yaml": "^4.1.1",
     "mysql2": "^3.20.0",
     "pino": "^9.6.0",
+    "promptfoo": "^0.121.4",
     "semver": "^7.6.3",
     "zod": "^4.3.6"
   },
