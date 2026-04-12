@@ -51,3 +51,4 @@ export { initializeDolt, checkDoltInstalled, runDoltCommand } from './dolt-init.
 export type { DoltInitConfig } from './dolt-init.js'
 export { DoltNotInstalled, DoltInitError } from './dolt-init.js'
 export { DoltQueryError } from './dolt-errors.js'
+export { isUniqueConstraintViolation } from './upsert-errors.js'

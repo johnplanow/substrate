@@ -9,6 +9,7 @@
  */
 
 import type { DatabaseAdapter } from '../types.js'
+import { isUniqueConstraintViolation } from '../upsert-errors.js'
 import {
   CreateDecisionInputSchema,
   CreateRequirementInputSchema,
@@ -59,23 +60,6 @@ export async function createDecision(adapter: DatabaseAdapter, input: CreateDeci
 
   const rows = await adapter.query<Decision>('SELECT * FROM decisions WHERE id = ?', [id])
   return rows[0]!
-}
-
-/**
- * Check whether a caught error is a UNIQUE constraint violation from the
- * backing adapter. Used by the atomic INSERT-catch-UPDATE upsert pattern.
- *
- * Matches both the InMemoryDatabaseAdapter's "UNIQUE constraint failed: ..."
- * message and Dolt/MySQL's "Duplicate entry ... for key ..." message.
- */
-function isUniqueConstraintViolation(err: unknown): boolean {
-  if (!(err instanceof Error)) return false
-  const msg = err.message.toLowerCase()
-  return (
-    msg.includes('unique constraint') ||
-    msg.includes('duplicate entry') ||
-    msg.includes('duplicate key')
-  )
 }
 
 /**
