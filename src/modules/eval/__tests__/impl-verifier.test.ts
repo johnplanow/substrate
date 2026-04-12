@@ -17,9 +17,9 @@ describe('ImplVerifier', () => {
 
     const assertions = verifier.buildAssertions(storySpec)
 
-    const compileCheck = assertions.find((a: EvalAssertion) => a.label === 'compile-check')
-    expect(compileCheck).toBeDefined()
-    expect(compileCheck!.type).toBe('javascript')
+    const buildCheck = assertions.find((a: EvalAssertion) => a.label === 'build-evidence')
+    expect(buildCheck).toBeDefined()
+    expect(buildCheck!.type).toBe('llm-rubric')
 
     const acCheck = assertions.find((a: EvalAssertion) => a.label === 'acceptance-criteria')
     expect(acCheck).toBeDefined()
@@ -27,7 +27,7 @@ describe('ImplVerifier', () => {
     expect(acCheck!.value).toContain('Button renders with primary and secondary variants')
   })
 
-  it('creates file existence checks', () => {
+  it('creates file coverage check as llm-rubric', () => {
     const verifier = new ImplVerifier()
 
     const storySpec = {
@@ -36,9 +36,10 @@ describe('ImplVerifier', () => {
     }
 
     const assertions = verifier.buildAssertions(storySpec)
-    const fileCheck = assertions.find((a: EvalAssertion) => a.label === 'file-existence')
+    const fileCheck = assertions.find((a: EvalAssertion) => a.label === 'file-coverage')
     expect(fileCheck).toBeDefined()
-    expect(fileCheck!.type).toBe('javascript')
+    expect(fileCheck!.type).toBe('llm-rubric')
+    expect(fileCheck!.value).toContain('src/new-file.ts')
   })
 
   it('returns empty for empty story spec', () => {

@@ -15,34 +15,37 @@ export class ImplVerifier {
     const assertions: EvalAssertion[] = []
 
     if (storySpec.files.length > 0) {
-      const fileList = storySpec.files.map((f) => `"${f}"`).join(', ')
+      const fileList = storySpec.files.map((f) => `\`${f}\``).join(', ')
       assertions.push({
-        type: 'javascript',
+        type: 'llm-rubric',
         value: [
-          `// Check that expected files exist`,
-          `const fs = require('fs')`,
-          `const files = [${fileList}]`,
-          `const missing = files.filter(f => !fs.existsSync(f))`,
-          `if (missing.length > 0) return { pass: false, score: 0, reason: 'Missing files: ' + missing.join(', ') }`,
-          `return { pass: true, score: 1.0, reason: 'All expected files exist' }`,
+          'Check whether the implementation output references creating or modifying the expected files.',
+          '',
+          `Expected files: ${fileList}`,
+          '',
+          'Score on a 0-1 scale:',
+          '- 1.0: Output explicitly mentions all expected files as created or modified',
+          '- 0.7: Most expected files are referenced; a few minor ones missing',
+          '- 0.4: Only some expected files are mentioned',
+          '- 0.0: Output does not reference any of the expected files',
         ].join('\n'),
-        label: 'file-existence',
+        label: 'file-coverage',
       })
     }
 
     if (storySpec.files.some((f) => f.endsWith('.ts') || f.endsWith('.tsx'))) {
       assertions.push({
-        type: 'javascript',
+        type: 'llm-rubric',
         value: [
-          `const { execSync } = require('child_process')`,
-          `try {`,
-          `  execSync('npx tsc --noEmit', { encoding: 'utf-8', timeout: 30000 })`,
-          `  return { pass: true, score: 1.0, reason: 'TypeScript compilation succeeds' }`,
-          `} catch (err) {`,
-          `  return { pass: false, score: 0, reason: 'Compilation failed: ' + err.stdout?.slice(0, 500) }`,
-          `}`,
+          'Check whether the implementation output indicates successful compilation or build.',
+          '',
+          'Score on a 0-1 scale:',
+          '- 1.0: Output explicitly reports successful build/compilation with no errors',
+          '- 0.7: Output mentions build success but with minor warnings',
+          '- 0.4: Output does not mention build status at all',
+          '- 0.0: Output reports build or compilation failures',
         ].join('\n'),
-        label: 'compile-check',
+        label: 'build-evidence',
       })
     }
 
