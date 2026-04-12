@@ -49,6 +49,14 @@ vi.mock('../../../persistence/queries/decisions.js', () => ({
   getDecisionsByPhase: vi.fn(),
 }))
 
+// G11: runDevStory writes dispatchResult.output to phase_outputs so eval
+// can read the real impl-phase dispatch text instead of reconstructing
+// from decisions. Mocked here so tests can assert the capture contract
+// without needing a real in-memory adapter wired up.
+vi.mock('../../../persistence/queries/phase-outputs.js', () => ({
+  upsertPhaseOutput: vi.fn(),
+}))
+
 vi.mock('../git-helpers.js', () => ({
   getGitChangedFiles: vi.fn(),
 }))
@@ -70,11 +78,13 @@ vi.mock('../default-test-patterns.js', () => ({
 
 import { readFile } from 'node:fs/promises'
 import { getDecisionsByPhase } from '../../../persistence/queries/decisions.js'
+import { upsertPhaseOutput } from '../../../persistence/queries/phase-outputs.js'
 import { getGitChangedFiles } from '../git-helpers.js'
 import { resolveDefaultTestPatterns } from '../default-test-patterns.js'
 
 const mockReadFile = vi.mocked(readFile)
 const mockGetDecisionsByPhase = vi.mocked(getDecisionsByPhase)
+const mockUpsertPhaseOutput = vi.mocked(upsertPhaseOutput)
 const mockGetGitChangedFiles = vi.mocked(getGitChangedFiles)
 const mockResolveDefaultTestPatterns = vi.mocked(resolveDefaultTestPatterns)
 
@@ -1314,6 +1324,118 @@ describe('runDevStory', () => {
       expect(capturedPrompt).toContain('Go test (stdlib)')
       // Resolver must NOT have been called since decisions were found
       expect(mockResolveDefaultTestPatterns).not.toHaveBeenCalled()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // G11: phase_outputs capture (unblocks G8.a impl fixture regen)
+  // -------------------------------------------------------------------------
+
+  describe('G11: writes dispatchResult.output to phase_outputs', () => {
+    it('captures raw output on a successful dispatch, keyed on storyKey:dev-story', async () => {
+      const deps = createMockDeps()
+      const successResult = createSuccessDispatchResult()
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(successResult),
+      })
+
+      await runDevStory(deps, { ...DEFAULT_PARAMS, pipelineRunId: 'run-g11' })
+
+      // A row must be upserted with phase='implementation' and the
+      // composite step_name convention so the eval CLI can read it later.
+      expect(mockUpsertPhaseOutput).toHaveBeenCalledWith(
+        deps.db,
+        expect.objectContaining({
+          pipeline_run_id: 'run-g11',
+          phase: 'implementation',
+          step_name: `${DEFAULT_PARAMS.storyKey}:dev-story`,
+          raw_output: successResult.output,
+        }),
+      )
+    })
+
+    it('captures raw output even when schema validation fails (partial output is still eval signal)', async () => {
+      // Dispatch completed but the parser rejected the YAML — the text
+      // content is still the best record of what the agent produced and
+      // should be captured for eval reads.
+      const deps = createMockDeps()
+      const parseFailResult = createFailedDispatchResult({
+        status: 'failed',
+        exitCode: 0,
+        parseError: 'YAML schema validation failed on field ac_met',
+      })
+      // A failed-but-output-non-empty dispatch
+      parseFailResult.output = 'partial agent output text'
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(parseFailResult),
+      })
+
+      await runDevStory(deps, { ...DEFAULT_PARAMS, pipelineRunId: 'run-g11' })
+
+      expect(mockUpsertPhaseOutput).toHaveBeenCalledWith(
+        deps.db,
+        expect.objectContaining({
+          pipeline_run_id: 'run-g11',
+          phase: 'implementation',
+          step_name: `${DEFAULT_PARAMS.storyKey}:dev-story`,
+          raw_output: 'partial agent output text',
+        }),
+      )
+    })
+
+    it('does not capture when pipelineRunId is missing (no run context to key on)', async () => {
+      const deps = createMockDeps()
+      const successResult = createSuccessDispatchResult()
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(successResult),
+      })
+
+      // DEFAULT_PARAMS has no pipelineRunId — capture must be skipped.
+      await runDevStory(deps, DEFAULT_PARAMS)
+
+      expect(mockUpsertPhaseOutput).not.toHaveBeenCalled()
+    })
+
+    it('does not capture when dispatch output is empty', async () => {
+      const deps = createMockDeps()
+      const emptyResult = createSuccessDispatchResult()
+      emptyResult.output = ''
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(emptyResult),
+      })
+
+      await runDevStory(deps, { ...DEFAULT_PARAMS, pipelineRunId: 'run-g11' })
+
+      expect(mockUpsertPhaseOutput).not.toHaveBeenCalled()
+    })
+
+    it('a DB failure inside upsertPhaseOutput does not break the workflow (capture is diagnostic)', async () => {
+      const deps = createMockDeps()
+      const successResult = createSuccessDispatchResult()
+      vi.mocked(deps.dispatcher.dispatch).mockReturnValue({
+        id: 'test-id',
+        status: 'queued',
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(successResult),
+      })
+      mockUpsertPhaseOutput.mockRejectedValueOnce(new Error('DB unavailable'))
+
+      // Workflow must still complete successfully. Capture is a
+      // diagnostic side-channel; a DB hiccup must not fail dev-story.
+      const result = await runDevStory(deps, { ...DEFAULT_PARAMS, pipelineRunId: 'run-g11' })
+      expect(result.result).toBe('success')
     })
   })
 })

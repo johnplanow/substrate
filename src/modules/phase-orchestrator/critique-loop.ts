@@ -13,6 +13,7 @@
  */
 
 import { upsertDecision } from '../../persistence/queries/decisions.js'
+import { upsertPhaseOutput } from '../../persistence/queries/phase-outputs.js'
 import { createLogger } from '../../utils/logger.js'
 import { CritiqueOutputSchema } from './schemas/critique-output.js'
 import type { CritiqueOutput, CritiqueIssue } from './schemas/critique-output.js'
@@ -34,6 +35,18 @@ export interface CritiqueOptions {
   projectContext?: string
   /** Phase context to inject into refinement prompts (optional) */
   phaseContext?: string
+  /**
+   * G11: If provided, write each critique and refinement dispatch's raw
+   * output to the `phase_outputs` table so the eval CLI can read them.
+   * Composite `step_name`s:
+   *   - `${captureStepName}:critique:${iteration}` — critique dispatch output
+   *   - `${captureStepName}:critique:${iteration}:refine` — refinement dispatch output
+   *
+   * When omitted, no capture happens (backward-compatible). Pre-G11 the
+   * critique and refinement dispatches lived outside the G2 step-runner
+   * capture path and their output was invisible to eval.
+   */
+  captureStepName?: string
 }
 
 /**
@@ -103,7 +116,12 @@ export async function runCritiqueLoop(
   deps: PhaseDeps,
   options: CritiqueOptions = {},
 ): Promise<CritiqueLoopResult> {
-  const { maxIterations = 2, projectContext = '', phaseContext = '' } = options
+  const {
+    maxIterations = 2,
+    projectContext = '',
+    phaseContext = '',
+    captureStepName,
+  } = options
   const startMs = Date.now()
 
   const critiqueTokens = { input: 0, output: 0 }
@@ -158,6 +176,29 @@ export async function runCritiqueLoop(
       const result = await handle.result
       critiqueTokens.input += result.tokenEstimate.input
       critiqueTokens.output += result.tokenEstimate.output
+
+      // G11: capture the raw critique dispatch output to phase_outputs.
+      // Wrapped in try/catch — capture is diagnostic, must not fail the
+      // loop. Idempotent via composite key so a retry upserts in place.
+      if (captureStepName && result.output && result.output.length > 0) {
+        try {
+          await upsertPhaseOutput(deps.db, {
+            pipeline_run_id: runId,
+            phase,
+            step_name: `${captureStepName}:critique:${i + 1}`,
+            raw_output: result.output,
+          })
+        } catch (captureErr) {
+          logger.warn(
+            {
+              phaseId,
+              iteration: i + 1,
+              err: captureErr instanceof Error ? captureErr.message : String(captureErr),
+            },
+            'Critique loop: phase_outputs capture failed — continuing without raw-output record',
+          )
+        }
+      }
 
       if (result.status !== 'completed' || result.parsed === null) {
         const errMsg = result.parseError ?? `Critique dispatch ended with status '${result.status}'`
@@ -293,6 +334,35 @@ export async function runCritiqueLoop(
         const refineResult = await refineHandle.result
         refinementTokens.input += refineResult.tokenEstimate.input
         refinementTokens.output += refineResult.tokenEstimate.output
+
+        // G11: capture the raw refinement dispatch output to phase_outputs.
+        // Same pattern as the critique capture above: diagnostic, wrapped
+        // in try/catch, composite-keyed for idempotency. Separate
+        // step_name suffix (:refine) so the eval CLI can distinguish the
+        // critique-evaluated artifact from the refined artifact.
+        if (
+          captureStepName &&
+          refineResult.output &&
+          refineResult.output.length > 0
+        ) {
+          try {
+            await upsertPhaseOutput(deps.db, {
+              pipeline_run_id: runId,
+              phase,
+              step_name: `${captureStepName}:critique:${i + 1}:refine`,
+              raw_output: refineResult.output,
+            })
+          } catch (captureErr) {
+            logger.warn(
+              {
+                phaseId,
+                iteration: i + 1,
+                err: captureErr instanceof Error ? captureErr.message : String(captureErr),
+              },
+              'Critique loop: refinement phase_outputs capture failed — continuing without raw-output record',
+            )
+          }
+        }
 
         if (refineResult.status === 'completed' && refineResult.output) {
           // Log delta between original and refined artifact

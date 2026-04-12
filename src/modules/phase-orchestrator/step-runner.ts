@@ -517,6 +517,12 @@ export async function runSteps(
             runId,
             phase,
             deps,
+            // G11: pass step.name as the capture prefix so critique and
+            // refinement dispatches write phase_outputs rows with
+            // composite step_names (<step>:critique:<iter>,
+            // <step>:critique:<iter>:refine). Eval can then see the
+            // full conversational trace for this step.
+            { captureStepName: step.name },
           )
           // Add critique and refinement token costs to running totals
           totalInput += critiqueResult.critiqueTokens.input + critiqueResult.refinementTokens.input
@@ -587,6 +593,38 @@ export async function runSteps(
               const elicitResult = await elicitHandle.result
               elicitInput += elicitResult.tokenEstimate.input
               elicitOutput += elicitResult.tokenEstimate.output
+
+              // G11: capture the elicitation dispatch's raw output to
+              // phase_outputs so eval can see what the sub-agent produced.
+              // Composite step_name: <step>:elicit:<round>:<sanitized-method>
+              // where sanitized-method lowercases and kebab-cases the
+              // method name for URL/file-safe display. Wrapped in try/catch
+              // — capture is a diagnostic side channel and must not fail
+              // the step.
+              if (elicitResult.output && elicitResult.output.length > 0) {
+                try {
+                  const sanitizedMethod = method.name
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-+|-+$/g, '')
+                  await upsertPhaseOutput(deps.db, {
+                    pipeline_run_id: runId,
+                    phase,
+                    step_name: `${step.name}:elicit:${roundIndex}:${sanitizedMethod}`,
+                    raw_output: elicitResult.output,
+                  })
+                } catch (captureErr) {
+                  logger.warn(
+                    {
+                      step: step.name,
+                      method: method.name,
+                      roundIndex,
+                      err: captureErr instanceof Error ? captureErr.message : String(captureErr),
+                    },
+                    'phase_outputs capture failed for elicitation dispatch — continuing',
+                  )
+                }
+              }
 
               // Store results in decision store if dispatch succeeded
               if (

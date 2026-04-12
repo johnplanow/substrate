@@ -13,6 +13,7 @@ import {
   getDecisionsByPhaseForRun,
   getTokenUsageSummary,
 } from '../../../persistence/queries/decisions.js'
+import { getRawOutputsByPhaseForRun } from '../../../persistence/queries/phase-outputs.js'
 import { runSteps } from '../step-runner.js'
 import type { StepDefinition } from '../step-runner.js'
 import type { PhaseDeps } from '../phases/types.js'
@@ -286,5 +287,122 @@ describe('critique loop integration with step-runner', () => {
     // Should not throw — critique failure is non-blocking
     const result = await runSteps(steps, deps, runId, 'solutioning', { concept: 'CLI' })
     expect(result.success).toBe(true)
+  })
+
+  // -------------------------------------------------------------------------
+  // G11: critique dispatches are captured in phase_outputs
+  // -------------------------------------------------------------------------
+
+  it('writes critique dispatch output to phase_outputs keyed on <step>:critique:<iter> (G11)', async () => {
+    const pack = makePack({
+      'arch-step': 'Architecture: {{concept}}',
+      'critique-architecture': 'Review: {{artifact}}',
+      'refine-artifact': 'Refine: {{artifact}} Issues: {{issues}}',
+    })
+
+    const stepResult = makeDispatchResult({
+      id: 'step-1',
+      output: 'main step output',
+      parsed: {
+        result: 'success',
+        architecture_decisions: [{ category: 'lang', key: 'runtime', value: 'Node.js' }],
+      },
+    })
+    const critiqueResult = makeDispatchResult({
+      id: 'critique-1',
+      output: 'critique pass output text',
+      parsed: { verdict: 'pass', issue_count: 0, issues: [] },
+    })
+
+    const dispatcher = makeDispatcher([stepResult, critiqueResult])
+    const deps = makeDeps(adapter, dispatcher, pack)
+
+    const steps: StepDefinition[] = [
+      {
+        name: 'arch-step',
+        taskType: 'arch-decisions',
+        outputSchema: TestOutputSchema,
+        context: [{ placeholder: 'concept', source: 'param:concept' }],
+        persist: [],
+        critique: true,
+      },
+    ]
+
+    await runSteps(steps, deps, runId, 'solutioning', { concept: 'Build a CLI' })
+
+    const rows = await getRawOutputsByPhaseForRun(adapter, runId, 'solutioning')
+    // Two rows: the main step dispatch + the critique iteration-1 dispatch
+    const main = rows.find((r) => r.step_name === 'arch-step')
+    const critique = rows.find((r) => r.step_name === 'arch-step:critique:1')
+    expect(main?.raw_output).toBe('main step output')
+    expect(critique?.raw_output).toBe('critique pass output text')
+  })
+
+  it('captures both critique and refinement outputs when critique returns needs_work (G11)', async () => {
+    const pack = makePack({
+      'arch-step': 'Architecture: {{concept}}',
+      'critique-architecture': 'Review: {{artifact}}',
+      'refine-artifact': 'Refine: {{artifact}} Issues: {{issues}}',
+    })
+
+    const stepResult = makeDispatchResult({
+      id: 'step-1',
+      output: 'main step output',
+      parsed: {
+        result: 'success',
+        architecture_decisions: [{ category: 'lang', key: 'runtime', value: 'Node.js' }],
+      },
+    })
+    const critique1 = makeDispatchResult({
+      id: 'critique-1',
+      output: 'critique-1 needs work',
+      parsed: {
+        verdict: 'needs_work',
+        issue_count: 1,
+        issues: [
+          {
+            severity: 'major',
+            category: 'rationale',
+            description: 'no rationale given',
+            suggestion: 'add rationale',
+          },
+        ],
+      },
+    })
+    const refine = makeDispatchResult({
+      id: 'refine-1',
+      output: 'refined artifact body',
+      parsed: null,
+    })
+    const critique2 = makeDispatchResult({
+      id: 'critique-2',
+      output: 'critique-2 pass',
+      parsed: { verdict: 'pass', issue_count: 0, issues: [] },
+    })
+
+    const dispatcher = makeDispatcher([stepResult, critique1, refine, critique2])
+    const deps = makeDeps(adapter, dispatcher, pack)
+
+    const steps: StepDefinition[] = [
+      {
+        name: 'arch-step',
+        taskType: 'arch-decisions',
+        outputSchema: TestOutputSchema,
+        context: [{ placeholder: 'concept', source: 'param:concept' }],
+        persist: [],
+        critique: true,
+      },
+    ]
+
+    await runSteps(steps, deps, runId, 'solutioning', { concept: 'Build a CLI' })
+
+    const rows = await getRawOutputsByPhaseForRun(adapter, runId, 'solutioning')
+    const critique1Row = rows.find((r) => r.step_name === 'arch-step:critique:1')
+    const refineRow = rows.find((r) => r.step_name === 'arch-step:critique:1:refine')
+    const critique2Row = rows.find((r) => r.step_name === 'arch-step:critique:2')
+
+    expect(critique1Row?.raw_output).toBe('critique-1 needs work')
+    expect(refineRow?.raw_output).toBe('refined artifact body')
+    expect(critique2Row?.raw_output).toBe('critique-2 pass')
   })
 })

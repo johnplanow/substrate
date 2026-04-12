@@ -21,6 +21,7 @@ import {
   getDecisionsByPhaseForRun,
   getArtifactByTypeForRun,
 } from '../../../persistence/queries/decisions.js'
+import { getRawOutputsByPhaseForRun } from '../../../persistence/queries/phase-outputs.js'
 import {
   runSteps,
   resolveContext,
@@ -857,6 +858,95 @@ describe('step-runner', () => {
       const decisions = await getDecisionsByPhaseForRun(adapter, runId, 'analysis')
       const elicitDecisions = decisions.filter((d) => d.category === 'elicitation')
       expect(elicitDecisions.length).toBeGreaterThanOrEqual(4) // at least 2 methods × 2 (method + insights)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // G11: phase_outputs capture for elicitation dispatches
+  // -------------------------------------------------------------------------
+
+  describe('runSteps() — G11 elicitation phase_outputs capture', () => {
+    it('writes each elicitation dispatch output to phase_outputs with :elicit:<round>:<method> suffix', async () => {
+      const pack = makePack({
+        'step-1': 'Analyze: {{concept}}',
+        'elicitation-apply':
+          '# {{method_name}} {{method_description}} {{output_pattern}} {{artifact_content}}',
+      })
+
+      const stepDispatchResult = makeDispatchResult({
+        id: 'd-step-1',
+        output: 'main step output',
+        parsed: { result: 'success', value: 'vision-output' },
+      })
+      const elicitResult1 = makeDispatchResult({
+        id: 'd-elicit-1',
+        output: 'elicit round 1 raw text output',
+        parsed: { result: 'success', insights: 'Insight from round 1' },
+      })
+      const elicitResult2 = makeDispatchResult({
+        id: 'd-elicit-2',
+        output: 'elicit round 2 raw text output',
+        parsed: { result: 'success', insights: 'Insight from round 2' },
+      })
+
+      const dispatcher = makeDispatcher([stepDispatchResult, elicitResult1, elicitResult2])
+      const deps = makeDeps(adapter, dispatcher, pack)
+
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [{ field: 'value', category: 'test-cat', key: 'vision' }],
+          elicitate: true,
+        },
+      ]
+
+      await runSteps(steps, deps, runId, 'analysis', { concept: 'Build a CLI' })
+
+      // Three phase_outputs rows expected: the main step + two elicit rounds.
+      // The main step row is unchanged (step-runner's primary capture).
+      // The two new rows are what G11 adds — each elicitation dispatch's
+      // raw text is captured with a composite step_name that encodes the
+      // round index and method name (sanitized to kebab-case).
+      const rows = await getRawOutputsByPhaseForRun(adapter, runId, 'analysis')
+      const mainRow = rows.find((r) => r.step_name === 'step-1')
+      const elicitRow1 = rows.find((r) => r.step_name.startsWith('step-1:elicit:1:'))
+      const elicitRow2 = rows.find((r) => r.step_name.startsWith('step-1:elicit:2:'))
+
+      expect(mainRow?.raw_output).toBe('main step output')
+      expect(elicitRow1?.raw_output).toBe('elicit round 1 raw text output')
+      expect(elicitRow2?.raw_output).toBe('elicit round 2 raw text output')
+    })
+
+    it('does not add phase_outputs elicit rows when elicitate is not set', async () => {
+      const pack = makePack({ 'step-1': 'Analyze: {{concept}}' })
+      const stepDispatchResult = makeDispatchResult({
+        id: 'd-step-1',
+        output: 'main step output',
+        parsed: { result: 'success', value: 'x' },
+      })
+      const dispatcher = makeDispatcher([stepDispatchResult])
+      const deps = makeDeps(adapter, dispatcher, pack)
+
+      const steps: StepDefinition[] = [
+        {
+          name: 'step-1',
+          taskType: 'analysis-vision',
+          outputSchema: TestOutputSchema,
+          context: [{ placeholder: 'concept', source: 'param:concept' }],
+          persist: [],
+          // elicitate omitted
+        },
+      ]
+
+      await runSteps(steps, deps, runId, 'analysis', { concept: 'CLI' })
+
+      const rows = await getRawOutputsByPhaseForRun(adapter, runId, 'analysis')
+      // Only the main step capture — no :elicit: rows
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.step_name).toBe('step-1')
     })
   })
 

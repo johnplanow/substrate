@@ -20,6 +20,7 @@ import { DevStoryResultSchema } from './schemas.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import type { PromptSection } from './prompt-assembler.js'
 import { getDecisionsByPhase, getDecisionsByCategory } from '../../persistence/queries/decisions.js'
+import { upsertPhaseOutput } from '../../persistence/queries/phase-outputs.js'
 import { getGitChangedFiles } from './git-helpers.js'
 import { createLogger } from '../../utils/logger.js'
 import type { ContextTemplate } from '../context-compiler/types.js'
@@ -338,6 +339,49 @@ export async function runDevStory(
     const error = err instanceof Error ? err.message : String(err)
     logger.error({ storyKey, error }, 'Dispatch threw an unexpected error')
     return makeFailureResult(`dispatch_error: ${error}`)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 6.5: Capture raw dispatch output to phase_outputs (G11).
+  //
+  // Before G11, dev-story dispatches lived outside the step-runner.ts
+  // capture path, so eval had no way to read the real impl-phase text
+  // and G8.a impl fixture regen was blocked. Now we upsert one
+  // phase_outputs row per dev-story dispatch, keyed on
+  // (pipeline_run_id, 'implementation', `${storyKey}:dev-story`) so
+  // a retry dispatch for the same story updates the existing row in
+  // place rather than producing duplicates. The capture runs BEFORE
+  // the status/schema checks below so partial outputs from failed or
+  // parse-errored dispatches are still recorded — eval can grade
+  // whatever text the agent produced, including error traces.
+  //
+  // Guards:
+  //  - Skip when pipelineRunId is missing (no run context to key on;
+  //    standalone dev-story invocations don't need capture).
+  //  - Skip when dispatchResult.output is empty — nothing to grade.
+  //  - Wrap the upsert in try/catch: capture is a diagnostic side
+  //    channel and a DB hiccup must NOT fail the dev-story workflow.
+  if (
+    params.pipelineRunId !== undefined &&
+    dispatchResult.output !== undefined &&
+    dispatchResult.output.length > 0
+  ) {
+    try {
+      await upsertPhaseOutput(deps.db, {
+        pipeline_run_id: params.pipelineRunId,
+        phase: 'implementation',
+        step_name: `${storyKey}:dev-story`,
+        raw_output: dispatchResult.output,
+      })
+    } catch (captureErr) {
+      logger.warn(
+        {
+          storyKey,
+          err: captureErr instanceof Error ? captureErr.message : String(captureErr),
+        },
+        'phase_outputs capture failed — continuing without raw-output record for this dispatch',
+      )
+    }
   }
 
   // ---------------------------------------------------------------------------

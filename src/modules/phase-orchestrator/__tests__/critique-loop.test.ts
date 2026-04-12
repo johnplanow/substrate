@@ -19,6 +19,7 @@ import {
   createPipelineRun,
   getDecisionsByPhaseForRun,
 } from '../../../persistence/queries/decisions.js'
+import { getRawOutputsByPhaseForRun } from '../../../persistence/queries/phase-outputs.js'
 import { runCritiqueLoop } from '../critique-loop.js'
 import type { CritiqueOptions } from '../critique-loop.js'
 import type { PhaseDeps } from '../phases/types.js'
@@ -497,5 +498,97 @@ describe('runCritiqueLoop', () => {
     await runCritiqueLoop('artifact', 'planning', runId, 'planning', deps)
 
     expect(pack.getPrompt).toHaveBeenCalledWith('critique-planning')
+  })
+
+  // -------------------------------------------------------------------------
+  // G11: phase_outputs capture for critique/refinement dispatches
+  // -------------------------------------------------------------------------
+
+  describe('G11: captureStepName writes dispatches to phase_outputs', () => {
+    it('captures the critique dispatch output when captureStepName is provided', async () => {
+      const critiqueResult = makeDispatchResult({
+        id: 'c1',
+        output: 'critique verdict text — pass',
+        parsed: { verdict: 'pass', issue_count: 0, issues: [] },
+      })
+      const dispatcher = makeDispatcher([critiqueResult])
+      const deps = makeDeps(adapter, dispatcher)
+
+      await runCritiqueLoop('artifact', 'analysis', runId, 'analysis', deps, {
+        captureStepName: 'analysis-step-1-vision',
+      })
+
+      const rows = await getRawOutputsByPhaseForRun(adapter, runId, 'analysis')
+      const critiqueRow = rows.find(
+        (r) => r.step_name === 'analysis-step-1-vision:critique:1',
+      )
+      expect(critiqueRow).toBeDefined()
+      expect(critiqueRow?.raw_output).toBe('critique verdict text — pass')
+    })
+
+    it('captures critique and refinement output across iterations with :refine suffix', async () => {
+      const critiqueResult1 = makeDispatchResult({
+        id: 'c1',
+        output: 'iter-1 critique needs work',
+        parsed: {
+          verdict: 'needs_work',
+          issue_count: 1,
+          issues: [
+            {
+              severity: 'major',
+              category: 'clarity',
+              description: 'Too vague',
+              suggestion: 'Be specific',
+            },
+          ],
+        },
+      })
+      const refineResult = makeDispatchResult({
+        id: 'r1',
+        output: 'refined artifact content',
+        parsed: null,
+      })
+      const critiqueResult2 = makeDispatchResult({
+        id: 'c2',
+        output: 'iter-2 critique pass',
+        parsed: { verdict: 'pass', issue_count: 0, issues: [] },
+      })
+      const dispatcher = makeDispatcher([critiqueResult1, refineResult, critiqueResult2])
+      const deps = makeDeps(adapter, dispatcher)
+
+      await runCritiqueLoop('artifact', 'analysis', runId, 'analysis', deps, {
+        maxIterations: 2,
+        captureStepName: 'analysis-step-1-vision',
+      })
+
+      const rows = await getRawOutputsByPhaseForRun(adapter, runId, 'analysis')
+      const critique1 = rows.find(
+        (r) => r.step_name === 'analysis-step-1-vision:critique:1',
+      )
+      const refine1 = rows.find(
+        (r) => r.step_name === 'analysis-step-1-vision:critique:1:refine',
+      )
+      const critique2 = rows.find(
+        (r) => r.step_name === 'analysis-step-1-vision:critique:2',
+      )
+
+      expect(critique1?.raw_output).toBe('iter-1 critique needs work')
+      expect(refine1?.raw_output).toBe('refined artifact content')
+      expect(critique2?.raw_output).toBe('iter-2 critique pass')
+    })
+
+    it('does not capture when captureStepName is omitted (backward compat)', async () => {
+      const critiqueResult = makeDispatchResult({
+        output: 'critique text',
+        parsed: { verdict: 'pass', issue_count: 0, issues: [] },
+      })
+      const dispatcher = makeDispatcher([critiqueResult])
+      const deps = makeDeps(adapter, dispatcher)
+
+      await runCritiqueLoop('artifact', 'analysis', runId, 'analysis', deps)
+
+      const rows = await getRawOutputsByPhaseForRun(adapter, runId, 'analysis')
+      expect(rows).toHaveLength(0)
+    })
   })
 })
