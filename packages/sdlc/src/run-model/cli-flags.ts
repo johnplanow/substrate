@@ -30,6 +30,8 @@ export const CliFlagsSchema = z.object({
   skip_verification: z.boolean().optional(),
   /** When true, NDJSON events were requested (--events). */
   events: z.boolean().optional(),
+  /** When true, self-eval at phase transitions is disabled (--skip-self-eval, Epic 55-5). */
+  skip_self_eval: z.boolean().optional(),
 })
 
 export type CliFlags = z.infer<typeof CliFlagsSchema>

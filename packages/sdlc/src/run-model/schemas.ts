@@ -36,6 +36,18 @@ export const ProposalSchema = z.object({
   payload: z.record(z.string(), z.unknown()).optional(),
 })
 
+/**
+ * Schema for a self-eval attempt on a phase (Epic 55-4).
+ */
+export const SelfEvalEntrySchema = z.object({
+  phase: z.string(),
+  score: z.number(),
+  pass: z.boolean(),
+  retry_index: z.number().int().nonnegative(),
+  feedback: z.string().optional(),
+  timestamp: z.string(),
+})
+
 // ---------------------------------------------------------------------------
 // RunManifestSchema — primary schema
 // ---------------------------------------------------------------------------
@@ -64,6 +76,9 @@ export const RunManifestSchema = z.object({
   // Pre-Phase-D manifests that omit cost_accumulation parse without error (AC7).
   cost_accumulation: CostAccumulationSchema.default({ per_story: {}, run_total: 0 }),
   pending_proposals: z.array(ProposalSchema),
+  // Epic 55-4: self-eval results per phase. Optional with default for backward
+  // compat — pre-Epic-55 manifests omit this field and parse without error.
+  self_eval_history: z.record(z.string(), z.array(SelfEvalEntrySchema)).optional(),
   generation: z.number().int().nonnegative(),
   created_at: z.string(),
   updated_at: z.string(),

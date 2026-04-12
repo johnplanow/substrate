@@ -29,6 +29,24 @@ export interface Proposal {
   payload?: Record<string, unknown>
 }
 
+/**
+ * A single self-eval attempt for a phase (Epic 55-4).
+ */
+export interface SelfEvalEntry {
+  /** Phase name that was evaluated. */
+  phase: string
+  /** Aggregate phase score from the eval engine (0-1). */
+  score: number
+  /** Whether the score met the configured threshold. */
+  pass: boolean
+  /** Retry index (0 = first attempt, 1+ = retries). */
+  retry_index: number
+  /** Human-readable feedback from the eval engine (if score was low). */
+  feedback?: string
+  /** ISO-8601 timestamp when this eval completed. */
+  timestamp: string
+}
+
 // ---------------------------------------------------------------------------
 // RunManifestData — primary interface
 // ---------------------------------------------------------------------------
@@ -70,6 +88,12 @@ export interface RunManifestData {
   cost_accumulation: CostAccumulation
   /** Pending proposals awaiting confirmation. */
   pending_proposals: Proposal[]
+  /**
+   * Self-eval results per phase (Epic 55-4). Keyed by phase name.
+   * Each entry is an array of eval attempts (first attempt + retries).
+   * Undefined on runs predating Epic 55 (backward compat).
+   */
+  self_eval_history?: Record<string, SelfEvalEntry[]>
   /**
    * Monotonic write counter. Incremented on every successful `write()`.
    * Used to detect which file is newer after a mid-rename crash.

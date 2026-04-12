@@ -546,6 +546,8 @@ export interface RunOptions {
    * Must be a positive number; omit to disable cost ceiling.
    */
   costCeiling?: number
+  /** When true, skip self-eval at phase transitions (--skip-self-eval, Epic 55-5) */
+  skipSelfEval?: boolean
 }
 
 export async function runRunAction(options: RunOptions): Promise<number> {
@@ -575,6 +577,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     registry: injectedRegistry,
     haltOn,
     costCeiling,
+    skipSelfEval,
   } = options
 
   // Validate --halt-on flag (Story 52-3): must be 'all' | 'critical' | 'none' when provided
@@ -1046,6 +1049,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         ...(agentId !== undefined ? { agent: agentId } : {}),
         ...(skipVerification === true ? { skip_verification: true } : {}),
         ...(eventsFlag === true ? { events: true } : {}),
+        ...(skipSelfEval === true ? { skip_self_eval: true } : {}),
       }
       const manifest = RunManifest.open(pipelineRun.id, runsDir)
       await manifest.patchCLIFlags(cliFlags)
@@ -2599,6 +2603,7 @@ export function registerRunCommand(
     .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
     .option('--halt-on <severity>', 'Halt pipeline on escalation severity: all | critical | none (default: none)', 'none')
     .option('--cost-ceiling <amount>', 'Maximum cost ceiling in USD (positive number); halts pipeline when exceeded', parseFloat)
+    .option('--skip-self-eval', 'Skip self-eval quality gates at phase transitions (Epic 55-5)')
     .action(
       async (opts: {
         pack: string
@@ -2620,6 +2625,7 @@ export function registerRunCommand(
         skipResearch?: boolean
         skipPreflight?: boolean
         skipVerification?: boolean
+        skipSelfEval?: boolean
         maxReviewCycles: number
         dryRun?: boolean
         engine?: string
@@ -2677,6 +2683,7 @@ export function registerRunCommand(
           registry,
           haltOn: opts.haltOn as 'all' | 'critical' | 'none' | undefined,
           costCeiling: opts.costCeiling,
+          skipSelfEval: opts.skipSelfEval,
         })
         process.exitCode = exitCode
       },

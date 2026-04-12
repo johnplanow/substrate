@@ -467,6 +467,56 @@ export class RunManifest {
   }
 
   // -------------------------------------------------------------------------
+  // Self-eval recording (Epic 55-4)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Record a self-eval result for a phase. Appends to the
+   * `self_eval_history[phase]` array, creating it if needed.
+   * Atomic: reads existing manifest, merges, writes.
+   */
+  async recordSelfEval(entry: {
+    phase: string
+    score: number
+    pass: boolean
+    retry_index: number
+    feedback?: string
+  }): Promise<void> {
+    const now = new Date().toISOString()
+    const selfEvalEntry = { ...entry, timestamp: now }
+
+    try {
+      const existing = await RunManifest.read(this.runId, this.baseDir, this.doltAdapter)
+      const { generation: _gen, updated_at: _ts, ...rest } = existing
+      const history = rest.self_eval_history ?? {}
+      const phaseHistory = history[entry.phase] ?? []
+
+      await this.write({
+        ...rest,
+        self_eval_history: {
+          ...history,
+          [entry.phase]: [...phaseHistory, selfEvalEntry],
+        },
+      })
+    } catch {
+      // No existing manifest — write a minimal one with just the self-eval entry
+      await this.write({
+        run_id: this.runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+        self_eval_history: { [entry.phase]: [selfEvalEntry] },
+        created_at: now,
+      })
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Static factory: create()
   // -------------------------------------------------------------------------
 
