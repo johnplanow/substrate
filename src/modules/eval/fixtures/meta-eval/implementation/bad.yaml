@@ -1,45 +1,71 @@
 name: implementation-bad-cli-task-tracker
-description: Degraded implementation — partial ACs, no tests, ignores architecture
+description: Subtle-bad implementation for story 3-1 — structurally matched, fails all four rubric dimensions
 phase: implementation
 notes: |
-  Hand-built degraded variant. Should score low on all four implementation rubric
-  dimensions: implementation description is vague/incorrect, acceptance criteria are
-  not all covered, tests are missing or superficial, architecture decisions are ignored.
+  G8.a subtle-bad variant regenerated to match good.yaml's story 3-1 (2026-04-12).
+  Structurally identical to good.yaml (YAML code-fenced block with result, ac_met,
+  ac_failures, files_modified, tests fields). The degradation is semantic — each rubric
+  dimension should score lower while the output looks superficially plausible.
 
-  G9: MUST carry the same reference_context as good.yaml — the judge is evaluating
-  two implementations of the SAME story, not two different stories. meta-eval.test.ts
-  asserts this match at load time.
+  Per-dimension degradation strategies:
+
+  - code_correctness (G13-rewritten: files_modified coverage and scope creep):
+    Only 6 files vs good's 16. Missing platform-specific config files (config_unix.go,
+    config_windows.go), missing integration test file, missing storage error types,
+    missing display package. Includes an unexplained utils/helpers.go not implied by
+    the story spec. The sparse file list suggests incomplete implementation.
+
+  - acceptance_coverage (G13-rewritten: ac_met completeness, silent omissions):
+    ac_met lists only AC1, AC2, AC3. ACs 4-8 are silently absent — neither in ac_met
+    nor in ac_failures. The report just pretends they don't exist rather than noting
+    them as unmet. Good fixture reports AC1-AC7 explicitly (AC8 genuinely missing).
+
+  - test_quality (G13-rewritten: test file evidence and pass/fail clarity):
+    No *_test.go files appear in files_modified. tests field says "pending" instead
+    of pass/fail. No test evidence despite AC7 and AC8 being test-specific criteria.
+
+  - architecture_adherence (G13-rewritten: file paths and package organization):
+    Config logic lives in cmd/config.go rather than internal/config/ (violates
+    separation of concerns). Storage is in cmd/store.go rather than internal/storage/.
+    No internal/ directory structure at all — everything is flat under cmd/. The story
+    describes an AppConfig struct "passed by value to all subcommands" implying a
+    separate config package, not inline command code.
+
+  Length: output field is ~40% of good's length. Shorter than ideal for eliminating
+  length bias, but the structural match (same YAML shape, same field names) is the
+  primary control. Acknowledged for calibration — if the judge discriminates partly on
+  length, the margin will be inflated.
 reference_context: |
-  Story S2 — Implement `tt add` command
-    As a terminal user, I want to add a task with a title, an optional priority
-    level, and an optional due date via a single CLI invocation, so that I can
-    capture work without leaving my terminal.
+  Story 3-1 — Configurable storage path via flag and environment variable
+
+  Description:
+    Implement the three-tier path resolution in PersistentPreRunE on the cobra root command: the explicit --file or -f flag takes highest precedence, followed by the TASKS_FILE environment variable, followed by the default tasks JSON file in the user home directory. Resolve the final path through filepath.Abs then filepath.Clean before any use. Store the resolved path in an AppConfig struct passed by value to all subcommands so resolution logic is never duplicated. Reject paths that resolve to sensitive system prefixes by returning a typed ErrUnsafePath sentinel with a clear error message and exit code 1. This implements FR-11 and the configurable-path aspect of FR-6.
 
   Acceptance criteria:
-    - AC1: Running `tt add "wash dishes"` writes the new task to the store and
-      exits with code 0. A subsequent `tt list` shows the task.
-    - AC2: Running `tt add "x" --due 2025-13-45` (invalid date) rejects the
-      input, prints an error to stderr, and exits with code 2.
-    - AC3: Adding 100 tasks in sequence completes in under 5 seconds on a
-      standard developer machine (2020+ laptop), measured wall-clock.
+    - AC1: When --file is provided it is used as the storage path, taking precedence over any TASKS_FILE environment variable or the default path
+    - AC2: When TASKS_FILE is set and --file is not provided, the environment variable value is used as the storage path
+    - AC3: When neither --file nor TASKS_FILE is set, the storage path defaults to the tasks JSON file in the user home directory
+    - AC4: All subcommands read from and write to the resolved path without each one independently repeating the resolution logic
+    - AC5: A path value containing directory traversal sequences is cleaned to its absolute form before any file I/O is attempted
+    - AC6: A resolved path that matches a sensitive system directory prefix returns a clear error message on stderr and exits with code 1
+    - AC7: Unit tests verify all three precedence tiers return the correct resolved path
+    - AC8: A test creates a task using --file pointing to a temp directory and then reads it back using the same path, confirming data is accessible
 
-  Architecture decisions the implementation must follow:
-    - AD1: Store writes use the atomic tmpfile-then-rename pattern on the
-      single JSON file. Direct in-place writes are forbidden.
-    - AD2: No long-lived process, no daemon, no background thread. Every
-      invocation exits after doing its work.
-    - AD3: CLI arg parsing uses clap derive. No hand-rolled argv walkers.
-    - AD4: Dates are stored as ISO-8601 strings via NaiveDate, not binary
-      blobs or platform-specific date types.
-
-  Expected modules / files (not exhaustive, but should be touched):
-    - src/cli/add.rs (or equivalent) — the add subcommand handler
-    - src/store/ — shared JSON store load/save/atomic-write helpers
-    - tests/add.rs (or equivalent) — integration tests using assert_cmd
+  Priority: should
 output: |
-  story-reference: Some story about adding tasks.
-  files-created: main.py — the main file with all the code.
-  implementation-summary: Wrote a Python script that reads and writes a pickle file containing a dictionary of tasks. When you run it with add, it prompts the user interactively for a title. If the user types Ctrl-C it crashes. Priority is not supported. Due dates are stored as Python datetime objects via pickle. On startup, the script starts a background thread that watches the pickle file for changes and reloads it.
-  acceptance-criteria-coverage: AC1 — mostly works, I think.
-  test-plan: No tests yet, will add them later.
-  architecture-adherence: Used Python and pickle instead of Rust and JSON because Python was faster to write. Used a background thread so changes get picked up live. Did not use clap because Python doesn't have it.
+  ```yaml
+  result: success
+  ac_met:
+    - AC1
+    - AC2
+    - AC3
+  ac_failures: []
+  files_modified:
+    - /Users/justin/substrate-impl-capture/go.mod
+    - /Users/justin/substrate-impl-capture/go.sum
+    - /Users/justin/substrate-impl-capture/cmd/tasks/main.go
+    - /Users/justin/substrate-impl-capture/cmd/config.go
+    - /Users/justin/substrate-impl-capture/cmd/store.go
+    - /Users/justin/substrate-impl-capture/utils/helpers.go
+  tests: pending
+  ```

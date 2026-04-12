@@ -1,13 +1,25 @@
+# G13: Audited against real captured impl-phase output (run 69549751, story 3-1).
+# The real output is a structured YAML completion report with result, ac_met,
+# ac_failures, files_modified, and tests fields — NOT a diff or code listing.
+# All prompts rewritten to reference observable structure in the report.
 dimensions:
   - name: code_correctness
     weight: 0.3
-    prompt: "Does the diff show complete function bodies (no placeholder TODOs, ellipses, or unfinished stubs) for every module the story spec listed?"
+    # G13: pre-G13 asked about "complete function bodies" and "placeholder TODOs"
+    # in a diff, but the real output is a structured report — no code is visible.
+    prompt: "Does the files_modified list cover the modules and packages that the story description implies should be created or changed, without unexplained extra files that suggest scope creep or missing files that suggest incomplete implementation?"
   - name: acceptance_coverage
     weight: 0.3
-    prompt: "Are all acceptance criteria from the story addressed in the implementation?"
+    # G13: tightened to reference the ac_met/ac_failures structure the real output
+    # uses. The judge can cross-check against the reference context's AC list.
+    prompt: "Does the ac_met list account for every acceptance criterion in the reference context, and are any omissions or failures explicitly noted in ac_failures rather than silently skipped?"
   - name: test_quality
     weight: 0.2
-    prompt: "Does each test name explicitly reference an acceptance criterion or scenario from the story, rather than naming only a function or module?"
+    # G13: pre-G13 asked about individual test names, but the real output reports
+    # only `tests: pass/fail` and test file paths in files_modified.
+    prompt: "Does the output provide specific evidence of test execution — dedicated test files in files_modified and a clear pass/fail test result — rather than vague or absent test reporting?"
   - name: architecture_adherence
     weight: 0.2
-    prompt: "Does the implementation follow the architecture decisions from the solutioning phase?"
+    # G13: pre-G13 asked generically about architecture decisions. Rewritten to
+    # reference the file paths visible in the output, the only arch signal available.
+    prompt: "Are the file paths and package organization in files_modified consistent with the architecture described in the reference context, including expected module locations and separation of concerns?"
