@@ -44,16 +44,23 @@ const DIMENSIONS: CrossPhaseDimension[] = [
   },
 ]
 
+export type CoherenceDimension = 'reference-coverage' | 'contradiction-detection' | 'information-loss'
+
 export class CrossPhaseAnalyzer {
   buildAssertions(
     upstreamOutput: string,
     downstreamOutput: string,
     upstreamPhase: EvalPhase | string,
     downstreamPhase: EvalPhase | string,
+    dimensionFilter?: CoherenceDimension[],
   ): EvalAssertion[] {
     if (!upstreamOutput.trim()) return []
 
-    return DIMENSIONS.map((dim) => ({
+    const dims = dimensionFilter
+      ? DIMENSIONS.filter((d) => dimensionFilter.includes(d.name))
+      : DIMENSIONS
+
+    return dims.map((dim) => ({
       type: 'llm-rubric' as const,
       value: [
         `Evaluate the coherence of the ${downstreamPhase} output against the ${upstreamPhase} output on a single dimension: **${dim.name}**`,

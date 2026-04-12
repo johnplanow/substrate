@@ -6,6 +6,7 @@ import type {
   EvalReport,
   PhaseEvalResult,
   LayerResult,
+  ThresholdConfig,
 } from './types.js'
 import { DEFAULT_PASS_THRESHOLD } from './types.js'
 import { PromptComplianceLayer } from './layers/prompt-compliance.js'
@@ -40,6 +41,7 @@ const LAYER_WEIGHTS: Record<string, number> = {
   'impl-verifier': 0.3,
   'golden-comparison': 0.2,
   'cross-phase-coherence': 0.1,
+  'cross-phase-coherence-standard': 0.15,
 }
 
 /** Weight applied to any layer whose name is not in LAYER_WEIGHTS. */
@@ -62,6 +64,17 @@ export interface PhaseData {
   upstreamPhase?: EvalPhase | string
 }
 
+/**
+ * Resolve the pass threshold for a specific phase (V1b-3).
+ * Priority: per-phase override → config default → global constant.
+ */
+export function resolveThreshold(
+  phase: EvalPhase,
+  thresholds?: ThresholdConfig,
+): number {
+  return thresholds?.phases?.[phase] ?? thresholds?.default ?? DEFAULT_PASS_THRESHOLD
+}
+
 export class EvalEngine {
   private adapter: EvalAdapter
   private promptCompliance = new PromptComplianceLayer()
@@ -77,6 +90,7 @@ export class EvalEngine {
   async evaluatePhase(
     phaseData: PhaseData,
     depth: EvalDepth,
+    thresholds?: ThresholdConfig,
   ): Promise<PhaseEvalResult> {
     const layers: LayerResult[] = []
 
@@ -124,19 +138,22 @@ export class EvalEngine {
       }
     }
 
-    // Deep tier: cross-phase coherence
-    if (depth === 'deep' && phaseData.upstreamOutput && phaseData.upstreamPhase) {
+    // Cross-phase coherence (V1b-4: runs at both tiers when upstream is available)
+    if (phaseData.upstreamOutput && phaseData.upstreamPhase) {
+      const dimensionFilter = depth === 'deep' ? undefined : ['reference-coverage' as const]
+      const layerName = depth === 'deep' ? 'cross-phase-coherence' : 'cross-phase-coherence-standard'
       const coherenceAssertions = this.crossPhaseAnalyzer.buildAssertions(
         phaseData.upstreamOutput,
         phaseData.output,
         phaseData.upstreamPhase,
         phaseData.phase,
+        dimensionFilter,
       )
       if (coherenceAssertions.length > 0) {
         const result = await this.adapter.runAssertions(
           phaseData.output,
           coherenceAssertions,
-          'cross-phase-coherence',
+          layerName,
         )
         layers.push(result)
       }
@@ -169,10 +186,11 @@ export class EvalEngine {
         )
 
         // Overwrite the layer score with the weighted version
+        const phaseThreshold = resolveThreshold(phaseData.phase, thresholds)
         layers.push({
           ...result,
           score: weightedScore,
-          pass: weightedScore >= DEFAULT_PASS_THRESHOLD,
+          pass: weightedScore >= phaseThreshold,
         })
       }
     }
@@ -190,7 +208,8 @@ export class EvalEngine {
       }
       avgScore = weightTotal > 0 ? weightedSum / weightTotal : 0
     }
-    const pass = avgScore >= DEFAULT_PASS_THRESHOLD
+    const threshold = resolveThreshold(phaseData.phase, thresholds)
+    const pass = avgScore >= threshold
     const issues = layers
       .flatMap((l) => l.assertions.filter((a) => !a.pass))
       .map((a) => a.reason)
@@ -210,11 +229,12 @@ export class EvalEngine {
     phases: PhaseData[],
     depth: EvalDepth,
     runId: string,
+    thresholds?: ThresholdConfig,
   ): Promise<EvalReport> {
     const phaseResults: PhaseEvalResult[] = []
 
     for (const phaseData of phases) {
-      const result = await this.evaluatePhase(phaseData, depth)
+      const result = await this.evaluatePhase(phaseData, depth, thresholds)
       phaseResults.push(result)
     }
 

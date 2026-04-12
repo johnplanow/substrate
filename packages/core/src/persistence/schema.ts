@@ -568,6 +568,33 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
     GROUP BY s.id
   `)
 
+  // -- Eval results (V1b-2) — stores eval reports alongside pipeline run data
+  // for queryable score history and run-to-run comparison.
+  // No UNIQUE on run_id — same run can be evaluated at different depths or
+  // after rubric changes. UNIQUE on eval_id prevents accidental double-writes.
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS eval_results (
+      id              INTEGER PRIMARY KEY AUTO_INCREMENT,
+      run_id          VARCHAR(255) NOT NULL,
+      eval_id         VARCHAR(255) NOT NULL,
+      depth           VARCHAR(16) NOT NULL,
+      timestamp       TEXT NOT NULL,
+      overall_score   DOUBLE NOT NULL,
+      pass            INTEGER NOT NULL DEFAULT 0,
+      phases_json     TEXT NOT NULL,
+      metadata_json   TEXT,
+      created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_eval_results_run_id ON eval_results(run_id)')
+  try {
+    await adapter.exec(
+      'CREATE UNIQUE INDEX uniq_eval_results_eval_id ON eval_results(eval_id)',
+    )
+  } catch {
+    /* index already exists */
+  }
+
   // -- Schema migration tracking table (for future use) --------------------
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (

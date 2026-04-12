@@ -58,6 +58,18 @@ export interface PhaseEvalResult {
   feedback: string
 }
 
+/** Versioning metadata for eval report comparability (V1b-1) */
+export interface EvalMetadata {
+  /** Schema version — used to detect incompatible report shapes */
+  schemaVersion: '1b'
+  /** Short git SHA of the repo at eval time */
+  gitSha?: string
+  /** Model used by the LLM judge (if available from adapter) */
+  judgeModel?: string
+  /** SHA-256 hash per rubric file, keyed by phase name */
+  rubricHashes?: Record<string, string>
+}
+
 /** Full eval report across all phases */
 export interface EvalReport {
   runId: string
@@ -66,7 +78,19 @@ export interface EvalReport {
   phases: PhaseEvalResult[]
   overallScore: number
   pass: boolean
+  /** Versioning metadata for comparability (V1b-1). Undefined on V1a reports. */
+  metadata?: EvalMetadata
 }
 
 /** Default pass threshold for eval assertions */
 export const DEFAULT_PASS_THRESHOLD = 0.7
+
+/** Per-phase configurable thresholds (V1b-3) */
+export interface ThresholdConfig {
+  /** Default threshold for phases not listed in `phases` */
+  default: number
+  /** Regression delta threshold for --compare (V1b-5) */
+  regression?: number
+  /** Per-phase threshold overrides */
+  phases?: Partial<Record<EvalPhase, number>>
+}

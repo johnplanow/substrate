@@ -12,6 +12,8 @@
  */
 
 import type { Command } from 'commander'
+import { execSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'path'
 import { existsSync } from 'node:fs'
@@ -26,10 +28,11 @@ import {
   getDecisionsByPhaseForRun,
 } from '../../persistence/queries/decisions.js'
 import { getRawOutputsByPhaseForRun } from '../../persistence/queries/phase-outputs.js'
+import { writeEvalResult, getLatestEvalForRun } from '../../persistence/queries/eval-results.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { createLogger } from '../../utils/logger.js'
-import { EvalEngine, PromptfooAdapter, EvalReporter } from '../../modules/eval/index.js'
-import type { EvalDepth, EvalPhase, ReportFormat, PhaseData, Rubric } from '../../modules/eval/index.js'
+import { EvalEngine, PromptfooAdapter, EvalReporter, EvalComparer } from '../../modules/eval/index.js'
+import type { EvalDepth, EvalPhase, ReportFormat, PhaseData, Rubric, EvalMetadata, ThresholdConfig, EvalReport } from '../../modules/eval/index.js'
 import { loadStorySpecsForRun } from '../../modules/eval/story-spec-loader.js'
 
 const logger = createLogger('eval-cmd')
@@ -114,6 +117,73 @@ function resolveFixturesDir(): string {
 
   // Last resort: fixtures not found — caller will gracefully degrade
   return distPath
+}
+
+/**
+ * Extract the short git SHA from HEAD. Returns undefined in environments
+ * without git (e.g., some CI containers or installed packages).
+ */
+export function getGitSha(): string | undefined {
+  try {
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim()
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Hash the content of each rubric YAML file used during evaluation.
+ * Keyed by phase name. Only includes phases that have rubric files.
+ */
+export async function hashRubricFiles(
+  fixturesDir: string,
+  phases: EvalPhase[],
+): Promise<Record<string, string>> {
+  const hashes: Record<string, string> = {}
+  for (const phase of phases) {
+    try {
+      const content = await readFile(join(fixturesDir, 'rubrics', `${phase}.yaml`), 'utf-8')
+      hashes[phase] = createHash('sha256').update(content).digest('hex')
+    } catch {
+      // Rubric file doesn't exist for this phase — skip
+    }
+  }
+  return hashes
+}
+
+/**
+ * Collect versioning metadata for the eval report (V1b-1).
+ * Metadata enables meaningful comparison between eval runs by recording
+ * the conditions that produced the scores.
+ */
+export async function collectEvalMetadata(
+  fixturesDir: string,
+  phases: EvalPhase[],
+): Promise<EvalMetadata> {
+  const [gitSha, rubricHashes] = await Promise.all([
+    Promise.resolve(getGitSha()),
+    hashRubricFiles(fixturesDir, phases),
+  ])
+
+  return {
+    schemaVersion: '1b',
+    gitSha,
+    rubricHashes: Object.keys(rubricHashes).length > 0 ? rubricHashes : undefined,
+  }
+}
+
+/**
+ * Load per-phase threshold config from fixtures/thresholds.yaml (V1b-3).
+ * Returns undefined if the file does not exist — caller falls back to
+ * DEFAULT_PASS_THRESHOLD for all phases.
+ */
+export async function loadThresholds(fixturesDir: string): Promise<ThresholdConfig | undefined> {
+  try {
+    const content = await readFile(join(fixturesDir, 'thresholds.yaml'), 'utf-8')
+    return yaml.load(content) as ThresholdConfig
+  } catch {
+    return undefined
+  }
 }
 
 async function loadRubric(fixturesDir: string, phase: string): Promise<Rubric | undefined> {
@@ -270,11 +340,15 @@ export async function runEvalAction(options: EvalCommandOptions): Promise<number
       )
     }
 
+    // Wire upstream output for cross-phase coherence (V1b-4: both tiers)
+    for (let i = 1; i < phaseDataList.length; i++) {
+      phaseDataList[i].upstreamOutput = phaseDataList[i - 1].output
+      phaseDataList[i].upstreamPhase = phaseDataList[i - 1].phase
+    }
+
     // Enrich with deep tier data
     if (depth === 'deep') {
-      for (let i = 0; i < phaseDataList.length; i++) {
-        const pd = phaseDataList[i]
-
+      for (const pd of phaseDataList) {
         // Load rubric
         pd.rubric = await loadRubric(fixturesDir, pd.phase)
 
@@ -282,25 +356,27 @@ export async function runEvalAction(options: EvalCommandOptions): Promise<number
         if (concept) {
           pd.goldenExample = await loadGoldenExample(fixturesDir, concept, pd.phase)
         }
-
-        // Wire upstream output for cross-phase coherence
-        if (i > 0) {
-          pd.upstreamOutput = phaseDataList[i - 1].output
-          pd.upstreamPhase = phaseDataList[i - 1].phase
-        }
       }
     }
+
+    // Load per-phase thresholds (V1b-3) — falls back to DEFAULT_PASS_THRESHOLD
+    const thresholds = await loadThresholds(fixturesDir)
 
     // Run eval
     const evalAdapter = new PromptfooAdapter()
     const engine = new EvalEngine(evalAdapter)
-    const evalReport = await engine.evaluate(phaseDataList, depth, run.id)
+    const evalReport = await engine.evaluate(phaseDataList, depth, run.id, thresholds)
+
+    // Attach versioning metadata (V1b-1) so eval runs can be compared
+    // meaningfully — different git SHAs, rubric hashes, or judge models
+    // mean scores are not directly comparable.
+    evalReport.metadata = await collectEvalMetadata(fixturesDir, phases)
 
     // Output report
     const reporter = new EvalReporter()
-    process.stdout.write(reporter.format(evalReport, report) + '\n')
+    process.stdout.write(reporter.format(evalReport, report, { thresholds }) + '\n')
 
-    // Save results to .substrate/evals/
+    // Save results to .substrate/evals/ (JSON file — backward compat)
     const evalsDir = join(dbRoot, '.substrate', 'evals')
     await mkdir(evalsDir, { recursive: true })
     await writeFile(
@@ -308,11 +384,133 @@ export async function runEvalAction(options: EvalCommandOptions): Promise<number
       JSON.stringify(evalReport, null, 2),
     )
 
+    // Persist to eval_results table (V1b-2) — alongside JSON for queryable history
+    try {
+      await writeEvalResult(adapter, {
+        run_id: run.id,
+        eval_id: crypto.randomUUID(),
+        depth,
+        timestamp: evalReport.timestamp,
+        overall_score: evalReport.overallScore,
+        pass: evalReport.pass,
+        phases_json: JSON.stringify(evalReport.phases),
+        metadata_json: evalReport.metadata ? JSON.stringify(evalReport.metadata) : null,
+      })
+    } catch (err) {
+      // DB persistence is best-effort — JSON file is the primary record.
+      // Don't fail the eval because the DB write failed.
+      logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'Failed to persist eval result to database — JSON file was written successfully',
+      )
+    }
+
     return evalReport.pass ? 0 : 1
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     process.stderr.write(`Error: ${msg}\n`)
     logger.error({ err }, 'eval action failed')
+    return 1
+  } finally {
+    try {
+      await adapter.close()
+    } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Load an EvalReport for a run — tries DB first, falls back to JSON file (V1b-5).
+ */
+async function loadReportForRun(
+  adapter: { query: (sql: string, params: unknown[]) => Promise<unknown[]>; close: () => Promise<void> },
+  runId: string,
+  evalsDir: string,
+): Promise<EvalReport | undefined> {
+  // Try DB first
+  const dbRow = await getLatestEvalForRun(adapter as Parameters<typeof getLatestEvalForRun>[0], runId)
+  if (dbRow) {
+    return {
+      runId: dbRow.run_id,
+      depth: dbRow.depth as EvalReport['depth'],
+      timestamp: dbRow.timestamp,
+      phases: JSON.parse(dbRow.phases_json),
+      overallScore: dbRow.overall_score,
+      pass: dbRow.pass as boolean,
+      metadata: dbRow.metadata_json ? JSON.parse(dbRow.metadata_json) : undefined,
+    }
+  }
+
+  // Fall back to JSON file
+  try {
+    const content = await readFile(join(evalsDir, `${runId}.json`), 'utf-8')
+    return JSON.parse(content) as EvalReport
+  } catch {
+    return undefined
+  }
+}
+
+export interface CompareCommandOptions {
+  runs: string
+  report: ReportFormat
+  projectRoot: string
+}
+
+export async function runCompareAction(options: CompareCommandOptions): Promise<number> {
+  const { runs, report, projectRoot } = options
+
+  const parts = runs.split(',')
+  if (parts.length !== 2) {
+    process.stderr.write('Error: --compare requires exactly two comma-separated run IDs.\n')
+    return 1
+  }
+  const [runIdA, runIdB] = parts
+
+  const dbRoot = await resolveMainRepoRoot(projectRoot)
+  const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+
+  if (!existsSync(dbPath)) {
+    process.stderr.write('Error: No pipeline database found. Run a pipeline first.\n')
+    return 1
+  }
+
+  const adapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
+  try {
+    await initSchema(adapter)
+    const evalsDir = join(dbRoot, '.substrate', 'evals')
+
+    const [reportA, reportB] = await Promise.all([
+      loadReportForRun(adapter, runIdA, evalsDir),
+      loadReportForRun(adapter, runIdB, evalsDir),
+    ])
+
+    if (!reportA && !reportB) {
+      process.stderr.write(`Error: No eval results found for either run (${runIdA}, ${runIdB}).\n`)
+      return 1
+    }
+    if (!reportA) {
+      process.stderr.write(`Error: No eval results found for run ${runIdA}.\n`)
+      return 1
+    }
+    if (!reportB) {
+      process.stderr.write(`Error: No eval results found for run ${runIdB}.\n`)
+      return 1
+    }
+
+    // Load thresholds for regression delta
+    const fixturesDir = resolveFixturesDir()
+    const thresholds = await loadThresholds(fixturesDir)
+
+    const comparer = new EvalComparer()
+    const compareReport = comparer.compare(reportA, reportB, thresholds)
+
+    const reporter = new EvalReporter()
+    process.stdout.write(reporter.formatComparison(compareReport, report) + '\n')
+
+    return compareReport.hasRegression ? 1 : 0
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`Error: ${msg}\n`)
+    logger.error({ err }, 'eval compare action failed')
     return 1
   } finally {
     try {
@@ -334,6 +532,7 @@ export function registerEvalCommand(
     .option('--run-id <id>', 'Pipeline run ID (defaults to latest)')
     .option('--concept <name>', 'Canonical test concept for golden example comparison')
     .option('--report <format>', 'Output format: table, json, or markdown', 'table')
+    .option('--compare <runs>', 'Compare two runs: --compare <runA>,<runB>')
     .option('--project-root <path>', 'Project root directory', projectRoot)
     .action(
       async (opts: {
@@ -342,18 +541,31 @@ export function registerEvalCommand(
         runId?: string
         concept?: string
         report: string
+        compare?: string
         projectRoot: string
       }) => {
-        const depth: EvalDepth = opts.depth === 'deep' ? 'deep' : 'standard'
-        const phases: EvalPhase[] = opts.phase
-          ? (opts.phase.split(',') as EvalPhase[])
-          : EVAL_PHASES
         const reportFmt: ReportFormat =
           opts.report === 'json'
             ? 'json'
             : opts.report === 'markdown'
               ? 'markdown'
               : 'table'
+
+        // --compare is a separate code path — reads existing reports, no new eval
+        if (opts.compare) {
+          const exitCode = await runCompareAction({
+            runs: opts.compare,
+            report: reportFmt,
+            projectRoot: opts.projectRoot,
+          })
+          process.exitCode = exitCode
+          return
+        }
+
+        const depth: EvalDepth = opts.depth === 'deep' ? 'deep' : 'standard'
+        const phases: EvalPhase[] = opts.phase
+          ? (opts.phase.split(',') as EvalPhase[])
+          : EVAL_PHASES
 
         const exitCode = await runEvalAction({
           depth,

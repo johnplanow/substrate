@@ -1,0 +1,18 @@
+# Per-phase pass thresholds (V1b-3)
+#
+# Derived from first meta-eval calibration (2026-04-12):
+#   analysis:       good=0.775  bad=0.240  margin=0.535
+#   planning:       good=0.916  bad=0.030  margin=0.886
+#   solutioning:    good=0.925  bad=0.170  margin=0.755
+#   implementation: good=0.685  bad=0.470  margin=0.215
+#
+# Implementation gets a lower threshold because its good score (0.685)
+# naturally lands below 0.70 due to real-world partial AC completion.
+
+default: 0.7
+regression: 0.05
+phases:
+  analysis: 0.70
+  planning: 0.70
+  solutioning: 0.70
+  implementation: 0.60

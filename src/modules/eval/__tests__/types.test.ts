@@ -9,6 +9,7 @@ import type {
   LayerResult,
   PhaseEvalResult,
   EvalReport,
+  EvalMetadata,
 } from '../types.js'
 
 describe('eval types', () => {
@@ -76,5 +77,46 @@ describe('eval types', () => {
     }
     expect(report.depth).toBe('standard')
     expect(report.pass).toBe(true)
+  })
+
+  it('EvalReport accepts metadata (V1b-1)', () => {
+    const report: EvalReport = {
+      runId: 'run-002',
+      depth: 'deep',
+      timestamp: '2026-04-12T00:00:00Z',
+      phases: [],
+      overallScore: 0.88,
+      pass: true,
+      metadata: {
+        schemaVersion: '1b',
+        gitSha: 'abc1234',
+        rubricHashes: { analysis: 'deadbeef' },
+      },
+    }
+    expect(report.metadata?.schemaVersion).toBe('1b')
+    expect(report.metadata?.gitSha).toBe('abc1234')
+    expect(report.metadata?.rubricHashes?.analysis).toBe('deadbeef')
+  })
+
+  it('EvalReport metadata is optional — V1a backward compat (V1b-1)', () => {
+    const report: EvalReport = {
+      runId: 'run-001',
+      depth: 'standard',
+      timestamp: '2026-04-09T00:00:00Z',
+      phases: [],
+      overallScore: 0.82,
+      pass: true,
+    }
+    expect(report.metadata).toBeUndefined()
+  })
+
+  it('EvalMetadata schemaVersion is the literal 1b (V1b-1)', () => {
+    const meta: EvalMetadata = {
+      schemaVersion: '1b',
+    }
+    expect(meta.schemaVersion).toBe('1b')
+    expect(meta.gitSha).toBeUndefined()
+    expect(meta.judgeModel).toBeUndefined()
+    expect(meta.rubricHashes).toBeUndefined()
   })
 })

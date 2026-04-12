@@ -1,8 +1,8 @@
 // src/modules/eval/__tests__/eval-engine.test.ts
 import { describe, it, expect, vi } from 'vitest'
-import { EvalEngine } from '../eval-engine.js'
+import { EvalEngine, resolveThreshold } from '../eval-engine.js'
 import type { EvalAdapter } from '../adapter.js'
-import type { LayerResult, EvalPhase } from '../types.js'
+import type { LayerResult, EvalPhase, ThresholdConfig } from '../types.js'
 import type { Rubric } from '../layers/rubric-scorer.js'
 import type { PhaseData } from '../eval-engine.js'
 
@@ -281,5 +281,176 @@ describe('EvalEngine deep tier', () => {
     expect(report.phases[0].layers.length).toBeGreaterThanOrEqual(2)
     // Planning should have: prompt-compliance + cross-phase = 2 layers
     expect(report.phases[1].layers.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('resolveThreshold (V1b-3)', () => {
+  it('returns per-phase threshold when configured', () => {
+    const config: ThresholdConfig = {
+      default: 0.7,
+      phases: { implementation: 0.60 },
+    }
+    expect(resolveThreshold('implementation', config)).toBe(0.60)
+  })
+
+  it('returns config default for phases not listed', () => {
+    const config: ThresholdConfig = {
+      default: 0.75,
+      phases: { implementation: 0.60 },
+    }
+    expect(resolveThreshold('analysis', config)).toBe(0.75)
+  })
+
+  it('returns DEFAULT_PASS_THRESHOLD when no config', () => {
+    expect(resolveThreshold('analysis')).toBe(0.7)
+    expect(resolveThreshold('analysis', undefined)).toBe(0.7)
+  })
+
+  it('returns config default when phases map is undefined', () => {
+    const config: ThresholdConfig = { default: 0.65 }
+    expect(resolveThreshold('planning', config)).toBe(0.65)
+  })
+})
+
+describe('EvalEngine with thresholds (V1b-3)', () => {
+  it('uses per-phase threshold for pass determination', async () => {
+    // Score 0.65 — fails default 0.70 but passes impl threshold 0.60
+    const adapter: EvalAdapter = {
+      runAssertions: vi.fn(async (_output, _assertions, layerName) => ({
+        layer: layerName,
+        score: 0.65,
+        pass: true,
+        assertions: [{ name: 'test', score: 0.65, pass: true, reason: 'ok' }],
+      })),
+    }
+
+    const engine = new EvalEngine(adapter)
+    const result = await engine.evaluatePhase(
+      {
+        phase: 'implementation',
+        output: 'impl output',
+        promptTemplate: '## Mission\nImplement.',
+        context: {},
+      },
+      'standard',
+      { default: 0.7, phases: { implementation: 0.60 } },
+    )
+
+    expect(result.score).toBeCloseTo(0.65, 2)
+    expect(result.pass).toBe(true)
+  })
+
+  it('fails phase when score is below per-phase threshold', async () => {
+    const adapter: EvalAdapter = {
+      runAssertions: vi.fn(async (_output, _assertions, layerName) => ({
+        layer: layerName,
+        score: 0.55,
+        pass: true,
+        assertions: [{ name: 'test', score: 0.55, pass: true, reason: 'weak' }],
+      })),
+    }
+
+    const engine = new EvalEngine(adapter)
+    const result = await engine.evaluatePhase(
+      {
+        phase: 'implementation',
+        output: 'impl output',
+        promptTemplate: '## Mission\nImplement.',
+        context: {},
+      },
+      'standard',
+      { default: 0.7, phases: { implementation: 0.60 } },
+    )
+
+    expect(result.score).toBeCloseTo(0.55, 2)
+    expect(result.pass).toBe(false)
+  })
+
+  it('standard tier runs cross-phase-coherence-standard with upstream (V1b-4)', async () => {
+    const adapter: EvalAdapter = {
+      runAssertions: vi.fn(async (_output, _assertions, layerName) => ({
+        layer: layerName,
+        score: 0.80,
+        pass: true,
+        assertions: [{ name: 'test', score: 0.80, pass: true, reason: 'ok' }],
+      })),
+    }
+
+    const engine = new EvalEngine(adapter)
+    const result = await engine.evaluatePhase(
+      {
+        phase: 'planning',
+        output: 'planning output',
+        promptTemplate: '## Mission\nPlan.',
+        context: {},
+        upstreamOutput: 'analysis output',
+        upstreamPhase: 'analysis',
+      },
+      'standard',
+    )
+
+    // Should have prompt-compliance + cross-phase-coherence-standard
+    const layerNames = result.layers.map((l) => l.layer)
+    expect(layerNames).toContain('prompt-compliance')
+    expect(layerNames).toContain('cross-phase-coherence-standard')
+    // Should NOT have the deep-tier layer name
+    expect(layerNames).not.toContain('cross-phase-coherence')
+  })
+
+  it('deep tier runs cross-phase-coherence (not standard) with upstream (V1b-4)', async () => {
+    const adapter: EvalAdapter = {
+      runAssertions: vi.fn(async (_output, _assertions, layerName) => ({
+        layer: layerName,
+        score: 0.80,
+        pass: true,
+        assertions: [{ name: 'test', score: 0.80, pass: true, reason: 'ok' }],
+      })),
+    }
+
+    const engine = new EvalEngine(adapter)
+    const result = await engine.evaluatePhase(
+      {
+        phase: 'planning',
+        output: 'planning output',
+        promptTemplate: '## Mission\nPlan.',
+        context: {},
+        upstreamOutput: 'analysis output',
+        upstreamPhase: 'analysis',
+      },
+      'deep',
+    )
+
+    const layerNames = result.layers.map((l) => l.layer)
+    expect(layerNames).toContain('cross-phase-coherence')
+    expect(layerNames).not.toContain('cross-phase-coherence-standard')
+  })
+
+  it('passes thresholds through evaluate() to all phases', async () => {
+    const adapter: EvalAdapter = {
+      runAssertions: vi.fn(async (_output, _assertions, layerName) => ({
+        layer: layerName,
+        score: 0.65,
+        pass: true,
+        assertions: [{ name: 'test', score: 0.65, pass: true, reason: 'ok' }],
+      })),
+    }
+
+    const engine = new EvalEngine(adapter)
+    const report = await engine.evaluate(
+      [
+        { phase: 'analysis', output: 'out', promptTemplate: '## M', context: {} },
+        { phase: 'implementation', output: 'out', promptTemplate: '## M', context: {} },
+      ],
+      'standard',
+      'run-v1b3',
+      { default: 0.7, phases: { implementation: 0.60 } },
+    )
+
+    // Analysis at 0.65 fails default 0.70
+    expect(report.phases[0].pass).toBe(false)
+    // Implementation at 0.65 passes custom 0.60
+    expect(report.phases[1].pass).toBe(true)
+    // Overall: one phase failed
+    expect(report.pass).toBe(false)
   })
 })

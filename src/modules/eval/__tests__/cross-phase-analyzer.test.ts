@@ -93,4 +93,48 @@ functional_requirements:
     expect(analyzer.buildAssertions('', 'x', 'analysis', 'planning')).toEqual([])
     expect(analyzer.buildAssertions('  \n ', 'x', 'analysis', 'planning')).toEqual([])
   })
+
+  it('filters to reference-coverage only when dimensionFilter provided (V1b-4)', () => {
+    const analyzer = new CrossPhaseAnalyzer()
+    const assertions = analyzer.buildAssertions(
+      upstreamOutput,
+      downstreamOutput,
+      'analysis',
+      'planning',
+      ['reference-coverage'],
+    )
+
+    expect(assertions).toHaveLength(1)
+    expect(assertions[0].label).toBe('cross-phase:reference-coverage')
+  })
+
+  it('returns all dimensions when dimensionFilter is undefined (backward compat, V1b-4)', () => {
+    const analyzer = new CrossPhaseAnalyzer()
+    const assertions = analyzer.buildAssertions(
+      upstreamOutput,
+      downstreamOutput,
+      'analysis',
+      'planning',
+      undefined,
+    )
+
+    expect(assertions).toHaveLength(3)
+  })
+
+  it('filters to multiple dimensions (V1b-4)', () => {
+    const analyzer = new CrossPhaseAnalyzer()
+    const assertions = analyzer.buildAssertions(
+      upstreamOutput,
+      downstreamOutput,
+      'analysis',
+      'planning',
+      ['reference-coverage', 'information-loss'],
+    )
+
+    expect(assertions).toHaveLength(2)
+    expect(assertions.map((a) => a.label)).toEqual([
+      'cross-phase:reference-coverage',
+      'cross-phase:information-loss',
+    ])
+  })
 })
