@@ -8,7 +8,7 @@ workflowType: epics
 status: draft
 date: "2026-04-05"
 epicCount: 4
-storyCount: 34
+storyCount: 39
 ---
 
 # Epics and Stories: Substrate Phase D — Autonomous Operations
@@ -43,6 +43,7 @@ Phase D transforms substrate from a tool requiring human babysitting into reliab
 | FR-G1 through FR-G4 | Epic 53 (Stall + Cost + Learning) | Dispatch gating |
 | FR-E1 through FR-E5 | Epic 54 (Recovery + Modes + Report) | Escalation recovery |
 | FR-O1 through FR-O8 | Epic 54 (Recovery + Modes + Report) | Operating modes |
+| FR-SE1 through FR-SE10 | Epic 55 (Self-Eval at Phase Transitions) | Inline eval, retry, config |
 
 ---
 
@@ -920,4 +921,184 @@ Ran substrate Epic 51 (6 stories) against its own codebase on v0.19.27, zero hum
 | 52 | 8 | 2 | None | Durable run manifest, scope preservation, crash recovery |
 | 53 | 12 | 3a+3b+4 | 52 | Stall detection, cost ceiling (3 stories), learning loop, dispatch gating, adapter hardening |
 | 54 | 8 | 5 | 51+52+53 | Recovery engine, operating modes, completion report, headless, AC traceability, verification→learning feedback |
-| **Total** | **34** | | | |
+| 55 | 5 | 6 | 52 + V1b | Self-eval at phase transitions, retry with diagnostics, manifest recording |
+| **Total** | **39** | | | |
+
+---
+
+## Epic 55: Self-Eval at Phase Transitions
+
+**Goal:** The pipeline evaluates its own phase outputs during execution and retries with diagnostic feedback when quality drops below threshold — catching semantic regression in-flight rather than post-run.
+
+**Architecture Increment:** 6
+**Dependency:** Epic 52 (RunManifest for recording self-eval results), V1b Eval Platform (EvalEngine, thresholds, metadata)
+**Estimated Stories:** 5
+
+**Dependency chain:**
+
+```
+55-1 (step-runner hook) ──> 55-2 (retry with diagnostics) ──> 55-4 (manifest recording)
+                                                               55-3 (config) ─ independent
+                                                               55-5 (--no-self-eval) ─ independent
+```
+
+---
+
+### Story 55-1: Self-eval hook in step runner
+
+**As a** pipeline operator,
+**I want** the step runner to invoke EvalEngine after each phase completes,
+**So that** phase output quality is checked before the pipeline proceeds to the next phase.
+
+**Priority:** must
+
+**Acceptance Criteria:**
+
+- Given a phase step completes successfully (Zod validation passes)
+- When self-eval is enabled for that phase
+- Then `EvalEngine.evaluatePhase()` is called with the phase's output, prompt template, and context
+- And the eval uses `depth: 'standard'` (not deep — cost constraint FR-SE8)
+- And the eval result (score, pass/fail, feedback) is available to the step runner for gate decision
+- And the eval uses the existing `PromptfooAdapter` (or future LLM-agnostic adapter) — no new judge implementation
+- And if `EvalEngine.evaluatePhase()` throws, the error is caught and logged, and the phase proceeds (self-eval failure should not block the pipeline)
+- Unit tests verify: hook invocation on success, hook skipped when disabled, error isolation
+
+**Technical Notes:**
+- Integration point: `src/modules/phase-orchestrator/step-runner.ts`, after Zod validation, before critique loop
+- `EvalEngine.evaluatePhase()` already accepts single-phase `PhaseData` — no API changes needed
+- Load prompt template via `loadPromptTemplateStrict()` (existing in eval.ts)
+- Build `PhaseData` from step context: phase name, output text, prompt template, upstream decisions as context
+- Self-eval runs AFTER the existing critique loop (if enabled), not instead of it
+
+**FRs:** FR-SE1, FR-SE7, FR-SE10
+
+---
+
+### Story 55-2: Retry with diagnostic feedback on low self-eval score
+
+**As a** pipeline operator,
+**I want** the pipeline to retry a phase with eval diagnostics appended when self-eval score is below threshold,
+**So that** the agent gets specific feedback about what was weak and can improve the output.
+
+**Priority:** must
+
+**Acceptance Criteria:**
+
+- Given a phase's self-eval score is below the configured threshold
+- When max retries have not been exhausted
+- Then the phase is re-dispatched with eval feedback appended to the prompt context
+- And the feedback is the `PhaseEvalResult.feedback` string from the eval engine (human-readable summary of what scored low and why)
+- And the feedback is injected as a clearly delimited section (e.g., `## Previous Output Quality Feedback`) so the agent knows it's corrective guidance
+- And the retry count is tracked per phase per run
+- Given max retries are exhausted and the score is still below threshold
+- Then the phase is flagged as `eval-escalated` with the latest eval result attached
+- And the pipeline continues to the next phase with a warning (default) or blocks (configurable via FR-SE5)
+- Unit tests verify: retry dispatch with feedback injection, retry count tracking, escalation on exhaustion, continue-with-warning default
+
+**Technical Notes:**
+- The step runner already has a retry mechanism for critique loops — self-eval retry follows the same pattern but with different trigger (eval score) and different feedback source (eval diagnostics vs. critique verdict)
+- Feedback injection: append to the context dict passed to the dispatch, not modify the prompt template
+- `on_fail` behavior: `retry` (default), `escalate` (flag + continue), `block` (halt pipeline)
+- Retry uses the same step configuration; only the context changes (feedback added)
+
+**FRs:** FR-SE3, FR-SE4, FR-SE5
+
+---
+
+### Story 55-3: Self-eval threshold and retry configuration
+
+**As a** pipeline operator,
+**I want** to configure self-eval thresholds and retry behavior per phase,
+**So that** I can tune quality gates differently for phases with different baseline scores.
+
+**Priority:** must
+
+**Acceptance Criteria:**
+
+- Given a `thresholds.yaml` file with `self_eval` section per phase
+- When the step runner checks self-eval configuration
+- Then it uses the phase-specific threshold, max_retries, and on_fail behavior
+- Given no `self_eval` section exists for a phase
+- Then self-eval is disabled for that phase (opt-in, not opt-out)
+- Given the methodology pack manifest has `self_eval: true` for a phase
+- Then the step runner enables self-eval using thresholds from `thresholds.yaml`
+- The config format is:
+  ```yaml
+  self_eval:
+    analysis:
+      enabled: true
+      threshold: 0.70
+      max_retries: 1
+      on_fail: retry
+    planning:
+      enabled: true
+      threshold: 0.70
+      on_fail: escalate
+  ```
+- Unit tests verify: config loading, per-phase override, missing config = disabled, default values
+
+**Technical Notes:**
+- Extend `fixtures/thresholds.yaml` (V1b-3) with a `self_eval` section
+- New `SelfEvalConfig` type in eval types or step-runner types
+- `loadThresholds()` already reads `thresholds.yaml` — extend the return type
+- The pass threshold for self-eval can differ from the pass threshold for post-run eval (a phase might pass self-eval at 0.60 but need 0.70 for the post-run report)
+
+**FRs:** FR-SE2, FR-SE4, FR-SE9
+
+---
+
+### Story 55-4: Record self-eval results in RunManifest
+
+**As a** pipeline operator,
+**I want** self-eval scores recorded in the RunManifest per phase,
+**So that** the completion report and `substrate status` can show which phases were self-evaluated, their scores, and whether retries occurred.
+
+**Priority:** must
+
+**Acceptance Criteria:**
+
+- Given a phase completes self-eval (pass or fail)
+- When the RunManifest is updated
+- Then a `self_eval` entry is added to the phase's manifest section with: score, pass, retry_count, feedback (if any), timestamp
+- Given a phase was retried due to low self-eval
+- Then each retry's eval result is recorded (not just the final one)
+- Given the RunManifest is read by `substrate status`
+- Then self-eval results are displayed alongside other phase metadata
+- Given a run predating Epic 55 (no self_eval in manifest)
+- Then the manifest deserializes without error (backward compat)
+- Unit tests verify: manifest write, multi-retry recording, backward compat read
+
+**Technical Notes:**
+- Depends on Epic 52 RunManifest being implemented
+- Add optional `self_eval?: SelfEvalEntry[]` to the per-phase section of RunManifest
+- `SelfEvalEntry`: `{ score: number, pass: boolean, retry_index: number, feedback?: string, timestamp: string }`
+- If Epic 52 is not yet implemented when this story ships, use a stub that writes to the existing `phase_outputs` table as a fallback
+
+**FRs:** FR-SE6
+
+---
+
+### Story 55-5: `--no-self-eval` CLI flag
+
+**As a** pipeline operator,
+**I want** a `--no-self-eval` flag to disable all self-eval during a run,
+**So that** I can skip the cost and latency of inline eval when I don't need quality gates.
+
+**Priority:** must
+
+**Acceptance Criteria:**
+
+- Given `--no-self-eval` is passed to `substrate run`
+- When the step runner reaches the self-eval hook
+- Then self-eval is skipped for all phases regardless of per-phase config
+- Given `--no-self-eval` is NOT passed
+- Then self-eval runs per the phase config (Story 55-3)
+- The flag is recorded in the RunManifest (if available) or pipeline config
+- Unit tests verify: flag parsing, self-eval skipped when flag set, self-eval runs when flag absent
+
+**Technical Notes:**
+- Add `--no-self-eval` to the `substrate run` command options
+- Pass through to the phase orchestrator as a config flag
+- Step runner checks this flag before invoking the self-eval hook
+
+**FRs:** FR-SE9

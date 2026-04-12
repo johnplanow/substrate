@@ -139,6 +139,42 @@ export interface StepResult {
 }
 
 /**
+ * Result of a self-eval check after all phase steps complete (V1b / Epic 55).
+ */
+export interface SelfEvalResult {
+  /** Aggregate phase score from the eval engine */
+  score: number
+  /** Whether the score meets the configured threshold */
+  pass: boolean
+  /** Human-readable feedback suitable for retry prompt injection */
+  feedback: string
+}
+
+/**
+ * Callback interface for self-eval at phase boundaries (Epic 55-1).
+ *
+ * Decouples the step runner from the eval module — the caller wires
+ * the EvalEngine into this hook. The step runner only knows it gets
+ * a score and feedback; it doesn't import eval types or modules.
+ */
+export interface SelfEvalHook {
+  /**
+   * Evaluate the combined phase output.
+   * @param phaseOutput - Concatenated step outputs (same format eval.ts uses)
+   * @param phase - Phase name
+   * @param promptTemplate - The prompt template from the last step (used for prompt-compliance)
+   * @param context - Upstream context as key-value pairs
+   * @returns Score, pass/fail, and feedback for potential retry
+   */
+  evaluate(
+    phaseOutput: string,
+    phase: string,
+    promptTemplate: string,
+    context: Record<string, string>,
+  ): Promise<SelfEvalResult>
+}
+
+/**
  * Result of a multi-step run.
  */
 export interface MultiStepResult {
@@ -152,6 +188,8 @@ export interface MultiStepResult {
   elicitationTokenUsage: { input: number; output: number }
   /** Error from the first failed step (if any) */
   error?: string
+  /** Self-eval result (Epic 55-1). Undefined if self-eval not configured or phase failed. */
+  selfEvalResult?: SelfEvalResult
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +331,7 @@ export async function runSteps(
   runId: string,
   phase: string,
   params: Record<string, string>,
+  selfEval?: SelfEvalHook,
 ): Promise<MultiStepResult> {
   const stepResults: StepResult[] = []
   const stepOutputs = new Map<string, Record<string, unknown>>()
@@ -717,10 +756,58 @@ export async function runSteps(
     }
   }
 
+  // Self-eval at phase boundary (Epic 55-1).
+  // Runs after ALL steps succeed. The hook evaluates the combined phase output
+  // and returns a score + feedback. The caller (phase orchestrator) uses the
+  // result to decide whether to retry the phase with feedback (Story 55-2).
+  // Error isolation: self-eval failure is non-blocking — the phase proceeds.
+  let selfEvalResult: SelfEvalResult | undefined
+  if (selfEval) {
+    try {
+      // Combine all step outputs into a single phase output string,
+      // matching the format eval.ts reads from phase_outputs table.
+      const phaseOutput = stepResults
+        .filter((r) => r.success && r.parsed)
+        .map((r) => JSON.stringify(r.parsed, null, 2))
+        .join('\n\n<!-- step-boundary -->\n\n')
+
+      // Use the last step's template as representative for prompt-compliance.
+      // This is an approximation — multi-step phases have multiple templates.
+      // Future: evaluate each step independently for more granular feedback.
+      const lastStep = steps[steps.length - 1]
+      const promptTemplate = await deps.pack.getPrompt(lastStep.taskType).catch(() => '')
+
+      // Build context from params (upstream decisions are already in params)
+      const context: Record<string, string> = { ...params }
+
+      selfEvalResult = await selfEval.evaluate(phaseOutput, phase, promptTemplate, context)
+
+      logger.info(
+        {
+          phase,
+          score: selfEvalResult.score,
+          pass: selfEvalResult.pass,
+        },
+        'Self-eval complete',
+      )
+    } catch (evalErr) {
+      // Self-eval errors are non-blocking — log and continue.
+      // The phase result is still success; the caller sees no selfEvalResult.
+      logger.warn(
+        {
+          phase,
+          err: evalErr instanceof Error ? evalErr.message : String(evalErr),
+        },
+        'Self-eval threw an error — continuing without eval result',
+      )
+    }
+  }
+
   return {
     success: true,
     steps: stepResults,
     tokenUsage: { input: totalInput, output: totalOutput },
     elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput },
+    selfEvalResult,
   }
 }

@@ -976,3 +976,110 @@ describe('step-runner', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Self-eval hook (Epic 55-1)
+// ---------------------------------------------------------------------------
+
+describe('runSteps() — self-eval at phase boundary (Epic 55-1)', () => {
+  let adapter: InMemoryDatabaseAdapter
+  let runId: string
+
+  beforeEach(async () => {
+    const setup = await createTestDb()
+    adapter = setup.adapter
+    runId = await createTestRun(adapter)
+  })
+
+  const simpleStep: StepDefinition = {
+    name: 'analyze',
+    taskType: 'analysis',
+    outputSchema: z.object({ result: z.string(), value: z.string().optional() }),
+    context: [],
+    persist: [],
+  }
+
+  it('calls selfEval.evaluate after all steps succeed', async () => {
+    const dispatcher = makeDispatcher([makeDispatchResult()])
+    const deps = makeDeps(adapter, dispatcher)
+    const evaluate = vi.fn().mockResolvedValue({ score: 0.85, pass: true, feedback: '' })
+
+    const result = await runSteps([simpleStep], deps, runId, 'analysis', {}, { evaluate })
+
+    expect(result.success).toBe(true)
+    expect(evaluate).toHaveBeenCalledOnce()
+    expect(result.selfEvalResult).toBeDefined()
+    expect(result.selfEvalResult!.score).toBe(0.85)
+    expect(result.selfEvalResult!.pass).toBe(true)
+  })
+
+  it('does not call selfEval when not provided (backward compat)', async () => {
+    const dispatcher = makeDispatcher([makeDispatchResult()])
+    const deps = makeDeps(adapter, dispatcher)
+
+    const result = await runSteps([simpleStep], deps, runId, 'analysis', {})
+
+    expect(result.success).toBe(true)
+    expect(result.selfEvalResult).toBeUndefined()
+  })
+
+  it('does not call selfEval when steps fail', async () => {
+    const dispatcher = makeDispatcher([
+      makeDispatchResult({ status: 'failed', parsed: null, parseError: 'boom' }),
+    ])
+    const deps = makeDeps(adapter, dispatcher)
+    const evaluate = vi.fn().mockResolvedValue({ score: 0.85, pass: true, feedback: '' })
+
+    const result = await runSteps([simpleStep], deps, runId, 'analysis', {}, { evaluate })
+
+    expect(result.success).toBe(false)
+    expect(evaluate).not.toHaveBeenCalled()
+    expect(result.selfEvalResult).toBeUndefined()
+  })
+
+  it('returns selfEvalResult with low score and feedback', async () => {
+    const dispatcher = makeDispatcher([makeDispatchResult()])
+    const deps = makeDeps(adapter, dispatcher)
+    const evaluate = vi.fn().mockResolvedValue({
+      score: 0.55,
+      pass: false,
+      feedback: 'Output scored low on user_specificity (0.45)',
+    })
+
+    const result = await runSteps([simpleStep], deps, runId, 'analysis', {}, { evaluate })
+
+    expect(result.success).toBe(true)
+    expect(result.selfEvalResult!.pass).toBe(false)
+    expect(result.selfEvalResult!.feedback).toContain('user_specificity')
+  })
+
+  it('isolates selfEval errors — phase still succeeds', async () => {
+    const dispatcher = makeDispatcher([makeDispatchResult()])
+    const deps = makeDeps(adapter, dispatcher)
+    const evaluate = vi.fn().mockRejectedValue(new Error('eval engine crashed'))
+
+    const result = await runSteps([simpleStep], deps, runId, 'analysis', {}, { evaluate })
+
+    // Phase should succeed even though self-eval threw
+    expect(result.success).toBe(true)
+    expect(result.selfEvalResult).toBeUndefined()
+  })
+
+  it('passes concatenated step outputs to evaluate()', async () => {
+    const dispatcher = makeDispatcher([
+      makeDispatchResult({ parsed: { result: 'success', value: 'step-1-output' } }),
+      makeDispatchResult({ parsed: { result: 'success', value: 'step-2-output' } }),
+    ])
+    const deps = makeDeps(adapter, dispatcher)
+    const evaluate = vi.fn().mockResolvedValue({ score: 0.80, pass: true, feedback: '' })
+
+    const step2: StepDefinition = { ...simpleStep, name: 'synthesize', taskType: 'synthesis' }
+    await runSteps([simpleStep, step2], deps, runId, 'analysis', {}, { evaluate })
+
+    expect(evaluate).toHaveBeenCalledOnce()
+    const [phaseOutput] = evaluate.mock.calls[0]
+    expect(phaseOutput).toContain('step-1-output')
+    expect(phaseOutput).toContain('step-2-output')
+    expect(phaseOutput).toContain('<!-- step-boundary -->')
+  })
+})
