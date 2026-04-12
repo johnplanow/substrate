@@ -1,12 +1,207 @@
 name: solutioning-bad-cli-task-tracker
-description: Degraded architecture + stories — no rationale, oversized stories, FR gaps, forward refs
+description: Subtle-bad solutioning — structure-matched, plausible-sounding, fails all four rubric dimensions
 phase: solutioning
 notes: |
-  Hand-built degraded variant. Should score low on all four solutioning rubric dimensions:
-  architecture decisions lack rationale, stories are oversized and vague, FR coverage is
-  incomplete, dependencies are forward-referenced.
+  G8.a-part-2 subtle bad variant (2026-04-11). Structurally matched to solutioning/good.yaml
+  (five YAML code-fenced blocks: three architecture steps, one epics step, one stories step,
+  each separated by <!-- step-boundary --> markers). The degradation is semantic.
+
+  Length asymmetry note: solutioning/good.yaml is ~46KB of real captured output, so a fully
+  length-matched bad would require ~46KB of hand-crafted degraded content. This bad variant
+  is ~15KB — structurally parallel but with shorter decision and story lists. Meta-eval
+  margin on this phase may be weakly biased toward the (longer) good variant; the length
+  asymmetry is acknowledged and should be narrowed during the first real calibration pass
+  (`npm run test:meta-eval` with a real grader).
+
+  Per-dimension degradation:
+
+  - architecture_rationale: every architecture_decision has a `rationale` field present
+    (structural parity with good), but the rationale is tautological ("it's the standard",
+    "makes sense for this project", "industry best practice") rather than explaining the
+    specific tradeoff or requirement it satisfies. The judge should recognize the absence
+    of substantive reasoning.
+  - story_decomposition (G6-rewritten — asks AC lists + named modules): stories have titles
+    and descriptions but EITHER missing acceptance_criteria entirely OR an acceptance_criteria
+    list that restates the title in bullet form without naming any module, file, or interface.
+    Structurally the field is present but semantically empty.
+  - fr_coverage: epics still have a fr_coverage field for structural parity, but the
+    coverage is incomplete — several epics map to the same two placeholder FR refs
+    ("frs-0", "frs-1"), leaving the rest of the planning FRs unmapped.
+  - dependency_ordering: at least one story description references a module defined in
+    a later story (forward reference), and the story ordering does not follow a logical
+    dependency chain (utility modules appear after the commands that use them).
 output: |
-  architecture-decisions: Use JSON. Use Rust. Use clap. Use a standard directory. Keep it simple.
-  stories: S1 — Build the whole CLI tool. Implement all commands, storage, filtering, search, and tests. Make it work. Acceptance: it works. S2 — Add any missing features that come up during S1. Acceptance: nothing is missing. S3 — Polish and ship. Acceptance: it looks good.
-  functional-requirement-mapping: FR1 → S1. FR2 → S1. (FR3 and FR4 not mapped.)
-  story-dependencies: S1 depends on S3 being done first so we know what to build. S2 depends on the final version being ready. S3 is the starting point.
+  ```yaml
+  result: success
+  architecture_decisions:
+    - category: "backend"
+      key: "system-architecture"
+      value: "CLI application"
+      rationale: "A CLI application is the right choice for this project based on the requirements."
+
+    - category: "backend"
+      key: "language-runtime"
+      value: "Modern language"
+      rationale: "A modern language is a good choice for maintainability and community support."
+
+    - category: "backend"
+      key: "cli-framework"
+      value: "Standard CLI framework"
+      rationale: "Using a standard framework is industry best practice."
+
+    - category: "backend"
+      key: "data-storage"
+      value: "Local file storage"
+      rationale: "Local file storage makes sense for this use case."
+
+    - category: "backend"
+      key: "storage-write-strategy"
+      value: "Write data to the file when it changes"
+      rationale: "This is how most applications handle data persistence."
+
+    - category: "backend"
+      key: "data-model"
+      value: "Task objects"
+      rationale: "Task objects are the natural way to represent tasks."
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: success
+  architecture_decisions:
+    - category: "crosscutting"
+      key: "authentication-authorization"
+      value: "Appropriate for the use case"
+      rationale: "Authentication should be handled appropriately for this type of application."
+
+    - category: "crosscutting"
+      key: "exit-codes"
+      value: "Standard exit codes"
+      rationale: "Standard exit codes are commonly used."
+
+    - category: "crosscutting"
+      key: "logging"
+      value: "Standard logging"
+      rationale: "Logging should follow standard practices."
+
+    - category: "crosscutting"
+      key: "error-handling"
+      value: "Handle errors gracefully"
+      rationale: "Errors should be handled gracefully to provide a good user experience."
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: success
+  architecture_decisions:
+    - category: "patterns"
+      key: "package-organization"
+      value: "Organized package structure"
+      rationale: "A well-organized package structure is important for maintainability."
+
+    - category: "patterns"
+      key: "testing-strategy"
+      value: "Unit and integration tests"
+      rationale: "Testing is important for code quality."
+
+    - category: "patterns"
+      key: "output-formatting"
+      value: "Clear output formatting"
+      rationale: "Output should be clearly formatted for users."
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: success
+  epics:
+    - title: "Core Features"
+      description: "The core features of the task tracker including basic task operations and storage."
+      fr_coverage:
+        - "planning-step-2-frs-0"
+        - "planning-step-2-frs-1"
+    - title: "Additional Features"
+      description: "Additional features like filtering, searching, and viewing tasks in various ways."
+      fr_coverage:
+        - "planning-step-2-frs-0"
+        - "planning-step-2-frs-1"
+    - title: "Polish and Release"
+      description: "Final polish, packaging, distribution, and any remaining miscellaneous work."
+      fr_coverage:
+        - "planning-step-2-frs-0"
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: "success"
+  epics:
+    - title: "Core Features"
+      description: "The core features of the task tracker including basic task operations and storage."
+      stories:
+        - key: "1-1"
+          title: "Implement task commands"
+          description: "Implement the core task management commands using the shared utilities from story 1-3 for formatting and the storage layer from story 1-4. This story depends on the error handling infrastructure that will be defined later in 2-2."
+          acceptance_criteria:
+            - "Task commands are implemented"
+            - "Commands work as expected"
+          priority: "must"
+
+        - key: "1-2"
+          title: "Task model"
+          description: "Create the task model that represents tasks in the system."
+          acceptance_criteria:
+            - "Task model is created"
+            - "Task model works correctly"
+          priority: "must"
+
+        - key: "1-3"
+          title: "Output formatting utilities"
+          description: "Shared utilities for formatting output that are used by the task commands in story 1-1."
+          acceptance_criteria:
+            - "Output formatting works"
+          priority: "must"
+
+        - key: "1-4"
+          title: "Storage layer"
+          description: "The storage layer that persists task data."
+          acceptance_criteria:
+            - "Storage layer persists data"
+            - "Storage layer reads data back"
+          priority: "must"
+
+    - title: "Additional Features"
+      description: "Additional features like filtering, searching, and viewing tasks in various ways."
+      stories:
+        - key: "2-1"
+          title: "Filter and search"
+          description: "Add filter and search capabilities to the task list command."
+          acceptance_criteria:
+            - "Users can filter tasks"
+            - "Users can search tasks"
+          priority: "should"
+
+        - key: "2-2"
+          title: "Error handling infrastructure"
+          description: "Build the shared error handling infrastructure used throughout the application."
+          acceptance_criteria:
+            - "Errors are handled consistently"
+          priority: "must"
+
+    - title: "Polish and Release"
+      description: "Final polish, packaging, distribution, and any remaining miscellaneous work."
+      stories:
+        - key: "3-1"
+          title: "Package and release"
+          description: "Package the tool for distribution and handle release logistics."
+          acceptance_criteria:
+            - "Tool is packaged"
+            - "Release is published"
+          priority: "should"
+  ```

@@ -1,12 +1,110 @@
 name: planning-bad-cli-task-tracker
-description: Degraded PRD output — unmeasurable FRs, vague NFRs, bare tech stack, no scope
+description: Subtle-bad planning — structure-matched, plausible-sounding, fails all four rubric dimensions
 phase: planning
 notes: |
-  Hand-built degraded variant. Should score low on all four planning rubric dimensions:
-  FRs are unmeasurable, NFRs are aspirational and vague, tech stack is a list with no
-  rationale, out-of-scope is missing.
+  G8.a-part-2 subtle bad variant (2026-04-11). Structurally matched to planning/good.yaml
+  (same three YAML code-fenced blocks, same step boundaries, same top-level sections
+  including classification, functional_requirements, user_stories, non_functional_requirements,
+  tech_stack, domain_model, and out_of_scope). The degradation is semantic. Per-dimension:
+
+  - requirement_measurability: functional_requirements are verbs like "manage", "support",
+    "enable" with no testable preconditions or postconditions — a developer could not write
+    an acceptance test against them without inventing the contract.
+  - nfr_coverage: non_functional_requirements have categories but no thresholds, counts,
+    or measurable targets — just aspirational language ("fast enough", "reliable", "secure").
+  - tech_stack_justification (G13-rewritten — asks project_type specificity): project_type
+    is a generic category ("Developer productivity tool") rather than a specific shape.
+  - scope_boundaries (G13-rewritten — asks key_goals concreteness): key_goals are open-ended
+    aspirations ("improve productivity", "provide a great experience") rather than concrete
+    measurable objectives.
+
+  The tech_stack section is intentionally present but with rationale removed, to match the
+  good fixture's structural shape — the rubric scores this indirectly via classification
+  quality, not via a dedicated rationale check. The out_of_scope section uses conditional
+  language ("may be considered in a future release") rather than hard exclusions.
 output: |
-  functional-requirements: The app should let users manage their tasks. Users should be able to add tasks, view tasks, and mark them as done. The interface should be user-friendly and intuitive. The system should handle errors gracefully. Tasks should be saved so users don't lose their work. The search should be good. Filtering should work well. The CLI should be easy to use.
-  non-functional-requirements: The application should be fast and responsive. It should be reliable and not crash. The UI should be modern and clean. Security is important. Scalability should be considered. It should work on all platforms. The code should be maintainable. Performance should be optimized. It should be accessible.
-  tech-stack: Python, Node.js, JavaScript, TypeScript, Go, Rust, SQLite, PostgreSQL, Redis, React, Vue, Express, FastAPI, Docker, Kubernetes.
-  out-of-scope: (not specified)
+  ```yaml
+  result: success
+  project_type: "Developer productivity tool"
+  vision: "A modern productivity solution that helps developers and technology professionals work more effectively by providing a streamlined experience for managing their daily work. The tool should fit naturally into existing developer workflows, eliminating friction and supporting higher throughput across individuals and teams by offering thoughtful features tailored to how technical users actually operate."
+  key_goals:
+    - "Improve developer productivity through better task and work management"
+    - "Provide a great user experience that developers will enjoy using every day"
+    - "Scale smoothly from individual contributors to larger engineering teams"
+    - "Integrate cleanly with the popular tools developers already use in their workflows"
+    - "Build a reliable foundation that can grow with user needs over time"
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: success
+  functional_requirements:
+    - description: "Users should be able to manage their tasks effectively throughout their daily workflow"
+      priority: must
+    - description: "The tool should provide a way for users to view and organize their tasks in various ways"
+      priority: must
+    - description: "Users should be able to track progress on their work over time"
+      priority: must
+    - description: "The tool should support different levels of task prioritization and categorization"
+      priority: must
+    - description: "Users should be able to search and filter their task list to find relevant items"
+      priority: should
+    - description: "The tool should integrate with popular developer tools and workflows where appropriate"
+      priority: should
+    - description: "Users should receive appropriate notifications about important and upcoming tasks"
+      priority: should
+    - description: "The tool should support collaboration features for team environments"
+      priority: could
+    - description: "Users should be able to customize the experience to fit their personal preferences"
+      priority: could
+  user_stories:
+    - title: "Task Management"
+      description: "As a user, I want to manage my tasks so that I can stay organized and productive"
+    - title: "Task Tracking"
+      description: "As a developer, I want to track my work so that I know what I've accomplished"
+    - title: "Task Organization"
+      description: "As a knowledge worker, I want to organize tasks so that I can find what matters"
+    - title: "Team Collaboration"
+      description: "As a team member, I want to collaborate on tasks so that we can work together"
+    - title: "Productivity Insights"
+      description: "As a user, I want to see my progress so that I understand my productivity"
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: success
+  non_functional_requirements:
+    - description: "The tool should be fast and responsive to provide a smooth user experience"
+      category: "performance"
+    - description: "The tool should be reliable and handle edge cases gracefully without data loss"
+      category: "reliability"
+    - description: "The tool should scale to support large numbers of tasks and users over time"
+      category: "scalability"
+    - description: "The tool should protect user data through appropriate security measures"
+      category: "security"
+    - description: "The tool should be maintainable and extensible for future development"
+      category: "maintainability"
+  tech_stack:
+    language: "TypeScript"
+    runtime: "Node.js"
+    cli_framework: "Commander"
+    storage: "Local file"
+    testing: "Jest"
+    binary_distribution: "npm package"
+  domain_model:
+    Task:
+      attributes: ["id", "title", "metadata"]
+      relationships: ["belongs_to: User"]
+    User:
+      attributes: ["id", "profile"]
+      relationships: ["has_many: Task"]
+  out_of_scope:
+    - "Features that may be considered in future releases based on user feedback"
+    - "Advanced capabilities that could be added if the core feature set proves successful"
+    - "Integrations that may be prioritized based on community demand"
+    - "Optional enhancements that could be considered for a premium tier"
+  ```

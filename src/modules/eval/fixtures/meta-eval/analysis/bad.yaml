@@ -1,13 +1,68 @@
 name: analysis-bad-cli-task-tracker
-description: Degraded analysis output — vague, generic, untraced, kitchen-sink
+description: Subtle-bad analysis — structure-matched, plausible-sounding, fails all four rubric dimensions
 phase: analysis
 notes: |
-  Hand-built degraded variant. Should score low on all four analysis rubric dimensions:
-  problem_clarity (vague, not grounded), user_specificity (generic), feature_justification
-  (no trace), scope_discipline (kitchen sink). Deliberately weak.
+  G8.a-part-2 subtle bad variant (2026-04-11). Structurally identical to analysis/good.yaml
+  (same two YAML code-fenced blocks, same step boundary, same top-level field names). The
+  degradation is semantic: content fails specific rubric dimensions while looking superficially
+  plausible. Calibration criterion — once META_EVAL=1 is run with a real grader, this variant
+  should show a smaller margin than the pre-G8.a cartoonish-bad would have (whose structural
+  mismatch trivially discriminated). Per-dimension degradation:
+
+  - problem_clarity: narrative uses abstract productivity language ("context-switching tax",
+    "flow state") but names no concrete mechanism, no specific tools, no measurable impact,
+    no counted population. The judge can notice the absence of grounded evidence.
+  - user_specificity: target users are generic roles ("developers", "knowledge workers",
+    "technology professionals") rather than named segments with concrete workflows and
+    tool lists.
+  - feature_justification: core_features are kitchen-sink (AI, cloud sync, mobile apps,
+    team collaboration) that contradict the terminal-first, local-only, single-binary
+    framing. None trace back to the stated problem.
+  - scope_discipline (G13-rewritten): constraints are aspirations ("should be fast", "must
+    be reliable") with no hard limits that bound the solution space.
+
+  Length target: within ±20% of good.yaml. Structural asymmetry between good and bad (step
+  count, step names, YAML code-fence presence) is deliberately eliminated so the judge is
+  forced to discriminate on content.
 output: |
-  problem-statement: Developers need better tools to manage their tasks. Current solutions are not great and it would be nice to have something better. Productivity is important and we should help people be more productive.
-  target-users: Developers. Anyone who uses a computer for work. People who have tasks to manage. Teams. Individuals. Basically anyone who wants to be more organized.
-  proposed-features: Dashboard with charts and graphs. Notifications via email, SMS, push, and in-app. Integration with GitHub, GitLab, Bitbucket, Slack, Teams, Discord, Jira, Linear, Asana, and Trello. AI-powered task suggestions. Voice input. Mobile app for iOS and Android. Web app. Desktop app. Calendar integration. Time tracking. Pomodoro timer. Team collaboration features. Shared task lists. Permissions and roles. Reporting. Analytics. Search. Tags. Subtasks. Recurring tasks. Dependencies. Gantt charts. Kanban boards. Templates. Export to PDF, CSV, and JSON. Dark mode. Keyboard shortcuts. Widgets. Browser extension.
-  success-metrics: Users will love it. It should be fast. Easy to use. Reliable. Scalable. Secure. Accessible.
-  out-of-scope: TBD. We'll figure this out later based on user feedback and market research.
+  ```yaml
+  result: success
+  problem_statement: "Developers and technology professionals encounter friction in their daily task management workflows, where existing tools impose a context-switching tax that disrupts productive focus and flow state during knowledge work. Current task tracking solutions don't always fit the way developers actually work, creating opportunities for a better approach that integrates more smoothly with existing workflows and eliminates unnecessary overhead. There's meaningful room for improvement in how technical professionals capture, organize, and complete their work, and a thoughtfully designed tool could reduce cognitive load and improve long-term productivity across the broader developer community."
+  target_users:
+    - "Developers and software engineers who want a better way to manage their daily work and feel that current task tracking tools fall short of their needs."
+    - "Knowledge workers and technology professionals who juggle many concerns across their projects and would benefit from a modern workflow tool that fits naturally into their existing habits."
+    - "Technical professionals and engineering team members who care about productivity and want a streamlined solution for tracking their work across multiple initiatives and commitments."
+  ```
+
+
+  <!-- step-boundary -->
+
+  ```yaml
+  result: success
+  core_features:
+    - "Full task management with rich metadata including priorities, due dates, tags, sub-tasks, and custom fields"
+    - "AI-powered task suggestions and automatic prioritization learned from user behavior and project patterns"
+    - "Real-time cloud sync across all devices via secure backend with end-to-end encryption and offline support"
+    - "Deep integrations with GitHub, GitLab, Jira, Linear, Slack, Notion, and other popular developer and productivity tools"
+    - "Team collaboration features including shared task lists, assignments, @mentions, and granular permissions"
+    - "Voice input for hands-free task capture and mobile companion apps for iOS and Android"
+    - "Analytics dashboard surfacing productivity trends, velocity charts, and burndown reports"
+    - "Desktop applications for macOS, Windows, and Linux with native notifications and widgets"
+  success_metrics:
+    - "Users find the tool easy, intuitive, and enjoyable to use in daily work"
+    - "High adoption rate across the target demographic within the first year of release"
+    - "Positive feedback from user interviews, surveys, and product reviews"
+    - "Strong user retention and engagement across different usage patterns over time"
+    - "Good performance on modern developer hardware with reasonable resource consumption"
+    - "Reliable operation across all supported platforms with minimal user-reported issues"
+  constraints:
+    - "The tool should be fast and responsive to provide a smooth, modern user experience"
+    - "Must be reliable and handle edge cases gracefully without disrupting user workflows"
+    - "Should work well on typical developer hardware with reasonable CPU and memory usage"
+    - "Needs to integrate cleanly with the common developer tools that users already rely on"
+    - "Must be accessible and easy to learn for new users without extensive documentation"
+  technology_constraints:
+    - "Should use modern, well-supported technologies chosen for maintainability and community support"
+    - "Must be cross-platform to reach the widest possible audience of developers and technical users"
+    - "Should leverage scalable cloud infrastructure where appropriate for sync and collaboration features"
+  ```
