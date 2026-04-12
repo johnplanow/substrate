@@ -173,10 +173,16 @@ export interface InspectProcessTreeOptions {
   execFileSync?: ExecFileSyncFn
   /** Injectable readFileSync for testing the PID-file path */
   readFileSync?: (path: string, encoding: string) => string
+  /**
+   * PID from the RunManifest supervisor_pid field (Story 52-5).
+   * When provided, checked BEFORE the orchestrator.pid file.
+   * This is the authoritative PID source; the file is a fallback.
+   */
+  manifestPid?: number | null
 }
 
 export function inspectProcessTree(opts?: InspectProcessTreeOptions): ProcessInfo {
-  const { projectRoot, substrateDirPath, execFileSync: execFileSyncOverride, readFileSync: readFileSyncOverride } = opts ?? {}
+  const { projectRoot, substrateDirPath, execFileSync: execFileSyncOverride, readFileSync: readFileSyncOverride, manifestPid } = opts ?? {}
   const result: ProcessInfo = { orchestrator_pid: null, child_pids: [], zombies: [] }
   try {
     let psOutput: string
@@ -189,7 +195,26 @@ export function inspectProcessTree(opts?: InspectProcessTreeOptions): ProcessInf
     const lines = psOutput.split('\n')
 
     // -----------------------------------------------------------------------
-    // Primary: PID-file based detection (AC1, AC3 — cross-project fix)
+    // Story 52-5: Manifest PID takes priority over PID file.
+    // When the manifest has a supervisor_pid, verify it's alive in ps output.
+    // This is the authoritative source; orchestrator.pid is the fallback.
+    // -----------------------------------------------------------------------
+    if (manifestPid != null && manifestPid > 0) {
+      const isAlive = lines.some((line) => {
+        const parts = line.trim().split(/\s+/)
+        if (parts.length < 3) return false
+        return parseInt(parts[0], 10) === manifestPid && !parts[2].includes('Z')
+      })
+      if (isAlive) {
+        result.orchestrator_pid = manifestPid
+        // Still scan for children and zombies below
+      } else {
+        (result as ProcessInfo & { pid_file_dead?: boolean }).pid_file_dead = true
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Fallback: PID-file based detection (AC1, AC3 — cross-project fix)
     //
     // `substrate run` writes its PID to `.substrate/orchestrator.pid` at
     // startup. When `substrateDirPath` is provided, we read that file directly
@@ -197,7 +222,7 @@ export function inspectProcessTree(opts?: InspectProcessTreeOptions): ProcessInf
     // `--project-root` does not appear in the process command line (i.e. when
     // the orchestrator was started from the target project's CWD).
     // -----------------------------------------------------------------------
-    if (substrateDirPath !== undefined) {
+    if (substrateDirPath !== undefined && result.orchestrator_pid === null) {
       try {
         const readFileSyncFn = readFileSyncOverride ??
           ((path: string, encoding: string) => readFileSync(path, encoding as BufferEncoding))
@@ -475,26 +500,27 @@ export async function getAutoHealthData(options: {
     if (runId !== undefined) {
       run = await getPipelineRunById(adapter, runId)
     } else {
-      // AC2: Try current-run-id file before falling back to getLatestRun() (Story 39-3)
-      // This ensures health reports on the correct active run, not a stale one.
-      let currentRunId: string | undefined
-      try {
-        const currentRunIdPath = join(dbRoot, '.substrate', 'current-run-id')
-        const content = readFileSync(currentRunIdPath, 'utf-8').trim()
-        // Validate UUID format to guard against corrupted file content (Story 39-3 AC2)
-        const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-        if (UUID_RE.test(content)) {
-          currentRunId = content
-        }
-      } catch {
-        // File doesn't exist or can't be read — fall through to getLatestRun()
-      }
-
-      if (currentRunId !== undefined) {
-        run = await getPipelineRunById(adapter, currentRunId)
+      // Story 52-5: Prefer manifest for run ID resolution.
+      // Resolution order: manifest → current-run-id file → getLatestRun()
+      const { runId: manifestRunId } = await resolveRunManifest(dbRoot)
+      if (manifestRunId) {
+        run = await getPipelineRunById(adapter, manifestRunId)
       }
       if (run === undefined) {
-        // AC3: Fallback to getLatestRun() for backward compatibility
+        // Fallback: current-run-id file (pre-Phase-D compat, Story 39-3 AC2)
+        try {
+          const currentRunIdPath = join(dbRoot, '.substrate', 'current-run-id')
+          const content = readFileSync(currentRunIdPath, 'utf-8').trim()
+          const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+          if (UUID_RE.test(content)) {
+            run = await getPipelineRunById(adapter, content)
+          }
+        } catch {
+          // File doesn't exist — fall through
+        }
+      }
+      if (run === undefined) {
+        // AC3: Final fallback to getLatestRun() for backward compatibility
         run = await getLatestRun(adapter)
       }
     }
@@ -585,7 +611,13 @@ export async function getAutoHealthData(options: {
     // by `substrate run` — this is the primary fix for cross-project detection
     // where --project-root may not appear in the process command line (AC1, AC3).
     const substrateDirPath = join(dbRoot, '.substrate')
-    const processInfo = options._processInfoOverride ?? inspectProcessTree({ projectRoot, substrateDirPath })
+    // Story 52-5: Pass manifest supervisor_pid so inspectProcessTree prefers it
+    // over the orchestrator.pid file. Manifest is the authoritative source.
+    const processInfo = options._processInfoOverride ?? inspectProcessTree({
+      projectRoot,
+      substrateDirPath,
+      manifestPid: manifestSupervisor?.pid,
+    })
 
     // Derive verdict
     // Priority order (AC1 → AC2 → AC3 heuristics):

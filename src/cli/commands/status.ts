@@ -190,26 +190,27 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
     if (runId !== undefined && runId !== '') {
       run = await getPipelineRunById(adapter, runId)
     } else {
-      // AC2: Try current-run-id file before falling back to getLatestRun() (Story 39-3)
-      // This ensures we report the current active run, not a stale completed run.
-      let currentRunId: string | undefined
-      try {
-        const currentRunIdPath = join(dbRoot, '.substrate', 'current-run-id')
-        const content = readFileSync(currentRunIdPath, 'utf-8').trim()
-        // Validate UUID format to guard against corrupted file content (Story 39-3 AC2)
-        const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-        if (UUID_RE.test(content)) {
-          currentRunId = content
-        }
-      } catch {
-        // File doesn't exist or can't be read — fall through to getLatestRun()
-      }
-
-      if (currentRunId !== undefined) {
-        run = await getPipelineRunById(adapter, currentRunId)
+      // Story 52-5: Prefer manifest for run ID resolution.
+      // Resolution order: manifest → current-run-id file → getLatestRun()
+      const { runId: manifestRunId } = await resolveRunManifest(dbRoot)
+      if (manifestRunId) {
+        run = await getPipelineRunById(adapter, manifestRunId)
       }
       if (run === undefined) {
-        // AC3: Fallback to getLatestRun() for backward compatibility
+        // Fallback: current-run-id file (pre-Phase-D compat, Story 39-3 AC2)
+        try {
+          const currentRunIdPath = join(dbRoot, '.substrate', 'current-run-id')
+          const content = readFileSync(currentRunIdPath, 'utf-8').trim()
+          const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+          if (UUID_RE.test(content)) {
+            run = await getPipelineRunById(adapter, content)
+          }
+        } catch {
+          // File doesn't exist — fall through
+        }
+      }
+      if (run === undefined) {
+        // AC3: Final fallback to getLatestRun() for backward compatibility
         run = await getLatestRun(adapter)
       }
     }
