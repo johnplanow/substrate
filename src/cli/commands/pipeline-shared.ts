@@ -44,7 +44,7 @@ const __dirname = dirname(__filename)
 /**
  * Find the package root by walking up until we find package.json.
  * Works regardless of build output structure (tsdown bundles into
- * dist/cli/index.js, not dist/cli/commands/auto.js).
+ * dist/cli/index.mjs, not dist/cli/commands/auto.js).
  */
 export function findPackageRoot(startDir: string): string {
   let dir = startDir

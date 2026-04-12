@@ -43,12 +43,12 @@ function getSubstrateVersion(): string {
 
   // 2. Relative to CLI entry point (works in published npm package)
   //    Resolve symlinks first — npm/Homebrew global installs use symlinks
-  //    (e.g., /opt/homebrew/bin/substrate → ../lib/node_modules/substrate-ai/dist/cli/index.js)
+  //    (e.g., /opt/homebrew/bin/substrate → ../lib/node_modules/substrate-ai/dist/cli/index.mjs)
   if (process.argv[1]) {
     let cliPath = process.argv[1]
     try { cliPath = realpathSync(cliPath) } catch { /* use original if realpath fails */ }
     const cliDir = dirname(cliPath)
-    candidates.push(join(cliDir, '..', 'package.json'))  // dist/cli/index.js → ../package.json
+    candidates.push(join(cliDir, '..', 'package.json'))  // dist/cli/index.mjs → ../package.json
     candidates.push(join(cliDir, '..', '..', 'package.json'))  // dist/cli/ → ../../package.json
   }
 

@@ -689,7 +689,7 @@ describe('T12: export → seedMethodologyContext round-trip', () => {
 // ---------------------------------------------------------------------------
 // T14: CLI smoke tests — verify `substrate export` is registered and help output
 //      shows the expected options.  These tests spawn the built CLI binary;
-//      if `dist/cli/index.js` is absent (e.g. on a clean checkout without a
+//      if `dist/cli/index.mjs` is absent (e.g. on a clean checkout without a
 //      build step) the tests are skipped gracefully.
 // ---------------------------------------------------------------------------
 
@@ -707,7 +707,7 @@ const DIST_CLI = join(PROJECT_ROOT_T14, 'dist', 'cli', 'index.js')
 describe('T14: CLI smoke tests for substrate export', () => {
   it('T14a: `substrate --help` lists the export subcommand', () => {
     if (!existsSync(DIST_CLI)) {
-      console.warn('dist/cli/index.js not found; skipping CLI smoke test (run npm run build first)')
+      console.warn('dist/cli/index.mjs not found; skipping CLI smoke test (run npm run build first)')
       return
     }
     const result = spawnSync('node', [DIST_CLI, '--help'], {
@@ -726,7 +726,7 @@ describe('T14: CLI smoke tests for substrate export', () => {
 
   it('T14b: `substrate export --help` exits 0 and shows registered options', () => {
     if (!existsSync(DIST_CLI)) {
-      console.warn('dist/cli/index.js not found; skipping CLI smoke test (run npm run build first)')
+      console.warn('dist/cli/index.mjs not found; skipping CLI smoke test (run npm run build first)')
       return
     }
     const result = spawnSync('node', [DIST_CLI, 'export', '--help'], {

@@ -116,7 +116,7 @@ export interface PipelineHealthOutput {
  * Handles invocation via:
  *   - `substrate run` (globally installed)
  *   - `substrate-ai run`
- *   - `node dist/cli/index.js run` (npm run substrate:dev)
+ *   - `node dist/cli/index.mjs run` (npm run substrate:dev)
  *   - `npx substrate run`
  *   - any node process whose command contains `run` with `--events` or `--stories`
  *
@@ -129,11 +129,11 @@ export function isOrchestratorProcessLine(line: string, projectRoot?: string): b
   let isOrchestrator = false
   if (line.includes('substrate run')) isOrchestrator = true
   else if (line.includes('substrate-ai run')) isOrchestrator = true
-  else if (line.includes('index.js run')) isOrchestrator = true
+  else if (line.includes('index.mjs run') || line.includes('index.js run')) isOrchestrator = true
   // Match node processes where 'run' is a complete argument token (not a substring
   // of another word like 'dry-run-tool'). Require whitespace before 'run' and
   // whitespace or end-of-string after 'run'. Also match processes with substrate
-  // CLI path patterns (dist/cli/index.js, substrate-ai).
+  // CLI path patterns (dist/cli/index.mjs, substrate-ai).
   else if (
     line.includes('node') &&
     /\srun(\s|$)/.test(line) &&

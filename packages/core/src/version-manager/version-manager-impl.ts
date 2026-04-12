@@ -67,7 +67,7 @@ export class VersionManagerImpl implements VersionManager {
       const __dirname = dirname(fileURLToPath(import.meta.url))
       const candidates = [
         resolve(__dirname, '../package.json'),       // dist/chunk.js → repo root
-        resolve(__dirname, '../../package.json'),     // dist/cli/index.js → repo root
+        resolve(__dirname, '../../package.json'),     // dist/cli/index.mjs → repo root
         resolve(__dirname, '../../../package.json'),  // src/modules/version-manager/ → repo root
         resolve(__dirname, '../../../../package.json'), // packages/core/src/version-manager/ → core root
       ]

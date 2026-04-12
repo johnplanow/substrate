@@ -63,9 +63,9 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
       expect(packageJson.name).toBe('substrate-ai')
     })
 
-    it('should have bin entry pointing to dist/cli/index.js', () => {
+    it('should have bin entry pointing to dist/cli/index.mjs', () => {
       expect(packageJson.bin).toBeDefined()
-      expect(packageJson.bin['substrate']).toBe('./dist/cli/index.js')
+      expect(packageJson.bin['substrate']).toBe('./dist/cli/index.mjs')
     })
 
     it('should have a valid version field', () => {
@@ -103,7 +103,7 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
     })
 
     it('should have bin entry pointing to built CLI', () => {
-      expect(packageJson.bin['substrate']).toBe('./dist/cli/index.js')
+      expect(packageJson.bin['substrate']).toBe('./dist/cli/index.mjs')
     })
   })
 
@@ -150,9 +150,9 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
     })
 
     it('CLI --version output should NOT have "v" prefix', () => {
-      const distCli = join(PROJECT_ROOT, 'dist/cli/index.js')
+      const distCli = join(PROJECT_ROOT, 'dist/cli/index.mjs')
       if (!existsSync(distCli)) {
-        console.warn('dist/cli/index.js not found; skipping --version check')
+        console.warn('dist/cli/index.mjs not found; skipping --version check')
         return
       }
       const result = spawnSync('node', [distCli, '--version'], {
@@ -175,10 +175,10 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
   // AC6: CLI shebang & executable permissions
   // -----------------------------------------------------------------------
   describe('AC6: CLI shebang & executable permissions', () => {
-    it('dist/cli/index.js should have shebang as first line', () => {
-      const distCli = join(PROJECT_ROOT, 'dist/cli/index.js')
+    it('dist/cli/index.mjs should have shebang as first line', () => {
+      const distCli = join(PROJECT_ROOT, 'dist/cli/index.mjs')
       if (!existsSync(distCli)) {
-        console.warn('dist/cli/index.js not found; skipping shebang check')
+        console.warn('dist/cli/index.mjs not found; skipping shebang check')
         return
       }
       const content = readFileSync(distCli, 'utf-8')
@@ -197,21 +197,21 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
   // -----------------------------------------------------------------------
   describe('AC7: Built output configuration', () => {
     it('should have main field pointing to dist/index.js', () => {
-      expect(packageJson.main).toBe('./dist/index.js')
+      expect(packageJson.main).toBe('./dist/index.mjs')
     })
 
     it('should have exports field with module and types', () => {
       expect(packageJson.exports).toBeDefined()
       const defaultExport = packageJson.exports['.'] as Record<string, string>
       expect(defaultExport).toBeDefined()
-      expect(defaultExport.import).toBe('./dist/index.js')
-      expect(defaultExport.types).toBe('./dist/index.d.ts')
+      expect(defaultExport.import).toBe('./dist/index.mjs')
+      expect(defaultExport.types).toBe('./dist/index.d.mts')
     })
 
     it('should have CLI export in exports field', () => {
       const cliExport = packageJson.exports['./cli'] as Record<string, string>
       expect(cliExport).toBeDefined()
-      expect(cliExport.import).toBe('./dist/cli/index.js')
+      expect(cliExport.import).toBe('./dist/cli/index.mjs')
     })
 
     it('files field should not explicitly include source maps', () => {
@@ -310,7 +310,7 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
         return
       }
       const output = result.stdout + result.stderr
-      expect(output).toContain('dist/cli/index.js')
+      expect(output).toContain('dist/cli/index.mjs')
     })
 
     it('npm pack should include README.md', () => {
@@ -350,9 +350,9 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
   // -----------------------------------------------------------------------
   describe('AC9: Entry point validation', () => {
     it('CLI entry point should execute --help without errors', () => {
-      const distCli = join(PROJECT_ROOT, 'dist/cli/index.js')
+      const distCli = join(PROJECT_ROOT, 'dist/cli/index.mjs')
       if (!existsSync(distCli)) {
-        console.warn('dist/cli/index.js not found; skipping help check')
+        console.warn('dist/cli/index.mjs not found; skipping help check')
         return
       }
       const result = spawnSync('node', [distCli, '--help'], {
@@ -372,9 +372,9 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
     })
 
     it('CLI entry point should display all expected subcommands', () => {
-      const distCli = join(PROJECT_ROOT, 'dist/cli/index.js')
+      const distCli = join(PROJECT_ROOT, 'dist/cli/index.mjs')
       if (!existsSync(distCli)) {
-        console.warn('dist/cli/index.js not found; skipping subcommand check')
+        console.warn('dist/cli/index.mjs not found; skipping subcommand check')
         return
       }
       const result = spawnSync('node', [distCli, '--help'], {
@@ -395,9 +395,9 @@ describe('Story 8.1: npm Package Distribution & Installation', () => {
     })
 
     it('CLI should report correct version from package.json', () => {
-      const distCli = join(PROJECT_ROOT, 'dist/cli/index.js')
+      const distCli = join(PROJECT_ROOT, 'dist/cli/index.mjs')
       if (!existsSync(distCli)) {
-        console.warn('dist/cli/index.js not found; skipping version check')
+        console.warn('dist/cli/index.mjs not found; skipping version check')
         return
       }
       const result = spawnSync('node', [distCli, '--version'], {

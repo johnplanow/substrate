@@ -227,12 +227,12 @@ describe('Dolt timezone regression — createPipelineRun writes UTC timestamps',
 // ---------------------------------------------------------------------------
 
 describe('inspectProcessTree — process detection fix (AC2)', () => {
-  it('finds orchestrator PID from "node dist/cli/index.js run" command line (npm run substrate:dev)', () => {
+  it('finds orchestrator PID from "node dist/cli/index.mjs run" command line (npm run substrate:dev)', () => {
     // Simulate ps output when invoked via `npm run substrate:dev -- run`
     const psOutput = [
       'PID  PPID STAT COMMAND',
       '  1     0 Ss   /sbin/init',
-      '99999 99998 S    node dist/cli/index.js run --events --stories 19-1',
+      '99999 99998 S    node dist/cli/index.mjs run --events --stories 19-1',
       '100000 99999 S   node /tmp/.../worker.js',
     ].join('\n')
 
@@ -607,7 +607,7 @@ describe('inspectProcessTree — AC7: process detection for all phases', () => {
   it('detects orchestrator started via node invocation for any phase', () => {
     const psOutput = [
       '  1     0 Ss   /sbin/init',
-      '52345 52344 S    node dist/cli/index.js run --from analysis --events --stories 16-7',
+      '52345 52344 S    node dist/cli/index.mjs run --from analysis --events --stories 16-7',
       '52346 52345 S    node worker.js',
     ].join('\n')
 
@@ -766,7 +766,7 @@ describe('isOrchestratorProcessLine — project-scoped matching', () => {
   const projectB = '/Users/test/code/project-b'
 
   const lineA = `36604 36602 S    node /opt/homebrew/bin/substrate run --stories 1-1 --project-root ${projectA}`
-  const lineB = `38654 38634 S    node dist/cli/index.js run --events --stories 16-7 --project-root ${projectB}`
+  const lineB = `38654 38634 S    node dist/cli/index.mjs run --events --stories 16-7 --project-root ${projectB}`
 
   it('matches any orchestrator when projectRoot is not specified', () => {
     expect(isOrchestratorProcessLine(lineA)).toBe(true)
@@ -781,7 +781,7 @@ describe('isOrchestratorProcessLine — project-scoped matching', () => {
   })
 
   it('matches when projectRoot appears as CWD in the command path', () => {
-    const line = '12345 12344 S    node /Users/test/code/project-a/dist/cli/index.js run --events'
+    const line = '12345 12344 S    node /Users/test/code/project-a/dist/cli/index.mjs run --events'
     expect(isOrchestratorProcessLine(line, projectA)).toBe(true)
     expect(isOrchestratorProcessLine(line, projectB)).toBe(false)
   })
@@ -801,7 +801,7 @@ describe('inspectProcessTree — project-scoped orchestrator selection', () => {
       'PID  PPID STAT COMMAND',
       `36604 36602 S    node /opt/homebrew/bin/substrate run --stories 1-1 --project-root ${projectA}`,
       '36605 36604 S    claude -p worker-a',
-      `38654 38634 S    node dist/cli/index.js run --events --stories 16-7 --project-root ${projectB}`,
+      `38654 38634 S    node dist/cli/index.mjs run --events --stories 16-7 --project-root ${projectB}`,
       '38655 38654 S    claude -p worker-b',
     ].join('\n')
 
