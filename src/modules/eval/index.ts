@@ -10,6 +10,7 @@ export type {
   EvalReport,
   EvalMetadata,
   ThresholdConfig,
+  SelfEvalPhaseConfig,
 } from './types.js'
 export { DEFAULT_PASS_THRESHOLD } from './types.js'
 

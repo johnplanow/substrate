@@ -24,6 +24,7 @@ import {
 import { getRawOutputsByPhaseForRun } from '../../../persistence/queries/phase-outputs.js'
 import {
   runSteps,
+  runStepsWithSelfEval,
   resolveContext,
   formatDecisionsForInjection,
 } from '../step-runner.js'
@@ -1081,5 +1082,180 @@ describe('runSteps() — self-eval at phase boundary (Epic 55-1)', () => {
     expect(phaseOutput).toContain('step-1-output')
     expect(phaseOutput).toContain('step-2-output')
     expect(phaseOutput).toContain('<!-- step-boundary -->')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Self-eval retry wrapper (Epic 55-2)
+// ---------------------------------------------------------------------------
+
+describe('runStepsWithSelfEval() — retry with diagnostic feedback (Epic 55-2)', () => {
+  let adapter: InMemoryDatabaseAdapter
+  let runId: string
+
+  beforeEach(async () => {
+    const setup = await createTestDb()
+    adapter = setup.adapter
+    runId = await createTestRun(adapter)
+  })
+
+  const simpleStep: StepDefinition = {
+    name: 'analyze',
+    taskType: 'analysis',
+    outputSchema: z.object({ result: z.string(), value: z.string().optional() }),
+    context: [],
+    persist: [],
+  }
+
+  it('passes through on first-attempt success (no retry)', async () => {
+    const dispatcher = makeDispatcher([makeDispatchResult()])
+    const deps = makeDeps(adapter, dispatcher)
+    const evaluate = vi.fn().mockResolvedValue({ score: 0.85, pass: true, feedback: '' })
+
+    const { result, retryCount, evalHistory, escalated } = await runStepsWithSelfEval(
+      [simpleStep], deps, runId, 'analysis', {},
+      { hook: { evaluate }, maxRetries: 1 },
+    )
+
+    expect(result.success).toBe(true)
+    expect(retryCount).toBe(0)
+    expect(evalHistory).toHaveLength(1)
+    expect(evalHistory[0].pass).toBe(true)
+    expect(escalated).toBe(false)
+  })
+
+  it('retries with feedback when first attempt fails eval', async () => {
+    // First dispatch: low eval score. Second dispatch: passes.
+    const dispatcher = makeDispatcher([makeDispatchResult(), makeDispatchResult()])
+    const deps = makeDeps(adapter, dispatcher)
+    const evaluate = vi.fn()
+      .mockResolvedValueOnce({ score: 0.55, pass: false, feedback: 'user_specificity is too vague' })
+      .mockResolvedValueOnce({ score: 0.80, pass: true, feedback: '' })
+
+    const { result, retryCount, evalHistory, escalated } = await runStepsWithSelfEval(
+      [simpleStep], deps, runId, 'analysis', {},
+      { hook: { evaluate }, maxRetries: 1 },
+    )
+
+    expect(result.success).toBe(true)
+    expect(retryCount).toBe(1)
+    expect(evalHistory).toHaveLength(2)
+    expect(evalHistory[0].pass).toBe(false)
+    expect(evalHistory[1].pass).toBe(true)
+    expect(escalated).toBe(false)
+    // Verify evaluate was called twice
+    expect(evaluate).toHaveBeenCalledTimes(2)
+  })
+
+  it('escalates after max retries exhausted (on_fail=escalate)', async () => {
+    const dispatcher = makeDispatcher([makeDispatchResult(), makeDispatchResult()])
+    const deps = makeDeps(adapter, dispatcher)
+    const evaluate = vi.fn()
+      .mockResolvedValue({ score: 0.50, pass: false, feedback: 'still bad' })
+
+    const { result, retryCount, evalHistory, escalated } = await runStepsWithSelfEval(
+      [simpleStep], deps, runId, 'analysis', {},
+      { hook: { evaluate }, maxRetries: 1, onFail: 'escalate' },
+    )
+
+    // Phase still succeeds (escalate = flag + continue)
+    expect(result.success).toBe(true)
+    expect(retryCount).toBe(1)
+    expect(evalHistory).toHaveLength(2)
+    expect(escalated).toBe(true)
+  })
+
+  it('blocks pipeline after max retries exhausted (on_fail=block)', async () => {
+    const dispatcher = makeDispatcher([makeDispatchResult(), makeDispatchResult()])
+    const deps = makeDeps(adapter, dispatcher)
+    const evaluate = vi.fn()
+      .mockResolvedValue({ score: 0.50, pass: false, feedback: 'still bad' })
+
+    const { result, retryCount, escalated } = await runStepsWithSelfEval(
+      [simpleStep], deps, runId, 'analysis', {},
+      { hook: { evaluate }, maxRetries: 1, onFail: 'block' },
+    )
+
+    // Phase marked as failed (block = halt pipeline)
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('Self-eval failed')
+    expect(result.error).toContain('on_fail: block')
+    expect(retryCount).toBe(1)
+    expect(escalated).toBe(false)
+  })
+
+  it('injects feedback into params on retry', async () => {
+    let capturedParams: Record<string, string> | undefined
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation(({ prompt }: { prompt: string }) => {
+        // Capture the prompt to check for feedback injection
+        if (prompt.includes('Previous Output Quality Feedback')) {
+          capturedParams = { hadFeedback: 'true' }
+        }
+        return {
+          id: 'dispatch-001',
+          status: 'completed' as const,
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeDispatchResult()),
+        }
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+    const deps = makeDeps(adapter, dispatcher)
+    // Use a pack that includes self_eval_feedback in the template
+    const pack = makePack({ analysis: 'Analyze: {{concept}} {{self_eval_feedback}}' })
+    const depsWithPack = makeDeps(adapter, dispatcher, pack)
+
+    const evaluate = vi.fn()
+      .mockResolvedValueOnce({ score: 0.50, pass: false, feedback: 'needs more specificity' })
+      .mockResolvedValueOnce({ score: 0.85, pass: true, feedback: '' })
+
+    await runStepsWithSelfEval(
+      [{
+        ...simpleStep,
+        context: [{ placeholder: 'self_eval_feedback', source: 'param:self_eval_feedback' }],
+      }],
+      depsWithPack, runId, 'analysis', {},
+      { hook: { evaluate }, maxRetries: 1 },
+    )
+
+    // The retry dispatch should have received feedback in the prompt
+    expect(dispatcher.dispatch).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns immediately when steps fail (no self-eval attempted)', async () => {
+    const dispatcher = makeDispatcher([
+      makeDispatchResult({ status: 'failed', parsed: null, parseError: 'boom' }),
+    ])
+    const deps = makeDeps(adapter, dispatcher)
+    const evaluate = vi.fn().mockResolvedValue({ score: 0.85, pass: true, feedback: '' })
+
+    const { result, retryCount, evalHistory, escalated } = await runStepsWithSelfEval(
+      [simpleStep], deps, runId, 'analysis', {},
+      { hook: { evaluate }, maxRetries: 1 },
+    )
+
+    expect(result.success).toBe(false)
+    expect(retryCount).toBe(0)
+    expect(evalHistory).toHaveLength(0)
+    expect(evaluate).not.toHaveBeenCalled()
+    expect(escalated).toBe(false)
+  })
+
+  it('defaults to maxRetries=1 and onFail=escalate', async () => {
+    const dispatcher = makeDispatcher([makeDispatchResult(), makeDispatchResult()])
+    const deps = makeDeps(adapter, dispatcher)
+    const evaluate = vi.fn()
+      .mockResolvedValue({ score: 0.50, pass: false, feedback: 'bad' })
+
+    const { retryCount, escalated } = await runStepsWithSelfEval(
+      [simpleStep], deps, runId, 'analysis', {},
+      { hook: { evaluate } }, // no maxRetries or onFail specified
+    )
+
+    expect(retryCount).toBe(1) // default maxRetries=1
+    expect(escalated).toBe(true) // default onFail=escalate
   })
 })

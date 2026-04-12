@@ -179,4 +179,36 @@ describe('loadThresholds (V1b-3)', () => {
     expect(config!.default).toBe(0.65)
     expect(config!.phases).toBeUndefined()
   })
+
+  it('loads self_eval config per phase (Epic 55-3)', async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), 'eval-thresh-'))
+    await writeFile(join(tmpDir, 'thresholds.yaml'), [
+      'default: 0.7',
+      'self_eval:',
+      '  analysis:',
+      '    enabled: true',
+      '    threshold: 0.65',
+      '    max_retries: 2',
+      '    on_fail: escalate',
+      '  planning:',
+      '    enabled: false',
+    ].join('\n'))
+    const config = await loadThresholds(tmpDir)
+
+    expect(config).toBeDefined()
+    expect(config!.self_eval).toBeDefined()
+    expect(config!.self_eval!.analysis!.enabled).toBe(true)
+    expect(config!.self_eval!.analysis!.threshold).toBe(0.65)
+    expect(config!.self_eval!.analysis!.max_retries).toBe(2)
+    expect(config!.self_eval!.analysis!.on_fail).toBe('escalate')
+    expect(config!.self_eval!.planning!.enabled).toBe(false)
+  })
+
+  it('self_eval is undefined when not in config (backward compat, Epic 55-3)', async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), 'eval-thresh-'))
+    await writeFile(join(tmpDir, 'thresholds.yaml'), 'default: 0.7\n')
+    const config = await loadThresholds(tmpDir)
+
+    expect(config!.self_eval).toBeUndefined()
+  })
 })

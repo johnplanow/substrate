@@ -16,3 +16,19 @@ phases:
   planning: 0.70
   solutioning: 0.70
   implementation: 0.60
+
+# Self-eval at phase transitions (Epic 55-3)
+# Disabled by default — opt-in per phase. Self-eval thresholds can differ
+# from post-run eval thresholds (a phase might pass self-eval at 0.60 but
+# need 0.70 in the post-run report).
+#
+# self_eval:
+#   analysis:
+#     enabled: true
+#     threshold: 0.65
+#     max_retries: 1
+#     on_fail: escalate
+#   planning:
+#     enabled: true
+#     threshold: 0.65
+#     on_fail: escalate

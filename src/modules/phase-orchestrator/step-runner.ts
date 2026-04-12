@@ -192,6 +192,37 @@ export interface MultiStepResult {
   selfEvalResult?: SelfEvalResult
 }
 
+/** Action to take when self-eval fails after all retries are exhausted (Epic 55-2). */
+export type SelfEvalOnFail = 'retry' | 'escalate' | 'block'
+
+/**
+ * Configuration for self-eval retry behavior (Epic 55-2).
+ * The caller provides this alongside the SelfEvalHook.
+ */
+export interface SelfEvalOptions {
+  /** The eval hook to invoke */
+  hook: SelfEvalHook
+  /** Max retry attempts on low score (default: 1) */
+  maxRetries?: number
+  /** Action on final failure: 'retry' re-runs (redundant here), 'escalate' flags + continues, 'block' halts */
+  onFail?: SelfEvalOnFail
+}
+
+/**
+ * Extended result from runStepsWithSelfEval (Epic 55-2).
+ * Includes retry history alongside the final MultiStepResult.
+ */
+export interface SelfEvalRunResult {
+  /** The final MultiStepResult (from the last attempt) */
+  result: MultiStepResult
+  /** Number of self-eval retries performed (0 if first attempt passed) */
+  retryCount: number
+  /** Self-eval results from each attempt (first attempt + retries) */
+  evalHistory: SelfEvalResult[]
+  /** Whether the phase was escalated due to self-eval failure */
+  escalated: boolean
+}
+
 // ---------------------------------------------------------------------------
 // Context resolution
 // ---------------------------------------------------------------------------
@@ -810,4 +841,113 @@ export async function runSteps(
     elicitationTokenUsage: { input: totalElicitationInput, output: totalElicitationOutput },
     selfEvalResult,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Self-eval retry wrapper (Epic 55-2)
+// ---------------------------------------------------------------------------
+
+/** Feedback section delimiter injected into retry prompt context. */
+const SELF_EVAL_FEEDBACK_KEY = 'self_eval_feedback'
+
+/**
+ * Run phase steps with self-eval and automatic retry on low score.
+ *
+ * Wraps `runSteps()` with a retry loop: if the self-eval hook reports a
+ * failing score, the phase is re-run with eval feedback appended to the
+ * params so the agent gets corrective guidance. On retry exhaustion, the
+ * phase is flagged as escalated (default) or the pipeline blocks.
+ *
+ * @param steps - Step definitions for this phase
+ * @param deps - Phase dependencies
+ * @param runId - Pipeline run ID
+ * @param phase - Phase name
+ * @param params - Runtime parameters (will be enriched with feedback on retry)
+ * @param selfEvalOptions - Self-eval hook + retry configuration
+ * @returns Final result with retry history
+ */
+export async function runStepsWithSelfEval(
+  steps: StepDefinition[],
+  deps: PhaseDeps,
+  runId: string,
+  phase: string,
+  params: Record<string, string>,
+  selfEvalOptions: SelfEvalOptions,
+): Promise<SelfEvalRunResult> {
+  const maxRetries = selfEvalOptions.maxRetries ?? 1
+  const onFail: SelfEvalOnFail = selfEvalOptions.onFail ?? 'escalate'
+  const evalHistory: SelfEvalResult[] = []
+  let retryCount = 0
+  let currentParams = { ...params }
+
+  // First attempt
+  let result = await runSteps(steps, deps, runId, phase, currentParams, selfEvalOptions.hook)
+
+  // If steps failed or no self-eval result, return immediately
+  if (!result.success || !result.selfEvalResult) {
+    return { result, retryCount: 0, evalHistory: [], escalated: false }
+  }
+
+  evalHistory.push(result.selfEvalResult)
+
+  // Retry loop: re-run with feedback while score is below threshold
+  while (!result.selfEvalResult!.pass && retryCount < maxRetries) {
+    retryCount++
+    const feedback = result.selfEvalResult!.feedback
+
+    logger.info(
+      {
+        phase,
+        retryCount,
+        maxRetries,
+        previousScore: result.selfEvalResult!.score,
+      },
+      'Self-eval below threshold — retrying with diagnostic feedback',
+    )
+
+    // Inject feedback into params for the retry dispatch.
+    // The prompt template can reference {{self_eval_feedback}} or the
+    // feedback is appended as a markdown section by the context resolver.
+    currentParams = {
+      ...currentParams,
+      [SELF_EVAL_FEEDBACK_KEY]: [
+        '## Previous Output Quality Feedback',
+        '',
+        feedback,
+        '',
+        `This is retry ${retryCount} of ${maxRetries}. Address the issues above to improve the output quality.`,
+      ].join('\n'),
+    }
+
+    result = await runSteps(steps, deps, runId, phase, currentParams, selfEvalOptions.hook)
+
+    if (!result.success || !result.selfEvalResult) {
+      // Steps failed on retry or self-eval errored — stop retrying
+      return { result, retryCount, evalHistory, escalated: false }
+    }
+
+    evalHistory.push(result.selfEvalResult)
+  }
+
+  // Check final result
+  const finalEval = evalHistory[evalHistory.length - 1]
+  const escalated = !!finalEval && !finalEval.pass && onFail !== 'block'
+
+  if (finalEval && !finalEval.pass) {
+    if (onFail === 'block') {
+      logger.error(
+        { phase, score: finalEval.score, retryCount },
+        'Self-eval failed after all retries — blocking pipeline (on_fail=block)',
+      )
+      // Mark result as failed to signal the caller to halt
+      result = { ...result, success: false, error: `Self-eval failed after ${retryCount} retries (score: ${finalEval.score.toFixed(2)}, on_fail: block)` }
+    } else {
+      logger.warn(
+        { phase, score: finalEval.score, retryCount },
+        'Self-eval failed after all retries — escalating (on_fail=escalate)',
+      )
+    }
+  }
+
+  return { result, retryCount, evalHistory, escalated }
 }

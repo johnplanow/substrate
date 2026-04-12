@@ -93,4 +93,18 @@ export interface ThresholdConfig {
   regression?: number
   /** Per-phase threshold overrides */
   phases?: Partial<Record<EvalPhase, number>>
+  /** Self-eval at phase transitions config (Epic 55-3) */
+  self_eval?: Partial<Record<EvalPhase, SelfEvalPhaseConfig>>
+}
+
+/** Per-phase self-eval configuration (Epic 55-3) */
+export interface SelfEvalPhaseConfig {
+  /** Whether self-eval is enabled for this phase */
+  enabled: boolean
+  /** Pass threshold for self-eval (can differ from post-run eval threshold) */
+  threshold?: number
+  /** Max retry attempts on low score (default: 1) */
+  max_retries?: number
+  /** Action on final failure: 'retry', 'escalate' (default), or 'block' */
+  on_fail?: 'retry' | 'escalate' | 'block'
 }
