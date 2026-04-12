@@ -39,6 +39,14 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
   private _primaryKeys = new Map<string, string[]>()
   /** Maps table name → ordered list of column names (from CREATE TABLE) */
   private _tableColumns = new Map<string, string[]>()
+  /**
+   * Maps table name → array of UNIQUE INDEX column sets. Each set is the
+   * ordered list of columns covered by one `CREATE UNIQUE INDEX` statement.
+   * G10: INSERT enforces each set, rejecting any row that would duplicate
+   * an existing composite value (with NULLs treated as distinct per
+   * standard SQL semantics).
+   */
+  private _uniqueIndexes = new Map<string, string[][]>()
 
   // -------------------------------------------------------------------------
   // DatabaseAdapter implementation
@@ -260,14 +268,38 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
   // -------------------------------------------------------------------------
 
   private _createIndex(sql: string): Row[] {
-    // CREATE [UNIQUE] INDEX [IF NOT EXISTS] indexName ON tableName (...)
-    const m = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+ON\s+(\w+)/i.exec(sql)
+    // CREATE [UNIQUE] INDEX [IF NOT EXISTS] indexName ON tableName (col1, col2, ...)
+    const m =
+      /CREATE\s+(UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+ON\s+(\w+)\s*\(([^)]+)\)/i.exec(
+        sql,
+      )
     if (m) {
-      const name = m[1]!
-      const tbl_name = m[2]!
+      const isUnique = Boolean(m[1])
+      const name = m[2]!
+      const tbl_name = m[3]!
       // Don't add duplicates
       if (!this._indexes.some((idx) => idx.name === name)) {
         this._indexes.push({ name, tbl_name, type: 'index' })
+      }
+      if (isUnique) {
+        // G10: parse and store the composite column list so INSERT can
+        // enforce the constraint. Strip backtick/double-quote quoting so
+        // the column names match the row keys produced by _insert.
+        const cols = m[4]!
+          .split(',')
+          .map((c) => c.trim().replace(/^[`"](.+)[`"]$/, '$1'))
+          .filter((c) => c.length > 0)
+        if (cols.length > 0) {
+          const existing = this._uniqueIndexes.get(tbl_name) ?? []
+          // Avoid duplicate registration of the same column set (IF NOT EXISTS)
+          const alreadyRegistered = existing.some(
+            (set) => set.length === cols.length && set.every((c, i) => c === cols[i]),
+          )
+          if (!alreadyRegistered) {
+            existing.push(cols)
+            this._uniqueIndexes.set(tbl_name, existing)
+          }
+        }
       }
     }
     return []
@@ -395,6 +427,33 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
       )
       if (isDuplicate) {
         throw new Error(`UNIQUE constraint failed: ${tableName} (${pkCols.join(', ')})`)
+      }
+    }
+
+    // G10: Enforce composite UNIQUE INDEXes. Each indexed column set must
+    // be unique across rows, with the caveat that NULL values are treated
+    // as distinct (standard SQL semantics: `NULL != NULL` in UNIQUE).
+    // A row violates a set only if EVERY column in the set is non-null AND
+    // matches some existing row on all of those columns. If any column in
+    // the set is NULL for the incoming row, the set is not violated.
+    const uniqueSets = this._uniqueIndexes.get(tableName)
+    if (uniqueSets && uniqueSets.length > 0 && !_ignoreConflicts) {
+      const table = this._tables.get(tableName)!
+      for (const set of uniqueSets) {
+        const rowHasNullInSet = set.some((col) => row[col] == null)
+        if (rowHasNullInSet) continue
+        const isDuplicate = table.some((existingRow) =>
+          set.every(
+            (col) =>
+              existingRow[col] != null &&
+              String(existingRow[col]) === String(row[col]),
+          ),
+        )
+        if (isDuplicate) {
+          throw new Error(
+            `UNIQUE constraint failed: ${tableName} (${set.join(', ')})`,
+          )
+        }
       }
     }
 

@@ -222,6 +222,23 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_decisions_key ON decisions(phase, `key`)')
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_decisions_superseded_by ON decisions(superseded_by)')
 
+  // G10: composite UNIQUE constraint backing upsertDecision idempotency.
+  // Pre-G10 upsertDecision used SELECT-then-write, which races under
+  // concurrent writers on the same (run_id, category, key). The unique
+  // index makes the constraint DB-enforced and lets upsertDecision use
+  // an atomic INSERT-catch-UPDATE pattern. Wrapped in try/catch because
+  // dialects vary on `IF NOT EXISTS` for UNIQUE INDEX and we may be
+  // re-running initSchema against a repo where the index already exists.
+  // NULLs in pipeline_run_id are treated as distinct (standard SQL), so
+  // orphan decisions (null run_id) do not interact with this constraint.
+  try {
+    await adapter.exec(
+      'CREATE UNIQUE INDEX uniq_decisions_composite ON decisions(pipeline_run_id, category, `key`)',
+    )
+  } catch {
+    /* index already exists on this repo */
+  }
+
   // -- phase_outputs (raw LLM text captured per dispatch step — deferred-work G2) --
   // Consumers (currently the eval CLI) read these rows to judge the actual
   // artifact the LLM produced, rather than reconstructing from parsed decisions.
@@ -237,6 +254,19 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
     )
   `)
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_phase_outputs_run_phase ON phase_outputs(pipeline_run_id, phase)')
+
+  // G10: composite UNIQUE constraint backing upsertPhaseOutput idempotency.
+  // See the decisions uniq_decisions_composite comment above for the
+  // rationale. NULLs in pipeline_run_id do not interact with this
+  // constraint, so orphan captures still rely on the SELECT-then-write
+  // path inside upsertPhaseOutput.
+  try {
+    await adapter.exec(
+      'CREATE UNIQUE INDEX uniq_phase_outputs_composite ON phase_outputs(pipeline_run_id, phase, step_name)',
+    )
+  } catch {
+    /* index already exists on this repo */
+  }
 
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS requirements (

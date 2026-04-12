@@ -62,30 +62,107 @@ export async function createDecision(adapter: DatabaseAdapter, input: CreateDeci
 }
 
 /**
- * Insert or update a decision record.
- * If a decision with the same pipeline_run_id, category, and key already exists,
- * update its value and rationale. Otherwise, insert a new record.
+ * Check whether a caught error is a UNIQUE constraint violation from the
+ * backing adapter. Used by the atomic INSERT-catch-UPDATE upsert pattern.
+ *
+ * Matches both the InMemoryDatabaseAdapter's "UNIQUE constraint failed: ..."
+ * message and Dolt/MySQL's "Duplicate entry ... for key ..." message.
+ */
+function isUniqueConstraintViolation(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const msg = err.message.toLowerCase()
+  return (
+    msg.includes('unique constraint') ||
+    msg.includes('duplicate entry') ||
+    msg.includes('duplicate key')
+  )
+}
+
+/**
+ * Insert or update a decision record, keyed on
+ * `(pipeline_run_id, category, key)`.
+ *
+ * G10: Uses an atomic INSERT-catch-UPDATE pattern backed by the
+ * `uniq_decisions_composite` UNIQUE index. Pre-G10 this was a
+ * SELECT-then-write pattern that raced under concurrent writers:
+ * two callers could both SELECT empty and both INSERT, producing
+ * duplicate rows that violated the upsert contract. The schema-level
+ * constraint now rejects the duplicate INSERT, and this function catches
+ * the violation and recovers via UPDATE — last-writer-wins semantics
+ * preserved, no duplicate rows possible.
+ *
+ * The `pipeline_run_id IS NULL` branch retains the legacy SELECT-first
+ * path because standard SQL treats NULLs as distinct in UNIQUE indexes,
+ * so the DB-level constraint cannot help orphan captures. The null-run
+ * usage is lower-concurrency in practice (see deferred-work G10).
  */
 export async function upsertDecision(adapter: DatabaseAdapter, input: CreateDecisionInput): Promise<Decision> {
   const validated = CreateDecisionInputSchema.parse(input)
 
-  // Check for existing decision with same pipeline_run_id + category + key
-  const rows = await adapter.query<Decision>(
-    'SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = ? AND `key` = ? LIMIT 1',
-    [validated.pipeline_run_id ?? null, validated.category, validated.key],
-  )
-  const existing = rows[0]
-
-  if (existing) {
-    await updateDecision(adapter, existing.id, {
-      value: validated.value,
-      rationale: validated.rationale ?? undefined,
-    })
-    const updated = await adapter.query<Decision>('SELECT * FROM decisions WHERE id = ?', [existing.id])
-    return updated[0]!
+  if (validated.pipeline_run_id == null) {
+    // Null run_id: UNIQUE index treats NULLs as distinct, so the
+    // constraint does not fire. Fall back to application-level dedup
+    // via SELECT-then-write (same as pre-G10).
+    const rows = await adapter.query<Decision>(
+      'SELECT * FROM decisions WHERE pipeline_run_id IS NULL AND category = ? AND `key` = ? LIMIT 1',
+      [validated.category, validated.key],
+    )
+    const existing = rows[0]
+    if (existing) {
+      await updateDecision(adapter, existing.id, {
+        value: validated.value,
+        rationale: validated.rationale ?? undefined,
+      })
+      const updated = await adapter.query<Decision>('SELECT * FROM decisions WHERE id = ?', [existing.id])
+      return updated[0]!
+    }
+    return createDecision(adapter, input)
   }
 
-  return createDecision(adapter, input)
+  // Non-null run_id: atomic INSERT-catch-UPDATE. The UNIQUE index backing
+  // (pipeline_run_id, category, `key`) rejects duplicate INSERTs, so a
+  // concurrent writer that lost the race catches the violation and
+  // recovers via UPDATE without producing a second row.
+  const id = crypto.randomUUID()
+  try {
+    await adapter.query(
+      `INSERT INTO decisions (id, pipeline_run_id, phase, category, \`key\`, value, rationale)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        validated.pipeline_run_id,
+        validated.phase,
+        validated.category,
+        validated.key,
+        validated.value,
+        validated.rationale ?? null,
+      ],
+    )
+    const [row] = await adapter.query<Decision>('SELECT * FROM decisions WHERE id = ?', [id])
+    return row!
+  } catch (err) {
+    if (!isUniqueConstraintViolation(err)) throw err
+    // A row with the same composite key already exists. UPDATE it by
+    // composite key (the UPDATE is a single atomic statement at the
+    // adapter level — no read-modify-write race).
+    await adapter.query(
+      `UPDATE decisions SET value = ?, rationale = ?, updated_at = ?
+       WHERE pipeline_run_id = ? AND category = ? AND \`key\` = ?`,
+      [
+        validated.value,
+        validated.rationale ?? null,
+        new Date().toISOString(),
+        validated.pipeline_run_id,
+        validated.category,
+        validated.key,
+      ],
+    )
+    const [row] = await adapter.query<Decision>(
+      'SELECT * FROM decisions WHERE pipeline_run_id = ? AND category = ? AND `key` = ? LIMIT 1',
+      [validated.pipeline_run_id, validated.category, validated.key],
+    )
+    return row!
+  }
 }
 
 /**

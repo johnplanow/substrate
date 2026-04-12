@@ -15,11 +15,37 @@ import {
 } from '../schemas/phase-outputs.js'
 
 /**
+ * Check whether a caught error is a UNIQUE constraint violation. Used by
+ * the atomic INSERT-catch-UPDATE upsert pattern (G10).
+ *
+ * Matches both the InMemoryDatabaseAdapter's "UNIQUE constraint failed"
+ * message and Dolt/MySQL's "Duplicate entry ... for key ..." message.
+ */
+function isUniqueConstraintViolation(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const msg = err.message.toLowerCase()
+  return (
+    msg.includes('unique constraint') ||
+    msg.includes('duplicate entry') ||
+    msg.includes('duplicate key')
+  )
+}
+
+/**
  * Insert or update a phase_outputs row keyed by
  * `(pipeline_run_id, phase, step_name)`. Idempotent: a second call with the
  * same composite key updates the existing row's `raw_output` and
  * `updated_at` without changing the `id`, so resume and retry paths are
  * safe.
+ *
+ * G10: For non-null run_id, uses an atomic INSERT-catch-UPDATE pattern
+ * backed by the `uniq_phase_outputs_composite` UNIQUE index. Pre-G10 this
+ * was a SELECT-then-write pattern that raced under concurrent writers.
+ *
+ * For null run_id, falls back to the legacy SELECT-first path because
+ * standard SQL treats NULLs as distinct in UNIQUE indexes (the constraint
+ * doesn't fire for NULL values), so orphan captures rely on
+ * application-level dedup.
  */
 export async function upsertPhaseOutput(
   adapter: DatabaseAdapter,
@@ -27,50 +53,71 @@ export async function upsertPhaseOutput(
 ): Promise<PhaseOutput> {
   const validated = CreatePhaseOutputInputSchema.parse(input)
 
-  // SQL NULL != NULL, so `WHERE pipeline_run_id = ?` with a null param
-  // returns zero rows and breaks upsert idempotency for orphan captures.
-  // Branch on null so the IS NULL variant is used when appropriate.
-  const runIdIsNull = validated.pipeline_run_id == null
-  const existing = runIdIsNull
-    ? await adapter.query<PhaseOutput>(
-        'SELECT * FROM phase_outputs WHERE pipeline_run_id IS NULL AND phase = ? AND step_name = ? LIMIT 1',
-        [validated.phase, validated.step_name],
+  if (validated.pipeline_run_id == null) {
+    // Null run_id: UNIQUE index cannot enforce composite uniqueness
+    // because NULLs compare as distinct in standard SQL. Fall back to
+    // application-level dedup via SELECT-then-write.
+    const existing = await adapter.query<PhaseOutput>(
+      'SELECT * FROM phase_outputs WHERE pipeline_run_id IS NULL AND phase = ? AND step_name = ? LIMIT 1',
+      [validated.phase, validated.step_name],
+    )
+    if (existing[0]) {
+      await adapter.query(
+        'UPDATE phase_outputs SET raw_output = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [validated.raw_output, existing[0].id],
       )
-    : await adapter.query<PhaseOutput>(
-        'SELECT * FROM phase_outputs WHERE pipeline_run_id = ? AND phase = ? AND step_name = ? LIMIT 1',
-        [validated.pipeline_run_id, validated.phase, validated.step_name],
+      const updated = await adapter.query<PhaseOutput>(
+        'SELECT * FROM phase_outputs WHERE id = ?',
+        [existing[0].id],
       )
-
-  if (existing[0]) {
+      return updated[0]!
+    }
+    const id = crypto.randomUUID()
     await adapter.query(
-      'UPDATE phase_outputs SET raw_output = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [validated.raw_output, existing[0].id],
+      `INSERT INTO phase_outputs (id, pipeline_run_id, phase, step_name, raw_output)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, null, validated.phase, validated.step_name, validated.raw_output],
     )
-    const updated = await adapter.query<PhaseOutput>(
-      'SELECT * FROM phase_outputs WHERE id = ?',
-      [existing[0].id],
-    )
-    return updated[0]!
+    const rows = await adapter.query<PhaseOutput>('SELECT * FROM phase_outputs WHERE id = ?', [id])
+    return rows[0]!
   }
 
+  // Non-null run_id: atomic INSERT-catch-UPDATE.
   const id = crypto.randomUUID()
-  await adapter.query(
-    `INSERT INTO phase_outputs (id, pipeline_run_id, phase, step_name, raw_output)
-     VALUES (?, ?, ?, ?, ?)`,
-    [
-      id,
-      validated.pipeline_run_id ?? null,
-      validated.phase,
-      validated.step_name,
-      validated.raw_output,
-    ],
-  )
-
-  const rows = await adapter.query<PhaseOutput>(
-    'SELECT * FROM phase_outputs WHERE id = ?',
-    [id],
-  )
-  return rows[0]!
+  try {
+    await adapter.query(
+      `INSERT INTO phase_outputs (id, pipeline_run_id, phase, step_name, raw_output)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        id,
+        validated.pipeline_run_id,
+        validated.phase,
+        validated.step_name,
+        validated.raw_output,
+      ],
+    )
+    const [row] = await adapter.query<PhaseOutput>('SELECT * FROM phase_outputs WHERE id = ?', [id])
+    return row!
+  } catch (err) {
+    if (!isUniqueConstraintViolation(err)) throw err
+    // Composite key collision — UPDATE by composite key (atomic single
+    // statement, no read-modify-write race).
+    await adapter.query(
+      `UPDATE phase_outputs SET raw_output = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE pipeline_run_id = ? AND phase = ? AND step_name = ?`,
+      [
+        validated.raw_output,
+        validated.pipeline_run_id,
+        validated.phase,
+        validated.step_name,
+      ],
+    )
+    const [row] = await adapter.query<PhaseOutput>(
+      'SELECT * FROM phase_outputs WHERE pipeline_run_id = ? AND phase = ? AND step_name = ? LIMIT 1',
+      [validated.pipeline_run_id, validated.phase, validated.step_name],
+    )
+    return row!
+  }
 }
 
 /**
