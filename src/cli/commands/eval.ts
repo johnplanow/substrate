@@ -99,6 +99,8 @@ export interface EvalCommandOptions {
   concept?: string
   report: ReportFormat
   projectRoot: string
+  /** When true, persist results to promptfoo's cache for `npx promptfoo view`. */
+  promptfooUi?: boolean
 }
 
 /**
@@ -363,7 +365,9 @@ export async function runEvalAction(options: EvalCommandOptions): Promise<number
     const thresholds = await loadThresholds(fixturesDir)
 
     // Run eval
-    const evalAdapter = new PromptfooAdapter()
+    const evalAdapter = new PromptfooAdapter({
+      persistToUi: options.promptfooUi ?? false,
+    })
     const engine = new EvalEngine(evalAdapter)
     const evalReport = await engine.evaluate(phaseDataList, depth, run.id, thresholds)
 
@@ -533,6 +537,7 @@ export function registerEvalCommand(
     .option('--concept <name>', 'Canonical test concept for golden example comparison')
     .option('--report <format>', 'Output format: table, json, or markdown', 'table')
     .option('--compare <runs>', 'Compare two runs: --compare <runA>,<runB>')
+    .option('--promptfoo-ui', 'Persist results to promptfoo cache for `npx promptfoo view`')
     .option('--project-root <path>', 'Project root directory', projectRoot)
     .action(
       async (opts: {
@@ -542,6 +547,7 @@ export function registerEvalCommand(
         concept?: string
         report: string
         compare?: string
+        promptfooUi?: boolean
         projectRoot: string
       }) => {
         const reportFmt: ReportFormat =
@@ -574,6 +580,7 @@ export function registerEvalCommand(
           concept: opts.concept,
           report: reportFmt,
           projectRoot: opts.projectRoot,
+          promptfooUi: opts.promptfooUi,
         })
         process.exitCode = exitCode
       },

@@ -14,7 +14,7 @@ export type {
 } from './types.js'
 export { DEFAULT_PASS_THRESHOLD } from './types.js'
 
-export type { EvalAdapter } from './adapter.js'
+export type { EvalAdapter, PromptfooAdapterOptions } from './adapter.js'
 export { PromptfooAdapter } from './adapter.js'
 
 export { EvalEngine, resolveThreshold } from './eval-engine.js'

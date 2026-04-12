@@ -10,7 +10,18 @@ export interface EvalAdapter {
   ): Promise<LayerResult>
 }
 
+export interface PromptfooAdapterOptions {
+  /** When true, write results to promptfoo's output cache for `npx promptfoo view`. */
+  persistToUi?: boolean
+}
+
 export class PromptfooAdapter implements EvalAdapter {
+  private persistToUi: boolean
+
+  constructor(options?: PromptfooAdapterOptions) {
+    this.persistToUi = options?.persistToUi ?? false
+  }
+
   async runAssertions(
     output: string,
     assertions: EvalAssertion[],
@@ -109,6 +120,24 @@ export class PromptfooAdapter implements EvalAdapter {
       }
 
       const evalResult = await promptfoo.evaluate(testSuite as any)
+
+      // Persist to promptfoo's output cache for `npx promptfoo view`.
+      // Fire-and-forget — UI persistence failure should never fail the eval.
+      if (this.persistToUi) {
+        try {
+          if (typeof promptfoo.writeResultsToDatabase === 'function') {
+            await promptfoo.writeResultsToDatabase(evalResult.results, testSuite as any)
+          } else if (typeof promptfoo.writeOutput === 'function') {
+            await promptfoo.writeOutput(
+              // promptfoo expects { evalId, results, config, ... }
+              { results: evalResult.results, config: testSuite },
+              null, // outputPath — null uses default ~/.promptfoo/
+            )
+          }
+        } catch {
+          // Silently skip — UI persistence is best-effort
+        }
+      }
 
       // promptfoo's Eval.results is EvalResult[] — one entry per test case.
       // We submit a single test with N assertions, so there's one row whose
