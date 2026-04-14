@@ -964,6 +964,245 @@ export async function scaffoldClaudeCommands(
 }
 
 // ---------------------------------------------------------------------------
+// Codex scaffolding (.codex/prompts/ + .codex/skills/)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sync every `.md` file from a source commands directory into a target prompts
+ * directory, flat. Codex CLI loads `<root>/.codex/prompts/*.md` as slash
+ * commands, so the already-generated Claude command files map 1:1.
+ *
+ * On re-runs, any `.md` file in the target that matches `ownershipPrefixes`
+ * but is no longer present in the source is removed, so stale substrate-
+ * generated prompts don't accumulate. `.md` files without a matching prefix
+ * are left untouched (protecting user-authored content in `~/.codex/`).
+ *
+ * Returns the number of prompt files written.
+ */
+function syncCommandsAsPrompts(
+  commandsDir: string,
+  promptsDir: string,
+  ownershipPrefixes: string[],
+  namePrefix: string,
+): number {
+  // If the source directory is missing, we have no authoritative set to mirror
+  // against — never prune, never populate, to avoid destroying preserved content
+  // when `.claude/commands/` is transiently absent (e.g., bmad-method missing).
+  if (!existsSync(commandsDir)) return 0
+
+  mkdirSync(promptsDir, { recursive: true })
+
+  const sourceEntries = readdirSync(commandsDir, { withFileTypes: true }).filter(
+    (e) => e.isFile() && e.name.endsWith('.md'),
+  )
+
+  const destNames = new Set(
+    sourceEntries.map((e) =>
+      namePrefix && !e.name.startsWith(namePrefix) ? `${namePrefix}${e.name}` : e.name,
+    ),
+  )
+
+  try {
+    for (const entry of readdirSync(promptsDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.md')) continue
+      const isOwned = ownershipPrefixes.some((p) => entry.name.startsWith(p))
+      if (!isOwned) continue
+      if (destNames.has(entry.name)) continue
+      unlinkSync(join(promptsDir, entry.name))
+    }
+  } catch (err) {
+    logger.debug({ err, promptsDir }, 'Failed to prune stale prompts')
+  }
+
+  let count = 0
+  for (const entry of sourceEntries) {
+    const destName =
+      namePrefix && !entry.name.startsWith(namePrefix) ? `${namePrefix}${entry.name}` : entry.name
+    cpSync(join(commandsDir, entry.name), join(promptsDir, destName))
+    count++
+  }
+  return count
+}
+
+/**
+ * Sync skill directories from a source skills root into a target skills root,
+ * optionally namespaced under `namePrefix`.
+ *
+ * Every direct child directory of `srcSkillsDir` is treated as a skill bundle
+ * (no SKILL.md check — the source is always `.claude/skills/` which has
+ * already been sanitized by `prepareSkillsDir`). On re-runs, any skill
+ * directory in the target whose name starts with one of `ownershipPrefixes`
+ * but is no longer present in the source is removed.
+ *
+ * Returns the number of skill directories copied.
+ */
+function syncSkillsToTarget(
+  srcSkillsDir: string,
+  destSkillsDir: string,
+  ownershipPrefixes: string[],
+  namePrefix: string,
+): number {
+  // Same rationale as syncCommandsAsPrompts: bail if source is missing so we
+  // never prune preserved content without an authoritative mirror target.
+  if (!existsSync(srcSkillsDir)) return 0
+
+  mkdirSync(destSkillsDir, { recursive: true })
+
+  const sourceEntries = readdirSync(srcSkillsDir, { withFileTypes: true }).filter((e) =>
+    e.isDirectory(),
+  )
+
+  const destNames = new Set(
+    sourceEntries.map((e) =>
+      namePrefix && !e.name.startsWith(namePrefix) ? `${namePrefix}${e.name}` : e.name,
+    ),
+  )
+
+  try {
+    for (const entry of readdirSync(destSkillsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const isOwned = ownershipPrefixes.some((p) => entry.name.startsWith(p))
+      if (!isOwned) continue
+      if (destNames.has(entry.name)) continue
+      rmSync(join(destSkillsDir, entry.name), { recursive: true, force: true })
+    }
+  } catch (err) {
+    logger.debug({ err, destSkillsDir }, 'Failed to prune stale skills')
+  }
+
+  let count = 0
+  for (const entry of sourceEntries) {
+    const destName =
+      namePrefix && !entry.name.startsWith(namePrefix) ? `${namePrefix}${entry.name}` : entry.name
+    const dest = join(destSkillsDir, destName)
+    rmSync(dest, { recursive: true, force: true })
+    cpSync(join(srcSkillsDir, entry.name), dest, { recursive: true })
+    count++
+  }
+  return count
+}
+
+// Prefixes of prompts/skills substrate itself writes into `.codex/` (the same
+// names substrate init produces in `.claude/commands/` + `.claude/skills/`).
+// Non-prefixed files (e.g., `ship.md` from the superpowers plugin) are never
+// pruned — they belong to whatever tool installed them.
+const PROJECT_OWNERSHIP_PREFIXES = ['bmad-', 'substrate-']
+
+/**
+ * Scaffold project-scoped Codex content from the already-generated
+ * `.claude/commands/` and `.claude/skills/`. Must run AFTER
+ * `scaffoldClaudeCommands`.
+ *
+ * Writes:
+ *   - <projectRoot>/.codex/prompts/*.md  (slash commands)
+ *   - <projectRoot>/.codex/skills/<skill>/  (skill bundles)
+ *
+ * Stale substrate-owned entries (bmad-*, substrate-*) from previous runs are
+ * pruned before new content is written. Non-owned files (e.g., `ship.md` from
+ * a plugin) are left alone.
+ */
+export function scaffoldCodexProject(
+  projectRoot: string,
+  outputFormat: OutputFormat,
+): void {
+  const claudeCommandsDir = join(projectRoot, '.claude', 'commands')
+  const claudeSkillsDir = join(projectRoot, '.claude', 'skills')
+  const codexDir = join(projectRoot, '.codex')
+  const codexPromptsDir = join(codexDir, 'prompts')
+  const codexSkillsDir = join(codexDir, 'skills')
+
+  try {
+    const promptCount = syncCommandsAsPrompts(
+      claudeCommandsDir,
+      codexPromptsDir,
+      PROJECT_OWNERSHIP_PREFIXES,
+      '',
+    )
+    const skillCount = syncSkillsToTarget(
+      claudeSkillsDir,
+      codexSkillsDir,
+      PROJECT_OWNERSHIP_PREFIXES,
+      '',
+    )
+
+    const total = promptCount + skillCount
+    if (outputFormat !== 'json' && total > 0) {
+      process.stdout.write(
+        `Generated ${String(total)} Codex artifacts (${String(promptCount)} prompts, ${String(skillCount)} skills)\n`,
+      )
+    }
+    if (total > 0) {
+      logger.info({ promptCount, skillCount, codexDir }, 'Generated .codex/')
+    } else {
+      logger.debug({ codexDir }, 'No Codex artifacts generated; source Claude content not found')
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (outputFormat !== 'json') {
+      process.stderr.write(`Warning: .codex/ generation failed: ${msg}\n`)
+    }
+    logger.warn({ err }, 'scaffoldCodexProject failed; init continues')
+  }
+}
+
+/**
+ * Install Codex content user-wide at `~/.codex/`, namespaced under
+ * `substrate-` to avoid colliding with user-installed content.
+ *
+ * Writes:
+ *   - ~/.codex/prompts/substrate-<slug>.md  (slash commands)
+ *   - ~/.codex/skills/substrate-<name>/     (skill bundles)
+ *
+ * Stale `substrate-*` entries from previous runs are pruned before new
+ * content is written. Files/directories without the `substrate-` prefix
+ * are never touched.
+ */
+export function scaffoldCodexUser(
+  projectRoot: string,
+  homeDir: string,
+  outputFormat: OutputFormat,
+): void {
+  const claudeCommandsDir = join(projectRoot, '.claude', 'commands')
+  const claudeSkillsDir = join(projectRoot, '.claude', 'skills')
+  const userCodexDir = join(homeDir, '.codex')
+  const userPromptsDir = join(userCodexDir, 'prompts')
+  const userSkillsDir = join(userCodexDir, 'skills')
+
+  try {
+    const promptCount = syncCommandsAsPrompts(
+      claudeCommandsDir,
+      userPromptsDir,
+      ['substrate-'],
+      'substrate-',
+    )
+    const skillCount = syncSkillsToTarget(
+      claudeSkillsDir,
+      userSkillsDir,
+      ['substrate-'],
+      'substrate-',
+    )
+
+    const total = promptCount + skillCount
+    if (outputFormat !== 'json' && total > 0) {
+      process.stdout.write(
+        `Installed ${String(total)} Codex artifacts to ${userCodexDir} (${String(promptCount)} prompts, ${String(skillCount)} skills)\n`,
+      )
+    }
+    if (total > 0) {
+      logger.info({ promptCount, skillCount, userCodexDir }, 'Installed user-scope Codex content')
+    } else {
+      logger.debug({ userCodexDir }, 'No user-scope Codex content installed; source Claude content not found')
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (outputFormat !== 'json') {
+      process.stderr.write(`Warning: user-scope Codex install failed: ${msg}\n`)
+    }
+    logger.warn({ err }, 'scaffoldCodexUser failed; init continues')
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Provider config builder (from old init.ts)
 // ---------------------------------------------------------------------------
 
@@ -1128,6 +1367,11 @@ export interface InitOptions {
    *   'skip'  — skip Dolt bootstrapping entirely
    */
   doltMode?: 'auto' | 'force' | 'skip'
+  /**
+   * When true, additionally install Codex prompts/skills into `~/.codex/`,
+   * namespaced under `substrate-` to avoid collisions. Default: false.
+   */
+  installUserScope?: boolean
 }
 
 /**
@@ -1381,6 +1625,17 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     await scaffoldStatuslineScript(projectRoot)
     await scaffoldClaudeSettings(projectRoot)
     await scaffoldClaudeCommands(projectRoot, outputFormat)
+    scaffoldCodexProject(projectRoot, outputFormat)
+    if (options.installUserScope) {
+      const homeDir = process.env['HOME'] ?? process.env['USERPROFILE']
+      if (homeDir) {
+        scaffoldCodexUser(projectRoot, homeDir, outputFormat)
+      } else if (outputFormat !== 'json') {
+        process.stderr.write(
+          'Warning: --install-user-scope requested but HOME/USERPROFILE is not set\n',
+        )
+      }
+    }
 
     // Ensure substrate runtime and factory files are gitignored
     const gitignorePath = join(projectRoot, '.gitignore')
@@ -1391,6 +1646,8 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       '.substrate/state/',
       '.substrate/substrate.db',
       '.substrate/substrate.db-journal',
+      '.codex/prompts/',
+      '.codex/skills/',
     ]
     try {
       const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf-8') : ''
@@ -1478,6 +1735,8 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       process.stdout.write(`    AGENTS.md             pipeline instructions for Codex CLI\n`)
       process.stdout.write(`    GEMINI.md             pipeline instructions for Gemini CLI\n`)
       process.stdout.write(`    .claude/commands/     /substrate-run, /substrate-supervisor, /substrate-metrics\n`)
+      process.stdout.write(`    .codex/prompts/       Codex slash commands (mirror of .claude/commands/)\n`)
+      process.stdout.write(`    .codex/skills/        Codex skill bundles (mirror of .claude/skills/)\n`)
       process.stdout.write(`    .substrate/           config, database, routing policy\n`)
 
       if (doltInitialized) {
@@ -1534,6 +1793,7 @@ export function registerInitCommand(
     )
     .option('--dolt', 'Initialize Dolt state database as part of init (forces Dolt bootstrapping)', false)
     .option('--no-dolt', 'Skip Dolt state store initialization even if Dolt is installed')
+    .option('--install-user-scope', 'Also install Codex prompts/skills into ~/.codex/ (namespaced substrate-*)', false)
     .action(async (opts: {
       pack: string
       projectRoot: string
@@ -1542,6 +1802,7 @@ export function registerInitCommand(
       outputFormat: string
       dolt: boolean
       noDolt: boolean
+      installUserScope: boolean
     }) => {
       const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
 
@@ -1554,6 +1815,7 @@ export function registerInitCommand(
         force: opts.force,
         yes: opts.yes,
         doltMode,
+        installUserScope: opts.installUserScope,
         ...(registry !== undefined && { registry }),
       })
       process.exitCode = exitCode
