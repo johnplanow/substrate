@@ -985,17 +985,16 @@ function syncCommandsAsPrompts(
   ownershipPrefixes: string[],
   namePrefix: string,
 ): number {
-  const sourceExists = existsSync(commandsDir)
-  const destExists = existsSync(promptsDir)
-  if (!sourceExists && !destExists) return 0
+  // If the source directory is missing, we have no authoritative set to mirror
+  // against — never prune, never populate, to avoid destroying preserved content
+  // when `.claude/commands/` is transiently absent (e.g., bmad-method missing).
+  if (!existsSync(commandsDir)) return 0
 
   mkdirSync(promptsDir, { recursive: true })
 
-  const sourceEntries = sourceExists
-    ? readdirSync(commandsDir, { withFileTypes: true }).filter(
-        (e) => e.isFile() && e.name.endsWith('.md'),
-      )
-    : []
+  const sourceEntries = readdirSync(commandsDir, { withFileTypes: true }).filter(
+    (e) => e.isFile() && e.name.endsWith('.md'),
+  )
 
   const destNames = new Set(
     sourceEntries.map((e) =>
@@ -1043,15 +1042,15 @@ function syncSkillsToTarget(
   ownershipPrefixes: string[],
   namePrefix: string,
 ): number {
-  const sourceExists = existsSync(srcSkillsDir)
-  const destExists = existsSync(destSkillsDir)
-  if (!sourceExists && !destExists) return 0
+  // Same rationale as syncCommandsAsPrompts: bail if source is missing so we
+  // never prune preserved content without an authoritative mirror target.
+  if (!existsSync(srcSkillsDir)) return 0
 
   mkdirSync(destSkillsDir, { recursive: true })
 
-  const sourceEntries = sourceExists
-    ? readdirSync(srcSkillsDir, { withFileTypes: true }).filter((e) => e.isDirectory())
-    : []
+  const sourceEntries = readdirSync(srcSkillsDir, { withFileTypes: true }).filter((e) =>
+    e.isDirectory(),
+  )
 
   const destNames = new Set(
     sourceEntries.map((e) =>
@@ -1083,9 +1082,11 @@ function syncSkillsToTarget(
   return count
 }
 
-// Project-scoped Codex dirs are fully owned by substrate, so any bmad-/ship-/
-// substrate-prefixed file is fair game to remove on re-runs.
-const PROJECT_OWNERSHIP_PREFIXES = ['bmad-', 'substrate-', 'ship']
+// Prefixes of prompts/skills substrate itself writes into `.codex/` (the same
+// names substrate init produces in `.claude/commands/` + `.claude/skills/`).
+// Non-prefixed files (e.g., `ship.md` from the superpowers plugin) are never
+// pruned — they belong to whatever tool installed them.
+const PROJECT_OWNERSHIP_PREFIXES = ['bmad-', 'substrate-']
 
 /**
  * Scaffold project-scoped Codex content from the already-generated
@@ -1096,8 +1097,9 @@ const PROJECT_OWNERSHIP_PREFIXES = ['bmad-', 'substrate-', 'ship']
  *   - <projectRoot>/.codex/prompts/*.md  (slash commands)
  *   - <projectRoot>/.codex/skills/<skill>/  (skill bundles)
  *
- * Stale substrate-owned entries (bmad-*, substrate-*, ship*) from previous
- * runs are pruned before new content is written.
+ * Stale substrate-owned entries (bmad-*, substrate-*) from previous runs are
+ * pruned before new content is written. Non-owned files (e.g., `ship.md` from
+ * a plugin) are left alone.
  */
 export function scaffoldCodexProject(
   projectRoot: string,
@@ -1629,7 +1631,9 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       if (homeDir) {
         scaffoldCodexUser(projectRoot, homeDir, outputFormat)
       } else if (outputFormat !== 'json') {
-        process.stderr.write('Warning: --install-user-scope requested but HOME is not set\n')
+        process.stderr.write(
+          'Warning: --install-user-scope requested but HOME/USERPROFILE is not set\n',
+        )
       }
     }
 

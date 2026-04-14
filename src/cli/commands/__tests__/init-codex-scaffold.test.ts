@@ -88,10 +88,12 @@ describe('scaffoldCodexProject', () => {
     const promptsDir = join(tempRoot, '.codex', 'prompts')
     const skillsDir = join(tempRoot, '.codex', 'skills')
 
-    // Seed target with orphaned substrate-owned artifacts and one user-owned file
+    // Seed target with orphaned substrate-owned artifacts and non-owned files
+    // (plugin-authored `ship.md`, user custom prompt, user custom skill dir)
     mkdirSync(promptsDir, { recursive: true })
     writeFileSync(join(promptsDir, 'bmad-gone.md'), 'stale')
     writeFileSync(join(promptsDir, 'my-own.md'), 'keep me')
+    writeFileSync(join(promptsDir, 'ship.md'), 'plugin-authored') // not substrate-owned
     mkdirSync(join(skillsDir, 'bmad-gone'), { recursive: true })
     writeFileSync(join(skillsDir, 'bmad-gone', 'SKILL.md'), 'stale')
     mkdirSync(join(skillsDir, 'user-custom'), { recursive: true })
@@ -101,9 +103,26 @@ describe('scaffoldCodexProject', () => {
 
     expect(existsSync(join(promptsDir, 'bmad-gone.md'))).toBe(false)
     expect(existsSync(join(promptsDir, 'my-own.md'))).toBe(true)
+    expect(existsSync(join(promptsDir, 'ship.md'))).toBe(true)
     expect(existsSync(join(skillsDir, 'bmad-gone'))).toBe(false)
     expect(existsSync(join(skillsDir, 'user-custom'))).toBe(true)
     expect(existsSync(join(promptsDir, 'bmad-agent-pm.md'))).toBe(true)
+  })
+
+  it('does not prune when source .claude/ is missing (protects last known good state)', () => {
+    // Do NOT seed — only the target has content (simulating a prior successful run
+    // followed by a run where bmad-method is transiently unavailable).
+    const promptsDir = join(tempRoot, '.codex', 'prompts')
+    const skillsDir = join(tempRoot, '.codex', 'skills')
+    mkdirSync(promptsDir, { recursive: true })
+    writeFileSync(join(promptsDir, 'bmad-agent-pm.md'), 'preserved')
+    mkdirSync(join(skillsDir, 'bmad-agent-pm'), { recursive: true })
+    writeFileSync(join(skillsDir, 'bmad-agent-pm', 'SKILL.md'), 'preserved')
+
+    scaffoldCodexProject(tempRoot, 'json')
+
+    expect(existsSync(join(promptsDir, 'bmad-agent-pm.md'))).toBe(true)
+    expect(existsSync(join(skillsDir, 'bmad-agent-pm', 'SKILL.md'))).toBe(true)
   })
 })
 
