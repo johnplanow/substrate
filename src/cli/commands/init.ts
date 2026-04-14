@@ -964,6 +964,154 @@ export async function scaffoldClaudeCommands(
 }
 
 // ---------------------------------------------------------------------------
+// Codex scaffolding (.codex/prompts/ + .codex/skills/)
+// ---------------------------------------------------------------------------
+
+/**
+ * Copy every `.md` file from a source commands directory into a target prompts
+ * directory, flat. Codex CLI loads `<root>/.codex/prompts/*.md` as slash
+ * commands, so the already-generated Claude command files map 1:1.
+ *
+ * Returns the number of prompt files written.
+ */
+function copyCommandsAsPrompts(commandsDir: string, promptsDir: string): number {
+  if (!existsSync(commandsDir)) return 0
+  mkdirSync(promptsDir, { recursive: true })
+
+  let count = 0
+  try {
+    for (const entry of readdirSync(commandsDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.md')) continue
+      const src = join(commandsDir, entry.name)
+      const dest = join(promptsDir, entry.name)
+      cpSync(src, dest)
+      count++
+    }
+  } catch (err) {
+    logger.debug({ err, commandsDir }, 'Failed to enumerate commands directory')
+  }
+  return count
+}
+
+/**
+ * Copy skill directories (dirs containing SKILL.md) from a source skills root
+ * into a target skills root, namespaced under `namespacePrefix` if provided.
+ *
+ * Returns the number of skill directories copied.
+ */
+function copySkillsToTarget(
+  srcSkillsDir: string,
+  destSkillsDir: string,
+  namespacePrefix: string,
+): number {
+  if (!existsSync(srcSkillsDir)) return 0
+  mkdirSync(destSkillsDir, { recursive: true })
+
+  let count = 0
+  try {
+    for (const entry of readdirSync(srcSkillsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const src = join(srcSkillsDir, entry.name)
+      const destName = namespacePrefix ? `${namespacePrefix}${entry.name}` : entry.name
+      const dest = join(destSkillsDir, destName)
+      rmSync(dest, { recursive: true, force: true })
+      cpSync(src, dest, { recursive: true })
+      count++
+    }
+  } catch (err) {
+    logger.debug({ err, srcSkillsDir }, 'Failed to enumerate source skills directory')
+  }
+  return count
+}
+
+/**
+ * Scaffold project-scoped Codex content from the already-generated
+ * `.claude/commands/` and `.claude/skills/`. Must run AFTER
+ * `scaffoldClaudeCommands`.
+ *
+ * Writes:
+ *   - <projectRoot>/.codex/prompts/*.md  (slash commands)
+ *   - <projectRoot>/.codex/skills/<skill>/  (skill bundles)
+ */
+export function scaffoldCodexProject(
+  projectRoot: string,
+  outputFormat: OutputFormat,
+): void {
+  const claudeCommandsDir = join(projectRoot, '.claude', 'commands')
+  const claudeSkillsDir = join(projectRoot, '.claude', 'skills')
+  const codexDir = join(projectRoot, '.codex')
+  const codexPromptsDir = join(codexDir, 'prompts')
+  const codexSkillsDir = join(codexDir, 'skills')
+
+  try {
+    const promptCount = copyCommandsAsPrompts(claudeCommandsDir, codexPromptsDir)
+    const skillCount = copySkillsToTarget(claudeSkillsDir, codexSkillsDir, '')
+
+    if (outputFormat !== 'json' && (promptCount > 0 || skillCount > 0)) {
+      process.stdout.write(
+        `Generated ${String(promptCount + skillCount)} Codex artifacts (${String(promptCount)} prompts, ${String(skillCount)} skills)\n`,
+      )
+    }
+    logger.info({ promptCount, skillCount, codexDir }, 'Generated .codex/')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (outputFormat !== 'json') {
+      process.stderr.write(`Warning: .codex/ generation failed: ${msg}\n`)
+    }
+    logger.warn({ err }, 'scaffoldCodexProject failed; init continues')
+  }
+}
+
+/**
+ * Install Codex content user-wide at `~/.codex/`, namespaced under
+ * `substrate-` / `substrate-` to avoid colliding with user-installed content.
+ *
+ * Writes:
+ *   - ~/.codex/prompts/substrate-<slug>.md  (slash commands)
+ *   - ~/.codex/skills/substrate-<name>/     (skill bundles)
+ */
+export function scaffoldCodexUser(
+  projectRoot: string,
+  homeDir: string,
+  outputFormat: OutputFormat,
+): void {
+  const claudeCommandsDir = join(projectRoot, '.claude', 'commands')
+  const claudeSkillsDir = join(projectRoot, '.claude', 'skills')
+  const userCodexDir = join(homeDir, '.codex')
+  const userPromptsDir = join(userCodexDir, 'prompts')
+  const userSkillsDir = join(userCodexDir, 'skills')
+
+  try {
+    // Prompts: rename each file to substrate-<original>
+    let promptCount = 0
+    if (existsSync(claudeCommandsDir)) {
+      mkdirSync(userPromptsDir, { recursive: true })
+      for (const entry of readdirSync(claudeCommandsDir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith('.md')) continue
+        const baseName = entry.name.startsWith('substrate-') ? entry.name : `substrate-${entry.name}`
+        cpSync(join(claudeCommandsDir, entry.name), join(userPromptsDir, baseName))
+        promptCount++
+      }
+    }
+
+    const skillCount = copySkillsToTarget(claudeSkillsDir, userSkillsDir, 'substrate-')
+
+    if (outputFormat !== 'json' && (promptCount > 0 || skillCount > 0)) {
+      process.stdout.write(
+        `Installed ${String(promptCount + skillCount)} Codex artifacts to ${userCodexDir} (${String(promptCount)} prompts, ${String(skillCount)} skills)\n`,
+      )
+    }
+    logger.info({ promptCount, skillCount, userCodexDir }, 'Installed user-scope Codex content')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (outputFormat !== 'json') {
+      process.stderr.write(`Warning: user-scope Codex install failed: ${msg}\n`)
+    }
+    logger.warn({ err }, 'scaffoldCodexUser failed; init continues')
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Provider config builder (from old init.ts)
 // ---------------------------------------------------------------------------
 
@@ -1128,6 +1276,11 @@ export interface InitOptions {
    *   'skip'  — skip Dolt bootstrapping entirely
    */
   doltMode?: 'auto' | 'force' | 'skip'
+  /**
+   * When true, additionally install Codex prompts/skills into `~/.codex/`,
+   * namespaced under `substrate-` to avoid collisions. Default: false.
+   */
+  installUserScope?: boolean
 }
 
 /**
@@ -1381,6 +1534,15 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     await scaffoldStatuslineScript(projectRoot)
     await scaffoldClaudeSettings(projectRoot)
     await scaffoldClaudeCommands(projectRoot, outputFormat)
+    scaffoldCodexProject(projectRoot, outputFormat)
+    if (options.installUserScope) {
+      const homeDir = process.env['HOME'] ?? process.env['USERPROFILE']
+      if (homeDir) {
+        scaffoldCodexUser(projectRoot, homeDir, outputFormat)
+      } else if (outputFormat !== 'json') {
+        process.stderr.write('Warning: --install-user-scope requested but HOME is not set\n')
+      }
+    }
 
     // Ensure substrate runtime and factory files are gitignored
     const gitignorePath = join(projectRoot, '.gitignore')
@@ -1478,6 +1640,8 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       process.stdout.write(`    AGENTS.md             pipeline instructions for Codex CLI\n`)
       process.stdout.write(`    GEMINI.md             pipeline instructions for Gemini CLI\n`)
       process.stdout.write(`    .claude/commands/     /substrate-run, /substrate-supervisor, /substrate-metrics\n`)
+      process.stdout.write(`    .codex/prompts/       Codex slash commands (mirror of .claude/commands/)\n`)
+      process.stdout.write(`    .codex/skills/        Codex skill bundles (mirror of .claude/skills/)\n`)
       process.stdout.write(`    .substrate/           config, database, routing policy\n`)
 
       if (doltInitialized) {
@@ -1534,6 +1698,7 @@ export function registerInitCommand(
     )
     .option('--dolt', 'Initialize Dolt state database as part of init (forces Dolt bootstrapping)', false)
     .option('--no-dolt', 'Skip Dolt state store initialization even if Dolt is installed')
+    .option('--install-user-scope', 'Also install Codex prompts/skills into ~/.codex/ (namespaced substrate-*)', false)
     .action(async (opts: {
       pack: string
       projectRoot: string
@@ -1542,6 +1707,7 @@ export function registerInitCommand(
       outputFormat: string
       dolt: boolean
       noDolt: boolean
+      installUserScope: boolean
     }) => {
       const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
 
@@ -1554,6 +1720,7 @@ export function registerInitCommand(
         force: opts.force,
         yes: opts.yes,
         doltMode,
+        installUserScope: opts.installUserScope,
         ...(registry !== undefined && { registry }),
       })
       process.exitCode = exitCode
