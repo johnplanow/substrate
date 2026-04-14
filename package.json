@@ -1,6 +1,6 @@
 {
   "name": "substrate-ai",
-  "version": "0.19.52",
+  "version": "0.19.53",
   "description": "Substrate — multi-agent orchestration daemon for AI coding agents",
   "type": "module",
   "license": "MIT",
