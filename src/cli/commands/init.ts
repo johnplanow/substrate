@@ -968,61 +968,124 @@ export async function scaffoldClaudeCommands(
 // ---------------------------------------------------------------------------
 
 /**
- * Copy every `.md` file from a source commands directory into a target prompts
+ * Sync every `.md` file from a source commands directory into a target prompts
  * directory, flat. Codex CLI loads `<root>/.codex/prompts/*.md` as slash
  * commands, so the already-generated Claude command files map 1:1.
  *
+ * On re-runs, any `.md` file in the target that matches `ownershipPrefixes`
+ * but is no longer present in the source is removed, so stale substrate-
+ * generated prompts don't accumulate. `.md` files without a matching prefix
+ * are left untouched (protecting user-authored content in `~/.codex/`).
+ *
  * Returns the number of prompt files written.
  */
-function copyCommandsAsPrompts(commandsDir: string, promptsDir: string): number {
-  if (!existsSync(commandsDir)) return 0
+function syncCommandsAsPrompts(
+  commandsDir: string,
+  promptsDir: string,
+  ownershipPrefixes: string[],
+  namePrefix: string,
+): number {
+  const sourceExists = existsSync(commandsDir)
+  const destExists = existsSync(promptsDir)
+  if (!sourceExists && !destExists) return 0
+
   mkdirSync(promptsDir, { recursive: true })
 
-  let count = 0
+  const sourceEntries = sourceExists
+    ? readdirSync(commandsDir, { withFileTypes: true }).filter(
+        (e) => e.isFile() && e.name.endsWith('.md'),
+      )
+    : []
+
+  const destNames = new Set(
+    sourceEntries.map((e) =>
+      namePrefix && !e.name.startsWith(namePrefix) ? `${namePrefix}${e.name}` : e.name,
+    ),
+  )
+
   try {
-    for (const entry of readdirSync(commandsDir, { withFileTypes: true })) {
+    for (const entry of readdirSync(promptsDir, { withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.endsWith('.md')) continue
-      const src = join(commandsDir, entry.name)
-      const dest = join(promptsDir, entry.name)
-      cpSync(src, dest)
-      count++
+      const isOwned = ownershipPrefixes.some((p) => entry.name.startsWith(p))
+      if (!isOwned) continue
+      if (destNames.has(entry.name)) continue
+      unlinkSync(join(promptsDir, entry.name))
     }
   } catch (err) {
-    logger.debug({ err, commandsDir }, 'Failed to enumerate commands directory')
+    logger.debug({ err, promptsDir }, 'Failed to prune stale prompts')
+  }
+
+  let count = 0
+  for (const entry of sourceEntries) {
+    const destName =
+      namePrefix && !entry.name.startsWith(namePrefix) ? `${namePrefix}${entry.name}` : entry.name
+    cpSync(join(commandsDir, entry.name), join(promptsDir, destName))
+    count++
   }
   return count
 }
 
 /**
- * Copy skill directories (dirs containing SKILL.md) from a source skills root
- * into a target skills root, namespaced under `namespacePrefix` if provided.
+ * Sync skill directories from a source skills root into a target skills root,
+ * optionally namespaced under `namePrefix`.
+ *
+ * Every direct child directory of `srcSkillsDir` is treated as a skill bundle
+ * (no SKILL.md check — the source is always `.claude/skills/` which has
+ * already been sanitized by `prepareSkillsDir`). On re-runs, any skill
+ * directory in the target whose name starts with one of `ownershipPrefixes`
+ * but is no longer present in the source is removed.
  *
  * Returns the number of skill directories copied.
  */
-function copySkillsToTarget(
+function syncSkillsToTarget(
   srcSkillsDir: string,
   destSkillsDir: string,
-  namespacePrefix: string,
+  ownershipPrefixes: string[],
+  namePrefix: string,
 ): number {
-  if (!existsSync(srcSkillsDir)) return 0
+  const sourceExists = existsSync(srcSkillsDir)
+  const destExists = existsSync(destSkillsDir)
+  if (!sourceExists && !destExists) return 0
+
   mkdirSync(destSkillsDir, { recursive: true })
 
-  let count = 0
+  const sourceEntries = sourceExists
+    ? readdirSync(srcSkillsDir, { withFileTypes: true }).filter((e) => e.isDirectory())
+    : []
+
+  const destNames = new Set(
+    sourceEntries.map((e) =>
+      namePrefix && !e.name.startsWith(namePrefix) ? `${namePrefix}${e.name}` : e.name,
+    ),
+  )
+
   try {
-    for (const entry of readdirSync(srcSkillsDir, { withFileTypes: true })) {
+    for (const entry of readdirSync(destSkillsDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue
-      const src = join(srcSkillsDir, entry.name)
-      const destName = namespacePrefix ? `${namespacePrefix}${entry.name}` : entry.name
-      const dest = join(destSkillsDir, destName)
-      rmSync(dest, { recursive: true, force: true })
-      cpSync(src, dest, { recursive: true })
-      count++
+      const isOwned = ownershipPrefixes.some((p) => entry.name.startsWith(p))
+      if (!isOwned) continue
+      if (destNames.has(entry.name)) continue
+      rmSync(join(destSkillsDir, entry.name), { recursive: true, force: true })
     }
   } catch (err) {
-    logger.debug({ err, srcSkillsDir }, 'Failed to enumerate source skills directory')
+    logger.debug({ err, destSkillsDir }, 'Failed to prune stale skills')
+  }
+
+  let count = 0
+  for (const entry of sourceEntries) {
+    const destName =
+      namePrefix && !entry.name.startsWith(namePrefix) ? `${namePrefix}${entry.name}` : entry.name
+    const dest = join(destSkillsDir, destName)
+    rmSync(dest, { recursive: true, force: true })
+    cpSync(join(srcSkillsDir, entry.name), dest, { recursive: true })
+    count++
   }
   return count
 }
+
+// Project-scoped Codex dirs are fully owned by substrate, so any bmad-/ship-/
+// substrate-prefixed file is fair game to remove on re-runs.
+const PROJECT_OWNERSHIP_PREFIXES = ['bmad-', 'substrate-', 'ship']
 
 /**
  * Scaffold project-scoped Codex content from the already-generated
@@ -1032,6 +1095,9 @@ function copySkillsToTarget(
  * Writes:
  *   - <projectRoot>/.codex/prompts/*.md  (slash commands)
  *   - <projectRoot>/.codex/skills/<skill>/  (skill bundles)
+ *
+ * Stale substrate-owned entries (bmad-*, substrate-*, ship*) from previous
+ * runs are pruned before new content is written.
  */
 export function scaffoldCodexProject(
   projectRoot: string,
@@ -1044,15 +1110,30 @@ export function scaffoldCodexProject(
   const codexSkillsDir = join(codexDir, 'skills')
 
   try {
-    const promptCount = copyCommandsAsPrompts(claudeCommandsDir, codexPromptsDir)
-    const skillCount = copySkillsToTarget(claudeSkillsDir, codexSkillsDir, '')
+    const promptCount = syncCommandsAsPrompts(
+      claudeCommandsDir,
+      codexPromptsDir,
+      PROJECT_OWNERSHIP_PREFIXES,
+      '',
+    )
+    const skillCount = syncSkillsToTarget(
+      claudeSkillsDir,
+      codexSkillsDir,
+      PROJECT_OWNERSHIP_PREFIXES,
+      '',
+    )
 
-    if (outputFormat !== 'json' && (promptCount > 0 || skillCount > 0)) {
+    const total = promptCount + skillCount
+    if (outputFormat !== 'json' && total > 0) {
       process.stdout.write(
-        `Generated ${String(promptCount + skillCount)} Codex artifacts (${String(promptCount)} prompts, ${String(skillCount)} skills)\n`,
+        `Generated ${String(total)} Codex artifacts (${String(promptCount)} prompts, ${String(skillCount)} skills)\n`,
       )
     }
-    logger.info({ promptCount, skillCount, codexDir }, 'Generated .codex/')
+    if (total > 0) {
+      logger.info({ promptCount, skillCount, codexDir }, 'Generated .codex/')
+    } else {
+      logger.debug({ codexDir }, 'No Codex artifacts generated; source Claude content not found')
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (outputFormat !== 'json') {
@@ -1064,11 +1145,15 @@ export function scaffoldCodexProject(
 
 /**
  * Install Codex content user-wide at `~/.codex/`, namespaced under
- * `substrate-` / `substrate-` to avoid colliding with user-installed content.
+ * `substrate-` to avoid colliding with user-installed content.
  *
  * Writes:
  *   - ~/.codex/prompts/substrate-<slug>.md  (slash commands)
  *   - ~/.codex/skills/substrate-<name>/     (skill bundles)
+ *
+ * Stale `substrate-*` entries from previous runs are pruned before new
+ * content is written. Files/directories without the `substrate-` prefix
+ * are never touched.
  */
 export function scaffoldCodexUser(
   projectRoot: string,
@@ -1082,26 +1167,30 @@ export function scaffoldCodexUser(
   const userSkillsDir = join(userCodexDir, 'skills')
 
   try {
-    // Prompts: rename each file to substrate-<original>
-    let promptCount = 0
-    if (existsSync(claudeCommandsDir)) {
-      mkdirSync(userPromptsDir, { recursive: true })
-      for (const entry of readdirSync(claudeCommandsDir, { withFileTypes: true })) {
-        if (!entry.isFile() || !entry.name.endsWith('.md')) continue
-        const baseName = entry.name.startsWith('substrate-') ? entry.name : `substrate-${entry.name}`
-        cpSync(join(claudeCommandsDir, entry.name), join(userPromptsDir, baseName))
-        promptCount++
-      }
-    }
+    const promptCount = syncCommandsAsPrompts(
+      claudeCommandsDir,
+      userPromptsDir,
+      ['substrate-'],
+      'substrate-',
+    )
+    const skillCount = syncSkillsToTarget(
+      claudeSkillsDir,
+      userSkillsDir,
+      ['substrate-'],
+      'substrate-',
+    )
 
-    const skillCount = copySkillsToTarget(claudeSkillsDir, userSkillsDir, 'substrate-')
-
-    if (outputFormat !== 'json' && (promptCount > 0 || skillCount > 0)) {
+    const total = promptCount + skillCount
+    if (outputFormat !== 'json' && total > 0) {
       process.stdout.write(
-        `Installed ${String(promptCount + skillCount)} Codex artifacts to ${userCodexDir} (${String(promptCount)} prompts, ${String(skillCount)} skills)\n`,
+        `Installed ${String(total)} Codex artifacts to ${userCodexDir} (${String(promptCount)} prompts, ${String(skillCount)} skills)\n`,
       )
     }
-    logger.info({ promptCount, skillCount, userCodexDir }, 'Installed user-scope Codex content')
+    if (total > 0) {
+      logger.info({ promptCount, skillCount, userCodexDir }, 'Installed user-scope Codex content')
+    } else {
+      logger.debug({ userCodexDir }, 'No user-scope Codex content installed; source Claude content not found')
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (outputFormat !== 'json') {

@@ -82,6 +82,29 @@ describe('scaffoldCodexProject', () => {
     expect(existsSync(join(staleDir, 'stale.md'))).toBe(false)
     expect(existsSync(join(staleDir, 'SKILL.md'))).toBe(true)
   })
+
+  it('prunes substrate-owned prompts and skills that disappeared from the source', () => {
+    seedClaudeScaffold(tempRoot)
+    const promptsDir = join(tempRoot, '.codex', 'prompts')
+    const skillsDir = join(tempRoot, '.codex', 'skills')
+
+    // Seed target with orphaned substrate-owned artifacts and one user-owned file
+    mkdirSync(promptsDir, { recursive: true })
+    writeFileSync(join(promptsDir, 'bmad-gone.md'), 'stale')
+    writeFileSync(join(promptsDir, 'my-own.md'), 'keep me')
+    mkdirSync(join(skillsDir, 'bmad-gone'), { recursive: true })
+    writeFileSync(join(skillsDir, 'bmad-gone', 'SKILL.md'), 'stale')
+    mkdirSync(join(skillsDir, 'user-custom'), { recursive: true })
+    writeFileSync(join(skillsDir, 'user-custom', 'SKILL.md'), 'keep me')
+
+    scaffoldCodexProject(tempRoot, 'json')
+
+    expect(existsSync(join(promptsDir, 'bmad-gone.md'))).toBe(false)
+    expect(existsSync(join(promptsDir, 'my-own.md'))).toBe(true)
+    expect(existsSync(join(skillsDir, 'bmad-gone'))).toBe(false)
+    expect(existsSync(join(skillsDir, 'user-custom'))).toBe(true)
+    expect(existsSync(join(promptsDir, 'bmad-agent-pm.md'))).toBe(true)
+  })
 })
 
 describe('scaffoldCodexUser', () => {
@@ -117,5 +140,29 @@ describe('scaffoldCodexUser', () => {
   it('is a no-op and does not throw when .claude/ does not exist', () => {
     expect(() => scaffoldCodexUser(tempRoot, fakeHome, 'json')).not.toThrow()
     expect(existsSync(join(fakeHome, '.codex'))).toBe(false)
+  })
+
+  it('prunes stale substrate-* entries but never touches non-substrate content', () => {
+    seedClaudeScaffold(tempRoot)
+    const promptsDir = join(fakeHome, '.codex', 'prompts')
+    const skillsDir = join(fakeHome, '.codex', 'skills')
+
+    mkdirSync(promptsDir, { recursive: true })
+    writeFileSync(join(promptsDir, 'substrate-gone.md'), 'stale')
+    writeFileSync(join(promptsDir, 'my-prompt.md'), 'keep me') // user-authored
+    writeFileSync(join(promptsDir, 'bmad-foo.md'), 'keep me') // not in our namespace
+    mkdirSync(join(skillsDir, 'substrate-gone'), { recursive: true })
+    writeFileSync(join(skillsDir, 'substrate-gone', 'SKILL.md'), 'stale')
+    mkdirSync(join(skillsDir, 'my-skill'), { recursive: true })
+    writeFileSync(join(skillsDir, 'my-skill', 'SKILL.md'), 'keep me')
+
+    scaffoldCodexUser(tempRoot, fakeHome, 'json')
+
+    expect(existsSync(join(promptsDir, 'substrate-gone.md'))).toBe(false)
+    expect(existsSync(join(promptsDir, 'my-prompt.md'))).toBe(true)
+    expect(existsSync(join(promptsDir, 'bmad-foo.md'))).toBe(true)
+    expect(existsSync(join(skillsDir, 'substrate-gone'))).toBe(false)
+    expect(existsSync(join(skillsDir, 'my-skill'))).toBe(true)
+    expect(existsSync(join(promptsDir, 'substrate-bmad-agent-pm.md'))).toBe(true)
   })
 })
