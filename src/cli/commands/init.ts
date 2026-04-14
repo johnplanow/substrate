@@ -1646,6 +1646,8 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       '.substrate/state/',
       '.substrate/substrate.db',
       '.substrate/substrate.db-journal',
+      '.codex/prompts/',
+      '.codex/skills/',
     ]
     try {
       const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf-8') : ''
