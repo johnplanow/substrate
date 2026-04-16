@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { VerificationPipeline } from '../verification-pipeline.js'
+import { VerificationPipeline, createDefaultVerificationPipeline } from '../verification-pipeline.js'
 import type {
   VerificationCheck,
   VerificationContext,
@@ -352,5 +352,32 @@ describe('VerificationPipeline', () => {
     const summary = await pipeline.run(ctx, 'A')
     expect(summary.checks).toHaveLength(1)
     expect(summary.checks[0]!.checkName).toBe('pre-reg')
+  })
+
+  it('default Tier A pipeline includes AC evidence before build', async () => {
+    const pipeline = createDefaultVerificationPipeline(bus)
+    const summary = await pipeline.run(makeContext({
+      reviewResult: { rawOutput: 'review ok' },
+      outputTokenCount: 500,
+      storyContent: [
+        '## Acceptance Criteria',
+        '### AC1: Works',
+      ].join('\n'),
+      devStoryResult: {
+        result: 'success',
+        ac_met: ['AC1'],
+        ac_failures: [],
+        files_modified: ['src/foo.ts'],
+        tests: 'pass',
+      },
+      buildCommand: '',
+    }), 'A')
+
+    expect(summary.checks.map((check) => check.checkName)).toEqual([
+      'phantom-review',
+      'trivial-output',
+      'acceptance-criteria-evidence',
+      'build',
+    ])
   })
 })

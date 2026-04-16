@@ -22,6 +22,7 @@ import type {
 import { PhantomReviewCheck } from './checks/phantom-review-check.js'
 import { TrivialOutputCheck } from './checks/trivial-output-check.js'
 import type { TrivialOutputCheckConfig } from './checks/trivial-output-check.js'
+import { AcceptanceCriteriaEvidenceCheck } from './checks/acceptance-criteria-evidence-check.js'
 import { BuildCheck } from './checks/build-check.js'
 
 // ---------------------------------------------------------------------------
@@ -157,7 +158,8 @@ export class VerificationPipeline {
  * Canonical Tier A check order (architecture section 3.5):
  *   1. PhantomReviewCheck — story 51-2  (runs first: unreviewed stories skipped)
  *   2. TrivialOutputCheck — story 51-3
- *   3. BuildCheck         — story 51-4
+ *   3. AcceptanceCriteriaEvidenceCheck
+ *   4. BuildCheck         — story 51-4
  *
  * @param bus    Typed event bus for verification events.
  * @param config Optional config (used to forward threshold to TrivialOutputCheck).
@@ -166,10 +168,10 @@ export function createDefaultVerificationPipeline(
   bus: TypedEventBus<SdlcEvents>,
   config?: TrivialOutputCheckConfig,
 ): VerificationPipeline {
-  // Canonical Tier A order: 1→PhantomReview, 2→TrivialOutput, 3→Build (story 51-4)
   const checks: VerificationCheck[] = [
     new PhantomReviewCheck(),
     new TrivialOutputCheck(config),
+    new AcceptanceCriteriaEvidenceCheck(),
     new BuildCheck(), // story 51-4: runs last in Tier A (expensive, 60s worst-case)
   ]
   return new VerificationPipeline(bus, checks)

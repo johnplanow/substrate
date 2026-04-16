@@ -30,6 +30,29 @@ export interface ReviewSignals {
 }
 
 // ---------------------------------------------------------------------------
+// DevStorySignals
+// ---------------------------------------------------------------------------
+
+/**
+ * Slim projection of dev-story dispatch output needed by static verification.
+ *
+ * This intentionally mirrors the YAML output contract names while avoiding an
+ * import from the monolith compiled-workflows package into @substrate-ai/sdlc.
+ */
+export interface DevStorySignals {
+  /** Whether the implementation dispatch reported success or failure. */
+  result?: 'success' | 'failed' | string
+  /** Acceptance criteria the implementation agent claims were met. */
+  ac_met?: string[]
+  /** Acceptance criteria the implementation agent claims failed. */
+  ac_failures?: string[]
+  /** Files the implementation agent claims it created or modified. */
+  files_modified?: string[]
+  /** Test outcome reported by the implementation agent. */
+  tests?: 'pass' | 'fail' | string
+}
+
+// ---------------------------------------------------------------------------
 // VerificationContext
 // ---------------------------------------------------------------------------
 
@@ -58,6 +81,21 @@ export interface VerificationContext {
    * PhantomReviewCheck returns 'pass' with a skip note when this field is absent.
    */
   reviewResult?: ReviewSignals
+  /**
+   * Raw story markdown used by AcceptanceCriteriaEvidenceCheck.
+   *
+   * Left undefined when a caller cannot read the story file; the check reports
+   * a warning rather than guessing from incomplete context.
+   */
+  storyContent?: string
+  /**
+   * Structured implementation output used by AcceptanceCriteriaEvidenceCheck.
+   *
+   * This is a narrow projection of the dev-story result so verification can
+   * compare story ACs against the agent's explicit claims without importing
+   * monolith workflow types.
+   */
+  devStoryResult?: DevStorySignals
   /**
    * Total output tokens produced by the story dispatch (Story 51-3).
    *

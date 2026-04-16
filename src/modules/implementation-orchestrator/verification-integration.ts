@@ -10,7 +10,7 @@
  */
 
 import { execSync } from 'node:child_process'
-import type { VerificationContext, VerificationSummary, ReviewSignals } from '@substrate-ai/sdlc'
+import type { VerificationContext, VerificationSummary, ReviewSignals, DevStorySignals } from '@substrate-ai/sdlc'
 import type { RunManifest } from '@substrate-ai/sdlc'
 import { createLogger } from '../../utils/logger.js'
 
@@ -30,6 +30,10 @@ export interface AssembleVerificationContextOpts {
   workingDir: string
   /** Optional code-review dispatch signals for PhantomReviewCheck. */
   reviewResult?: ReviewSignals
+  /** Optional story markdown for AcceptanceCriteriaEvidenceCheck. */
+  storyContent?: string
+  /** Optional dev-story output for AcceptanceCriteriaEvidenceCheck. */
+  devStoryResult?: DevStorySignals
   /** Total output tokens produced by the story dispatch. */
   outputTokenCount?: number
 }
@@ -61,6 +65,8 @@ export function assembleVerificationContext(
     commitSha,
     timeout: 60_000,
     reviewResult: opts.reviewResult,
+    storyContent: opts.storyContent,
+    devStoryResult: opts.devStoryResult,
     outputTokenCount: opts.outputTokenCount,
   }
 }

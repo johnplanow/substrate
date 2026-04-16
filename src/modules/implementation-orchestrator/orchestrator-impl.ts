@@ -67,7 +67,7 @@ import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
 import { createDefaultVerificationPipeline } from '@substrate-ai/sdlc'
-import type { ReviewSignals } from '@substrate-ai/sdlc'
+import type { ReviewSignals, DevStorySignals } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus } from '@substrate-ai/core'
 import { assembleVerificationContext, VerificationStore, persistVerificationResult } from './verification-integration.js'
@@ -1789,6 +1789,46 @@ export function createImplementationOrchestrator(
     let devStoryWasSuccess = false
     // Output token count from the dev-story dispatch; forwarded to TrivialOutputCheck (Story 51-5)
     let devOutputTokenCount: number | undefined
+    // Story content and structured dev output forwarded to static Tier A verification.
+    let storyContentForVerification: string | undefined
+    let devStorySignals: DevStorySignals | undefined
+
+    const normalizeDevStorySignals = (result: DevStorySignals | null | undefined): DevStorySignals | undefined => {
+      if (result == null) return undefined
+      return {
+        result: result.result,
+        ac_met: result.ac_met ?? [],
+        ac_failures: result.ac_failures ?? [],
+        files_modified: result.files_modified ?? [],
+        tests: result.tests,
+      }
+    }
+
+    const replaceDevStorySignals = (result: DevStorySignals | null | undefined): void => {
+      const normalized = normalizeDevStorySignals(result)
+      if (normalized !== undefined) devStorySignals = normalized
+    }
+
+    const mergeDevStorySignals = (result: DevStorySignals | null | undefined): void => {
+      const normalized = normalizeDevStorySignals(result)
+      if (normalized === undefined) return
+      if (devStorySignals === undefined) {
+        devStorySignals = normalized
+        return
+      }
+
+      devStorySignals = {
+        result: devStorySignals.result === 'failed' || normalized.result === 'failed'
+          ? 'failed'
+          : (normalized.result ?? devStorySignals.result),
+        ac_met: Array.from(new Set([...(devStorySignals.ac_met ?? []), ...(normalized.ac_met ?? [])])),
+        ac_failures: Array.from(new Set([...(devStorySignals.ac_failures ?? []), ...(normalized.ac_failures ?? [])])),
+        files_modified: Array.from(new Set([...(devStorySignals.files_modified ?? []), ...(normalized.files_modified ?? [])])),
+        tests: devStorySignals.tests === 'fail' || normalized.tests === 'fail'
+          ? 'fail'
+          : (normalized.tests ?? devStorySignals.tests),
+      }
+    }
 
     // Capture baseline HEAD SHA before dispatch so the zero-diff gate can
     // detect committed work (not just uncommitted changes).  Fixes the
@@ -1812,6 +1852,7 @@ export function createImplementationOrchestrator(
       let storyContentForAnalysis = ''
       try {
         storyContentForAnalysis = await readFile(storyFilePath ?? '', 'utf-8')
+        storyContentForVerification = storyContentForAnalysis
       } catch (err) {
         // If we can't read for analysis, fall back to single dispatch
         logger.error(
@@ -1884,6 +1925,7 @@ export function createImplementationOrchestrator(
 
           const batchDurationMs = Date.now() - batchStartMs
           const batchFilesModified = batchResult.files_modified ?? []
+          mergeDevStorySignals(batchResult)
 
           // AC2: Emit per-batch metrics log entry
           const batchMetrics: PerBatchMetrics = {
@@ -2202,6 +2244,7 @@ export function createImplementationOrchestrator(
 
           // AC5: Retry completed (success or failure) — proceed to code review
           const retryParsed = checkpointRetryResult.parsed
+          replaceDevStorySignals(retryParsed as DevStorySignals | null | undefined)
           devFilesModified = retryParsed?.files_modified ?? checkGitDiffFiles(projectRoot ?? process.cwd())
           if (checkpointRetryResult.status === 'completed' && retryParsed?.result === 'success') {
             devStoryWasSuccess = true
@@ -2215,6 +2258,7 @@ export function createImplementationOrchestrator(
         }
 
         if (!checkpointHandled) {
+          replaceDevStorySignals(devResult)
           if (devResult.result === 'success') {
             devStoryWasSuccess = true
           } else {
@@ -2958,6 +3002,8 @@ export function createImplementationOrchestrator(
             storyKey,
             workingDir: projectRoot ?? process.cwd(),
             reviewResult: latestReviewSignals,
+            storyContent: storyContentForVerification,
+            devStoryResult: devStorySignals,
             outputTokenCount: devOutputTokenCount,
           })
           const verifSummary = await verificationPipeline.run(verifContext, 'A')
@@ -3214,8 +3260,39 @@ export function createImplementationOrchestrator(
           logger.warn({ storyKey, err }, 'Auto-approve fix dispatch failed — approving anyway (issues were minor)')
         }
 
-        // Auto-approve: mark COMPLETE regardless of fix outcome (issues were minor)
+        // Auto-approve: fix outcome is advisory, but verification remains blocking.
         endPhase(storyKey, 'code-review')
+
+        // Auto-approve still has to pass the same Tier A verification gate as SHIP_IT.
+        if (config.skipVerification !== true) {
+          const latestReviewSignals: ReviewSignals | undefined = reviewResult != null
+            ? {
+                dispatchFailed: reviewResult.dispatchFailed,
+                error: reviewResult.error,
+                rawOutput: reviewResult.rawOutput,
+              }
+            : undefined
+          const verifContext = assembleVerificationContext({
+            storyKey,
+            workingDir: projectRoot ?? process.cwd(),
+            reviewResult: latestReviewSignals,
+            storyContent: storyContentForVerification,
+            devStoryResult: devStorySignals,
+            outputTokenCount: devOutputTokenCount,
+          })
+          const verifSummary = await verificationPipeline.run(verifContext, 'A')
+          verificationStore.set(storyKey, verifSummary)
+          persistVerificationResult(storyKey, verifSummary, runManifest)
+          if (verifSummary.status === 'fail') {
+            updateStory(storyKey, { phase: 'VERIFICATION_FAILED' as StoryPhase, completedAt: new Date().toISOString() })
+            persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
+              logger.warn({ err, storyKey }, 'StateStore write failed after verification-failed'),
+            )
+            await writeStoryMetricsBestEffort(storyKey, 'verification-failed', finalReviewCycles)
+            await persistState()
+            return
+          }
+        }
 
         // Emit auto-approve event for transparency — explains why NEEDS_MINOR_FIXES → COMPLETE
         eventBus.emit('story:auto-approved', {
@@ -3470,6 +3547,10 @@ export function createImplementationOrchestrator(
             return
           }
           logger.warn({ storyKey, taskType, exitCode: fixResult.exitCode }, 'Fix dispatch failed')
+        }
+
+        if (isMajorRework) {
+          replaceDevStorySignals(fixResult.parsed as DevStorySignals | null | undefined)
         }
       } catch (err) {
         logger.warn({ storyKey, taskType, err }, 'Fix dispatch failed, continuing to next review')

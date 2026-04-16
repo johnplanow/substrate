@@ -5,8 +5,8 @@
  *   - assembleVerificationContext: context assembly with correct fields
  *   - assembleVerificationContext: commitSha from mocked execSync return value
  *   - assembleVerificationContext: commitSha falls back to 'unknown' on execSync error
- *   - assembleVerificationContext: reviewResult and outputTokenCount forwarded when provided
- *   - assembleVerificationContext: reviewResult and outputTokenCount are undefined when omitted
+ *   - assembleVerificationContext: reviewResult, storyContent, devStoryResult, and outputTokenCount forwarded when provided
+ *   - assembleVerificationContext: optional verification fields are undefined when omitted
  *   - VerificationStore.set/get: round-trip stores and retrieves summary by storyKey
  *   - VerificationStore.getAll: returns a ReadonlyMap with all set entries
  *   - VerificationStore.get: returns undefined for unknown storyKey
@@ -101,7 +101,7 @@ describe('assembleVerificationContext', () => {
     expect(ctx.commitSha).toBe('unknown')
   })
 
-  it('should forward reviewResult and outputTokenCount when provided', () => {
+  it('should forward reviewResult, storyContent, devStoryResult, and outputTokenCount when provided', () => {
     mockExecSync.mockReturnValue('sha1\n' as unknown as Buffer)
 
     const reviewResult: ReviewSignals = {
@@ -109,19 +109,31 @@ describe('assembleVerificationContext', () => {
       error: undefined,
       rawOutput: 'some output',
     }
+    const storyContent = '## Acceptance Criteria\n\n### AC1: Works'
+    const devStoryResult = {
+      result: 'success' as const,
+      ac_met: ['AC1'],
+      ac_failures: [],
+      files_modified: ['src/foo.ts'],
+      tests: 'pass' as const,
+    }
 
     const ctx = assembleVerificationContext({
       storyKey: '51-5',
       workingDir: '/tmp/project',
       reviewResult,
+      storyContent,
+      devStoryResult,
       outputTokenCount: 1234,
     })
 
     expect(ctx.reviewResult).toEqual(reviewResult)
+    expect(ctx.storyContent).toBe(storyContent)
+    expect(ctx.devStoryResult).toEqual(devStoryResult)
     expect(ctx.outputTokenCount).toBe(1234)
   })
 
-  it('should leave reviewResult and outputTokenCount as undefined when omitted', () => {
+  it('should leave optional verification fields as undefined when omitted', () => {
     mockExecSync.mockReturnValue('sha1\n' as unknown as Buffer)
 
     const ctx = assembleVerificationContext({
@@ -130,6 +142,8 @@ describe('assembleVerificationContext', () => {
     })
 
     expect(ctx.reviewResult).toBeUndefined()
+    expect(ctx.storyContent).toBeUndefined()
+    expect(ctx.devStoryResult).toBeUndefined()
     expect(ctx.outputTokenCount).toBeUndefined()
   })
 })

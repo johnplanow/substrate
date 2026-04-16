@@ -59,7 +59,7 @@ vi.mock('../../../utils/logger.js', () => ({
   })),
 }))
 vi.mock('node:fs/promises', () => ({
-  readFile: vi.fn().mockRejectedValue(new Error('mock readFile: file not found')),
+  readFile: vi.fn().mockResolvedValue('## Acceptance Criteria\n\n### AC1: Works'),
 }))
 vi.mock('node:fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
@@ -209,6 +209,17 @@ function makeCodeReviewShipIt() {
   }
 }
 
+function makeCodeReviewMinorFixes() {
+  return {
+    verdict: 'NEEDS_MINOR_FIXES' as const,
+    issues: 1,
+    issue_list: [
+      { severity: 'minor' as const, description: 'polish naming', file: 'src/foo.ts' },
+    ],
+    tokenUsage: { input: 150, output: 50 },
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Verification summary factories
 // ---------------------------------------------------------------------------
@@ -278,7 +289,12 @@ describe('Orchestrator Verification Pipeline Integration (AC7)', () => {
     // Pipeline must have been called exactly once for this story
     expect(mockPipelineRun).toHaveBeenCalledOnce()
     expect(mockPipelineRun).toHaveBeenCalledWith(
-      expect.objectContaining({ storyKey: '5-1' }),
+      expect.objectContaining({
+        storyKey: '5-1',
+        storyContent: expect.stringContaining('### AC1'),
+        devStoryResult: expect.objectContaining({ ac_met: ['AC1'], tests: 'pass' }),
+        outputTokenCount: 100,
+      }),
       'A',
     )
   })
@@ -333,6 +349,45 @@ describe('Orchestrator Verification Pipeline Integration (AC7)', () => {
     expect(status.stories['5-1']?.phase).toBe('COMPLETE')
     // Verify pipeline was still called (warn is non-blocking but runs)
     expect(mockPipelineRun).toHaveBeenCalledOnce()
+  })
+
+  it('runs verification before completing an auto-approved minor-fixes story', async () => {
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewMinorFixes())
+
+    const orchestrator = createImplementationOrchestrator({
+      db, pack, contextCompiler, dispatcher, eventBus,
+      config: defaultConfig({ maxReviewCycles: 1 }),
+    })
+
+    const status = await orchestrator.run(['5-1'])
+
+    expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+    expect(mockPipelineRun).toHaveBeenCalledOnce()
+    expect(mockPipelineRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storyKey: '5-1',
+        devStoryResult: expect.objectContaining({ ac_met: ['AC1'] }),
+      }),
+      'A',
+    )
+  })
+
+  it('blocks auto-approve completion when verification fails', async () => {
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewMinorFixes())
+    mockPipelineRun.mockResolvedValue(makeVerifSummary('5-1', 'fail'))
+
+    const orchestrator = createImplementationOrchestrator({
+      db, pack, contextCompiler, dispatcher, eventBus,
+      config: defaultConfig({ maxReviewCycles: 1 }),
+    })
+
+    const status = await orchestrator.run(['5-1'])
+
+    expect(status.stories['5-1']?.phase).toBe('VERIFICATION_FAILED')
+    expect(eventBus.emit).not.toHaveBeenCalledWith(
+      'orchestrator:story-complete',
+      expect.objectContaining({ storyKey: '5-1' }),
+    )
   })
 
   // -------------------------------------------------------------------------
