@@ -9,6 +9,11 @@
  * (storyKey, commitSha, priorStoryFiles) make these types inappropriate for @substrate-ai/core.
  */
 
+import type { VerificationFinding } from './findings.js'
+
+// Re-export so callers can reach the finding types via the types barrel.
+export type { VerificationFinding, VerificationFindingSeverity } from './findings.js'
+
 // ---------------------------------------------------------------------------
 // ReviewSignals
 // ---------------------------------------------------------------------------
@@ -122,12 +127,19 @@ export interface VerificationContext {
 /**
  * Result returned by a single VerificationCheck.run() invocation.
  *
- * AC2: status is 'pass' | 'warn' | 'fail'.
+ * `details` is a human-readable rendering, preserved for any consumer that
+ * already reads it. `findings` (story 55-1) is the structured per-issue
+ * surface — downstream consumers (retry prompts, run manifest, post-run
+ * analysis) should prefer it. Checks that emit findings should derive
+ * `details` via `renderFindings(findings)` so the two stay in sync.
  */
 export interface VerificationResult {
   status: 'pass' | 'warn' | 'fail'
   details: string
   duration_ms: number
+  /** Structured per-issue payload. Optional for backward compatibility with
+   * checks and consumers that pre-date story 55-1. */
+  findings?: VerificationFinding[]
 }
 
 /**

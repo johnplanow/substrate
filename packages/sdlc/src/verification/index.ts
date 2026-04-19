@@ -14,7 +14,10 @@ export type {
   VerificationSummary,
   ReviewSignals,
   DevStorySignals,
+  VerificationFinding,
+  VerificationFindingSeverity,
 } from './types.js'
+export { renderFindings } from './findings.js'
 // Concrete check implementations (story 51-2+)
 export { PhantomReviewCheck } from './checks/index.js'
 export { TrivialOutputCheck, DEFAULT_TRIVIAL_OUTPUT_THRESHOLD } from './checks/index.js'
