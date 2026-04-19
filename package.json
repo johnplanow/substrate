@@ -1,6 +1,6 @@
 {
   "name": "substrate-ai",
-  "version": "0.19.53",
+  "version": "0.19.54",
   "description": "Substrate — multi-agent orchestration daemon for AI coding agents",
   "type": "module",
   "license": "MIT",
@@ -65,7 +65,8 @@
     "typecheck": "tsc --noEmit",
     "typecheck:gate": "tsc --noEmit -p tsconfig.typecheck.json",
     "clean": "rm -rf dist",
-    "substrate:dev": "node dist/cli/index.js"
+    "substrate:dev": "node dist/cli/index.js",
+    "version:sync": "node scripts/sync-workspace-versions.mjs"
   },
   "dependencies": {
     "bmad-method": "^6.2.2",

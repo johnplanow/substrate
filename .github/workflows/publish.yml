@@ -33,11 +33,68 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Sync workspace package versions to root
+        run: npm run version:sync
+
       - name: Run tests
         run: npx vitest run
 
-      - name: Dry run publish (verification)
+      - name: Dry run publish — substrate-ai (root)
         run: npm publish --dry-run
 
-      - name: Publish to npm
+      - name: Dry run publish — @substrate-ai/core
+        working-directory: packages/core
+        run: |
+          if [ -d dist ]; then
+            npm publish --dry-run
+          else
+            echo "packages/core/dist missing — skipping dry-run"
+          fi
+
+      - name: Dry run publish — @substrate-ai/sdlc
+        working-directory: packages/sdlc
+        run: |
+          if [ -d dist ]; then
+            npm publish --dry-run
+          else
+            echo "packages/sdlc/dist missing — skipping dry-run"
+          fi
+
+      - name: Dry run publish — @substrate-ai/factory
+        working-directory: packages/factory
+        run: |
+          if [ -d dist ]; then
+            npm publish --dry-run
+          else
+            echo "packages/factory/dist missing — skipping dry-run"
+          fi
+
+      - name: Publish substrate-ai to npm
         run: npm publish --provenance --access public
+
+      - name: Publish @substrate-ai/core to npm
+        working-directory: packages/core
+        run: |
+          if [ -d dist ]; then
+            npm publish --provenance --access public
+          else
+            echo "packages/core/dist missing — skipping publish"
+          fi
+
+      - name: Publish @substrate-ai/sdlc to npm
+        working-directory: packages/sdlc
+        run: |
+          if [ -d dist ]; then
+            npm publish --provenance --access public
+          else
+            echo "packages/sdlc/dist missing — skipping publish"
+          fi
+
+      - name: Publish @substrate-ai/factory to npm
+        working-directory: packages/factory
+        run: |
+          if [ -d dist ]; then
+            npm publish --provenance --access public
+          else
+            echo "packages/factory/dist missing — skipping publish"
+          fi

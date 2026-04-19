@@ -5,11 +5,18 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" }
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
   },
-  "files": ["dist", "graphs"],
+  "files": [
+    "dist",
+    "graphs"
+  ],
   "dependencies": {
-    "@substrate-ai/core": "*"
+    "@substrate-ai/core": "*",
+    "zod": "^4.3.6"
   },
   "devDependencies": {}
 }
