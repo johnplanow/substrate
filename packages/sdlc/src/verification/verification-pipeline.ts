@@ -24,6 +24,7 @@ import { TrivialOutputCheck } from './checks/trivial-output-check.js'
 import type { TrivialOutputCheckConfig } from './checks/trivial-output-check.js'
 import { AcceptanceCriteriaEvidenceCheck } from './checks/acceptance-criteria-evidence-check.js'
 import { BuildCheck } from './checks/build-check.js'
+import { RuntimeProbeCheck } from './checks/runtime-probe-check.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,6 +108,10 @@ export class VerificationPipeline {
           status: runResult.status,
           details: runResult.details,
           duration_ms: runResult.duration_ms,
+          // Story 55-1/55-2: preserve the structured findings array so
+          // downstream consumers (retry prompts, run manifest, post-run
+          // analysis) see each issue as its own addressable record.
+          ...(runResult.findings !== undefined ? { findings: runResult.findings } : {}),
         }
       } catch (err: unknown) {
         const elapsed = Date.now() - checkStart
@@ -114,11 +119,21 @@ export class VerificationPipeline {
         process.stderr.write(
           `[verification-pipeline] check "${check.name}" threw an unhandled exception: ${message}\n`,
         )
+        // Synthesize a structured finding for the thrown error so the
+        // retry-prompt injector has something to render. Matches the
+        // behavior of the check-level migrations in story 55-2.
         result = {
           checkName: check.name,
           status: 'warn',
           details: message,
           duration_ms: elapsed,
+          findings: [
+            {
+              category: 'check-exception',
+              severity: 'warn',
+              message,
+            },
+          ],
         }
       }
 
@@ -155,11 +170,13 @@ export class VerificationPipeline {
 /**
  * Create a VerificationPipeline pre-loaded with the canonical check set.
  *
- * Canonical Tier A check order (architecture section 3.5):
+ * Canonical Tier A check order:
  *   1. PhantomReviewCheck — story 51-2  (runs first: unreviewed stories skipped)
  *   2. TrivialOutputCheck — story 51-3
  *   3. AcceptanceCriteriaEvidenceCheck
  *   4. BuildCheck         — story 51-4
+ *   5. RuntimeProbeCheck  — Epic 55 Phase 2: runtime behavior gate; runs last
+ *                           in Tier A because probes may depend on built artifacts
  *
  * @param bus    Typed event bus for verification events.
  * @param config Optional config (used to forward threshold to TrivialOutputCheck).
@@ -172,7 +189,8 @@ export function createDefaultVerificationPipeline(
     new PhantomReviewCheck(),
     new TrivialOutputCheck(config),
     new AcceptanceCriteriaEvidenceCheck(),
-    new BuildCheck(), // story 51-4: runs last in Tier A (expensive, 60s worst-case)
+    new BuildCheck(), // story 51-4: runs late in Tier A (expensive, 60s worst-case)
+    new RuntimeProbeCheck(), // Epic 55 Phase 2: runtime behavior verification
   ]
   return new VerificationPipeline(bus, checks)
 }

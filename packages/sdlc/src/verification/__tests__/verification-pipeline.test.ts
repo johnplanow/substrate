@@ -378,6 +378,7 @@ describe('VerificationPipeline', () => {
       'trivial-output',
       'acceptance-criteria-evidence',
       'build',
+      'runtime-probes',
     ])
   })
 })

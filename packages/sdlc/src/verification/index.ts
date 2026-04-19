@@ -18,6 +18,26 @@ export type {
   VerificationFindingSeverity,
 } from './types.js'
 export { renderFindings } from './findings.js'
+
+// Epic 55 Phase 2 — Runtime probe support.
+export { RuntimeProbeCheck } from './checks/runtime-probe-check.js'
+export type { RuntimeProbeExecutors } from './checks/runtime-probe-check.js'
+export {
+  DEFAULT_PROBE_TIMEOUT_MS,
+  PROBE_TAIL_BYTES,
+  RuntimeProbeListSchema,
+  RuntimeProbeSandboxSchema,
+  RuntimeProbeSchema,
+  parseRuntimeProbes,
+  executeProbeOnHost,
+} from './probes/index.js'
+export type {
+  HostExecuteOptions,
+  ProbeResult,
+  RuntimeProbe,
+  RuntimeProbeParseResult,
+  RuntimeProbeSandbox,
+} from './probes/index.js'
 // Concrete check implementations (story 51-2+)
 export { PhantomReviewCheck } from './checks/index.js'
 export { TrivialOutputCheck, DEFAULT_TRIVIAL_OUTPUT_THRESHOLD } from './checks/index.js'
