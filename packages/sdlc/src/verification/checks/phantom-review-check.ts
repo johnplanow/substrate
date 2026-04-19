@@ -14,8 +14,10 @@
 import type {
   VerificationCheck,
   VerificationContext,
+  VerificationFinding,
   VerificationResult,
 } from '../types.js'
+import { renderFindings } from '../findings.js'
 
 // ---------------------------------------------------------------------------
 // PhantomReviewCheck
@@ -45,6 +47,7 @@ export class PhantomReviewCheck implements VerificationCheck {
         status: 'pass',
         details: 'phantom-review: no review result in context — skipping check',
         duration_ms: Date.now() - start,
+        findings: [],
       }
     }
 
@@ -54,10 +57,18 @@ export class PhantomReviewCheck implements VerificationCheck {
         review.error === 'schema_validation_failed'
           ? 'schema validation failed'
           : `dispatch failed${review.error ? ` — ${review.error}` : ''}`
+      const findings: VerificationFinding[] = [
+        {
+          category: 'phantom-review',
+          severity: 'error',
+          message: reason,
+        },
+      ]
       return {
         status: 'fail',
-        details: `phantom-review: ${reason}`,
+        details: renderFindings(findings),
         duration_ms: Date.now() - start,
+        findings,
       }
     }
 
@@ -66,10 +77,18 @@ export class PhantomReviewCheck implements VerificationCheck {
     // dispatch result may not have captured it (e.g., parsed YAML result without
     // raw output preservation) — treat as pass since dispatchFailed was not set.
     if (review.rawOutput !== undefined && review.rawOutput.trim().length === 0) {
+      const findings: VerificationFinding[] = [
+        {
+          category: 'phantom-review',
+          severity: 'error',
+          message: 'empty review output',
+        },
+      ]
       return {
         status: 'fail',
-        details: 'phantom-review: empty review output',
+        details: renderFindings(findings),
         duration_ms: Date.now() - start,
+        findings,
       }
     }
 
@@ -78,6 +97,7 @@ export class PhantomReviewCheck implements VerificationCheck {
       status: 'pass',
       details: 'phantom-review: review output is valid',
       duration_ms: Date.now() - start,
+      findings: [],
     }
   }
 }

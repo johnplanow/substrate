@@ -334,3 +334,74 @@ describe('BUILD_CHECK_TIMEOUT_MS', () => {
     expect(BUILD_CHECK_TIMEOUT_MS).toBe(60_000)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 55-2 AC4 — structured findings
+// ---------------------------------------------------------------------------
+
+describe('BuildCheck structured findings (story 55-2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('emits a build-error finding with command, exitCode, stderrTail, durationMs on fail', async () => {
+    mockExistsSync.mockImplementation((p: unknown) =>
+      String(p).endsWith('package.json'),
+    )
+    mockSpawn.mockReturnValue(makeMockChild(2, 'compiling…\n', 'error TS2345: Argument of type\n'))
+
+    const check = new BuildCheck()
+    const result = await check.run(makeContext())
+
+    expect(result.status).toBe('fail')
+    expect(result.findings).toHaveLength(1)
+    const f = result.findings?.[0]
+    expect(f?.category).toBe('build-error')
+    expect(f?.severity).toBe('error')
+    expect(f?.command).toBe('npm run build')
+    expect(f?.exitCode).toBe(2)
+    expect(f?.stdoutTail).toContain('compiling…')
+    expect(f?.stderrTail).toContain('error TS2345')
+    expect(typeof f?.durationMs).toBe('number')
+    expect(f?.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('emits empty findings array on pass', async () => {
+    mockExistsSync.mockImplementation((p: unknown) =>
+      String(p).endsWith('package.json'),
+    )
+    mockSpawn.mockReturnValue(makeMockChild(0))
+
+    const check = new BuildCheck()
+    const result = await check.run(makeContext())
+
+    expect(result.status).toBe('pass')
+    expect(result.findings).toEqual([])
+  })
+
+  it('emits a build-skip warn finding when no build command is detected', async () => {
+    mockExistsSync.mockReturnValue(false)
+
+    const check = new BuildCheck()
+    const result = await check.run(makeContext())
+
+    expect(result.status).toBe('warn')
+    expect(result.findings).toHaveLength(1)
+    expect(result.findings?.[0]?.category).toBe('build-skip')
+    expect(result.findings?.[0]?.severity).toBe('warn')
+  })
+
+  it('details equals renderFindings(findings) on fail (AC5)', async () => {
+    mockExistsSync.mockImplementation((p: unknown) =>
+      String(p).endsWith('package.json'),
+    )
+    mockSpawn.mockReturnValue(makeMockChild(1, '', 'error TS1'))
+
+    const check = new BuildCheck()
+    const result = await check.run(makeContext())
+
+    expect(result.findings?.length).toBeGreaterThan(0)
+    // Render shape: `ERROR [build-error] build failed (exit 1): error TS1`
+    expect(result.details.startsWith('ERROR [build-error] build failed (exit 1)')).toBe(true)
+  })
+})

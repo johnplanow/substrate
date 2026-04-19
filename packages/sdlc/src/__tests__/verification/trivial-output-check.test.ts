@@ -144,4 +144,33 @@ describe('TrivialOutputCheck', () => {
   it('exports DEFAULT_TRIVIAL_OUTPUT_THRESHOLD === 100', () => {
     expect(DEFAULT_TRIVIAL_OUTPUT_THRESHOLD).toBe(100)
   })
+
+  // Story 55-2 AC2 — structured findings
+  describe('structured findings (story 55-2)', () => {
+    it('emits a single error finding when below threshold', async () => {
+      const check = new TrivialOutputCheck()
+      const result = await check.run(makeContext({ outputTokenCount: 42 }))
+      expect(result.findings).toHaveLength(1)
+      expect(result.findings?.[0]?.category).toBe('trivial-output')
+      expect(result.findings?.[0]?.severity).toBe('error')
+      expect(result.findings?.[0]?.message).toContain('42')
+      expect(result.findings?.[0]?.message).toContain(`${DEFAULT_TRIVIAL_OUTPUT_THRESHOLD}`)
+    })
+
+    it('emits a single warn finding when outputTokenCount is missing', async () => {
+      const check = new TrivialOutputCheck()
+      const result = await check.run(makeContext({ outputTokenCount: undefined }))
+      expect(result.findings).toHaveLength(1)
+      expect(result.findings?.[0]?.category).toBe('trivial-output')
+      expect(result.findings?.[0]?.severity).toBe('warn')
+      expect(result.findings?.[0]?.message).toContain('unavailable')
+    })
+
+    it('emits empty findings array when above threshold', async () => {
+      const check = new TrivialOutputCheck()
+      const result = await check.run(makeContext({ outputTokenCount: 500 }))
+      expect(result.status).toBe('pass')
+      expect(result.findings).toEqual([])
+    })
+  })
 })

@@ -132,4 +132,59 @@ describe('AcceptanceCriteriaEvidenceCheck', () => {
     expect(result.status).toBe('warn')
     expect(result.details).toContain('dev-story result unavailable')
   })
+
+  // Story 55-2 AC3 — structured findings, one per missing/failing AC
+  describe('structured findings (story 55-2)', () => {
+    it('emits one ac-missing-evidence finding per missing AC', async () => {
+      // Story declares AC1, AC2, AC3; dev-story claims only AC1 → 2 missing
+      const result = await new AcceptanceCriteriaEvidenceCheck().run(makeContext({
+        storyContent: '## Acceptance Criteria\n\n### AC1: foo\nbody\n\n### AC2: bar\nbody\n\n### AC3: baz\nbody\n',
+        devStoryResult: {
+          result: 'success',
+          ac_met: ['AC1'],
+          ac_failures: [],
+          files_modified: ['src/foo.ts'],
+          tests: 'pass',
+        },
+      }))
+      expect(result.status).toBe('fail')
+      expect(result.findings).toHaveLength(2)
+      expect(result.findings?.every((f) => f.category === 'ac-missing-evidence')).toBe(true)
+      expect(result.findings?.every((f) => f.severity === 'error')).toBe(true)
+      expect(result.findings?.[0]?.message).toContain('AC2')
+      expect(result.findings?.[1]?.message).toContain('AC3')
+    })
+
+    it('emits one ac-explicit-failure finding per declared ac_failure entry', async () => {
+      const result = await new AcceptanceCriteriaEvidenceCheck().run(makeContext({
+        devStoryResult: {
+          result: 'failed',
+          ac_met: [],
+          ac_failures: ['AC1: schema mismatch', 'AC2: missing column'],
+          files_modified: ['src/foo.ts'],
+          tests: 'fail',
+        },
+      }))
+      expect(result.status).toBe('fail')
+      expect(result.findings).toHaveLength(2)
+      expect(result.findings?.[0]?.category).toBe('ac-explicit-failure')
+      expect(result.findings?.[1]?.category).toBe('ac-explicit-failure')
+      expect(result.findings?.[0]?.message).toContain('AC1: schema mismatch')
+      expect(result.findings?.[1]?.message).toContain('AC2: missing column')
+    })
+
+    it('emits empty findings array on full-coverage pass', async () => {
+      const result = await new AcceptanceCriteriaEvidenceCheck().run(makeContext({
+        devStoryResult: {
+          result: 'success',
+          ac_met: ['AC1', 'AC2'],
+          ac_failures: [],
+          files_modified: ['src/foo.ts'],
+          tests: 'pass',
+        },
+      }))
+      expect(result.status).toBe('pass')
+      expect(result.findings).toEqual([])
+    })
+  })
 })

@@ -10,8 +10,10 @@ import type {
   DevStorySignals,
   VerificationCheck,
   VerificationContext,
+  VerificationFinding,
   VerificationResult,
 } from '../types.js'
+import { renderFindings } from '../findings.js'
 
 const EXPLICIT_AC_REF = /\bAC\s*:?\s*#?\s*(\d+)\b/gi
 const NUMBERED_CRITERION = /^\s*(?:[-*]\s*)?(?:\[[ xX]\]\s*)?(\d+)[.)]\s+\S/
@@ -115,66 +117,121 @@ export class AcceptanceCriteriaEvidenceCheck implements VerificationCheck {
     const storyContent = context.storyContent?.trim()
 
     if (!storyContent) {
+      const findings: VerificationFinding[] = [
+        {
+          category: 'ac-context-missing',
+          severity: 'warn',
+          message: 'story content unavailable - skipping AC evidence check',
+        },
+      ]
       return {
         status: 'warn',
-        details: 'acceptance-criteria-evidence: story content unavailable - skipping AC evidence check',
+        details: renderFindings(findings),
         duration_ms: Date.now() - start,
+        findings,
       }
     }
 
     const expectedIds = extractAcceptanceCriteriaIds(storyContent)
     if (expectedIds.length === 0) {
+      const findings: VerificationFinding[] = [
+        {
+          category: 'ac-context-missing',
+          severity: 'warn',
+          message: 'no numbered acceptance criteria found in story',
+        },
+      ]
       return {
         status: 'warn',
-        details: 'acceptance-criteria-evidence: no numbered acceptance criteria found in story',
+        details: renderFindings(findings),
         duration_ms: Date.now() - start,
+        findings,
       }
     }
 
     const devResult = context.devStoryResult
     if (devResult === undefined) {
+      const findings: VerificationFinding[] = [
+        {
+          category: 'ac-context-missing',
+          severity: 'warn',
+          message: `dev-story result unavailable for ${formatIds(expectedIds)}`,
+        },
+      ]
       return {
         status: 'warn',
-        details: `acceptance-criteria-evidence: dev-story result unavailable for ${formatIds(expectedIds)}`,
+        details: renderFindings(findings),
         duration_ms: Date.now() - start,
+        findings,
       }
     }
 
     const acFailures = devResult.ac_failures ?? []
     if (acFailures.length > 0) {
+      // Story 55-2 AC3: one finding per claimed failure, each naming the AC
+      const findings: VerificationFinding[] = acFailures.map((failure) => ({
+        category: 'ac-explicit-failure',
+        severity: 'error',
+        message: `dev-story reported AC failure: ${failure}`,
+      }))
       return {
         status: 'fail',
-        details: `acceptance-criteria-evidence: dev-story reported AC failures: ${acFailures.join('; ')}`,
+        details: renderFindings(findings),
         duration_ms: Date.now() - start,
+        findings,
       }
     }
 
     const testOutcome = normalizeTestOutcome(devResult.tests)
     if (testOutcome === 'fail') {
+      const findings: VerificationFinding[] = [
+        {
+          category: 'ac-test-failure',
+          severity: 'error',
+          message: 'dev-story reported failing tests',
+        },
+      ]
       return {
         status: 'fail',
-        details: 'acceptance-criteria-evidence: dev-story reported failing tests',
+        details: renderFindings(findings),
         duration_ms: Date.now() - start,
+        findings,
       }
     }
 
     const claimedIds = new Set(extractClaimedAcceptanceCriteriaIds(devResult.ac_met))
     const missingIds = expectedIds.filter((id) => !claimedIds.has(id))
     if (missingIds.length > 0) {
+      // Story 55-2 AC3: one finding per missing AC id so consumers can address them individually
+      const claimedSummary = formatIds(sortAcIds(claimedIds)) || 'none'
+      const findings: VerificationFinding[] = missingIds.map((id) => ({
+        category: 'ac-missing-evidence',
+        severity: 'error',
+        message:
+          `missing dev-story AC evidence for ${id}` +
+          ` (expected ${formatIds(expectedIds)}, claimed ${claimedSummary})`,
+      }))
       return {
         status: 'fail',
-        details:
-          `acceptance-criteria-evidence: missing dev-story AC evidence for ${formatIds(missingIds)}` +
-          `; expected ${formatIds(expectedIds)}, claimed ${formatIds(sortAcIds(claimedIds)) || 'none'}`,
+        details: renderFindings(findings),
         duration_ms: Date.now() - start,
+        findings,
       }
     }
 
     if (testOutcome === undefined) {
+      const findings: VerificationFinding[] = [
+        {
+          category: 'ac-test-outcome-missing',
+          severity: 'warn',
+          message: `AC evidence covers ${formatIds(expectedIds)} but test outcome is unavailable`,
+        },
+      ]
       return {
         status: 'warn',
-        details: `acceptance-criteria-evidence: AC evidence covers ${formatIds(expectedIds)} but test outcome is unavailable`,
+        details: renderFindings(findings),
         duration_ms: Date.now() - start,
+        findings,
       }
     }
 
@@ -182,6 +239,7 @@ export class AcceptanceCriteriaEvidenceCheck implements VerificationCheck {
       status: 'pass',
       details: `acceptance-criteria-evidence: AC evidence covers ${formatIds(expectedIds)}; tests=${testOutcome}`,
       duration_ms: Date.now() - start,
+      findings: [],
     }
   }
 }

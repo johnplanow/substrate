@@ -179,4 +179,49 @@ describe('PhantomReviewCheck', () => {
     expect(typeof result.duration_ms).toBe('number')
     expect(result.duration_ms).toBeGreaterThanOrEqual(0)
   })
+
+  // Story 55-2 AC1 — structured findings emitted on fail and empty on pass
+  describe('structured findings (story 55-2)', () => {
+    it('emits one phantom-review finding with severity=error on dispatch failure', async () => {
+      const check = new PhantomReviewCheck()
+      const result = await check.run(
+        makeContext({ dispatchFailed: true, error: 'Exit code: 1' }),
+      )
+      expect(result.findings).toHaveLength(1)
+      expect(result.findings?.[0]?.category).toBe('phantom-review')
+      expect(result.findings?.[0]?.severity).toBe('error')
+      expect(result.findings?.[0]?.message).toContain('dispatch failed')
+      expect(result.findings?.[0]?.message).toContain('Exit code: 1')
+    })
+
+    it('emits one phantom-review finding with severity=error on empty output', async () => {
+      const check = new PhantomReviewCheck()
+      const result = await check.run(
+        makeContext({ dispatchFailed: false, rawOutput: '' }),
+      )
+      expect(result.findings).toHaveLength(1)
+      expect(result.findings?.[0]?.category).toBe('phantom-review')
+      expect(result.findings?.[0]?.severity).toBe('error')
+      expect(result.findings?.[0]?.message).toBe('empty review output')
+    })
+
+    it('emits empty findings array on pass', async () => {
+      const check = new PhantomReviewCheck()
+      const result = await check.run(
+        makeContext({ dispatchFailed: false, rawOutput: 'verdict: SHIP_IT\n...' }),
+      )
+      expect(result.status).toBe('pass')
+      expect(result.findings).toEqual([])
+    })
+
+    it('details is equal to renderFindings(findings) on fail', async () => {
+      const check = new PhantomReviewCheck()
+      const result = await check.run(
+        makeContext({ dispatchFailed: true, error: 'schema_validation_failed' }),
+      )
+      expect(result.findings?.[0]?.message).toBe('schema validation failed')
+      // Rendering format: `ERROR [phantom-review] schema validation failed`
+      expect(result.details).toBe('ERROR [phantom-review] schema validation failed')
+    })
+  })
 })

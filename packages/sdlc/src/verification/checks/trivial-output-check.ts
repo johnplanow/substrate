@@ -15,8 +15,10 @@
 import type {
   VerificationCheck,
   VerificationContext,
+  VerificationFinding,
   VerificationResult,
 } from '../types.js'
+import { renderFindings } from '../findings.js'
 
 // ---------------------------------------------------------------------------
 // Default threshold
@@ -72,10 +74,18 @@ export class TrivialOutputCheck implements VerificationCheck {
 
     // AC5: missing token data → warn, not fail
     if (context.outputTokenCount === undefined) {
+      const findings: VerificationFinding[] = [
+        {
+          category: 'trivial-output',
+          severity: 'warn',
+          message: 'output token count unavailable — skipping check',
+        },
+      ]
       return {
         status: 'warn',
-        details: 'trivial-output: output token count unavailable — skipping check',
+        details: renderFindings(findings),
         duration_ms: Date.now() - start,
+        findings,
       }
     }
 
@@ -83,12 +93,20 @@ export class TrivialOutputCheck implements VerificationCheck {
 
     // AC1 + AC2: below threshold → fail with actionable message
     if (count < this.threshold) {
+      const findings: VerificationFinding[] = [
+        {
+          category: 'trivial-output',
+          severity: 'error',
+          message:
+            `output token count ${count} is below threshold ${this.threshold}` +
+            ` — Re-run with increased maxTurns`,
+        },
+      ]
       return {
         status: 'fail',
-        details:
-          `trivial-output: output token count ${count} is below threshold ${this.threshold}` +
-          ` — Re-run with increased maxTurns`,
+        details: renderFindings(findings),
         duration_ms: Date.now() - start,
+        findings,
       }
     }
 
@@ -97,6 +115,7 @@ export class TrivialOutputCheck implements VerificationCheck {
       status: 'pass',
       details: `output token count ${count} meets threshold ${this.threshold}`,
       duration_ms: Date.now() - start,
+      findings: [],
     }
   }
 }
