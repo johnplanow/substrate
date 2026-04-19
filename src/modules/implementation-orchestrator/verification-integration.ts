@@ -10,7 +10,14 @@
  */
 
 import { execSync } from 'node:child_process'
-import type { VerificationContext, VerificationSummary, ReviewSignals, DevStorySignals } from '@substrate-ai/sdlc'
+import type {
+  VerificationContext,
+  VerificationFinding,
+  VerificationSummary,
+  ReviewSignals,
+  DevStorySignals,
+} from '@substrate-ai/sdlc'
+import { renderFindings } from '@substrate-ai/sdlc'
 import type { RunManifest } from '@substrate-ai/sdlc'
 import { createLogger } from '../../utils/logger.js'
 
@@ -137,4 +144,35 @@ export function persistVerificationResult(
     .catch((err: unknown) =>
       _logger.warn({ err, storyKey }, 'manifest verification_result write failed — pipeline continues'),
     )
+}
+
+// ---------------------------------------------------------------------------
+// renderVerificationFindingsForPrompt — Story 55-3
+// ---------------------------------------------------------------------------
+
+/**
+ * Flatten every finding from a VerificationSummary's checks into a single
+ * prompt-ready string. Returns '' when the summary is undefined, contains
+ * no checks, or every check emits zero findings (e.g. every check passed).
+ *
+ * The output is intended for direct injection into retry/rework/fix
+ * prompt templates via a `{{verification_findings}}` section — kept
+ * human-readable and minimal. Each finding is rendered as a single
+ * `ERROR [category] message` / `WARN [...]` / `INFO [...]` line via the
+ * renderFindings helper from the verification module; lines are grouped
+ * by check name for readability.
+ */
+export function renderVerificationFindingsForPrompt(
+  summary: VerificationSummary | undefined,
+): string {
+  if (!summary) return ''
+
+  const blocks: string[] = []
+  for (const check of summary.checks) {
+    const findings: VerificationFinding[] = check.findings ?? []
+    if (findings.length === 0) continue
+    const rendered = renderFindings(findings)
+    blocks.push(`- ${check.checkName}:\n${rendered.replace(/^/gm, '    ')}`)
+  }
+  return blocks.join('\n')
 }

@@ -70,7 +70,12 @@ import { createDefaultVerificationPipeline } from '@substrate-ai/sdlc'
 import type { ReviewSignals, DevStorySignals } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus } from '@substrate-ai/core'
-import { assembleVerificationContext, VerificationStore, persistVerificationResult } from './verification-integration.js'
+import {
+  assembleVerificationContext,
+  VerificationStore,
+  persistVerificationResult,
+  renderVerificationFindingsForPrompt,
+} from './verification-integration.js'
 import type { OrchestratorEvents } from '../../core/event-bus.types.js'
 import { CostGovernanceChecker } from './cost-governance.js'
 import type { CeilingCheckResult } from './cost-governance.js'
@@ -3216,11 +3221,17 @@ export function createImplementationOrchestrator(
               archConstraints = constraints.map((d: Decision) => `${d.key}: ${d.value}`).join('\n')
             } catch { /* arch constraints are optional */ }
             const targetedFilesContent = buildTargetedFilesContent(issueList)
+            const verificationFindingsContent = renderVerificationFindingsForPrompt(
+              verificationStore.get(storyKey),
+            )
             const sections = [
               { name: 'story_content', content: storyContent, priority: 'required' as const },
               { name: 'review_feedback', content: reviewFeedback, priority: 'required' as const },
               { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
               ...(targetedFilesContent ? [{ name: 'targeted_files', content: targetedFilesContent, priority: 'important' as const }] : []),
+              ...(verificationFindingsContent
+                ? [{ name: 'verification_findings', content: verificationFindingsContent, priority: 'important' as const }]
+                : []),
             ]
             const assembled = assemblePrompt(fixTemplate, sections, 24000)
             fixPrompt = assembled.prompt
@@ -3439,6 +3450,11 @@ export function createImplementationOrchestrator(
             }
           } catch { /* graceful fallback */ }
 
+          // Story 55-3: render structured verification findings for prompt injection
+          const verificationFindingsContent = renderVerificationFindingsForPrompt(
+            verificationStore.get(storyKey),
+          )
+
           // Build sections based on template type
           const sections = isMajorRework
             ? [
@@ -3447,6 +3463,9 @@ export function createImplementationOrchestrator(
                 { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
                 { name: 'git_diff', content: gitDiffContent, priority: 'optional' as const },
                 { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' as const },
+                ...(verificationFindingsContent
+                  ? [{ name: 'verification_findings', content: verificationFindingsContent, priority: 'important' as const }]
+                  : []),
               ]
             : (() => {
                 const targetedFilesContent = buildTargetedFilesContent(issueList)
@@ -3456,6 +3475,9 @@ export function createImplementationOrchestrator(
                   { name: 'arch_constraints', content: archConstraints, priority: 'optional' as const },
                   ...(targetedFilesContent ? [{ name: 'targeted_files', content: targetedFilesContent, priority: 'important' as const }] : []),
                   { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' as const },
+                  ...(verificationFindingsContent
+                    ? [{ name: 'verification_findings', content: verificationFindingsContent, priority: 'important' as const }]
+                    : []),
                 ]
               })()
           const assembled = assemblePrompt(fixTemplate, sections, 24000)

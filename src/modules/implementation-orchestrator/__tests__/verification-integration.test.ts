@@ -35,8 +35,13 @@ vi.mock('node:child_process', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 import { execSync } from 'node:child_process'
-import { assembleVerificationContext, VerificationStore, persistVerificationResult } from '../verification-integration.js'
-import type { VerificationSummary, ReviewSignals } from '@substrate-ai/sdlc'
+import {
+  assembleVerificationContext,
+  VerificationStore,
+  persistVerificationResult,
+  renderVerificationFindingsForPrompt,
+} from '../verification-integration.js'
+import type { VerificationFinding, VerificationSummary, ReviewSignals } from '@substrate-ai/sdlc'
 import { RunManifest } from '@substrate-ai/sdlc'
 import { PerStoryStateSchema } from '@substrate-ai/sdlc'
 
@@ -324,5 +329,84 @@ describe('pre-52-7 manifest backward compatibility (AC6)', () => {
     if (result.success) {
       expect(result.data.verification_result).toBeUndefined()
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// renderVerificationFindingsForPrompt — Story 55-3
+// ---------------------------------------------------------------------------
+
+describe('renderVerificationFindingsForPrompt (story 55-3)', () => {
+  it('returns empty string for undefined summary', () => {
+    expect(renderVerificationFindingsForPrompt(undefined)).toBe('')
+  })
+
+  it('returns empty string when every check has zero findings', () => {
+    const summary: VerificationSummary = {
+      storyKey: '55-3',
+      status: 'pass',
+      duration_ms: 10,
+      checks: [
+        { checkName: 'build', status: 'pass', details: 'ok', duration_ms: 5, findings: [] },
+        { checkName: 'phantom-review', status: 'pass', details: 'ok', duration_ms: 2 },
+      ],
+    }
+    expect(renderVerificationFindingsForPrompt(summary)).toBe('')
+  })
+
+  it('groups findings by check name and renders via the canonical renderFindings shape', () => {
+    const buildFindings: VerificationFinding[] = [
+      {
+        category: 'build-error',
+        severity: 'error',
+        message: 'build failed (exit 2): tsc error',
+        command: 'npm run build',
+        exitCode: 2,
+      },
+    ]
+    const acFindings: VerificationFinding[] = [
+      { category: 'ac-missing-evidence', severity: 'error', message: 'missing AC3' },
+      { category: 'ac-missing-evidence', severity: 'error', message: 'missing AC5' },
+    ]
+    const summary: VerificationSummary = {
+      storyKey: '55-3',
+      status: 'fail',
+      duration_ms: 100,
+      checks: [
+        { checkName: 'build', status: 'fail', details: '', duration_ms: 50, findings: buildFindings },
+        { checkName: 'acceptance-criteria-evidence', status: 'fail', details: '', duration_ms: 40, findings: acFindings },
+      ],
+    }
+
+    const out = renderVerificationFindingsForPrompt(summary)
+    expect(out).toContain('- build:')
+    expect(out).toContain('ERROR [build-error] build failed (exit 2)')
+    expect(out).toContain('- acceptance-criteria-evidence:')
+    expect(out).toContain('ERROR [ac-missing-evidence] missing AC3')
+    expect(out).toContain('ERROR [ac-missing-evidence] missing AC5')
+    // Findings within a check are indented relative to the check header
+    expect(out).toMatch(/- build:\n\s{4}ERROR \[build-error\]/)
+  })
+
+  it('omits checks whose findings arrays are empty even if other checks have findings', () => {
+    const summary: VerificationSummary = {
+      storyKey: '55-3',
+      status: 'fail',
+      duration_ms: 10,
+      checks: [
+        { checkName: 'phantom-review', status: 'pass', details: 'ok', duration_ms: 2, findings: [] },
+        {
+          checkName: 'trivial-output',
+          status: 'fail',
+          details: '',
+          duration_ms: 3,
+          findings: [{ category: 'trivial-output', severity: 'error', message: '42 < 100' }],
+        },
+      ],
+    }
+    const out = renderVerificationFindingsForPrompt(summary)
+    expect(out).not.toContain('phantom-review')
+    expect(out).toContain('- trivial-output:')
+    expect(out).toContain('42 < 100')
   })
 })

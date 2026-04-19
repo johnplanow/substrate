@@ -17,6 +17,9 @@
 ### Prior Pipeline Findings
 {{prior_findings}}
 
+### Automated Verification Findings
+{{verification_findings}}
+
 ---
 
 ## Mission

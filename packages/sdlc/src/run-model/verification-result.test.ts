@@ -371,3 +371,145 @@ describe('patchStoryState verification_result round-trip (AC5, AC7)', () => {
     expect(entry?.status).toBe('complete')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 55-3 — StoredVerificationFindingSchema + findings round-trip
+// ---------------------------------------------------------------------------
+
+describe('StoredVerificationFinding schema (story 55-3)', () => {
+  // Re-import to keep the added describe block self-contained.
+  it('accepts a finding with only the required fields', async () => {
+    const { StoredVerificationFindingSchema } = await import('./verification-result.js')
+    const result = StoredVerificationFindingSchema.safeParse({
+      category: 'build-error',
+      severity: 'error',
+      message: 'exit 2',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a finding with the full optional command surface', async () => {
+    const { StoredVerificationFindingSchema } = await import('./verification-result.js')
+    const result = StoredVerificationFindingSchema.safeParse({
+      category: 'build-error',
+      severity: 'error',
+      message: 'exit 2',
+      command: 'npm run build',
+      exitCode: 2,
+      stdoutTail: 'a',
+      stderrTail: 'error TS2345',
+      durationMs: 1200,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a finding with an unknown severity', async () => {
+    const { StoredVerificationFindingSchema } = await import('./verification-result.js')
+    const result = StoredVerificationFindingSchema.safeParse({
+      category: 'build-error',
+      severity: 'critical',
+      message: 'x',
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('verification findings manifest round-trip (story 55-3)', () => {
+  let tempDir: string
+
+  beforeEach(async () => {
+    tempDir = makeTempDir()
+    await fs.mkdir(tempDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true })
+  })
+
+  it('writes and reads findings on a per-check verification result losslessly', async () => {
+    const runId = randomUUID()
+    const manifest = new RunManifest(runId, tempDir)
+
+    const summary: StoredVerificationSummary = {
+      storyKey: '55-3',
+      status: 'fail',
+      duration_ms: 1500,
+      checks: [
+        {
+          checkName: 'build',
+          status: 'fail',
+          details: 'ERROR [build-error] build failed (exit 2): tsc error',
+          duration_ms: 1243,
+          findings: [
+            {
+              category: 'build-error',
+              severity: 'error',
+              message: 'build failed (exit 2): tsc error',
+              command: 'npm run build',
+              exitCode: 2,
+              stdoutTail: 'compiling…\n',
+              stderrTail: 'error TS2345\n',
+              durationMs: 1243,
+            },
+          ],
+        },
+      ],
+    }
+
+    await manifest.patchStoryState('55-3', { verification_result: summary })
+
+    const data = await RunManifest.read(runId, tempDir)
+    const roundTrip = data.per_story_state['55-3']?.verification_result
+    expect(roundTrip).toBeDefined()
+    expect(roundTrip?.checks).toHaveLength(1)
+    const check = roundTrip?.checks[0]
+    expect(check?.findings).toHaveLength(1)
+    const f = check?.findings?.[0]
+    expect(f?.category).toBe('build-error')
+    expect(f?.severity).toBe('error')
+    expect(f?.message).toContain('build failed')
+    expect(f?.command).toBe('npm run build')
+    expect(f?.exitCode).toBe(2)
+    expect(f?.stderrTail).toContain('error TS2345')
+    expect(f?.durationMs).toBe(1243)
+  })
+
+  it('reads cleanly from a manifest written without findings (backward compatibility)', async () => {
+    const runId = randomUUID()
+    const manifestPath = join(tempDir, `${runId}.json`)
+    const legacyManifest = {
+      run_id: runId,
+      cli_flags: {},
+      story_scope: [],
+      supervisor_pid: null,
+      supervisor_session_id: null,
+      per_story_state: {
+        '52-7': {
+          status: 'complete',
+          phase: 'verification',
+          started_at: '2026-04-06T09:00:00.000Z',
+          verification_result: {
+            storyKey: '52-7',
+            status: 'pass',
+            duration_ms: 10,
+            checks: [
+              { checkName: 'build', status: 'pass', details: 'ok', duration_ms: 5 },
+            ],
+          },
+        },
+      },
+      recovery_history: [],
+      cost_accumulation: { per_story: {}, run_total: 0 },
+      pending_proposals: [],
+      generation: 1,
+      created_at: '2026-04-06T09:00:00.000Z',
+      updated_at: '2026-04-06T11:00:00.000Z',
+    }
+    await fs.writeFile(manifestPath, JSON.stringify(legacyManifest, null, 2), 'utf-8')
+
+    const data = await RunManifest.read(runId, tempDir)
+    const check = data.per_story_state['52-7']?.verification_result?.checks[0]
+    expect(check?.checkName).toBe('build')
+    expect(check?.findings).toBeUndefined()
+  })
+})

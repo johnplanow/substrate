@@ -17,6 +17,30 @@
 import { z } from 'zod'
 
 // ---------------------------------------------------------------------------
+// StoredVerificationFindingSchema — story 55-3
+// ---------------------------------------------------------------------------
+
+/**
+ * Schema for a single structured verification finding (story 55-1 / 55-3).
+ *
+ * Mirrors the VerificationFinding interface in
+ * packages/sdlc/src/verification/findings.ts without importing from that
+ * module to keep run-model free of a dependency on verification.
+ */
+export const StoredVerificationFindingSchema = z.object({
+  category: z.string(),
+  severity: z.enum(['error', 'warn', 'info']),
+  message: z.string(),
+  command: z.string().optional(),
+  exitCode: z.number().int().optional(),
+  stdoutTail: z.string().optional(),
+  stderrTail: z.string().optional(),
+  durationMs: z.number().nonnegative().optional(),
+})
+
+export type StoredVerificationFinding = z.infer<typeof StoredVerificationFindingSchema>
+
+// ---------------------------------------------------------------------------
 // StoredVerificationCheckResultSchema
 // ---------------------------------------------------------------------------
 
@@ -35,6 +59,14 @@ export const StoredVerificationCheckResultSchema = z.object({
   details: z.string(),
   /** Duration of this check in milliseconds. */
   duration_ms: z.number().nonnegative(),
+  /**
+   * Structured per-issue findings (story 55-1 / 55-3).
+   *
+   * Optional for backward compatibility with manifests produced before
+   * Epic 55 Phase 1 landed — a manifest without this field reads cleanly
+   * and callers that read the field see `undefined`.
+   */
+  findings: z.array(StoredVerificationFindingSchema).optional(),
 })
 
 export type StoredVerificationCheckResult = z.infer<typeof StoredVerificationCheckResultSchema>

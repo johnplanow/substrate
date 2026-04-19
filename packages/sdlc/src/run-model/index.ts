@@ -36,8 +36,17 @@ export { PerStoryStatusSchema, PerStoryStateSchema } from './per-story-state.js'
 export type { PerStoryStatus, PerStoryState } from './per-story-state.js'
 
 // Story 52-7: Stored verification result schemas and types
-export { StoredVerificationCheckResultSchema, StoredVerificationSummarySchema } from './verification-result.js'
-export type { StoredVerificationCheckResult, StoredVerificationSummary } from './verification-result.js'
+// Story 55-3: StoredVerificationFinding schema (part of findings persistence)
+export {
+  StoredVerificationFindingSchema,
+  StoredVerificationCheckResultSchema,
+  StoredVerificationSummarySchema,
+} from './verification-result.js'
+export type {
+  StoredVerificationFinding,
+  StoredVerificationCheckResult,
+  StoredVerificationSummary,
+} from './verification-result.js'
 
 // Story 52-2: Supervisor locking and ownership
 export { SupervisorLock } from './supervisor-lock.js'
