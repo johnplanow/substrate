@@ -38,8 +38,8 @@ Sprint 1 — Foundation (SHIPPED v0.20.4):
   Story 55-2: Migrate Tier A checks to emit structured findings              ✓
   Story 55-3: Persist findings in RunManifest + inject into retry prompts    ✓
 
-Sprint 2 — Fast-follows (partially deferred):
-  Story 55-3b: Status/metrics CLI JSON finding counts  (pending; see 55-3b-*.md)
+Sprint 2 — Fast-follows (SHIPPED v0.20.6):
+  Story 55-3b: Status/metrics CLI JSON finding counts  ✓
 ```
 
 **Followed up by:** Epic 56 (Runtime Verification Gates) Sprint 1

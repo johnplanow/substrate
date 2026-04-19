@@ -78,23 +78,26 @@ Candidate stories (not yet authored):
 
 - Update `create-story` prompt so agents proactively propose probes when
   a story's output is runtime-dependent (systemd units, containers,
-  migrations, install scripts)
+  migrations, install scripts) — **SHIPPED v0.20.7**
 - Update `fix-story` / `rework-story` retry prompts to surface runtime
   probe findings with the same prominence as code-review issues (the
   Phase 1 `{{verification_findings}}` placeholder already injects them —
   this sprint adds dedicated agent guidance for interpreting probe
-  failures)
+  failures) — **pending**
 - Retrofit one or two previously-shipped substrate stories with probes,
-  demonstrate probe catches the class of bug retroactively
+  demonstrate probe catches the class of bug retroactively — **pending**
 - Cross-project dogfood: re-run strata Story 1-4 with probes declared,
   confirm the pipeline hard-gates at the failures that shipped
-  previously
+  previously — **pending**
 
-Candidate stories (not yet authored):
+Stories:
 
-- `56-create-story-probe-awareness.md` — prompt update
-- `56-retry-prompt-probe-guidance.md` — retry prompt guidance for probes
-- `56-dogfood-probe-retrofit.md` — retrofit one shipped story + validate
+- `56-create-story-probe-awareness.md` — prompt update — **SHIPPED v0.20.7**
+  (commits `89aa7f4`, `21136b7`; live-dispatch smoke validated 2026-04-19
+  with 7 probes emitted, first one the `podman pull` repro of strata
+  Story 1-4)
+- `56-retry-prompt-probe-guidance.md` — retry prompt guidance for probes — **not yet authored**
+- `56-dogfood-probe-retrofit.md` — retrofit one shipped story + validate — **not yet authored**
 
 ## Out of Scope
 
@@ -117,11 +120,16 @@ Candidate stories (not yet authored):
    verification when probes are declared — done (Sprint 1 e2e + live
    registry validation).
 5. `create-story` agent proposes probes proactively for runtime-
-   dependent artifacts — **pending Sprint 3**.
+   dependent artifacts — done in Sprint 3 (v0.20.7); validated via live
+   claude-code dispatch against a Dolt/Quadlet fixture that emitted 7
+   well-formed probes including a `podman pull` probe matching the
+   strata Story 1-4 repro.
 
 ## References
 
 - Epic 55 Phase 1 brief: `epic-55-structured-verification-findings.md`
 - Phase 2 sprint 1 commits: `c17de32`, `d280aae`, `9053b05`
 - Phase 2 sprint 1 e2e validation: `src/__tests__/e2e/epic-56-runtime-probes-e2e.test.ts`
+- Phase 3 sprint 3 commits: `89aa7f4`, `21136b7` (v0.20.7)
+- Phase 3 sprint 3 unit coverage: `src/modules/compiled-workflows/__tests__/create-story.test.ts`
 - Digital Twin primitives (Epic 47): `packages/factory/src/twins/`
