@@ -180,3 +180,124 @@ describe('getRetryableEscalations', () => {
     expect(result.skipped).toContainEqual({ key: '22-1', reason: 'needs human review' })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Terminal-run status filter — skip escalation-diagnoses belonging to
+// pipeline runs whose status is 'failed' or 'stopped' when defaulting.
+// ---------------------------------------------------------------------------
+//
+// Runs in terminal status (failed / stopped) were abandoned; their per-story
+// escalations are historical noise and should not surface as retry proposals.
+// Caller-supplied runIds bypass the filter so a user can still inspect a
+// terminal run explicitly (e.g. for post-mortem).
+
+describe('getRetryableEscalations: terminal-run status filter', () => {
+  let adapter: InMemoryDatabaseAdapter
+
+  beforeEach(async () => {
+    adapter = await openDb()
+  })
+
+  afterEach(async () => {
+    await adapter.close()
+  })
+
+  async function insertRun(
+    id: string,
+    status: 'running' | 'paused' | 'completed' | 'failed' | 'stopped',
+  ) {
+    const now = new Date().toISOString()
+    await adapter.query(
+      `INSERT INTO pipeline_runs (id, methodology, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, 'bmad', status, now, now],
+    )
+  }
+
+  it('excludes decisions whose referenced run is failed', async () => {
+    await insertRun('run-failed', 'failed')
+    await insertDecision(adapter, '22-1', 'run-failed', 'retry-targeted')
+
+    const result = await getRetryableEscalations(adapter)
+    expect(result.retryable).toEqual([])
+    expect(result.skipped).toEqual([])
+  })
+
+  it('excludes decisions whose referenced run is stopped', async () => {
+    await insertRun('run-stopped', 'stopped')
+    await insertDecision(adapter, '22-1', 'run-stopped', 'retry-targeted')
+
+    const result = await getRetryableEscalations(adapter)
+    expect(result.retryable).toEqual([])
+  })
+
+  it('includes decisions whose referenced run is completed', async () => {
+    await insertRun('run-completed', 'completed')
+    await insertDecision(adapter, '22-1', 'run-completed', 'retry-targeted')
+
+    const result = await getRetryableEscalations(adapter)
+    expect(result.retryable).toContain('22-1')
+  })
+
+  it('includes decisions whose referenced run is running', async () => {
+    await insertRun('run-running', 'running')
+    await insertDecision(adapter, '22-1', 'run-running', 'retry-targeted')
+
+    const result = await getRetryableEscalations(adapter)
+    expect(result.retryable).toContain('22-1')
+  })
+
+  it('includes decisions whose referenced run is paused', async () => {
+    await insertRun('run-paused', 'paused')
+    await insertDecision(adapter, '22-1', 'run-paused', 'retry-targeted')
+
+    const result = await getRetryableEscalations(adapter)
+    expect(result.retryable).toContain('22-1')
+  })
+
+  it('returns empty when all referenced runs are terminal', async () => {
+    await insertRun('run-f1', 'failed')
+    await insertRun('run-f2', 'failed')
+    await insertRun('run-s1', 'stopped')
+    await insertDecision(adapter, '22-1', 'run-f1', 'retry-targeted')
+    await insertDecision(adapter, '22-2', 'run-f2', 'retry-targeted')
+    await insertDecision(adapter, '22-3', 'run-s1', 'retry-targeted')
+
+    const result = await getRetryableEscalations(adapter)
+    expect(result.retryable).toEqual([])
+  })
+
+  it('mixed: picks the latest NON-terminal run, skipping newer terminal ones', async () => {
+    // Insert oldest first: completed run has 22-1 (retryable)
+    await insertRun('run-old-completed', 'completed')
+    await insertDecision(adapter, '22-1', 'run-old-completed', 'retry-targeted')
+    // Newer: a failed run has 22-2 — should be skipped despite being more recent
+    await insertRun('run-new-failed', 'failed')
+    await insertDecision(adapter, '22-2', 'run-new-failed', 'retry-targeted')
+
+    const result = await getRetryableEscalations(adapter)
+    // The newer run is failed → falls back to the older completed run
+    expect(result.retryable).toContain('22-1')
+    expect(result.retryable).not.toContain('22-2')
+  })
+
+  it('caller-supplied runId bypasses filter (explicit scoping wins)', async () => {
+    // Even a failed run is reachable when the caller names it explicitly —
+    // useful for post-mortem inspection.
+    await insertRun('run-failed-explicit', 'failed')
+    await insertDecision(adapter, '22-1', 'run-failed-explicit', 'retry-targeted')
+
+    const result = await getRetryableEscalations(adapter, 'run-failed-explicit')
+    expect(result.retryable).toContain('22-1')
+  })
+
+  it('missing pipeline_runs row treated as unknown → included (backward compat)', async () => {
+    // No INSERT into pipeline_runs — the existing callers may seed decisions
+    // without a run row (e.g. some older tests / migration paths). The filter
+    // must not regress that.
+    await insertDecision(adapter, '22-1', 'run-orphan', 'retry-targeted')
+
+    const result = await getRetryableEscalations(adapter)
+    expect(result.retryable).toContain('22-1')
+  })
+})
