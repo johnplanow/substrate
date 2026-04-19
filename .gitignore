@@ -15,8 +15,10 @@
 # Installed from bmad-method dependency — run 'substrate auto init' to populate
 _bmad/
 
-# BMAD artifacts (local planning docs)
-_bmad-output/
+# BMAD artifacts (planning + story files) are tracked so collaborators
+# share the same source of truth. Substrate runs write into this tree
+# during dispatch — commit the artifacts you want shared, leave
+# ephemeral/transient run outputs uncommitted.
 
 # Runtime state
 .substrate/
