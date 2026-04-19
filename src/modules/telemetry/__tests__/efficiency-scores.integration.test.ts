@@ -570,6 +570,23 @@ describe('TelemetryPersistence category_stats', () => {
       expect(retrieved[0]!.totalTokens).toBe(1000) // original preserved
     })
 
+    // Regression: strata's first run crashed partway through create-story because
+    // storeCategoryStats received an array containing a duplicate (story_key, category)
+    // and the per-INSERT try/catch that emulated INSERT OR IGNORE could not
+    // intercept a duplicate-PK error raised at the transact() boundary in Dolt
+    // CLI batching mode. INSERT IGNORE at the SQL level keeps the transaction
+    // intact because the database silently drops the duplicate row.
+    it('handles intra-call duplicate tuples within one transact() without raising', async () => {
+      const first = makeCategoryStats({ category: 'tool_outputs', totalTokens: 100 })
+      const duplicate = makeCategoryStats({ category: 'tool_outputs', totalTokens: 9999 })
+
+      await persistence.storeCategoryStats('27-5', [first, duplicate])
+
+      const retrieved = await persistence.getCategoryStats('27-5')
+      expect(retrieved).toHaveLength(1)
+      expect(retrieved[0]!.totalTokens).toBe(100) // first wins, second silently dropped
+    })
+
     it('should store all 6 semantic categories and retrieve them', async () => {
       const allCategories: CategoryStats[] = [
         makeCategoryStats({ category: 'tool_outputs', totalTokens: 6000 }),
@@ -746,6 +763,25 @@ describe('TelemetryPersistence consumer_stats', () => {
       const retrieved = await persistence.getConsumerStats('27-5')
       expect(retrieved).toHaveLength(1)
       expect(retrieved[0]!.totalTokens).toBe(100) // original preserved
+    })
+
+    // Regression: strata's first run crashed partway through create-story with
+    // "duplicate primary key given: [1-1,claude-sonnet-4-6|]" because
+    // storeConsumerStats received an array whose entries collided on
+    // (story_key, consumer_key) and the per-INSERT try/catch that emulated
+    // INSERT OR IGNORE could not intercept a duplicate-PK error raised at the
+    // transact() boundary in Dolt CLI batching mode. INSERT IGNORE at the SQL
+    // level keeps the transaction intact because the database silently drops
+    // the duplicate row.
+    it('handles intra-call duplicate tuples within one transact() without raising', async () => {
+      const first = makeConsumerStats({ consumerKey: 'claude-sonnet-4-6|', totalTokens: 114 })
+      const duplicate = makeConsumerStats({ consumerKey: 'claude-sonnet-4-6|', totalTokens: 9999 })
+
+      await persistence.storeConsumerStats('1-1', [first, duplicate])
+
+      const retrieved = await persistence.getConsumerStats('1-1')
+      expect(retrieved).toHaveLength(1)
+      expect(retrieved[0]!.totalTokens).toBe(114) // first wins, second silently dropped
     })
 
     it('should validate each retrieved row with ConsumerStatsSchema (Zod validation)', async () => {

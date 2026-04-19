@@ -8,7 +8,9 @@
  *
  * SQL conversions from the original TelemetryPersistence:
  *  - INSERT OR REPLACE → DELETE + INSERT (adapter-compatible across all backends)
- *  - INSERT OR IGNORE  → try/catch around INSERT (silently skip duplicates)
+ *  - INSERT OR IGNORE  → INSERT IGNORE (MySQL/Dolt native; silently skips duplicates
+ *                        at the SQL level so duplicate-PK errors never escape the
+ *                        transaction boundary, even in Dolt CLI batching mode)
  *  - .prepare(sql).run/all/get → adapter.query()
  *  - db.transaction()  → adapter.transaction()
  *  - db.exec()         → adapter.exec()
@@ -592,26 +594,26 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
 
     await this._adapter.transaction(async (adapter) => {
       for (const stat of stats) {
-        // try/catch around INSERT to emulate INSERT OR IGNORE
-        try {
-          await adapter.query(
-            `INSERT INTO category_stats (
-              story_key, category, total_tokens, percentage, event_count,
-              avg_tokens_per_event, trend
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [
-              storyKey,
-              stat.category,
-              stat.totalTokens,
-              stat.percentage,
-              stat.eventCount,
-              stat.avgTokensPerEvent,
-              stat.trend,
-            ],
-          )
-        } catch {
-          // Row already exists for (story_key, category) — skip (INSERT OR IGNORE semantics)
-        }
+        // INSERT IGNORE: silently skip rows that duplicate the (story_key, category)
+        // primary key. Native SQL avoidance keeps the transaction intact on all
+        // adapters — a prior try/catch-around-INSERT emulation broke under Dolt
+        // CLI batching because a duplicate-PK error aborts the whole batched
+        // shell command before the per-statement catch can fire.
+        await adapter.query(
+          `INSERT IGNORE INTO category_stats (
+            story_key, category, total_tokens, percentage, event_count,
+            avg_tokens_per_event, trend
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            storyKey,
+            stat.category,
+            stat.totalTokens,
+            stat.percentage,
+            stat.eventCount,
+            stat.avgTokensPerEvent,
+            stat.trend,
+          ],
+        )
       }
     })
 
@@ -659,26 +661,26 @@ export class AdapterTelemetryPersistence implements ITelemetryPersistence {
 
     await this._adapter.transaction(async (adapter) => {
       for (const consumer of consumers) {
-        // try/catch around INSERT to emulate INSERT OR IGNORE
-        try {
-          await adapter.query(
-            `INSERT INTO consumer_stats (
-              story_key, consumer_key, category, total_tokens, percentage,
-              event_count, top_invocations_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [
-              storyKey,
-              consumer.consumerKey,
-              consumer.category,
-              consumer.totalTokens,
-              consumer.percentage,
-              consumer.eventCount,
-              JSON.stringify(consumer.topInvocations),
-            ],
-          )
-        } catch {
-          // Row already exists for (story_key, consumer_key) — skip (INSERT OR IGNORE semantics)
-        }
+        // INSERT IGNORE: silently skip rows that duplicate the (story_key, consumer_key)
+        // primary key. See storeCategoryStats for the full rationale — the prior
+        // try/catch-around-INSERT emulation crashed under Dolt CLI batching because
+        // duplicate-PK errors abort the whole batched shell command before the
+        // per-statement catch can fire.
+        await adapter.query(
+          `INSERT IGNORE INTO consumer_stats (
+            story_key, consumer_key, category, total_tokens, percentage,
+            event_count, top_invocations_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            storyKey,
+            consumer.consumerKey,
+            consumer.category,
+            consumer.totalTokens,
+            consumer.percentage,
+            consumer.eventCount,
+            JSON.stringify(consumer.topInvocations),
+          ],
+        )
       }
     })
 

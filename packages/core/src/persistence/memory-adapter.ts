@@ -386,14 +386,19 @@ export class InMemoryDatabaseAdapter implements DatabaseAdapter, SyncAdapter {
       this._tables.set(tableName, [])
     }
 
-    // Enforce PRIMARY KEY uniqueness (throw to support INSERT OR IGNORE via try/catch)
+    // Enforce PRIMARY KEY uniqueness. On duplicate:
+    //   - plain INSERT: throw (matches SQL UNIQUE-constraint error semantics)
+    //   - INSERT IGNORE: silently skip the row (matches MySQL/Dolt INSERT IGNORE)
     const pkCols = this._primaryKeys.get(tableName)
-    if (pkCols && pkCols.length > 0 && !_ignoreConflicts) {
+    if (pkCols && pkCols.length > 0) {
       const table = this._tables.get(tableName)!
       const isDuplicate = table.some((existingRow) =>
         pkCols.every((col) => existingRow[col] !== undefined && String(existingRow[col]) === String(row[col]))
       )
       if (isDuplicate) {
+        if (_ignoreConflicts) {
+          return []
+        }
         throw new Error(`UNIQUE constraint failed: ${tableName} (${pkCols.join(', ')})`)
       }
     }

@@ -75,7 +75,7 @@ export interface ITelemetryPersistence {
 
   // -- Category stats (story 27-5) -------------------------------------------
 
-  /** Batch-insert category stats for a story (INSERT OR IGNORE — skip if already present). */
+  /** Batch-insert category stats for a story. Silently skips rows whose (story_key, category) already exist. */
   storeCategoryStats(storyKey: string, stats: CategoryStats[]): Promise<void>
 
   /** Retrieve category stats for a story ordered by total_tokens descending. */
@@ -83,7 +83,7 @@ export interface ITelemetryPersistence {
 
   // -- Consumer stats (story 27-5) -------------------------------------------
 
-  /** Batch-insert consumer stats for a story (INSERT OR IGNORE — skip if already present). */
+  /** Batch-insert consumer stats for a story. Silently skips rows whose (story_key, consumer_key) already exist. */
   storeConsumerStats(storyKey: string, consumers: ConsumerStats[]): Promise<void>
 
   /** Retrieve consumer stats for a story ordered by total_tokens descending. */
