@@ -64,6 +64,96 @@ Use this exact format for each item:
 - The transport annotation `(queue: ...)` or `(api: ...)` or `(from story X-Y)` is optional but recommended when applicable
 - **The `## Interface Contracts` section is optional** — omit it entirely if the story has no cross-story schema dependencies
 
+## Runtime Verification Guidance
+
+**Decide whether this story's artifact is runtime-dependent.** An artifact is runtime-dependent if correctness depends on execution — systemd units, container definitions (Podman Quadlet, Docker Compose), install scripts, migration runners, anything whose behavior is only observable by running it against a real host or ephemeral sandbox.
+
+If the artifact is runtime-dependent, add a `## Runtime Probes` section to the story file. Each probe is a short shell command whose exit status answers "does this artifact actually work?".
+
+**If the artifact is NOT runtime-dependent — TypeScript/JavaScript code + tests, type-only refactors, documentation, build or tsconfig edits — omit the `## Runtime Probes` section entirely.** Adding one for a static-output story produces a `pass` (skip) with no benefit. The default substrate self-development case (source code + tests) has no probes.
+
+### Probe YAML shape
+
+Declare probes as a YAML list inside a single fenced `yaml` block directly under the `## Runtime Probes` heading. Each entry has this shape:
+
+```text
+- name: <hyphen-separated-identifier>    # required; unique within story
+  sandbox: host | twin                    # required; one of host | twin
+  command: <shell command line(s)>        # required
+  timeout_ms: 60000                       # optional; defaults to 60000
+  description: <optional context>         # optional
+```
+
+Required fields: `name`, `sandbox`, `command`. `timeout_ms` and `description` are optional. Probe names must be unique within one story.
+
+### Sandbox choice
+
+- **`sandbox: twin`** — default for probes that mutate host state: starting services, binding ports, writing outside the project working directory, running privileged commands. Safer; ephemeral.
+- **`sandbox: host`** — only when the probe is strictly read-only from the host's perspective (linting a file, parsing config, asserting a command exists, pulling an image into a local cache) OR when the host context itself is what the story needs to verify.
+- **When in doubt, pick `twin`.**
+
+### Probe granularity
+
+For stories with multiple runtime concerns (install + start + connect), declare **separate named probes per concern** rather than one monolithic probe. Finding messages reference probe names; granular probes produce actionable failures and let retries focus on the specific failure.
+
+Probe names are hyphen-separated identifiers, not sentences: `dolt-image-pullable`, not `verify that the dolt image can be pulled`.
+
+### Examples by artifact class
+
+**Systemd unit:**
+
+```yaml
+- name: unit-is-active
+  sandbox: twin
+  command: systemctl is-active my-service.service
+  description: unit started and has not crashed
+```
+
+**Container / Podman Quadlet** (catches the wrong-image-path class — strata Story 1-4):
+
+```yaml
+- name: dolt-image-pullable
+  sandbox: host
+  command: podman pull ghcr.io/dolthub/dolt-sql-server:latest
+  description: image reference resolves and is pullable
+```
+
+**Install script:**
+
+```yaml
+- name: installer-exits-clean
+  sandbox: twin
+  command: bash ./install.sh --dry-run
+- name: installed-binary-reports-version
+  sandbox: twin
+  command: /usr/local/bin/my-tool --version
+```
+
+**Database migration:**
+
+```yaml
+- name: migration-applies-cleanly
+  sandbox: twin
+  command: npm run migrate:up && npm run migrate:status
+  description: migration applies and schema_migrations reports the new version
+```
+
+**Docker Compose:**
+
+```yaml
+- name: compose-parses
+  sandbox: host
+  command: docker compose -f ./compose.yaml config --quiet
+  description: compose file is syntactically valid
+- name: compose-service-starts
+  sandbox: twin
+  command: docker compose -f ./compose.yaml up -d api && docker compose -f ./compose.yaml ps api | grep -q running
+```
+
+### Framing
+
+Treat the probes you draft as a **first pass** the human author will refine. Probes execute on a real host (or — for `sandbox: twin` — a real ephemeral sandbox), so command correctness matters. Prefer conservative commands that exit 0 only on true success and non-zero on any real failure.
+
 ## Scope Cap Guidance
 
 **Aim for 6-7 acceptance criteria and 7-8 tasks per story.**

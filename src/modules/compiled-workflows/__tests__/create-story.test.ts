@@ -7,6 +7,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+import { RuntimeProbeListSchema, parseRuntimeProbes } from '@substrate-ai/sdlc'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
@@ -14,6 +18,7 @@ import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dis
 import type { WorkflowDeps, CreateStoryParams } from '../types.js'
 import { CreateStoryResultSchema } from '../schemas.js'
 import { runCreateStory, extractStorySection } from '../create-story.js'
+import { load as yamlLoad } from 'js-yaml'
 
 // ---------------------------------------------------------------------------
 // Mock logger
@@ -1317,5 +1322,166 @@ Other story content.
     expect(capturedPrompts[0]).toContain('Target Story')
     // Must NOT include the other story's content
     expect(capturedPrompts[0]).not.toContain('Other story content')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 56-create-story-probe-awareness: Runtime Verification guidance
+// ---------------------------------------------------------------------------
+//
+// The create-story prompt teaches the agent to propose `## Runtime Probes`
+// sections for runtime-dependent artifacts (systemd units, containers,
+// install scripts, migrations, compose files). These tests pin both the
+// presence of the guidance and the parseability of every probe example
+// against the production `RuntimeProbeListSchema` — if the examples drift
+// from the schema the template ships bad syntax to every agent.
+
+describe('Story 56: Runtime Verification guidance in create-story prompt', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url))
+  const promptPath = join(__dirname, '..', '..', '..', '..', 'packs', 'bmad', 'prompts', 'create-story.md')
+
+  let promptContent: string
+
+  beforeEach(async () => {
+    promptContent = await readFile(promptPath, 'utf-8')
+  })
+
+  it('AC1: prompt template includes a Runtime Verification guidance heading', () => {
+    expect(promptContent).toMatch(/^##\s+Runtime\s+Verification\s+Guidance/mi)
+  })
+
+  it('AC1: prompt teaches the `## Runtime Probes` section name agents must emit', () => {
+    // The parser recognizes exactly `## Runtime Probes` (case-insensitive).
+    // Authors must know the literal heading; drift here breaks the check.
+    expect(promptContent).toContain('## Runtime Probes')
+  })
+
+  it('AC1: prompt documents the probe YAML schema (name, sandbox, command, timeout_ms?, description?)', () => {
+    expect(promptContent).toMatch(/name:\s*<hyphen-separated-identifier>/)
+    expect(promptContent).toMatch(/sandbox:\s*host\s*\|\s*twin/)
+    expect(promptContent).toMatch(/command:/)
+    expect(promptContent).toMatch(/timeout_ms:/)
+    expect(promptContent).toMatch(/description:/)
+  })
+
+  it('AC1: prompt includes one concrete probe example per runtime-dependent artifact class', () => {
+    // Brief AC1: systemd unit, container, install script, migration, compose
+    expect(promptContent.toLowerCase()).toContain('systemd')
+    expect(promptContent.toLowerCase()).toMatch(/podman|container|quadlet/)
+    expect(promptContent.toLowerCase()).toContain('install script')
+    expect(promptContent.toLowerCase()).toMatch(/migration/)
+    expect(promptContent.toLowerCase()).toMatch(/docker\s+compose|compose file/i)
+  })
+
+  it('AC2: prompt guides sandbox=twin as the default for host-mutating probes', () => {
+    expect(promptContent).toMatch(/sandbox:\s*twin/)
+    expect(promptContent).toMatch(/sandbox:\s*host/)
+    // Must state the "when in doubt" default explicitly
+    expect(promptContent).toMatch(/when in doubt[^\n]*twin/i)
+  })
+
+  it('AC3: prompt guides separate named probes per concern (granularity)', () => {
+    expect(promptContent).toMatch(/separate named probes/i)
+    // Hyphen-separated identifier guidance present
+    expect(promptContent).toMatch(/hyphen-separated/i)
+  })
+
+  it('AC4 + AC5: prompt explicitly tells the agent NOT to declare probes for static-output stories', () => {
+    // Must be imperative, not hedged. The wording doesn't matter but the intent does.
+    expect(promptContent).toMatch(/omit the `## Runtime Probes` section/i)
+    // Must enumerate the most common static case so TypeScript/test stories
+    // (the default substrate self-development case) don't grow probes.
+    expect(promptContent.toLowerCase()).toMatch(/typescript|javascript|code\s*\+\s*tests/)
+    expect(promptContent.toLowerCase()).toMatch(/refactor|documentation|build/)
+  })
+
+  it('AC1 guardrail: every ```yaml fenced block parses against RuntimeProbeListSchema', () => {
+    // This is the schema-drift trip-wire: if an author edits the prompt and
+    // introduces a probe example that doesn't parse, the check fails before
+    // the broken example ever ships to an agent.
+    const fences = [...promptContent.matchAll(/```yaml\n([\s\S]*?)\n```/g)].map((m) => m[1])
+    expect(fences.length).toBeGreaterThan(0)
+
+    for (const body of fences) {
+      const parsed = yamlLoad(body)
+      // Skip the schema-shape template (the one using `<hyphen-separated-identifier>` placeholders)
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        continue
+      }
+      // Everything else must be a list of valid probes.
+      expect(Array.isArray(parsed)).toBe(true)
+      const result = RuntimeProbeListSchema.safeParse(parsed)
+      if (!result.success) {
+        throw new Error(
+          `Probe example failed schema validation:\n--- yaml ---\n${body}\n--- error ---\n${result.error.message}`,
+        )
+      }
+    }
+  })
+
+  it('AC8 (strata Story 1-4 class): probe examples include a container image pull check', () => {
+    // The scar that motivated Epic 56: wrong image path (403 Forbidden on
+    // ghcr.io/dolthub/dolt-sql-server). At least one example must be the
+    // `podman pull` / container-image class of probe so agents see the
+    // precedent for that failure class.
+    expect(promptContent).toMatch(/podman pull|docker pull|image[^\n]*pull/i)
+  })
+
+  it('Backward compat: pipeline-rendered prompt sent to the dispatcher also carries probe guidance', async () => {
+    // AC7 verifies presence in the template file. This extra test closes
+    // the loop: the rendered prompt (post-placeholder substitution) is
+    // what the agent actually receives, so confirm no assembly step drops
+    // the guidance.
+    const pack = makePack()
+    vi.mocked(pack.getPrompt).mockResolvedValue(promptContent)
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(makeDeps({ pack, dispatcher }), defaultParams)
+
+    expect(capturedPrompts).toHaveLength(1)
+    expect(capturedPrompts[0]).toMatch(/Runtime Verification Guidance/i)
+    expect(capturedPrompts[0]).toContain('## Runtime Probes')
+  })
+
+  it('parser round-trip: a sample story embedding one of the prompt examples parses cleanly', () => {
+    // Pull the podman example out of the prompt and wrap it in a minimal
+    // story. parseRuntimeProbes() must return kind='parsed' with one probe.
+    // This is the end-to-end guardrail: prompt example → story markdown →
+    // production parser → ready-to-execute probe.
+    const fences = [...promptContent.matchAll(/```yaml\n([\s\S]*?)\n```/g)].map((m) => m[1])
+    // Pick the first list-shaped example (skip the schema template).
+    const listBody = fences.find((body) => {
+      const parsed = yamlLoad(body)
+      return Array.isArray(parsed)
+    })
+    expect(listBody).toBeDefined()
+
+    const story = `# Sample Story\n\n## Runtime Probes\n\n\`\`\`yaml\n${listBody}\n\`\`\`\n`
+    const result = parseRuntimeProbes(story)
+    expect(result.kind).toBe('parsed')
+    if (result.kind === 'parsed') {
+      expect(result.probes.length).toBeGreaterThan(0)
+      for (const probe of result.probes) {
+        expect(probe.name).toMatch(/^[a-z0-9][a-z0-9-]*$/i)
+        expect(['host', 'twin']).toContain(probe.sandbox)
+        expect(probe.command.length).toBeGreaterThan(0)
+      }
+    }
   })
 })
