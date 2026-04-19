@@ -340,6 +340,33 @@ substrate factory twins status
 substrate factory twins down
 ```
 
+## Using as a Library
+
+Substrate ships as a family of npm packages. Most users just want the CLI (`substrate-ai`); the scoped packages are for downstream projects that want to embed substrate pieces directly.
+
+| Package | Use when you want... |
+|---------|----------------------|
+| `substrate-ai` | The full CLI — installed globally |
+| `@substrate-ai/core` | Transport-agnostic primitives — event bus, adapters, cost tracker, telemetry, config schema |
+| `@substrate-ai/sdlc` | SDLC orchestration — phase handlers, graph orchestrator, verification pipeline, learning loop |
+| `@substrate-ai/factory` | Graph engine, scenario runner, convergence loop, digital twin helpers, LLM client |
+
+All four packages release in lockstep on every `v*` tag push — pick a version and mix any combination:
+
+```bash
+npm install @substrate-ai/core @substrate-ai/factory
+```
+
+```typescript
+import { createEventBus } from '@substrate-ai/core'
+import { parseGraph, createGraphExecutor } from '@substrate-ai/factory'
+import { createSdlcEventBridge } from '@substrate-ai/sdlc'
+
+// Compose these primitives in your own orchestrator.
+```
+
+TypeScript declaration files are bundled in each package. Published tarballs carry an npm provenance attestation you can verify with `npm audit signatures`.
+
 ## Configuration
 
 Substrate reads configuration from `.substrate/config.yaml` in your project root. Run `substrate init` to generate defaults.
@@ -461,17 +488,11 @@ git clone https://github.com/johnplanow/substrate.git
 cd substrate
 npm install
 npm run build
-npm test
+npm run test:fast   # ~50s unit suite for iteration
+npm test            # full suite with coverage — run before merging
 ```
 
-### Monorepo Structure
-
-| Package | Purpose |
-|---------|---------|
-| `substrate-ai` | CLI entry point, pipeline orchestrators, methodology packs |
-| `@substrate-ai/core` | Transport-agnostic infrastructure — adapters, dispatch, routing, persistence, telemetry |
-| `@substrate-ai/sdlc` | SDLC graph orchestrator, DOT pipeline topology, event handlers |
-| `@substrate-ai/factory` | Software factory — scenarios, convergence, direct API backend, digital twins |
+The repo is an npm workspaces monorepo — see [Using as a Library](#using-as-a-library) for the four packages it publishes. Release mechanics live in `scripts/sync-workspace-versions.mjs` and `.github/workflows/publish.yml`: every `v*` tag push syncs the workspace package versions to the root, dry-runs all four tarballs, and publishes via npm OIDC trusted publishing.
 
 ## License
 
