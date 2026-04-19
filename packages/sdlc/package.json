@@ -20,6 +20,9 @@
     "dist",
     "graphs"
   ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "dependencies": {
     "@substrate-ai/core": "*",
     "zod": "^4.3.6"

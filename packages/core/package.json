@@ -22,12 +22,20 @@
   "scripts": {
     "build": "tsc -b"
   },
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "dependencies": {
     "js-yaml": "^4.1.1",
     "semver": "^7.6.3",
     "zod": "^4.3.6"
   },
-  "optionalDependencies": {
+  "peerDependencies": {
     "mysql2": "^3.20.0"
+  },
+  "peerDependenciesMeta": {
+    "mysql2": {
+      "optional": true
+    }
   }
 }

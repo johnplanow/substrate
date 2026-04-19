@@ -1,55 +1,55 @@
 # @substrate-ai/core
 
-General-purpose agent infrastructure for the Substrate platform. This package contains all transport-agnostic modules extracted from the Substrate monolith during Epic 41 (Core Extraction Phase 1). Downstream packages — `substrate-ai` (SDLC), factory, and any custom orchestrators — import from `@substrate-ai/core` without coupling to SDLC-specific types.
+Transport-agnostic primitives for the [Substrate](https://github.com/johnplanow/substrate) platform. This is the foundation package — adapters, dispatch, routing, persistence, telemetry, cost tracking, event bus, and supervisor analysis — kept free of SDLC-specific concerns so downstream packages (`@substrate-ai/sdlc`, `@substrate-ai/factory`, or custom orchestrators) can compose the pieces they need.
 
-## Exported Modules
+## Install
 
-| Namespace | Key exports |
+```bash
+npm install @substrate-ai/core
+```
+
+Node 22 or later is required. If you plan to use the Dolt persistence adapter in socket mode, also install `mysql2` — it is declared as an optional peer dependency so consumers who only use the CLI or file-backed adapters skip the transitive binary.
+
+## Modules
+
+| Namespace | Representative exports |
 |---|---|
 | **adapters** | `WorkerAdapter`, `AdapterRegistry`, `SpawnCommand`, `AdapterOptions` |
+| **budget** | `BudgetTracker` |
 | **config** | `SubstrateConfig`, config loader, validation helpers |
-| **dispatch** | `Dispatcher`, `DispatchRequest`, `DispatchHandle`, `DispatchResult`, `DispatchConfig` |
-| **events** | `TypedEventBus`, `TypedEventBusImpl`, `createEventBus`, `CoreEvents`, `EventMap`, `EventHandler` |
-| **git** | Git utilities, worktree management, `GitManager` |
-| **persistence** | `DatabaseAdapter`, `DatabaseAdapterConfig`, `SyncAdapter`, `isSyncAdapter`, `InitSchemaFn` |
-| **routing** | `RoutingDecision`, `RoutingPolicy`, `IRoutingResolver`, `ModelResolution` |
-| **telemetry** | Telemetry pipeline, scoring modules, `ITelemetryPersistence`, `estimateCost` |
-| **supervisor** | Analysis engine, experimenter framework |
-| **budget** | `BudgetTracker` interface and implementation |
-| **cost-tracker** | Token rates, cost tracking, `CostEntry`, `TaskCostSummary`, `SessionCostSummary` |
-| **monitor** | `MonitorAgent`, `RecommendationEngine`, `ReportGenerator`, `TaskTypeClassifier` |
-| **version-manager** | `VersionManager`, `VersionManagerImpl`, `UpdateChecker`, `VersionCache` |
 | **context** | `ContextCompiler`, `TaskDescriptor`, `CompileResult` |
+| **cost-tracker** | `CostTracker`, `CostEntry`, `TaskCostSummary`, `TOKEN_RATES` |
+| **dispatch** | `Dispatcher`, `DispatchRequest`, `DispatchHandle`, `DispatchResult` |
+| **events** | `TypedEventBus`, `createEventBus`, `CoreEvents`, `EventMap`, `EventHandler` |
+| **git** | Git utilities, worktree management, `GitManager` |
+| **llm** | `callLLM`, `LLMCallParams`, `LLMCallResult` (default stub — provide your own implementation) |
+| **monitor** | `MonitorAgent`, `RecommendationEngine`, `ReportGenerator` |
+| **persistence** | `DatabaseAdapter`, `SyncAdapter`, `createDatabaseAdapter` |
 | **quality-gates** | `QualityGate`, `GatePipeline`, `GateResult` |
+| **routing** | `RoutingDecision`, `RoutingPolicy`, `IRoutingResolver` |
+| **supervisor** | Analysis engine, experimenter framework |
+| **telemetry** | Telemetry pipeline, scoring modules, `estimateCost` |
+| **version-manager** | `VersionManager`, `UpdateChecker`, `VersionCache` |
 
 ## Usage
 
 ```typescript
-// Event bus — subscribe and publish typed pipeline events
-import { createEventBus, TypedEventBus } from '@substrate-ai/core';
+import { createEventBus, type TypedEventBus } from '@substrate-ai/core'
 
-const bus: TypedEventBus = createEventBus();
-bus.on('story:complete', (event) => console.log('Story done:', event.storyKey));
+const bus: TypedEventBus = createEventBus()
+bus.on('story:complete', (event) => console.log('Story done:', event.storyKey))
 ```
 
 ```typescript
-// Adapter registry — register and retrieve worker adapters
-import { AdapterRegistry, WorkerAdapter } from '@substrate-ai/core';
+import { AdapterRegistry } from '@substrate-ai/core'
 
-const registry = new AdapterRegistry();
-registry.register('claude', myClaudeAdapter);
-const adapter: WorkerAdapter = registry.get('claude');
+const registry = new AdapterRegistry()
+registry.register('claude', myClaudeAdapter)
+const adapter = registry.get('claude')
 ```
 
-```typescript
-// Persistence — create a database adapter for pipeline state
-import { DatabaseAdapterConfig, createDatabaseAdapter } from '@substrate-ai/core';
+## Versioning
 
-const config: DatabaseAdapterConfig = { backend: 'dolt', basePath: '.substrate' };
-const db = await createDatabaseAdapter(config);
-await db.initSchema(mySchema);
-```
+This package releases in lockstep with `substrate-ai` on every `v*` tag push. Pick any version ≥ `0.20.1` — all four `@substrate-ai/*` packages publish together with verified npm provenance.
 
-## Version
-
-`@substrate-ai/core` follows the root `substrate-ai` version. Current version: **0.9.0** (Epic 41 — Core Extraction Phase 1 complete).
+See the [main repository](https://github.com/johnplanow/substrate) for the full platform documentation.

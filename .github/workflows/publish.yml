@@ -14,6 +14,13 @@ jobs:
       contents: read
       id-token: write
 
+    env:
+      # Opt actions/checkout@v4 and actions/setup-node@v4 into Node.js 24.
+      # Node.js 20 is deprecated on GitHub Actions (forced removal Sep 2026);
+      # upstream v5 releases of these actions are not yet available. Opting
+      # in early keeps the publish workflow on a supported runtime.
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
