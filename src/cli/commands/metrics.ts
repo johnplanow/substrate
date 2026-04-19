@@ -42,6 +42,9 @@ import { AdapterTelemetryPersistence } from '../../modules/telemetry/index.js'
 import type { EfficiencyScore, Recommendation, TurnAnalysis, CategoryStats, ConsumerStats } from '../../modules/telemetry/index.js'
 import { getFactoryRunSummaries, getScenarioResultsForRun, listGraphRuns, getTwinRunsForRun } from '@substrate-ai/factory'
 import type { FactoryRunSummary, ScenarioResultRow, PortMapping } from '@substrate-ai/factory'
+import { rollupFindingCounts, ZERO_FINDING_COUNTS } from '@substrate-ai/sdlc'
+import type { VerificationFindingsCounts } from '@substrate-ai/sdlc'
+import { resolveRunManifest } from './manifest-read.js'
 
 const logger = createLogger('metrics-cmd')
 
@@ -809,6 +812,25 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       // Non-fatal: fall back to null for all runs
     }
 
+    // Story 55-3b: Roll up verification finding counts per story by reading
+    // each unique run's RunManifest. Runs without a manifest (pre-Phase-D)
+    // or without a verification_result on a given story yield zero counts.
+    // All manifest I/O is non-fatal — metrics output never blocks on it.
+    const findingCountsByStoryRun = new Map<string, VerificationFindingsCounts>()
+    const uniqueRunIds = Array.from(new Set(storyMetrics.map((sm) => sm.run_id).filter((id) => id !== '')))
+    for (const uniqueRunId of uniqueRunIds) {
+      try {
+        const { manifest } = await resolveRunManifest(dbRoot, uniqueRunId)
+        if (manifest === null) continue
+        const data = await manifest.read()
+        for (const [storyKey, entry] of Object.entries(data.per_story_state)) {
+          findingCountsByStoryRun.set(`${storyKey}:${uniqueRunId}`, rollupFindingCounts(entry.verification_result))
+        }
+      } catch {
+        // Non-fatal: any failure just leaves that run's stories at zero counts.
+      }
+    }
+
     // Story 46-4: Fetch factory run summaries to include in metrics output
     let factoryRuns: FactoryRunSummary[] = []
     try {
@@ -824,7 +846,14 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
         type: 'sdlc' as const,
         phase_token_breakdown: phaseBreakdownMap[run.run_id] ?? null,
       }))
-      const jsonPayload: Record<string, unknown> = { runs: runsWithBreakdown, graph_runs: factoryRuns, story_metrics: storyMetrics }
+      // Story 55-3b: attach verification finding counts rolled up from each
+      // story's run manifest. Absent findings / missing manifest → zero counts.
+      const storyMetricsWithFindings = storyMetrics.map((sm) => ({
+        ...sm,
+        verification_findings:
+          findingCountsByStoryRun.get(`${sm.story_key}:${sm.run_id}`) ?? { ...ZERO_FINDING_COUNTS },
+      }))
+      const jsonPayload: Record<string, unknown> = { runs: runsWithBreakdown, graph_runs: factoryRuns, story_metrics: storyMetricsWithFindings }
       if (doltMetrics !== undefined) {
         if (aggregate) {
           // Aggregate mode: output as properly-named AggregateMetricResult objects with totals

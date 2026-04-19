@@ -48,6 +48,10 @@ export type {
   StoredVerificationSummary,
 } from './verification-result.js'
 
+// Story 55-3b: roll-up helper for surfacing finding counts in CLI JSON output
+export { rollupFindingCounts, ZERO_FINDING_COUNTS } from './verification-findings-counts.js'
+export type { VerificationFindingsCounts } from './verification-findings-counts.js'
+
 // Story 52-2: Supervisor locking and ownership
 export { SupervisorLock } from './supervisor-lock.js'
 export type { SupervisorLockOptions } from './supervisor-lock.js'

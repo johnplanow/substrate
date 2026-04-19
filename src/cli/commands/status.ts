@@ -39,6 +39,7 @@ import type { StateStore, StoryRecord } from '../../modules/state/index.js'
 import { createStateStore, WorkGraphRepository } from '../../modules/state/index.js'
 import { resolveRunManifest } from './manifest-read.js'
 import type { PerStoryState } from '@substrate-ai/sdlc'
+import { rollupFindingCounts } from '@substrate-ai/sdlc'
 
 const logger = createLogger('status-cmd')
 
@@ -219,12 +220,16 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
     // Falls back to wg_stories query for pre-Phase-D runs without a manifest.
     // ---------------------------------------------------------------------------
     let workGraph: WorkGraphSummary | undefined
+    // Story 55-3b: hoisted so the per-story JSON output can roll up
+    // verification finding counts from the same manifest read.
+    let manifestPerStoryState: Record<string, PerStoryState> | undefined
 
     // Try to load run manifest (AC1, AC6)
     const { manifest: resolvedManifest } = await resolveRunManifest(dbRoot, run?.id)
     if (resolvedManifest !== null) {
       try {
         const manifestData = await resolvedManifest.read()
+        manifestPerStoryState = manifestData.per_story_state
         workGraph = buildWorkGraphFromManifest(manifestData.per_story_state)
         logger.debug({ runId: run?.id }, 'status: workGraph built from manifest per_story_state')
       } catch {
@@ -331,7 +336,8 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
       // Story 24-4 (AC5, AC6): augment with per-story metrics and pipeline summary
       const storyMetricsRows = await getStoryMetricsForRun(adapter, run.id)
 
-      // Per-story v2 metrics (wall_clock_ms, phase_breakdown, tokens, review_cycles, dispatches)
+      // Per-story v2 metrics (wall_clock_ms, phase_breakdown, tokens,
+      // review_cycles, dispatches, verification_findings counts)
       const storyMetricsV2 = storyMetricsRows.map((row) => {
         const phaseBreakdown: Record<string, number> = {}
         try {
@@ -344,6 +350,11 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
         } catch {
           // ignore malformed JSON
         }
+        // Story 55-3b: roll up verification findings from the manifest
+        // per-story record (if available). Absent findings / absent manifest
+        // yields all-zero counts — no new failure mode for pre-55 runs.
+        const verificationResult = manifestPerStoryState?.[row.story_key]?.verification_result
+        const verificationFindings = rollupFindingCounts(verificationResult)
         return {
           story_key: row.story_key,
           result: row.result,
@@ -352,6 +363,7 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
           tokens: { input: row.input_tokens ?? 0, output: row.output_tokens ?? 0 },
           review_cycles: row.review_cycles ?? 0,
           dispatches: row.dispatches ?? 0,
+          verification_findings: verificationFindings,
         }
       })
 
