@@ -100,6 +100,7 @@ interface StoryReport {
   escalationIssues?: string[]
   verificationStatus?: 'pass' | 'warn' | 'fail'
   verificationChecks?: VerificationCheck[]
+  verification_ran?: boolean
   qualityScore?: number
   agentId?: string
   model?: string
@@ -448,6 +449,8 @@ async function buildRunReportFromManifest(
           verificationStatus: vr.status as 'pass' | 'warn' | 'fail',
           verificationChecks: vr.checks,
         }),
+        // Story 57-3: surface whether verification actually ran for this story.
+        verification_ran: state.verification_result !== undefined && state.verification_result !== null,
       })
     }
 
@@ -655,6 +658,8 @@ export async function buildRunReport(
         verificationStatus: vr.status as 'pass' | 'warn' | 'fail',
         verificationChecks: vr.checks,
       }),
+      // Story 57-3: surface whether verification actually ran for this story.
+      verification_ran: vr !== undefined,
       ...(qualityScore !== undefined && { qualityScore }),
       ...(s.primary_agent_id && { agentId: s.primary_agent_id }),
       ...(s.primary_model && { model: s.primary_model }),

@@ -817,6 +817,8 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     // or without a verification_result on a given story yield zero counts.
     // All manifest I/O is non-fatal — metrics output never blocks on it.
     const findingCountsByStoryRun = new Map<string, VerificationFindingsCounts>()
+    // Story 57-3: track whether verification actually ran per story/run.
+    const verificationRanByStoryRun = new Map<string, boolean>()
     const uniqueRunIds = Array.from(new Set(storyMetrics.map((sm) => sm.run_id).filter((id) => id !== '')))
     for (const uniqueRunId of uniqueRunIds) {
       try {
@@ -824,7 +826,9 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
         if (manifest === null) continue
         const data = await manifest.read()
         for (const [storyKey, entry] of Object.entries(data.per_story_state)) {
-          findingCountsByStoryRun.set(`${storyKey}:${uniqueRunId}`, rollupFindingCounts(entry.verification_result))
+          const key = `${storyKey}:${uniqueRunId}`
+          findingCountsByStoryRun.set(key, rollupFindingCounts(entry.verification_result))
+          verificationRanByStoryRun.set(key, entry.verification_result !== undefined && entry.verification_result !== null)
         }
       } catch {
         // Non-fatal: any failure just leaves that run's stories at zero counts.
@@ -848,10 +852,13 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       }))
       // Story 55-3b: attach verification finding counts rolled up from each
       // story's run manifest. Absent findings / missing manifest → zero counts.
+      // Story 57-3: also surface whether verification actually ran.
       const storyMetricsWithFindings = storyMetrics.map((sm) => ({
         ...sm,
         verification_findings:
           findingCountsByStoryRun.get(`${sm.story_key}:${sm.run_id}`) ?? { ...ZERO_FINDING_COUNTS },
+        verification_ran:
+          verificationRanByStoryRun.get(`${sm.story_key}:${sm.run_id}`) ?? false,
       }))
       const jsonPayload: Record<string, unknown> = { runs: runsWithBreakdown, graph_runs: factoryRuns, story_metrics: storyMetricsWithFindings }
       if (doltMetrics !== undefined) {

@@ -141,6 +141,7 @@ interface MetricsJson {
       story_key: string
       run_id: string
       verification_findings?: { error: number; warn: number; info: number }
+      verification_ran?: boolean
     }>
   }
 }
@@ -223,6 +224,57 @@ describe('Story 55-3b: metrics JSON includes verification_findings per story', (
     expect(json.story_metrics.length).toBeGreaterThan(0)
     for (const sm of json.story_metrics) {
       expect(sm.verification_findings).toEqual({ error: 0, warn: 0, info: 0 })
+    }
+  })
+
+  // ---------------------------------------------------------------------------
+  // Story 57-3: verification_ran signal
+  // ---------------------------------------------------------------------------
+
+  it('57-3 AC2: story with verification_result present reports verification_ran: true', async () => {
+    const { runId } = await seedRunWithDecisions(adapter, ['m57-a'])
+    await writeManifestFixture(projectRoot, runId, {
+      'm57-a': summaryWithCounts('m57-a', { error: 1 }),
+    })
+
+    await runMetricsAction({ outputFormat: 'json', projectRoot })
+    const json = extractMetricsJson(stdoutChunks)
+    const sm = json.story_metrics.find((x) => x.story_key === 'm57-a')
+    expect(sm?.verification_ran).toBe(true)
+    // Existing verification_findings must still be present (no regression)
+    expect(sm?.verification_findings).toEqual({ error: 1, warn: 0, info: 0 })
+  })
+
+  it('57-3 AC2: story with verification_result absent reports verification_ran: false', async () => {
+    const { runId } = await seedRunWithDecisions(adapter, ['m57-b'])
+    // Write a manifest fixture for m57-b but with no verification_result
+    await fs.mkdir(join(projectRoot, '.substrate'), { recursive: true })
+    await fs.writeFile(join(projectRoot, '.substrate', 'current-run-id'), runId)
+    const manifest = new RunManifest(runId, join(projectRoot, '.substrate', 'runs'))
+    await manifest.patchStoryState('m57-b', {
+      status: 'complete',
+      phase: 'implementation',
+      started_at: '2026-04-19T00:00:00.000Z',
+      // no verification_result
+    })
+
+    await runMetricsAction({ outputFormat: 'json', projectRoot })
+    const json = extractMetricsJson(stdoutChunks)
+    const sm = json.story_metrics.find((x) => x.story_key === 'm57-b')
+    expect(sm?.verification_ran).toBe(false)
+    expect(sm?.verification_findings).toEqual({ error: 0, warn: 0, info: 0 })
+  })
+
+  it('57-3 AC4: absent manifest path yields verification_ran: false on every story', async () => {
+    await seedRunWithDecisions(adapter, ['m57-c', 'm57-d'])
+    // Intentionally skip writing manifest fixture.
+
+    await runMetricsAction({ outputFormat: 'json', projectRoot })
+    const json = extractMetricsJson(stdoutChunks)
+    expect(json.story_metrics.length).toBeGreaterThan(0)
+    for (const sm of json.story_metrics) {
+      expect(sm?.verification_ran).toBe(false)
+      expect(sm?.verification_findings).toEqual({ error: 0, warn: 0, info: 0 })
     }
   })
 })

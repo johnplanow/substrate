@@ -355,6 +355,8 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
         // yields all-zero counts — no new failure mode for pre-55 runs.
         const verificationResult = manifestPerStoryState?.[row.story_key]?.verification_result
         const verificationFindings = rollupFindingCounts(verificationResult)
+        // Story 57-3: surface whether verification actually ran for this story.
+        const verificationRan = verificationResult !== undefined && verificationResult !== null
         return {
           story_key: row.story_key,
           result: row.result,
@@ -364,6 +366,7 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
           review_cycles: row.review_cycles ?? 0,
           dispatches: row.dispatches ?? 0,
           verification_findings: verificationFindings,
+          verification_ran: verificationRan,
         }
       })
 
