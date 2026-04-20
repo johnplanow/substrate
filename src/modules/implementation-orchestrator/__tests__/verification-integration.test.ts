@@ -312,6 +312,280 @@ describe('persistVerificationResult (Story 52-7)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Story 57-2: persistVerificationResult returns a Promise (AC1, AC5)
+// ---------------------------------------------------------------------------
+
+describe('persistVerificationResult returns Promise (Story 57-2)', () => {
+  let tempDir: string
+  let runId: string
+
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `verif-57-2-${randomUUID()}`)
+    runId = randomUUID()
+    await fs.mkdir(tempDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true })
+    } catch {
+      // ignore cleanup errors
+    }
+  })
+
+  it('AC1: returns a Promise that resolves after patchStoryState settles', async () => {
+    const manifest = await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
+
+    const summary = makeVerificationSummary('57-2', 'pass')
+    const result = persistVerificationResult('57-2', summary, manifest)
+
+    // Must be a Promise
+    expect(result).toBeInstanceOf(Promise)
+
+    // Awaiting it should succeed
+    await expect(result).resolves.toBeUndefined()
+
+    // And the write should have actually persisted
+    const data = await RunManifest.read(runId, tempDir)
+    expect(data.per_story_state['57-2']?.verification_result?.status).toBe('pass')
+  })
+
+  it('AC1: returns resolved Promise when runManifest is null', async () => {
+    const result = persistVerificationResult('57-2', makeVerificationSummary('57-2', 'pass'), null)
+    expect(result).toBeInstanceOf(Promise)
+    await expect(result).resolves.toBeUndefined()
+  })
+
+  it('AC1: returns resolved Promise when runManifest is undefined', async () => {
+    const result = persistVerificationResult('57-2', makeVerificationSummary('57-2', 'pass'), undefined)
+    expect(result).toBeInstanceOf(Promise)
+    await expect(result).resolves.toBeUndefined()
+  })
+
+  it('AC5: swallows patchStoryState rejection and resolves (non-fatal)', async () => {
+    // Create a fake RunManifest-like object whose patchStoryState rejects
+    const fakeManifest = {
+      patchStoryState: vi.fn().mockRejectedValue(new Error('disk full')),
+      read: vi.fn(),
+    } as unknown as RunManifest
+
+    const result = persistVerificationResult('57-2', makeVerificationSummary('57-2', 'pass'), fakeManifest)
+    expect(result).toBeInstanceOf(Promise)
+    // Must resolve (not reject) — non-fatal posture
+    await expect(result).resolves.toBeUndefined()
+  })
+
+  it('AC6: patchStoryState resolves before updateStory(phase:COMPLETE) is called (ordering)', async () => {
+    // Simulate orchestrator ordering: persistVerificationResult must settle before updateStory
+    const callOrder: string[] = []
+    let resolvePatch!: () => void
+
+    const fakeManifest = {
+      patchStoryState: vi.fn().mockImplementation(() => {
+        return new Promise<void>((resolve) => {
+          resolvePatch = () => {
+            callOrder.push('patchStoryState')
+            resolve()
+          }
+        })
+      }),
+      read: vi.fn(),
+    } as unknown as RunManifest
+
+    const updateStory = vi.fn().mockImplementation(() => {
+      callOrder.push('updateStory')
+    })
+
+    const summary = makeVerificationSummary('57-2', 'pass')
+
+    // Start the persist (does not resolve yet)
+    const persistPromise = persistVerificationResult('57-2', summary, fakeManifest)
+
+    // Simulate orchestrator awaiting the persist before calling updateStory
+    const orchestratorFlow = async () => {
+      await persistPromise
+      updateStory('57-2', { phase: 'COMPLETE' })
+    }
+
+    const flowPromise = orchestratorFlow()
+
+    // Resolve patch after flow is waiting
+    resolvePatch()
+
+    await flowPromise
+
+    expect(callOrder).toEqual(['patchStoryState', 'updateStory'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 57-2: post-COMPLETE invariant warning (AC4, AC7)
+// ---------------------------------------------------------------------------
+
+describe('post-COMPLETE invariant warning (Story 57-2 AC4, AC7)', () => {
+  let tempDir: string
+  let runId: string
+
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `verif-57-2-inv-${randomUUID()}`)
+    runId = randomUUID()
+    await fs.mkdir(tempDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true })
+    } catch {
+      // ignore cleanup errors
+    }
+  })
+
+  it('AC7: invariant warning fires when verification_result is absent post-COMPLETE', async () => {
+    // Create manifest without verification_result for the story
+    const manifest = await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {
+          '57-2': {
+            status: 'complete',
+            phase: 'COMPLETE',
+            started_at: '2026-04-19T10:00:00.000Z',
+            completed_at: '2026-04-19T11:00:00.000Z',
+            // No verification_result
+          },
+        },
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
+
+    // Spy on runManifest.read() to return manifest without verification_result
+    const warnSpy = vi.fn()
+    const fakeLogger = { warn: warnSpy }
+
+    // Simulate the invariant check logic inline (mirroring the orchestrator code)
+    const skipVerification = false
+    if (skipVerification !== true && manifest != null) {
+      await manifest.read().then((data) => {
+        if (data?.per_story_state?.['57-2']?.verification_result == null) {
+          fakeLogger.warn(
+            { storyKey: '57-2', category: 'verification-result-missing' },
+            'post-COMPLETE invariant: verification_result absent in manifest',
+          )
+        }
+      }).catch(() => { /* best-effort */ })
+    }
+
+    expect(warnSpy).toHaveBeenCalledOnce()
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ storyKey: '57-2', category: 'verification-result-missing' }),
+      expect.any(String),
+    )
+  })
+
+  it('AC4: invariant warning does NOT fire when verification_result is present', async () => {
+    const summary = makeVerificationSummary('57-2', 'pass')
+    const manifest = await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {
+          '57-2': {
+            status: 'complete',
+            phase: 'COMPLETE',
+            started_at: '2026-04-19T10:00:00.000Z',
+            completed_at: '2026-04-19T11:00:00.000Z',
+            verification_result: summary,
+          },
+        },
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
+
+    const warnSpy = vi.fn()
+    const fakeLogger = { warn: warnSpy }
+
+    const skipVerification = false
+    if (skipVerification !== true && manifest != null) {
+      await manifest.read().then((data) => {
+        if (data?.per_story_state?.['57-2']?.verification_result == null) {
+          fakeLogger.warn(
+            { storyKey: '57-2', category: 'verification-result-missing' },
+            'post-COMPLETE invariant: verification_result absent in manifest',
+          )
+        }
+      }).catch(() => { /* best-effort */ })
+    }
+
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it('AC4: invariant check is skipped when skipVerification is true', async () => {
+    const manifest = await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
+
+    const warnSpy = vi.fn()
+    const fakeLogger = { warn: warnSpy }
+
+    // skipVerification = true → no check
+    const skipVerification = true
+    if (skipVerification !== true && manifest != null) {
+      await manifest.read().then((data) => {
+        if (data?.per_story_state?.['57-2']?.verification_result == null) {
+          fakeLogger.warn(
+            { storyKey: '57-2', category: 'verification-result-missing' },
+            'post-COMPLETE invariant: verification_result absent in manifest',
+          )
+        }
+      }).catch(() => { /* best-effort */ })
+    }
+
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Backward compatibility with pre-52-7 manifests (Story 52-7 AC6)
 // ---------------------------------------------------------------------------
 

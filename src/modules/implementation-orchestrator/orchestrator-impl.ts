@@ -3015,7 +3015,8 @@ export function createImplementationOrchestrator(
           verificationStore.set(storyKey, verifSummary)
           // Story 52-7: persist verification result to run manifest (non-fatal, best-effort)
           // Called before any terminal phase transition so result survives crashes.
-          persistVerificationResult(storyKey, verifSummary, runManifest)
+          // Story 57-2: await persist so verification_result is flushed before COMPLETE transition
+          await persistVerificationResult(storyKey, verifSummary, runManifest)
           if (verifSummary.status === 'fail') {
             updateStory(storyKey, { phase: 'VERIFICATION_FAILED' as StoryPhase, completedAt: new Date().toISOString() })
             persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
@@ -3032,6 +3033,20 @@ export function createImplementationOrchestrator(
           phase: 'COMPLETE' as StoryPhase,
           completedAt: new Date().toISOString(),
         })
+        // Story 57-2: post-COMPLETE invariant — verification_result should be present unless skipVerification
+        if (config.skipVerification !== true && runManifest != null) {
+          void Promise.resolve()
+            .then(() => runManifest.read())
+            .then((manifest) => {
+              if (manifest?.per_story_state?.[storyKey]?.verification_result == null) {
+                logger.warn(
+                  { storyKey, category: 'verification-result-missing' },
+                  'post-COMPLETE invariant: verification_result absent in manifest',
+                )
+              }
+            })
+            .catch(() => { /* read failure — invariant check best-effort only */ })
+        }
         const completedReviewCycles = reviewCycles + 1
         await writeStoryMetricsBestEffort(storyKey, verdict, completedReviewCycles)
         await writeStoryOutcomeBestEffort(storyKey, 'complete', completedReviewCycles)
@@ -3293,7 +3308,8 @@ export function createImplementationOrchestrator(
           })
           const verifSummary = await verificationPipeline.run(verifContext, 'A')
           verificationStore.set(storyKey, verifSummary)
-          persistVerificationResult(storyKey, verifSummary, runManifest)
+          // Story 57-2: await persist so verification_result is flushed before COMPLETE transition
+          await persistVerificationResult(storyKey, verifSummary, runManifest)
           if (verifSummary.status === 'fail') {
             updateStory(storyKey, { phase: 'VERIFICATION_FAILED' as StoryPhase, completedAt: new Date().toISOString() })
             persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
@@ -3320,6 +3336,20 @@ export function createImplementationOrchestrator(
           reviewCycles: finalReviewCycles,
           completedAt: new Date().toISOString(),
         })
+        // Story 57-2: post-COMPLETE invariant — verification_result should be present unless skipVerification
+        if (config.skipVerification !== true && runManifest != null) {
+          void Promise.resolve()
+            .then(() => runManifest.read())
+            .then((manifest) => {
+              if (manifest?.per_story_state?.[storyKey]?.verification_result == null) {
+                logger.warn(
+                  { storyKey, category: 'verification-result-missing' },
+                  'post-COMPLETE invariant: verification_result absent in manifest',
+                )
+              }
+            })
+            .catch(() => { /* read failure — invariant check best-effort only */ })
+        }
         await writeStoryMetricsBestEffort(storyKey, verdict, finalReviewCycles)
         await writeStoryOutcomeBestEffort(storyKey, 'complete', finalReviewCycles)
         eventBus.emit('orchestrator:story-complete', {

@@ -120,12 +120,15 @@ export class VerificationStore {
  * verification results survive process crashes.
  *
  * Design notes:
- * - Non-fatal: the returned promise is wrapped in `.catch()` at the call site
- *   so a manifest write failure never aborts the pipeline.
+ * - Non-fatal: the `.catch()` handler swallows any rejection and logs at warn.
+ * - Returns a `Promise<void>` so callers can optionally `await` it to ensure
+ *   ordering (Story 57-2). Fire-and-forget callers that discard the return
+ *   value continue to compile and work correctly.
  * - Reuses the single RunManifest instance injected by the orchestrator to
  *   avoid concurrent-write conflicts with the atomic-write lock.
  * - `runManifest` is optional (`undefined | null`) — callers from contexts
- *   where no manifest is configured pass `null` and this function is a no-op.
+ *   where no manifest is configured pass `null` and this function returns a
+ *   resolved promise (no-op).
  *
  * @param storyKey    - Story key being verified (e.g. '52-7')
  * @param summary     - VerificationSummary returned by VerificationPipeline.run()
@@ -135,11 +138,11 @@ export function persistVerificationResult(
   storyKey: string,
   summary: VerificationSummary,
   runManifest: RunManifest | null | undefined,
-): void {
+): Promise<void> {
   if (runManifest == null) {
-    return
+    return Promise.resolve()
   }
-  runManifest
+  return runManifest
     .patchStoryState(storyKey, { verification_result: summary })
     .catch((err: unknown) =>
       _logger.warn({ err, storyKey }, 'manifest verification_result write failed — pipeline continues'),
