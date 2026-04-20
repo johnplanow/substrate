@@ -151,6 +151,12 @@ export class RunManifest {
   /** Optional Dolt adapter for degraded-mode fallback on read. */
   private doltAdapter: IDoltAdapter | null
 
+  /**
+   * Serializes all write operations on this instance to prevent lost-update races.
+   * Initialized to a resolved promise; each enqueued operation chains off the tail.
+   */
+  private _writeChain: Promise<void> = Promise.resolve()
+
   constructor(runId: string, baseDir: string = defaultBaseDir(), doltAdapter: IDoltAdapter | null = null) {
     this.runId = runId
     this.baseDir = baseDir
@@ -215,11 +221,32 @@ export class RunManifest {
   }
 
   // -------------------------------------------------------------------------
-  // write()
+  // _enqueue() — private write serializer
   // -------------------------------------------------------------------------
 
   /**
-   * Atomically write the manifest to disk.
+   * Append `fn` to the per-instance write chain so all write operations execute
+   * strictly sequentially, preventing lost-update races on concurrent callers.
+   *
+   * The chain itself never rejects (errors are swallowed on the chain side);
+   * the returned promise resolves or rejects exactly when `fn` settles, so
+   * fire-and-forget `.catch()` callers still receive failure signals.
+   */
+  private _enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this._writeChain.then(() => fn())
+    // Keep chain alive even if fn rejects — subsequent enqueues must not stall
+    this._writeChain = next.then(() => undefined, () => undefined)
+    return next
+  }
+
+  // -------------------------------------------------------------------------
+  // _writeImpl() — raw atomic write (bypasses enqueue, called within _enqueue)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Raw implementation of the atomic manifest write.
+   * Must only be called from within an `_enqueue`-d function to maintain
+   * the serialization invariant.
    *
    * Sequence:
    *   1. Auto-increment `generation`, set `updated_at`
@@ -229,7 +256,7 @@ export class RunManifest {
    *   5. If primary exists, copy to `.bak`
    *   6. Rename `.tmp` → primary path
    */
-  async write(data: Omit<RunManifestData, 'generation' | 'updated_at'>): Promise<void> {
+  private async _writeImpl(data: Omit<RunManifestData, 'generation' | 'updated_at'>): Promise<void> {
     // Read current generation from disk to increment correctly
     let currentGeneration = 0
     const existing = await tryReadFile(this.primaryPath)
@@ -273,6 +300,20 @@ export class RunManifest {
   }
 
   // -------------------------------------------------------------------------
+  // write()
+  // -------------------------------------------------------------------------
+
+  /**
+   * Atomically write the manifest to disk.
+   *
+   * Enqueues the write via `_enqueue` so concurrent calls are serialized.
+   * The returned promise resolves when this call's write completes.
+   */
+  async write(data: Omit<RunManifestData, 'generation' | 'updated_at'>): Promise<void> {
+    return this._enqueue(() => this._writeImpl(data))
+  }
+
+  // -------------------------------------------------------------------------
   // Static factory: open()
   // -------------------------------------------------------------------------
 
@@ -299,18 +340,14 @@ export class RunManifest {
   // -------------------------------------------------------------------------
 
   /**
-   * Read the current manifest (or create a minimal default), merge the provided
-   * CLI flags into `cli_flags`, and write the result atomically.
-   *
-   * Non-fatal: callers should wrap in try/catch and log a warning on failure.
-   * The pipeline must not abort if manifest write fails.
+   * Raw implementation — must only be called from within `_enqueue`.
    */
-  async patchCLIFlags(flags: CliFlags): Promise<void> {
+  private async _patchCLIFlagsImpl(flags: CliFlags): Promise<void> {
     let existingData: Omit<RunManifestData, 'generation' | 'updated_at'>
 
     try {
       const read = await RunManifest.read(this.runId, this.baseDir, this.doltAdapter)
-      // Strip generation and updated_at — write() re-computes them
+      // Strip generation and updated_at — _writeImpl() re-computes them
       const { generation: _gen, updated_at: _ts, ...rest } = read
       existingData = rest
     } catch {
@@ -330,10 +367,22 @@ export class RunManifest {
       }
     }
 
-    await this.write({
+    await this._writeImpl({
       ...existingData,
       cli_flags: { ...existingData.cli_flags, ...flags },
     })
+  }
+
+  /**
+   * Read the current manifest (or create a minimal default), merge the provided
+   * CLI flags into `cli_flags`, and write the result atomically.
+   *
+   * Enqueues the operation via `_enqueue` so concurrent calls are serialized.
+   * Non-fatal: callers should wrap in try/catch and log a warning on failure.
+   * The pipeline must not abort if manifest write fails.
+   */
+  async patchCLIFlags(flags: CliFlags): Promise<void> {
+    return this._enqueue(() => this._patchCLIFlagsImpl(flags))
   }
 
   // -------------------------------------------------------------------------
@@ -341,26 +390,14 @@ export class RunManifest {
   // -------------------------------------------------------------------------
 
   /**
-   * Atomically upsert the per-story lifecycle state for a single story key.
-   *
-   * Reads the current manifest (or creates a minimal default if absent),
-   * shallowly merges `updates` into `per_story_state[storyKey]`, and writes
-   * the result atomically via a single `write()` call.
-   *
-   * Fields not included in `updates` on an existing entry are preserved unchanged.
-   *
-   * Non-fatal: callers MUST wrap in `.catch((err) => logger.warn(...))`.
-   * The pipeline must never abort due to a manifest write failure.
-   *
-   * @param storyKey - Story key (e.g. '52-4')
-   * @param updates  - Partial PerStoryState fields to merge
+   * Raw implementation — must only be called from within `_enqueue`.
    */
-  async patchStoryState(storyKey: string, updates: Partial<PerStoryState>): Promise<void> {
+  private async _patchStoryStateImpl(storyKey: string, updates: Partial<PerStoryState>): Promise<void> {
     let existingData: Omit<RunManifestData, 'generation' | 'updated_at'>
 
     try {
       const read = await RunManifest.read(this.runId, this.baseDir, this.doltAdapter)
-      // Strip generation and updated_at — write() re-computes them
+      // Strip generation and updated_at — _writeImpl() re-computes them
       const { generation: _gen, updated_at: _ts, ...rest } = read
       existingData = rest
     } catch {
@@ -397,7 +434,7 @@ export class RunManifest {
       ...updates,
     } as PerStoryState
 
-    await this.write({
+    await this._writeImpl({
       ...existingData,
       per_story_state: {
         ...existingData.per_story_state,
@@ -406,27 +443,34 @@ export class RunManifest {
     })
   }
 
+  /**
+   * Atomically upsert the per-story lifecycle state for a single story key.
+   *
+   * Reads the current manifest (or creates a minimal default if absent),
+   * shallowly merges `updates` into `per_story_state[storyKey]`, and writes
+   * the result atomically via a single `write()` call.
+   *
+   * Fields not included in `updates` on an existing entry are preserved unchanged.
+   *
+   * Enqueues the operation via `_enqueue` so concurrent calls are serialized.
+   * Non-fatal: callers MUST wrap in `.catch((err) => logger.warn(...))`.
+   * The pipeline must never abort due to a manifest write failure.
+   *
+   * @param storyKey - Story key (e.g. '52-4')
+   * @param updates  - Partial PerStoryState fields to merge
+   */
+  async patchStoryState(storyKey: string, updates: Partial<PerStoryState>): Promise<void> {
+    return this._enqueue(() => this._patchStoryStateImpl(storyKey, updates))
+  }
+
   // -------------------------------------------------------------------------
   // Instance: appendRecoveryEntry() — atomic append and cost update
   // -------------------------------------------------------------------------
 
   /**
-   * Atomically append a recovery entry and update cost accumulation.
-   *
-   * Reads the current manifest, appends `entry` to `recovery_history[]`,
-   * increments `cost_accumulation.per_story[entry.story_key]` by `entry.cost_usd`,
-   * increments `cost_accumulation.run_total` by `entry.cost_usd`, then writes
-   * atomically via a single `write()` call.
-   *
-   * Non-fatal: callers MUST wrap in `.catch((err) => logger.warn(...))`.
-   * The pipeline must never abort due to a manifest write failure.
-   *
-   * `entry.cost_usd` is the cost of this single retry attempt only (NOT cumulative).
-   * Cumulative per-story retry cost is tracked in `cost_accumulation.per_story`.
-   *
-   * @param entry - Recovery entry to append (attempt_number is 1-indexed)
+   * Raw implementation — must only be called from within `_enqueue`.
    */
-  async appendRecoveryEntry(entry: RecoveryEntry): Promise<void> {
+  private async _appendRecoveryEntryImpl(entry: RecoveryEntry): Promise<void> {
     let existingData: Omit<RunManifestData, 'generation' | 'updated_at'>
 
     try {
@@ -463,7 +507,28 @@ export class RunManifest {
       },
     }
 
-    await this.write(updated)
+    await this._writeImpl(updated)
+  }
+
+  /**
+   * Atomically append a recovery entry and update cost accumulation.
+   *
+   * Reads the current manifest, appends `entry` to `recovery_history[]`,
+   * increments `cost_accumulation.per_story[entry.story_key]` by `entry.cost_usd`,
+   * increments `cost_accumulation.run_total` by `entry.cost_usd`, then writes
+   * atomically via a single `write()` call.
+   *
+   * Enqueues the operation via `_enqueue` so concurrent calls are serialized.
+   * Non-fatal: callers MUST wrap in `.catch((err) => logger.warn(...))`.
+   * The pipeline must never abort due to a manifest write failure.
+   *
+   * `entry.cost_usd` is the cost of this single retry attempt only (NOT cumulative).
+   * Cumulative per-story retry cost is tracked in `cost_accumulation.per_story`.
+   *
+   * @param entry - Recovery entry to append (attempt_number is 1-indexed)
+   */
+  async appendRecoveryEntry(entry: RecoveryEntry): Promise<void> {
+    return this._enqueue(() => this._appendRecoveryEntryImpl(entry))
   }
 
   // -------------------------------------------------------------------------
