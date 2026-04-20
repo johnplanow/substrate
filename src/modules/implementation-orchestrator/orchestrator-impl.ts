@@ -1538,20 +1538,23 @@ export function createImplementationOrchestrator(
         result: createResult,
       })
 
-      // Record create-story token usage for accurate per-story cost attribution
+      // Record create-story token usage for accurate per-story cost attribution.
+      // Story 57-4: wrap in Promise.resolve().then(...) so both sync throws and async
+      // rejections are caught; the prior try/catch only caught sync throws, allowing
+      // Dolt "database is read only" rejections to terminate the orchestrator process.
       if (config.pipelineRunId !== undefined && createResult.tokenUsage !== undefined) {
-        try {
-          addTokenUsage(db, config.pipelineRunId, {
+        void Promise.resolve()
+          .then(() => addTokenUsage(db, config.pipelineRunId!, {
             phase: 'create-story',
             agent: 'create-story',
-            input_tokens: createResult.tokenUsage.input,
-            output_tokens: createResult.tokenUsage.output,
-            cost_usd: estimateDispatchCost(createResult.tokenUsage.input, createResult.tokenUsage.output),
+            input_tokens: createResult.tokenUsage!.input,
+            output_tokens: createResult.tokenUsage!.output,
+            cost_usd: estimateDispatchCost(createResult.tokenUsage!.input, createResult.tokenUsage!.output),
             metadata: JSON.stringify({ storyKey }),
-          })
-        } catch (tokenErr) {
-          logger.warn({ storyKey, err: tokenErr }, 'Failed to record create-story token usage')
-        }
+          }))
+          .catch((tokenErr: unknown) =>
+            logger.warn({ storyKey, err: tokenErr }, 'Failed to record create-story token usage'),
+          )
       }
 
       await persistState()
@@ -1755,20 +1758,20 @@ export function createImplementationOrchestrator(
 
     endPhase(storyKey, 'test-plan')
 
-    // Record test-plan token usage for accurate per-story cost attribution
+    // Record test-plan token usage for accurate per-story cost attribution (Story 57-4: see notes above)
     if (config.pipelineRunId !== undefined && testPlanTokenUsage !== undefined) {
-      try {
-        addTokenUsage(db, config.pipelineRunId, {
+      void Promise.resolve()
+        .then(() => addTokenUsage(db, config.pipelineRunId!, {
           phase: 'test-plan',
           agent: 'test-plan',
           input_tokens: testPlanTokenUsage.input,
           output_tokens: testPlanTokenUsage.output,
           cost_usd: estimateDispatchCost(testPlanTokenUsage.input, testPlanTokenUsage.output),
           metadata: JSON.stringify({ storyKey }),
-        })
-      } catch (tokenErr) {
-        logger.warn({ storyKey, err: tokenErr }, 'Failed to record test-plan token usage')
-      }
+        }))
+        .catch((tokenErr: unknown) =>
+          logger.warn({ storyKey, err: tokenErr }, 'Failed to record test-plan token usage'),
+        )
     }
 
     eventBus.emit('orchestrator:story-phase-complete', {
@@ -1956,15 +1959,15 @@ export function createImplementationOrchestrator(
             batchFileGroups.push({ batchIndex: batch.batchIndex, files: batchFilesModified })
           }
 
-          // AC5: Store batch context in token_usage metadata JSON
+          // AC5: Store batch context in token_usage metadata JSON (Story 57-4: see notes above)
           if (config.pipelineRunId !== undefined && batchResult.tokenUsage !== undefined) {
-            try {
-              addTokenUsage(db, config.pipelineRunId, {
+            void Promise.resolve()
+              .then(() => addTokenUsage(db, config.pipelineRunId!, {
                 phase: 'dev-story',
                 agent: `batch-${batch.batchIndex}`,
-                input_tokens: batchResult.tokenUsage.input,
-                output_tokens: batchResult.tokenUsage.output,
-                cost_usd: estimateDispatchCost(batchResult.tokenUsage.input, batchResult.tokenUsage.output),
+                input_tokens: batchResult.tokenUsage!.input,
+                output_tokens: batchResult.tokenUsage!.output,
+                cost_usd: estimateDispatchCost(batchResult.tokenUsage!.input, batchResult.tokenUsage!.output),
                 metadata: JSON.stringify({
                   storyKey,
                   batchIndex: batch.batchIndex,
@@ -1972,10 +1975,10 @@ export function createImplementationOrchestrator(
                   durationMs: batchDurationMs,
                   result: batchMetrics.result,
                 }),
-              })
-            } catch (tokenErr) {
-              logger.warn({ storyKey, batchIndex: batch.batchIndex, err: tokenErr }, 'Failed to record batch token usage')
-            }
+              }))
+              .catch((tokenErr: unknown) =>
+                logger.warn({ storyKey, batchIndex: batch.batchIndex, err: tokenErr }, 'Failed to record batch token usage'),
+              )
           }
 
           // Accumulate output tokens across batches for TrivialOutputCheck (Story 51-5)
@@ -2023,18 +2026,19 @@ export function createImplementationOrchestrator(
 
         // Record single-dispatch dev-story token usage for per-story cost attribution
         if (config.pipelineRunId !== undefined && devResult.tokenUsage !== undefined) {
-          try {
-            addTokenUsage(db, config.pipelineRunId, {
+          // Story 57-4: see notes above
+          void Promise.resolve()
+            .then(() => addTokenUsage(db, config.pipelineRunId!, {
               phase: 'dev-story',
               agent: 'dev-story',
-              input_tokens: devResult.tokenUsage.input,
-              output_tokens: devResult.tokenUsage.output,
-              cost_usd: estimateDispatchCost(devResult.tokenUsage.input, devResult.tokenUsage.output),
+              input_tokens: devResult.tokenUsage!.input,
+              output_tokens: devResult.tokenUsage!.output,
+              cost_usd: estimateDispatchCost(devResult.tokenUsage!.input, devResult.tokenUsage!.output),
               metadata: JSON.stringify({ storyKey }),
-            })
-          } catch (tokenErr) {
-            logger.warn({ storyKey, err: tokenErr }, 'Failed to record dev-story token usage')
-          }
+            }))
+            .catch((tokenErr: unknown) =>
+              logger.warn({ storyKey, err: tokenErr }, 'Failed to record dev-story token usage'),
+            )
         }
 
         eventBus.emit('orchestrator:story-phase-complete', {
@@ -2829,20 +2833,20 @@ export function createImplementationOrchestrator(
           )
         }
 
-        // Record code-review token usage for per-story cost attribution
+        // Record code-review token usage for per-story cost attribution (Story 57-4: see notes above)
         if (config.pipelineRunId !== undefined && reviewResult.tokenUsage !== undefined) {
-          try {
-            addTokenUsage(db, config.pipelineRunId, {
+          void Promise.resolve()
+            .then(() => addTokenUsage(db, config.pipelineRunId!, {
               phase: 'code-review',
               agent: useBatchedReview ? 'code-review-batched' : 'code-review',
-              input_tokens: reviewResult.tokenUsage.input,
-              output_tokens: reviewResult.tokenUsage.output,
-              cost_usd: estimateDispatchCost(reviewResult.tokenUsage.input, reviewResult.tokenUsage.output),
+              input_tokens: reviewResult.tokenUsage!.input,
+              output_tokens: reviewResult.tokenUsage!.output,
+              cost_usd: estimateDispatchCost(reviewResult.tokenUsage!.input, reviewResult.tokenUsage!.output),
               metadata: JSON.stringify({ storyKey, reviewCycle: reviewCycles }),
-            })
-          } catch (tokenErr) {
-            logger.warn({ storyKey, err: tokenErr }, 'Failed to record code-review token usage')
-          }
+            }))
+            .catch((tokenErr: unknown) =>
+              logger.warn({ storyKey, err: tokenErr }, 'Failed to record code-review token usage'),
+            )
         }
 
         // Phantom review detection: dispatch failures (crash, timeout, non-zero exit)
