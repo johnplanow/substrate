@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { buildRunReport, pushRunReport, enqueueReport, drainOutbox, reportToMesh } from '../mesh-reporter.js'
 import type { DatabaseAdapter } from '@substrate-ai/core'
-import { mkdtempSync, rmSync, readdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, readdirSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -150,6 +150,145 @@ describe('buildRunReport', () => {
 
     const report = await buildRunReport(mockAdapter, 'run-123', {})
     expect(report!.stories[0].phaseDurations).toBeUndefined()
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 57-3: verification_ran signal on per-story StoryReport
+  //
+  // buildRunReport derives verification_ran from loadVerificationResults(),
+  // which opens the run manifest JSON and inspects
+  // per_story_state[key].verification_result. The signal must be true when
+  // the field is populated and false when absent — independent of
+  // verification_findings counts, which are zero in both cases.
+  // -------------------------------------------------------------------------
+
+  describe('Story 57-3: verification_ran signal', () => {
+    let tmpProjectRoot: string
+    let runsDir: string
+    const runId = 'run-57-3'
+
+    beforeEach(() => {
+      tmpProjectRoot = mkdtempSync(join(tmpdir(), 'mesh-verif-ran-'))
+      runsDir = join(tmpProjectRoot, '.substrate', 'runs')
+      mkdirSync(runsDir, { recursive: true })
+    })
+
+    afterEach(() => {
+      rmSync(tmpProjectRoot, { recursive: true, force: true })
+    })
+
+    function writeManifest(perStoryState: Record<string, unknown>): void {
+      const manifestData = {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: perStoryState,
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+        created_at: '2026-04-20T00:00:00.000Z',
+        generation: 1,
+        updated_at: '2026-04-20T00:00:00.000Z',
+      }
+      writeFileSync(join(runsDir, `${runId}.json`), JSON.stringify(manifestData))
+    }
+
+    it('emits verification_ran: true when per_story_state.verification_result is populated', async () => {
+      writeManifest({
+        '5-1': {
+          status: 'complete',
+          phase: 'COMPLETE',
+          started_at: '2026-04-20T00:00:00.000Z',
+          verification_result: {
+            storyKey: '5-1',
+            status: 'pass',
+            duration_ms: 100,
+            checks: [
+              { checkName: 'phantom-review', status: 'pass', details: 'ok', duration_ms: 10 },
+            ],
+          },
+        },
+      })
+
+      mockGetRunMetrics.mockResolvedValue(sampleRunMetrics as never)
+      mockGetStoryMetrics.mockResolvedValue(sampleStoryMetrics as never)
+
+      const report = await buildRunReport(mockAdapter, runId, {
+        projectRoot: tmpProjectRoot,
+      })
+
+      expect(report!.stories).toHaveLength(1)
+      expect((report!.stories[0] as { verification_ran?: boolean }).verification_ran).toBe(true)
+      expect(report!.stories[0].verificationStatus).toBe('pass')
+    })
+
+    it('emits verification_ran: false when per_story_state.verification_result is absent', async () => {
+      writeManifest({
+        '5-1': {
+          status: 'complete',
+          phase: 'COMPLETE',
+          started_at: '2026-04-20T00:00:00.000Z',
+          // verification_result intentionally absent — story reached COMPLETE
+          // without the verification phase running (the strata 1-11a case).
+        },
+      })
+
+      mockGetRunMetrics.mockResolvedValue(sampleRunMetrics as never)
+      mockGetStoryMetrics.mockResolvedValue(sampleStoryMetrics as never)
+
+      const report = await buildRunReport(mockAdapter, runId, {
+        projectRoot: tmpProjectRoot,
+      })
+
+      expect(report!.stories).toHaveLength(1)
+      expect((report!.stories[0] as { verification_ran?: boolean }).verification_ran).toBe(false)
+      expect(report!.stories[0].verificationStatus).toBeUndefined()
+    })
+
+    it('emits verification_ran: false when the run manifest file itself is missing', async () => {
+      // Manifest file is never written — loadVerificationResults returns {}
+      mockGetRunMetrics.mockResolvedValue(sampleRunMetrics as never)
+      mockGetStoryMetrics.mockResolvedValue(sampleStoryMetrics as never)
+
+      const report = await buildRunReport(mockAdapter, runId, {
+        projectRoot: tmpProjectRoot,
+      })
+
+      expect((report!.stories[0] as { verification_ran?: boolean }).verification_ran).toBe(false)
+    })
+
+    it('emits verification_ran per-story — mixed populated/absent across multiple stories', async () => {
+      writeManifest({
+        '5-1': {
+          status: 'complete',
+          phase: 'COMPLETE',
+          started_at: '2026-04-20T00:00:00.000Z',
+          verification_result: { storyKey: '5-1', status: 'pass', duration_ms: 10, checks: [] },
+        },
+        '5-2': {
+          status: 'complete',
+          phase: 'COMPLETE',
+          started_at: '2026-04-20T00:00:00.000Z',
+          // no verification_result
+        },
+      })
+
+      mockGetRunMetrics.mockResolvedValue(sampleRunMetrics as never)
+      mockGetStoryMetrics.mockResolvedValue([
+        { ...sampleStoryMetrics[0], story_key: '5-1' },
+        { ...sampleStoryMetrics[0], story_key: '5-2' },
+      ] as never)
+
+      const report = await buildRunReport(mockAdapter, runId, {
+        projectRoot: tmpProjectRoot,
+      })
+
+      const byKey = new Map(report!.stories.map((s) => [s.storyKey, s as { verification_ran?: boolean }]))
+      expect(byKey.get('5-1')?.verification_ran).toBe(true)
+      expect(byKey.get('5-2')?.verification_ran).toBe(false)
+    })
   })
 })
 
