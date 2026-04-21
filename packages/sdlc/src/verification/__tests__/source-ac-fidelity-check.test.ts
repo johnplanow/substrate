@@ -117,8 +117,11 @@ This story does something completely different.
   })
 
   // AC8c: Multiple missing clauses → one finding per missing clause
+  // Story 58-9b: path clauses whose target file doesn't exist in workingDir
+  // are architectural drift → error-severity. MUST/SHALL keyword clauses
+  // have no code-observable signal → warn-severity. Mixed-severity example.
   describe('when multiple clauses are absent from storyContent', () => {
-    it('returns one source-ac-drift finding per missing clause', async () => {
+    it('returns one source-ac-drift finding per missing clause with mixed severity', async () => {
       const sourceEpicContent = `
 ### Story 58-2: Some Story
 
@@ -129,17 +132,21 @@ Files SHALL be placed in \`src/auth/validator.ts\`.
       const storyContent = `
 This story is about something unrelated.
 `
+      // workingDir=/tmp/test doesn't contain src/auth/validator.ts → path clause
+      // is architectural drift → error. Status flips to fail.
       const ctx = makeContext({ storyContent, sourceEpicContent })
       const result = await check.run(ctx)
 
-      // Story 58-9: advisory-mode; drift findings emit as warn and status stays pass.
-      expect(result.status).toBe('pass')
-      const driftFindings = result.findings?.filter((f) => f.severity === 'warn') ?? []
+      expect(result.status).toBe('fail')
+      const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
       // Three clauses: MUST line, MUST NOT line, path `src/auth/validator.ts`
       expect(driftFindings.length).toBeGreaterThanOrEqual(3)
-      for (const f of driftFindings) {
-        expect(f.category).toBe('source-ac-drift')
-      }
+      // MUST/SHALL clauses stay advisory warn
+      const keywordFindings = driftFindings.filter((f) => f.message.startsWith('MUST:') || f.message.startsWith('MUST NOT:') || f.message.startsWith('SHALL:') || f.message.startsWith('SHALL NOT:'))
+      expect(keywordFindings.every((f) => f.severity === 'warn')).toBe(true)
+      // Path clauses become error when architecturally drifted (missing from code)
+      const pathFindings = driftFindings.filter((f) => f.message.startsWith('path:'))
+      expect(pathFindings.every((f) => f.severity === 'error')).toBe(true)
     })
   })
 
@@ -194,7 +201,32 @@ New file \`packages/sdlc/src/verification/source-ac-fidelity-check.ts\` implemen
       expect(result.status).toBe('pass')
     })
 
-    it('fails when the path is absent from storyContent', async () => {
+    it('fails with error-severity when the path is absent from storyContent AND missing from code (architectural drift, 58-9b)', async () => {
+      const sourceEpicContent = `
+### Story 58-2: Some Story
+
+The check lives at \`some/nonexistent/path/source-ac-fidelity-check.ts\`.
+`
+      const storyContent = `
+The check lives somewhere else entirely.
+`
+      // workingDir=/tmp/test; path doesn't exist there → architectural drift → error.
+      const ctx = makeContext({ storyContent, sourceEpicContent })
+      const result = await check.run(ctx)
+
+      expect(result.status).toBe('fail')
+      const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
+      expect(driftFindings).toHaveLength(1)
+      expect(driftFindings[0].severity).toBe('error')
+      expect(driftFindings[0].message).toContain('path')
+      expect(driftFindings[0].message).toContain('architectural drift')
+      expect(driftFindings[0].message).toContain('some/nonexistent/path/source-ac-fidelity-check.ts')
+    })
+
+    // Story 58-9b: the critical calibration test — path exists in code but
+    // not in the artifact. This is the strata 1-7 class of false positive
+    // that 58-9b specifically resolves.
+    it('passes with warn-severity when the path is absent from storyContent BUT present in code (stylistic drift, 58-9b)', async () => {
       const sourceEpicContent = `
 ### Story 58-2: Some Story
 
@@ -203,15 +235,19 @@ The check lives at \`packages/sdlc/src/verification/source-ac-fidelity-check.ts\
       const storyContent = `
 The check lives somewhere else entirely.
 `
-      const ctx = makeContext({ storyContent, sourceEpicContent })
+      // workingDir=repo root; the path exists in code → stylistic drift → warn,
+      // status stays pass. The drift signal is still emitted for operator
+      // visibility, but doesn't hard-gate the pipeline.
+      const repoRoot = new URL('../../../../..', import.meta.url).pathname
+      const ctx = makeContext({ storyContent, sourceEpicContent, workingDir: repoRoot })
       const result = await check.run(ctx)
 
-      // Story 58-9: advisory-mode; drift findings emit as warn and status stays pass.
       expect(result.status).toBe('pass')
       const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
       expect(driftFindings).toHaveLength(1)
       expect(driftFindings[0].severity).toBe('warn')
       expect(driftFindings[0].message).toContain('path')
+      expect(driftFindings[0].message).toContain('stylistic drift')
       expect(driftFindings[0].message).toContain('packages/sdlc/src/verification/source-ac-fidelity-check.ts')
     })
   })

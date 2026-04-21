@@ -171,13 +171,17 @@ describe('Epic 58 — SourceAcFidelityCheck e2e: source AC fidelity chain', () =
   // AC5
   // ---------------------------------------------------------------------------
 
-  it('Test 3 (negative — missing enumerated path): fails with one source-ac-drift error mentioning the path', async () => {
+  it('Test 3 (negative — missing enumerated path, architectural drift): fails with error finding when path also missing from code (58-9b)', async () => {
     // Remove the backtick-wrapped path (replace with the plain unquoted path)
     const missingPathContent = FAITHFUL_STORY_CONTENT.replace(
       '`src/config/legacy.ts`',
       'src/config/legacy.ts',
     )
 
+    // workingDir=repo root; the fixture path `src/config/legacy.ts` does NOT
+    // exist at that location → Story 58-9b classifies this as architectural
+    // drift → error-severity → status fail. This is the case the check is
+    // designed to hard-gate (real file is missing from the code as well).
     const ctx = makeContext({
       sourceEpicContent: EPIC_FIXTURE,
       storyContent: missingPathContent,
@@ -185,12 +189,12 @@ describe('Epic 58 — SourceAcFidelityCheck e2e: source AC fidelity chain', () =
     const check = new SourceAcFidelityCheck()
     const result = await check.run(ctx)
 
-    // Story 58-9: advisory-mode — fidelity findings now emit as warn; status stays pass.
-    expect(result.status).toBe('pass')
+    expect(result.status).toBe('fail')
     const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
     expect(driftFindings).toHaveLength(1)
-    expect(driftFindings[0].severity).toBe('warn')
+    expect(driftFindings[0].severity).toBe('error')
     expect(driftFindings[0].message).toContain('src/config/legacy.ts')
+    expect(driftFindings[0].message).toContain('architectural drift')
   })
 
   // ---------------------------------------------------------------------------

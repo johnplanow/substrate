@@ -14,6 +14,8 @@
  * No LLM calls, no shell execution — pure in-memory literal substring matching.
  */
 
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type {
   VerificationCheck,
   VerificationContext,
@@ -166,21 +168,38 @@ export class SourceAcFidelityCheck implements VerificationCheck {
         // Literal substring match for MUST/SHALL lines and path clauses
         if (!storyContent.includes(clause.text)) {
           const truncated = clause.text.length > 120 ? clause.text.slice(0, 120) : clause.text
-          findings.push({
-            category: 'source-ac-drift',
-            // Story 58-9: source-ac-fidelity findings are advisory (warn)
-            // during calibration. Strata observation obs_2026-04-21_004 flagged
-            // false positives where the dev-produced CODE satisfied the source
-            // AC but the rendered artifact paraphrased a MUST clause or
-            // omitted a path string — the substring matcher flagged drift
-            // that wasn't a real correctness issue. Keeping findings visible
-            // (in verification_findings.warn counters) but non-blocking until
-            // the matcher distinguishes architectural drift from stylistic
-            // paraphrase. Flip back to 'error' once false-positive rate is
-            // low (see 58-9b: path-in-code cross-reference).
-            severity: 'warn',
-            message: `${clause.type}: "${truncated}" present in epics source but absent in story artifact`,
-          })
+
+          // Story 58-9b: for path clauses, distinguish architectural drift
+          // (path missing from BOTH artifact and code) from stylistic drift
+          // (path exists in code — artifact paraphrased). Architectural
+          // drift hard-gates at error-severity; stylistic drift stays
+          // advisory at warn-severity. MUST/SHALL keyword clauses have no
+          // code-observable signal, so they remain advisory warn.
+          //
+          // The 58-9b cross-reference closes the calibration loop started
+          // in 58-9: now real drift (like strata 1-9's missing
+          // `adjacency-store.ts`) hard-gates, while artifact-paraphrase
+          // false positives (like strata 1-7's unquoted `./discover.ts`)
+          // pass through as advisory.
+          if (clause.type === 'path') {
+            // Strip surrounding backticks from `path/like/this` → path/like/this
+            const pathOnly = clause.text.replace(/^`/, '').replace(/`$/, '')
+            const existsInCode = existsSync(join(context.workingDir, pathOnly))
+            findings.push({
+              category: 'source-ac-drift',
+              severity: existsInCode ? 'warn' : 'error',
+              message: existsInCode
+                ? `${clause.type}: "${truncated}" present in epics source but absent in story artifact (code satisfies it — stylistic drift)`
+                : `${clause.type}: "${truncated}" present in epics source but absent in story artifact AND missing from code (architectural drift)`,
+            })
+          } else {
+            // MUST/SHALL keyword clauses — no code-observable signal, stay advisory.
+            findings.push({
+              category: 'source-ac-drift',
+              severity: 'warn',
+              message: `${clause.type}: "${truncated}" present in epics source but absent in story artifact`,
+            })
+          }
         }
       }
     }
