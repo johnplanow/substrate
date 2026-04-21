@@ -142,4 +142,117 @@ describe('parseRuntimeProbes', () => {
     const result = parseRuntimeProbes(content)
     expect(result.kind).toBe('invalid') // because the Runtime Probes section had no fence
   })
+
+  // -------------------------------------------------------------------------
+  // Story 58-4: code-fence depth awareness
+  //
+  // Stories that DOCUMENT runtime probes in prose (regression fixtures,
+  // how-to-author docs) embed illustrative `## Runtime Probes` examples
+  // inside outer ``` code blocks. Without fence awareness the parser
+  // matches those illustrations as the story's own section, fails to find
+  // a terminated yaml block (the inner fences are typically escaped),
+  // and emits a spurious `runtime-probe-parse-error`. Hit live on Epic 58
+  // Story 58-3's artifact during the 2026-04-20 substrate dispatch.
+  // -------------------------------------------------------------------------
+
+  it('58-4: returns "absent" when ## Runtime Probes appears only inside an outer ``` block', () => {
+    const content = [
+      '# story',
+      '',
+      'Example shape (inside a code fence for illustration):',
+      '',
+      '```',
+      '### Story 1-x: Example',
+      '',
+      '## Runtime Probes',
+      '',
+      '\\`\\`\\`yaml',
+      '- name: example',
+      '  sandbox: host',
+      '  command: echo',
+      '\\`\\`\\`',
+      '```',
+      '',
+      'No real Runtime Probes section outside any fence.',
+      '',
+    ].join('\n')
+    expect(parseRuntimeProbes(content).kind).toBe('absent')
+  })
+
+  it('58-4: returns "absent" when ## Runtime Probes appears only inside an outer ```markdown block', () => {
+    const content = [
+      '# story',
+      '',
+      '```markdown',
+      '## Runtime Probes',
+      '',
+      'documentation-style illustration',
+      '```',
+      '',
+    ].join('\n')
+    expect(parseRuntimeProbes(content).kind).toBe('absent')
+  })
+
+  it('58-4: real section outside a fence takes precedence even when preceded by an illustrative fenced heading', () => {
+    const content = [
+      '# story',
+      '',
+      'Illustrative example first:',
+      '',
+      '```',
+      '## Runtime Probes',
+      'illustrative text only',
+      '```',
+      '',
+      "Now the actual section:",
+      '',
+      '## Runtime Probes',
+      '',
+      '```yaml',
+      '- name: real-probe',
+      '  sandbox: host',
+      '  command: echo real',
+      '```',
+      '',
+    ].join('\n')
+    const result = parseRuntimeProbes(content)
+    expect(result.kind).toBe('parsed')
+    if (result.kind !== 'parsed') return
+    expect(result.probes).toHaveLength(1)
+    expect(result.probes[0]!.name).toBe('real-probe')
+  })
+
+  it('58-4: end-boundary scan also respects code fences (next ## inside a fence is not the section terminator)', () => {
+    // Real section exists; later prose contains a fenced `## Something Else`
+    // that must NOT be treated as the section's end boundary when we're
+    // scanning fence-aware. The parsed probe list should still come out
+    // correctly.
+    const content = [
+      '# story',
+      '',
+      '## Runtime Probes',
+      '',
+      '```yaml',
+      '- name: real-probe',
+      '  sandbox: host',
+      '  command: echo real',
+      '```',
+      '',
+      'Prose that contains an illustrative next-section heading inside a fence:',
+      '',
+      '```',
+      '## Implementation',
+      'example',
+      '```',
+      '',
+      '## Real Implementation',
+      'real content here.',
+      '',
+    ].join('\n')
+    const result = parseRuntimeProbes(content)
+    expect(result.kind).toBe('parsed')
+    if (result.kind !== 'parsed') return
+    expect(result.probes).toHaveLength(1)
+    expect(result.probes[0]!.name).toBe('real-probe')
+  })
 })

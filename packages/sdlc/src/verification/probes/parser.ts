@@ -20,6 +20,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const SECTION_HEADING = /^##\s+Runtime\s+Probes\s*$/i
+const FENCE_DELIMITER = /^\s*```/
 
 /**
  * Return the raw text of the story's `## Runtime Probes` section (excluding
@@ -27,15 +28,47 @@ const SECTION_HEADING = /^##\s+Runtime\s+Probes\s*$/i
  *
  * The section ends at the next `##` heading or end-of-file. Sub-headings
  * (`###`, `####`) remain part of the section body.
+ *
+ * Story 58-4: the scan tracks code-fence depth so a `## Runtime Probes`
+ * heading that appears *inside* an outer ``` block is ignored. Stories that
+ * DOCUMENT probes in prose — regression fixtures, how-to-author docs, the
+ * Epic 58 e2e test spec — contain illustrative `## Runtime Probes` examples
+ * inside outer fences. Without fence-awareness the parser matches those
+ * illustrations as the story's own section, fails to find a terminated
+ * yaml block (the inner fences are typically escaped), and emits a spurious
+ * `runtime-probe-parse-error`. Hit live during the Epic 58 substrate
+ * dispatch on 58-3's artifact.
  */
 function extractRuntimeProbesSection(storyContent: string): string | undefined {
   const lines = storyContent.split(/\r?\n/)
-  const start = lines.findIndex((line) => SECTION_HEADING.test(line.trim()))
+
+  // First pass: find the first `## Runtime Probes` heading that is NOT
+  // inside an outer code fence.
+  let inCodeFence = false
+  let start = -1
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? ''
+    if (FENCE_DELIMITER.test(line)) {
+      inCodeFence = !inCodeFence
+      continue
+    }
+    if (!inCodeFence && SECTION_HEADING.test(line.trim())) {
+      start = i
+      break
+    }
+  }
   if (start === -1) return undefined
 
+  // Second pass: find the end boundary (next `##` heading at fence-depth 0).
   let end = lines.length
+  inCodeFence = false
   for (let i = start + 1; i < lines.length; i += 1) {
-    if (/^##\s+\S/.test(lines[i] ?? '')) {
+    const line = lines[i] ?? ''
+    if (FENCE_DELIMITER.test(line)) {
+      inCodeFence = !inCodeFence
+      continue
+    }
+    if (!inCodeFence && /^##\s+\S/.test(line)) {
       end = i
       break
     }
