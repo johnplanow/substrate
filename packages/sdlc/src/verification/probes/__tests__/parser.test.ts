@@ -255,4 +255,95 @@ describe('parseRuntimeProbes', () => {
     expect(result.probes).toHaveLength(1)
     expect(result.probes[0]!.name).toBe('real-probe')
   })
+
+  // -------------------------------------------------------------------------
+  // Story 58-8: accept `probes:` root wrapper in addition to bare list
+  //
+  // Strata's epics.md author convention uses a `probes:` mapping at the
+  // YAML root rather than a bare list. Substrate's parser previously rejected
+  // this with `probe block root must be a YAML list; got object`. This is
+  // a common config-file shape (docker-compose `services:`, GitHub Actions
+  // `jobs:`) so substrate now accepts both forms cleanly.
+  // -------------------------------------------------------------------------
+
+  it('58-8: accepts `probes:` root wrapper (strata author convention)', () => {
+    const body = [
+      '```yaml',
+      'probes:',
+      '  - name: wrapped-probe',
+      '    sandbox: host',
+      '    command: echo wrapped',
+      '```',
+    ].join('\n')
+    const result = parseRuntimeProbes(wrap(body))
+    expect(result.kind).toBe('parsed')
+    if (result.kind !== 'parsed') return
+    expect(result.probes).toHaveLength(1)
+    expect(result.probes[0]!.name).toBe('wrapped-probe')
+  })
+
+  it('58-8: accepts bare-list form (substrate-canonical, no regression)', () => {
+    const body = [
+      '```yaml',
+      '- name: bare-probe',
+      '  sandbox: host',
+      '  command: echo bare',
+      '```',
+    ].join('\n')
+    const result = parseRuntimeProbes(wrap(body))
+    expect(result.kind).toBe('parsed')
+    if (result.kind !== 'parsed') return
+    expect(result.probes).toHaveLength(1)
+    expect(result.probes[0]!.name).toBe('bare-probe')
+  })
+
+  it('58-8: wrapped form with multiple probes validates schema on each entry', () => {
+    const body = [
+      '```yaml',
+      'probes:',
+      '  - name: probe-a',
+      '    sandbox: host',
+      '    command: echo a',
+      '  - name: probe-b',
+      '    sandbox: twin',
+      '    command: echo b',
+      '```',
+    ].join('\n')
+    const result = parseRuntimeProbes(wrap(body))
+    expect(result.kind).toBe('parsed')
+    if (result.kind !== 'parsed') return
+    expect(result.probes).toHaveLength(2)
+    expect(result.probes.map((p) => p.name).sort()).toEqual(['probe-a', 'probe-b'])
+  })
+
+  it('58-8: object root without a `probes:` key still fails with an updated error message', () => {
+    const body = [
+      '```yaml',
+      'stages:',
+      '  - name: not-probes',
+      '```',
+    ].join('\n')
+    const result = parseRuntimeProbes(wrap(body))
+    expect(result.kind).toBe('invalid')
+    if (result.kind !== 'invalid') return
+    expect(result.error).toMatch(/probe block root must be a YAML list or a `probes:` mapping/)
+  })
+
+  it('58-8: wrapped form with duplicate probe names still rejected', () => {
+    const body = [
+      '```yaml',
+      'probes:',
+      '  - name: dup',
+      '    sandbox: host',
+      '    command: echo a',
+      '  - name: dup',
+      '    sandbox: host',
+      '    command: echo b',
+      '```',
+    ].join('\n')
+    const result = parseRuntimeProbes(wrap(body))
+    expect(result.kind).toBe('invalid')
+    if (result.kind !== 'invalid') return
+    expect(result.error).toMatch(/duplicate probe name: dup/)
+  })
 })

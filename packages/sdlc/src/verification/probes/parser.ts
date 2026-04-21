@@ -150,10 +150,26 @@ export function parseRuntimeProbes(storyContent: string): RuntimeProbeParseResul
     return { kind: 'invalid', error: `YAML parse error: ${detail}` }
   }
 
+  // Story 58-8: accept two root shapes so author conventions in different
+  // projects interop cleanly with substrate's probe check:
+  //   (a) bare list      — `- name: foo\n  ...`
+  //   (b) wrapped list   — `probes:\n  - name: foo\n  ...`
+  // Shape (b) is common in config-file conventions (docker-compose `services:`,
+  // GitHub Actions `jobs:`). Strata's author uses (b). Previously the parser
+  // errored with `probe block root must be a YAML list; got object`.
+  if (
+    !Array.isArray(parsed) &&
+    typeof parsed === 'object' &&
+    parsed !== null &&
+    Array.isArray((parsed as Record<string, unknown>).probes)
+  ) {
+    parsed = (parsed as Record<string, unknown>).probes
+  }
+
   if (!Array.isArray(parsed)) {
     return {
       kind: 'invalid',
-      error: `probe block root must be a YAML list; got ${typeof parsed}`,
+      error: `probe block root must be a YAML list or a \`probes:\` mapping; got ${typeof parsed}`,
     }
   }
 
