@@ -89,9 +89,12 @@ Files SHALL be placed in the correct directory.
     })
   })
 
-  // AC8b: One MUST NOT clause absent → fail with single source-ac-drift finding
+  // AC8b: One MUST NOT clause absent → pass with one advisory source-ac-drift finding
+  // Story 58-9: fidelity drift is now advisory (warn-severity); status stays `pass`
+  // so the pipeline doesn't hard-gate on paraphrase-class false positives while
+  // the matcher is being calibrated (obs_2026-04-21_004).
   describe('when one MUST NOT clause is absent from storyContent', () => {
-    it('returns status fail with exactly one source-ac-drift error finding', async () => {
+    it('returns status pass with exactly one source-ac-drift warn finding', async () => {
       const sourceEpicContent = `
 ### Story 58-2: Some Story
 
@@ -103,13 +106,13 @@ This story does something completely different.
       const ctx = makeContext({ storyContent, sourceEpicContent })
       const result = await check.run(ctx)
 
-      expect(result.status).toBe('fail')
-      const errorFindings = result.findings?.filter((f) => f.severity === 'error') ?? []
-      expect(errorFindings).toHaveLength(1)
-      expect(errorFindings[0].category).toBe('source-ac-drift')
-      expect(errorFindings[0].severity).toBe('error')
-      expect(errorFindings[0].message).toContain('MUST NOT')
-      expect(errorFindings[0].message).toContain('present in epics source but absent in story artifact')
+      expect(result.status).toBe('pass')
+      const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
+      expect(driftFindings).toHaveLength(1)
+      expect(driftFindings[0].category).toBe('source-ac-drift')
+      expect(driftFindings[0].severity).toBe('warn')
+      expect(driftFindings[0].message).toContain('MUST NOT')
+      expect(driftFindings[0].message).toContain('present in epics source but absent in story artifact')
     })
   })
 
@@ -129,11 +132,12 @@ This story is about something unrelated.
       const ctx = makeContext({ storyContent, sourceEpicContent })
       const result = await check.run(ctx)
 
-      expect(result.status).toBe('fail')
-      const errorFindings = result.findings?.filter((f) => f.severity === 'error') ?? []
+      // Story 58-9: advisory-mode; drift findings emit as warn and status stays pass.
+      expect(result.status).toBe('pass')
+      const driftFindings = result.findings?.filter((f) => f.severity === 'warn') ?? []
       // Three clauses: MUST line, MUST NOT line, path `src/auth/validator.ts`
-      expect(errorFindings.length).toBeGreaterThanOrEqual(3)
-      for (const f of errorFindings) {
+      expect(driftFindings.length).toBeGreaterThanOrEqual(3)
+      for (const f of driftFindings) {
         expect(f.category).toBe('source-ac-drift')
       }
     })
@@ -161,9 +165,10 @@ No runtime probes section here.
       const ctx = makeContext({ storyContent, sourceEpicContent })
       const result = await check.run(ctx)
 
-      expect(result.status).toBe('fail')
+      // Story 58-9: advisory-mode; drift findings emit as warn and status stays pass.
+      expect(result.status).toBe('pass')
       const driftFindings = result.findings?.filter(
-        (f) => f.category === 'source-ac-drift' && f.severity === 'error',
+        (f) => f.category === 'source-ac-drift' && f.severity === 'warn',
       ) ?? []
       expect(driftFindings.length).toBeGreaterThanOrEqual(1)
       const probesFinding = driftFindings.find((f) => f.message.includes('runtime-probes-section'))
@@ -201,9 +206,11 @@ The check lives somewhere else entirely.
       const ctx = makeContext({ storyContent, sourceEpicContent })
       const result = await check.run(ctx)
 
-      expect(result.status).toBe('fail')
+      // Story 58-9: advisory-mode; drift findings emit as warn and status stays pass.
+      expect(result.status).toBe('pass')
       const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
       expect(driftFindings).toHaveLength(1)
+      expect(driftFindings[0].severity).toBe('warn')
       expect(driftFindings[0].message).toContain('path')
       expect(driftFindings[0].message).toContain('packages/sdlc/src/verification/source-ac-fidelity-check.ts')
     })
@@ -222,9 +229,11 @@ ${longClause}
       const ctx = makeContext({ storyContent, sourceEpicContent })
       const result = await check.run(ctx)
 
-      expect(result.status).toBe('fail')
+      // Story 58-9: advisory-mode; drift findings emit as warn and status stays pass.
+      expect(result.status).toBe('pass')
       const finding = result.findings?.find((f) => f.category === 'source-ac-drift')
       expect(finding).toBeDefined()
+      expect(finding?.severity).toBe('warn')
       // The clause portion inside the quotes should be truncated
       // Full message format: `MUST: "<truncated>" present in...`
       // The truncated portion should be at most 120 chars

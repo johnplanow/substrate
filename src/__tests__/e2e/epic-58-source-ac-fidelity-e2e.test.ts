@@ -158,10 +158,11 @@ describe('Epic 58 — SourceAcFidelityCheck e2e: source AC fidelity chain', () =
     const check = new SourceAcFidelityCheck()
     const result = await check.run(ctx)
 
-    expect(result.status).toBe('fail')
+    // Story 58-9: advisory-mode — fidelity findings now emit as warn; status stays pass.
+    expect(result.status).toBe('pass')
     const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
     expect(driftFindings).toHaveLength(1)
-    expect(driftFindings[0].severity).toBe('error')
+    expect(driftFindings[0].severity).toBe('warn')
     expect(driftFindings[0].message).toContain('MUST NOT')
   })
 
@@ -184,10 +185,11 @@ describe('Epic 58 — SourceAcFidelityCheck e2e: source AC fidelity chain', () =
     const check = new SourceAcFidelityCheck()
     const result = await check.run(ctx)
 
-    expect(result.status).toBe('fail')
+    // Story 58-9: advisory-mode — fidelity findings now emit as warn; status stays pass.
+    expect(result.status).toBe('pass')
     const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
     expect(driftFindings).toHaveLength(1)
-    expect(driftFindings[0].severity).toBe('error')
+    expect(driftFindings[0].severity).toBe('warn')
     expect(driftFindings[0].message).toContain('src/config/legacy.ts')
   })
 
@@ -208,10 +210,11 @@ describe('Epic 58 — SourceAcFidelityCheck e2e: source AC fidelity chain', () =
     const check = new SourceAcFidelityCheck()
     const result = await check.run(ctx)
 
-    expect(result.status).toBe('fail')
+    // Story 58-9: advisory-mode — fidelity findings now emit as warn; status stays pass.
+    expect(result.status).toBe('pass')
     const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
     expect(driftFindings).toHaveLength(1)
-    expect(driftFindings[0].severity).toBe('error')
+    expect(driftFindings[0].severity).toBe('warn')
     // The finding must reference the runtime-probes-section clause
     expect(driftFindings[0].message).toContain('runtime-probes-section')
   })
@@ -258,18 +261,23 @@ describe('Epic 58 — SourceAcFidelityCheck e2e: source AC fidelity chain', () =
     const pipeline = createDefaultVerificationPipeline(bus)
     const summary = await pipeline.run(ctx, 'A')
 
-    // Aggregate verdict must be fail
-    expect(summary.status).toBe('fail')
+    // Story 58-9: fidelity is advisory — aggregate pipeline status stays pass
+    // (or warn) since fidelity drift no longer fails the gate. Drift findings
+    // must still flow through so operators see them in verification_findings.
+    expect(['pass', 'warn']).toContain(summary.status)
 
-    // SourceAcFidelityCheck must be the failing check
+    // SourceAcFidelityCheck must still be in the summary and have emitted findings
     const fidelityCheck = summary.checks.find((c) => c.checkName === 'source-ac-fidelity')
     expect(fidelityCheck).toBeDefined()
-    expect(fidelityCheck?.status).toBe('fail')
+    // Advisory: the check itself now reports pass even when drift is detected
+    expect(fidelityCheck?.status).toBe('pass')
 
     // Findings must flow through the pipeline projection without being dropped
-    // (regression guard against the latent Phase-1 projection bug)
+    // (regression guard against the latent Phase-1 projection bug). Advisory
+    // findings are warn-severity now.
     expect(fidelityCheck?.findings).toBeDefined()
     expect(fidelityCheck?.findings?.length).toBeGreaterThan(0)
+    expect(fidelityCheck?.findings?.every((f) => f.severity === 'warn')).toBe(true)
 
     // All first 5 checks must pass — confirms failure is isolated to SourceAcFidelityCheck
     const firstFiveChecks = summary.checks.slice(0, 5)

@@ -148,7 +148,17 @@ export class SourceAcFidelityCheck implements VerificationCheck {
           const truncated = clause.text.length > 120 ? clause.text.slice(0, 120) : clause.text
           findings.push({
             category: 'source-ac-drift',
-            severity: 'error',
+            // Story 58-9: source-ac-fidelity findings are advisory (warn)
+            // during calibration. Strata observation obs_2026-04-21_004 flagged
+            // false positives where the dev-produced CODE satisfied the source
+            // AC but the rendered artifact paraphrased a MUST clause or
+            // omitted a path string — the substring matcher flagged drift
+            // that wasn't a real correctness issue. Keeping findings visible
+            // (in verification_findings.warn counters) but non-blocking until
+            // the matcher distinguishes architectural drift from stylistic
+            // paraphrase. Flip back to 'error' once false-positive rate is
+            // low (see 58-9b: path-in-code cross-reference).
+            severity: 'warn',
             message: `runtime-probes-section: "${truncated}" present in epics source but absent in story artifact`,
           })
         }
@@ -158,7 +168,17 @@ export class SourceAcFidelityCheck implements VerificationCheck {
           const truncated = clause.text.length > 120 ? clause.text.slice(0, 120) : clause.text
           findings.push({
             category: 'source-ac-drift',
-            severity: 'error',
+            // Story 58-9: source-ac-fidelity findings are advisory (warn)
+            // during calibration. Strata observation obs_2026-04-21_004 flagged
+            // false positives where the dev-produced CODE satisfied the source
+            // AC but the rendered artifact paraphrased a MUST clause or
+            // omitted a path string — the substring matcher flagged drift
+            // that wasn't a real correctness issue. Keeping findings visible
+            // (in verification_findings.warn counters) but non-blocking until
+            // the matcher distinguishes architectural drift from stylistic
+            // paraphrase. Flip back to 'error' once false-positive rate is
+            // low (see 58-9b: path-in-code cross-reference).
+            severity: 'warn',
             message: `${clause.type}: "${truncated}" present in epics source but absent in story artifact`,
           })
         }
