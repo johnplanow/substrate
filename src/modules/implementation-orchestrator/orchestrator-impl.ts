@@ -2834,14 +2834,17 @@ export function createImplementationOrchestrator(
         }
 
         // Record code-review token usage for per-story cost attribution (Story 57-4: see notes above)
-        if (config.pipelineRunId !== undefined && reviewResult.tokenUsage !== undefined) {
+        if (config.pipelineRunId !== undefined && reviewResult?.tokenUsage !== undefined) {
+          // Capture in a const so TS narrowing survives the async .then() callback
+          // (reviewResult is `let`-declared and could theoretically be reassigned).
+          const reviewTokens = reviewResult.tokenUsage
           void Promise.resolve()
             .then(() => addTokenUsage(db, config.pipelineRunId!, {
               phase: 'code-review',
               agent: useBatchedReview ? 'code-review-batched' : 'code-review',
-              input_tokens: reviewResult.tokenUsage!.input,
-              output_tokens: reviewResult.tokenUsage!.output,
-              cost_usd: estimateDispatchCost(reviewResult.tokenUsage!.input, reviewResult.tokenUsage!.output),
+              input_tokens: reviewTokens.input,
+              output_tokens: reviewTokens.output,
+              cost_usd: estimateDispatchCost(reviewTokens.input, reviewTokens.output),
               metadata: JSON.stringify({ storyKey, reviewCycle: reviewCycles }),
             }))
             .catch((tokenErr: unknown) =>
