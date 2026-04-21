@@ -3010,11 +3010,22 @@ export function createImplementationOrchestrator(
                 rawOutput: reviewResult.rawOutput,
               }
             : undefined
+          // Story 58-2: scope sourceEpicContent to the specific story's section
+          // from the epic file. Passing the whole epic would cause
+          // SourceAcFidelityCheck to extract hard clauses from every story in
+          // the epic and check them against the current story's artifact,
+          // producing false-positive drift findings for clauses that belong
+          // to other stories. If the story isn't found in the epic (different
+          // source, out-of-tree fixture, test-only story key) leave
+          // sourceEpicContent undefined — the check emits a warn finding
+          // and passes non-fatally.
           let sourceEpicContent: string | undefined
           const epicsPath1 = findEpicsFile(projectRoot ?? process.cwd())
           if (epicsPath1) {
             try {
-              sourceEpicContent = readFileSync(epicsPath1, 'utf-8')
+              const epicFull = readFileSync(epicsPath1, 'utf-8')
+              const section = extractStorySection(epicFull, storyKey)
+              if (section) sourceEpicContent = section
             } catch {
               // non-fatal — SourceAcFidelityCheck will emit warn finding
             }
@@ -3315,11 +3326,14 @@ export function createImplementationOrchestrator(
                 rawOutput: reviewResult.rawOutput,
               }
             : undefined
+          // Story 58-2: scope to the story's specific section (see notes at the first call site)
           let sourceEpicContent2: string | undefined
           const epicsPath2 = findEpicsFile(projectRoot ?? process.cwd())
           if (epicsPath2) {
             try {
-              sourceEpicContent2 = readFileSync(epicsPath2, 'utf-8')
+              const epicFull2 = readFileSync(epicsPath2, 'utf-8')
+              const section2 = extractStorySection(epicFull2, storyKey)
+              if (section2) sourceEpicContent2 = section2
             } catch {
               // non-fatal — SourceAcFidelityCheck will emit warn finding
             }
