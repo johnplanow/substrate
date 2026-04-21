@@ -668,4 +668,23 @@ export interface OrchestratorEvents {
     attempt: number
   }
 
+  // -------------------------------------------------------------------------
+  // Story artifact freshness events (Story 58-6)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted when an existing story artifact's stored source-AC hash differs
+   * from the current source epic's AC hash, or when the artifact carries no
+   * hash at all (legacy artifact). Causes the orchestrator to re-run
+   * create-story instead of reusing the stale artifact.
+   */
+  'story:ac-source-drift': {
+    /** Story key whose artifact is stale */
+    storyKey: string
+    /** Hash stored in the artifact's HTML comment (null if absent — legacy artifact) */
+    storedHash: string | null
+    /** Hash computed from the current source epic's AC section */
+    currentHash: string
+  }
+
 }

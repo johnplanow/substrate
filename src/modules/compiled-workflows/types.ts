@@ -82,6 +82,16 @@ export interface CreateStoryParams {
   storyKey: string
   /** Optional pipeline run ID for decision store context */
   pipelineRunId?: string
+  /**
+   * Optional SHA-256 hash of the source AC section from the epic file (Story 58-6).
+   * When provided, injected into the create-story prompt as {{source_ac_hash}} so the
+   * rendered story artifact can embed the hash comment for future freshness checks.
+   * When absent (no epics.md, or source section not found), the context item is omitted
+   * from the prompt sections array; the prompt assembler's fallback replaces the
+   * `{{source_ac_hash}}` template variable with an empty string, and the prompt
+   * directive instructs the agent to omit the hash comment when the value is empty.
+   */
+  source_ac_hash?: string
 }
 
 /**

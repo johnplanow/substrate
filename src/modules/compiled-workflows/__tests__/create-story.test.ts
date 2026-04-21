@@ -17,7 +17,7 @@ import type { ContextCompiler } from '../../context-compiler/context-compiler.js
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
 import type { WorkflowDeps, CreateStoryParams } from '../types.js'
 import { CreateStoryResultSchema } from '../schemas.js'
-import { runCreateStory, extractStorySection } from '../create-story.js'
+import { runCreateStory, extractStorySection, hashSourceAcSection } from '../create-story.js'
 import { load as yamlLoad } from 'js-yaml'
 
 // ---------------------------------------------------------------------------
@@ -1707,5 +1707,53 @@ describe('Story 58-1: AC Preservation Directive in create-story prompt', () => {
     expect(capturedPrompts).toHaveLength(1)
     expect(capturedPrompts[0].toLowerCase()).toContain('read-only input')
     expect(capturedPrompts[0].toLowerCase()).toContain('verbatim')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// hashSourceAcSection — Story 58-6, AC5
+// ---------------------------------------------------------------------------
+
+describe('hashSourceAcSection', () => {
+  it('produces a 64-character hex string for non-empty input', () => {
+    const result = hashSourceAcSection('## Acceptance Criteria\nAC1: Do something\n')
+    expect(result).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('is stable (idempotent) — same input always produces the same hash', () => {
+    const section = '## Acceptance Criteria\n\nAC1: The system MUST do X\nAC2: The system MUST NOT do Y\n'
+    const hash1 = hashSourceAcSection(section)
+    const hash2 = hashSourceAcSection(section)
+    expect(hash1).toBe(hash2)
+  })
+
+  it('trims surrounding whitespace — leading/trailing newlines do not change the hash', () => {
+    const core = '## Acceptance Criteria\nAC1: Do something'
+    const withPadding = `\n\n  ${core}  \n\n`
+    // After trim(), core and withPadding normalize to the same string
+    expect(hashSourceAcSection(core)).toBe(hashSourceAcSection(withPadding))
+  })
+
+  it('strips trailing whitespace per line — trailing spaces on a line do not change the hash', () => {
+    const withTrailingSpaces = '## Acceptance Criteria\nAC1: Do something   \nAC2: Another thing  '
+    const withoutTrailingSpaces = '## Acceptance Criteria\nAC1: Do something\nAC2: Another thing'
+    expect(hashSourceAcSection(withTrailingSpaces)).toBe(hashSourceAcSection(withoutTrailingSpaces))
+  })
+
+  it('produces a different hash for different content (basic collision avoidance)', () => {
+    const hash1 = hashSourceAcSection('AC1: The system MUST do X')
+    const hash2 = hashSourceAcSection('AC1: The system MUST do Y')
+    expect(hash1).not.toBe(hash2)
+  })
+
+  it('handles empty input (after trimming) without throwing — returns a deterministic hex string', () => {
+    // Empty string after trim should still produce a SHA-256 hash, not throw
+    expect(() => hashSourceAcSection('')).not.toThrow()
+    expect(() => hashSourceAcSection('   \n  ')).not.toThrow()
+    const emptyHash = hashSourceAcSection('')
+    const whitespaceHash = hashSourceAcSection('   \n  ')
+    expect(emptyHash).toMatch(/^[0-9a-f]{64}$/)
+    // Both normalize to empty string, so they hash to the same value
+    expect(emptyHash).toBe(whitespaceHash)
   })
 })

@@ -7,6 +7,7 @@
  * to the configured agent, and parses the structured YAML result.
  */
 
+import { createHash } from 'node:crypto'
 import { readFileSync, existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -23,6 +24,30 @@ const logger = createLogger('compiled-workflows:create-story')
 // ---------------------------------------------------------------------------
 // Token budget (resolved at runtime via getTokenCeiling — see token-ceiling.ts)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// hashSourceAcSection (AC1, Story 58-6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute a hex SHA-256 of the normalized source AC section text.
+ *
+ * Normalization (minimal — avoids spurious regen from editor whitespace noise):
+ *   1. Split on `\n`
+ *   2. Strip trailing whitespace from each line (`.trimEnd()`)
+ *   3. Rejoin with `\n`
+ *   4. Trim the whole result (`.trim()`)
+ *
+ * Pure function: no I/O, no side effects. Safe to call from tests with zero setup.
+ */
+export function hashSourceAcSection(section: string): string {
+  const normalized = section
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
+    .trim()
+  return createHash('sha256').update(normalized, 'utf8').digest('hex')
+}
 
 // ---------------------------------------------------------------------------
 // runCreateStory
@@ -49,7 +74,7 @@ export async function runCreateStory(
   deps: WorkflowDeps,
   params: CreateStoryParams
 ): Promise<CreateStoryResult> {
-  const { epicId, storyKey, pipelineRunId } = params
+  const { epicId, storyKey, pipelineRunId, source_ac_hash } = params
 
   logger.debug({ epicId, storyKey, pipelineRunId }, 'Starting create-story workflow')
 
@@ -140,6 +165,16 @@ export async function runCreateStory(
         content: storyTemplateContent,
         priority: 'important',
       },
+      // AC3 (Story 58-6): only inject source_ac_hash when a hash is actually
+      // available. When undefined (no epics.md found, or source section absent),
+      // we omit the context item entirely; the prompt assembler's {{source_ac_hash}}
+      // fallback yields an empty string, and the prompt directive instructs the
+      // agent to omit the hash comment when the value is empty. Passing `?? ''`
+      // would silently send an empty-string value that could cause the agent to
+      // emit an invalid `<!-- source-ac-hash:  -->` comment (zero-length hash).
+      ...(source_ac_hash !== undefined
+        ? [{ name: 'source_ac_hash', content: source_ac_hash, priority: 'required' as const }]
+        : []),
     ],
     TOKEN_CEILING
   )

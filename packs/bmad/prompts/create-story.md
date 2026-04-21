@@ -38,6 +38,7 @@ a different story from the epic scope. The story key, title, and core scope are 
 5. **Fill out the story template** with:
    - A clear user story (As a / I want / So that)
    - Acceptance criteria: preserve the hard-clause text from the Story Definition verbatim. BDD Given/When/Then phrasing is **optional** — permitted for behavior-oriented criteria where it adds clarity, not mandatory. Never let BDD reshape a MUST / MUST NOT / SHALL clause; copy those clauses literally and, if BDD adds clarity, append the Given/When/Then alongside the original clause rather than replacing it. Aim for the same number of ACs as the source — do not condense clauses into fewer items to hit a target count.
+   - Immediately after the `## Acceptance Criteria` heading in the rendered story file, emit the line `<!-- source-ac-hash: {{source_ac_hash}} -->` on its own line. When the hash value is empty or blank (the `{{source_ac_hash}}` placeholder resolved to nothing), omit the comment entirely — do not write `<!-- source-ac-hash:  -->` or any comment with an empty or missing hash value.
    - Concrete tasks broken into 2–4 hour subtasks, each tied to specific ACs
    - Dev Notes with file paths, import patterns, testing requirements
 6. **Apply the scope cap** — see Scope Cap Guidance below
